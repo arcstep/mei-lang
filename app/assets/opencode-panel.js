@@ -30,6 +30,7 @@
     modelLabel: "模型",
     sessionsCacheAtMs: 0,
     sessionsFetchInFlight: null,
+    _meiAutoSessionOnce: false,
   };
 
   const sessionStorageKey =
@@ -179,6 +180,22 @@
         }),
       );
     } catch (_) {}
+  }
+
+  function invalidateSessionCache() {
+    if (!window.sessionStorage) return;
+    try {
+      window.sessionStorage.removeItem(SESSION_CACHE_KEY);
+    } catch (_) {}
+    state.sessionsCacheAtMs = 0;
+  }
+
+  function sessionIdInList(sessions, id) {
+    const sid = String(id || "").trim();
+    if (!sid) return false;
+    return (Array.isArray(sessions) ? sessions : []).some(function (item) {
+      return item && String(item.id || "") === sid;
+    });
   }
 
   function isSessionCacheFresh(cache) {
@@ -754,6 +771,13 @@
         }
         try {
           state.sessions = await fetchAllSessions({ preferCache: true });
+          if (
+            state.sessionId &&
+            state.sessions.length > 0 &&
+            !sessionIdInList(state.sessions, state.sessionId)
+          ) {
+            state.sessions = await fetchAllSessions({ skipCache: true });
+          }
         } catch (_) {
           state.sessions = [];
         }
@@ -774,7 +798,7 @@
       renderConfig();
       renderRuntime();
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
-      if (state.sessionId && !boundSessions.some(function (item) { return item.id === state.sessionId; })) {
+      if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
         state.messages = [];
         rememberSession();
@@ -784,6 +808,19 @@
         const saved = savedId ? boundSessions.find(function (item) { return item.id === savedId; }) : null;
         const preferred = saved || boundSessions[0];
         state.sessionId = preferred ? preferred.id : "";
+      }
+      if (
+        !state._meiAutoSessionOnce &&
+        state.runtime &&
+        state.runtime.running &&
+        !state.sessionId
+      ) {
+        const forTarget = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
+        if (forTarget.length === 0) {
+          state._meiAutoSessionOnce = true;
+          await postNewBoundSession().catch(function () {});
+          return;
+        }
       }
       renderSessions();
       if (state.runtime && state.runtime.running && state.sessionId) {
@@ -810,6 +847,7 @@
         els.config.textContent = "启动失败：" + String(error.message || error);
       }
     }
+    invalidateSessionCache();
     await refreshAll();
   }
 
@@ -817,10 +855,7 @@
     return buildBoundSessionTitle(currentTargetKey());
   }
 
-  async function createSession() {
-    if (!(state.runtime && state.runtime.running)) {
-      await startServer();
-    }
+  async function postNewBoundSession() {
     state.sessionTargetKey = currentTargetKey();
     const session = await fetchJson("/api/opencode/session", {
       method: "POST",
@@ -829,7 +864,19 @@
     });
     state.sessionId = session.id || "";
     rememberSession();
+    invalidateSessionCache();
     await refreshAll();
+  }
+
+  async function createSession() {
+    const wasRunning = state.runtime && state.runtime.running;
+    if (!wasRunning) {
+      await startServer();
+      if (state.sessionId) {
+        return;
+      }
+    }
+    await postNewBoundSession();
   }
 
   async function refreshMessages() {
