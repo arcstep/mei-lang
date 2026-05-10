@@ -666,8 +666,13 @@
     const kind = String(event.kind || "");
     if (!kind) return;
     if (kind === "session_status") {
-      if (String(event.status || "") === "connected") {
+      const st = String(event.status || "");
+      if (st === "connected") {
         state.streamConnected = true;
+      }
+      if (st === "opencode_unavailable" || st === "upstream_unavailable") {
+        state.streamConnected = false;
+        closeEventStream();
       }
       renderStatus();
       return;

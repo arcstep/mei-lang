@@ -86,6 +86,26 @@ fn take_sse_frame(buffer: &mut String) -> Option<String> {
     Some(frame)
 }
 
+/// OpenCode 未启动或上游不可用时，仍返回 **200 + event-stream**，避免浏览器 EventSource 对非 2xx 无限重连，
+/// 并由前端收到 `session_status` 后主动 `close()` 停止重连。
+fn sse_session_status_notice(session_id: String, status: &str, message: impl Into<String>) -> Response {
+    let event = HostOpencodeEvent::SessionStatus {
+        session_id,
+        status: status.to_string(),
+        message: message.into(),
+    };
+    let stream = async_stream::stream! {
+        if let Ok(encoded) = serde_json::to_string(&event) {
+            yield Ok::<String, std::io::Error>(format!("data: {encoded}\n\n"));
+        }
+    };
+    let mut response = Response::new(Body::from_stream(stream));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+    response
+}
+
 pub async fn api_opencode_start(
     State(state): State<AppState>,
     Json(request): Json<StartManagedOpencodeRequest>,
@@ -149,7 +169,13 @@ pub async fn api_opencode_session_events(
 ) -> Response {
     let server_url = match managed_opencode_server_url(&state) {
         Ok(url) => url,
-        Err(error) => return error_response(error),
+        Err(_) => {
+            return sse_session_status_notice(
+                session_id,
+                "opencode_unavailable",
+                "托管的 OpenCode 未运行；请先在本面板点击「重连」启动服务后再试。",
+            );
+        }
     };
     match bridge_global_event(&state.opencode_http, &server_url).await {
         Ok(upstream) => {
@@ -201,7 +227,11 @@ pub async fn api_opencode_session_events(
                 .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
             response
         }
-        Err(error) => error_response(error),
+        Err(error) => sse_session_status_notice(
+            session_id,
+            "upstream_unavailable",
+            format!("无法连接 OpenCode 事件流：{error}"),
+        ),
     }
 }
 
