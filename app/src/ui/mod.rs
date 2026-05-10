@@ -5,7 +5,6 @@ mod opencode;
 mod preview;
 mod route;
 mod source_tree;
-mod workspace;
 
 pub use route::UiRouteMode;
 
@@ -156,7 +155,7 @@ pub fn render_page(
                 </div>
                 {component_scripts(compiled)}
                 <script src="/app-assets/opencode-panel.js"></script>
-                <script>{workspace::SPLITTER_SCRIPT}</script>
+                <script src="/app-assets/workspace-splitters.js"></script>
                 <script>{source_tree::TREE_SCRIPT}</script>
             </body>
         </html>

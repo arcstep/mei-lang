@@ -1,4 +1,3 @@
-pub(super) const SPLITTER_SCRIPT: &str = r#"
 (function initWorkspaceSplitters() {
   const root = document.getElementById("workspace-root");
   const mainStack = document.getElementById("main-stack-root");
@@ -160,4 +159,3 @@ pub(super) const SPLITTER_SCRIPT: &str = r#"
     });
   });
 })();
-"#;
