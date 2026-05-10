@@ -31,6 +31,7 @@
     sessionsCacheAtMs: 0,
     sessionsFetchInFlight: null,
     _meiAutoSessionOnce: false,
+    _meiClientAutoOpencodeOnce: false,
   };
 
   const sessionStorageKey =
@@ -768,7 +769,32 @@
       state.config = config;
       state.runtime = runtime;
       state.sessionTargetKey = currentTargetKey();
-      if (runtime && runtime.running) {
+      let runtimeRef = runtime;
+      if (
+        !state._meiClientAutoOpencodeOnce &&
+        config &&
+        config.runtime_env_ready &&
+        config.config_content_ready &&
+        runtimeRef &&
+        !runtimeRef.running
+      ) {
+        state._meiClientAutoOpencodeOnce = true;
+        try {
+          await fetchJson("/api/opencode/start", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ port: 4099 }),
+          });
+          state.runtime = await fetchJson("/api/opencode/runtime");
+          runtimeRef = state.runtime;
+        } catch (_) {
+          try {
+            state.runtime = await fetchJson("/api/opencode/runtime");
+            runtimeRef = state.runtime;
+          } catch (_) {}
+        }
+      }
+      if (runtimeRef && runtimeRef.running) {
         try {
           state.health = await fetchJson("/api/opencode/health");
         } catch (_) {

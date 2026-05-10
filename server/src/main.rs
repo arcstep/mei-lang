@@ -2,6 +2,7 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -41,6 +42,9 @@ struct ServeArgs {
     host: String,
     #[arg(long, default_value_t = 3000)]
     port: u16,
+    /// 不在进程启动时尝试拉起托管的 OpenCode（默认会在配置就绪时后台启动）
+    #[arg(long)]
+    no_auto_opencode: bool,
 }
 
 #[derive(Clone)]
@@ -91,6 +95,33 @@ async fn serve(args: ServeArgs) -> Result<()> {
         source_root = %source_root.display(),
         "mei serve resolved paths"
     );
+    let no_auto_opencode = args.no_auto_opencode;
+    let boot_state = state.clone();
+    tokio::spawn(async move {
+        if no_auto_opencode {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let summary = opencode::runtime::managed_opencode_config_summary(&boot_state);
+        if !summary.runtime_env_ready || !summary.config_content_ready {
+            tracing::info!(
+                missing_env = ?summary.missing_env,
+                "skip auto-start managed opencode: runtime env or model config not ready"
+            );
+            return;
+        }
+        let request = opencode::StartManagedOpencodeRequest {
+            host: None,
+            port: Some(4099),
+        };
+        match opencode::runtime::start_managed_opencode(&boot_state, request).await {
+            Ok(_) => tracing::info!("auto-started managed OpenCode (hosted) on mei-lang boot"),
+            Err(error) => tracing::warn!(
+                %error,
+                "auto-start managed OpenCode failed; use panel 重连 or check port 4099 / API keys"
+            ),
+        }
+    });
     let app = Router::new()
         .merge(http::router())
         .with_state(state)
