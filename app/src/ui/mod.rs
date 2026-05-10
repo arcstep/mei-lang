@@ -69,15 +69,15 @@ pub fn render_page(
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <title>{format!("{} - MeiLang", compiled.title)}</title>
+                <title>{format!("🌸 {} - MeiLang", compiled.title)}</title>
                 <link rel="stylesheet" href="/app-assets/app-shell.css"/>
             </head>
             <body>
                 <div class="shell">
                     <header class="topbar">
                         <div class="brand">
-                            <strong>"MeiLang"</strong>
-                            <span>"scene-first 骨架"</span>
+                            <strong>"🌸 MeiLang"</strong>
+                            <span>"AI-Native"</span>
                         </div>
                         <nav class="app-tabs">{app_tabs}</nav>
                         {mode_tabs}
@@ -101,33 +101,40 @@ pub fn render_page(
                             title="拖拽调整左侧资源栏宽度"
                         ></div>
                         <main class="main">
-                            <div class="panel-heading">
-                                <h2>{compiled.title.clone()}</h2>
-                                <p>{compiled.entry_target.clone()}</p>
-                            </div>
-                            <section class="panel preview-panel">
-                                {preview}
-                            </section>
-                            <section class="panel source-panel">
-                                <div class="panel-heading">
-                                    <h3>"源码预览"</h3>
-                                    <p>{selected_target.clone()}</p>
-                                </div>
-                                <pre class="source-block">{source_panel}</pre>
-                            </section>
-                            {if compiled.diagnostics.is_empty() {
-                                view! { <></> }.into_any()
-                            } else {
-                                view! {
-                                    <section class="panel diagnostics-panel">
+                            <div class="main-stack" id="main-stack-root">
+                                <section class="panel preview-panel main-pane preview-pane">
+                                    <div class="main-pane-scroll preview-pane-scroll">
+                                        {preview}
+                                    </div>
+                                </section>
+                                <div
+                                    class="splitter splitter-horizontal"
+                                    data-workspace-splitter="preview"
+                                    title="拖拽调整应用预览与源码区域高度"
+                                ></div>
+                                <section class="panel source-panel main-pane source-pane">
+                                    <div class="main-pane-scroll source-pane-scroll">
                                         <div class="panel-heading">
-                                            <h3>"编译提示"</h3>
-                                            <p>"最小内核 diagnostics"</p>
+                                            <h3>"源码"</h3>
+                                            <p>{selected_target.clone()}</p>
                                         </div>
-                                        {diagnostics}
-                                    </section>
-                                }.into_any()
-                            }}
+                                        <pre class="source-block">{source_panel}</pre>
+                                        {if compiled.diagnostics.is_empty() {
+                                            view! { <></> }.into_any()
+                                        } else {
+                                            view! {
+                                                <section class="source-diagnostics">
+                                                    <div class="panel-heading">
+                                                        <h3>"编译提示"</h3>
+                                                        <p>"最小内核 diagnostics"</p>
+                                                    </div>
+                                                    {diagnostics}
+                                                </section>
+                                            }.into_any()
+                                        }}
+                                    </div>
+                                </section>
+                            </div>
                         </main>
                         <div
                             class="splitter splitter-right"
