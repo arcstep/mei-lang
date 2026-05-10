@@ -30,8 +30,22 @@ a { color: inherit; text-decoration: none; }
 .tree-node summary { cursor: pointer; color: #cbd5e1; font-size: 13px; }
 .tree-link { display: block; padding: 8px 10px; border-radius: 10px; color: #cbd5e1; font-size: 13px; background: rgba(30,41,59,.58); }
 .tree-link.active { background: rgba(37,99,235,.28); color: #eff6ff; }
-.opencode-placeholder { display: grid; gap: 10px; color: #cbd5e1; font-size: 13px; }
-.opencode-placeholder ul { margin: 0; padding-left: 18px; color: #94a3b8; }
+.opencode-panel { display: grid; gap: 14px; color: #cbd5e1; font-size: 13px; }
+.opencode-section { display: grid; gap: 10px; padding: 12px; border: 1px solid rgba(148,163,184,.14); border-radius: 14px; background: rgba(2,6,23,.22); }
+.opencode-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.opencode-label { color: #94a3b8; font-size: 12px; }
+.opencode-summary { margin: 0; color: #cbd5e1; line-height: 1.5; }
+.opencode-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.opencode-btn { appearance: none; border: 1px solid rgba(96,165,250,.28); background: rgba(37,99,235,.24); color: #eff6ff; padding: 8px 12px; border-radius: 10px; font-size: 12px; cursor: pointer; }
+.opencode-btn:disabled { opacity: .6; cursor: not-allowed; }
+.opencode-btn-muted { background: rgba(30,41,59,.78); color: #cbd5e1; }
+.opencode-btn-danger { background: rgba(127,29,29,.28); border-color: rgba(248,113,113,.28); }
+.opencode-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 68px; padding: 6px 10px; border-radius: 999px; font-size: 12px; border: 1px solid rgba(148,163,184,.18); }
+.opencode-badge-idle { background: rgba(30,41,59,.72); color: #cbd5e1; }
+.opencode-badge-busy { background: rgba(30,64,175,.26); color: #dbeafe; }
+.opencode-badge-ok { background: rgba(22,101,52,.26); color: #dcfce7; }
+.opencode-badge-warn { background: rgba(120,53,15,.26); color: #fde68a; }
+.opencode-list { margin: 0; padding-left: 18px; color: #94a3b8; display: grid; gap: 6px; }
 .diag { display: grid; gap: 4px; padding: 10px 12px; border-radius: 12px; margin-top: 8px; }
 .diag-error { background: rgba(127,29,29,.25); border: 1px solid rgba(248,113,113,.28); }
 .diag-warning { background: rgba(120,53,15,.22); border: 1px solid rgba(251,191,36,.28); }

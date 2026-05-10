@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
+mod opencode;
 mod preview;
 mod route;
 mod source_tree;
@@ -121,20 +122,14 @@ pub fn render_page(
                         <aside class="sidebar right">
                             <div class="panel-heading">
                                 <h2>"OpenCode"</h2>
-                                <p>"集成预留"</p>
+                                <p>"宿主桥接"</p>
                             </div>
-                            <div class="opencode-placeholder">
-                                <p>"右侧面板已保留，后续阶段接入真正的会话、权限与上下文能力。"</p>
-                                <ul>
-                                    <li>{format!("当前应用：{}", compiled.app_id)}</li>
-                                    <li>{format!("入口脚本：{}", compiled.entry_target)}</li>
-                                    <li>{format!("模式：{}", route_mode.slug())}</li>
-                                </ul>
-                            </div>
+                            {opencode::panel_view(compiled, route_mode)}
                         </aside>
                     </div>
                 </div>
                 {component_scripts(compiled)}
+                <script>{opencode::BOOTSTRAP_SCRIPT}</script>
             </body>
         </html>
     };
