@@ -3,6 +3,15 @@ use mei_lang_kernel::WorkspaceNode;
 
 use super::UiRouteMode;
 
+pub(super) fn controls_view() -> impl IntoView {
+    view! {
+        <div class="tree-toolbar">
+            <button class="tree-toolbar-btn" type="button" data-tree-expand="1">"展开"</button>
+            <button class="tree-toolbar-btn" type="button" data-tree-collapse="1">"收起"</button>
+        </div>
+    }
+}
+
 pub(super) fn source_tree_view(
     nodes: &[WorkspaceNode],
     route_mode: UiRouteMode,
@@ -16,9 +25,11 @@ pub(super) fn source_tree_view(
                 let open = selected_target.starts_with(&format!("{}/", node.path));
                 let children = source_tree_view(&node.children, route_mode, app_id, selected_target);
                 view! {
-                    <li class="tree-node">
+                    <li class="tree-node tree-li-branch">
                         <details open=open>
-                            <summary>{node.name.clone()}</summary>
+                            <summary class="tree-folder-summary">
+                                <span class="tree-folder-label">{node.name.clone()}</span>
+                            </summary>
                             {children}
                         </details>
                     </li>
@@ -42,3 +53,25 @@ pub(super) fn source_tree_view(
         .collect_view();
     view! { <ul class="tree">{items}</ul> }.into_any()
 }
+
+pub(super) const TREE_SCRIPT: &str = r#"
+(function initSourceTreeControls() {
+  const expandBtn = document.querySelector("[data-tree-expand]");
+  const collapseBtn = document.querySelector("[data-tree-collapse]");
+  const sidebar = document.querySelector(".sidebar.left");
+  if (!sidebar) return;
+  const detailsList = () => Array.from(sidebar.querySelectorAll(".tree-li-branch > details"));
+
+  if (expandBtn) {
+    expandBtn.addEventListener("click", function () {
+      detailsList().forEach((el) => { el.open = true; });
+    });
+  }
+
+  if (collapseBtn) {
+    collapseBtn.addEventListener("click", function () {
+      detailsList().forEach((el) => { el.open = false; });
+    });
+  }
+})();
+"#;

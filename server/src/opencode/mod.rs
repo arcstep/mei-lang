@@ -1,4 +1,5 @@
 pub(crate) mod bridge;
+pub(crate) mod events;
 pub(crate) mod runtime;
 
 use std::{path::PathBuf, process::Child};
@@ -16,6 +17,8 @@ pub(crate) struct ManagedOpencodeConfigSummary {
     pub runtime_env_ready: bool,
     pub api_key_configured: bool,
     pub config_content_ready: bool,
+    pub config_root: Option<String>,
+    pub dotenv_path: Option<String>,
     pub project_config_present: bool,
     pub provider_id: &'static str,
     pub provider_name: &'static str,

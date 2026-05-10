@@ -17,8 +17,22 @@ use super::{
 };
 use crate::AppState;
 
+fn candidate_repo_roots(package_root: &FsPath) -> Vec<PathBuf> {
+    let mut roots = vec![package_root.to_path_buf()];
+    if let Some(codeup_root) = package_root.parent().and_then(|path| path.parent()) {
+        let legacy_root = codeup_root.join("neverland");
+        if legacy_root.exists() && !roots.iter().any(|item| item == &legacy_root) {
+            roots.push(legacy_root);
+        }
+    }
+    roots
+}
+
 fn repo_root(package_root: &FsPath) -> Option<PathBuf> {
-    Some(package_root.to_path_buf())
+    candidate_repo_roots(package_root)
+        .into_iter()
+        .find(|root| root.join(".env").exists() || root.join("opencode.json").exists())
+        .or_else(|| Some(package_root.to_path_buf()))
 }
 
 fn repo_dotenv_path(package_root: &FsPath) -> Option<PathBuf> {
@@ -30,15 +44,19 @@ fn opencode_project_config_path(package_root: &FsPath) -> Option<PathBuf> {
 }
 
 pub(crate) fn load_repo_dotenv(package_root: &FsPath) {
-    let Some(dotenv_path) = repo_dotenv_path(package_root).filter(|path| path.exists()) else {
-        return;
-    };
-    if let Err(error) = dotenvy::from_path(&dotenv_path) {
-        tracing::warn!(
-            path = %dotenv_path.display(),
-            %error,
-            "failed to load repo .env"
-        );
+    for root in candidate_repo_roots(package_root) {
+        let dotenv_path = root.join(".env");
+        if !dotenv_path.exists() {
+            continue;
+        }
+        if let Err(error) = dotenvy::from_path(&dotenv_path) {
+            tracing::warn!(
+                path = %dotenv_path.display(),
+                %error,
+                "failed to load repo .env"
+            );
+        }
+        break;
     }
 }
 
@@ -144,6 +162,10 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         );
     let project_config_path =
         opencode_project_config_path(&state.package_root).map(|path| path.display().to_string());
+    let config_root = repo_root(&state.package_root).map(|path| path.display().to_string());
+    let dotenv_path = repo_dotenv_path(&state.package_root)
+        .filter(|path| path.exists())
+        .map(|path| path.display().to_string());
     let project_config_present = project_config_path
         .as_ref()
         .map(|path| FsPath::new(path).exists())
@@ -156,6 +178,8 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         runtime_env_ready: missing_env.is_empty(),
         api_key_configured,
         config_content_ready,
+        config_root,
+        dotenv_path,
         project_config_present,
         provider_id: MANAGED_OPENCODE_PROVIDER_ID,
         provider_name: MANAGED_OPENCODE_PROVIDER_NAME,

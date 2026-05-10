@@ -6,6 +6,7 @@ mod preview;
 mod route;
 mod source_tree;
 mod style;
+mod workspace;
 
 pub use route::UiRouteMode;
 
@@ -82,14 +83,20 @@ pub fn render_page(
                         <nav class="app-tabs">{app_tabs}</nav>
                         {mode_tabs}
                     </header>
-                    <div class="workspace">
+                    <div class="workspace" id="workspace-root">
                         <aside class="sidebar left">
                             <div class="panel-heading">
                                 <h2>"资源树"</h2>
                                 <p>{compiled.app_id.clone()}</p>
                             </div>
+                            {source_tree::controls_view()}
                             {source_tree}
                         </aside>
+                        <div
+                            class="splitter"
+                            data-workspace-splitter="left"
+                            title="拖拽调整左侧资源栏宽度"
+                        ></div>
                         <main class="main">
                             <div class="panel-heading">
                                 <h2>{compiled.title.clone()}</h2>
@@ -119,6 +126,11 @@ pub fn render_page(
                                 }.into_any()
                             }}
                         </main>
+                        <div
+                            class="splitter splitter-right"
+                            data-workspace-splitter="right"
+                            title="拖拽调整右侧 OpenCode 栏宽度"
+                        ></div>
                         <aside class="sidebar right">
                             <div class="panel-heading">
                                 <h2>"OpenCode"</h2>
@@ -129,6 +141,8 @@ pub fn render_page(
                     </div>
                 </div>
                 {component_scripts(compiled)}
+                <script>{workspace::SPLITTER_SCRIPT}</script>
+                <script>{source_tree::TREE_SCRIPT}</script>
                 <script>{opencode::BOOTSTRAP_SCRIPT}</script>
             </body>
         </html>
