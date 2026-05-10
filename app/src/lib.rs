@@ -245,7 +245,10 @@ fn block_view(
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
 ) -> AnyView {
-    let props = resolve_value(&block.props, scene_contract, resources);
+    let props = attach_host_meta(
+        resolve_value(&block.props, scene_contract, resources),
+        compiled,
+    );
     let tag = compiled
         .component_assets
         .iter()
@@ -259,6 +262,20 @@ fn block_view(
         </section>
     }
     .into_any()
+}
+
+fn attach_host_meta(mut props: Value, compiled: &CompiledApp) -> Value {
+    if let Some(map) = props.as_object_mut() {
+        map.insert(
+            "_mei".to_string(),
+            serde_json::json!({
+                "app_id": compiled.app_id,
+                "entry_target": compiled.entry_target,
+                "step_api": format!("/api/sim/step/{}", compiled.app_id),
+            }),
+        );
+    }
+    props
 }
 
 fn resolve_value(

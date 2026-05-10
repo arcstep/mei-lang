@@ -101,7 +101,7 @@ panel(
     blocks = [
         doc.markdown(
             area = "auto",
-            content = "## Fire 例子\n\n这里先对齐 scene-first 编译与宿主装配：\n1. `scene / world / flow / frame` 主干齐全；\n2. world 中声明 topology 与 entities；\n3. 面板通过 `scene_ref(\"self\")` 消费当前 scene contract。\n\n真正的 step 运行态将在下一阶段把 `flow` 接到可执行逻辑片段。",
+            content = "## Fire 例子\n\n这个例子现在用于验证最小运行链路：\n1. `scene / world / flow / frame` 先编译为统一 contract；\n2. `sim.scene` 通过 `/api/sim/step/:app_id` 驱动 `start / click / tick / restart`；\n3. UI 与 runtime 共用同一份 scene contract，而不是各自解释一遍逻辑。",
         ),
     ],
 )
