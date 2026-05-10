@@ -5,7 +5,6 @@ mod opencode;
 mod preview;
 mod route;
 mod source_tree;
-mod style;
 mod workspace;
 
 pub use route::UiRouteMode;
@@ -71,7 +70,7 @@ pub fn render_page(
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>{format!("{} - MeiLang", compiled.title)}</title>
-                <style>{style::STYLE}</style>
+                <link rel="stylesheet" href="/app-assets/app-shell.css"/>
             </head>
             <body>
                 <div class="shell">
@@ -85,12 +84,16 @@ pub fn render_page(
                     </header>
                     <div class="workspace" id="workspace-root">
                         <aside class="sidebar left">
-                            <div class="panel-heading">
-                                <h2>"资源树"</h2>
-                                <p>{compiled.app_id.clone()}</p>
+                            <div class="sidebar-header">
+                                <div class="panel-heading">
+                                    <h2>"资源树"</h2>
+                                    <p>{compiled.app_id.clone()}</p>
+                                </div>
+                                {source_tree::controls_view()}
                             </div>
-                            {source_tree::controls_view()}
-                            {source_tree}
+                            <div class="sidebar-scroll">
+                                {source_tree}
+                            </div>
                         </aside>
                         <div
                             class="splitter"
@@ -132,18 +135,22 @@ pub fn render_page(
                             title="拖拽调整右侧 OpenCode 栏宽度"
                         ></div>
                         <aside class="sidebar right">
-                            <div class="panel-heading">
-                                <h2>"OpenCode"</h2>
-                                <p>"宿主桥接"</p>
+                            <div class="sidebar-header">
+                                <div class="panel-heading">
+                                    <h2>"OpenCode"</h2>
+                                    <p>{format!("{} · {}", compiled.app_id, route_mode.slug())}</p>
+                                </div>
                             </div>
-                            {opencode::panel_view(compiled, route_mode)}
+                            <div class="sidebar-scroll">
+                                {opencode::panel_view(compiled, route_mode, selected_target.as_str())}
+                            </div>
                         </aside>
                     </div>
                 </div>
                 {component_scripts(compiled)}
+                <script src="/app-assets/opencode-panel.js"></script>
                 <script>{workspace::SPLITTER_SCRIPT}</script>
                 <script>{source_tree::TREE_SCRIPT}</script>
-                <script>{opencode::BOOTSTRAP_SCRIPT}</script>
             </body>
         </html>
     };
