@@ -1,0 +1,38 @@
+app(
+    id = "03-cockpit",
+    title = "03 Cockpit",
+    entries = [
+        entry(frame = "main.mei", id = "home", title = "03 Cockpit"),
+    ],
+)
+
+frame(
+    title = "03 Cockpit",
+    layout = grid(
+        columns = ["2fr", "1fr"],
+        areas = [
+            ["cards", "doc"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+ds.dataset(
+    id = "metrics",
+    title = "驾驶舱指标",
+    source = ds.csv(path = "data/metrics.csv"),
+)
+
+component(
+    "cockpit.metric-cards",
+    area = "cards",
+    title = "核心指标",
+    data = ds.dataset_ref("metrics"),
+)
+
+doc.markdown(
+    area = "doc",
+    title = "说明",
+    content = "## Cockpit 例子\n\n这个例子预留给下一阶段，用来验证简单看板、多组件编排与布局能力。",
+)

@@ -1,0 +1,20 @@
+{
+  "components": {
+    "doc.markdown": {
+      "tag": "mei-doc-markdown",
+      "script": "doc-markdown.js"
+    },
+    "dataset.table": {
+      "tag": "mei-dataset-table",
+      "script": "dataset-table.js"
+    },
+    "cockpit.metric-cards": {
+      "tag": "mei-cockpit-metric-cards",
+      "script": "cockpit-metric-cards.js"
+    },
+    "sim.scene": {
+      "tag": "mei-sim-scene",
+      "script": "sim-scene.js"
+    }
+  }
+}

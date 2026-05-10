@@ -1,0 +1,18 @@
+app(
+    id = "01-mini",
+    title = "01 Mini",
+    entries = [
+        entry(frame = "main.mei", id = "home", title = "01 Mini"),
+    ],
+)
+
+frame(
+    title = "01 Mini",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+doc.markdown(
+    area = "auto",
+    title = "欢迎",
+    content = "# Hello MeiLang\n\n这是新骨架中的最小单文件例子，用来验证 scene-first 工程链路、宿主壳层和 workspace web-components 已经接通。",
+)

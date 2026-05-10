@@ -1,0 +1,11 @@
+[package]
+name = "mei-lang-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+leptos.workspace = true
+mei-lang-kernel = { path = "../crates/kernel" }
+serde.workspace = true
+serde_json.workspace = true

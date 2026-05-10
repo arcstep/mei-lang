@@ -1,0 +1,80 @@
+scene(
+    id = "room_fire_click",
+    kind = "discrete_scene",
+    summary = "房间角落随机起火。先点灭火器，再点火点。用于验证 scene-first 与最小运行态骨架。",
+    goal = "在倒计时结束前灭火",
+    start_label = "开始演练",
+)
+
+world(
+    grid = grid(
+        rows = 4,
+        cols = 4,
+    ),
+    entities = [
+        entity(
+            id = "room_fire",
+            kind = "hazard",
+            label = "火点",
+            spawns = ["r1c1", "r1c4", "r4c1", "r4c4"],
+            status = "small",
+        ),
+        entity(
+            id = "wall_extinguisher",
+            kind = "tool",
+            label = "灭火器",
+            spawns = ["r2c2", "r2c3", "r3c2", "r3c3"],
+        ),
+        entity(
+            id = "player",
+            kind = "actor",
+            label = "演练者",
+            flags = {"alive": True},
+        ),
+    ],
+)
+
+rules(
+    start = start(mode = "manual", action_label = "开始演练"),
+    interactions = [
+        click(
+            target = "wall_extinguisher",
+            effect = grant("wall_extinguisher"),
+        ),
+        click(
+            target = "room_fire",
+            require = has("wall_extinguisher"),
+            effect = effects([
+                set_status("room_fire", "out"),
+                finish("success", "fire_out_before_timeout"),
+            ]),
+        ),
+    ],
+    timer = rule_timer(
+        seconds = 12,
+        on_timeout = effects([
+            set_status("room_fire", "big"),
+            set_flag("player.alive", False),
+            finish("fail", "timeout_or_player_dead"),
+        ]),
+    ),
+    outcome = rule_outcome(
+        success = "fire_out_before_timeout",
+        fail = "timeout_or_player_dead",
+    ),
+)
+
+frame(
+    title = "04 Fire",
+    layout = grid(
+        columns = ["2fr", "1fr"],
+        areas = [
+            ["board", "status"],
+        ],
+        gap = "12px",
+        padding = "20px",
+    ),
+)
+
+panel(id = "board", title = "场景网格", area = "board")
+panel(id = "status", title = "状态与操作", area = "status")
