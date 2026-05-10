@@ -156,7 +156,7 @@ pub fn render_page(
                 {component_scripts(compiled)}
                 <script src="/app-assets/opencode-panel.js"></script>
                 <script src="/app-assets/workspace-splitters.js"></script>
-                <script>{source_tree::TREE_SCRIPT}</script>
+                <script src="/app-assets/source-tree-controls.js"></script>
             </body>
         </html>
     };
