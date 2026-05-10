@@ -33,21 +33,22 @@ def app(id, title = None, entries = None):
         "entries": entries if entries != None else [],
     }))
 
-def entry(frame, id = None, title = None):
+def entry(scene = None, frame = None, id = None, title = None):
     return _clean({
         "id": id,
+        "scene": scene,
         "frame": frame,
         "title": title,
     })
 
-def scene(id, kind = None, summary = None, goal = None, start_label = None):
+def scene(id, profile = None, summary = None, goal = None, state = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
-        "scene_kind": kind,
+        "profile": profile,
         "summary": summary,
         "goal": goal,
-        "start_label": start_label,
+        "state": state if state != None else {},
     }))
 
 def grid(rows = None, cols = None, columns = None, areas = None, gap = None, padding = None):
@@ -81,12 +82,22 @@ def frame(title, layout = None):
         "layout": layout,
     }))
 
-def world(grid = None, entities = None):
+def world(topology = None, resources = None, entities = None):
     return _declare(_clean({
         "kind": "world",
-        "grid": grid,
+        "topology": topology,
+        "resources": resources if resources != None else [],
         "entities": entities if entities != None else [],
     }))
+
+def resource(id, kind, title = None, source = None, content = None):
+    return _clean({
+        "id": id,
+        "kind": kind,
+        "title": title,
+        "source": source,
+        "content": content,
+    })
 
 def entity(id, kind, label = None, spawns = None, status = None, flags = None):
     return _clean({
@@ -162,35 +173,40 @@ def rule_outcome(success = None, fail = None):
         "fail": fail,
     })
 
-def rules(start = None, interactions = None, timer = None, outcome = None):
+def flow(start = None, interactions = None, timer = None, outcome = None):
     return _declare(_clean({
-        "kind": "rules",
+        "kind": "flow",
         "start": start,
         "interactions": interactions if interactions != None else [],
         "timer": timer,
         "outcome": outcome,
     }))
 
-def panel(id, title = None, area = None):
+def panel(id, title = None, area = None, blocks = None):
     return _declare(_clean({
         "kind": "panel",
         "id": id,
         "title": title,
         "area": area,
+        "blocks": blocks if blocks != None else [],
     }))
 
-def component(use, id = None, title = None, area = None, data = None, props = None):
-    return _declare(_clean({
+def component(use, id = None, title = None, area = None, props = None):
+    return _clean({
         "kind": "block",
         "use_key": use,
         "id": id,
         "title": title,
         "area": area,
-        "data_ref": data["ref"] if type(data) == "dict" and data.get("ref") != None else None,
         "props": props if props != None else {},
-    }))
+    })
 
-def markdown(path = None, id = None, title = None, area = None, content = None):
+def markdown(path = None, id = None, title = None, area = None, content = None, resource = None):
+    if id == None and title == None and area == None and content == None and resource == None:
+        return {
+            "kind": "markdown",
+            "path": path,
+        }
     return component(
         "doc.markdown",
         id = id,
@@ -199,16 +215,9 @@ def markdown(path = None, id = None, title = None, area = None, content = None):
         props = _clean({
             "path": path,
             "content": content,
+            "resource": resource,
         }),
     )
-
-def dataset(id, title = None, source = None):
-    return _declare(_clean({
-        "kind": "dataset",
-        "id": id,
-        "title": title,
-        "source": source,
-    }))
 
 def csv(path):
     return {
@@ -216,9 +225,16 @@ def csv(path):
         "path": path,
     }
 
-def dataset_ref(id):
+def world_ref(id):
     return {
-        "ref": id,
+        "__ref": "world",
+        "id": id,
+    }
+
+def scene_ref(id):
+    return {
+        "__ref": "scene",
+        "id": id,
     }
 "#
 );
@@ -232,15 +248,16 @@ pub fn describe_dsl() -> JsonValue {
             "entry",
             "scene",
             "world",
+            "resource",
             "entity",
-            "rules",
+            "flow",
             "frame",
             "panel",
             "component",
             "doc.markdown",
-            "ds.dataset",
+            "world_ref",
+            "scene_ref",
             "ds.csv",
-            "ds.dataset_ref",
         ],
     })
 }

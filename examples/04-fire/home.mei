@@ -1,13 +1,16 @@
 scene(
     id = "room_fire_click",
-    kind = "discrete_scene",
+    profile = "simulation",
     summary = "房间角落随机起火。先点灭火器，再点火点。用于验证 scene-first 与最小运行态骨架。",
     goal = "在倒计时结束前灭火",
-    start_label = "开始演练",
+    state = {
+        "phase": "ready",
+        "countdown": 12,
+    },
 )
 
 world(
-    grid = grid(
+    topology = grid(
         rows = 4,
         cols = 4,
     ),
@@ -34,7 +37,7 @@ world(
     ],
 )
 
-rules(
+flow(
     start = start(mode = "manual", action_label = "开始演练"),
     interactions = [
         click(
@@ -76,5 +79,29 @@ frame(
     ),
 )
 
-panel(id = "board", title = "场景网格", area = "board")
-panel(id = "status", title = "状态与操作", area = "status")
+panel(
+    id = "board",
+    title = "场景网格",
+    area = "board",
+    blocks = [
+        component(
+            "sim.scene",
+            area = "auto",
+            props = {
+                "scene": scene_ref("self"),
+            },
+        ),
+    ],
+)
+
+panel(
+    id = "status",
+    title = "状态与操作",
+    area = "status",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "## Fire 例子\n\n这里先对齐 scene-first 编译与宿主装配：\n1. `scene / world / flow / frame` 主干齐全；\n2. world 中声明 topology 与 entities；\n3. 面板通过 `scene_ref(\"self\")` 消费当前 scene contract。\n\n真正的 step 运行态将在下一阶段把 `flow` 接到可执行逻辑片段。",
+        ),
+    ],
+)

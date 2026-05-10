@@ -1,7 +1,7 @@
 class MeiCockpitMetricCards extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const dataset = props.dataset || {};
+    const dataset = props.dataset?.dataset || props.dataset || {};
     const rows = dataset.rows || [];
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `

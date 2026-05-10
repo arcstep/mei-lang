@@ -1,7 +1,7 @@
 class MeiDocMarkdown extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const content = props.content || `无法渲染文档：缺少 content。`;
+    const content = props.content || props.resource?.document || `无法渲染文档：缺少 content。`;
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `
       <style>

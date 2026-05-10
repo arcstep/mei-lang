@@ -1,7 +1,7 @@
 class MeiSimScene extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const contract = props.scene_contract || props;
+    const contract = props.scene || props.scene_contract || props;
     this.attachShadow({ mode: "open" });
     const scene = contract.scene || {};
     const world = contract.world || {};
@@ -19,7 +19,7 @@ class MeiSimScene extends HTMLElement {
         <ul>
           <li>goal: ${escapeHtml(scene.goal || "未声明")}</li>
           <li>entities: ${entities.length}</li>
-          <li>start_label: ${escapeHtml(scene.start_label || "开始")}</li>
+          <li>profile: ${escapeHtml(scene.profile || "scene")}</li>
         </ul>
       </section>
     `;

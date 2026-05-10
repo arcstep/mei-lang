@@ -1,7 +1,7 @@
 class MeiDatasetTable extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const dataset = props.dataset || {};
+    const dataset = props.dataset?.dataset || props.dataset || {};
     const columns = dataset.columns || [];
     const rows = dataset.rows || [];
     this.attachShadow({ mode: "open" });

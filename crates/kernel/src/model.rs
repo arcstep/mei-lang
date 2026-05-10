@@ -19,7 +19,10 @@ pub struct Diagnostic {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntryDecl {
     pub id: Option<String>,
-    pub frame: String,
+    #[serde(default)]
+    pub scene: Option<String>,
+    #[serde(default)]
+    pub frame: Option<String>,
     pub title: Option<String>,
 }
 
@@ -61,26 +64,27 @@ pub struct FrameDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceDecl {
     pub kind: String,
+    #[serde(default)]
     pub path: String,
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatasetDecl {
-    pub kind: String,
+pub struct ResourceDecl {
     pub id: String,
+    pub kind: String,
     #[serde(default)]
     pub title: Option<String>,
-    pub source: SourceDecl,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DatasetSourceDecl {
-    pub source_kind: String,
-    pub path: String,
+    #[serde(default)]
+    pub source: Option<SourceDecl>,
+    #[serde(default)]
+    pub content: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockDecl {
+    #[serde(default = "default_block_kind")]
     pub kind: String,
     pub use_key: String,
     #[serde(default)]
@@ -90,9 +94,11 @@ pub struct BlockDecl {
     #[serde(default)]
     pub area: Option<String>,
     #[serde(default)]
-    pub data_ref: Option<String>,
-    #[serde(default)]
     pub props: Value,
+}
+
+fn default_block_kind() -> String {
+    "block".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,13 +106,13 @@ pub struct SceneDecl {
     pub kind: String,
     pub id: String,
     #[serde(default)]
-    pub scene_kind: Option<String>,
+    pub profile: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
     pub goal: Option<String>,
     #[serde(default)]
-    pub start_label: Option<String>,
+    pub state: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,7 +133,9 @@ pub struct EntityDecl {
 pub struct WorldDecl {
     pub kind: String,
     #[serde(default)]
-    pub grid: Option<WorldGridDecl>,
+    pub topology: Option<WorldGridDecl>,
+    #[serde(default)]
+    pub resources: Vec<ResourceDecl>,
     #[serde(default)]
     pub entities: Vec<EntityDecl>,
 }
@@ -188,7 +196,7 @@ pub struct RuleOutcomeDecl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RulesDecl {
+pub struct FlowDecl {
     pub kind: String,
     #[serde(default)]
     pub start: Option<RuleStartDecl>,
@@ -208,6 +216,8 @@ pub struct PanelDecl {
     pub title: Option<String>,
     #[serde(default)]
     pub area: Option<String>,
+    #[serde(default)]
+    pub blocks: Vec<BlockDecl>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -216,7 +226,7 @@ pub struct SceneContract {
     #[serde(default)]
     pub world: Option<WorldDecl>,
     #[serde(default)]
-    pub rules: Option<RulesDecl>,
+    pub flow: Option<FlowDecl>,
     #[serde(default)]
     pub frame: Option<FrameDecl>,
     #[serde(default)]
@@ -229,7 +239,19 @@ pub struct DatasetView {
     pub title: Option<String>,
     pub columns: Vec<String>,
     pub rows: Vec<Value>,
-    pub source: DatasetSourceDecl,
+    pub source: SourceDecl,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadedResource {
+    pub id: String,
+    pub kind: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub document: Option<String>,
+    #[serde(default)]
+    pub dataset: Option<DatasetView>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -263,13 +285,9 @@ pub struct CompiledApp {
     pub entry_target: String,
     pub file_tree: Vec<WorkspaceNode>,
     #[serde(default)]
-    pub frame: Option<FrameDecl>,
-    #[serde(default)]
-    pub blocks: Vec<BlockDecl>,
-    #[serde(default)]
-    pub datasets: Vec<DatasetView>,
-    #[serde(default)]
     pub scene_contract: Option<SceneContract>,
+    #[serde(default)]
+    pub resources: Vec<LoadedResource>,
     #[serde(default)]
     pub component_assets: Vec<ComponentAsset>,
     #[serde(default)]

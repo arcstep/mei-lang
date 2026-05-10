@@ -2,33 +2,68 @@ app(
     id = "02-dataset",
     title = "02 Dataset",
     entries = [
-        entry(frame = "main.mei", id = "home", title = "02 Dataset"),
+        entry(scene = "main.mei", id = "home", title = "02 Dataset"),
+    ],
+)
+
+scene(
+    id = "home",
+    profile = "page",
+    summary = "用 scene-first 装配文件读取与 dataset 预览。",
+)
+
+world(
+    resources = [
+        resource(
+            id = "dataset_doc",
+            kind = "document",
+            title = "例子说明",
+            content = "## Dataset 例子\n\n这个例子验证：\n1. 宿主能从 examples 路径读取文件；\n2. kernel 能把 CSV 装配成 world 资源；\n3. UI 通过 `world_ref(...)` 消费 dataset。",
+        ),
+        resource(
+            id = "sales_data",
+            kind = "dataset",
+            title = "销售样本 CSV",
+            source = ds.csv(path = "data/sales.csv"),
+        ),
     ],
 )
 
 frame(
     title = "02 Dataset",
-    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+    layout = grid(
+        columns = ["1fr", "2fr"],
+        areas = [
+            ["doc", "table"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
 )
 
-ds.dataset(
-    id = "sales",
-    title = "销售样本 CSV",
-    source = ds.csv(path = "data/sales.csv"),
-)
-
-doc.markdown(
-    area = "auto",
+panel(
+    id = "doc_panel",
     title = "说明",
-    content = "## Dataset 例子\n\n这个例子只验证两件事：\n1. 宿主能从 examples 路径读取源文件；\n2. kernel 能把 CSV 装配成最小 dataset 预览。",
+    area = "doc",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            resource = world_ref("dataset_doc"),
+        ),
+    ],
 )
 
-component(
-    "dataset.table",
-    area = "auto",
+panel(
+    id = "table_panel",
     title = "CSV 预览",
-    data = ds.dataset_ref("sales"),
-    props = {
-        "caption": "示例销售数据",
-    },
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "dataset": world_ref("sales_data"),
+            },
+        ),
+    ],
 )

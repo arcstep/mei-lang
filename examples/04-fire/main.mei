@@ -2,6 +2,6 @@ app(
     id = "04-fire",
     title = "04 Fire",
     entries = [
-        entry(frame = "home.mei", id = "home", title = "04 Fire"),
+        entry(scene = "home.mei", id = "home", title = "04 Fire"),
     ],
 )
