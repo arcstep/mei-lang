@@ -48,6 +48,7 @@ pub fn router() -> Router<AppState> {
             "/api/opencode/session/:session_id/permissions/:permission_id",
             post(opencode_api::api_opencode_respond_permission),
         )
+        .route("/app-assets/*path", get(pages::app_asset))
         .route("/workspace-components/*path", get(pages::component_asset))
 }
 

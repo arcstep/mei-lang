@@ -63,7 +63,12 @@ async fn main() -> Result<()> {
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
-    let package_root = std::env::current_dir().context("failed to read current directory")?;
+    // 二进制可能在任意 cwd 下启动；不要用 current_dir 推导源码与静态资源路径。
+    // `mei-lang-server` 位于 `mei-lang/server/`，仓库根为上一级 `mei-lang/`。
+    let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .context("server crate manifest has no parent directory")?
+        .to_path_buf();
     opencode::runtime::load_repo_dotenv(&package_root);
     let source_root = if args.source_root.is_absolute() {
         args.source_root
@@ -71,11 +76,18 @@ async fn serve(args: ServeArgs) -> Result<()> {
         package_root.join(args.source_root)
     };
     let state = AppState {
-        package_root: Arc::new(package_root),
-        source_root: Arc::new(source_root),
+        package_root: Arc::new(package_root.clone()),
+        source_root: Arc::new(source_root.clone()),
         opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
         opencode_http: Arc::new(HttpClient::new()),
     };
+    tracing::info!(
+        cwd = ?std::env::current_dir(),
+        manifest_dir = env!("CARGO_MANIFEST_DIR"),
+        package_root = %package_root.display(),
+        source_root = %source_root.display(),
+        "mei serve resolved paths"
+    );
     let app = Router::new()
         .merge(http::router())
         .with_state(state)

@@ -52,11 +52,24 @@ pub async fn component_asset(
     State(state): State<AppState>,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    let asset_path = state.source_root.join("_components").join(&path);
+    serve_static_asset(
+        state.source_root.join("_components").join(&path),
+        "component asset",
+    )
+}
+
+pub async fn app_asset(
+    State(state): State<AppState>,
+    AxumPath(path): AxumPath<String>,
+) -> Result<Response, AppError> {
+    serve_static_asset(state.package_root.join("app").join("assets").join(&path), "app asset")
+}
+
+fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {
     if !asset_path.exists() {
         return Err(AppError::status(
             StatusCode::NOT_FOUND,
-            format!("component asset not found: {}", asset_path.display()),
+            format!("{label} not found: {}", asset_path.display()),
         ));
     }
     let bytes = fs::read(&asset_path)
@@ -72,7 +85,8 @@ pub async fn component_asset(
 
 fn content_type_for_path(path: &Path) -> &'static str {
     match path.extension().and_then(|value| value.to_str()) {
-        Some("js") => "text/javascript; charset=utf-8",
+        Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
         _ => "text/plain; charset=utf-8",
     }
