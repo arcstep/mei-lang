@@ -19,7 +19,7 @@ use crate::{
             list_sessions as bridge_list_sessions, respond_permission as bridge_respond_permission,
             send_prompt as bridge_send_prompt, session_messages as bridge_session_messages,
             BridgeCreateSessionRequest, BridgeHealthResponse, BridgePermissionResponseRequest,
-            BridgePromptRequest,
+            BridgePromptRequest, BridgeSessionSummary,
         },
         events::{
             extract_sse_data, normalize_global_event_to_host_event,
@@ -120,7 +120,7 @@ pub async fn api_opencode_create_session(
 pub async fn api_opencode_list_sessions(State(state): State<AppState>) -> Response {
     let server_url = match managed_opencode_server_url(&state) {
         Ok(url) => url,
-        Err(error) => return error_response(error),
+        Err(_) => return Json(Vec::<BridgeSessionSummary>::new()).into_response(),
     };
     match bridge_list_sessions(&state.opencode_http, &server_url).await {
         Ok(sessions) => Json(sessions).into_response(),

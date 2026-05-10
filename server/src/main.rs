@@ -6,13 +6,16 @@ use std::{
 
 use anyhow::{Context, Result};
 use axum::{
+    body::Body,
     http::StatusCode,
+    http::{Method, Request, Uri},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     Router,
 };
 use clap::{Parser, Subcommand};
 use reqwest::Client as HttpClient;
-use tower_http::trace::TraceLayer;
+use std::time::Instant;
 
 mod http;
 mod opencode;
@@ -91,12 +94,58 @@ async fn serve(args: ServeArgs) -> Result<()> {
     let app = Router::new()
         .merge(http::router())
         .with_state(state)
-        .layer(TraceLayer::new_for_http());
+        .layer(middleware::from_fn(log_request));
     let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
     tracing::info!("serving MeiLang skeleton at http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
+    if *method != Method::GET {
+        return false;
+    }
+    let path = uri.path();
+    matches!(
+        path,
+        "/api/opencode/config"
+            | "/api/opencode/runtime"
+            | "/api/opencode/health"
+            | "/api/opencode/session"
+    ) || path.starts_with("/app-assets/")
+        || path.starts_with("/workspace-components/")
+        || path.ends_with("/events")
+        || path.contains("/messages")
+}
+
+async fn log_request(request: Request<Body>, next: Next) -> Response {
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    let started_at = Instant::now();
+    let response = next.run(request).await;
+    let status = response.status();
+    let latency_ms = started_at.elapsed().as_millis();
+
+    if status.is_server_error() || status.is_client_error() {
+        tracing::error!(
+            status = %status,
+            latency_ms,
+            method = %method,
+            uri = %uri,
+            "request finished with error status"
+        );
+    } else if !is_noisy_success_request(&method, &uri) {
+        tracing::info!(
+            status = %status,
+            latency_ms,
+            method = %method,
+            uri = %uri,
+            "request finished"
+        );
+    }
+
+    response
 }
 
 #[derive(Debug)]
@@ -129,6 +178,7 @@ impl From<anyhow::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        tracing::error!(status = %self.status, error = %self.message, "request failed");
         (self.status, self.message).into_response()
     }
 }

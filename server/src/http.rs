@@ -53,5 +53,7 @@ pub fn router() -> Router<AppState> {
 }
 
 pub(crate) fn error_response(error: impl std::fmt::Display) -> Response {
-    (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response()
+    let message = error.to_string();
+    tracing::error!(status = %StatusCode::INTERNAL_SERVER_ERROR, error = %message, "request failed");
+    (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
 }

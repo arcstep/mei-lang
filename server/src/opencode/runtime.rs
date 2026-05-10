@@ -17,34 +17,34 @@ use super::{
 };
 use crate::AppState;
 
-fn candidate_repo_roots(package_root: &FsPath) -> Vec<PathBuf> {
+fn candidate_config_roots(package_root: &FsPath) -> Vec<PathBuf> {
     let mut roots = vec![package_root.to_path_buf()];
-    if let Some(codeup_root) = package_root.parent().and_then(|path| path.parent()) {
-        let legacy_root = codeup_root.join("neverland");
-        if legacy_root.exists() && !roots.iter().any(|item| item == &legacy_root) {
-            roots.push(legacy_root);
+    if let Some(workspace_root) = package_root.parent() {
+        let workspace_root = workspace_root.to_path_buf();
+        if !roots.iter().any(|item| item == &workspace_root) {
+            roots.push(workspace_root);
         }
     }
     roots
 }
 
-fn repo_root(package_root: &FsPath) -> Option<PathBuf> {
-    candidate_repo_roots(package_root)
+fn config_root(package_root: &FsPath) -> PathBuf {
+    candidate_config_roots(package_root)
         .into_iter()
         .find(|root| root.join(".env").exists() || root.join("opencode.json").exists())
-        .or_else(|| Some(package_root.to_path_buf()))
+        .unwrap_or_else(|| package_root.to_path_buf())
 }
 
-fn repo_dotenv_path(package_root: &FsPath) -> Option<PathBuf> {
-    repo_root(package_root).map(|root| root.join(".env"))
+fn repo_dotenv_path(package_root: &FsPath) -> PathBuf {
+    config_root(package_root).join(".env")
 }
 
-fn opencode_project_config_path(package_root: &FsPath) -> Option<PathBuf> {
-    repo_root(package_root).map(|root| root.join("opencode.json"))
+fn opencode_project_config_path(package_root: &FsPath) -> PathBuf {
+    config_root(package_root).join("opencode.json")
 }
 
 pub(crate) fn load_repo_dotenv(package_root: &FsPath) {
-    for root in candidate_repo_roots(package_root) {
+    for root in candidate_config_roots(package_root) {
         let dotenv_path = root.join(".env");
         if !dotenv_path.exists() {
             continue;
@@ -160,16 +160,10 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
             (Some(base_url), Some(completion_model))
                 if !render_managed_opencode_runtime_config_content(base_url, "placeholder", completion_model).is_empty()
         );
-    let project_config_path =
-        opencode_project_config_path(&state.package_root).map(|path| path.display().to_string());
-    let config_root = repo_root(&state.package_root).map(|path| path.display().to_string());
-    let dotenv_path = repo_dotenv_path(&state.package_root)
-        .filter(|path| path.exists())
-        .map(|path| path.display().to_string());
-    let project_config_present = project_config_path
-        .as_ref()
-        .map(|path| FsPath::new(path).exists())
-        .unwrap_or(false);
+    let project_config_path = opencode_project_config_path(&state.package_root);
+    let config_root = config_root(&state.package_root);
+    let dotenv_path = repo_dotenv_path(&state.package_root);
+    let project_config_present = project_config_path.exists();
     let default_model = completion_model
         .as_deref()
         .map(managed_opencode_default_model);
@@ -178,12 +172,14 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         runtime_env_ready: missing_env.is_empty(),
         api_key_configured,
         config_content_ready,
-        config_root,
-        dotenv_path,
+        config_root: Some(config_root.display().to_string()),
+        dotenv_path: dotenv_path
+            .exists()
+            .then(|| dotenv_path.display().to_string()),
         project_config_present,
         provider_id: MANAGED_OPENCODE_PROVIDER_ID,
         provider_name: MANAGED_OPENCODE_PROVIDER_NAME,
-        project_config_path,
+        project_config_path: Some(project_config_path.display().to_string()),
         base_url,
         completion_model,
         embedding_model,
@@ -322,8 +318,7 @@ pub(crate) async fn start_managed_opencode(
         anyhow::bail!("opencode host cannot be empty");
     }
     let port = request.port.unwrap_or(4099);
-    let working_directory = repo_root(&state.package_root)
-        .ok_or_else(|| anyhow::anyhow!("failed to resolve repo root for managed opencode"))?;
+    let working_directory = state.package_root.as_ref().to_path_buf();
 
     {
         let mut runtime = state
