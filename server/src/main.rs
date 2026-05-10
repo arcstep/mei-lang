@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    net::SocketAddr,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{Context, Result};
 use axum::{
@@ -7,9 +11,11 @@ use axum::{
     Router,
 };
 use clap::{Parser, Subcommand};
+use reqwest::Client as HttpClient;
 use tower_http::trace::TraceLayer;
 
 mod http;
+mod opencode;
 
 #[derive(Parser)]
 #[command(name = "mei")]
@@ -36,7 +42,10 @@ struct ServeArgs {
 
 #[derive(Clone)]
 pub(crate) struct AppState {
+    package_root: Arc<PathBuf>,
     source_root: Arc<PathBuf>,
+    opencode_runtime: Arc<Mutex<opencode::ManagedOpencodeRuntime>>,
+    opencode_http: Arc<HttpClient>,
 }
 
 #[tokio::main]
@@ -54,15 +63,18 @@ async fn main() -> Result<()> {
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
+    let package_root = std::env::current_dir().context("failed to read current directory")?;
+    opencode::runtime::load_repo_dotenv(&package_root);
     let source_root = if args.source_root.is_absolute() {
         args.source_root
     } else {
-        std::env::current_dir()
-            .context("failed to read current directory")?
-            .join(args.source_root)
+        package_root.join(args.source_root)
     };
     let state = AppState {
+        package_root: Arc::new(package_root),
         source_root: Arc::new(source_root),
+        opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+        opencode_http: Arc::new(HttpClient::new()),
     };
     let app = Router::new()
         .merge(http::router())
