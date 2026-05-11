@@ -1,36 +1,32 @@
 app(
     id = "01-mini",
     title = "01 Mini",
-    entries = [
-        entry(scene = "main.mei", id = "home", title = "01 Mini"),
-    ],
+    default_scene = "home",
 )
 
-scene(
+app.add_scene(
     id = "home",
     profile = "page",
-    summary = "最小单文件 scene-first 例子。",
+    summary = "最小单文件 scene-first 例子：app 直接拥有 scene，world 资源进入默认观察面。",
 )
 
-world(
+scene.add_world(
     resources = [
         resource(
             id = "welcome_doc",
             kind = "document",
             title = "欢迎文档",
-            content = "# Hello MeiLang\n\n这是新骨架中的最小单文件例子，用来验证 scene-first 工程链路、宿主壳层和 workspace web-components 已经接通。",
+            content = "# Hello MeiLang\n\n这是当前最小单文件例子，用来验证：\n\n1. `app -> scene -> world / frame` 的显式归属主干更清楚；\n2. world 中的 resource 可以进入默认观察面；\n3. `frame` 现在仍主要是默认观察面，而不是 world 真值本身；\n4. 后续如果继续推进 `world -> brick -> projection -> frame`，这个例子应作为最小基线，而不是最终形态。",
         ),
     ],
 )
 
-frame(
-    title = "01 Mini",
+scene.add_frame(
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
 )
 
-panel(
+frame.add_panel(
     id = "welcome",
-    title = "欢迎",
     area = "auto",
     blocks = [
         doc.markdown(

@@ -1,24 +1,22 @@
 app(
     id = "02-dataset",
     title = "02 Dataset",
-    entries = [
-        entry(scene = "main.mei", id = "home", title = "02 Dataset"),
-    ],
+    default_scene = "home",
 )
 
-scene(
+app.add_scene(
     id = "home",
     profile = "page",
-    summary = "用 scene-first 装配文件读取与 dataset 预览。",
+    summary = "app 直接拥有 scene，用同一份 world dataset 驱动多个默认观察面消费。",
 )
 
-world(
+scene.add_world(
     resources = [
         resource(
             id = "dataset_doc",
             kind = "document",
             title = "例子说明",
-            content = "## Dataset 例子\n\n这个例子验证：\n1. 宿主能从 examples 路径读取文件；\n2. kernel 能把 CSV 装配成 world 资源；\n3. 多个外部组件可以通过 `world_ref(...)` 消费同一份 dataset；\n4. 当前 chart 先作为外部组件扩展，而不是内建语法。",
+            content = "## Dataset 例子\n\n这个例子现在主要验证：\n1. `app -> scene -> world / frame` 的显式归属比旧入口写法更清楚；\n2. 宿主能从 examples 路径读取文件；\n3. kernel 能把 CSV 装配成 world 资源；\n4. 同一份 dataset 可以被默认 frame 中的多个观察面同时消费；\n5. table / summary / chart 目前仍是组件消费链，不代表 brick contract 已经正式实现；\n6. 后续如果进入 `world -> brick -> projection -> frame`，这里应作为过渡基线继续演化。",
         ),
         resource(
             id = "sales_data",
@@ -29,8 +27,7 @@ world(
     ],
 )
 
-frame(
-    title = "02 Dataset",
+scene.add_frame(
     layout = grid(
         columns = ["1fr", "2fr"],
         rows = ["auto", "minmax(220px, 1fr)"],
@@ -43,9 +40,8 @@ frame(
     ),
 )
 
-panel(
+frame.add_panel(
     id = "doc_panel",
-    title = "说明",
     area = "doc",
     blocks = [
         doc.markdown(
@@ -55,9 +51,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "table_panel",
-    title = "CSV 预览",
     area = "table",
     blocks = [
         component(
@@ -70,9 +65,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "summary_panel",
-    title = "摘要卡片（外部组件）",
     area = "summary",
     blocks = [
         component(
@@ -90,9 +84,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "chart_panel",
-    title = "最小图表位（外部组件）",
     area = "chart",
     blocks = [
         component(

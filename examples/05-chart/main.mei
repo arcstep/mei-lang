@@ -9,7 +9,7 @@ app(
 scene(
     id = "home",
     profile = "chart",
-    summary = "独立图表示例：验证 chart 作为外部组件的最小消费链。",
+    summary = "独立图表示例：验证同一份 world dataset 的多图观察。",
 )
 
 world(
@@ -18,7 +18,7 @@ world(
             id = "chart_doc",
             kind = "document",
             title = "图表说明",
-            content = "## Chart 例子\n\n这个例子验证：\n1. chart 组件先以外部扩展接入；\n2. 同一份 dataset 可被 table 与 chart 同时消费；\n3. chart contract 先稳定，再考虑语法层提升。",
+            content = "## Chart 例子\n\n这个例子验证：\n1. chart 组件先以外部扩展接入；\n2. 同一份 dataset 可被 table 与多个 chart 观察面同时消费；\n3. 当前仍是 `world_ref(dataset) -> component` 的过渡链路；\n4. 后续应逐步进入更稳定的 metric / mapping / brick contract。",
         ),
         resource(
             id = "monthly_data",
@@ -45,7 +45,7 @@ frame(
 
 panel(
     id = "doc_panel",
-    title = "说明",
+    title = "默认说明观察面",
     area = "doc",
     blocks = [
         doc.markdown(
@@ -57,7 +57,7 @@ panel(
 
 panel(
     id = "chart_revenue_panel",
-    title = "营收趋势（bar-mini）",
+    title = "营收观察（过渡态）",
     area = "chart_revenue",
     blocks = [
         component(
@@ -75,7 +75,7 @@ panel(
 
 panel(
     id = "table_panel",
-    title = "数据预览",
+    title = "表格观察（默认 view）",
     area = "table",
     blocks = [
         component(
@@ -90,7 +90,7 @@ panel(
 
 panel(
     id = "chart_orders_panel",
-    title = "订单趋势（bar-mini）",
+    title = "订单观察（过渡态）",
     area = "chart_orders",
     blocks = [
         component(
