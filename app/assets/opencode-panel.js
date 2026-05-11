@@ -74,6 +74,18 @@
     return normalizeTargetKey(currentTarget());
   }
 
+  function hasServerTarget() {
+    return !!(state.runtime && state.runtime.server_url);
+  }
+
+  function canStartManaged() {
+    return !!(
+      state.config &&
+      state.config.preferred_mode === "managed" &&
+      state.config.managed_start_available
+    );
+  }
+
   function buildBoundSessionTitle(targetKey) {
     const params = new URLSearchParams();
     params.set("app", String(root.dataset.app || ""));
@@ -111,17 +123,21 @@
     const runtime = state.runtime;
     const health = state.health;
     const config = state.config;
-    let label = "已断开";
+    let label = "未配置";
     let dotClass = "author-server-dot author-server-dot-off";
     if (state.loading) {
       label = "刷新中";
-    } else if (runtime && runtime.running && state.streamConnected) {
+    } else if (health && health.healthy && state.streamConnected) {
       label = "会话中";
       dotClass = "author-server-dot author-server-dot-on";
-    } else if (runtime && runtime.running && health && health.healthy) {
+    } else if (health && health.healthy) {
       label = "已连接";
       dotClass = "author-server-dot author-server-dot-on";
-    } else if (config && config.runtime_env_ready) {
+    } else if (runtime && runtime.connection_source === "managed" && runtime.running) {
+      label = "启动中";
+    } else if (runtime && runtime.connection_source === "external" && runtime.running) {
+      label = "未连接";
+    } else if (canStartManaged()) {
       label = "可启动";
     }
     els.serverStatus.textContent = label;
@@ -131,10 +147,16 @@
     const parts = [];
     parts.push("app=" + String(root.dataset.app || ""));
     parts.push("target=" + currentTargetKey());
+    if (config && config.preferred_mode) parts.push("mode=" + String(config.preferred_mode));
     if (config && config.provider_id) parts.push(String(config.provider_id));
     if (config && config.completion_model) parts.push(String(config.completion_model));
     if (runtime && runtime.server_url) parts.push("server=" + runtime.server_url);
-    if (config && Array.isArray(config.missing_env) && config.missing_env.length > 0) {
+    if (
+      config &&
+      config.preferred_mode === "managed" &&
+      Array.isArray(config.missing_env) &&
+      config.missing_env.length > 0
+    ) {
       parts.push("缺少环境变量：" + config.missing_env.join(", "));
     }
     els.config.textContent = parts.join(" · ");
@@ -608,7 +630,7 @@
 
   function connectEvents(forceReconnect) {
     const sessionId = String(state.sessionId || "").trim();
-    if (!(state.runtime && state.runtime.running) || !sessionId) {
+    if (!(state.health && state.health.healthy) || !sessionId) {
       closeEventStream();
       return;
     }
@@ -770,30 +792,6 @@
       state.runtime = runtime;
       state.sessionTargetKey = currentTargetKey();
       let runtimeRef = runtime;
-      if (
-        !state._meiClientAutoOpencodeOnce &&
-        config &&
-        config.runtime_env_ready &&
-        config.config_content_ready &&
-        runtimeRef &&
-        !runtimeRef.running
-      ) {
-        state._meiClientAutoOpencodeOnce = true;
-        try {
-          await fetchJson("/api/opencode/start", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ port: 4099 }),
-          });
-          state.runtime = await fetchJson("/api/opencode/runtime");
-          runtimeRef = state.runtime;
-        } catch (_) {
-          try {
-            state.runtime = await fetchJson("/api/opencode/runtime");
-            runtimeRef = state.runtime;
-          } catch (_) {}
-        }
-      }
       if (runtimeRef && runtimeRef.running) {
         try {
           state.health = await fetchJson("/api/opencode/health");
@@ -842,8 +840,8 @@
       }
       if (
         !state._meiAutoSessionOnce &&
-        state.runtime &&
-        state.runtime.running &&
+        state.health &&
+        state.health.healthy &&
         !state.sessionId
       ) {
         const forTarget = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
@@ -854,7 +852,7 @@
         }
       }
       renderSessions();
-      if (state.runtime && state.runtime.running && state.sessionId) {
+      if (state.health && state.health.healthy && state.sessionId) {
         await refreshMessages();
         connectEvents(false);
       } else {
@@ -865,6 +863,13 @@
   }
 
   async function startServer() {
+    if (!canStartManaged()) {
+      if (els.config) {
+        els.config.textContent = "当前默认使用 external OpenCode 服务；请先独立启动 opencode-server。";
+      }
+      await refreshAll();
+      return;
+    }
     setButtonState(true);
     if (els.config) els.config.textContent = "正在启动 OpenCode 服务...";
     try {
@@ -900,18 +905,18 @@
   }
 
   async function createSession() {
-    const wasRunning = state.runtime && state.runtime.running;
-    if (!wasRunning) {
-      await startServer();
-      if (state.sessionId) {
-        return;
+    const healthy = !!(state.health && state.health.healthy);
+    if (!healthy) {
+      if (els.config) {
+        els.config.textContent = "OpenCode 服务未连接；请先独立启动服务并点击“重连”。";
       }
+      return;
     }
     await postNewBoundSession();
   }
 
   async function refreshMessages() {
-    if (!state.sessionId || !(state.runtime && state.runtime.running)) {
+    if (!state.sessionId || !(state.health && state.health.healthy)) {
       closeEventStream();
       renderMessages();
       return;
@@ -932,11 +937,18 @@
       if (els.input) els.input.focus();
       return;
     }
-    if (!(state.runtime && state.runtime.running)) {
-      await startServer();
+    const healthy = !!(state.health && state.health.healthy);
+    if (!healthy) {
+      if (els.config) {
+        els.config.textContent = "OpenCode 服务未连接；请先独立启动服务并点击“重连”。";
+      }
+      return;
     }
     if (!state.sessionId) {
       await createSession();
+      if (!state.sessionId) {
+        return;
+      }
     }
     state.sessionTargetKey = currentTargetKey();
     state.sending = true;
@@ -964,7 +976,7 @@
 
   if (els.reconnect) {
     els.reconnect.addEventListener("click", function () {
-      const action = state.runtime && state.runtime.running ? refreshAll : startServer;
+      const action = canStartManaged() && !hasServerTarget() ? startServer : refreshAll;
       action().catch(function (error) {
         if (els.config) {
           els.config.textContent = "重连失败：" + String(error.message || error);
