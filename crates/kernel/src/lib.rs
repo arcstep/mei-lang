@@ -1,3 +1,4 @@
+#[path = "compile_new.rs"]
 mod compile;
 mod eval;
 mod model;
