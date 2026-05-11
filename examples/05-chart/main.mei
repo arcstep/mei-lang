@@ -1,18 +1,16 @@
 app(
     id = "05-chart",
     title = "05 Chart",
-    entries = [
-        entry(scene = "main.mei", id = "home", title = "05 Chart"),
-    ],
+    default_scene = "home",
 )
 
-scene(
+app.add_scene(
     id = "home",
     profile = "chart",
-    summary = "独立图表示例：验证同一份 world dataset 的多图观察。",
+    summary = "app 直接拥有 scene 的独立图表示例：验证同一份 world dataset 的多图观察。",
 )
 
-world(
+scene.set_world(
     resources = [
         resource(
             id = "chart_doc",
@@ -29,8 +27,7 @@ world(
     ],
 )
 
-frame(
-    title = "05 Chart",
+scene.set_frame(
     layout = grid(
         columns = ["1fr", "2fr"],
         rows = ["auto", "minmax(220px, 1fr)"],
@@ -43,9 +40,8 @@ frame(
     ),
 )
 
-panel(
+frame.add_panel(
     id = "doc_panel",
-    title = "默认说明观察面",
     area = "doc",
     blocks = [
         doc.markdown(
@@ -55,9 +51,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "chart_revenue_panel",
-    title = "营收观察（过渡态）",
     area = "chart_revenue",
     blocks = [
         component(
@@ -73,9 +68,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "table_panel",
-    title = "表格观察（默认 view）",
     area = "table",
     blocks = [
         component(
@@ -88,9 +82,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "chart_orders_panel",
-    title = "订单观察（过渡态）",
     area = "chart_orders",
     blocks = [
         component(

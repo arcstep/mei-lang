@@ -10,7 +10,7 @@ app.add_scene(
     summary = "最小单文件 scene-first 例子：app 直接拥有 scene，world 资源进入默认观察面。",
 )
 
-scene.add_world(
+scene.set_world(
     resources = [
         resource(
             id = "welcome_doc",
@@ -21,7 +21,7 @@ scene.add_world(
     ],
 )
 
-scene.add_frame(
+scene.set_frame(
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
 )
 

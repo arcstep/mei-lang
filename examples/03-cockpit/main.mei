@@ -1,18 +1,16 @@
 app(
     id = "03-cockpit",
     title = "03 Cockpit",
-    entries = [
-        entry(scene = "main.mei", id = "home", title = "03 Cockpit"),
-    ],
+    default_scene = "home",
 )
 
-scene(
+app.add_scene(
     id = "home",
     profile = "cockpit",
-    summary = "scene-first 简单看板例子。",
+    summary = "app 直接拥有 scene 的简单看板例子。",
 )
 
-world(
+scene.set_world(
     resources = [
         resource(
             id = "metrics",
@@ -29,8 +27,7 @@ world(
     ],
 )
 
-frame(
-    title = "03 Cockpit",
+scene.set_frame(
     layout = grid(
         columns = ["2fr", "1fr"],
         areas = [
@@ -41,9 +38,8 @@ frame(
     ),
 )
 
-panel(
+frame.add_panel(
     id = "cards_panel",
-    title = "核心指标",
     area = "cards",
     blocks = [
         component(
@@ -56,9 +52,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "doc_panel",
-    title = "说明",
     area = "doc",
     blocks = [
         doc.markdown(

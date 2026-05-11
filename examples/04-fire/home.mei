@@ -1,4 +1,4 @@
-scene(
+app.add_scene(
     id = "room_fire_click",
     profile = "simulation",
     summary = "房间角落随机起火。先点灭火器，再点火点。用于验证 scene-first 与最小运行态骨架。",
@@ -9,7 +9,7 @@ scene(
     },
 )
 
-world(
+scene.set_world(
     topology = grid(
         rows = 4,
         cols = 4,
@@ -37,7 +37,7 @@ world(
     ],
 )
 
-flow(
+scene.set_flow(
     start = start(mode = "manual", action_label = "开始演练"),
     interactions = [
         click(
@@ -67,8 +67,7 @@ flow(
     ),
 )
 
-frame(
-    title = "04 Fire",
+scene.set_frame(
     layout = grid(
         columns = ["2fr", "1fr"],
         areas = [
@@ -79,9 +78,8 @@ frame(
     ),
 )
 
-panel(
+frame.add_panel(
     id = "board",
-    title = "场景网格",
     area = "board",
     blocks = [
         component(
@@ -94,9 +92,8 @@ panel(
     ],
 )
 
-panel(
+frame.add_panel(
     id = "status",
-    title = "状态与操作",
     area = "status",
     blocks = [
         doc.markdown(

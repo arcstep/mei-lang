@@ -1,7 +1,9 @@
 app(
     id = "04-fire",
     title = "04 Fire",
-    entries = [
-        entry(scene = "home.mei", id = "home", title = "04 Fire"),
-    ],
+    default_scene = "room_fire_click",
+)
+
+app.add_scene(
+    scene_file_ref("home.mei", id = "room_fire_click"),
 )
