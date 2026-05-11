@@ -1,11 +1,11 @@
 class MeiChartBarMini extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const dataset = props.dataset?.dataset || props.dataset || {};
-    const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
-    const columns = Array.isArray(dataset.columns) ? dataset.columns : [];
-    const labelField = props.labelField || columns[0] || "label";
-    const valueField = props.valueField || columns[1] || "value";
+    const rows = resolveRows(props);
+    const columns = resolveColumns(props, rows);
+    const channels = resolveChannels(props, columns);
+    const labelField = channels.xField;
+    const valueField = channels.yField;
     const points = rows
       .map((row) => ({
         label: String(row?.[labelField] ?? ""),
@@ -31,7 +31,7 @@ class MeiChartBarMini extends HTMLElement {
       <section class="wrap">
         <div class="head">
           <h4 class="title">${escapeHtml(props.title || "最小图表示例")}</h4>
-          <span class="meta">${escapeHtml(`${labelField} -> ${valueField}`)}</span>
+          <span class="meta">${escapeHtml(`${channels.xName} -> ${channels.yName}`)}</span>
         </div>
         <div class="rows">
           ${renderRows(points, maxValue)}
@@ -39,6 +39,50 @@ class MeiChartBarMini extends HTMLElement {
       </section>
     `;
   }
+}
+
+function resolveRows(props) {
+  const data = props.data || props.value || null;
+  if (data && Array.isArray(data.value)) {
+    return data.value;
+  }
+  if (Array.isArray(data?.rows)) {
+    return data.rows;
+  }
+  const dataset = props.dataset?.dataset || props.dataset || {};
+  return Array.isArray(dataset.rows) ? dataset.rows : [];
+}
+
+function resolveColumns(props, rows) {
+  const data = props.data || props.value || null;
+  if (Array.isArray(data?.schema) && data.schema.length > 0) {
+    return data.schema.map((column) => column?.name).filter(Boolean);
+  }
+  if (Array.isArray(data?.columns) && data.columns.length > 0) {
+    return data.columns;
+  }
+  const dataset = props.dataset?.dataset || props.dataset || {};
+  if (Array.isArray(dataset.columns) && dataset.columns.length > 0) {
+    return dataset.columns;
+  }
+  if (rows.length > 0 && typeof rows[0] === "object" && rows[0] !== null) {
+    return Object.keys(rows[0]);
+  }
+  return ["label", "value"];
+}
+
+function resolveChannels(props, columns) {
+  const mapping = props.mapping || {};
+  const xDef = Array.isArray(mapping.x) ? mapping.x[0] || {} : {};
+  const yDef = Array.isArray(mapping.y) ? mapping.y[0] || {} : {};
+  const xField = xDef.field || props.labelField || columns[0] || "label";
+  const yField = yDef.field || props.valueField || columns[1] || "value";
+  return {
+    xField,
+    yField,
+    xName: xDef.name || xField,
+    yName: yDef.name || yField,
+  };
 }
 
 function renderRows(points, maxValue) {

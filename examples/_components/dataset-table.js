@@ -1,9 +1,9 @@
 class MeiDatasetTable extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const dataset = props.dataset?.dataset || props.dataset || {};
-    const columns = dataset.columns || [];
-    const rows = dataset.rows || [];
+    const data = resolveDataSource(props);
+    const columns = data.columns;
+    const rows = data.rows;
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `
       <style>
@@ -18,7 +18,7 @@ class MeiDatasetTable extends HTMLElement {
       </style>
       <div class="wrap">
         <div class="meta">
-          <strong>${escapeHtml(dataset.title || dataset.id || "Dataset")}</strong>
+          <strong>${escapeHtml(data.title)}</strong>
           <span>${rows.length} rows</span>
         </div>
         <div class="table-wrap">
@@ -34,6 +34,47 @@ class MeiDatasetTable extends HTMLElement {
       </div>
     `;
   }
+}
+
+function resolveDataSource(props) {
+  const direct = props.data || props.value || null;
+  if (direct && Array.isArray(direct.value)) {
+    return {
+      title: direct.label || direct.id || "Dataframe",
+      columns: columnsFromSchemaOrRows(direct.schema, direct.value),
+      rows: direct.value,
+    };
+  }
+  if (direct && Array.isArray(direct.rows)) {
+    return {
+      title: direct.title || direct.id || "Dataset",
+      columns: Array.isArray(direct.columns) ? direct.columns : columnsFromSchemaOrRows(direct.schema, direct.rows),
+      rows: direct.rows,
+    };
+  }
+  const dataset = props.dataset?.dataset || props.dataset || {};
+  const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+  const columns = Array.isArray(dataset.columns)
+    ? dataset.columns
+    : columnsFromSchemaOrRows(dataset.schema, rows);
+  return {
+    title: dataset.title || dataset.id || "Dataset",
+    columns,
+    rows,
+  };
+}
+
+function columnsFromSchemaOrRows(schema, rows) {
+  if (Array.isArray(schema) && schema.length > 0) {
+    const fromSchema = schema.map((column) => column?.name).filter(Boolean);
+    if (fromSchema.length > 0) {
+      return fromSchema;
+    }
+  }
+  if (Array.isArray(rows) && rows.length > 0 && typeof rows[0] === "object" && rows[0] !== null) {
+    return Object.keys(rows[0]);
+  }
+  return [];
 }
 
 function parseProps(element) {

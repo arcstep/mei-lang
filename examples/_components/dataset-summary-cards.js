@@ -1,9 +1,10 @@
 class MeiDatasetSummaryCards extends HTMLElement {
   connectedCallback() {
     const props = parseProps(this);
-    const dataset = props.dataset?.dataset || props.dataset || {};
+    const scalarMetric = resolveScalarMetric(props);
+    const dataset = props.data?.rows ? props.data : props.dataset?.dataset || props.dataset || {};
     const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
-    const metrics = normalizeMetrics(props.metrics, dataset.columns || [], rows);
+    const metrics = scalarMetric || normalizeMetrics(props.metrics, dataset.columns || [], rows);
     this.attachShadow({ mode: "open" });
     this.shadowRoot.innerHTML = `
       <style>
@@ -25,6 +26,28 @@ class MeiDatasetSummaryCards extends HTMLElement {
       </section>
     `;
   }
+}
+
+function resolveScalarMetric(props) {
+  const metric = props.value || props.data || null;
+  if (!metric || metric.shape !== "scalar" || typeof metric.value !== "object" || metric.value === null) {
+    return null;
+  }
+  const schema = Array.isArray(metric.schema) ? metric.schema : [];
+  const units = new Map(
+    schema
+      .filter((column) => column && typeof column.name === "string")
+      .map((column) => [column.name, column.unit || ""])
+  );
+  return Object.entries(metric.value).map(([key, rawValue]) => {
+    const unit = units.get(key) || "";
+    const value = formatMetricValue(rawValue);
+    return {
+      label: key,
+      value: `${value}${unit}`.trim(),
+      hint: metric.id || "scalar_map",
+    };
+  });
 }
 
 function normalizeMetrics(rawMetrics, columns, rows) {
@@ -73,6 +96,14 @@ function evaluateMetric(metric, rows) {
     value: `${value}${unit}`.trim(),
     hint: column ? `${op}(${column})` : "count(rows)",
   };
+}
+
+function formatMetricValue(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) {
+    return Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2);
+  }
+  return String(value ?? "");
 }
 
 function parseProps(element) {

@@ -16,13 +16,51 @@ scene.set_world(
             id = "dataset_doc",
             kind = "document",
             title = "例子说明",
-            content = "## Dataset 例子\n\n这个例子现在主要验证：\n1. `app -> scene -> world / frame` 的显式归属比旧入口写法更清楚；\n2. 宿主能从 examples 路径读取文件；\n3. kernel 能把 CSV 装配成 world 资源；\n4. 同一份 dataset 可以被默认 frame 中的多个观察面同时消费；\n5. table / summary / chart 目前仍是组件消费链，不代表 brick contract 已经正式实现；\n6. 后续如果进入 `world -> brick -> projection -> frame`，这里应作为过渡基线继续演化。",
+            content = "## Dataset 例子\n\n这个例子现在主要验证：\n1. dataset 资源可以先进入 world；\n2. 再通过 `ds.dataset_view(...)` 派生稳定数据视图；\n3. `data_ref(...)` 与 `metric_ref(...)` 可以作为统一绑定来源；\n4. table / summary / chart 消费同一份 data contract。",
         ),
         resource(
             id = "sales_data",
             kind = "dataset",
             title = "销售样本 CSV",
             source = ds.csv(path = "data/sales.csv"),
+        ),
+    ],
+)
+
+sales_rows = ds.data_ref("sales_data")
+
+ds.dataset_view(
+    id = "sales_analytics",
+    title = "销售分析视图",
+    rowset = sales_rows,
+    schema = [
+        ds.column("label", "string"),
+        ds.column("value", "number", unit = "元"),
+        ds.column("unit", "string"),
+    ],
+    metrics = [
+        ds.scalar_map(
+            id = "sales_overview",
+            label = "销售概览",
+            schema = [
+                ds.column("total_rows", "number", unit = "条"),
+                ds.column("total_value", "number", unit = "元"),
+                ds.column("avg_value", "number", unit = "元"),
+            ],
+            values = {
+                "total_rows": ds.count(sales_rows),
+                "total_value": ds.sum(ds.number(sales_rows, "value")),
+                "avg_value": ds.avg(ds.number(sales_rows, "value")),
+            },
+        ),
+        ds.dataframe(
+            id = "sales_ranking",
+            label = "销售对比",
+            schema = [
+                ds.column("label", "string"),
+                ds.column("value", "number", unit = "元"),
+            ],
+            value = ds.group_by(sales_rows, by = "label", value = "value", agg = "sum"),
         ),
     ],
 )
@@ -59,7 +97,7 @@ frame.add_panel(
             "dataset.table",
             area = "auto",
             props = {
-                "dataset": world_ref("sales_data"),
+                "data": ds.data_ref("sales_analytics"),
             },
         ),
     ],
@@ -73,12 +111,7 @@ frame.add_panel(
             "dataset.summary-cards",
             area = "auto",
             props = {
-                "dataset": world_ref("sales_data"),
-                "metrics": [
-                    {"label": "指标条目", "op": "count"},
-                    {"label": "数值总和", "op": "sum", "column": "value"},
-                    {"label": "数值均值", "op": "avg", "column": "value"},
-                ],
+                "value": ds.metric_ref("sales_overview", from_dataset = "sales_analytics"),
             },
         ),
     ],
@@ -92,10 +125,12 @@ frame.add_panel(
             "chart.bar-mini",
             area = "auto",
             props = {
-                "title": "销售指标对比（bar-mini）",
-                "dataset": world_ref("sales_data"),
-                "labelField": "label",
-                "valueField": "value",
+                "title": "销售指标对比（metric + mapping）",
+                "data": ds.metric_ref("sales_ranking", from_dataset = "sales_analytics"),
+                "mapping": {
+                    "x": [{"field": "label", "name": "指标"}],
+                    "y": [{"field": "value", "name": "数值"}],
+                },
             },
         ),
     ],

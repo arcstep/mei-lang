@@ -16,13 +16,46 @@ scene.set_world(
             id = "chart_doc",
             kind = "document",
             title = "图表说明",
-            content = "## Chart 例子\n\n这个例子验证：\n1. chart 组件先以外部扩展接入；\n2. 同一份 dataset 可被 table 与多个 chart 观察面同时消费；\n3. 当前仍是 `world_ref(dataset) -> component` 的过渡链路；\n4. 后续应逐步进入更稳定的 metric / mapping / brick contract。",
+            content = "## Chart 例子\n\n这个例子验证：\n1. `chart.*` 组件仍走第一方外部扩展；\n2. 图表输入优先消费 `metric_ref(...)`；\n3. 字段绑定统一走 `mapping`；\n4. table 与 chart 共享同一份 data contract。",
         ),
         resource(
             id = "monthly_data",
             kind = "dataset",
             title = "月度经营数据",
             source = ds.csv(path = "data/monthly_sales.csv"),
+        ),
+    ],
+)
+
+monthly_rows = ds.data_ref("monthly_data")
+
+ds.dataset_view(
+    id = "monthly_metrics",
+    title = "月度图表指标",
+    rowset = monthly_rows,
+    schema = [
+        ds.column("month", "string"),
+        ds.column("revenue", "number", unit = "元"),
+        ds.column("orders", "number", unit = "单"),
+    ],
+    metrics = [
+        ds.dataframe(
+            id = "revenue_by_month",
+            label = "月度营收",
+            schema = [
+                ds.column("label", "string"),
+                ds.column("value", "number", unit = "元"),
+            ],
+            value = ds.trend(monthly_rows, "month", value = "revenue", by = "month", agg = "sum"),
+        ),
+        ds.dataframe(
+            id = "orders_by_month",
+            label = "月度订单",
+            schema = [
+                ds.column("label", "string"),
+                ds.column("value", "number", unit = "单"),
+            ],
+            value = ds.trend(monthly_rows, "month", value = "orders", by = "month", agg = "sum"),
         ),
     ],
 )
@@ -60,9 +93,11 @@ frame.add_panel(
             area = "auto",
             props = {
                 "title": "月度营收",
-                "dataset": world_ref("monthly_data"),
-                "labelField": "month",
-                "valueField": "revenue",
+                "data": ds.metric_ref("revenue_by_month", from_dataset = "monthly_metrics"),
+                "mapping": {
+                    "x": [{"field": "label", "name": "月份"}],
+                    "y": [{"field": "value", "name": "营收"}],
+                },
             },
         ),
     ],
@@ -76,7 +111,7 @@ frame.add_panel(
             "dataset.table",
             area = "auto",
             props = {
-                "dataset": world_ref("monthly_data"),
+                "data": ds.data_ref("monthly_metrics"),
             },
         ),
     ],
@@ -91,9 +126,11 @@ frame.add_panel(
             area = "auto",
             props = {
                 "title": "月度订单",
-                "dataset": world_ref("monthly_data"),
-                "labelField": "month",
-                "valueField": "orders",
+                "data": ds.metric_ref("orders_by_month", from_dataset = "monthly_metrics"),
+                "mapping": {
+                    "x": [{"field": "label", "name": "月份"}],
+                    "y": [{"field": "value", "name": "订单"}],
+                },
             },
         ),
     ],
