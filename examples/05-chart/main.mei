@@ -16,13 +16,13 @@ scene.set_world(
             id = "chart_doc",
             kind = "document",
             title = "图表说明",
-            content = "## Chart 例子\n\n这个例子验证：\n1. `chart.*` 组件仍走第一方外部扩展；\n2. 图表输入优先消费 `metric_ref(...)`；\n3. 字段绑定统一走 `mapping`；\n4. table 与 chart 共享同一份 data contract。",
+            content = "## Chart 完整回归\n\n覆盖 11 种 chart.* 图型、完整 mapping 通道与 legacy props 兼容：multi-metric、stack、percent、dataZoom、radar dimensions、boxplot raw。",
         ),
         resource(
             id = "monthly_data",
             kind = "dataset",
-            title = "月度经营数据",
-            source = ds.csv(path = "data/monthly_sales.csv"),
+            title = "月度经营宽表",
+            source = ds.csv(path = "data/chart_lab.csv"),
         ),
     ],
 )
@@ -30,13 +30,23 @@ scene.set_world(
 monthly_rows = ds.data_ref("monthly_data")
 
 ds.dataset_view(
-    id = "monthly_metrics",
-    title = "月度图表指标",
+    id = "chart_lab",
+    title = "图表实验视图",
     rowset = monthly_rows,
     schema = [
         ds.column("month", "string"),
+        ds.column("region", "string"),
         ds.column("revenue", "number", unit = "元"),
         ds.column("orders", "number", unit = "单"),
+        ds.column("cost", "number", unit = "元"),
+        ds.column("quality", "number"),
+        ds.column("speed", "number"),
+        ds.column("satisfaction", "number"),
+        ds.column("min", "number"),
+        ds.column("q1", "number"),
+        ds.column("median", "number"),
+        ds.column("q3", "number"),
+        ds.column("max", "number"),
     ],
     metrics = [
         ds.dataframe(
@@ -46,7 +56,7 @@ ds.dataset_view(
                 ds.column("label", "string"),
                 ds.column("value", "number", unit = "元"),
             ],
-            value = ds.trend(monthly_rows, "month", value = "revenue", by = "month", agg = "sum"),
+            value = ds.trend(monthly_rows, date_field = "month", value = "revenue", by = "month", agg = "sum"),
         ),
         ds.dataframe(
             id = "orders_by_month",
@@ -55,27 +65,27 @@ ds.dataset_view(
                 ds.column("label", "string"),
                 ds.column("value", "number", unit = "单"),
             ],
-            value = ds.trend(monthly_rows, "month", value = "orders", by = "month", agg = "sum"),
+            value = ds.trend(monthly_rows, date_field = "month", value = "orders", by = "month", agg = "sum"),
+        ),
+        ds.dataframe(
+            id = "region_share",
+            label = "区域营收占比",
+            schema = [
+                ds.column("label", "string"),
+                ds.column("value", "number", unit = "元"),
+            ],
+            value = ds.group_by(monthly_rows, fields = ["region"], value = "revenue", agg = "sum"),
         ),
     ],
 )
 
 scene.set_frame(
-    layout = grid(
-        columns = ["1fr", "2fr"],
-        rows = ["auto", "minmax(220px, 1fr)"],
-        areas = [
-            ["doc", "chart_revenue"],
-            ["table", "chart_orders"],
-        ],
-        gap = "16px",
-        padding = "20px",
-    ),
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
 )
 
 frame.add_panel(
     id = "doc_panel",
-    area = "doc",
+    area = "auto",
     blocks = [
         doc.markdown(
             area = "auto",
@@ -85,15 +95,39 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "chart_revenue_panel",
-    area = "chart_revenue",
+    id = "line_area_trend_panel",
+    area = "auto",
     blocks = [
         component(
-            "chart.bar-mini",
+            "chart.line",
             area = "auto",
             props = {
-                "title": "月度营收",
-                "data": ds.metric_ref("revenue_by_month", from_dataset = "monthly_metrics"),
+                "title": "line 月度营收",
+                "data": ds.metric_ref("revenue_by_month", from_dataset = "chart_lab"),
+                "mapping": {
+                    "x": [{"field": "label", "name": "月份"}],
+                    "y": [{"field": "value", "name": "营收"}],
+                },
+            },
+        ),
+        component(
+            "chart.area",
+            area = "auto",
+            props = {
+                "title": "area 月度订单",
+                "data": ds.metric_ref("orders_by_month", from_dataset = "chart_lab"),
+                "mapping": {
+                    "x": [{"field": "label", "name": "月份"}],
+                    "y": [{"field": "value", "name": "订单"}],
+                },
+            },
+        ),
+        component(
+            "chart.trend",
+            area = "auto",
+            props = {
+                "title": "trend 月度营收",
+                "data": ds.metric_ref("revenue_by_month", from_dataset = "chart_lab"),
                 "mapping": {
                     "x": [{"field": "label", "name": "月份"}],
                     "y": [{"field": "value", "name": "营收"}],
@@ -104,33 +138,144 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "table_panel",
-    area = "table",
+    id = "column_bar_panel",
+    area = "auto",
     blocks = [
         component(
-            "dataset.table",
+            "chart.column",
             area = "auto",
             props = {
-                "data": ds.data_ref("monthly_metrics"),
+                "title": "column 多指标 stack + percent",
+                "data": ds.data_ref("chart_lab"),
+                "stack": True,
+                "transform": {"mode": "percent"},
+                "mapping": {
+                    "x": [{"field": "month", "name": "月份"}],
+                    "y": [
+                        {"field": "revenue", "name": "营收"},
+                        {"field": "cost", "name": "成本"},
+                    ],
+                    "group": [{"field": "region", "name": "区域"}],
+                },
+            },
+        ),
+        component(
+            "chart.bar",
+            area = "auto",
+            props = {
+                "title": "bar 区域订单",
+                "data": ds.data_ref("chart_lab"),
+                "mapping": {
+                    "x": [{"field": "region", "name": "区域"}],
+                    "y": [{"field": "orders", "name": "订单"}],
+                },
             },
         ),
     ],
 )
 
 frame.add_panel(
-    id = "chart_orders_panel",
-    area = "chart_orders",
+    id = "pie_family_panel",
+    area = "auto",
     blocks = [
         component(
-            "chart.bar-mini",
+            "chart.pie",
             area = "auto",
             props = {
-                "title": "月度订单",
-                "data": ds.metric_ref("orders_by_month", from_dataset = "monthly_metrics"),
+                "title": "pie 区域营收",
+                "data": ds.metric_ref("region_share", from_dataset = "chart_lab"),
                 "mapping": {
-                    "x": [{"field": "label", "name": "月份"}],
-                    "y": [{"field": "value", "name": "订单"}],
+                    "label": [{"field": "label", "name": "区域"}],
+                    "y": [{"field": "value", "name": "营收"}],
                 },
+            },
+        ),
+        component(
+            "chart.donut",
+            area = "auto",
+            props = {
+                "title": "donut 区域营收",
+                "data": ds.metric_ref("region_share", from_dataset = "chart_lab"),
+                "mapping": {
+                    "label": [{"field": "label", "name": "区域"}],
+                    "y": [{"field": "value", "name": "营收"}],
+                },
+            },
+        ),
+        component(
+            "chart.rose",
+            area = "auto",
+            props = {
+                "title": "rose 区域营收",
+                "data": ds.metric_ref("region_share", from_dataset = "chart_lab"),
+                "mapping": {
+                    "label": [{"field": "label", "name": "区域"}],
+                    "y": [{"field": "value", "name": "营收"}],
+                },
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "scatter_radar_boxplot_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "chart.scatter",
+            area = "auto",
+            props = {
+                "title": "scatter 订单与营收",
+                "data": ds.data_ref("chart_lab"),
+                "mapping": {
+                    "x": [{"field": "orders", "name": "订单"}],
+                    "y": [{"field": "revenue", "name": "营收"}],
+                    "size": [{"field": "cost", "name": "成本"}],
+                    "color": [{"field": "region", "name": "区域"}],
+                },
+            },
+        ),
+        component(
+            "chart.radar",
+            area = "auto",
+            props = {
+                "title": "radar 区域体验评分",
+                "data": ds.data_ref("chart_lab"),
+                "dimensions": ["quality", "speed", "satisfaction"],
+                "mapping": {
+                    "label": [{"field": "region", "name": "区域"}],
+                    "y": [
+                        {"field": "quality", "name": "质量"},
+                        {"field": "speed", "name": "时效"},
+                        {"field": "satisfaction", "name": "满意度"},
+                    ],
+                },
+            },
+        ),
+        component(
+            "chart.boxplot",
+            area = "auto",
+            props = {
+                "title": "boxplot 月度营收分布",
+                "data": ds.data_ref("chart_lab"),
+                "mapping": {
+                    "x": [{"field": "month", "name": "月份"}],
+                    "y": [{"field": "revenue", "name": "营收"}],
+                    "boxplot": [
+                        {"field": "min", "name": "min"},
+                        {"field": "q1", "name": "q1"},
+                        {"field": "median", "name": "median"},
+                        {"field": "q3", "name": "q3"},
+                        {"field": "max", "name": "max"},
+                    ],
+                },
+            },
+        ),
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "data": ds.data_ref("chart_lab"),
             },
         ),
     ],

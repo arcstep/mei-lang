@@ -16,6 +16,50 @@
       "tag": "mei-chart-bar-mini",
       "script": "chart-bar-mini.js"
     },
+    "chart.line": {
+      "tag": "mei-chart-line",
+      "script": "chart-line.js"
+    },
+    "chart.area": {
+      "tag": "mei-chart-area",
+      "script": "chart-area.js"
+    },
+    "chart.trend": {
+      "tag": "mei-chart-trend",
+      "script": "chart-trend.js"
+    },
+    "chart.column": {
+      "tag": "mei-chart-column",
+      "script": "chart-column.js"
+    },
+    "chart.bar": {
+      "tag": "mei-chart-bar",
+      "script": "chart-bar.js"
+    },
+    "chart.pie": {
+      "tag": "mei-chart-pie",
+      "script": "chart-pie.js"
+    },
+    "chart.donut": {
+      "tag": "mei-chart-donut",
+      "script": "chart-donut.js"
+    },
+    "chart.rose": {
+      "tag": "mei-chart-rose",
+      "script": "chart-rose.js"
+    },
+    "chart.scatter": {
+      "tag": "mei-chart-scatter",
+      "script": "chart-scatter.js"
+    },
+    "chart.radar": {
+      "tag": "mei-chart-radar",
+      "script": "chart-radar.js"
+    },
+    "chart.boxplot": {
+      "tag": "mei-chart-boxplot",
+      "script": "chart-boxplot.js"
+    },
     "cockpit.metric-cards": {
       "tag": "mei-cockpit-metric-cards",
       "script": "cockpit-metric-cards.js"

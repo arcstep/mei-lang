@@ -28,6 +28,13 @@ scene.set_world(
 )
 
 sales_rows = ds.data_ref("sales_data")
+clean_rows = ds.pipe(
+    sales_rows,
+    ds.step_where(ds.not_empty("label")),
+    ds.step_sort("value", order = "desc"),
+    ds.step_limit(200),
+)
+ranking_rows = ds.group_by(clean_rows, fields = ["label"], value = "value", agg = "sum")
 
 ds.dataset_view(
     id = "sales_analytics",
@@ -60,7 +67,27 @@ ds.dataset_view(
                 ds.column("label", "string"),
                 ds.column("value", "number", unit = "元"),
             ],
-            value = ds.group_by(sales_rows, by = "label", value = "value", agg = "sum"),
+            value = ranking_rows,
+        ),
+    ],
+)
+
+ds.metric_pack(
+    id = "sales_pack",
+    metrics = [
+        ds.computed_metric(
+            key = "pack_total_value",
+            label = "pack 总额",
+            dataset = "sales_analytics",
+            op = ds.sum_numeric_field(field = "value"),
+            fallback = 0,
+        ),
+        ds.computed_metric(
+            key = "pack_focus_rate",
+            label = "重点指标占比",
+            dataset = "sales_analytics",
+            op = ds.percent_of_eq("label", "A"),
+            fallback = 0,
         ),
     ],
 )
