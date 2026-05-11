@@ -2,32 +2,49 @@ AI-native scene orchestration language for building apps from world models, UI c
 
 ## 本地启动
 
-在 **`mei-lang` 仓库根目录**执行（当前工作目录会作为服务的 `package_root`，用于加载 `.env` 与解析相对路径）：
+推荐把 `OpenCode` 和 `MeiLang` 分别启动、分别管理。
+
+### 1. 启动 `opencode-server`
+
+```bash
+opencode serve --hostname 127.0.0.1 --port 4099
+```
+
+### 2. 启动 `mei-lang`
 
 ```bash
 cd mei-lang
 cargo run -p mei-lang-server -- serve
 ```
 
-默认：
+默认行为：
 
-- 监听 **http://127.0.0.1:3000**
+- `mei-lang` 监听 **http://127.0.0.1:3000**
 - 示例工程根目录为仓库下的 **`examples/`**
+- 默认按 `external` 模式连接 **http://127.0.0.1:4099**
 
-浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**（由服务端提供）。
+浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。
 
-### 常用参数
+## 停止服务
+
+- 停止 `opencode-server`：在它自己的终端里按 `Ctrl+C`
+- 停止 `mei-lang`：在 `mei serve` 所在终端里按 `Ctrl+C`
+
+## 最少配置
+
+如果需要覆盖默认 OpenCode 地址：
 
 ```bash
-cargo run -p mei-lang-server -- serve --host 0.0.0.0 --port 3000 --source-root examples
+export MEI_OPENCODE_URL=http://127.0.0.1:4099
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `--source-root` | Mei 源码根目录；相对路径相对于**启动时的当前工作目录** |
-| `--host` | 绑定地址，默认 `127.0.0.1` |
-| `--port` | 端口，默认 `3000` |
+如果你确实要恢复“启动 `mei` 时顺带拉起托管 OpenCode”，显式使用：
 
-### OpenCode 与 `.env`
+```bash
+cargo run -p mei-lang-server -- serve --auto-opencode
+```
 
-服务端会在 **`package_root`**（即你在上面 `cd` 到的目录）尝试加载 `.env`。若你把配置放在上级目录（例如单独的 monorepo 根），请复制或链接到 `mei-lang/.env`，或在启动前通过环境变量注入所需配置。
+## 进一步阅读
+
+- OpenCode 服务边界与设计：`../docs/mei-lang/topics/opencode-service-boundary.md`
+- OpenCode 运维与排障：`../docs/mei-lang/implementation/extensions/05-opencode-service-operations.md`
