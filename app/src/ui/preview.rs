@@ -171,7 +171,7 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
             layout.padding.clone().unwrap_or_else(|| "0".to_string()),
         ),
         _ => format!(
-            "display:grid;grid-template-columns:{};grid-template-rows:{};gap:{};padding:{};",
+            "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};",
             layout
                 .columns
                 .clone()
@@ -182,6 +182,7 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
                 .clone()
                 .unwrap_or_else(|| vec!["auto".to_string()])
                 .join(" "),
+            grid_template_areas_style(layout),
             layout.gap.clone().unwrap_or_else(|| "16px".to_string()),
             layout.padding.clone().unwrap_or_else(|| "0".to_string()),
         ),
@@ -189,10 +190,73 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
 }
 
 fn panel_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
-    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid")) {
+    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
+        && layout
+            .and_then(|value| value.areas.as_ref())
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    {
         if let Some(area) = area {
             return format!("grid-area:{};", area);
         }
     }
     String::new()
+}
+
+fn grid_template_areas_style(layout: &mei_lang_kernel::LayoutDecl) -> String {
+    let Some(rows) = layout.areas.as_ref() else {
+        return String::new();
+    };
+    let rows = rows
+        .iter()
+        .filter(|row| !row.is_empty())
+        .map(|row| {
+            let template = row
+                .iter()
+                .map(|area| {
+                    let area = area.trim();
+                    if area.is_empty() { "." } else { area }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            format!("'{template}'")
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        String::new()
+    } else {
+        format!("grid-template-areas:{};", rows.join(" "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{panel_style, surface_layout_style};
+    use mei_lang_kernel::LayoutDecl;
+
+    fn grid_layout() -> LayoutDecl {
+        LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string(), "2fr".to_string()]),
+            rows: None,
+            areas: Some(vec![vec!["doc".to_string(), "table".to_string()]]),
+            gap: Some("16px".to_string()),
+            padding: Some("20px".to_string()),
+        }
+    }
+
+    #[test]
+    fn surface_layout_style_emits_grid_template_areas() {
+        let layout = grid_layout();
+        let style = surface_layout_style(Some(&layout));
+        assert!(style.contains("grid-template-areas:'doc table';"));
+    }
+
+    #[test]
+    fn panel_style_requires_named_grid_areas() {
+        let mut layout = grid_layout();
+        layout.areas = None;
+        assert_eq!(panel_style(Some("doc"), Some(&layout)), "");
+    }
 }
