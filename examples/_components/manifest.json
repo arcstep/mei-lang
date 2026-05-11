@@ -8,6 +8,14 @@
       "tag": "mei-dataset-table",
       "script": "dataset-table.js"
     },
+    "dataset.summary-cards": {
+      "tag": "mei-dataset-summary-cards",
+      "script": "dataset-summary-cards.js"
+    },
+    "chart.bar-mini": {
+      "tag": "mei-chart-bar-mini",
+      "script": "chart-bar-mini.js"
+    },
     "cockpit.metric-cards": {
       "tag": "mei-cockpit-metric-cards",
       "script": "cockpit-metric-cards.js"
