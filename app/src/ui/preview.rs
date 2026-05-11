@@ -142,6 +142,31 @@ fn resolve_value(
                 }
                 return Value::Null;
             }
+            if map.get("metric").and_then(Value::as_str).is_some() {
+                let mut compat = serde_json::Map::new();
+                compat.insert("__ref".to_string(), Value::String("metric".to_string()));
+                if let Some(id) = map.get("metric").cloned() {
+                    compat.insert("id".to_string(), id);
+                }
+                if let Some(from) = map
+                    .get("from_dataset")
+                    .cloned()
+                    .or_else(|| map.get("from").cloned())
+                {
+                    compat.insert("from_dataset".to_string(), from);
+                }
+                if let Some(metric) = resolve_metric_ref(&compat, resources) {
+                    return serde_json::to_value(metric).unwrap_or(Value::Null);
+                }
+            }
+            if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                && map.get("type").and_then(Value::as_str) == Some("rows")
+            {
+                if let Some(dataset) = resolve_rows_expr(map, resources) {
+                    return serde_json::to_value(dataset).unwrap_or(Value::Null);
+                }
+                return Value::Null;
+            }
             let mut out = serde_json::Map::new();
             for (key, entry) in map {
                 out.insert(key.clone(), resolve_value(entry, scene_contract, resources));
@@ -186,6 +211,17 @@ fn resolve_metric_ref(
         .values()
         .filter_map(|resource| resource.dataset.as_ref())
         .find_map(|dataset| dataset.metrics.get(metric_id).cloned())
+}
+
+fn resolve_rows_expr(
+    map: &serde_json::Map<String, Value>,
+    resources: &BTreeMap<String, LoadedResource>,
+) -> Option<mei_lang_kernel::DatasetView> {
+    let dataset = map
+        .get("dataset")
+        .and_then(Value::as_str)
+        .map(|value| value.strip_prefix("dataset.").unwrap_or(value).to_string())?;
+    resources.get(&dataset)?.dataset.clone()
 }
 
 fn component_html(tag: &str, props: &Value) -> String {
@@ -335,6 +371,7 @@ mod tests {
                 dataset: Some(DatasetView {
                     id: "sales_metrics".to_string(),
                     title: Some("Sales".to_string()),
+                    purpose: None,
                     schema: vec![
                         ColumnSchema {
                             name: "label".to_string(),
@@ -351,6 +388,7 @@ mod tests {
                             unit: Some("元".to_string()),
                         },
                     ],
+                    stage_schema: Vec::new(),
                     columns: vec!["label".to_string(), "value".to_string()],
                     rows: vec![json!({"label":"A","value":"100"})],
                     source: SourceDecl {
@@ -358,11 +396,13 @@ mod tests {
                         path: "dataset_view:sales_metrics".to_string(),
                         content: None,
                     },
+                    sources: Vec::new(),
                     metrics: BTreeMap::from([(
                         "sales_total".to_string(),
                         MetricContract {
                             id: "sales_total".to_string(),
                             label: Some("销售总额".to_string()),
+                            purpose: None,
                             shape: MetricShape::Scalar,
                             schema: vec![ColumnSchema {
                                 name: "total_value".to_string(),
@@ -371,6 +411,8 @@ mod tests {
                                 optional: false,
                                 unit: Some("元".to_string()),
                             }],
+                            dataset: None,
+                            transforms: Vec::new(),
                             value: json!({"total_value": 100}),
                         },
                     )]),
