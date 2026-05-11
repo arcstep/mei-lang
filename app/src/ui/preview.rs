@@ -130,6 +130,18 @@ fn resolve_value(
             if map.get("__ref").and_then(Value::as_str) == Some("scene") {
                 return serde_json::to_value(scene_contract).unwrap_or(Value::Null);
             }
+            if map.get("__ref").and_then(Value::as_str) == Some("data") {
+                if let Some(dataset) = resolve_data_ref(map, resources) {
+                    return serde_json::to_value(dataset).unwrap_or(Value::Null);
+                }
+                return Value::Null;
+            }
+            if map.get("__ref").and_then(Value::as_str) == Some("metric") {
+                if let Some(metric) = resolve_metric_ref(map, resources) {
+                    return serde_json::to_value(metric).unwrap_or(Value::Null);
+                }
+                return Value::Null;
+            }
             let mut out = serde_json::Map::new();
             for (key, entry) in map {
                 out.insert(key.clone(), resolve_value(entry, scene_contract, resources));
@@ -144,6 +156,36 @@ fn resolve_value(
         ),
         _ => value.clone(),
     }
+}
+
+fn resolve_data_ref(
+    map: &serde_json::Map<String, Value>,
+    resources: &BTreeMap<String, LoadedResource>,
+) -> Option<mei_lang_kernel::DatasetView> {
+    let id = map.get("id").and_then(Value::as_str)?;
+    let from_dataset = map.get("from_dataset").and_then(Value::as_str);
+    let dataset_id = from_dataset.unwrap_or(id);
+    resources.get(dataset_id)?.dataset.clone()
+}
+
+fn resolve_metric_ref(
+    map: &serde_json::Map<String, Value>,
+    resources: &BTreeMap<String, LoadedResource>,
+) -> Option<mei_lang_kernel::MetricContract> {
+    let metric_id = map.get("id").and_then(Value::as_str)?;
+    if let Some(dataset_id) = map.get("from_dataset").and_then(Value::as_str) {
+        return resources
+            .get(dataset_id)?
+            .dataset
+            .as_ref()?
+            .metrics
+            .get(metric_id)
+            .cloned();
+    }
+    resources
+        .values()
+        .filter_map(|resource| resource.dataset.as_ref())
+        .find_map(|dataset| dataset.metrics.get(metric_id).cloned())
 }
 
 fn component_html(tag: &str, props: &Value) -> String {
@@ -231,8 +273,14 @@ fn grid_template_areas_style(layout: &mei_lang_kernel::LayoutDecl) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{panel_style, surface_layout_style};
-    use mei_lang_kernel::LayoutDecl;
+    use std::collections::BTreeMap;
+
+    use super::{panel_style, resolve_value, surface_layout_style};
+    use mei_lang_kernel::{
+        ColumnSchema, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
+        SceneContract, SceneDecl, SourceDecl,
+    };
+    use serde_json::json;
 
     fn grid_layout() -> LayoutDecl {
         LayoutDecl {
@@ -258,5 +306,87 @@ mod tests {
         let mut layout = grid_layout();
         layout.areas = None;
         assert_eq!(panel_style(Some("doc"), Some(&layout)), "");
+    }
+
+    #[test]
+    fn resolve_value_supports_data_and_metric_refs() {
+        let scene_contract = SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                profile: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+            },
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![],
+        };
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "sales_metrics".to_string(),
+            LoadedResource {
+                id: "sales_metrics".to_string(),
+                kind: "dataset".to_string(),
+                title: Some("Sales".to_string()),
+                document: None,
+                dataset: Some(DatasetView {
+                    id: "sales_metrics".to_string(),
+                    title: Some("Sales".to_string()),
+                    schema: vec![
+                        ColumnSchema {
+                            name: "label".to_string(),
+                            type_name: "string".to_string(),
+                            source: None,
+                            optional: false,
+                            unit: None,
+                        },
+                        ColumnSchema {
+                            name: "value".to_string(),
+                            type_name: "number".to_string(),
+                            source: None,
+                            optional: false,
+                            unit: Some("元".to_string()),
+                        },
+                    ],
+                    columns: vec!["label".to_string(), "value".to_string()],
+                    rows: vec![json!({"label":"A","value":"100"})],
+                    source: SourceDecl {
+                        kind: "derived".to_string(),
+                        path: "dataset_view:sales_metrics".to_string(),
+                        content: None,
+                    },
+                    metrics: BTreeMap::from([(
+                        "sales_total".to_string(),
+                        MetricContract {
+                            id: "sales_total".to_string(),
+                            label: Some("销售总额".to_string()),
+                            shape: MetricShape::Scalar,
+                            schema: vec![ColumnSchema {
+                                name: "total_value".to_string(),
+                                type_name: "number".to_string(),
+                                source: None,
+                                optional: false,
+                                unit: Some("元".to_string()),
+                            }],
+                            value: json!({"total_value": 100}),
+                        },
+                    )]),
+                }),
+            },
+        );
+
+        let data_ref = json!({"__ref":"data","id":"sales_metrics"});
+        let resolved_data = resolve_value(&data_ref, &scene_contract, &resources);
+        assert_eq!(resolved_data.get("id").and_then(|value| value.as_str()), Some("sales_metrics"));
+
+        let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
+        let resolved_metric = resolve_value(&metric_ref, &scene_contract, &resources);
+        assert_eq!(
+            resolved_metric.get("id").and_then(|value| value.as_str()),
+            Some("sales_total")
+        );
     }
 }
