@@ -32,6 +32,8 @@ pub struct AppDecl {
     pub id: String,
     pub title: Option<String>,
     #[serde(default)]
+    pub default_scene: Option<String>,
+    #[serde(default)]
     pub entries: Vec<EntryDecl>,
 }
 
@@ -56,7 +58,8 @@ pub struct LayoutDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FrameDecl {
     pub kind: String,
-    pub title: String,
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutDecl>,
 }

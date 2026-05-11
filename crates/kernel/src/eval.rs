@@ -25,11 +25,12 @@ def _clean(values):
             out[key] = value
     return out
 
-def app(id, title = None, entries = None):
+def app(id, title = None, default_scene = None, entries = None):
     return _declare(_clean({
         "kind": "app",
         "id": id,
         "title": title,
+        "default_scene": default_scene,
         "entries": entries if entries != None else [],
     }))
 
@@ -41,7 +42,28 @@ def entry(scene = None, frame = None, id = None, title = None):
         "title": title,
     })
 
-def scene(id, profile = None, summary = None, goal = None, state = None):
+def scene_file_ref(path, id = None):
+    return _clean({
+        "kind": "scene_file_ref",
+        "path": path,
+        "id": id,
+    })
+
+def app_add_scene(scene = None, id = None, profile = None, summary = None, goal = None, state = None):
+    if scene != None:
+        return _declare({
+            "kind": "app_scene_ref",
+            "scene": scene,
+        })
+    return scene_decl(
+        id = id,
+        profile = profile,
+        summary = summary,
+        goal = goal,
+        state = state,
+    )
+
+def scene_decl(id, profile = None, summary = None, goal = None, state = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
@@ -50,6 +72,15 @@ def scene(id, profile = None, summary = None, goal = None, state = None):
         "goal": goal,
         "state": state if state != None else {},
     }))
+
+def scene(id, profile = None, summary = None, goal = None, state = None):
+    return scene_decl(
+        id = id,
+        profile = profile,
+        summary = summary,
+        goal = goal,
+        state = state,
+    )
 
 def grid(rows = None, cols = None, columns = None, areas = None, gap = None, padding = None):
     if rows != None and cols != None and columns == None and areas == None:
@@ -75,7 +106,7 @@ def flex(direction, gap = None, padding = None):
         "padding": padding,
     })
 
-def frame(title, layout = None):
+def frame(title = None, layout = None):
     return _declare(_clean({
         "kind": "frame",
         "title": title,
@@ -246,6 +277,7 @@ pub fn describe_dsl() -> JsonValue {
         "public_surface": [
             "app",
             "entry",
+            "scene_file_ref",
             "scene",
             "world",
             "resource",
@@ -314,6 +346,11 @@ fn validate_policy(source: &str) -> Result<()> {
 
 fn rewrite_namespaces(source: &str) -> String {
     source
+        .replace("app.add_scene(", "app_add_scene(")
+        .replace("scene.set_world(", "world(")
+        .replace("scene.set_flow(", "flow(")
+        .replace("scene.set_frame(", "frame(")
+        .replace("frame.add_panel(", "panel(")
         .replace("doc.", "")
         .replace("ds.", "")
         .replace("ui.", "")
