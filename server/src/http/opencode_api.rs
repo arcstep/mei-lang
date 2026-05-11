@@ -173,7 +173,7 @@ pub async fn api_opencode_session_events(
             return sse_session_status_notice(
                 session_id,
                 "opencode_unavailable",
-                "托管的 OpenCode 未运行；请先在本面板点击「重连」启动服务后再试。",
+                "OpenCode 服务当前不可用；请先检查外部 opencode-server 是否已启动并可访问。",
             );
         }
     };

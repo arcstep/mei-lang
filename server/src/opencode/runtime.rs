@@ -17,6 +17,25 @@ use super::{
 };
 use crate::AppState;
 
+pub(crate) fn preferred_opencode_mode() -> String {
+    match std::env::var("MEI_OPENCODE_MODE")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("managed") => "managed".to_string(),
+        _ => "external".to_string(),
+    }
+}
+
+pub(crate) fn preferred_opencode_server_url() -> String {
+    std::env::var("MEI_OPENCODE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:4099".to_string())
+}
+
 fn candidate_config_roots(package_root: &FsPath) -> Vec<PathBuf> {
     let mut roots = vec![package_root.to_path_buf()];
     if let Some(workspace_root) = package_root.parent() {
@@ -167,8 +186,15 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
     let default_model = completion_model
         .as_deref()
         .map(managed_opencode_default_model);
+    let preferred_mode = state.opencode_preferred_mode.as_ref().clone();
+    let preferred_server_url = (preferred_mode == "external")
+        .then(|| state.opencode_preferred_server_url.as_ref().clone());
 
     ManagedOpencodeConfigSummary {
+        preferred_mode,
+        preferred_server_url,
+        auto_start_managed: state.opencode_auto_start,
+        managed_start_available: missing_env.is_empty() && config_content_ready,
         runtime_env_ready: missing_env.is_empty(),
         api_key_configured,
         config_content_ready,
@@ -217,7 +243,7 @@ pub(crate) fn managed_opencode_runtime_status(
         .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?;
     refresh_managed_opencode_runtime(&mut runtime)?;
 
-    let (running, pid, host, port, server_url, started_at_ms, working_directory) =
+    let (managed_running, pid, host, port, managed_server_url, started_at_ms, working_directory) =
         if let Some(process) = runtime.process.as_ref() {
             (
                 true,
@@ -231,10 +257,24 @@ pub(crate) fn managed_opencode_runtime_status(
         } else {
             (false, None, None, None, None, None, None)
         };
+    let (running, connection_source, server_url) = if managed_running {
+        (true, "managed".to_string(), managed_server_url)
+    } else if configured.preferred_mode == "external" {
+        (
+            configured.preferred_server_url.is_some(),
+            "external".to_string(),
+            configured.preferred_server_url.clone(),
+        )
+    } else {
+        (false, "none".to_string(), None)
+    };
 
     Ok(ManagedOpencodeRuntimeStatus {
         configured,
         running,
+        managed_running,
+        managed_by_mei: managed_running,
+        connection_source,
         pid,
         host,
         port,
@@ -392,9 +432,9 @@ pub(crate) fn stop_managed_opencode(
 pub(crate) fn managed_opencode_server_url(state: &AppState) -> anyhow::Result<String> {
     let status = managed_opencode_runtime_status(state)?;
     if !status.running {
-        anyhow::bail!("managed opencode server is not running");
+        anyhow::bail!("opencode server target is not configured");
     }
     status
         .server_url
-        .ok_or_else(|| anyhow::anyhow!("managed opencode server URL is unavailable"))
+        .ok_or_else(|| anyhow::anyhow!("opencode server URL is unavailable"))
 }

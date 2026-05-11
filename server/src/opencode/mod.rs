@@ -14,6 +14,10 @@ pub(crate) const MANAGED_OPENCODE_REQUIRED_ENV: &[&str] =
 
 #[derive(Debug, Serialize)]
 pub(crate) struct ManagedOpencodeConfigSummary {
+    pub preferred_mode: String,
+    pub preferred_server_url: Option<String>,
+    pub auto_start_managed: bool,
+    pub managed_start_available: bool,
     pub runtime_env_ready: bool,
     pub api_key_configured: bool,
     pub config_content_ready: bool,
@@ -56,6 +60,9 @@ pub(crate) struct ManagedOpencodeExit {
 pub(crate) struct ManagedOpencodeRuntimeStatus {
     pub configured: ManagedOpencodeConfigSummary,
     pub running: bool,
+    pub managed_running: bool,
+    pub managed_by_mei: bool,
+    pub connection_source: String,
     pub pid: Option<u32>,
     pub host: Option<String>,
     pub port: Option<u16>,
