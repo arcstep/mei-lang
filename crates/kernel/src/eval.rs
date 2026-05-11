@@ -222,14 +222,22 @@ def panel(id, title = None, area = None, blocks = None):
         "blocks": blocks if blocks != None else [],
     }))
 
-def component(use, id = None, title = None, area = None, props = None):
+def component(use, id = None, title = None, area = None, props = None, data = None, mapping = None):
+    bound_props = {}
+    if props != None:
+        for key, value in props.items():
+            bound_props[key] = value
+    if data != None:
+        bound_props["data"] = data
+    if mapping != None:
+        bound_props["mapping"] = mapping
     return _clean({
         "kind": "block",
         "use_key": use,
         "id": id,
         "title": title,
         "area": area,
-        "props": props if props != None else {},
+        "props": bound_props,
     })
 
 def markdown(path = None, id = None, title = None, area = None, content = None, resource = None):
@@ -255,6 +263,182 @@ def csv(path):
         "kind": "csv",
         "path": path,
     }
+
+def column(name, type, source = None, optional = False, unit = None):
+    return _clean({
+        "name": name,
+        "type": type,
+        "source": source,
+        "optional": optional,
+        "unit": unit,
+    })
+
+def data_ref(id, from_dataset = None):
+    return _clean({
+        "__ref": "data",
+        "id": id,
+        "from_dataset": from_dataset,
+    })
+
+def metric_ref(id, from_dataset = None):
+    return _clean({
+        "__ref": "metric",
+        "id": id,
+        "from_dataset": from_dataset,
+    })
+
+def lit(value):
+    return {
+        "__kind": "analysis_expr",
+        "type": "lit",
+        "value": value,
+    }
+
+def eq(field, value):
+    return {
+        "__kind": "analysis_expr",
+        "type": "eq",
+        "field": field,
+        "value": value,
+    }
+
+def col(field):
+    return {
+        "__kind": "analysis_expr",
+        "type": "col",
+        "field": field,
+    }
+
+def where(rowset, predicate):
+    return {
+        "__kind": "analysis_expr",
+        "type": "where",
+        "rowset": rowset,
+        "predicate": predicate,
+    }
+
+def select(rowset, fields):
+    return {
+        "__kind": "analysis_expr",
+        "type": "select",
+        "rowset": rowset,
+        "fields": fields,
+    }
+
+def rename(rowset, mapping):
+    return {
+        "__kind": "analysis_expr",
+        "type": "rename",
+        "rowset": rowset,
+        "mapping": mapping,
+    }
+
+def mutate(rowset, updates):
+    return {
+        "__kind": "analysis_expr",
+        "type": "mutate",
+        "rowset": rowset,
+        "updates": updates,
+    }
+
+def group_by(rowset, by, value = None, agg = "count"):
+    return _clean({
+        "__kind": "analysis_expr",
+        "type": "group_by",
+        "rowset": rowset,
+        "by": by,
+        "value": value,
+        "agg": agg,
+    })
+
+def agg(rowset, agg = "identity", value = None, limit = None):
+    return _clean({
+        "__kind": "analysis_expr",
+        "type": "agg",
+        "rowset": rowset,
+        "agg": agg,
+        "value": value,
+        "limit": limit,
+    })
+
+def trend(rowset, field, value = None, by = None, agg = "count", limit = None):
+    return _clean({
+        "__kind": "analysis_expr",
+        "type": "trend",
+        "rowset": rowset,
+        "field": field,
+        "value": value,
+        "by": by,
+        "agg": agg,
+        "limit": limit,
+    })
+
+def limit(rowset, n):
+    return {
+        "__kind": "analysis_expr",
+        "type": "limit",
+        "rowset": rowset,
+        "n": n,
+    }
+
+def count(rowset):
+    return {
+        "__kind": "analysis_expr",
+        "type": "count",
+        "rowset": rowset,
+    }
+
+def number(rowset, field):
+    return {
+        "__kind": "analysis_expr",
+        "type": "number",
+        "rowset": rowset,
+        "field": field,
+    }
+
+def sum(value):
+    return {
+        "__kind": "analysis_expr",
+        "type": "sum",
+        "value": value,
+    }
+
+def avg(value):
+    return {
+        "__kind": "analysis_expr",
+        "type": "avg",
+        "value": value,
+    }
+
+def scalar_map(id, label = None, schema = None, values = None):
+    return _clean({
+        "kind": "metric",
+        "metric_type": "scalar_map",
+        "id": id,
+        "label": label,
+        "schema": schema if schema != None else [],
+        "values": values if values != None else {},
+    })
+
+def dataframe(id, label = None, schema = None, value = None):
+    return _clean({
+        "kind": "metric",
+        "metric_type": "dataframe",
+        "id": id,
+        "label": label,
+        "schema": schema if schema != None else [],
+        "value": value,
+    })
+
+def dataset_view(id, title = None, rowset = None, schema = None, metrics = None):
+    return _declare(_clean({
+        "kind": "dataset_view",
+        "id": id,
+        "title": title,
+        "rowset": rowset,
+        "schema": schema if schema != None else [],
+        "metrics": metrics if metrics != None else [],
+    }))
 
 def world_ref(id):
     return {
@@ -290,6 +474,20 @@ pub fn describe_dsl() -> JsonValue {
             "world_ref",
             "scene_ref",
             "ds.csv",
+            "ds.column",
+            "ds.data_ref",
+            "ds.metric_ref",
+            "ds.dataset_view",
+            "ds.scalar_map",
+            "ds.dataframe",
+            "ds.where",
+            "ds.select",
+            "ds.rename",
+            "ds.mutate",
+            "ds.group_by",
+            "ds.agg",
+            "ds.trend",
+            "ds.limit",
         ],
     })
 }
