@@ -1,0 +1,107 @@
+app(
+    id = "05-chart",
+    title = "05 Chart",
+    entries = [
+        entry(scene = "main.mei", id = "home", title = "05 Chart"),
+    ],
+)
+
+scene(
+    id = "home",
+    profile = "chart",
+    summary = "独立图表示例：验证 chart 作为外部组件的最小消费链。",
+)
+
+world(
+    resources = [
+        resource(
+            id = "chart_doc",
+            kind = "document",
+            title = "图表说明",
+            content = "## Chart 例子\n\n这个例子验证：\n1. chart 组件先以外部扩展接入；\n2. 同一份 dataset 可被 table 与 chart 同时消费；\n3. chart contract 先稳定，再考虑语法层提升。",
+        ),
+        resource(
+            id = "monthly_data",
+            kind = "dataset",
+            title = "月度经营数据",
+            source = ds.csv(path = "data/monthly_sales.csv"),
+        ),
+    ],
+)
+
+frame(
+    title = "05 Chart",
+    layout = grid(
+        columns = ["1fr", "2fr"],
+        rows = ["auto", "minmax(220px, 1fr)"],
+        areas = [
+            ["doc", "chart_revenue"],
+            ["table", "chart_orders"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+panel(
+    id = "doc_panel",
+    title = "说明",
+    area = "doc",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            resource = world_ref("chart_doc"),
+        ),
+    ],
+)
+
+panel(
+    id = "chart_revenue_panel",
+    title = "营收趋势（bar-mini）",
+    area = "chart_revenue",
+    blocks = [
+        component(
+            "chart.bar-mini",
+            area = "auto",
+            props = {
+                "title": "月度营收",
+                "dataset": world_ref("monthly_data"),
+                "labelField": "month",
+                "valueField": "revenue",
+            },
+        ),
+    ],
+)
+
+panel(
+    id = "table_panel",
+    title = "数据预览",
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "dataset": world_ref("monthly_data"),
+            },
+        ),
+    ],
+)
+
+panel(
+    id = "chart_orders_panel",
+    title = "订单趋势（bar-mini）",
+    area = "chart_orders",
+    blocks = [
+        component(
+            "chart.bar-mini",
+            area = "auto",
+            props = {
+                "title": "月度订单",
+                "dataset": world_ref("monthly_data"),
+                "labelField": "month",
+                "valueField": "orders",
+            },
+        ),
+    ],
+)
