@@ -11,9 +11,9 @@ use serde_json::{json, Value};
 use crate::{
     eval::evaluate_mei_file,
     model::{
-        AppDecl, ColumnSchema, CompiledApp, ComponentAsset, DatasetView, Diagnostic, EntryDecl,
-        FlowDecl, FrameDecl, LoadedResource, MetricContract, MetricShape, PanelDecl, ResourceDecl,
-        SceneContract, SceneDecl, Severity, SourceDecl,
+        AppDecl, ColumnSchema, CompiledApp, ComponentAsset, DataTransform, DatasetView, Diagnostic,
+        EntryDecl, FlowDecl, FrameDecl, LoadedResource, MetricContract, MetricShape, PanelDecl,
+        ResourceDecl, SceneContract, SceneDecl, Severity, SourceDecl,
     },
     workspace::{load_component_assets, source_tree},
 };
@@ -38,9 +38,35 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
     let mut flow: Option<FlowDecl> = None;
     let mut panels: Vec<PanelDecl> = Vec::new();
     let mut dataset_views: Vec<DatasetViewDecl> = Vec::new();
+    let mut legacy_datasets: Vec<LegacyDatasetDecl> = Vec::new();
+    let mut legacy_metric_packs: Vec<LegacyMetricPackDecl> = Vec::new();
 
     if let Some(values) = entry_decls.as_array() {
         for value in values {
+            if value.get("dataset").is_some() && value.get("schema_version").is_some() {
+                match serde_json::from_value::<LegacyDatasetDecl>(value.clone()) {
+                    Ok(decl) => legacy_datasets.push(decl),
+                    Err(error) => diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "decode_legacy_dataset_failed".to_string(),
+                        message: error.to_string(),
+                        source_path: Some(entry_target.clone()),
+                    }),
+                }
+                continue;
+            }
+            if value.get("metric_pack").is_some() && value.get("schema_version").is_some() {
+                match serde_json::from_value::<LegacyMetricPackDecl>(value.clone()) {
+                    Ok(decl) => legacy_metric_packs.push(decl),
+                    Err(error) => diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "decode_metric_pack_failed".to_string(),
+                        message: error.to_string(),
+                        source_path: Some(entry_target.clone()),
+                    }),
+                }
+                continue;
+            }
             let Some(kind) = value.get("kind").and_then(Value::as_str) else {
                 continue;
             };
@@ -109,8 +135,28 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
         Some(world_decl) => load_resources(app_root, &world_decl.resources)?,
         None => Vec::new(),
     };
+    if !legacy_datasets.is_empty() {
+        let derived = materialize_legacy_datasets(app_root, &resources, &legacy_datasets)?;
+        for resource in derived {
+            if let Some(index) = resources.iter().position(|item| item.id == resource.id) {
+                resources[index] = resource;
+            } else {
+                resources.push(resource);
+            }
+        }
+    }
     if !dataset_views.is_empty() {
         let derived = materialize_dataset_views(&resources, &dataset_views)?;
+        for resource in derived {
+            if let Some(index) = resources.iter().position(|item| item.id == resource.id) {
+                resources[index] = resource;
+            } else {
+                resources.push(resource);
+            }
+        }
+    }
+    if !legacy_metric_packs.is_empty() {
+        let derived = materialize_metric_packs(&resources, &legacy_metric_packs)?;
         for resource in derived {
             if let Some(index) = resources.iter().position(|item| item.id == resource.id) {
                 resources[index] = resource;
@@ -197,6 +243,55 @@ struct MetricDecl {
     pub values: BTreeMap<String, Value>,
     #[serde(default)]
     pub value: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyDatasetNodeDecl {
+    pub key: String,
+    pub kind: String,
+    #[serde(default)]
+    pub columns: Vec<ColumnSchema>,
+    #[serde(default)]
+    pub normalize: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rowset: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+struct LegacySourceDecl {
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyDatasetDecl {
+    #[serde(default)]
+    pub data_ref: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub source: LegacySourceDecl,
+    pub dataset: LegacyDatasetNodeDecl,
+    #[serde(default)]
+    pub metrics: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyMetricPackDecl {
+    pub metric_pack: LegacyMetricPackMetaDecl,
+    #[serde(default)]
+    pub metrics: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyMetricPackMetaDecl {
+    pub id: String,
+    #[serde(default)]
+    pub purpose: Option<String>,
 }
 
 fn resolve_scene_source(
@@ -393,10 +488,13 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
     Ok(DatasetView {
         id: resource.id.clone(),
         title: resource.title.clone(),
+        purpose: None,
         schema: infer_schema_from_rows(&rows),
+        stage_schema: Vec::new(),
         columns,
         rows,
         source: source.clone(),
+        sources: Vec::new(),
         metrics: BTreeMap::new(),
     })
 }
@@ -408,6 +506,175 @@ fn csv_record_to_json(headers: &StringRecord, record: &StringRecord) -> Value {
         out.insert(header.to_string(), Value::String(value.to_string()));
     }
     json!(out)
+}
+
+fn materialize_legacy_datasets(
+    app_root: &Path,
+    resources: &[LoadedResource],
+    decls: &[LegacyDatasetDecl],
+) -> Result<Vec<LoadedResource>> {
+    let mut datasets = BTreeMap::<String, DatasetView>::new();
+    for resource in resources {
+        if let Some(dataset) = &resource.dataset {
+            datasets.insert(resource.id.clone(), dataset.clone());
+        }
+    }
+
+    let mut compiled = Vec::new();
+    for decl in decls {
+        let dataset_id = decl
+            .data_ref
+            .as_deref()
+            .and_then(|value| value.strip_prefix("dataset."))
+            .map(ToString::to_string)
+            .unwrap_or_else(|| decl.dataset.key.clone());
+        let mut rows = if decl.dataset.kind == "dataframe" {
+            load_legacy_rows_from_source(app_root, &decl.source)?
+        } else {
+            Vec::new()
+        };
+        if let Some(rowset) = &decl.dataset.rowset {
+            rows = eval_rowset(rowset, &datasets)
+                .with_context(|| format!("failed to materialize legacy rowset `{dataset_id}`"))?;
+        }
+        if !decl.dataset.normalize.is_empty() {
+            rows = apply_legacy_normalize(rows, &decl.dataset.normalize);
+        }
+        let schema = if decl.dataset.columns.is_empty() {
+            infer_schema_from_rows(&rows)
+        } else {
+            decl.dataset.columns.clone()
+        };
+        let columns = if schema.is_empty() {
+            infer_columns(&rows)
+        } else {
+            schema.iter().map(|column| column.name.clone()).collect()
+        };
+        let metrics = materialize_legacy_metric_map(&decl.metrics, &rows, &datasets)
+            .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
+        let dataset = DatasetView {
+            id: dataset_id.clone(),
+            title: decl.title.clone(),
+            purpose: None,
+            schema,
+            stage_schema: Vec::new(),
+            columns,
+            rows,
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: format!("legacy.dataset:{dataset_id}"),
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics,
+        };
+        datasets.insert(dataset_id.clone(), dataset.clone());
+        compiled.push(LoadedResource {
+            id: dataset_id,
+            kind: "dataset".to_string(),
+            title: decl.title.clone(),
+            document: None,
+            dataset: Some(dataset),
+        });
+    }
+    Ok(compiled)
+}
+
+fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> Result<Vec<Value>> {
+    let source_kind = source.kind.as_deref().unwrap_or("csv");
+    let source_path = source.file.as_deref().or(source.path.as_deref()).unwrap_or("");
+    if source_path.is_empty() {
+        return Ok(Vec::new());
+    }
+    let path = app_root.join(source_path);
+    match source_kind {
+        "csv" => {
+            let mut reader = csv::Reader::from_path(&path)
+                .with_context(|| format!("failed to open dataset {}", path.display()))?;
+            let headers = reader
+                .headers()
+                .context("failed to read csv headers")?
+                .clone();
+            reader
+                .records()
+                .map(|record| {
+                    let record = record.context("failed to read csv row")?;
+                    Ok::<_, anyhow::Error>(csv_record_to_json(&headers, &record))
+                })
+                .collect::<Result<Vec<_>>>()
+        }
+        "json" => {
+            let raw = std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read json dataset {}", path.display()))?;
+            let json: Value = serde_json::from_str(&raw)
+                .with_context(|| format!("invalid json dataset {}", path.display()))?;
+            Ok(json.as_array().cloned().unwrap_or_default())
+        }
+        other => Err(anyhow!("unsupported legacy dataset source kind `{other}`")),
+    }
+}
+
+fn apply_legacy_normalize(
+    rows: Vec<Value>,
+    normalize: &BTreeMap<String, String>,
+) -> Vec<Value> {
+    rows.into_iter()
+        .map(|row| {
+            let mut out = row.as_object().cloned().unwrap_or_default();
+            for (source, target) in normalize {
+                if source == target {
+                    continue;
+                }
+                if let Some(value) = out.remove(source) {
+                    out.insert(target.clone(), value);
+                }
+            }
+            Value::Object(out)
+        })
+        .collect()
+}
+
+fn materialize_metric_packs(
+    resources: &[LoadedResource],
+    packs: &[LegacyMetricPackDecl],
+) -> Result<Vec<LoadedResource>> {
+    let mut datasets = BTreeMap::<String, DatasetView>::new();
+    for resource in resources {
+        if let Some(dataset) = &resource.dataset {
+            datasets.insert(resource.id.clone(), dataset.clone());
+        }
+    }
+
+    let mut compiled = Vec::new();
+    for pack in packs {
+        let metrics = materialize_legacy_metric_map(&pack.metrics, &[], &datasets)
+            .with_context(|| format!("failed to compile metric_pack `{}`", pack.metric_pack.id))?;
+        let dataset = DatasetView {
+            id: pack.metric_pack.id.clone(),
+            title: pack.metric_pack.purpose.clone(),
+            purpose: pack.metric_pack.purpose.clone(),
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: format!("legacy.metric_pack:{}", pack.metric_pack.id),
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics,
+        };
+        datasets.insert(pack.metric_pack.id.clone(), dataset.clone());
+        compiled.push(LoadedResource {
+            id: pack.metric_pack.id.clone(),
+            kind: "dataset".to_string(),
+            title: pack.metric_pack.purpose.clone(),
+            document: None,
+            dataset: Some(dataset),
+        });
+    }
+    Ok(compiled)
 }
 
 fn materialize_dataset_views(
@@ -449,7 +716,9 @@ fn materialize_dataset_views(
         let dataset = DatasetView {
             id: decl.id.clone(),
             title: decl.title.clone(),
+            purpose: None,
             schema,
+            stage_schema: Vec::new(),
             columns,
             rows,
             source: SourceDecl {
@@ -457,6 +726,7 @@ fn materialize_dataset_views(
                 path: format!("dataset_view:{}", decl.id),
                 content: None,
             },
+            sources: Vec::new(),
             metrics,
         };
         datasets.insert(decl.id.clone(), dataset.clone());
@@ -536,8 +806,88 @@ fn materialize_metrics(
             MetricContract {
                 id: decl.id.clone(),
                 label: decl.label.clone(),
+                purpose: None,
                 shape,
                 schema,
+                dataset: None,
+                transforms: Vec::new(),
+                value,
+            },
+        );
+    }
+    Ok(metrics)
+}
+
+fn materialize_legacy_metric_map(
+    decls: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+) -> Result<BTreeMap<String, MetricContract>> {
+    let mut metrics = BTreeMap::new();
+    for (metric_id, raw) in decls {
+        let Some(map) = raw.as_object() else {
+            continue;
+        };
+        let shape_name = map
+            .get("shape")
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| if map.get("values").is_some() { "scalar_map" } else { "dataframe" });
+        let shape = match shape_name {
+            "scalar_map" | "scalar" => MetricShape::Scalar,
+            "series" => MetricShape::Series,
+            "table" => MetricShape::Table,
+            _ => MetricShape::Dataframe,
+        };
+        let schema = map
+            .get("schema")
+            .and_then(|value| serde_json::from_value::<Vec<ColumnSchema>>(value.clone()).ok())
+            .unwrap_or_default();
+        let value = if let Some(values) = map.get("values").and_then(Value::as_object) {
+            let mut out = serde_json::Map::new();
+            for (entry_key, entry_value) in values {
+                let resolved = eval_scalar_value(entry_value, base_rows, datasets)
+                    .with_context(|| format!("legacy metric `{metric_id}` field `{entry_key}`"))?;
+                out.insert(entry_key.clone(), resolved);
+            }
+            Value::Object(out)
+        } else if let Some(rowset) = map.get("series").or_else(|| map.get("list")).or_else(|| map.get("value")) {
+            if let Ok(rows) = eval_rowset(rowset, datasets) {
+                Value::Array(rows)
+            } else {
+                eval_scalar_value(rowset, base_rows, datasets).unwrap_or_else(|_| rowset.clone())
+            }
+        } else {
+            Value::Null
+        };
+        metrics.insert(
+            metric_id.clone(),
+            MetricContract {
+                id: metric_id.clone(),
+                label: map.get("label").and_then(Value::as_str).map(ToString::to_string),
+                purpose: None,
+                shape,
+                schema,
+                dataset: map
+                    .get("dataset")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                transforms: map
+                    .get("transforms")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .map(|item| DataTransform {
+                                transform_type: item
+                                    .get("type")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("legacy")
+                                    .to_string(),
+                                config: item.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default(),
                 value,
             },
         );
@@ -586,6 +936,21 @@ fn eval_analysis_rowset(
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("analysis expression missing type"))?;
     match analysis_type {
+        "rows" => {
+            let dataset_id = map
+                .get("dataset")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("rows expression missing dataset"))?;
+            let normalized = dataset_id
+                .strip_prefix("dataset.")
+                .unwrap_or(dataset_id)
+                .to_string();
+            let dataset = datasets
+                .get(&normalized)
+                .or_else(|| datasets.get(dataset_id))
+                .ok_or_else(|| anyhow!("unknown dataset `{dataset_id}`"))?;
+            Ok(dataset.rows.clone())
+        }
         "where" => {
             let rowset_expr = map
                 .get("rowset")
@@ -639,6 +1004,68 @@ fn eval_analysis_rowset(
                 .map(|row| mutate_row(&row, updates))
                 .collect())
         }
+        "sort_by" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("sort_by expression missing rowset"))?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("sort_by expression missing field"))?;
+            let order = map.get("order").and_then(Value::as_str).unwrap_or("asc");
+            let mut rows = eval_rowset(rowset_expr, datasets)?;
+            sort_rows_by_field(&mut rows, field, order);
+            Ok(rows)
+        }
+        "reorder" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("reorder expression missing rowset"))?;
+            let fields = map
+                .get("fields")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("reorder expression missing fields"))?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            Ok(eval_rowset(rowset_expr, datasets)?
+                .into_iter()
+                .map(|row| reorder_fields(&row, &fields))
+                .collect())
+        }
+        "stage" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("stage expression missing rowset"))?;
+            Ok(eval_rowset(rowset_expr, datasets)?)
+        }
+        "first_by" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("first_by expression missing rowset"))?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("first_by expression missing field"))?;
+            let rows = eval_rowset(rowset_expr, datasets)?;
+            Ok(first_rows_by_field(&rows, field))
+        }
+        "distinct_by" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("distinct_by expression missing rowset"))?;
+            let fields = map
+                .get("fields")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("distinct_by expression missing fields"))?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(ToString::to_string)
+                .collect::<Vec<_>>();
+            let rows = eval_rowset(rowset_expr, datasets)?;
+            Ok(distinct_rows_by_fields(&rows, &fields))
+        }
         "group_by" => {
             let rowset_expr = map
                 .get("rowset")
@@ -646,8 +1073,14 @@ fn eval_analysis_rowset(
             let rows = eval_rowset(rowset_expr, datasets)?;
             let group_field = map
                 .get("by")
-                .or_else(|| map.get("field"))
                 .and_then(Value::as_str)
+                .or_else(|| {
+                    map.get("fields")
+                        .and_then(Value::as_array)
+                        .and_then(|items| items.first())
+                        .and_then(Value::as_str)
+                })
+                .or_else(|| map.get("field").and_then(Value::as_str))
                 .ok_or_else(|| anyhow!("group_by expression missing by"))?;
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
@@ -662,6 +1095,7 @@ fn eval_analysis_rowset(
         "agg" => {
             let rowset_expr = map
                 .get("rowset")
+                .or_else(|| map.get("grouped"))
                 .ok_or_else(|| anyhow!("agg expression missing rowset"))?;
             let mut rows = eval_rowset(rowset_expr, datasets)?;
             let agg = map
@@ -684,6 +1118,7 @@ fn eval_analysis_rowset(
             let rows = eval_rowset(rowset_expr, datasets)?;
             let group_field = map
                 .get("by")
+                .or_else(|| map.get("date_field"))
                 .or_else(|| map.get("field"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("trend expression missing field"))?;
@@ -696,6 +1131,108 @@ fn eval_analysis_rowset(
                 agg,
                 map.get("limit").and_then(Value::as_u64).map(|n| n as usize),
             ))
+        }
+        "table_rows" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("table_rows expression missing rowset"))?;
+            Ok(eval_rowset(rowset_expr, datasets)?)
+        }
+        "split_text" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("split_text expression missing rowset"))?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("split_text expression missing field"))?;
+            let delimiter = map.get("delimiter").and_then(Value::as_str).unwrap_or("、");
+            let mut out = Vec::new();
+            for row in eval_rowset(rowset_expr, datasets)? {
+                let mut base = row.as_object().cloned().unwrap_or_default();
+                let text = base
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let values = text
+                    .split(delimiter)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>();
+                if values.is_empty() {
+                    out.push(Value::Object(base));
+                    continue;
+                }
+                for item in values {
+                    base.insert(field.to_string(), Value::String(item.to_string()));
+                    out.push(Value::Object(base.clone()));
+                }
+            }
+            Ok(out)
+        }
+        "lookup_value" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("lookup_value expression missing rowset"))?;
+            let lookup_rowset_expr = map
+                .get("lookup_rowset")
+                .ok_or_else(|| anyhow!("lookup_value expression missing lookup_rowset"))?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("lookup_value expression missing field"))?;
+            let lookup_field = map
+                .get("lookup_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("lookup_value expression missing lookup_field"))?;
+            let value_field = map
+                .get("value_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("lookup_value expression missing value_field"))?;
+            let as_field = map
+                .get("as_field")
+                .and_then(Value::as_str)
+                .unwrap_or(value_field)
+                .to_string();
+            let mut lookup = BTreeMap::new();
+            for row in eval_rowset(lookup_rowset_expr, datasets)? {
+                let key = row_string(&row, lookup_field);
+                let value = row_value(&row, value_field).cloned().unwrap_or(Value::Null);
+                lookup.insert(key, value);
+            }
+            let mut out = Vec::new();
+            for row in eval_rowset(rowset_expr, datasets)? {
+                let mut object = row.as_object().cloned().unwrap_or_default();
+                let key = row_string(&row, field);
+                object.insert(
+                    as_field.clone(),
+                    lookup.get(&key).cloned().unwrap_or(Value::Null),
+                );
+                out.push(Value::Object(object));
+            }
+            Ok(out)
+        }
+        "latest_days" | "latest_months" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("{analysis_type} expression missing rowset"))?;
+            let mut rows = eval_rowset(rowset_expr, datasets)?;
+            let limit = if analysis_type == "latest_days" {
+                map.get("days").and_then(Value::as_u64).unwrap_or(rows.len() as u64) as usize
+            } else {
+                map.get("months").and_then(Value::as_u64).unwrap_or(rows.len() as u64) as usize
+            };
+            if rows.len() > limit {
+                rows = rows.split_off(rows.len() - limit);
+            }
+            Ok(rows)
+        }
+        "bucket_date" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("bucket_date expression missing rowset"))?;
+            Ok(eval_rowset(rowset_expr, datasets)?)
         }
         "limit" => {
             let rowset_expr = map
@@ -811,6 +1348,70 @@ fn rename_fields(row: &Value, mapping: &serde_json::Map<String, Value>) -> Value
     Value::Object(out)
 }
 
+fn reorder_fields(row: &Value, fields: &[String]) -> Value {
+    let Some(object) = row.as_object() else {
+        return row.clone();
+    };
+    let mut out = serde_json::Map::new();
+    for field in fields {
+        if let Some(value) = object.get(field) {
+            out.insert(field.clone(), value.clone());
+        }
+    }
+    for (key, value) in object {
+        if !out.contains_key(key) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    Value::Object(out)
+}
+
+fn sort_rows_by_field(rows: &mut [Value], field: &str, order: &str) {
+    rows.sort_by(|left, right| {
+        let l = row_value(left, field).cloned().unwrap_or(Value::Null);
+        let r = row_value(right, field).cloned().unwrap_or(Value::Null);
+        compare_json_values(&l, &r)
+    });
+    if order.eq_ignore_ascii_case("desc") {
+        rows.reverse();
+    }
+}
+
+fn compare_json_values(left: &Value, right: &Value) -> std::cmp::Ordering {
+    if let (Some(l), Some(r)) = (parse_number(left), parse_number(right)) {
+        return l.partial_cmp(&r).unwrap_or(std::cmp::Ordering::Equal);
+    }
+    left.to_string().cmp(&right.to_string())
+}
+
+fn first_rows_by_field(rows: &[Value], field: &str) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for row in rows {
+        let key = row_string(row, field);
+        if seen.insert(key) {
+            out.push(row.clone());
+        }
+    }
+    out
+}
+
+fn distinct_rows_by_fields(rows: &[Value], fields: &[String]) -> Vec<Value> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for row in rows {
+        let key = fields
+            .iter()
+            .map(|field| row_value(row, field).cloned().unwrap_or(Value::Null).to_string())
+            .collect::<Vec<_>>()
+            .join("\u{1f}");
+        if seen.insert(key) {
+            out.push(row.clone());
+        }
+    }
+    out
+}
+
 fn mutate_row(row: &Value, updates: &serde_json::Map<String, Value>) -> Value {
     let mut out = row.as_object().cloned().unwrap_or_default();
     for (key, expr) in updates {
@@ -830,6 +1431,32 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                     .and_then(Value::as_str)
                     .and_then(|field| row.get(field).cloned())
                     .unwrap_or(Value::Null),
+                "number" => {
+                    let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
+                    row.get(field)
+                        .and_then(parse_number)
+                        .map(|value| json!(value))
+                        .unwrap_or(Value::Null)
+                }
+                "text" => {
+                    let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
+                    row.get(field)
+                        .map(|value| Value::String(value.as_str().unwrap_or(&value.to_string()).to_string()))
+                        .unwrap_or(Value::Null)
+                }
+                "extract_number" => {
+                    let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
+                    let text = row.get(field).and_then(Value::as_str).unwrap_or_default();
+                    let extracted = text
+                        .chars()
+                        .filter(|ch| ch.is_ascii_digit() || *ch == '.')
+                        .collect::<String>();
+                    extracted
+                        .parse::<f64>()
+                        .ok()
+                        .map(|value| json!(value))
+                        .unwrap_or(Value::Null)
+                }
                 _ => expr.clone(),
             };
         }
@@ -851,6 +1478,66 @@ fn predicate_matches(row: &Value, predicate: &Value) -> bool {
             let expected = object.get("value").cloned().unwrap_or(Value::Null);
             row_value(row, field).cloned().unwrap_or(Value::Null) == expected
         }
+        "ne" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let expected = object.get("value").cloned().unwrap_or(Value::Null);
+            row_value(row, field).cloned().unwrap_or(Value::Null) != expected
+        }
+        "gt" | "gte" | "lt" | "lte" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let expected = object
+                .get("value")
+                .and_then(parse_number)
+                .unwrap_or(f64::NAN);
+            let actual = row_value(row, field).and_then(parse_number).unwrap_or(f64::NAN);
+            match analysis_type {
+                "gt" => actual > expected,
+                "gte" => actual >= expected,
+                "lt" => actual < expected,
+                _ => actual <= expected,
+            }
+        }
+        "between" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let lower = object.get("lower").and_then(parse_number).unwrap_or(f64::MIN);
+            let upper = object.get("upper").and_then(parse_number).unwrap_or(f64::MAX);
+            let actual = row_value(row, field).and_then(parse_number).unwrap_or(f64::NAN);
+            actual >= lower && actual <= upper
+        }
+        "in_values" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let actual = row_value(row, field).cloned().unwrap_or(Value::Null);
+            object
+                .get("values")
+                .and_then(Value::as_array)
+                .map(|items| items.iter().any(|item| item == &actual))
+                .unwrap_or(false)
+        }
+        "not_empty" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            !row_string(row, field).trim().is_empty()
+        }
+        "contains" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let expected = object.get("value").and_then(Value::as_str).unwrap_or("");
+            row_string(row, field).contains(expected)
+        }
+        "matches" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            let expected = object.get("pattern").and_then(Value::as_str).unwrap_or("");
+            row_string(row, field).contains(expected)
+        }
+        "and" => object
+            .get("predicates")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().all(|item| predicate_matches(row, item)))
+            .unwrap_or(true),
+        "or" => object
+            .get("predicates")
+            .and_then(Value::as_array)
+            .map(|items| items.iter().any(|item| predicate_matches(row, item)))
+            .unwrap_or(true),
+        "not" => !predicate_matches(row, object.get("predicate").unwrap_or(&Value::Null)),
         _ => true,
     }
 }
@@ -891,6 +1578,120 @@ fn eval_scalar_value(
             };
             Ok(json!(value))
         }
+        "min" => {
+            let values = eval_numeric_values(object.get("value"), datasets)?;
+            Ok(json!(values.into_iter().reduce(f64::min).unwrap_or(0.0)))
+        }
+        "max" => {
+            let values = eval_numeric_values(object.get("value"), datasets)?;
+            Ok(json!(values.into_iter().reduce(f64::max).unwrap_or(0.0)))
+        }
+        "median" => {
+            let mut values = eval_numeric_values(object.get("value"), datasets)?;
+            values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+            if values.is_empty() {
+                return Ok(json!(0.0));
+            }
+            let middle = values.len() / 2;
+            let median = if values.len() % 2 == 0 {
+                (values[middle - 1] + values[middle]) / 2.0
+            } else {
+                values[middle]
+            };
+            Ok(json!(median))
+        }
+        "unique_count" => {
+            let Some(value_expr) = object.get("value") else {
+                return Ok(json!(0));
+            };
+            let unique = match value_expr {
+                Value::Array(items) => items.iter().map(Value::to_string).collect::<BTreeSet<_>>().len(),
+                Value::Object(map) => {
+                    if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                        && map.get("type").and_then(Value::as_str) == Some("text")
+                    {
+                        let source = map.get("source").or_else(|| map.get("rowset")).unwrap_or(&Value::Null);
+                        let field = map.get("field").and_then(Value::as_str).unwrap_or("");
+                        eval_rowset(source, datasets)?
+                            .iter()
+                            .map(|row| row_string(row, field))
+                            .collect::<BTreeSet<_>>()
+                            .len()
+                    } else {
+                        0
+                    }
+                }
+                _ => 0,
+            };
+            Ok(json!(unique))
+        }
+        "item_count" => {
+            let Some(value_expr) = object.get("value") else {
+                return Ok(json!(0));
+            };
+            let count = match value_expr {
+                Value::Array(items) => items.len(),
+                _ => eval_rowset(value_expr, datasets).map(|rows| rows.len()).unwrap_or(0),
+            };
+            Ok(json!(count))
+        }
+        "ratio" => {
+            let numerator = eval_scalar_value(
+                object.get("numerator").unwrap_or(&Value::Null),
+                base_rows,
+                datasets,
+            )?
+            .as_f64()
+            .unwrap_or(0.0);
+            let denominator = eval_scalar_value(
+                object.get("denominator").unwrap_or(&Value::Null),
+                base_rows,
+                datasets,
+            )?
+            .as_f64()
+            .unwrap_or(0.0);
+            if denominator.abs() < f64::EPSILON {
+                Ok(json!(0.0))
+            } else {
+                Ok(json!(numerator / denominator))
+            }
+        }
+        "percent" => {
+            let rows = object
+                .get("rowset")
+                .map(|rowset| eval_rowset(rowset, datasets))
+                .transpose()?
+                .unwrap_or_else(|| base_rows.to_vec());
+            let matched = object
+                .get("predicate")
+                .map(|predicate| rows.iter().filter(|row| predicate_matches(row, predicate)).count())
+                .unwrap_or(rows.len());
+            if rows.is_empty() {
+                Ok(json!(0.0))
+            } else {
+                Ok(json!(matched as f64 / rows.len() as f64))
+            }
+        }
+        "sum_first_number" => {
+            let rows = base_rows;
+            let fields = object
+                .get("fields")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut total = 0.0;
+            for row in rows {
+                for field in &fields {
+                    if let Some(name) = field.as_str() {
+                        if let Some(number) = row_number(row, name) {
+                            total += number;
+                            break;
+                        }
+                    }
+                }
+            }
+            Ok(json!(total))
+        }
         "number" => {
             let values = eval_numeric_values(Some(expr), datasets)?;
             Ok(Value::Array(values.into_iter().map(|value| json!(value)).collect()))
@@ -918,6 +1719,7 @@ fn eval_numeric_values(
             {
                 let rowset_expr = map
                     .get("rowset")
+                    .or_else(|| map.get("source"))
                     .ok_or_else(|| anyhow!("number expression missing rowset"))?;
                 let field = map
                     .get("field")
@@ -1041,6 +1843,13 @@ mod tests {
             fs::create_dir_all(parent).expect("create parent dirs");
         }
         fs::write(path, content).expect("write file");
+    }
+
+    fn repo_examples_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples")
+            .canonicalize()
+            .expect("resolve examples root")
     }
 
     #[test]
@@ -1242,5 +2051,26 @@ frame.add_panel(
         assert!(ranking.value.as_array().is_some());
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn compile_examples_regressions() {
+        let examples = repo_examples_root();
+        for app_id in ["02-dataset", "03-cockpit", "05-chart"] {
+            let app_root = examples.join(app_id);
+            let compiled = compile_app_from_root(&examples, &app_root)
+                .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+            assert!(
+                compiled
+                    .diagnostics
+                    .iter()
+                    .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+                "example {app_id} should not produce error diagnostics"
+            );
+            assert!(
+                compiled.scene_contract.is_some(),
+                "example {app_id} should contain scene contract"
+            );
+        }
     }
 }

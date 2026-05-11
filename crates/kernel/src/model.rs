@@ -68,8 +68,10 @@ pub struct FrameDecl {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceDecl {
+    #[serde(alias = "__source")]
     pub kind: String,
     #[serde(default)]
+    #[serde(alias = "file")]
     pub path: String,
     #[serde(default)]
     pub content: Option<String>,
@@ -244,10 +246,16 @@ pub struct DatasetView {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
     pub schema: Vec<ColumnSchema>,
+    #[serde(default)]
+    pub stage_schema: Vec<ColumnSchema>,
     pub columns: Vec<String>,
     pub rows: Vec<Value>,
     pub source: SourceDecl,
+    #[serde(default)]
+    pub sources: Vec<DatasetSourceRef>,
     #[serde(default)]
     pub metrics: BTreeMap<String, MetricContract>,
 }
@@ -283,12 +291,33 @@ pub struct MetricContract {
     pub id: String,
     #[serde(default)]
     pub label: Option<String>,
+    #[serde(default)]
+    pub purpose: Option<String>,
     #[serde(default = "default_metric_shape")]
     pub shape: MetricShape,
     #[serde(default)]
     pub schema: Vec<ColumnSchema>,
     #[serde(default)]
+    pub dataset: Option<String>,
+    #[serde(default)]
+    pub transforms: Vec<DataTransform>,
+    #[serde(default)]
     pub value: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetSourceRef {
+    pub id: String,
+    #[serde(default)]
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataTransform {
+    #[serde(rename = "type")]
+    pub transform_type: String,
+    #[serde(default)]
+    pub config: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +332,15 @@ pub struct MetricRef {
     pub id: String,
     #[serde(default)]
     pub from_dataset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricPackContract {
+    pub id: String,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub metrics: BTreeMap<String, MetricContract>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
