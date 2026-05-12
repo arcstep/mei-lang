@@ -52,7 +52,7 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
 
 fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
-    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
@@ -60,16 +60,16 @@ fn panel_view(
     let blocks = panel
         .blocks
         .iter()
-        .map(|block| block_view(block, compiled, scene_contract, resources))
+        .map(|block| block_view(block, panel.layout.as_ref(), compiled, scene_contract, resources))
         .collect_view();
     let title = panel.title.clone().unwrap_or_else(|| panel.id.clone());
     view! {
-        <section class="preview-card" style=panel_style(panel.area.as_deref(), layout)>
+        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout)>
             <div class="panel-heading">
                 <h3>{title}</h3>
                 <p>{panel.area.clone().unwrap_or_else(|| "auto".to_string())}</p>
             </div>
-            <div class="panel-body">
+            <div class="panel-body" style=panel_body_style(panel.layout.as_ref())>
                 {blocks}
             </div>
         </section>
@@ -79,6 +79,7 @@ fn panel_view(
 
 fn block_view(
     block: &BlockDecl,
+    panel_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
@@ -92,7 +93,7 @@ fn block_view(
         .unwrap_or_else(|| "mei-missing-component".to_string());
     let html = component_html(tag.as_str(), &props);
     view! {
-        <section class="component-card">
+        <section class="component-card" style=block_style(block.area.as_deref(), panel_layout)>
             <div class="component-host" inner_html=html></div>
         </section>
     }
@@ -269,6 +270,12 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
 
 fn panel_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
     if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
+        && area == Some("full")
+    {
+        return "grid-column:1 / -1;".to_string();
+    }
+
+    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
         && layout
             .and_then(|value| value.areas.as_ref())
             .map(|rows| !rows.is_empty())
@@ -276,6 +283,61 @@ fn panel_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>)
     {
         if let Some(area) = area {
             return format!("grid-area:{};", area);
+        }
+    }
+    String::new()
+}
+
+fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
+    let Some(layout) = layout else {
+        return String::new();
+    };
+    match layout.layout_type.as_str() {
+        "flex" => format!(
+            "display:flex;flex-direction:{};gap:{};padding:{};",
+            layout
+                .direction
+                .clone()
+                .unwrap_or_else(|| "column".to_string()),
+            layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
+            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+        ),
+        _ => format!(
+            "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};",
+            layout
+                .columns
+                .clone()
+                .unwrap_or_else(|| vec!["1fr".to_string()])
+                .join(" "),
+            layout
+                .rows
+                .clone()
+                .unwrap_or_else(|| vec!["auto".to_string()])
+                .join(" "),
+            grid_template_areas_style(layout),
+            layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
+            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+        ),
+    }
+}
+
+fn block_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
+    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
+        && area == Some("full")
+    {
+        return "grid-column:1 / -1;".to_string();
+    }
+
+    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
+        && layout
+            .and_then(|value| value.areas.as_ref())
+            .map(|rows| !rows.is_empty())
+            .unwrap_or(false)
+    {
+        if let Some(area) = area {
+            if !area.trim().is_empty() && area != "auto" {
+                return format!("grid-area:{};", area);
+            }
         }
     }
     String::new()
@@ -311,7 +373,7 @@ fn grid_template_areas_style(layout: &mei_lang_kernel::LayoutDecl) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{panel_style, resolve_value, surface_layout_style};
+    use super::{block_style, panel_body_style, panel_style, resolve_value, surface_layout_style};
     use mei_lang_kernel::{
         ColumnSchema, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
         SceneContract, SceneDecl, SourceDecl,
@@ -342,6 +404,20 @@ mod tests {
         let mut layout = grid_layout();
         layout.areas = None;
         assert_eq!(panel_style(Some("doc"), Some(&layout)), "");
+    }
+
+    #[test]
+    fn panel_body_style_applies_grid_columns() {
+        let layout = grid_layout();
+        let style = panel_body_style(Some(&layout));
+        assert!(style.contains("display:grid;"));
+        assert!(style.contains("grid-template-columns:1fr 2fr;"));
+    }
+
+    #[test]
+    fn block_style_uses_full_span_in_grid() {
+        let layout = grid_layout();
+        assert_eq!(block_style(Some("full"), Some(&layout)), "grid-column:1 / -1;");
     }
 
     #[test]
