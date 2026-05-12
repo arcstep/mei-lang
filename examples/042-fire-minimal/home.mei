@@ -1,0 +1,108 @@
+app.add_scene(
+    id = "minimal_fire_cells",
+    profile = "simulation",
+    summary = "最小 fire cell 语义例子：先验证 topology.grid、cell hazard state、tool/actor/asset 的共同存在。",
+    goal = "验证 cell 作为危险状态载体，而不是只把火理解成一个实体。",
+    state = {
+        "phase": "ready",
+        "countdown": 20,
+    },
+)
+
+scene.set_world(
+    topology = grid(
+        rows = 4,
+        cols = 4,
+        cells = [
+            cell("r1c1", row = 1, col = 1, surface_kind = "corner", flammable = True, walkable = True, occupiable = True, hazard_state = "smoke", tags = ["ignition_candidate", "room_a"]),
+            cell("r1c2", row = 1, col = 2, surface_kind = "floor", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r2c2", row = 2, col = 2, surface_kind = "storage", flammable = True, walkable = True, occupiable = True, tags = ["asset_zone", "room_a"]),
+            cell("r4c4", row = 4, col = 4, surface_kind = "equipment", flammable = False, walkable = True, occupiable = True, tags = ["tool_spawn"]),
+        ],
+    ),
+    entities = [
+        entity(
+            id = "player",
+            kind = "actor",
+            label = "演练者",
+            spawns = ["r4c1"],
+            flags = {"alive": True},
+        ),
+        entity(
+            id = "extinguisher_1",
+            kind = "tool",
+            label = "灭火器",
+            spawns = ["r4c4"],
+            flags = {"portable": True},
+        ),
+        entity(
+            id = "asset_cashbox",
+            kind = "asset",
+            label = "贵重箱",
+            spawns = ["r2c2"],
+            flags = {"valuable": True},
+        ),
+    ],
+)
+
+scene.set_flow(
+    start = start(mode = "manual", action_label = "开始最小 fire"),
+    interactions = [
+        click(
+            target = "extinguisher_1",
+            effect = grant("extinguisher_1"),
+        ),
+    ],
+    subject_timers = [
+        subject_timer(
+            id = "cell-r1c1-smoke-to-burning",
+            subject_ref = "cell:r1c1",
+            timer_type = "state_transition",
+            delay_seconds = 5,
+            on_timeout = set_status("cell:r1c1", "burning"),
+        ),
+    ],
+    timer = rule_timer(
+        seconds = 20,
+        on_timeout = finish("fail", "minimal_fire_timeout"),
+    ),
+    outcome = rule_outcome(
+        fail = "minimal_fire_timeout",
+    ),
+)
+
+scene.set_frame(
+    layout = grid(
+        columns = ["2fr", "1fr"],
+        areas = [
+            ["board", "notes"],
+        ],
+        gap = "12px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "board",
+    area = "board",
+    blocks = [
+        component(
+            "sim.scene",
+            area = "auto",
+            props = {
+                "scene": scene_ref("self"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "notes",
+    area = "notes",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "## Minimal Fire\n\n这个例子不是为了做完整玩法，而是先验证三件事：\n1. `topology.grid + cell` 已经可以描述语义网格平面；\n2. 火势先体现在 `cell.hazard_state`，而不是只做成一个火实体；\n3. `subject_timer` 已经能作为未来 contract scaffold 出现在 `flow` 中。\n\n当前 runtime 还不会真正消费 `subject_timers`，但 board 已能把 `cell` 的危险状态、可燃性与 tags 投影出来。",
+        ),
+    ],
+)

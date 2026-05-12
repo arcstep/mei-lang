@@ -1,6 +1,6 @@
 app(
-    id = "04-fire",
-    title = "04 Fire",
+    id = "041-fire",
+    title = "041 Fire",
     default_scene = "room_fire_click",
 )
 

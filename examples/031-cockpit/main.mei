@@ -1,6 +1,6 @@
 app(
-    id = "03-cockpit",
-    title = "03 Cockpit",
+    id = "031-cockpit",
+    title = "031 Cockpit",
     default_scene = "home",
 )
 

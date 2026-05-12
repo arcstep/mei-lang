@@ -98,7 +98,7 @@ frame.add_panel(
     blocks = [
         doc.markdown(
             area = "auto",
-            content = "## Fire 例子\n\n这个例子现在用于验证最小运行链路：\n1. `scene / world / flow / frame` 先编译为统一 contract；\n2. `sim.scene` 通过 `/api/sim/step/:app_id` 驱动 `start / click / tick / restart`；\n3. UI 与 runtime 共用同一份 scene contract，而不是各自解释一遍逻辑。",
+            content = "## Fire 例子\n\n这个例子现在用于验证第一阶段时间模型：\n1. `scene / world / flow / frame` 先编译为统一 contract；\n2. runtime 以 `scene_clock` 为真源，`countdown` 只作为投影值；\n3. `sim.scene` 默认用 `wall_clock` 自动驱动运行中的 scene clock，并允许 `pause / resume / rate_* / restart`；\n4. 本例只验证最小时间能力，不扩张到 replay / business_time。",
         ),
     ],
 )

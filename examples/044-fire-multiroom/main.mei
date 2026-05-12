@@ -1,0 +1,9 @@
+app(
+    id = "044-fire-multiroom",
+    title = "044 Fire Multiroom",
+    default_scene = "multiroom_fire_watch",
+)
+
+app.add_scene(
+    scene_file_ref("home.mei", id = "multiroom_fire_watch"),
+)

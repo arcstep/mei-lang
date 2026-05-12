@@ -1,0 +1,9 @@
+app(
+    id = "042-fire-minimal",
+    title = "042 Fire Minimal",
+    default_scene = "minimal_fire_cells",
+)
+
+app.add_scene(
+    scene_file_ref("home.mei", id = "minimal_fire_cells"),
+)

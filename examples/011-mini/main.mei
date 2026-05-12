@@ -1,6 +1,6 @@
 app(
-    id = "01-mini",
-    title = "01 Mini",
+    id = "011-mini",
+    title = "011 Mini",
     default_scene = "home",
 )
 

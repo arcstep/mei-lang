@@ -1,0 +1,9 @@
+app(
+    id = "043-fire-spread",
+    title = "043 Fire Spread",
+    default_scene = "fire_spread_room",
+)
+
+app.add_scene(
+    scene_file_ref("home.mei", id = "fire_spread_room"),
+)

@@ -1,0 +1,146 @@
+app.add_scene(
+    id = "multiroom_fire_watch",
+    profile = "simulation",
+    summary = "多房间 fire 骨架：同一 topology.grid 中用 room/corridor tags 表达空间分区，并挂接房间级 subject timer。",
+    goal = "验证 multi-room 并不需要换一套语义，只是在同一 world truth 上增加 room/device/action 的层次。",
+    state = {
+        "phase": "ready",
+        "countdown": 60,
+    },
+)
+
+scene.set_world(
+    topology = grid(
+        rows = 6,
+        cols = 12,
+        cells = [
+            cell("r2c2", row = 2, col = 2, surface_kind = "room", flammable = True, walkable = True, occupiable = True, hazard_state = "smoke", tags = ["room_a", "office"]),
+            cell("r2c3", row = 2, col = 3, surface_kind = "room", flammable = True, walkable = True, occupiable = True, tags = ["room_a", "office"]),
+            cell("r3c2", row = 3, col = 2, surface_kind = "room", flammable = True, walkable = True, occupiable = True, tags = ["room_a", "office"]),
+            cell("r2c6", row = 2, col = 6, surface_kind = "corridor", flammable = False, walkable = True, occupiable = True, tags = ["corridor"]),
+            cell("r3c6", row = 3, col = 6, surface_kind = "corridor", flammable = False, walkable = True, occupiable = True, tags = ["corridor"]),
+            cell("r2c10", row = 2, col = 10, surface_kind = "room", flammable = True, walkable = True, occupiable = True, hazard_state = "burning", tags = ["room_b", "archive"]),
+            cell("r2c11", row = 2, col = 11, surface_kind = "room", flammable = True, walkable = True, occupiable = True, tags = ["room_b", "archive"]),
+            cell("r3c10", row = 3, col = 10, surface_kind = "room", flammable = True, walkable = True, occupiable = True, tags = ["room_b", "archive"]),
+            cell("r5c2", row = 5, col = 2, surface_kind = "equipment", flammable = False, walkable = True, occupiable = True, tags = ["room_a", "tool_spawn"]),
+            cell("r5c10", row = 5, col = 10, surface_kind = "equipment", flammable = False, walkable = True, occupiable = True, tags = ["room_b", "device_zone"]),
+        ],
+    ),
+    entities = [
+        entity(
+            id = "patrol",
+            kind = "actor",
+            label = "巡逻员",
+            spawns = ["r5c2"],
+            flags = {"alive": True},
+        ),
+        entity(
+            id = "extinguisher_a",
+            kind = "tool",
+            label = "灭火器-A",
+            spawns = ["r5c2"],
+            flags = {"portable": True},
+        ),
+        entity(
+            id = "alarm_a",
+            kind = "device",
+            label = "报警器-A",
+            spawns = ["r1c2"],
+            flags = {"armed": True},
+        ),
+        entity(
+            id = "sprinkler_b",
+            kind = "device",
+            label = "喷淋-B",
+            spawns = ["r5c10"],
+            flags = {"active": False},
+        ),
+        entity(
+            id = "archive_asset",
+            kind = "asset",
+            label = "档案柜",
+            spawns = ["r2c10"],
+            flags = {"valuable": True},
+        ),
+    ],
+)
+
+scene.set_flow(
+    start = start(mode = "manual", action_label = "开始多房间 fire"),
+    interactions = [
+        click(
+            target = "extinguisher_a",
+            effect = grant("extinguisher_a"),
+        ),
+    ],
+    subject_timers = [
+        subject_timer(
+            id = "room-b-burning-hold",
+            subject_ref = "room:room_b",
+            timer_type = "condition_hold",
+            delay_seconds = 5,
+            on_timeout = finish("fail", "room_b_engulfed"),
+            cancel_when = "room_b_burning_cells_lt_4",
+        ),
+        subject_timer(
+            id = "archive-spread-to-corridor",
+            subject_ref = "cell:r2c10",
+            timer_type = "action_trigger",
+            delay_seconds = 5,
+            on_timeout = effects([
+                set_status("cell:r2c11", "smoke"),
+                set_status("cell:r2c6", "smoke"),
+            ]),
+        ),
+        subject_timer(
+            id = "sprinkler-b-auto-activate",
+            subject_ref = "device:sprinkler_b",
+            timer_type = "state_transition",
+            delay_seconds = 3,
+            on_timeout = set_status("device:sprinkler_b", "active"),
+        ),
+    ],
+    timer = rule_timer(
+        seconds = 60,
+        on_timeout = finish("fail", "multiroom_timeout"),
+    ),
+    outcome = rule_outcome(
+        fail = "multiroom_timeout",
+    ),
+)
+
+scene.set_frame(
+    layout = grid(
+        columns = ["2fr", "1fr"],
+        areas = [
+            ["board", "notes"],
+        ],
+        gap = "12px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "board",
+    area = "board",
+    blocks = [
+        component(
+            "sim.scene",
+            area = "auto",
+            props = {
+                "scene": scene_ref("self"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "notes",
+    area = "notes",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "## Multiroom Fire\n\n这个例子验证的是：\n1. 多房间不是另一套 DSL，而是在同一 `topology.grid` 中加 `room / corridor` tags；\n2. 房间级失败条件可以通过 `subject_timer(subject_ref = \"room:...\")` 表达；\n3. 设备、资产、actor、tool 仍然统一挂在 world truth 上，再由 projection 组装成 board。\n\n现在它仍是 contract-first 例子，重点是作者态形状，而不是完整玩法。",
+        ),
+    ],
+)

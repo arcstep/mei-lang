@@ -7,11 +7,37 @@ class MeiSimScene extends HTMLElement {
     this.sceneView = null;
     this.error = null;
     this.loading = false;
+    this.autoTickHandle = null;
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
     }
     this.render();
     this.sendIntent({ kind: "sync" });
+  }
+
+  disconnectedCallback() {
+    this.clearAutoTick();
+  }
+
+  clearAutoTick() {
+    if (this.autoTickHandle !== null) {
+      clearTimeout(this.autoTickHandle);
+      this.autoTickHandle = null;
+    }
+  }
+
+  syncAutoTick(view) {
+    this.clearAutoTick();
+    if (!this.host.step_api || this.loading || this.error) {
+      return;
+    }
+    if (!view || view.phase !== "running" || view.clock_paused) {
+      return;
+    }
+    this.autoTickHandle = setTimeout(() => {
+      this.autoTickHandle = null;
+      this.sendIntent({ kind: "tick" });
+    }, 1000);
   }
 
   async sendIntent(intent) {
@@ -54,16 +80,25 @@ class MeiSimScene extends HTMLElement {
     const topology = world.topology || {};
     const view = this.sceneView || fallbackSceneView(contract, this.runtimeState);
     const timeline = this.runtimeState?.timeline || [];
+    const visibleActions = (view.available_actions || []).filter((action) => action !== "tick");
     const statusText = this.error
       ? `<p class="error">${escapeHtml(this.error)}</p>`
       : `<p>${escapeHtml(view.summary || scene.summary || "scene runtime")}</p>`;
-    const actionButtons = (view.available_actions || [])
+    const actionButtons = visibleActions
       .map((action) => {
         const label =
           action === "start"
             ? view.start_label || "开始"
-            : action === "tick"
-              ? "推进一秒"
+            : action === "pause"
+                ? "暂停时钟"
+                : action === "resume"
+                  ? "恢复时钟"
+                  : action === "rate_half"
+                    ? "0.5x"
+                    : action === "rate_normal"
+                      ? "1x"
+                      : action === "rate_double"
+                        ? "2x"
               : action === "restart"
                 ? "重新开始"
                 : action;
@@ -73,6 +108,15 @@ class MeiSimScene extends HTMLElement {
     const gridColumns = Number(topology.cols || 1);
     const cells = (view.cells || [])
       .map((cell) => {
+        const cellMeta = [
+          cell.hazard_state ? `hazard=${cell.hazard_state}` : null,
+          cell.flammable === true ? "flammable" : null,
+          cell.flammable === false ? "nonflammable" : null,
+          cell.walkable === true ? "walkable" : null,
+          cell.occupiable === true ? "occupiable" : null,
+          ...(cell.tags || []).map((tag) => `#${tag}`),
+        ].filter(Boolean);
+        const cellStateClass = cell.hazard_state ? ` hazard-${cell.hazard_state}` : "";
         const entities = (cell.entities || [])
           .map((entity) => {
             const label = entity.label || entity.id;
@@ -81,8 +125,9 @@ class MeiSimScene extends HTMLElement {
           })
           .join("");
         return `
-          <div class="cell">
+          <div class="cell${escapeHtml(cellStateClass)}">
             <div class="cell-id">${escapeHtml(cell.id)}</div>
+            <div class="cell-meta">${cellMeta.length > 0 ? escapeHtml(cellMeta.join(" · ")) : "&nbsp;"}</div>
             <div class="cell-entities">${entities || `<span class="cell-empty">empty</span>`}</div>
           </div>
         `;
@@ -108,8 +153,12 @@ class MeiSimScene extends HTMLElement {
         .grid { display: grid; gap: 10px; }
         .cell { border: 1px solid rgba(148,163,184,.16); border-radius: 12px; padding: 10px; min-height: 84px; display: grid; gap: 8px; background: rgba(2,6,23,.32); }
         .cell-id { font-size: 11px; color: #94a3b8; }
+        .cell-meta { font-size: 11px; color: #7dd3fc; min-height: 14px; }
         .cell-entities { display: flex; flex-direction: column; gap: 6px; }
         .cell-empty { color: #64748b; font-size: 12px; }
+        .hazard-smoke { border-color: rgba(245,158,11,.35); background: rgba(120,53,15,.22); }
+        .hazard-burning { border-color: rgba(239,68,68,.4); background: rgba(127,29,29,.28); }
+        .hazard-engulfed { border-color: rgba(220,38,38,.5); background: rgba(69,10,10,.34); }
         .cols { display: grid; gap: 14px; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
         .side { display: grid; gap: 12px; }
         .card { border: 1px solid rgba(148,163,184,.14); border-radius: 12px; padding: 12px; background: rgba(2,6,23,.26); }
@@ -125,6 +174,9 @@ class MeiSimScene extends HTMLElement {
           <div class="meta">
             <span>phase=${escapeHtml(view.phase || "ready")}</span>
             <span>countdown=${escapeHtml(String(view.countdown ?? scene.state?.countdown ?? 0))}</span>
+            <span>current_time=${escapeHtml(String(view.current_time ?? 0))} ${escapeHtml(view.time_unit || "second")}</span>
+            <span>paused=${escapeHtml(String(!!view.clock_paused))}</span>
+            <span>rate=${escapeHtml(String(view.time_rate ?? 1))}x</span>
             <span>inventory=${escapeHtml((view.inventory || []).join(", ") || "-")}</span>
             <span>profile=${escapeHtml(view.profile || scene.profile || "scene")}</span>
           </div>
@@ -147,6 +199,7 @@ class MeiSimScene extends HTMLElement {
         </div>
       </section>
     `;
+    this.syncAutoTick(view);
     this.shadowRoot.querySelectorAll("[data-intent]").forEach((button) => {
       button.addEventListener("click", () => {
         this.sendIntent({ kind: button.dataset.intent });
@@ -176,12 +229,20 @@ function fallbackSceneView(contract, state) {
   }));
   const rows = Number(world.topology?.rows || 0);
   const cols = Number(world.topology?.cols || 0);
+  const declaredCells = new Map((world.topology?.cells || []).map((cell) => [cell.id, cell]));
   const cells = [];
   for (let row = 1; row <= rows; row += 1) {
     for (let col = 1; col <= cols; col += 1) {
       const id = `r${row}c${col}`;
+      const declared = declaredCells.get(id) || {};
       cells.push({
         id,
+        surface_kind: declared.surface_kind || null,
+        flammable: typeof declared.flammable === "boolean" ? declared.flammable : null,
+        walkable: typeof declared.walkable === "boolean" ? declared.walkable : null,
+        occupiable: typeof declared.occupiable === "boolean" ? declared.occupiable : null,
+        hazard_state: declared.hazard_state || null,
+        tags: declared.tags || [],
         entities: entities.filter((entity) => entity.slot === id),
       });
     }
@@ -195,6 +256,10 @@ function fallbackSceneView(contract, state) {
     result: state?.result || "ready",
     reason: state?.reason || null,
     countdown: state?.countdown ?? scene.state?.countdown ?? 0,
+    current_time: state?.clock?.current_time ?? 0,
+    time_unit: state?.clock?.time_unit || "second",
+    clock_paused: !!state?.clock?.paused,
+    time_rate: state?.clock?.rate ?? 1,
     inventory: state?.inventory || [],
     entities,
     cells,

@@ -1,6 +1,6 @@
 app(
-    id = "05-chart",
-    title = "05 Chart",
+    id = "051-chart",
+    title = "051 Chart",
     default_scene = "home",
 )
 

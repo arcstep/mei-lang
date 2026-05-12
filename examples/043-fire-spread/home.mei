@@ -1,0 +1,147 @@
+app.add_scene(
+    id = "fire_spread_room",
+    profile = "simulation",
+    summary = "复杂 fire spread 骨架：10x10 网格、cell hazard state、设备与 subject timer 共同出现。",
+    goal = "验证 fire spread skeleton 可以在同一套 scene/world/rules/projection 主线上表达。",
+    state = {
+        "phase": "ready",
+        "countdown": 40,
+    },
+)
+
+scene.set_world(
+    topology = grid(
+        rows = 10,
+        cols = 10,
+        cells = [
+            cell("r2c2", row = 2, col = 2, surface_kind = "storage", flammable = True, walkable = True, occupiable = True, hazard_state = "smoke", tags = ["ignition_candidate", "asset_zone", "room_a"]),
+            cell("r2c3", row = 2, col = 3, surface_kind = "storage", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r2c4", row = 2, col = 4, surface_kind = "storage", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r3c2", row = 3, col = 2, surface_kind = "floor", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r3c3", row = 3, col = 3, surface_kind = "floor", flammable = True, walkable = True, occupiable = True, hazard_state = "burning", tags = ["room_a", "center_fire"]),
+            cell("r3c4", row = 3, col = 4, surface_kind = "floor", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r4c3", row = 4, col = 3, surface_kind = "floor", flammable = True, walkable = True, occupiable = True, tags = ["room_a"]),
+            cell("r5c8", row = 5, col = 8, surface_kind = "equipment", flammable = False, walkable = True, occupiable = True, tags = ["sprinkler_zone"]),
+            cell("r8c2", row = 8, col = 2, surface_kind = "entry", flammable = False, walkable = True, occupiable = True, tags = ["tool_spawn", "entry"]),
+        ],
+    ),
+    entities = [
+        entity(
+            id = "player",
+            kind = "actor",
+            label = "消防员",
+            spawns = ["r8c2"],
+            flags = {"alive": True},
+        ),
+        entity(
+            id = "extinguisher_1",
+            kind = "tool",
+            label = "灭火器-1",
+            spawns = ["r8c2"],
+            flags = {"portable": True, "charges_hint": True},
+        ),
+        entity(
+            id = "alarm_1",
+            kind = "device",
+            label = "报警器",
+            spawns = ["r1c10"],
+            flags = {"armed": True},
+        ),
+        entity(
+            id = "sprinkler_1",
+            kind = "device",
+            label = "喷淋",
+            spawns = ["r5c8"],
+            flags = {"active": False},
+        ),
+        entity(
+            id = "asset_1",
+            kind = "asset",
+            label = "贵重物资",
+            spawns = ["r2c2"],
+            flags = {"valuable": True},
+        ),
+    ],
+)
+
+scene.set_flow(
+    start = start(mode = "manual", action_label = "开始传播验证"),
+    interactions = [
+        click(
+            target = "extinguisher_1",
+            effect = grant("extinguisher_1"),
+        ),
+    ],
+    subject_timers = [
+        subject_timer(
+            id = "smoke-r2c2-to-burning",
+            subject_ref = "cell:r2c2",
+            timer_type = "state_transition",
+            delay_seconds = 5,
+            on_timeout = set_status("cell:r2c2", "burning"),
+        ),
+        subject_timer(
+            id = "burning-r3c3-spread",
+            subject_ref = "cell:r3c3",
+            timer_type = "action_trigger",
+            delay_seconds = 5,
+            on_timeout = effects([
+                set_status("cell:r3c2", "smoke"),
+                set_status("cell:r3c4", "smoke"),
+                set_status("cell:r2c3", "smoke"),
+                set_status("cell:r4c3", "smoke"),
+            ]),
+        ),
+        subject_timer(
+            id = "room-a-burn-threshold",
+            subject_ref = "room:room_a",
+            timer_type = "condition_hold",
+            delay_seconds = 5,
+            on_timeout = finish("fail", "room_a_engulfed"),
+            cancel_when = "burning_cells_lt_threshold",
+        ),
+    ],
+    timer = rule_timer(
+        seconds = 40,
+        on_timeout = finish("fail", "spread_timeout"),
+    ),
+    outcome = rule_outcome(
+        fail = "spread_timeout",
+    ),
+)
+
+scene.set_frame(
+    layout = grid(
+        columns = ["2fr", "1fr"],
+        areas = [
+            ["board", "notes"],
+        ],
+        gap = "12px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "board",
+    area = "board",
+    blocks = [
+        component(
+            "sim.scene",
+            area = "auto",
+            props = {
+                "scene": scene_ref("self"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "notes",
+    area = "notes",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "## Fire Spread Skeleton\n\n这个例子主要验证：\n1. `cell.hazard_state` 能否表达 `smoke / burning`；\n2. `subject_timers` 能否表达 `state_transition / action_trigger / condition_hold` 三类时间规则；\n3. 设备、工具、资产是否能与 cell 风险状态共存于同一份 world truth。\n\n当前 runtime 仍不会自动执行这些 `subject_timers`，但它们已经以 contract scaffold 的方式进入 scene authoring。",
+        ),
+    ],
+)
