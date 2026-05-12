@@ -88,6 +88,7 @@ fn content_type_for_path(path: &Path) -> &'static str {
         Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
+        Some("svg") => "image/svg+xml",
         _ => "text/plain; charset=utf-8",
     }
 }

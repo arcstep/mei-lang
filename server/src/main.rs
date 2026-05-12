@@ -170,6 +170,7 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
             | "/api/opencode/runtime"
             | "/api/opencode/health"
             | "/api/opencode/session"
+            | "/favicon.ico"
     ) || path.starts_with("/app-assets/")
         || path.starts_with("/workspace-components/")
         || path.ends_with("/events")

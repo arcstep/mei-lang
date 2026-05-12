@@ -5,7 +5,7 @@ pub mod scene_api;
 
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Router,
 };
@@ -14,6 +14,10 @@ use crate::AppState;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/favicon.ico",
+            get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
+        )
         .route("/", get(pages::index))
         .route("/apps/:mode/:app_id", get(pages::app_page))
         .route("/api/projection/:app_id", get(projection_api::projection_api))
