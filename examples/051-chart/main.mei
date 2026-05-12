@@ -80,12 +80,20 @@ ds.dataset_view(
 )
 
 scene.set_frame(
-    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+    layout = grid(
+        columns = ["minmax(0, 2fr)", "minmax(280px, 360px)"],
+        areas = [
+            ["charts", "doc"],
+            ["charts", "table"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
 )
 
 frame.add_panel(
     id = "doc_panel",
-    area = "auto",
+    area = "doc",
     blocks = [
         doc.markdown(
             area = "auto",
@@ -96,9 +104,9 @@ frame.add_panel(
 
 frame.add_panel(
     id = "charts_panel",
-    area = "auto",
+    area = "charts",
     layout = grid(
-        columns = ["repeat(auto-fit, minmax(360px, 1fr))"],
+        columns = ["repeat(auto-fit, minmax(300px, 1fr))"],
         gap = "16px",
     ),
     blocks = [
@@ -259,7 +267,7 @@ frame.add_panel(
 
 frame.add_panel(
     id = "table_panel",
-    area = "auto",
+    area = "table",
     blocks = [
         component(
             "dataset.table",
