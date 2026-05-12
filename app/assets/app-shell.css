@@ -7,6 +7,7 @@ body {
   background: #0f172a;
   color: #e2e8f0;
 }
+body.access-mode { overflow: auto; }
 a { color: inherit; text-decoration: none; }
 .shell {
   height: 100vh;
@@ -118,6 +119,22 @@ a { color: inherit; text-decoration: none; }
 .preview-panel { padding: 16px; }
 .preview-pane-scroll { padding: 0; }
 .preview-surface { min-height: 100%; align-items: start; }
+.access-shell {
+  background: #0f172a;
+}
+.access-main {
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+}
+.access-preview-panel {
+  min-height: 100%;
+  min-width: 0;
+  overflow: auto;
+}
+.access-preview-panel .preview-surface {
+  min-height: 100%;
+}
 .preview-card {
   display: grid;
   gap: 10px;
@@ -443,6 +460,7 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 1200px) {
   body { overflow: auto; }
   .shell { height: auto; min-height: 100vh; overflow: visible; }
+  .access-shell, .access-main, .access-preview-panel { min-height: auto; }
   .workspace { height: auto; grid-template-columns: 1fr; gap: 16px; overflow: visible; }
   .sidebar, .main { height: auto; }
   .sidebar-scroll, .main { overflow: visible; }
