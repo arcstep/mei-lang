@@ -43,8 +43,3 @@ export MEI_OPENCODE_URL=http://127.0.0.1:4099
 ```bash
 cargo run -p mei-lang-server -- serve --auto-opencode
 ```
-
-## 进一步阅读
-
-- OpenCode 服务边界与设计：`../docs/mei-lang/topics/opencode-service-boundary.md`
-- OpenCode 运维与排障：`../docs/mei-lang/implementation/extensions/05-opencode-service-operations.md`

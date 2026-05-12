@@ -64,6 +64,26 @@
       "tag": "mei-cockpit-metric-cards",
       "script": "cockpit-metric-cards.js"
     },
+    "sim.step-bridge": {
+      "tag": "mei-sim-step-bridge",
+      "script": "sim-step-bridge.js"
+    },
+    "sim.affordance-bar": {
+      "tag": "mei-sim-affordance-bar",
+      "script": "sim-affordance-bar.js"
+    },
+    "sim.board-grid": {
+      "tag": "mei-sim-board-grid",
+      "script": "sim-board-grid.js"
+    },
+    "sim.cell-tile": {
+      "tag": "mei-sim-cell-tile",
+      "script": "sim-cell-tile.js"
+    },
+    "sim.outcome-hud": {
+      "tag": "mei-sim-outcome-hud",
+      "script": "sim-outcome-hud.js"
+    },
     "sim.scene": {
       "tag": "mei-sim-scene",
       "script": "sim-scene.js"
