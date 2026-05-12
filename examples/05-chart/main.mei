@@ -95,8 +95,12 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "line_area_trend_panel",
+    id = "charts_panel",
     area = "auto",
+    layout = grid(
+        columns = ["repeat(auto-fit, minmax(360px, 1fr))"],
+        gap = "16px",
+    ),
     blocks = [
         component(
             "chart.line",
@@ -134,13 +138,6 @@ frame.add_panel(
                 },
             },
         ),
-    ],
-)
-
-frame.add_panel(
-    id = "column_bar_panel",
-    area = "auto",
-    blocks = [
         component(
             "chart.column",
             area = "auto",
@@ -171,13 +168,6 @@ frame.add_panel(
                 },
             },
         ),
-    ],
-)
-
-frame.add_panel(
-    id = "pie_family_panel",
-    area = "auto",
-    blocks = [
         component(
             "chart.pie",
             area = "auto",
@@ -214,13 +204,6 @@ frame.add_panel(
                 },
             },
         ),
-    ],
-)
-
-frame.add_panel(
-    id = "scatter_radar_boxplot_panel",
-    area = "auto",
-    blocks = [
         component(
             "chart.scatter",
             area = "auto",
@@ -271,6 +254,13 @@ frame.add_panel(
                 },
             },
         ),
+    ],
+)
+
+frame.add_panel(
+    id = "table_panel",
+    area = "auto",
+    blocks = [
         component(
             "dataset.table",
             area = "auto",
