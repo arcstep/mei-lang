@@ -31,7 +31,8 @@ pub fn render_page(
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <title>{format!("🌸 {} - MeiLang", compiled.title)}</title>
+                <title>{format!("{} - MeiLang", compiled.title)}</title>
+                <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-assets/app-shell.css"/>
             </head>
             <body class=body_class>
@@ -173,7 +174,17 @@ fn topbar_view(
     view! {
         <header class="topbar">
             <div class="brand">
-                <strong>"🌸 MeiLang"</strong>
+                <div class="brand-title-row">
+                    <img
+                        class="brand-mark"
+                        src="/app-assets/favicon.svg"
+                        width="22"
+                        height="22"
+                        alt=""
+                        aria-hidden="true"
+                    />
+                    <strong>"MeiLang"</strong>
+                </div>
                 <span>"AI-Native"</span>
             </div>
             <nav class="app-tabs">{app_tabs}</nav>
