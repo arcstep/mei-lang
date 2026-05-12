@@ -121,9 +121,9 @@ a { color: inherit; text-decoration: none; }
 .preview-surface { min-height: 100%; align-items: start; }
 .access-shell {
   background: #0f172a;
+  display: block;
   height: auto;
   min-height: 100vh;
-  grid-template-rows: auto auto;
   overflow: visible;
 }
 .access-main {
@@ -132,6 +132,7 @@ a { color: inherit; text-decoration: none; }
   height: auto;
   overflow: visible;
   padding: 16px;
+  align-self: start;
 }
 .access-preview-panel {
   min-height: auto;
