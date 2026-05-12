@@ -103,6 +103,8 @@ pub struct RuntimeSubjectTimerState {
     pub interval: Option<f64>,
     #[serde(default)]
     pub repeat: bool,
+    #[serde(default)]
+    pub cancel_when: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +120,16 @@ pub struct RuntimeCellView {
     pub occupiable: Option<bool>,
     #[serde(default)]
     pub hazard_state: Option<String>,
+    #[serde(default)]
+    pub hazard_timer_remaining: Option<f64>,
+    #[serde(default)]
+    pub hazard_timer_seconds: Option<i64>,
+    #[serde(default)]
+    pub interaction_target: Option<String>,
+    #[serde(default)]
+    pub clickable: bool,
+    #[serde(default)]
+    pub key_target: bool,
     #[serde(default)]
     pub tags: Vec<String>,
     #[serde(default)]
@@ -137,6 +149,10 @@ pub struct RuntimeSceneView {
     pub result: String,
     #[serde(default)]
     pub reason: Option<String>,
+    #[serde(default)]
+    pub outcome_state: String,
+    #[serde(default)]
+    pub outcome_message: Option<String>,
     pub countdown: i64,
     #[serde(default)]
     pub current_time: f64,

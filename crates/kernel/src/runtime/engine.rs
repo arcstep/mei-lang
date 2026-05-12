@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
 
-use crate::{RuleEffectDecl, SceneContract};
+use crate::{RuleEffectDecl, RuleSubjectTimerDecl, SceneContract};
 
 use super::{
     RuntimeCellView, RuntimeClockState, RuntimeEntityView, RuntimeIntent, RuntimeSceneView,
-    RuntimeState,
+    RuntimeState, RuntimeSubjectTimerState,
     RuntimeTraceItem,
 };
 
@@ -197,7 +197,127 @@ fn start_round(contract: &SceneContract, seed: u64) -> RuntimeState {
             "scene_id": contract.scene.id,
         }),
     }];
+    state.subject_timers = materialize_subject_timers(contract, state.clock.current_time);
     state
+}
+
+fn subject_timer_runtime_id(decl: &RuleSubjectTimerDecl, index: usize) -> String {
+    decl.id
+        .clone()
+        .unwrap_or_else(|| format!("subject_timer_{index}"))
+}
+
+fn materialize_subject_timers(contract: &SceneContract, current_time: f64) -> Vec<RuntimeSubjectTimerState> {
+    let Some(flow) = &contract.flow else {
+        return Vec::new();
+    };
+    flow.subject_timers
+        .iter()
+        .enumerate()
+        .map(|(index, timer)| {
+            let delay = timer.delay_seconds.max(0.0);
+            let interval = timer.interval_seconds.and_then(|value| (value > 0.0).then_some(value));
+            RuntimeSubjectTimerState {
+                id: subject_timer_runtime_id(timer, index),
+                subject_ref: timer.subject_ref.clone(),
+                timer_kind: timer.timer_kind.clone(),
+                started_at: current_time,
+                due_at: current_time + delay,
+                interval,
+                repeat: timer.repeat,
+                cancel_when: timer.cancel_when.clone(),
+            }
+        })
+        .collect()
+}
+
+fn subject_timer_decl_by_id<'a>(
+    contract: &'a SceneContract,
+    timer_id: &str,
+) -> Option<&'a RuleSubjectTimerDecl> {
+    contract.flow.as_ref().and_then(|flow| {
+        flow.subject_timers
+            .iter()
+            .enumerate()
+            .find_map(|(index, timer)| (subject_timer_runtime_id(timer, index) == timer_id).then_some(timer))
+    })
+}
+
+fn timer_cancelled(timer: &RuntimeSubjectTimerState, state: &RuntimeState) -> bool {
+    let Some(cancel_when) = timer.cancel_when.as_deref() else {
+        return false;
+    };
+    let expr = cancel_when.trim();
+    if let Some(item) = expr.strip_prefix("has:") {
+        return state.inventory.iter().any(|owned| owned == item.trim());
+    }
+    if let Some(spec) = expr.strip_prefix("status:") {
+        if let Some((target, value)) = spec.split_once('=') {
+            return state
+                .statuses
+                .get(target.trim())
+                .map(|current| current == value.trim())
+                .unwrap_or(false);
+        }
+    }
+    if let Some(spec) = expr.strip_prefix("flag:") {
+        if let Some((target, value)) = spec.split_once('=') {
+            let expect = value.trim().eq_ignore_ascii_case("true");
+            return state.flags.get(target.trim()).copied() == Some(expect);
+        }
+    }
+    if let Some(phase) = expr.strip_prefix("phase:") {
+        return state.phase == phase.trim();
+    }
+    false
+}
+
+fn apply_subject_timers(contract: &SceneContract, state: &mut RuntimeState) {
+    if state.subject_timers.is_empty() {
+        return;
+    }
+    let now = state.clock.current_time;
+    let mut fired = Vec::new();
+    let mut next_timers = Vec::new();
+    for mut timer in state.subject_timers.clone() {
+        if timer_cancelled(&timer, state) {
+            push_trace(
+                state,
+                "subject_timer_cancelled",
+                format!("subject timer cancelled: {}", timer.id),
+                json!({ "timer_id": timer.id }),
+            );
+            continue;
+        }
+        if timer.due_at <= now + f64::EPSILON {
+            fired.push(timer.id.clone());
+            if timer.repeat {
+                if let Some(interval) = timer.interval.and_then(|value| (value > 0.0).then_some(value)) {
+                    timer.started_at = now;
+                    timer.due_at = now + interval;
+                    next_timers.push(timer);
+                }
+            }
+        } else {
+            next_timers.push(timer);
+        }
+    }
+    state.subject_timers = next_timers;
+    for timer_id in fired {
+        if let Some(decl) = subject_timer_decl_by_id(contract, &timer_id) {
+            push_trace(
+                state,
+                "subject_timer_fired",
+                format!("subject timer fired: {}", timer_id),
+                json!({
+                    "timer_id": timer_id,
+                    "subject_ref": decl.subject_ref,
+                    "timer_type": decl.timer_kind,
+                }),
+            );
+            apply_effect(contract, state, &decl.on_timeout);
+        }
+    }
 }
 
 fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &RuleEffectDecl) {
@@ -374,7 +494,8 @@ fn tick_step(contract: &SceneContract, state: &RuntimeState) -> RuntimeState {
         format!("tick -> {}", countdown),
         tick_details,
     );
-    if next.clock.countdown_remaining <= 0.0 {
+    apply_subject_timers(contract, &mut next);
+    if next.phase == "running" && next.clock.countdown_remaining <= 0.0 {
         if let Some(timer) = contract.flow.as_ref().and_then(|flow| flow.timer.as_ref()) {
             apply_effect(contract, &mut next, &timer.on_timeout);
         }
@@ -470,7 +591,63 @@ fn entity_flags(state: &RuntimeState, entity_id: &str) -> BTreeMap<String, bool>
         .collect()
 }
 
-fn build_cells(contract: &SceneContract, entities: &[RuntimeEntityView]) -> Vec<RuntimeCellView> {
+fn cell_status_key(cell_id: &str) -> String {
+    format!("cell:{cell_id}")
+}
+
+fn cell_hazard_state(
+    state: &RuntimeState,
+    cell_id: &str,
+    declared_hazard: Option<String>,
+) -> Option<String> {
+    state
+        .statuses
+        .get(&cell_status_key(cell_id))
+        .cloned()
+        .or(declared_hazard)
+}
+
+fn cell_timer_remaining(state: &RuntimeState, cell_id: &str) -> Option<f64> {
+    let subject_ref = cell_status_key(cell_id);
+    state
+        .subject_timers
+        .iter()
+        .filter(|timer| timer.subject_ref == subject_ref)
+        .map(|timer| (timer.due_at - state.clock.current_time).max(0.0))
+        .min_by(|left, right| left.total_cmp(right))
+}
+
+fn cell_interaction_target(contract: &SceneContract, cell_id: &str) -> Option<String> {
+    let Some(flow) = &contract.flow else {
+        return None;
+    };
+    let prefixed = cell_status_key(cell_id);
+    flow.interactions
+        .iter()
+        .find(|rule| rule.target == prefixed || rule.target == cell_id)
+        .map(|rule| rule.target.clone())
+}
+
+fn cell_is_key_target(contract: &SceneContract, cell_id: &str) -> bool {
+    let Some(flow) = &contract.flow else {
+        return false;
+    };
+    let prefixed = cell_status_key(cell_id);
+    flow.interactions.iter().any(|rule| {
+        (rule.target == prefixed || rule.target == cell_id)
+            && rule
+                .require
+                .as_ref()
+                .map(|require| require.require_type == "has")
+                .unwrap_or(false)
+    })
+}
+
+fn build_cells(
+    contract: &SceneContract,
+    state: &RuntimeState,
+    entities: &[RuntimeEntityView],
+) -> Vec<RuntimeCellView> {
     let mut cells = Vec::new();
     if let Some(world) = &contract.world {
         if let Some(topology) = &world.topology {
@@ -483,13 +660,23 @@ fn build_cells(contract: &SceneContract, entities: &[RuntimeEntityView]) -> Vec<
                         .filter(|entity| entity.slot.as_deref() == Some(id.as_str()))
                         .cloned()
                         .collect::<Vec<_>>();
+                    let declared_hazard = declared.and_then(|cell| cell.hazard_state.clone());
+                    let hazard_state = cell_hazard_state(state, &id, declared_hazard);
+                    let timer_remaining = cell_timer_remaining(state, &id);
+                    let interaction_target = cell_interaction_target(contract, &id);
+                    let key_target = cell_is_key_target(contract, &id);
                     cells.push(RuntimeCellView {
                         id,
                         surface_kind: declared.and_then(|cell| cell.surface_kind.clone()),
                         flammable: declared.and_then(|cell| cell.flammable),
                         walkable: declared.and_then(|cell| cell.walkable),
                         occupiable: declared.and_then(|cell| cell.occupiable),
-                        hazard_state: declared.and_then(|cell| cell.hazard_state.clone()),
+                        hazard_state,
+                        hazard_timer_remaining: timer_remaining,
+                        hazard_timer_seconds: timer_remaining.map(|value| value.ceil() as i64),
+                        clickable: interaction_target.is_some(),
+                        interaction_target,
+                        key_target,
                         tags: declared.map(|cell| cell.tags.clone()).unwrap_or_default(),
                         entities: occupants,
                     });
@@ -545,13 +732,15 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
         phase: state.phase.clone(),
         result: state.result.clone(),
         reason: state.reason.clone(),
+        outcome_state: state.phase.clone(),
+        outcome_message: state.reason.clone(),
         countdown: state.countdown,
         current_time: state.clock.current_time,
         time_unit: state.clock.time_unit.clone(),
         clock_paused: state.clock.paused,
         time_rate: state.clock.rate,
         inventory: state.inventory.clone(),
-        cells: build_cells(contract, &entities),
+        cells: build_cells(contract, state, &entities),
         subject_timers: state.subject_timers.clone(),
         entities,
         available_actions,
@@ -582,8 +771,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        model::{EntityDecl, WorldDecl, WorldGridDecl},
+        model::{EntityDecl, WorldCellDecl, WorldDecl, WorldGridDecl},
         FlowDecl, RuleClickDecl, RuleEffectDecl, RuleRequireDecl, RuleStartDecl, RuleTimerDecl,
+        RuleSubjectTimerDecl,
         SceneContract, SceneDecl,
     };
 
@@ -687,6 +877,119 @@ mod tests {
         }
     }
 
+    fn test_cell_timer_contract() -> SceneContract {
+        SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "minimal_fire_cells".to_string(),
+                profile: Some("simulation".to_string()),
+                summary: Some("cell timer test".to_string()),
+                goal: Some("扑灭火格".to_string()),
+                state: json!({"phase": "ready", "countdown": 5}),
+            },
+            world: Some(WorldDecl {
+                kind: "world".to_string(),
+                topology: Some(WorldGridDecl {
+                    rows: 2,
+                    cols: 2,
+                    cells: vec![WorldCellDecl {
+                        id: "r1c1".to_string(),
+                        row: Some(1),
+                        col: Some(1),
+                        surface_kind: Some("floor".to_string()),
+                        flammable: Some(true),
+                        walkable: Some(true),
+                        occupiable: Some(true),
+                        capacity: None,
+                        hazard_state: Some("smoke".to_string()),
+                        tags: vec!["ignition_candidate".to_string()],
+                    }],
+                }),
+                resources: Vec::new(),
+                entities: vec![EntityDecl {
+                    id: "extinguisher_1".to_string(),
+                    kind: "tool".to_string(),
+                    label: Some("灭火器".to_string()),
+                    spawns: vec!["r2c2".to_string()],
+                    status: None,
+                    flags: json!({}),
+                }],
+            }),
+            flow: Some(FlowDecl {
+                kind: "flow".to_string(),
+                start: Some(RuleStartDecl {
+                    mode: Some("manual".to_string()),
+                    action_label: Some("开始".to_string()),
+                }),
+                interactions: vec![
+                    RuleClickDecl {
+                        target: "extinguisher_1".to_string(),
+                        require: None,
+                        effect: RuleEffectDecl {
+                            effect_type: "grant".to_string(),
+                            target: None,
+                            value: Some(json!("extinguisher_1")),
+                            effects: Vec::new(),
+                        },
+                    },
+                    RuleClickDecl {
+                        target: "cell:r1c1".to_string(),
+                        require: Some(RuleRequireDecl {
+                            require_type: "has".to_string(),
+                            value: "extinguisher_1".to_string(),
+                        }),
+                        effect: RuleEffectDecl {
+                            effect_type: "effects".to_string(),
+                            target: None,
+                            value: None,
+                            effects: vec![
+                                RuleEffectDecl {
+                                    effect_type: "set_status".to_string(),
+                                    target: Some("cell:r1c1".to_string()),
+                                    value: Some(json!("out")),
+                                    effects: Vec::new(),
+                                },
+                                RuleEffectDecl {
+                                    effect_type: "finish".to_string(),
+                                    target: Some("success".to_string()),
+                                    value: Some(json!("cell_fire_out")),
+                                    effects: Vec::new(),
+                                },
+                            ],
+                        },
+                    },
+                ],
+                timer: Some(RuleTimerDecl {
+                    seconds: 5,
+                    on_timeout: RuleEffectDecl {
+                        effect_type: "finish".to_string(),
+                        target: Some("fail".to_string()),
+                        value: Some(json!("timeout")),
+                        effects: Vec::new(),
+                    },
+                }),
+                subject_timers: vec![RuleSubjectTimerDecl {
+                    id: Some("cell-smoke-to-burning".to_string()),
+                    subject_ref: "cell:r1c1".to_string(),
+                    timer_kind: "state_transition".to_string(),
+                    delay_seconds: 1.0,
+                    interval_seconds: None,
+                    repeat: false,
+                    on_timeout: RuleEffectDecl {
+                        effect_type: "set_status".to_string(),
+                        target: Some("cell:r1c1".to_string()),
+                        value: Some(json!("burning")),
+                        effects: Vec::new(),
+                    },
+                    cancel_when: None,
+                }],
+                outcome: None,
+            }),
+            frame: None,
+            panels: Vec::new(),
+        }
+    }
+
     #[test]
     fn runtime_flow_reaches_success() {
         let contract = test_contract();
@@ -747,6 +1050,64 @@ mod tests {
         }
         assert_eq!(state.phase, "fail");
         assert_eq!(state.reason.as_deref(), Some("timeout_or_player_dead"));
+    }
+
+    #[test]
+    fn runtime_subject_timer_drives_cell_hazard_and_click_success() {
+        let contract = test_cell_timer_contract();
+        let started = runtime_step(
+            &contract,
+            None,
+            &RuntimeIntent {
+                kind: "start".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(started.subject_timers.len(), 1);
+        assert_eq!(started.subject_timers[0].subject_ref, "cell:r1c1");
+
+        let after_tick = runtime_step(
+            &contract,
+            Some(started),
+            &RuntimeIntent {
+                kind: "tick".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(
+            after_tick.statuses.get("cell:r1c1").map(String::as_str),
+            Some("burning")
+        );
+        assert!(after_tick.subject_timers.is_empty());
+
+        let with_item = runtime_step(
+            &contract,
+            Some(after_tick),
+            &RuntimeIntent {
+                kind: "click".to_string(),
+                target: Some("extinguisher_1".to_string()),
+            },
+        );
+        let success = runtime_step(
+            &contract,
+            Some(with_item),
+            &RuntimeIntent {
+                kind: "click".to_string(),
+                target: Some("cell:r1c1".to_string()),
+            },
+        );
+        assert_eq!(success.phase, "success");
+        assert_eq!(success.reason.as_deref(), Some("cell_fire_out"));
+
+        let view = project_runtime_view(&contract, &success);
+        let cell = view
+            .cells
+            .iter()
+            .find(|cell| cell.id == "r1c1")
+            .expect("r1c1 should exist");
+        assert_eq!(cell.hazard_state.as_deref(), Some("out"));
+        assert_eq!(cell.interaction_target.as_deref(), Some("cell:r1c1"));
+        assert!(cell.clickable);
     }
 
     #[test]
