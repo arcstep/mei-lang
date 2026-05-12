@@ -232,7 +232,15 @@ frame.add_panel(
 #[test]
 fn compile_examples_regressions() {
     let examples = repo_examples_root();
-    for app_id in ["02-dataset", "03-cockpit", "05-chart"] {
+    for app_id in [
+        "021-dataset",
+        "031-cockpit",
+        "041-fire",
+        "051-chart",
+        "042-fire-minimal",
+        "043-fire-spread",
+        "044-fire-multiroom",
+    ] {
         let app_root = examples.join(app_id);
         let compiled = compile_app_from_root(&examples, &app_root)
             .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));

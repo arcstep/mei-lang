@@ -4,6 +4,40 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeClockState {
+    #[serde(default)]
+    pub current_time: f64,
+    #[serde(default = "default_time_unit")]
+    pub time_unit: String,
+    #[serde(default)]
+    pub paused: bool,
+    #[serde(default = "default_time_rate")]
+    pub rate: f64,
+    #[serde(default)]
+    pub countdown_remaining: f64,
+}
+
+impl Default for RuntimeClockState {
+    fn default() -> Self {
+        Self {
+            current_time: 0.0,
+            time_unit: default_time_unit(),
+            paused: false,
+            rate: default_time_rate(),
+            countdown_remaining: 0.0,
+        }
+    }
+}
+
+fn default_time_unit() -> String {
+    "second".to_string()
+}
+
+fn default_time_rate() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeIntent {
     pub kind: String,
     #[serde(default)]
@@ -27,6 +61,8 @@ pub struct RuntimeState {
     pub reason: Option<String>,
     pub countdown: i64,
     #[serde(default)]
+    pub clock: RuntimeClockState,
+    #[serde(default)]
     pub placements: BTreeMap<String, String>,
     #[serde(default)]
     pub inventory: Vec<String>,
@@ -38,6 +74,8 @@ pub struct RuntimeState {
     pub timeline: Vec<String>,
     #[serde(default)]
     pub trace_events: Vec<RuntimeTraceItem>,
+    #[serde(default)]
+    pub subject_timers: Vec<RuntimeSubjectTimerState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,8 +93,33 @@ pub struct RuntimeEntityView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeSubjectTimerState {
+    pub id: String,
+    pub subject_ref: String,
+    pub timer_kind: String,
+    pub started_at: f64,
+    pub due_at: f64,
+    #[serde(default)]
+    pub interval: Option<f64>,
+    #[serde(default)]
+    pub repeat: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeCellView {
     pub id: String,
+    #[serde(default)]
+    pub surface_kind: Option<String>,
+    #[serde(default)]
+    pub flammable: Option<bool>,
+    #[serde(default)]
+    pub walkable: Option<bool>,
+    #[serde(default)]
+    pub occupiable: Option<bool>,
+    #[serde(default)]
+    pub hazard_state: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
     #[serde(default)]
     pub entities: Vec<RuntimeEntityView>,
 }
@@ -76,11 +139,21 @@ pub struct RuntimeSceneView {
     pub reason: Option<String>,
     pub countdown: i64,
     #[serde(default)]
+    pub current_time: f64,
+    #[serde(default = "default_time_unit")]
+    pub time_unit: String,
+    #[serde(default)]
+    pub clock_paused: bool,
+    #[serde(default = "default_time_rate")]
+    pub time_rate: f64,
+    #[serde(default)]
     pub inventory: Vec<String>,
     #[serde(default)]
     pub entities: Vec<RuntimeEntityView>,
     #[serde(default)]
     pub cells: Vec<RuntimeCellView>,
+    #[serde(default)]
+    pub subject_timers: Vec<RuntimeSubjectTimerState>,
     #[serde(default)]
     pub available_actions: Vec<String>,
     #[serde(default)]

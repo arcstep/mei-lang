@@ -132,6 +132,20 @@ def world(topology = None, resources = None, entities = None):
         "entities": entities if entities != None else [],
     }))
 
+def cell(id, row = None, col = None, surface_kind = None, flammable = None, walkable = None, occupiable = None, capacity = None, hazard_state = None, tags = None):
+    return _clean({
+        "id": id,
+        "row": row,
+        "col": col,
+        "surface_kind": surface_kind,
+        "flammable": flammable,
+        "walkable": walkable,
+        "occupiable": occupiable,
+        "capacity": capacity,
+        "hazard_state": hazard_state,
+        "tags": tags if tags != None else [],
+    })
+
 def resource(id, kind, title = None, source = None, content = None):
     return _clean({
         "id": id,
@@ -209,18 +223,31 @@ def rule_timer(seconds, on_timeout):
         "on_timeout": on_timeout,
     }
 
+def subject_timer(subject_ref, timer_type, delay_seconds, on_timeout, id = None, interval_seconds = None, repeat = False, cancel_when = None):
+    return _clean({
+        "id": id,
+        "subject_ref": subject_ref,
+        "type": timer_type,
+        "delay_seconds": delay_seconds,
+        "interval_seconds": interval_seconds,
+        "repeat": repeat,
+        "on_timeout": on_timeout,
+        "cancel_when": cancel_when,
+    })
+
 def rule_outcome(success = None, fail = None):
     return _clean({
         "success": success,
         "fail": fail,
     })
 
-def flow(start = None, interactions = None, timer = None, outcome = None):
+def flow(start = None, interactions = None, timer = None, subject_timers = None, outcome = None):
     return _declare(_clean({
         "kind": "flow",
         "start": start,
         "interactions": interactions if interactions != None else [],
         "timer": timer,
+        "subject_timers": subject_timers if subject_timers != None else [],
         "outcome": outcome,
     }))
 

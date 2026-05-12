@@ -137,6 +137,29 @@ pub struct EntityDecl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldCellDecl {
+    pub id: String,
+    #[serde(default)]
+    pub row: Option<u32>,
+    #[serde(default)]
+    pub col: Option<u32>,
+    #[serde(default)]
+    pub surface_kind: Option<String>,
+    #[serde(default)]
+    pub flammable: Option<bool>,
+    #[serde(default)]
+    pub walkable: Option<bool>,
+    #[serde(default)]
+    pub occupiable: Option<bool>,
+    #[serde(default)]
+    pub capacity: Option<u32>,
+    #[serde(default)]
+    pub hazard_state: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldDecl {
     pub kind: String,
     #[serde(default)]
@@ -151,6 +174,8 @@ pub struct WorldDecl {
 pub struct WorldGridDecl {
     pub rows: u32,
     pub cols: u32,
+    #[serde(default)]
+    pub cells: Vec<WorldCellDecl>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +220,23 @@ pub struct RuleTimerDecl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleSubjectTimerDecl {
+    #[serde(default)]
+    pub id: Option<String>,
+    pub subject_ref: String,
+    #[serde(rename = "type")]
+    pub timer_kind: String,
+    pub delay_seconds: f64,
+    #[serde(default)]
+    pub interval_seconds: Option<f64>,
+    #[serde(default)]
+    pub repeat: bool,
+    pub on_timeout: RuleEffectDecl,
+    #[serde(default)]
+    pub cancel_when: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuleOutcomeDecl {
     #[serde(default)]
     pub success: Option<String>,
@@ -211,6 +253,8 @@ pub struct FlowDecl {
     pub interactions: Vec<RuleClickDecl>,
     #[serde(default)]
     pub timer: Option<RuleTimerDecl>,
+    #[serde(default)]
+    pub subject_timers: Vec<RuleSubjectTimerDecl>,
     #[serde(default)]
     pub outcome: Option<RuleOutcomeDecl>,
 }

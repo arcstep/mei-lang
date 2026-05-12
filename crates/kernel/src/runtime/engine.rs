@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 use crate::{RuleEffectDecl, SceneContract};
 
 use super::{
-    RuntimeCellView, RuntimeEntityView, RuntimeIntent, RuntimeSceneView, RuntimeState,
+    RuntimeCellView, RuntimeClockState, RuntimeEntityView, RuntimeIntent, RuntimeSceneView,
+    RuntimeState,
     RuntimeTraceItem,
 };
 
@@ -26,6 +27,36 @@ fn timer_seconds(contract: &SceneContract) -> i64 {
                 .and_then(Value::as_i64)
         })
         .unwrap_or_default()
+}
+
+fn initial_clock(seconds: i64) -> RuntimeClockState {
+    RuntimeClockState {
+        countdown_remaining: seconds.max(0) as f64,
+        ..RuntimeClockState::default()
+    }
+}
+
+fn sync_clock_projection(state: &mut RuntimeState) {
+    if state.clock.time_unit.trim().is_empty() {
+        state.clock.time_unit = "second".to_string();
+    }
+    if !state.clock.current_time.is_finite() || state.clock.current_time < 0.0 {
+        state.clock.current_time = 0.0;
+    }
+    if !state.clock.rate.is_finite() || state.clock.rate < 0.0 {
+        state.clock.rate = 1.0;
+    }
+    if !state.clock.countdown_remaining.is_finite() {
+        state.clock.countdown_remaining = state.countdown.max(0) as f64;
+    }
+    if state.clock.countdown_remaining <= 0.0 && state.countdown > 0 && state.clock.current_time <= 0.0
+    {
+        state.clock.countdown_remaining = state.countdown as f64;
+    }
+    if state.clock.countdown_remaining < 0.0 {
+        state.clock.countdown_remaining = 0.0;
+    }
+    state.countdown = state.clock.countdown_remaining.ceil() as i64;
 }
 
 fn next_seed(seed: &mut u64) -> u64 {
@@ -109,6 +140,7 @@ fn push_trace(
 }
 
 pub fn initial_runtime_state(contract: &SceneContract, seed: u64) -> RuntimeState {
+    let seconds = timer_seconds(contract);
     RuntimeState {
         seed: base_seed(seed),
         phase: contract
@@ -120,7 +152,8 @@ pub fn initial_runtime_state(contract: &SceneContract, seed: u64) -> RuntimeStat
             .to_string(),
         result: "ready".to_string(),
         reason: None,
-        countdown: timer_seconds(contract),
+        countdown: seconds,
+        clock: initial_clock(seconds),
         placements: BTreeMap::new(),
         inventory: Vec::new(),
         statuses: base_statuses(contract),
@@ -133,6 +166,7 @@ pub fn initial_runtime_state(contract: &SceneContract, seed: u64) -> RuntimeStat
                 "scene_id": contract.scene.id,
             }),
         }],
+        subject_timers: Vec::new(),
     }
 }
 
@@ -152,7 +186,9 @@ fn start_round(contract: &SceneContract, seed: u64) -> RuntimeState {
     state.phase = "running".to_string();
     state.result = "running".to_string();
     state.reason = None;
-    state.countdown = timer_seconds(contract);
+    let seconds = timer_seconds(contract);
+    state.clock = initial_clock(seconds);
+    state.countdown = seconds;
     state.timeline = vec!["演练开始".to_string()];
     state.trace_events = vec![RuntimeTraceItem {
         kind: "scene_started".to_string(),
@@ -296,20 +332,49 @@ fn click_step(contract: &SceneContract, state: &RuntimeState, target: Option<&st
 
 fn tick_step(contract: &SceneContract, state: &RuntimeState) -> RuntimeState {
     let mut next = state.clone();
+    sync_clock_projection(&mut next);
     if next.phase != "running" {
         return next;
     }
-    if next.countdown > 0 {
-        next.countdown -= 1;
+    if next.clock.paused || next.clock.rate <= 0.0 {
+        let details = json!({
+            "paused": next.clock.paused,
+            "rate": next.clock.rate,
+            "current_time": next.clock.current_time,
+            "countdown": next.countdown,
+        });
+        push_trace(
+            &mut next,
+            "tick_paused",
+            "tick ignored because scene clock is paused",
+            details,
+        );
+        return next;
     }
+    let delta = next.clock.rate;
+    next.clock.current_time += delta;
+    if next.clock.countdown_remaining > 0.0 {
+        next.clock.countdown_remaining -= delta;
+        if next.clock.countdown_remaining < 0.0 {
+            next.clock.countdown_remaining = 0.0;
+        }
+    }
+    sync_clock_projection(&mut next);
     let countdown = next.countdown;
+    let current_time = next.clock.current_time;
+    let rate = next.clock.rate;
+    let tick_details = json!({
+        "countdown": countdown,
+        "current_time": current_time,
+        "rate": rate,
+    });
     push_trace(
         &mut next,
         "tick",
         format!("tick -> {}", countdown),
-        json!({ "countdown": countdown }),
+        tick_details,
     );
-    if next.countdown <= 0 {
+    if next.clock.countdown_remaining <= 0.0 {
         if let Some(timer) = contract.flow.as_ref().and_then(|flow| flow.timer.as_ref()) {
             apply_effect(contract, &mut next, &timer.on_timeout);
         }
@@ -322,15 +387,78 @@ pub fn runtime_step(
     state: Option<RuntimeState>,
     intent: &RuntimeIntent,
 ) -> RuntimeState {
-    let state = state.unwrap_or_else(|| initial_runtime_state(contract, 1));
-    match intent.kind.as_str() {
+    let mut state = state.unwrap_or_else(|| initial_runtime_state(contract, 1));
+    sync_clock_projection(&mut state);
+    let mut next = match intent.kind.as_str() {
         "sync" => state,
         "restart" => initial_runtime_state(contract, state.seed.wrapping_add(1)),
         "start" => start_round(contract, state.seed.wrapping_add(1)),
         "click" => click_step(contract, &state, intent.target.as_deref()),
         "tick" => tick_step(contract, &state),
+        "pause" => {
+            let mut next = state.clone();
+            next.clock.paused = true;
+            let details = json!({ "current_time": next.clock.current_time });
+            push_trace(
+                &mut next,
+                "pause",
+                "scene clock paused",
+                details,
+            );
+            next
+        }
+        "resume" => {
+            let mut next = state.clone();
+            next.clock.paused = false;
+            let details = json!({ "current_time": next.clock.current_time });
+            push_trace(
+                &mut next,
+                "resume",
+                "scene clock resumed",
+                details,
+            );
+            next
+        }
+        "rate_half" => {
+            let mut next = state.clone();
+            next.clock.rate = 0.5;
+            let details = json!({ "rate": next.clock.rate });
+            push_trace(
+                &mut next,
+                "rate",
+                "scene clock rate -> 0.5",
+                details,
+            );
+            next
+        }
+        "rate_normal" => {
+            let mut next = state.clone();
+            next.clock.rate = 1.0;
+            let details = json!({ "rate": next.clock.rate });
+            push_trace(
+                &mut next,
+                "rate",
+                "scene clock rate -> 1.0",
+                details,
+            );
+            next
+        }
+        "rate_double" => {
+            let mut next = state.clone();
+            next.clock.rate = 2.0;
+            let details = json!({ "rate": next.clock.rate });
+            push_trace(
+                &mut next,
+                "rate",
+                "scene clock rate -> 2.0",
+                details,
+            );
+            next
+        }
         _ => state,
-    }
+    };
+    sync_clock_projection(&mut next);
+    next
 }
 
 fn entity_flags(state: &RuntimeState, entity_id: &str) -> BTreeMap<String, bool> {
@@ -349,6 +477,7 @@ fn build_cells(contract: &SceneContract, entities: &[RuntimeEntityView]) -> Vec<
             for row in 1..=topology.rows {
                 for col in 1..=topology.cols {
                     let id = format!("r{row}c{col}");
+                    let declared = topology.cells.iter().find(|cell| cell.id == id);
                     let occupants = entities
                         .iter()
                         .filter(|entity| entity.slot.as_deref() == Some(id.as_str()))
@@ -356,6 +485,12 @@ fn build_cells(contract: &SceneContract, entities: &[RuntimeEntityView]) -> Vec<
                         .collect::<Vec<_>>();
                     cells.push(RuntimeCellView {
                         id,
+                        surface_kind: declared.and_then(|cell| cell.surface_kind.clone()),
+                        flammable: declared.and_then(|cell| cell.flammable),
+                        walkable: declared.and_then(|cell| cell.walkable),
+                        occupiable: declared.and_then(|cell| cell.occupiable),
+                        hazard_state: declared.and_then(|cell| cell.hazard_state.clone()),
+                        tags: declared.map(|cell| cell.tags.clone()).unwrap_or_default(),
                         entities: occupants,
                     });
                 }
@@ -386,7 +521,20 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
         .unwrap_or_default();
     let available_actions = match state.phase.as_str() {
         "ready" => vec!["start".to_string()],
-        "running" => vec!["tick".to_string()],
+        "running" => {
+            let mut actions = vec![
+                "tick".to_string(),
+                "rate_half".to_string(),
+                "rate_normal".to_string(),
+                "rate_double".to_string(),
+            ];
+            if state.clock.paused {
+                actions.push("resume".to_string());
+            } else {
+                actions.push("pause".to_string());
+            }
+            actions
+        }
         _ => vec!["restart".to_string()],
     };
     RuntimeSceneView {
@@ -398,8 +546,13 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
         result: state.result.clone(),
         reason: state.reason.clone(),
         countdown: state.countdown,
+        current_time: state.clock.current_time,
+        time_unit: state.clock.time_unit.clone(),
+        clock_paused: state.clock.paused,
+        time_rate: state.clock.rate,
         inventory: state.inventory.clone(),
         cells: build_cells(contract, &entities),
+        subject_timers: state.subject_timers.clone(),
         entities,
         available_actions,
         start_label: contract
@@ -412,10 +565,13 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
 
 pub fn render_runtime_html(view: &RuntimeSceneView, state: &RuntimeState) -> String {
     format!(
-        "<section><h3>{}</h3><p>phase: {}</p><p>countdown: {}</p><p>inventory: {}</p><p>timeline: {}</p></section>",
+        "<section><h3>{}</h3><p>phase: {}</p><p>countdown: {}</p><p>current_time: {:.1} {}</p><p>rate: {}</p><p>inventory: {}</p><p>timeline: {}</p></section>",
         view.scene_id,
         view.phase,
         view.countdown,
+        view.current_time,
+        view.time_unit,
+        view.time_rate,
         state.inventory.join(", "),
         state.timeline.join(" | "),
     )
@@ -445,7 +601,11 @@ mod tests {
             },
             world: Some(WorldDecl {
                 kind: "world".to_string(),
-                topology: Some(WorldGridDecl { rows: 2, cols: 2 }),
+                topology: Some(WorldGridDecl {
+                    rows: 2,
+                    cols: 2,
+                    cells: Vec::new(),
+                }),
                 resources: Vec::new(),
                 entities: vec![
                     EntityDecl {
@@ -519,6 +679,7 @@ mod tests {
                         effects: Vec::new(),
                     },
                 }),
+                subject_timers: Vec::new(),
                 outcome: None,
             }),
             frame: None,
@@ -586,5 +747,129 @@ mod tests {
         }
         assert_eq!(state.phase, "fail");
         assert_eq!(state.reason.as_deref(), Some("timeout_or_player_dead"));
+    }
+
+    #[test]
+    fn runtime_clock_supports_pause_resume_and_rate() {
+        let contract = test_contract();
+        let mut state = runtime_step(
+            &contract,
+            None,
+            &RuntimeIntent {
+                kind: "start".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.countdown, 3);
+        assert_eq!(state.clock.current_time, 0.0);
+        assert_eq!(state.clock.rate, 1.0);
+        assert!(!state.clock.paused);
+
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "rate_half".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.clock.rate, 0.5);
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "tick".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.countdown, 3);
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "tick".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.countdown, 2);
+        assert_eq!(state.clock.current_time, 1.0);
+
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "pause".to_string(),
+                target: None,
+            },
+        );
+        let paused_countdown = state.countdown;
+        let paused_time = state.clock.current_time;
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "tick".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.countdown, paused_countdown);
+        assert_eq!(state.clock.current_time, paused_time);
+
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "resume".to_string(),
+                target: None,
+            },
+        );
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "rate_double".to_string(),
+                target: None,
+            },
+        );
+        state = runtime_step(
+            &contract,
+            Some(state),
+            &RuntimeIntent {
+                kind: "tick".to_string(),
+                target: None,
+            },
+        );
+        assert_eq!(state.phase, "fail");
+        assert_eq!(state.reason.as_deref(), Some("timeout_or_player_dead"));
+    }
+
+    #[test]
+    fn runtime_view_exposes_clock_actions() {
+        let contract = test_contract();
+        let running = runtime_step(
+            &contract,
+            None,
+            &RuntimeIntent {
+                kind: "start".to_string(),
+                target: None,
+            },
+        );
+        let running_view = project_runtime_view(&contract, &running);
+        assert!(running_view.available_actions.iter().any(|action| action == "pause"));
+        assert!(running_view.available_actions.iter().any(|action| action == "rate_half"));
+        assert_eq!(running_view.time_rate, 1.0);
+        assert!(!running_view.clock_paused);
+
+        let paused = runtime_step(
+            &contract,
+            Some(running),
+            &RuntimeIntent {
+                kind: "pause".to_string(),
+                target: None,
+            },
+        );
+        let paused_view = project_runtime_view(&contract, &paused);
+        assert!(paused_view.available_actions.iter().any(|action| action == "resume"));
+        assert!(!paused_view.available_actions.iter().any(|action| action == "pause"));
     }
 }

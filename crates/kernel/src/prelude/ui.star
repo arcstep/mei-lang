@@ -89,11 +89,12 @@ def _node(kind, id = None, title = None, area = None, layout = None, blocks = []
         "constraints": constraints,
     })
 
-def grid(rows = None, cols = None, columns = None, areas = None, gap = None, padding = None, align = None, justify = None):
+def grid(rows = None, cols = None, columns = None, areas = None, gap = None, padding = None, align = None, justify = None, cells = None):
     if rows != None and cols != None and columns == None and areas == None:
         return _clean({
             "rows": rows,
             "cols": cols,
+            "cells": cells if cells != None else [],
         })
     return _without_empty({
         "type": "grid",
@@ -105,6 +106,7 @@ def grid(rows = None, cols = None, columns = None, areas = None, gap = None, pad
         "padding": padding,
         "align": align,
         "justify": justify,
+        "cells": cells,
     })
 
 def flex(direction, wrap = None, gap = None, padding = None, align = None, justify = None):
