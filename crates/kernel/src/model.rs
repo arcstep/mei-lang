@@ -224,6 +224,8 @@ pub struct PanelDecl {
     #[serde(default)]
     pub area: Option<String>,
     #[serde(default)]
+    pub layout: Option<LayoutDecl>,
+    #[serde(default)]
     pub blocks: Vec<BlockDecl>,
 }
 
