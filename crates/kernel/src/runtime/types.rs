@@ -89,6 +89,12 @@ pub struct RuntimeEntityView {
     #[serde(default)]
     pub status: Option<String>,
     #[serde(default)]
+    pub interaction_target: Option<String>,
+    #[serde(default)]
+    pub clickable: bool,
+    #[serde(default)]
+    pub in_inventory: bool,
+    #[serde(default)]
     pub flags: BTreeMap<String, bool>,
 }
 

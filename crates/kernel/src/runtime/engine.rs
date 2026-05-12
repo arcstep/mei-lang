@@ -595,6 +595,28 @@ fn cell_status_key(cell_id: &str) -> String {
     format!("cell:{cell_id}")
 }
 
+fn entity_interaction_target(contract: &SceneContract, entity_id: &str) -> Option<String> {
+    contract
+        .flow
+        .as_ref()
+        .and_then(|flow| flow.interactions.iter().find(|rule| rule.target == entity_id))
+        .map(|rule| rule.target.clone())
+}
+
+fn entity_in_inventory(state: &RuntimeState, entity_id: &str) -> bool {
+    state.inventory.iter().any(|owned| owned == entity_id)
+}
+
+fn interaction_is_available(require: Option<&crate::RuleRequireDecl>, state: &RuntimeState) -> bool {
+    let Some(require) = require else {
+        return true;
+    };
+    if require.require_type == "has" {
+        return state.inventory.iter().any(|owned| owned == &require.value);
+    }
+    true
+}
+
 fn cell_hazard_state(
     state: &RuntimeState,
     cell_id: &str,
@@ -628,6 +650,18 @@ fn cell_interaction_target(contract: &SceneContract, cell_id: &str) -> Option<St
         .map(|rule| rule.target.clone())
 }
 
+fn cell_interaction_available(contract: &SceneContract, state: &RuntimeState, cell_id: &str) -> bool {
+    let Some(flow) = &contract.flow else {
+        return false;
+    };
+    let prefixed = cell_status_key(cell_id);
+    flow.interactions
+        .iter()
+        .find(|rule| rule.target == prefixed || rule.target == cell_id)
+        .map(|rule| interaction_is_available(rule.require.as_ref(), state))
+        .unwrap_or(false)
+}
+
 fn cell_is_key_target(contract: &SceneContract, cell_id: &str) -> bool {
     let Some(flow) = &contract.flow else {
         return false;
@@ -657,13 +691,16 @@ fn build_cells(
                     let declared = topology.cells.iter().find(|cell| cell.id == id);
                     let occupants = entities
                         .iter()
-                        .filter(|entity| entity.slot.as_deref() == Some(id.as_str()))
+                        .filter(|entity| {
+                            entity.slot.as_deref() == Some(id.as_str()) && !entity.in_inventory
+                        })
                         .cloned()
                         .collect::<Vec<_>>();
                     let declared_hazard = declared.and_then(|cell| cell.hazard_state.clone());
                     let hazard_state = cell_hazard_state(state, &id, declared_hazard);
                     let timer_remaining = cell_timer_remaining(state, &id);
                     let interaction_target = cell_interaction_target(contract, &id);
+                    let interaction_available = cell_interaction_available(contract, state, &id);
                     let key_target = cell_is_key_target(contract, &id);
                     cells.push(RuntimeCellView {
                         id,
@@ -674,7 +711,7 @@ fn build_cells(
                         hazard_state,
                         hazard_timer_remaining: timer_remaining,
                         hazard_timer_seconds: timer_remaining.map(|value| value.ceil() as i64),
-                        clickable: interaction_target.is_some(),
+                        clickable: interaction_target.is_some() && interaction_available,
                         interaction_target,
                         key_target,
                         tags: declared.map(|cell| cell.tags.clone()).unwrap_or_default(),
@@ -695,13 +732,28 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
             world
                 .entities
                 .iter()
-                .map(|entity| RuntimeEntityView {
-                    id: entity.id.clone(),
-                    kind: entity.kind.clone(),
-                    label: entity.label.clone(),
-                    slot: state.placements.get(&entity.id).cloned(),
-                    status: state.statuses.get(&entity.id).cloned(),
-                    flags: entity_flags(state, &entity.id),
+                .map(|entity| {
+                    let in_inventory = entity_in_inventory(state, &entity.id);
+                    let interaction_target = entity_interaction_target(contract, &entity.id);
+                    let interaction_available = contract
+                        .flow
+                        .as_ref()
+                        .and_then(|flow| flow.interactions.iter().find(|rule| rule.target == entity.id))
+                        .map(|rule| interaction_is_available(rule.require.as_ref(), state))
+                        .unwrap_or(false);
+                    RuntimeEntityView {
+                        id: entity.id.clone(),
+                        kind: entity.kind.clone(),
+                        label: entity.label.clone(),
+                        slot: (!in_inventory)
+                            .then(|| state.placements.get(&entity.id).cloned())
+                            .flatten(),
+                        status: state.statuses.get(&entity.id).cloned(),
+                        interaction_target: interaction_target.clone(),
+                        clickable: interaction_target.is_some() && interaction_available,
+                        in_inventory,
+                        flags: entity_flags(state, &entity.id),
+                    }
                 })
                 .collect::<Vec<_>>()
         })
@@ -1088,6 +1140,21 @@ mod tests {
                 target: Some("extinguisher_1".to_string()),
             },
         );
+        let pickup_view = project_runtime_view(&contract, &with_item);
+        let extinguisher = pickup_view
+            .entities
+            .iter()
+            .find(|entity| entity.id == "extinguisher_1")
+            .expect("extinguisher should exist");
+        assert!(extinguisher.in_inventory);
+        assert_eq!(extinguisher.slot, None);
+        let tool_cell = pickup_view
+            .cells
+            .iter()
+            .find(|cell| cell.id == "r2c2")
+            .expect("r2c2 should exist");
+        assert!(tool_cell.entities.is_empty());
+
         let success = runtime_step(
             &contract,
             Some(with_item),
