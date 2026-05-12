@@ -59,6 +59,22 @@ function keyTargetForCell(contract, cellId) {
   });
 }
 
+function entityInteractionTarget(contract, entityId) {
+  const interactions = contract?.flow?.interactions || [];
+  const rule = interactions.find((entry) => entry.target === entityId);
+  return rule ? rule.target : null;
+}
+
+function interactionAvailable(rule, state) {
+  if (!rule?.require) {
+    return true;
+  }
+  if (rule.require.type === "has") {
+    return (state?.inventory || []).includes(rule.require.value);
+  }
+  return true;
+}
+
 function timerRemainingForCell(state, cellId) {
   const subjectRef = `cell:${cellId}`;
   const timers = state?.subject_timers || [];
@@ -75,14 +91,22 @@ function timerRemainingForCell(state, cellId) {
 function fallbackSceneView(contract, state) {
   const scene = contract.scene || {};
   const world = contract.world || {};
-  const entities = (world.entities || []).map((entity) => ({
-    id: entity.id,
-    kind: entity.kind,
-    label: entity.label,
-    slot: state?.placements?.[entity.id] || null,
-    status: state?.statuses?.[entity.id] || entity.status || null,
-    flags: {},
-  }));
+  const entities = (world.entities || []).map((entity) => {
+    const inInventory = (state?.inventory || []).includes(entity.id);
+    const entityRule = (contract.flow?.interactions || []).find((entry) => entry.target === entity.id);
+    const interactionTarget = entityRule ? entityRule.target : null;
+    return {
+      id: entity.id,
+      kind: entity.kind,
+      label: entity.label,
+      slot: inInventory ? null : state?.placements?.[entity.id] || null,
+      status: state?.statuses?.[entity.id] || entity.status || null,
+      interaction_target: interactionTarget,
+      clickable: Boolean(interactionTarget) && interactionAvailable(entityRule, state),
+      in_inventory: inInventory,
+      flags: {},
+    };
+  });
 
   const rows = Number(world.topology?.rows || 0);
   const cols = Number(world.topology?.cols || 0);
@@ -96,7 +120,8 @@ function fallbackSceneView(contract, state) {
       const statusKey = `cell:${id}`;
       const runtimeHazard = state?.statuses?.[statusKey] || null;
       const timerRemaining = timerRemainingForCell(state, id);
-      const interactionTarget = interactionTargetForCell(contract, id);
+      const cellRule = (contract.flow?.interactions || []).find((entry) => entry.target === statusKey || entry.target === id);
+      const interactionTarget = cellRule ? cellRule.target : null;
       cells.push({
         id,
         surface_kind: declared.surface_kind || null,
@@ -107,10 +132,10 @@ function fallbackSceneView(contract, state) {
         hazard_timer_remaining: timerRemaining,
         hazard_timer_seconds: timerRemaining === null ? null : Math.ceil(timerRemaining),
         interaction_target: interactionTarget,
-        clickable: Boolean(interactionTarget),
+        clickable: Boolean(interactionTarget) && interactionAvailable(cellRule, state),
         key_target: keyTargetForCell(contract, id),
         tags: declared.tags || [],
-        entities: entities.filter((entity) => entity.slot === id),
+        entities: entities.filter((entity) => entity.slot === id && !entity.in_inventory),
       });
     }
   }

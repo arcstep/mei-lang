@@ -3,14 +3,14 @@ import { escapeHtml, getRuntimeStore, parseProps } from "./sim-runtime.js";
 class MeiSimAffordanceBar extends HTMLElement {
   connectedCallback() {
     this.props = parseProps(this);
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+    }
     this.store = getRuntimeStore(this.props);
     this.unsubscribe = this.store.subscribe((snapshot) => {
       this.snapshot = snapshot;
       this.render();
     });
-    if (!this.shadowRoot) {
-      this.attachShadow({ mode: "open" });
-    }
     this.render();
   }
 

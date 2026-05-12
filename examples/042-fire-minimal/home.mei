@@ -5,7 +5,7 @@ app.add_scene(
     goal = "验证 cell 作为危险状态载体，而不是只把火理解成一个实体。",
     state = {
         "phase": "ready",
-        "countdown": 20,
+        "countdown": 30,
     },
 )
 
@@ -57,7 +57,7 @@ scene.set_flow(
             require = has("extinguisher_1"),
             effect = effects([
                 set_status("cell:r1c1", "out"),
-                finish("success", "minimal_fire_success"),
+                finish("success", "已扑灭起火格"),
             ]),
         ),
     ],
@@ -66,27 +66,27 @@ scene.set_flow(
             id = "cell-r1c1-smoke-to-burning",
             subject_ref = "cell:r1c1",
             timer_type = "state_transition",
-            delay_seconds = 5,
+            delay_seconds = 4,
             on_timeout = set_status("cell:r1c1", "burning"),
         ),
         subject_timer(
             id = "cell-r1c1-burning-to-engulfed",
             subject_ref = "cell:r1c1",
             timer_type = "state_transition",
-            delay_seconds = 10,
+            delay_seconds = 16,
             on_timeout = effects([
                 set_status("cell:r1c1", "engulfed"),
-                finish("fail", "minimal_fire_cell_engulfed"),
+                finish("fail", "火势升级为大火"),
             ]),
         ),
     ],
     timer = rule_timer(
-        seconds = 20,
-        on_timeout = finish("fail", "minimal_fire_timeout"),
+        seconds = 30,
+        on_timeout = finish("fail", "处置超时"),
     ),
     outcome = rule_outcome(
-        success = "minimal_fire_success",
-        fail = "minimal_fire_timeout",
+        success = "已扑灭起火格",
+        fail = "处置超时",
     ),
 )
 
@@ -143,7 +143,7 @@ frame.add_panel(
     blocks = [
         doc.markdown(
             area = "auto",
-            content = "## Minimal Fire\n\n当前这个例子已经形成最小可玩闭环：\n1. 点击开始后，`cell:r1c1` 会从 smoke 进入 burning；\n2. 玩家先拿灭火器，再点击目标格子可触发 success；\n3. 若未及时处置，格子会进入 engulfed 或全局倒计时超时导致 fail。\n\n同时它也不再依赖单一 `sim.scene` 超级组件，而是用 `sim.step-bridge / sim.affordance-bar / sim.board-grid / sim.outcome-hud` 进行组合。",
+            content = "## Minimal Fire\n\n当前这个例子已经形成最小可玩闭环：\n1. 点击开始后，`cell:r1c1` 会先显示 `💨 冒烟`，随后变成 `🔥 小火`；\n2. 玩家先点击 `拾取 灭火器`，灭火器会进入库存并从格子中消失；\n3. 再点击目标格 `r1c1` 可扑灭成功；若拖延太久，格子会升级成 `🔥🔥🔥 大火` 或全局倒计时超时失败。\n\n同时它也不再依赖单一 `sim.scene` 超级组件，而是用 `sim.step-bridge / sim.affordance-bar / sim.board-grid / sim.outcome-hud` 进行组合。",
         ),
     ],
 )
