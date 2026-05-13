@@ -2,15 +2,21 @@ app(
     id = "051-chart",
     title = "051 Chart",
     default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
 )
 
-app.add_scene(
+scene(
     id = "home",
+    world = "home_world",
+    frame = "home_frame",
     profile = "chart",
     summary = "app 直接拥有 scene 的独立图表示例：验证同一份 world dataset 的多图观察。",
 )
 
-scene.set_world(
+world(
+    id = "home_world",
     resources = [
         resource(
             id = "chart_doc",
@@ -79,7 +85,8 @@ ds.dataset_view(
     ],
 )
 
-scene.set_frame(
+frame(
+    id = "home_frame",
     layout = grid(
         columns = ["minmax(0, 2fr)", "minmax(280px, 360px)"],
         areas = [

@@ -2,15 +2,21 @@ app(
     id = "031-cockpit",
     title = "031 Cockpit",
     default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
 )
 
-app.add_scene(
+scene(
     id = "home",
+    world = "home_world",
+    frame = "home_frame",
     profile = "cockpit",
     summary = "app 直接拥有 scene 的简单看板例子。",
 )
 
-scene.set_world(
+world(
+    id = "home_world",
     resources = [
         resource(
             id = "metrics",
@@ -40,7 +46,8 @@ ds.dataset_view(
     ],
 )
 
-scene.set_frame(
+frame(
+    id = "home_frame",
     layout = grid(
         columns = ["2fr", "1fr"],
         areas = [

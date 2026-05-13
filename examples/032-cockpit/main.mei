@@ -2,20 +2,22 @@ app(
     id = "032-cockpit",
     title = "032 劳务大屏",
     default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+        entry(id = "home_default", scene = "default.mei"),
+    ],
 )
 
-app.add_scene(
+scene(
     id = "home",
+    world = "home_world",
+    frame = "home_frame",
     profile = "cockpit",
     theme = "cockpit",
     summary = "劳务大屏主题对照：通过 theme 与 dataset_view 契约层组织作者态脚本。",
 )
-
-app.add_scene(
-    scene_file_ref("default.mei", id = "home_default"),
-)
-
-scene.set_world(
+world(
+    id = "home_world",
     resources = [
         resource(
             id = "subcontract_raw",
@@ -215,7 +217,8 @@ def section_panel(id, title, use, component_props = None, show_heading = None):
         ],
     )
 
-scene.set_frame(
+frame(
+    id = "home_frame",
     layout = grid(
         columns = ["1fr"],
         rows = ["92px", "minmax(0,1fr)"],

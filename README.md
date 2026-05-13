@@ -10,6 +10,15 @@ AI-native scene orchestration language for building apps from world models, UI c
 opencode serve --hostname 127.0.0.1 --port 4099
 ```
 
+本地默认建议保持这条最小访问边界：
+
+- 继续监听 `127.0.0.1`
+- 不改成 `0.0.0.0`
+- 暂不启用 `--mdns`
+- 暂不额外配置 `--cors`
+
+这样 `opencode-server` 默认只对本机开放，`mei-lang` 通过 `localhost` 连接即可。
+
 ### 2. 启动 `mei-lang`
 
 ```bash

@@ -2,15 +2,21 @@ app(
     id = "011-mini",
     title = "011 Mini",
     default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
 )
 
-app.add_scene(
+scene(
     id = "home",
+    world = "home_world",
+    frame = "home_frame",
     profile = "page",
     summary = "最小单文件 scene-first 例子：app 直接拥有 scene，world 资源进入默认观察面。",
 )
 
-scene.set_world(
+world(
+    id = "home_world",
     resources = [
         resource(
             id = "welcome_doc",
@@ -21,7 +27,8 @@ scene.set_world(
     ],
 )
 
-scene.set_frame(
+frame(
+    id = "home_frame",
     layout = flex(direction = "column", gap = "16px", padding = "20px"),
 )
 

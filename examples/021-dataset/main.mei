@@ -2,15 +2,21 @@ app(
     id = "021-dataset",
     title = "021 Dataset",
     default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
 )
 
-app.add_scene(
+scene(
     id = "home",
+    world = "home_world",
+    frame = "home_frame",
     profile = "page",
     summary = "app 直接拥有 scene，用同一份 world dataset 驱动多个默认观察面消费。",
 )
 
-scene.set_world(
+world(
+    id = "home_world",
     resources = [
         resource(
             id = "dataset_doc",
@@ -92,7 +98,8 @@ ds.metric_pack(
     ],
 )
 
-scene.set_frame(
+frame(
+    id = "home_frame",
     layout = grid(
         columns = ["1fr", "2fr"],
         rows = ["auto", "minmax(220px, 1fr)"],
