@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
@@ -8,12 +10,20 @@ mod source_tree;
 
 pub use route::UiRouteMode;
 
+#[derive(Debug, Clone)]
+pub struct SourcePanelMeta {
+    pub line_count: usize,
+    pub char_count: usize,
+    pub last_modified_label: Option<String>,
+}
+
 pub fn render_page(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
+    source_meta: Option<&SourcePanelMeta>,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
     chrome_hidden: bool,
@@ -38,6 +48,7 @@ pub fn render_page(
             compiled,
             target,
             source,
+            source_meta,
             selected_entry,
             preview_target,
         ),
@@ -128,12 +139,15 @@ fn manage_shell(
     compiled: &CompiledApp,
     target: Option<&str>,
     source: Option<&str>,
+    source_meta: Option<&SourcePanelMeta>,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
+    let source_title = source_display_name(selected_target.as_str());
+    let source_meta_text = source_meta_summary(source_meta);
     let preview = preview::preview_view(compiled);
     let active_entry = compiled.active_entry.as_deref();
     let source_entries = source_tree::entry_list_view(
@@ -206,9 +220,9 @@ fn manage_shell(
                         ></div>
                         <section class="panel source-panel main-pane source-pane">
                             <div class="main-pane-scroll source-pane-scroll">
-                                <div class="panel-heading">
-                                    <h3>"源码"</h3>
-                                    <p>{selected_target.clone()}</p>
+                                <div class="panel-heading source-panel-heading">
+                                    <h3>{source_title}</h3>
+                                    <p class="source-panel-meta">{source_meta_text}</p>
                                 </div>
                                 <pre class="source-block"><code
                                     class="source-code"
@@ -361,6 +375,29 @@ fn source_language(target: &str) -> &'static str {
     } else {
         "plain"
     }
+}
+
+fn source_display_name(target: &str) -> String {
+    Path::new(target)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(target)
+        .to_string()
+}
+
+fn source_meta_summary(meta: Option<&SourcePanelMeta>) -> String {
+    let Some(meta) = meta else {
+        return "0 行 · 0 字 · 最后编辑时间未知".to_string();
+    };
+    let last_modified = meta
+        .last_modified_label
+        .as_deref()
+        .map(|value| format!("最后编辑 {value}"))
+        .unwrap_or_else(|| "最后编辑时间未知".to_string());
+    format!(
+        "{} 行 · {} 字 · {}",
+        meta.line_count, meta.char_count, last_modified
+    )
 }
 
 fn diagnostics_view(compiled: &CompiledApp) -> AnyView {

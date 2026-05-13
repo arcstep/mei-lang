@@ -188,6 +188,19 @@ a { color: inherit; text-decoration: none; }
 .panel-heading { display: grid; gap: 4px; margin-bottom: 12px; }
 .panel-heading h2, .panel-heading h3 { margin: 0; font-size: 15px; color: #f8fafc; }
 .panel-heading p { margin: 0; color: #94a3b8; font-size: 12px; }
+.source-panel-heading {
+  gap: 6px;
+}
+.source-panel-heading h3 {
+  font-size: 16px;
+  letter-spacing: 0.01em;
+}
+.source-panel-meta {
+  color: #93a4ba;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+}
 .preview-panel { padding: 16px; }
 .preview-pane-scroll { padding: 0; }
 .preview-surface {
@@ -673,6 +686,12 @@ a { color: inherit; text-decoration: none; }
 }
 .author-config-line {
   color: #fca5a5;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 0 4px;
+}
+.author-skill-line {
+  color: #93c5fd;
   font-size: 11px;
   line-height: 1.4;
   padding: 0 4px;

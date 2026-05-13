@@ -9,6 +9,8 @@
     modelLabel: document.getElementById("author-model-label"),
     reconnect: document.getElementById("author-reconnect-btn"),
     newSession: document.getElementById("author-session-btn"),
+    skillSync: document.getElementById("author-skill-sync-btn"),
+    skillLine: document.getElementById("author-skill-line"),
     sessionSelect: document.getElementById("author-session-select"),
     chatLog: document.getElementById("author-chat-log"),
     input: document.getElementById("author-intent-input"),
@@ -18,6 +20,7 @@
   const state = {
     config: null,
     runtime: null,
+    skillStatus: null,
     health: null,
     sessions: [],
     sessionId: "",
@@ -37,6 +40,7 @@
     generationSettleTimer: null,
     _meiAutoSessionOnce: false,
     _meiClientAutoOpencodeOnce: false,
+    syncingSkill: false,
   };
 
   const sessionStorageKey =
@@ -138,6 +142,7 @@
     const controlsDisabled = disabled || state.sending || state.aborting;
     if (els.reconnect) els.reconnect.disabled = controlsDisabled;
     if (els.newSession) els.newSession.disabled = controlsDisabled;
+    if (els.skillSync) els.skillSync.disabled = controlsDisabled || state.syncingSkill;
     if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
     renderRunButton(disabled);
   }
@@ -232,6 +237,40 @@
 
   function renderRuntime() {
     renderStatus();
+  }
+
+  function formatMsTime(value) {
+    const stamp = Number(value || 0);
+    if (!Number.isFinite(stamp) || stamp <= 0) return "";
+    return new Date(stamp).toLocaleString("zh-CN", {
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function renderSkillStatus() {
+    if (!els.skillLine) return;
+    const skill = state.skillStatus;
+    if (!skill || !skill.source_present) {
+      els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
+      return;
+    }
+    const summary = [];
+    summary.push(skill.installed ? "Skill: 已安装" : "Skill: 仅源目录");
+    if (skill.stale) summary.push("待同步");
+    if (Number.isFinite(Number(skill.file_count))) {
+      summary.push("文件 " + String(skill.file_count));
+    }
+    const updated = formatMsTime(skill.install_updated_at_ms || skill.source_updated_at_ms);
+    if (updated) {
+      summary.push(updated);
+    }
+    if (skill.revision) {
+      summary.push("rev " + String(skill.revision));
+    }
+    els.skillLine.textContent = summary.join(" · ");
   }
 
   function readSessionCache() {
@@ -851,12 +890,14 @@
     setButtonState(true);
     renderStatus();
     try {
-      const [config, runtime] = await Promise.all([
+      const [config, runtime, skillStatus] = await Promise.all([
         fetchJson("/api/opencode/config"),
         fetchJson("/api/opencode/runtime"),
+        fetchJson("/api/opencode/skill"),
       ]);
       state.config = config;
       state.runtime = runtime;
+      state.skillStatus = skillStatus;
       state.sessionTargetKey = currentTargetKey();
       let runtimeRef = runtime;
       if (runtimeRef && runtimeRef.running) {
@@ -884,6 +925,7 @@
     } catch (error) {
       state.health = null;
       state.sessions = [];
+      state.skillStatus = null;
       setInlineNote("读取 OpenCode 状态失败：" + String(error.message || error));
     } finally {
       state.loading = false;
@@ -891,6 +933,7 @@
       renderStatus();
       renderConfig();
       renderRuntime();
+      renderSkillStatus();
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
@@ -946,6 +989,25 @@
     }
     invalidateSessionCache();
     await refreshAll();
+  }
+
+  async function syncSkill() {
+    if (state.syncingSkill) return;
+    state.syncingSkill = true;
+    setButtonState(false);
+    try {
+      const status = await fetchJson("/api/opencode/skill/sync", {
+        method: "POST",
+      });
+      state.skillStatus = status;
+      renderSkillStatus();
+      setInlineNote("MeiLang Skill 已同步");
+    } catch (error) {
+      setInlineNote("同步 Skill 失败：" + String(error.message || error));
+    } finally {
+      state.syncingSkill = false;
+      setButtonState(false);
+    }
   }
 
   function buildSessionTitle() {
@@ -1074,7 +1136,12 @@
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: text }),
+          body: JSON.stringify({
+            text: text,
+            app_id: String(root.dataset.app || ""),
+            entry_id: String(root.dataset.entry || ""),
+            target_file: currentTargetKey(),
+          }),
           signal: controller.signal,
         },
       );
@@ -1113,6 +1180,14 @@
     els.newSession.addEventListener("click", function () {
       createSession().catch(function (error) {
         setInlineNote("创建会话失败：" + String(error.message || error));
+      });
+    });
+  }
+
+  if (els.skillSync) {
+    els.skillSync.addEventListener("click", function () {
+      syncSkill().catch(function (error) {
+        setInlineNote("同步 Skill 失败：" + String(error.message || error));
       });
     });
   }
