@@ -64,6 +64,10 @@
       "tag": "mei-cockpit-metric-cards",
       "script": "cockpit-metric-cards.js"
     },
+    "cockpit.labor-dashboard": {
+      "tag": "mei-cockpit-labor-dashboard",
+      "script": "labor-dashboard.js"
+    },
     "sim.step-bridge": {
       "tag": "mei-sim-step-bridge",
       "script": "sim-step-bridge.js"

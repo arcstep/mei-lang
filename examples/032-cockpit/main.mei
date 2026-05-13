@@ -1,0 +1,189 @@
+app(
+    id = "032-cockpit",
+    title = "032 劳务大屏",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "cockpit",
+    summary = "劳务大屏迁移阶段 2：子组件拆分 + 中部双环形图（ECharts donut）数据驱动。",
+)
+
+scene.set_world(
+    resources = [
+        resource(
+            id = "labor_doc",
+            kind = "document",
+            title = "迁移说明",
+            content = "## 032 劳务大屏\n\n- **阶段 1**：`cockpit.labor-dashboard` 壳层与数据绑定。\n- **阶段 2（当前）**：顶栏 / 板块标题 / 表与排行 / 人员卡 / KPI 已拆为子 Web Component（由 `labor-dashboard.js` 统一 `import`）；中部 **双环形图** 使用 `mei-chart-donut` + `data/donut_*.csv`。\n- **后续**：合同数字格与底部指标绑定真实 dataset、Figma 导出装饰。",
+        ),
+        resource(
+            id = "subcontract_raw",
+            kind = "dataset",
+            title = "劳务分包",
+            source = ds.csv(path = "data/subcontract.csv"),
+        ),
+        resource(
+            id = "ranking_left_raw",
+            kind = "dataset",
+            title = "左下排行",
+            source = ds.csv(path = "data/ranking_left.csv"),
+        ),
+        resource(
+            id = "ranking_right_raw",
+            kind = "dataset",
+            title = "右下排行",
+            source = ds.csv(path = "data/ranking_right.csv"),
+        ),
+        resource(
+            id = "persons_raw",
+            kind = "dataset",
+            title = "人员代发",
+            source = ds.csv(path = "data/persons.csv"),
+        ),
+        resource(
+            id = "kpis_raw",
+            kind = "dataset",
+            title = "顶部 KPI",
+            source = ds.csv(path = "data/kpis.csv"),
+        ),
+        resource(
+            id = "donut_visit_raw",
+            kind = "dataset",
+            title = "代发人次环形图",
+            source = ds.csv(path = "data/donut_visit.csv"),
+        ),
+        resource(
+            id = "donut_std_raw",
+            kind = "dataset",
+            title = "代发标准环形图",
+            source = ds.csv(path = "data/donut_std.csv"),
+        ),
+    ],
+)
+
+sub_rows = ds.data_ref("subcontract_raw")
+rank_l_rows = ds.data_ref("ranking_left_raw")
+rank_r_rows = ds.data_ref("ranking_right_raw")
+person_rows = ds.data_ref("persons_raw")
+kpi_rows = ds.data_ref("kpis_raw")
+donut_visit_rows = ds.data_ref("donut_visit_raw")
+donut_std_rows = ds.data_ref("donut_std_raw")
+
+ds.dataset_view(
+    id = "labor_subcontract_view",
+    title = "劳务分包视图",
+    rowset = sub_rows,
+    schema = [
+        ds.column("category", "string"),
+        ds.column("company", "string"),
+        ds.column("amount", "string"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_ranking_left_view",
+    title = "左下排行视图",
+    rowset = rank_l_rows,
+    schema = [
+        ds.column("rank", "string"),
+        ds.column("col_a", "string"),
+        ds.column("col_b", "string"),
+        ds.column("col_c", "string"),
+        ds.column("bar_pct", "number"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_ranking_right_view",
+    title = "右下排行视图",
+    rowset = rank_r_rows,
+    schema = [
+        ds.column("rank", "string"),
+        ds.column("col_a", "string"),
+        ds.column("col_b", "string"),
+        ds.column("col_c", "string"),
+        ds.column("bar_pct", "number"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_persons_view",
+    title = "人员卡片视图",
+    rowset = person_rows,
+    schema = [
+        ds.column("name", "string"),
+        ds.column("days", "string"),
+        ds.column("company", "string"),
+        ds.column("month_amt", "string"),
+        ds.column("total_amt", "string"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_kpis_view",
+    title = "KPI 视图",
+    rowset = kpi_rows,
+    schema = [
+        ds.column("label", "string"),
+        ds.column("value", "string"),
+        ds.column("unit", "string"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_donut_visit_view",
+    title = "代发人次切片",
+    rowset = donut_visit_rows,
+    schema = [
+        ds.column("label", "string"),
+        ds.column("value", "number"),
+    ],
+)
+
+ds.dataset_view(
+    id = "labor_donut_std_view",
+    title = "代发标准切片",
+    rowset = donut_std_rows,
+    schema = [
+        ds.column("label", "string"),
+        ds.column("value", "number"),
+    ],
+)
+
+scene.set_frame(
+    layout = grid(
+        columns = ["minmax(0,1fr)"],
+        rows = ["minmax(640px,auto)"],
+        areas = [
+            ["main"],
+        ],
+        gap = "0",
+        padding = "0",
+    ),
+)
+
+frame.add_panel(
+    id = "labor_main",
+    title = "032 劳务大屏（迁移中）",
+    area = "main",
+    blocks = [
+        component(
+            "cockpit.labor-dashboard",
+            area = "auto",
+            props = {
+                "title": "这是标题可视化大屏",
+                "titleBandMinWidth": 320,
+                "stripPad": 40,
+                "subcontract": ds.data_ref("labor_subcontract_view"),
+                "rankingLeft": ds.data_ref("labor_ranking_left_view"),
+                "rankingRight": ds.data_ref("labor_ranking_right_view"),
+                "persons": ds.data_ref("labor_persons_view"),
+                "kpis": ds.data_ref("labor_kpis_view"),
+                "donutVisit": ds.data_ref("labor_donut_visit_view"),
+                "donutStd": ds.data_ref("labor_donut_std_view"),
+            },
+        ),
+    ],
+)
