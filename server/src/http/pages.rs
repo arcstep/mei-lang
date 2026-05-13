@@ -89,6 +89,11 @@ fn content_type_for_path(path: &Path) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
         Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        Some("webp") => "image/webp",
+        Some("gif") => "image/gif",
+        Some("ico") => "image/x-icon",
         _ => "text/plain; charset=utf-8",
     }
 }
