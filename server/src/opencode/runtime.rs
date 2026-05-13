@@ -97,7 +97,11 @@ fn current_unix_timestamp_ms() -> u128 {
         .as_millis()
 }
 
-fn render_managed_opencode_runtime_config_content(base_url: &str, api_key: &str, completion_model: &str) -> String {
+fn render_managed_opencode_runtime_config_content(
+    base_url: &str,
+    api_key: &str,
+    completion_model: &str,
+) -> String {
     let default_model = managed_opencode_default_model(completion_model);
     json!({
         "$schema": "https://opencode.ai/config.json",

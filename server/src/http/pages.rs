@@ -1,7 +1,4 @@
-use std::{
-    fs,
-    path::Path,
-};
+use std::{fs, path::Path};
 
 use anyhow::Context;
 use axum::{
@@ -10,7 +7,7 @@ use axum::{
     response::{Html, Redirect, Response},
 };
 use mei_lang_app::{render_page, UiRouteMode};
-use mei_lang_kernel::{compile_app, discover_apps, read_source_file};
+use mei_lang_kernel::{compile_app_with_options, discover_apps, read_source_file, CompileOptions};
 use serde::Deserialize;
 
 use crate::{AppError, AppState};
@@ -18,6 +15,8 @@ use crate::{AppError, AppState};
 #[derive(Debug, Deserialize)]
 pub struct AppQuery {
     target: Option<String>,
+    entry: Option<String>,
+    preview_target: Option<String>,
     chrome: Option<String>,
 }
 
@@ -35,8 +34,16 @@ pub async fn app_page(
     Query(query): Query<AppQuery>,
 ) -> Result<Html<String>, AppError> {
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
-    let compiled = compile_app(&state.source_root, &app_id).map_err(AppError::from)?;
-    let target = query.target.unwrap_or_else(|| compiled.entry_target.clone());
+    let compile_options = CompileOptions {
+        entry: query.entry.clone(),
+        preview_target: query.preview_target.clone(),
+    };
+    let compiled = compile_app_with_options(&state.source_root, &app_id, compile_options)
+        .map_err(AppError::from)?;
+    let target = query
+        .target
+        .or_else(|| query.preview_target.clone())
+        .unwrap_or_else(|| compiled.entry_target.clone());
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let chrome_hidden = query
@@ -50,6 +57,8 @@ pub async fn app_page(
         UiRouteMode::from_slug(&mode),
         Some(target.as_str()),
         Some(source.as_str()),
+        query.entry.as_deref(),
+        query.preview_target.as_deref(),
         chrome_hidden,
     );
     Ok(Html(html))
@@ -69,7 +78,10 @@ pub async fn app_asset(
     State(state): State<AppState>,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    serve_static_asset(state.package_root.join("app").join("assets").join(&path), "app asset")
+    serve_static_asset(
+        state.package_root.join("app").join("assets").join(&path),
+        "app asset",
+    )
 }
 
 fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {

@@ -1,10 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{
-        header::CONTENT_TYPE,
-        HeaderValue,
-    },
+    http::{header::CONTENT_TYPE, HeaderValue},
     response::{IntoResponse, Response},
     Json,
 };
@@ -88,7 +85,11 @@ fn take_sse_frame(buffer: &mut String) -> Option<String> {
 
 /// OpenCode 未启动或上游不可用时，仍返回 **200 + event-stream**，避免浏览器 EventSource 对非 2xx 无限重连，
 /// 并由前端收到 `session_status` 后主动 `close()` 停止重连。
-fn sse_session_status_notice(session_id: String, status: &str, message: impl Into<String>) -> Response {
+fn sse_session_status_notice(
+    session_id: String,
+    status: &str,
+    message: impl Into<String>,
+) -> Response {
     let event = HostOpencodeEvent::SessionStatus {
         session_id,
         status: status.to_string(),

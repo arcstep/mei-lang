@@ -32,9 +32,9 @@ pub async fn sim_step_api(
     Json(request): Json<SimStepRequest>,
 ) -> Result<Json<SimStepResponse>, AppError> {
     let compiled = compile_app(&state.source_root, &app_id).map_err(AppError::from)?;
-    let contract = compiled
-        .scene_contract
-        .ok_or_else(|| AppError::msg(format!("app `{app_id}` does not provide a scene contract")))?;
+    let contract = compiled.scene_contract.ok_or_else(|| {
+        AppError::msg(format!("app `{app_id}` does not provide a scene contract"))
+    })?;
     let current_state = request
         .state
         .clone()
