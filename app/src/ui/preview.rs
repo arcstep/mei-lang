@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, FrameDecl, LoadedResource, SceneContract};
+use mei_lang_kernel::{BlockDecl, CompiledApp, FrameDecl, LoadedResource, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -15,6 +15,15 @@ struct FrameViewportConfig {
     safe_right: f64,
     safe_bottom: f64,
     safe_left: f64,
+}
+
+#[derive(Debug, Clone)]
+struct PanelHeadingConfig {
+    variant: String,
+    subtitle: Option<String>,
+    show_accent: bool,
+    show_flair: bool,
+    show_dots: bool,
 }
 
 pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
@@ -105,17 +114,52 @@ fn panel_view(
     let blocks = panel
         .blocks
         .iter()
-        .map(|block| block_view(block, panel.layout.as_ref(), compiled, scene_contract, resources))
+        .map(|node| node_view(node, panel.layout.as_ref(), compiled, scene_contract, resources))
         .collect_view();
     let title = panel.title.clone().unwrap_or_else(|| panel.id.clone());
     let show_heading = panel_show_heading(&panel.props);
+    let heading = panel_heading_config(&panel.props);
+    let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
     view! {
         <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout, &panel.props)>
             {if show_heading {
                 view! {
-                    <div class="panel-heading">
-                        <h3>{title}</h3>
-                        <p>{panel.area.clone().unwrap_or_else(|| "auto".to_string())}</p>
+                    <div
+                        class=heading_class
+                        data-heading-variant=heading.variant.clone()
+                    >
+                        {if heading.show_accent {
+                            view! { <div class="panel-heading-accent" aria-hidden="true"></div> }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
+                        {if heading.show_flair {
+                            view! { <div class="panel-heading-flair panel-heading-flair-left" aria-hidden="true"></div> }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
+                        <div class="panel-heading-copy">
+                            <h3>{title}</h3>
+                            {if let Some(subtitle) = heading.subtitle.clone() {
+                                view! { <p>{subtitle}</p> }.into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }}
+                        </div>
+                        {if heading.show_flair {
+                            view! { <div class="panel-heading-flair panel-heading-flair-right" aria-hidden="true"></div> }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
+                        {if heading.show_dots {
+                            view! {
+                                <div class="panel-heading-dots" aria-hidden="true">
+                                    <span></span><span></span><span></span>
+                                </div>
+                            }.into_any()
+                        } else {
+                            view! { <></> }.into_any()
+                        }}
                     </div>
                 }.into_any()
             } else {
@@ -127,6 +171,23 @@ fn panel_view(
         </section>
     }
     .into_any()
+}
+
+fn node_view(
+    node: &UiNodeDecl,
+    parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
+    compiled: &CompiledApp,
+    scene_contract: &SceneContract,
+    resources: &BTreeMap<String, LoadedResource>,
+) -> AnyView {
+    match node {
+        UiNodeDecl::Panel(panel) => {
+            panel_view(panel, parent_layout, compiled, scene_contract, resources)
+        }
+        UiNodeDecl::Block(block) => {
+            block_view(block, parent_layout, compiled, scene_contract, resources)
+        }
+    }
 }
 
 fn block_view(
@@ -496,6 +557,47 @@ fn panel_show_heading(props: &Value) -> bool {
         return value;
     }
     !matches!(map.get("chrome").and_then(Value::as_str), Some("bare"))
+}
+
+fn panel_heading_config(props: &Value) -> PanelHeadingConfig {
+    let mut variant = "default".to_string();
+    let mut subtitle = None;
+    let mut show_accent = None;
+    let mut show_flair = None;
+    let mut show_dots = None;
+
+    if let Some(map) = props.as_object() {
+        subtitle = map
+            .get("subtitle")
+            .and_then(Value::as_str)
+            .map(|value| value.to_string());
+        if let Some(heading) = map.get("heading").and_then(Value::as_object) {
+            if let Some(value) = heading.get("variant").and_then(Value::as_str) {
+                variant = value.to_string();
+            }
+            if let Some(value) = heading.get("subtitle").and_then(Value::as_str) {
+                subtitle = Some(value.to_string());
+            }
+            show_accent = heading.get("accent").and_then(Value::as_bool);
+            show_flair = heading.get("flair").and_then(Value::as_bool);
+            show_dots = heading.get("dots").and_then(Value::as_bool);
+        }
+    }
+
+    let (default_accent, default_flair, default_dots) = match variant.as_str() {
+        "screen" => (true, true, true),
+        "compact" => (true, false, false),
+        "plain" => (false, false, false),
+        _ => (true, false, false),
+    };
+
+    PanelHeadingConfig {
+        variant,
+        subtitle,
+        show_accent: show_accent.unwrap_or(default_accent),
+        show_flair: show_flair.unwrap_or(default_flair),
+        show_dots: show_dots.unwrap_or(default_dots),
+    }
 }
 
 fn container_visual_style(props: &Value) -> String {
