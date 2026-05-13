@@ -7,7 +7,7 @@ app(
 app.add_scene(
     id = "home",
     profile = "cockpit",
-    summary = "劳务大屏迁移阶段 2：子组件拆分 + 中部双环形图（ECharts donut）数据驱动。",
+    summary = "劳务大屏迁移阶段 3：header panel 拆分 + 多组件标题区 + 中部双环形图数据驱动。",
 )
 
 scene.set_world(
@@ -16,7 +16,7 @@ scene.set_world(
             id = "labor_doc",
             kind = "document",
             title = "迁移说明",
-            content = "## 032 劳务大屏\n\n- **阶段 1**：`cockpit.labor-dashboard` 壳层与数据绑定。\n- **阶段 2（当前）**：顶栏 / 板块标题 / 表与排行 / 人员卡 / KPI 已拆为子 Web Component（由 `labor-dashboard.js` 统一 `import`）；中部 **双环形图** 使用 `mei-chart-donut` + `data/donut_*.csv`。\n- **后续**：合同数字格与底部指标绑定真实 dataset、Figma 导出装饰。",
+            content = "## 032 劳务大屏\n\n- **阶段 1**：`cockpit.labor-dashboard` 壳层与数据绑定。\n- **阶段 2**：板块标题 / 表与排行 / 人员卡 / KPI 子组件化，中部 **双环形图** 使用 `mei-chart-donut` + `data/donut_*.csv`。\n- **阶段 3（当前）**：将大标题区升级为 `frame -> header panel / main panel -> 多组件` 结构，验证 `panel` 背景与组件托底组合能力。\n- **后续**：合同数字格与底部指标绑定真实 dataset。",
         ),
         resource(
             id = "subcontract_raw",
@@ -155,8 +155,9 @@ ds.dataset_view(
 scene.set_frame(
     layout = grid(
         columns = ["minmax(0,1fr)"],
-        rows = ["minmax(640px,auto)"],
+        rows = ["92px", "minmax(0,1fr)"],
         areas = [
+            ["header"],
             ["main"],
         ],
         gap = "0",
@@ -189,6 +190,34 @@ scene.set_frame(
 )
 
 frame.add_panel(
+    id = "labor_header",
+    title = "032 劳务大屏页头",
+    area = "header",
+    props = {
+        "show_heading": False,
+        "background": "linear-gradient(180deg, rgba(9,31,58,.96) 0%, rgba(6,24,45,.9) 52%, rgba(3,13,24,.86) 100%)",
+        "border": "none",
+        "radius": "0",
+        "padding": "0 18px",
+        "box_shadow": "inset 0 -1px 0 rgba(94,212,255,.18), 0 18px 36px rgba(2,8,23,.25)",
+        "overflow": "hidden",
+        "min_height": "92px",
+    },
+    blocks = [
+        component(
+            "cockpit.labor-header-bar",
+            props = {
+                "temp": "28°C",
+                "sky": "多云",
+                "title": "这是标题可视化大屏",
+                "titleBandMinWidth": 648,
+                "stripPad": 208,
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
     id = "labor_main",
     title = "032 劳务大屏（迁移中）",
     area = "main",
@@ -206,12 +235,9 @@ frame.add_panel(
     },
     blocks = [
         component(
-            "cockpit.labor-dashboard",
+            "cockpit.labor-body",
             area = "auto",
             props = {
-                "title": "这是标题可视化大屏",
-                "titleBandMinWidth": 320,
-                "stripPad": 40,
                 "subcontract": ds.data_ref("labor_subcontract_view"),
                 "rankingLeft": ds.data_ref("labor_ranking_left_view"),
                 "rankingRight": ds.data_ref("labor_ranking_right_view"),

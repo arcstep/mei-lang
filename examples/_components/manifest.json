@@ -64,9 +64,29 @@
       "tag": "mei-cockpit-metric-cards",
       "script": "cockpit-metric-cards.js"
     },
+    "cockpit.labor-body": {
+      "tag": "mei-cockpit-labor-body",
+      "script": "labor-body.js"
+    },
     "cockpit.labor-dashboard": {
       "tag": "mei-cockpit-labor-dashboard",
       "script": "labor-dashboard.js"
+    },
+    "cockpit.labor-header-weather": {
+      "tag": "mei-cockpit-labor-header-weather",
+      "script": "labor-header-weather.js"
+    },
+    "cockpit.labor-header-bar": {
+      "tag": "mei-cockpit-labor-header-bar",
+      "script": "labor-header-bar.js"
+    },
+    "cockpit.labor-header-title": {
+      "tag": "mei-cockpit-labor-header-title",
+      "script": "labor-header-title.js"
+    },
+    "cockpit.labor-header-clock": {
+      "tag": "mei-cockpit-labor-header-clock",
+      "script": "labor-header-clock.js"
     },
     "sim.step-bridge": {
       "tag": "mei-sim-step-bridge",
