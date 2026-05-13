@@ -138,12 +138,12 @@ def frame(title = None, layout = None, blocks = None, profile = None, props = No
         "props": props if props != None else {},
     }))
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
     panel_id = id if id != None else area
     panel_props = props if props != None else {}
     if subtitle != None:
         panel_props["subtitle"] = subtitle
-    return _declare(_clean({
+    return _clean({
         "kind": "panel",
         "id": panel_id,
         "title": title,
@@ -153,20 +153,57 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         "data_ref": _data_ref_value(data),
         "props": panel_props,
         "data": data_plan,
-    }))
+    })
+
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+    return _panel_node(
+        id = id,
+        title = title,
+        subtitle = subtitle,
+        area = area,
+        layout = layout,
+        blocks = blocks,
+        data = data,
+        props = props,
+        data_plan = data_plan,
+    )
+
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+    return _declare(_panel_node(
+        id = id,
+        title = title,
+        subtitle = subtitle,
+        area = area,
+        layout = layout,
+        blocks = blocks,
+        data = data,
+        props = props,
+        data_plan = data_plan,
+    ))
 
 def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
-    return _declare(_clean({
-        "kind": "panel",
-        "id": id if id != None else area,
-        "title": title,
-        "area": area,
-        "layout": layout,
-        "blocks": blocks if blocks != None else [],
-        "data_ref": _data_ref_value(data),
-        "props": props if props != None else {},
-        "data": data_plan,
-    }))
+    return panel(
+        id = id,
+        title = title,
+        area = area,
+        layout = layout,
+        blocks = blocks,
+        data = data,
+        props = props,
+        data_plan = data_plan,
+    )
+
+def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+    return panel_decl(
+        id = id,
+        title = title,
+        area = area,
+        layout = layout,
+        blocks = blocks,
+        data = data,
+        props = props,
+        data_plan = data_plan,
+    )
 
 def component(use, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = [], interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None):
     resolved_props = _with_metric_data_props(data, props)

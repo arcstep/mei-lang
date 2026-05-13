@@ -110,7 +110,7 @@ fn rewrite_namespaces(source: &str) -> String {
         .replace("scene.set_world(", "world(")
         .replace("scene.set_flow(", "flow(")
         .replace("scene.set_frame(", "frame(")
-        .replace("frame.add_panel(", "panel(")
+        .replace("frame.add_panel(", "panel_decl(")
         .replace("doc.", "")
         .replace("ds.", "")
         .replace("ui.", "")

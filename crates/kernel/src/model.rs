@@ -106,6 +106,13 @@ pub struct BlockDecl {
     pub props: Value,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum UiNodeDecl {
+    Panel(PanelDecl),
+    Block(BlockDecl),
+}
+
 fn default_block_kind() -> String {
     "block".to_string()
 }
@@ -272,7 +279,7 @@ pub struct PanelDecl {
     #[serde(default)]
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
-    pub blocks: Vec<BlockDecl>,
+    pub blocks: Vec<UiNodeDecl>,
     #[serde(default)]
     pub props: Value,
 }

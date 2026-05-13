@@ -230,6 +230,109 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_nested_panels() {
+    let root = temp_root("nested-panels");
+    let app_root = root.join("nested");
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" },
+    "dataset.table": { "tag": "mei-dataset-table", "script": "dataset-table.js" },
+    "chart.bar-mini": { "tag": "mei-chart-bar-mini", "script": "chart-bar-mini.js" }
+  }
+}
+"#,
+    );
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "nested",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+scene.set_frame(
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["1fr"],
+        areas = [["body"]],
+    ),
+)
+
+frame.add_panel(
+    id = "body",
+    area = "body",
+    layout = grid(
+        columns = ["1fr", "1fr"],
+        rows = ["1fr"],
+        areas = [["left_col", "right_col"]],
+    ),
+    blocks = [
+        panel(
+            id = "left_col",
+            area = "left_col",
+            layout = grid(
+                columns = ["1fr"],
+                rows = ["1fr", "1fr"],
+                areas = [["top"], ["bottom"]],
+            ),
+            blocks = [
+                panel(
+                    id = "top",
+                    area = "top",
+                    blocks = [
+                        component("markdown", area = "auto", props = {"content": "top"}),
+                    ],
+                ),
+                panel(
+                    id = "bottom",
+                    area = "bottom",
+                    blocks = [
+                        component("dataset.table", area = "auto", props = {"data": {"rows": []}}),
+                    ],
+                ),
+            ],
+        ),
+        panel(
+            id = "right_col",
+            area = "right_col",
+            blocks = [
+                component("chart.bar-mini", area = "auto", props = {"series": []}),
+            ],
+        ),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile nested panel app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.panels.len(), 1);
+    assert_eq!(contract.panels[0].blocks.len(), 2);
+    assert!(compiled
+        .component_assets
+        .iter()
+        .any(|asset| asset.key == "markdown"));
+    assert!(compiled
+        .component_assets
+        .iter()
+        .any(|asset| asset.key == "dataset.table"));
+    assert!(compiled
+        .component_assets
+        .iter()
+        .any(|asset| asset.key == "chart.bar-mini"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_examples_regressions() {
     let examples = repo_examples_root();
     for app_id in [

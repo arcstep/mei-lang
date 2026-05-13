@@ -10,7 +10,7 @@ use crate::{
     eval::evaluate_mei_file,
     model::{
         AppDecl, CompiledApp, ComponentAsset, Diagnostic, FlowDecl, FrameDecl, PanelDecl,
-        SceneContract, SceneDecl, Severity,
+        SceneContract, SceneDecl, Severity, UiNodeDecl,
     },
     workspace::{load_component_assets, source_tree},
 };
@@ -114,9 +114,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
     let asset_map = load_component_assets(source_root)?;
     let mut asset_keys = BTreeSet::new();
     for panel in &panels {
-        for block in &panel.blocks {
-            asset_keys.insert(block.use_key.clone());
-        }
+        collect_asset_keys_from_nodes(&panel.blocks, &mut asset_keys);
     }
     let component_assets = asset_keys
         .into_iter()
@@ -200,6 +198,17 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
         component_assets,
         diagnostics,
     })
+}
+
+fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
+    for node in nodes {
+        match node {
+            UiNodeDecl::Panel(panel) => collect_asset_keys_from_nodes(&panel.blocks, asset_keys),
+            UiNodeDecl::Block(block) => {
+                asset_keys.insert(block.use_key.clone());
+            }
+        }
+    }
 }
 
 fn decode_app_decl(path: &Path, raw: &Value) -> (Option<AppDecl>, Vec<Diagnostic>) {
