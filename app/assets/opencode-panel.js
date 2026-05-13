@@ -6,6 +6,7 @@
     serverDot: document.getElementById("author-server-dot"),
     serverStatus: document.getElementById("author-server-status"),
     config: document.getElementById("author-config-line"),
+    modelLabel: document.getElementById("author-model-label"),
     reconnect: document.getElementById("author-reconnect-btn"),
     newSession: document.getElementById("author-session-btn"),
     sessionSelect: document.getElementById("author-session-select"),
@@ -24,12 +25,16 @@
     messages: [],
     loading: false,
     sending: false,
+    aborting: false,
     eventSource: null,
     eventSourceSessionId: "",
     streamConnected: false,
     modelLabel: "模型",
     sessionsCacheAtMs: 0,
     sessionsFetchInFlight: null,
+    sendAbortController: null,
+    pendingPromptDraft: "",
+    generationSettleTimer: null,
     _meiAutoSessionOnce: false,
     _meiClientAutoOpencodeOnce: false,
   };
@@ -111,11 +116,72 @@
     }
   }
 
+  function renderRunButton(disabled) {
+    if (!els.run) return;
+    const isSending = state.sending;
+    const isStopping = state.aborting;
+    els.run.disabled = isStopping || (disabled && !isSending);
+    els.run.textContent = isSending ? "■" : "➤";
+    els.run.title = isSending ? (isStopping ? "停止中" : "停止发送") : "发送";
+    els.run.classList.toggle("author-btn-danger", isSending);
+    els.run.classList.toggle("author-btn-primary", !isSending);
+  }
+
+  function setInlineNote(message) {
+    if (!els.config) return;
+    const text = String(message || "").trim();
+    els.config.hidden = !text;
+    els.config.textContent = text;
+  }
+
   function setButtonState(disabled) {
-    if (els.reconnect) els.reconnect.disabled = disabled;
-    if (els.newSession) els.newSession.disabled = disabled;
-    if (els.sessionSelect) els.sessionSelect.disabled = disabled;
-    if (els.run) els.run.disabled = disabled || state.sending;
+    const controlsDisabled = disabled || state.sending || state.aborting;
+    if (els.reconnect) els.reconnect.disabled = controlsDisabled;
+    if (els.newSession) els.newSession.disabled = controlsDisabled;
+    if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
+    renderRunButton(disabled);
+  }
+
+  function clearGenerationSettleTimer() {
+    if (state.generationSettleTimer) {
+      window.clearTimeout(state.generationSettleTimer);
+    }
+    state.generationSettleTimer = null;
+  }
+
+  function mergeDraftBackIntoInput() {
+    const draft = String(state.pendingPromptDraft || "");
+    if (!draft || !els.input) return;
+    const current = String(els.input.value || "");
+    els.input.value = current.trim() ? draft + "\n\n" + current : draft;
+    const cursor = draft.length;
+    try {
+      els.input.focus();
+      els.input.setSelectionRange(cursor, cursor);
+    } catch (_) {}
+    state.pendingPromptDraft = "";
+  }
+
+  function finishSending(options) {
+    const opts = options || {};
+    clearGenerationSettleTimer();
+    state.sending = false;
+    state.aborting = false;
+    state.sendAbortController = null;
+    if (opts.restoreDraft) {
+      mergeDraftBackIntoInput();
+    } else {
+      state.pendingPromptDraft = "";
+    }
+    setButtonState(false);
+  }
+
+  function markGenerationActivity() {
+    if (!state.sending) return;
+    clearGenerationSettleTimer();
+    state.generationSettleTimer = window.setTimeout(function () {
+      finishSending();
+    }, 1800);
   }
 
   function renderStatus() {
@@ -142,35 +208,26 @@
     }
     els.serverStatus.textContent = label;
     els.serverDot.className = dotClass;
-
-    if (!els.config) return;
-    const parts = [];
-    parts.push("app=" + String(root.dataset.app || ""));
-    parts.push("target=" + currentTargetKey());
-    if (config && config.preferred_mode) parts.push("mode=" + String(config.preferred_mode));
-    if (config && config.provider_id) parts.push(String(config.provider_id));
-    if (config && config.completion_model) parts.push(String(config.completion_model));
-    if (runtime && runtime.server_url) parts.push("server=" + runtime.server_url);
-    if (
-      config &&
-      config.preferred_mode === "managed" &&
-      Array.isArray(config.missing_env) &&
-      config.missing_env.length > 0
-    ) {
-      parts.push("缺少环境变量：" + config.missing_env.join(", "));
+    if (els.reconnect) {
+      const shouldShowReconnect =
+        !state.loading &&
+        !!(runtime && runtime.running) &&
+        !(health && health.healthy);
+      els.reconnect.hidden = !shouldShowReconnect;
     }
-    els.config.textContent = parts.join(" · ");
   }
 
   function renderConfig() {
     const config = state.config;
     if (!config) {
       state.modelLabel = "模型";
+      if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
       return;
     }
     state.modelLabel =
       String(config.completion_model || config.provider_name || config.provider_id || "模型").trim() ||
       "模型";
+    if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
   }
 
   function renderRuntime() {
@@ -618,6 +675,7 @@
   }
 
   function closeEventStream() {
+    clearGenerationSettleTimer();
     if (state.eventSource) {
       try {
         state.eventSource.close();
@@ -693,9 +751,15 @@
       if (st === "connected") {
         state.streamConnected = true;
       }
+      if (state.sending && (st === "connected" || st === "heartbeat")) {
+        markGenerationActivity();
+      }
       if (st === "opencode_unavailable" || st === "upstream_unavailable") {
         state.streamConnected = false;
         closeEventStream();
+        if (state.sending) {
+          finishSending({ restoreDraft: true });
+        }
       }
       renderStatus();
       return;
@@ -706,10 +770,12 @@
       kind === "message_part_delta" ||
       kind === "message_part_removed"
     ) {
+      markGenerationActivity();
       refreshMessages().catch(function () {});
       return;
     }
     if (kind === "permission_requested") {
+      markGenerationActivity();
       const metadata = event.metadata ? JSON.stringify(event.metadata, null, 2) : "{}";
       const permissionId = String(event.permission_id || "");
       pushMessage(
@@ -749,6 +815,7 @@
       return;
     }
     if (kind === "permission_resolved") {
+      markGenerationActivity();
       pushMessage(
         "system",
         "permission_id: " +
@@ -817,9 +884,7 @@
     } catch (error) {
       state.health = null;
       state.sessions = [];
-      if (els.config) {
-        els.config.textContent = "读取 OpenCode 状态失败：" + String(error.message || error);
-      }
+      setInlineNote("读取 OpenCode 状态失败：" + String(error.message || error));
     } finally {
       state.loading = false;
       setButtonState(false);
@@ -864,14 +929,12 @@
 
   async function startServer() {
     if (!canStartManaged()) {
-      if (els.config) {
-        els.config.textContent = "当前默认使用 external OpenCode 服务；请先独立启动 opencode-server。";
-      }
+      setInlineNote("当前默认使用 external OpenCode 服务；请先独立启动 opencode-server。");
       await refreshAll();
       return;
     }
     setButtonState(true);
-    if (els.config) els.config.textContent = "正在启动 OpenCode 服务...";
+    setInlineNote("正在启动 OpenCode 服务...");
     try {
       await fetchJson("/api/opencode/start", {
         method: "POST",
@@ -879,9 +942,7 @@
         body: JSON.stringify({ port: 4099 }),
       });
     } catch (error) {
-      if (els.config) {
-        els.config.textContent = "启动失败：" + String(error.message || error);
-      }
+      setInlineNote("启动失败：" + String(error.message || error));
     }
     invalidateSessionCache();
     await refreshAll();
@@ -907,9 +968,7 @@
   async function createSession() {
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      if (els.config) {
-        els.config.textContent = "OpenCode 服务未连接；请先独立启动服务并点击“重连”。";
-      }
+      setInlineNote("OpenCode 服务未连接；请先独立启动服务并点击“重连”。");
       return;
     }
     await postNewBoundSession();
@@ -931,17 +990,64 @@
     renderMessages();
   }
 
+  function summarizePromptError(error) {
+    if (!error) return "";
+    if (typeof error === "string") return error;
+    if (error && typeof error === "object") {
+      if (error.data && typeof error.data.message === "string") {
+        return error.data.message;
+      }
+      if (typeof error.message === "string") {
+        return error.message;
+      }
+    }
+    try {
+      return JSON.stringify(error);
+    } catch (_) {
+      return String(error);
+    }
+  }
+
+  async function stopSending() {
+    if (!state.sending || state.aborting) return;
+    state.aborting = true;
+    setButtonState(false);
+    try {
+      if (state.sendAbortController) {
+        state.sendAbortController.abort();
+      }
+      if (state.sessionId) {
+        await fetchJson(
+          "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/abort",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      await refreshMessages().catch(function () {});
+      finishSending({ restoreDraft: true });
+    } catch (error) {
+      setInlineNote("停止失败：" + String(error.message || error));
+      state.aborting = false;
+      setButtonState(false);
+    }
+  }
+
   async function sendPrompt() {
-    const text = (els.input && els.input.value ? els.input.value : "").trim();
+    if (state.sending) {
+      await stopSending();
+      return;
+    }
+    const draftText = els.input && els.input.value ? String(els.input.value) : "";
+    const text = draftText.trim();
     if (!text) {
       if (els.input) els.input.focus();
       return;
     }
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      if (els.config) {
-        els.config.textContent = "OpenCode 服务未连接；请先独立启动服务并点击“重连”。";
-      }
+      setInlineNote("OpenCode 服务未连接；请先独立启动服务并点击“重连”。");
       return;
     }
     if (!state.sessionId) {
@@ -952,25 +1058,45 @@
     }
     state.sessionTargetKey = currentTargetKey();
     state.sending = true;
-    setButtonState(true);
+    state.aborting = false;
+    state.pendingPromptDraft = draftText;
+    clearGenerationSettleTimer();
+    if (els.input) {
+      els.input.value = "";
+      els.input.focus();
+    }
+    setButtonState(false);
     try {
-      await fetchJson("/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: text }),
-      });
-      if (els.input) {
-        els.input.value = "";
+      const controller = new AbortController();
+      state.sendAbortController = controller;
+      const summary = await fetchJson(
+        "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: text }),
+          signal: controller.signal,
+        },
+      );
+      state.sendAbortController = null;
+      if (summary && summary.error) {
+        const detail = summarizePromptError(summary.error);
+        setInlineNote("发送失败：" + (detail || "上游模型返回错误"));
+        await refreshMessages().catch(function () {});
+        finishSending({ restoreDraft: true });
+        return;
       }
       await refreshMessages();
       connectEvents(false);
+      markGenerationActivity();
     } catch (error) {
-      if (els.config) {
-        els.config.textContent = "发送失败：" + String(error.message || error);
+      const aborted = state.aborting || (error && error.name === "AbortError");
+      state.sendAbortController = null;
+      if (aborted) {
+        return;
       }
-    } finally {
-      state.sending = false;
-      setButtonState(false);
+      setInlineNote("发送失败：" + String(error.message || error));
+      finishSending({ restoreDraft: true });
     }
   }
 
@@ -978,9 +1104,7 @@
     els.reconnect.addEventListener("click", function () {
       const action = canStartManaged() && !hasServerTarget() ? startServer : refreshAll;
       action().catch(function (error) {
-        if (els.config) {
-          els.config.textContent = "重连失败：" + String(error.message || error);
-        }
+        setInlineNote("重连失败：" + String(error.message || error));
       });
     });
   }
@@ -988,9 +1112,7 @@
   if (els.newSession) {
     els.newSession.addEventListener("click", function () {
       createSession().catch(function (error) {
-        if (els.config) {
-          els.config.textContent = "创建会话失败：" + String(error.message || error);
-        }
+        setInlineNote("创建会话失败：" + String(error.message || error));
       });
     });
   }
@@ -1001,9 +1123,7 @@
       state.sessionTargetKey = currentTargetKey();
       rememberSession();
       refreshMessages().catch(function (error) {
-        if (els.config) {
-          els.config.textContent = "读取会话失败：" + String(error.message || error);
-        }
+        setInlineNote("读取会话失败：" + String(error.message || error));
       });
       connectEvents(true);
     });
@@ -1012,9 +1132,7 @@
   if (els.run) {
     els.run.addEventListener("click", function () {
       sendPrompt().catch(function (error) {
-        if (els.config) {
-          els.config.textContent = "发送失败：" + String(error.message || error);
-        }
+        setInlineNote("发送失败：" + String(error.message || error));
       });
     });
   }
@@ -1024,9 +1142,7 @@
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         sendPrompt().catch(function (error) {
-          if (els.config) {
-            els.config.textContent = "发送失败：" + String(error.message || error);
-          }
+          setInlineNote("发送失败：" + String(error.message || error));
         });
       }
     });

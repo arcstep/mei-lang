@@ -133,6 +133,7 @@ fn manage_shell(
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
     let source_panel = source.unwrap_or("").to_string();
+    let source_lang = source_language(selected_target.as_str());
     let preview = preview::preview_view(compiled);
     let active_entry = compiled.active_entry.as_deref();
     let source_entries = source_tree::entry_list_view(
@@ -209,7 +210,12 @@ fn manage_shell(
                                     <h3>"源码"</h3>
                                     <p>{selected_target.clone()}</p>
                                 </div>
-                                <pre class="source-block">{source_panel}</pre>
+                                <pre class="source-block"><code
+                                    class="source-code"
+                                    data-source-viewer="1"
+                                    data-source-target=selected_target.clone()
+                                    data-source-lang=source_lang
+                                >{source_panel}</code></pre>
                                 {diagnostics}
                             </div>
                         </section>
@@ -221,12 +227,6 @@ fn manage_shell(
                     title="拖拽调整右侧 OpenCode 栏宽度"
                 ></div>
                 <aside class="sidebar right">
-                    <div class="sidebar-header">
-                        <div class="panel-heading">
-                            <h2>"OpenCode"</h2>
-                            <p>{format!("{} · {}", compiled.app_id, UiRouteMode::Manage.slug())}</p>
-                        </div>
-                    </div>
                     <div class="sidebar-scroll">
                         {opencode::panel_view(compiled, UiRouteMode::Manage, selected_target.as_str())}
                     </div>
@@ -355,6 +355,14 @@ fn route_query(selected_entry: Option<&str>, preview_target: Option<&str>) -> St
     String::new()
 }
 
+fn source_language(target: &str) -> &'static str {
+    if target.ends_with(".mei") || target.ends_with(".star") {
+        "mei"
+    } else {
+        "plain"
+    }
+}
+
 fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
     if compiled.diagnostics.is_empty() {
         return view! { <></> }.into_any();
@@ -396,6 +404,7 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
                 <script src="/app-assets/opencode-panel.js"></script>
                 <script src="/app-assets/workspace-splitters.js"></script>
                 <script src="/app-assets/source-tree-controls.js"></script>
+                <script src="/app-assets/source-highlight.js"></script>
             </>
         }
         .into_any()

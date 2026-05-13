@@ -27,36 +27,47 @@ pub(super) fn panel_view(
                             <span id="author-server-dot" class="author-server-dot author-server-dot-off"></span>
                             <strong id="author-server-status">"已断开"</strong>
                         </div>
-                        <button type="button" class="author-btn" id="author-reconnect-btn" title="重连服务">
-                            "重连"
-                        </button>
-                        <button type="button" class="author-btn" id="author-session-btn" title="新建对话">
-                            "新建对话"
-                        </button>
                         <div class="author-history-controls">
                             <select id="author-session-select" title="历史对话">
                                 <option value="">"历史"</option>
                             </select>
                         </div>
+                        <button type="button" class="author-btn" id="author-reconnect-btn" title="重连服务" hidden>
+                            "重连"
+                        </button>
+                    </div>
+                    <div class="author-top-actions author-top-actions-right">
+                        <button
+                            type="button"
+                            class="author-btn author-btn-icon"
+                            id="author-session-btn"
+                            title="新建对话"
+                            aria-label="新建对话"
+                        >
+                            "+"
+                        </button>
                     </div>
                 </div>
                 <section class="author-chat-section">
                     <div class="author-chat-log" id="author-chat-log"></div>
                     <div class="author-composer-row">
-                        <textarea
-                            id="author-intent-input"
-                            rows="3"
-                            placeholder="输入并发送"
-                        ></textarea>
-                        <div class="author-actions author-actions-primary">
-                            <button type="button" class="author-btn author-btn-primary author-btn-icon" id="author-run-btn" title="发送">
-                                "➤"
-                            </button>
+                        <div class="author-composer-shell">
+                            <textarea
+                                id="author-intent-input"
+                                rows="3"
+                                placeholder="输入并发送"
+                            ></textarea>
+                            <div class="author-composer-footer">
+                                <span class="author-model-label" id="author-model-label">
+                                    "模型"
+                                </span>
+                                <button type="button" class="author-btn author-btn-primary author-btn-icon" id="author-run-btn" title="发送">
+                                    "➤"
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    <div class="author-config-line" id="author-config-line">
-                        {format!("{} · {} · {}", compiled.app_id, selected_target, route_mode.slug())}
-                    </div>
+                    <div class="author-config-line" id="author-config-line" hidden></div>
                 </section>
             </div>
         </section>

@@ -1314,6 +1314,9 @@ mod tests {
             scene: SceneDecl {
                 kind: "scene".to_string(),
                 id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
                 profile: None,
                 theme: None,
                 summary: None,
