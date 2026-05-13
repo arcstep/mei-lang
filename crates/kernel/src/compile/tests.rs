@@ -1,4 +1,5 @@
 use super::compile_app_from_root;
+use crate::evaluate_mei_file;
 use crate::MetricShape;
 use std::{
     fs,
@@ -333,6 +334,82 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_theme_declarations() {
+    let root = temp_root("theme-decls");
+    let app_root = root.join("theme-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r##"
+app(
+    id = "theme-app",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+    theme = "cockpit",
+)
+
+theme(
+    id = "cockpit",
+    font = {
+        "1": "12px",
+        "2": "14px",
+    },
+    tokens = {
+        "color": {
+            "text_primary": "#e2e8f0",
+        },
+    },
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "body",
+    area = "auto",
+    variant = "container",
+    blocks = [
+        component("markdown", area = "auto", props = {"content": "hello"}),
+    ],
+)
+"##,
+    );
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" }
+  }
+}
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile theme app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.theme.as_deref(), Some("cockpit"));
+    assert_eq!(contract.themes.len(), 1);
+    assert_eq!(contract.themes[0].id, "cockpit");
+    assert_eq!(
+        contract.themes[0].font.get("1").and_then(|value| value.as_str()),
+        Some("12px")
+    );
+    assert_eq!(
+        contract.panels[0]
+            .props
+            .get("chrome")
+            .and_then(|value| value.as_str()),
+        Some("bare")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_examples_regressions() {
     let examples = repo_examples_root();
     for app_id in [
@@ -360,4 +437,19 @@ fn compile_examples_regressions() {
             "example {app_id} should contain scene contract"
         );
     }
+}
+
+#[test]
+fn parse_cockpit_default_compare_scene_file() {
+    let path = repo_examples_root().join("032-cockpit/default.mei");
+    let value = evaluate_mei_file(&path).expect("parse default compare scene");
+    let values = value.as_array().expect("scene file exports array");
+    assert!(
+        values.iter().any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("scene")),
+        "default.mei should declare a scene"
+    );
+    assert!(
+        values.iter().any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("frame")),
+        "default.mei should declare a frame"
+    );
 }

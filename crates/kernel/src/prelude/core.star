@@ -91,7 +91,7 @@ def scene_file_ref(path, id = None):
         "id": id,
     })
 
-def app_add_scene(scene = None, id = None, profile = None, summary = None, goal = None, state = None):
+def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None):
     if scene != None:
         return _declare({
             "kind": "app_scene_ref",
@@ -100,25 +100,28 @@ def app_add_scene(scene = None, id = None, profile = None, summary = None, goal 
     return scene_decl(
         id = id,
         profile = profile,
+        theme = theme,
         summary = summary,
         goal = goal,
         state = state,
     )
 
-def scene_decl(id, profile = None, summary = None, goal = None, state = None):
+def scene_decl(id, profile = None, theme = None, summary = None, goal = None, state = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
         "profile": profile,
+        "theme": theme,
         "summary": summary,
         "goal": goal,
         "state": state if state != None else {},
     }))
 
-def scene(id, profile = None, summary = None, goal = None, state = None):
+def scene(id, profile = None, theme = None, summary = None, goal = None, state = None):
     return scene_decl(
         id = id,
         profile = profile,
+        theme = theme,
         summary = summary,
         goal = goal,
         state = state,

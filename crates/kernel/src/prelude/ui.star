@@ -138,11 +138,50 @@ def frame(title = None, layout = None, blocks = None, profile = None, props = No
         "props": props if props != None else {},
     }))
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def theme(id, frame = None, panel = None, panel_bare = None, heading = None, font = None, tokens = None):
+    return _declare(_clean({
+        "kind": "theme",
+        "id": id,
+        "frame": frame if frame != None else {},
+        "panel": panel if panel != None else {},
+        "panel_bare": panel_bare if panel_bare != None else {},
+        "heading": heading if heading != None else {},
+        "font": font if font != None else {},
+        "tokens": tokens if tokens != None else {},
+    }))
+
+def _clone_props(value):
+    out = {}
+    if _is_dict(value):
+        for k, v in value.items():
+            out[k] = v
+    return out
+
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
     panel_id = id if id != None else area
-    panel_props = props if props != None else {}
+    panel_props = _clone_props(props)
     if subtitle != None:
         panel_props["subtitle"] = subtitle
+    if chrome != None:
+        panel_props["chrome"] = chrome
+    if show_heading != None:
+        panel_props["show_heading"] = show_heading
+    if _is_dict(heading):
+        panel_props["heading"] = _clone_props(heading)
+    if heading_variant != None:
+        heading_props = panel_props.get("heading")
+        if not _is_dict(heading_props):
+            heading_props = {}
+        heading_props["variant"] = heading_variant
+        panel_props["heading"] = heading_props
+    variant_key = variant
+    if type(variant_key) == "string":
+        variant_norm = variant_key.strip().lower()
+        if variant_norm == "container" or variant_norm == "bare":
+            if panel_props.get("chrome") == None:
+                panel_props["chrome"] = "bare"
+            if panel_props.get("show_heading") == None:
+                panel_props["show_heading"] = False
     return _clean({
         "kind": "panel",
         "id": panel_id,
@@ -155,7 +194,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         "data": data_plan,
     })
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
     return _panel_node(
         id = id,
         title = title,
@@ -166,9 +205,14 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         data = data,
         props = props,
         data_plan = data_plan,
+        variant = variant,
+        chrome = chrome,
+        show_heading = show_heading,
+        heading = heading,
+        heading_variant = heading_variant,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -179,9 +223,14 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         data = data,
         props = props,
         data_plan = data_plan,
+        variant = variant,
+        chrome = chrome,
+        show_heading = show_heading,
+        heading = heading,
+        heading_variant = heading_variant,
     ))
 
-def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
     return panel(
         id = id,
         title = title,
@@ -191,9 +240,14 @@ def box(id = None, title = None, area = None, layout = None, blocks = [], data =
         data = data,
         props = props,
         data_plan = data_plan,
+        variant = variant,
+        chrome = chrome,
+        show_heading = show_heading,
+        heading = heading,
+        heading_variant = heading_variant,
     )
 
-def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None):
+def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
     return panel_decl(
         id = id,
         title = title,
@@ -203,6 +257,11 @@ def box_decl(id = None, title = None, area = None, layout = None, blocks = [], d
         data = data,
         props = props,
         data_plan = data_plan,
+        variant = variant,
+        chrome = chrome,
+        show_heading = show_heading,
+        heading = heading,
+        heading_variant = heading_variant,
     )
 
 def component(use, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = [], interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None):

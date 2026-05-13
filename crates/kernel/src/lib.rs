@@ -12,7 +12,7 @@ pub use model::{
     DatasetView, Diagnostic, EntryDecl, FlowDecl, FrameDecl, LayoutDecl, LoadedResource,
     MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl, ResourceDecl,
     RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
-    RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, Severity, SourceDecl,
+    RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, Severity, SourceDecl, ThemeDecl,
     UiNodeDecl,
     WorkspaceAppMeta, WorkspaceNode, WorldCellDecl,
 };

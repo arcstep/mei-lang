@@ -124,11 +124,31 @@ pub struct SceneDecl {
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
+    pub theme: Option<String>,
+    #[serde(default)]
     pub summary: Option<String>,
     #[serde(default)]
     pub goal: Option<String>,
     #[serde(default)]
     pub state: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeDecl {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub frame: Value,
+    #[serde(default)]
+    pub panel: Value,
+    #[serde(default)]
+    pub panel_bare: Value,
+    #[serde(default)]
+    pub heading: Value,
+    #[serde(default)]
+    pub font: Value,
+    #[serde(default)]
+    pub tokens: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -287,6 +307,8 @@ pub struct PanelDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneContract {
     pub scene: SceneDecl,
+    #[serde(default)]
+    pub themes: Vec<ThemeDecl>,
     #[serde(default)]
     pub world: Option<WorldDecl>,
     #[serde(default)]

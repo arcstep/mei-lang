@@ -10,7 +10,7 @@ use crate::{
     eval::evaluate_mei_file,
     model::{
         AppDecl, CompiledApp, ComponentAsset, Diagnostic, FlowDecl, FrameDecl, PanelDecl,
-        SceneContract, SceneDecl, Severity, UiNodeDecl,
+        SceneContract, SceneDecl, Severity, ThemeDecl, UiNodeDecl,
     },
     workspace::{load_component_assets, source_tree},
 };
@@ -49,6 +49,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
 
     let mut frame: Option<FrameDecl> = None;
     let mut scene: Option<SceneDecl> = None;
+    let mut themes: Vec<ThemeDecl> = Vec::new();
     let mut world: Option<crate::model::WorldDecl> = None;
     let mut flow: Option<FlowDecl> = None;
     let mut panels: Vec<PanelDecl> = Vec::new();
@@ -90,6 +91,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
                 "scene" => scene = Some(serde_json::from_value(value.clone())?),
                 "world" => world = Some(serde_json::from_value(value.clone())?),
                 "flow" => flow = Some(serde_json::from_value(value.clone())?),
+                "theme" => themes.push(serde_json::from_value(value.clone())?),
                 "panel" => panels.push(serde_json::from_value(value.clone())?),
                 "dataset_view" => match serde_json::from_value::<DatasetViewDecl>(value.clone()) {
                     Ok(decl) => dataset_views.push(decl),
@@ -181,6 +183,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
 
     let scene_contract = scene.map(|scene_decl| SceneContract {
         scene: scene_decl,
+        themes,
         world,
         flow,
         frame: frame.clone(),

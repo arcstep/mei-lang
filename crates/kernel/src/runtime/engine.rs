@@ -837,10 +837,12 @@ mod tests {
                 kind: "scene".to_string(),
                 id: "room_fire_click".to_string(),
                 profile: Some("simulation".to_string()),
+                theme: None,
                 summary: Some("test".to_string()),
                 goal: Some("灭火".to_string()),
                 state: json!({"phase": "ready", "countdown": 3}),
             },
+            themes: Vec::new(),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
                 topology: Some(WorldGridDecl {
@@ -935,10 +937,12 @@ mod tests {
                 kind: "scene".to_string(),
                 id: "minimal_fire_cells".to_string(),
                 profile: Some("simulation".to_string()),
+                theme: None,
                 summary: Some("cell timer test".to_string()),
                 goal: Some("扑灭火格".to_string()),
                 state: json!({"phase": "ready", "countdown": 5}),
             },
+            themes: Vec::new(),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
                 topology: Some(WorldGridDecl {
