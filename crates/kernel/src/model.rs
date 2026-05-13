@@ -64,6 +64,8 @@ pub struct FrameDecl {
     pub title: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutDecl>,
+    #[serde(default)]
+    pub props: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -271,6 +273,8 @@ pub struct PanelDecl {
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
     pub blocks: Vec<BlockDecl>,
+    #[serde(default)]
+    pub props: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
