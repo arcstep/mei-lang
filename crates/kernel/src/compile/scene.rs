@@ -1,121 +1,209 @@
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
-use anyhow::Result;
 use serde_json::Value;
 
-use crate::{
-    eval::evaluate_mei_file,
-    model::{AppDecl, Diagnostic, EntryDecl, Severity},
-};
+use crate::model::{AppDecl, CompiledEntryMeta, Diagnostic, EntryDecl, Severity};
 
 use super::decls::SceneFileRefDecl;
 
-pub(super) fn resolve_scene_source(
-    app_root: &Path,
+pub(super) struct SceneEntryRegistry {
+    pub entries: Vec<CompiledEntryMeta>,
+    pub default_entry_id: Option<String>,
+}
+
+pub(super) fn resolve_scene_entries(
     app_main: &Path,
     app_decl: &AppDecl,
     app_decls: &Value,
     diagnostics: &mut Vec<Diagnostic>,
-) -> Result<(String, Value)> {
-    if let Some(entry) = app_decl.entries.first().cloned() {
-        let entry_target = entry_source(&entry).unwrap_or_else(|| "main.mei".to_string());
-        let entry_path = app_root.join(&entry_target);
-        return Ok((entry_target, evaluate_mei_file(&entry_path)?));
+) -> SceneEntryRegistry {
+    let mut entries = Vec::new();
+    let mut seen_entry_ids = BTreeSet::new();
+
+    collect_entries_from_app_decl(app_decl, &mut entries, &mut seen_entry_ids);
+    collect_inline_scene_entries(app_decls, &mut entries, &mut seen_entry_ids);
+    collect_scene_file_ref_entries(app_decls, &mut entries, &mut seen_entry_ids);
+
+    let mut default_entry_id = resolve_default_entry_id(app_decl, &entries);
+    if default_entry_id.is_none() && app_decl.entries.is_empty() {
+        if let Some(default_scene) = app_decl.default_scene.as_deref() {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "missing_default_scene".to_string(),
+                message: format!(
+                    "default_scene `{default_scene}` did not match an inline scene or app.add_scene(scene_file_ref(...))"
+                ),
+                source_path: Some(app_main.to_string_lossy().to_string()),
+            });
+        }
+    }
+    if default_entry_id.is_none() {
+        default_entry_id = entries.first().map(|entry| entry.entry_id.clone());
+    }
+    if let Some(default_id) = default_entry_id.as_deref() {
+        for entry in &mut entries {
+            entry.is_default = entry.entry_id == default_id;
+        }
+    }
+
+    SceneEntryRegistry {
+        entries,
+        default_entry_id,
+    }
+}
+
+pub(super) fn find_scene_entry<'a>(
+    entries: &'a [CompiledEntryMeta],
+    selector: &str,
+) -> Option<&'a CompiledEntryMeta> {
+    entries.iter().find(|entry| {
+        entry.entry_id == selector || entry.scene_id == selector || entry.target_file == selector
+    })
+}
+
+fn collect_entries_from_app_decl(
+    app_decl: &AppDecl,
+    entries: &mut Vec<CompiledEntryMeta>,
+    seen_entry_ids: &mut BTreeSet<String>,
+) {
+    for entry in &app_decl.entries {
+        let Some(target_file) = entry_source(entry) else {
+            continue;
+        };
+        let scene_id = entry
+            .scene
+            .as_deref()
+            .map(normalize_scene_name)
+            .or_else(|| entry.id.clone())
+            .or_else(|| entry.frame.clone())
+            .unwrap_or_else(|| normalize_scene_name(&target_file));
+        let entry_id = entry.id.clone().unwrap_or_else(|| scene_id.clone());
+        append_entry(
+            entries,
+            seen_entry_ids,
+            CompiledEntryMeta {
+                entry_id,
+                scene_id,
+                target_file: target_file.clone(),
+                kind: infer_entry_kind(&target_file),
+                title: entry.title.clone(),
+                is_default: false,
+            },
+        );
+    }
+}
+
+fn collect_inline_scene_entries(
+    raw: &Value,
+    entries: &mut Vec<CompiledEntryMeta>,
+    seen_entry_ids: &mut BTreeSet<String>,
+) {
+    let Some(values) = raw.as_array() else {
+        return;
+    };
+    for value in values {
+        if value.get("kind").and_then(Value::as_str) != Some("scene") {
+            continue;
+        }
+        let Some(scene_id) = value.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let scene_id = scene_id.to_string();
+        append_entry(
+            entries,
+            seen_entry_ids,
+            CompiledEntryMeta {
+                entry_id: scene_id.clone(),
+                scene_id,
+                target_file: "main.mei".to_string(),
+                kind: "inline".to_string(),
+                title: value
+                    .get("summary")
+                    .and_then(Value::as_str)
+                    .map(|value| value.to_string()),
+                is_default: false,
+            },
+        );
+    }
+}
+
+fn collect_scene_file_ref_entries(
+    raw: &Value,
+    entries: &mut Vec<CompiledEntryMeta>,
+    seen_entry_ids: &mut BTreeSet<String>,
+) {
+    let Some(values) = raw.as_array() else {
+        return;
+    };
+    for value in values {
+        if value.get("kind").and_then(Value::as_str) != Some("app_scene_ref") {
+            continue;
+        }
+        let Ok(scene_ref) = serde_json::from_value::<SceneFileRefDecl>(
+            value.get("scene").cloned().unwrap_or(Value::Null),
+        ) else {
+            continue;
+        };
+        if scene_ref.kind != "scene_file_ref" {
+            continue;
+        }
+        let scene_id = scene_ref
+            .id
+            .clone()
+            .unwrap_or_else(|| scene_name_from_path(&scene_ref.path));
+        append_entry(
+            entries,
+            seen_entry_ids,
+            CompiledEntryMeta {
+                entry_id: scene_id.clone(),
+                scene_id,
+                target_file: scene_ref.path,
+                kind: "file_ref".to_string(),
+                title: None,
+                is_default: false,
+            },
+        );
+    }
+}
+
+fn append_entry(
+    entries: &mut Vec<CompiledEntryMeta>,
+    seen_entry_ids: &mut BTreeSet<String>,
+    entry: CompiledEntryMeta,
+) {
+    if seen_entry_ids.insert(entry.entry_id.clone()) {
+        entries.push(entry);
+    }
+}
+
+fn resolve_default_entry_id(app_decl: &AppDecl, entries: &[CompiledEntryMeta]) -> Option<String> {
+    if let Some(first_entry) = app_decl.entries.first() {
+        let explicit_default = first_entry
+            .id
+            .clone()
+            .or_else(|| first_entry.scene.as_deref().map(normalize_scene_name))
+            .or_else(|| first_entry.frame.clone());
+        if let Some(default_id) = explicit_default {
+            if find_scene_entry(entries, &default_id).is_some() {
+                return Some(default_id);
+            }
+        }
     }
 
     if let Some(default_scene) = app_decl.default_scene.as_deref() {
-        if let Some(target) = resolve_default_scene_target(app_decls, default_scene) {
-            if target == "main.mei" {
-                return Ok((target, app_decls.clone()));
-            }
-            let entry_path = app_root.join(&target);
-            return Ok((target, evaluate_mei_file(&entry_path)?));
+        if let Some(entry) = entries
+            .iter()
+            .find(|entry| entry.scene_id == default_scene || entry.entry_id == default_scene)
+        {
+            return Some(entry.entry_id.clone());
         }
-
-        diagnostics.push(Diagnostic {
-            severity: Severity::Error,
-            code: "missing_default_scene".to_string(),
-            message: format!(
-                "default_scene `{default_scene}` did not match an inline scene or app.add_scene(scene_file_ref(...))"
-            ),
-            source_path: Some(app_main.to_string_lossy().to_string()),
-        });
     }
 
-    if has_inline_scene(app_decls, None) {
-        return Ok(("main.mei".to_string(), app_decls.clone()));
-    }
-
-    if let Some(target) = first_scene_file_ref_target(app_decls) {
-        let entry_path = app_root.join(&target);
-        return Ok((target, evaluate_mei_file(&entry_path)?));
-    }
-
-    Ok(("main.mei".to_string(), app_decls.clone()))
-}
-
-fn resolve_default_scene_target(raw: &Value, default_scene: &str) -> Option<String> {
-    if has_inline_scene(raw, Some(default_scene)) {
-        return Some("main.mei".to_string());
-    }
-
-    scene_file_ref_target(raw, default_scene)
-}
-
-fn has_inline_scene(raw: &Value, scene_id: Option<&str>) -> bool {
-    raw.as_array().is_some_and(|values| {
-        values.iter().any(|value| {
-            if value.get("kind").and_then(Value::as_str) != Some("scene") {
-                return false;
-            }
-            match scene_id {
-                Some(expected) => value.get("id").and_then(Value::as_str) == Some(expected),
-                None => true,
-            }
-        })
-    })
-}
-
-fn scene_file_ref_target(raw: &Value, scene_id: &str) -> Option<String> {
-    raw.as_array().and_then(|values| {
-        values.iter().find_map(|value| {
-            if value.get("kind").and_then(Value::as_str) != Some("app_scene_ref") {
-                return None;
-            }
-            let scene_ref = serde_json::from_value::<SceneFileRefDecl>(
-                value.get("scene").cloned().unwrap_or(Value::Null),
-            )
-            .ok()?;
-            if scene_ref.kind != "scene_file_ref" {
-                return None;
-            }
-            if scene_ref.id.as_deref() == Some(scene_id)
-                || (scene_ref.id.is_none() && scene_name_from_path(&scene_ref.path) == scene_id)
-            {
-                return Some(scene_ref.path);
-            }
-            None
-        })
-    })
-}
-
-fn first_scene_file_ref_target(raw: &Value) -> Option<String> {
-    raw.as_array().and_then(|values| {
-        values.iter().find_map(|value| {
-            if value.get("kind").and_then(Value::as_str) != Some("app_scene_ref") {
-                return None;
-            }
-            let scene_ref = serde_json::from_value::<SceneFileRefDecl>(
-                value.get("scene").cloned().unwrap_or(Value::Null),
-            )
-            .ok()?;
-            if scene_ref.kind == "scene_file_ref" {
-                Some(scene_ref.path)
-            } else {
-                None
-            }
-        })
-    })
+    entries
+        .iter()
+        .find(|entry| entry.kind == "inline")
+        .or_else(|| entries.iter().find(|entry| entry.kind == "file_ref"))
+        .map(|entry| entry.entry_id.clone())
 }
 
 fn scene_name_from_path(path: &str) -> String {
@@ -128,4 +216,22 @@ fn scene_name_from_path(path: &str) -> String {
 
 fn entry_source(entry: &EntryDecl) -> Option<String> {
     entry.scene.clone().or_else(|| entry.frame.clone())
+}
+
+fn infer_entry_kind(target_file: &str) -> String {
+    if target_file == "main.mei" {
+        "inline".to_string()
+    } else if target_file.ends_with(".mei") {
+        "file_ref".to_string()
+    } else {
+        "inline".to_string()
+    }
+}
+
+fn normalize_scene_name(value: &str) -> String {
+    if value.ends_with(".mei") {
+        scene_name_from_path(value)
+    } else {
+        value.to_string()
+    }
 }

@@ -48,7 +48,11 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
     let mut by_parent: BTreeMap<String, Vec<WorkspaceNode>> = BTreeMap::new();
     let mut dirs: Vec<PathBuf> = Vec::new();
 
-    for entry in WalkDir::new(root).min_depth(1).into_iter().filter_map(Result::ok) {
+    for entry in WalkDir::new(root)
+        .min_depth(1)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
         let path = entry.path();
         let relative = path
             .strip_prefix(root)
@@ -82,13 +86,18 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
         }
     }
 
-    fn build(path: &str, by_parent: &mut BTreeMap<String, Vec<WorkspaceNode>>) -> Vec<WorkspaceNode> {
+    fn build(
+        path: &str,
+        by_parent: &mut BTreeMap<String, Vec<WorkspaceNode>>,
+    ) -> Vec<WorkspaceNode> {
         let mut nodes = by_parent.remove(path).unwrap_or_default();
-        nodes.sort_by(|left, right| match (left.kind.as_str(), right.kind.as_str()) {
-            ("dir", "file") => std::cmp::Ordering::Less,
-            ("file", "dir") => std::cmp::Ordering::Greater,
-            _ => left.name.cmp(&right.name),
-        });
+        nodes.sort_by(
+            |left, right| match (left.kind.as_str(), right.kind.as_str()) {
+                ("dir", "file") => std::cmp::Ordering::Less,
+                ("file", "dir") => std::cmp::Ordering::Greater,
+                _ => left.name.cmp(&right.name),
+            },
+        );
         for node in &mut nodes {
             if node.kind == "dir" {
                 node.children = build(&node.path, by_parent);

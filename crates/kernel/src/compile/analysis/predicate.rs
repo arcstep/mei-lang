@@ -27,7 +27,9 @@ pub(super) fn predicate_matches(row: &Value, predicate: &Value) -> bool {
                 .get("value")
                 .and_then(parse_number)
                 .unwrap_or(f64::NAN);
-            let actual = row_value(row, field).and_then(parse_number).unwrap_or(f64::NAN);
+            let actual = row_value(row, field)
+                .and_then(parse_number)
+                .unwrap_or(f64::NAN);
             match analysis_type {
                 "gt" => actual > expected,
                 "gte" => actual >= expected,
@@ -37,9 +39,17 @@ pub(super) fn predicate_matches(row: &Value, predicate: &Value) -> bool {
         }
         "between" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
-            let lower = object.get("lower").and_then(parse_number).unwrap_or(f64::MIN);
-            let upper = object.get("upper").and_then(parse_number).unwrap_or(f64::MAX);
-            let actual = row_value(row, field).and_then(parse_number).unwrap_or(f64::NAN);
+            let lower = object
+                .get("lower")
+                .and_then(parse_number)
+                .unwrap_or(f64::MIN);
+            let upper = object
+                .get("upper")
+                .and_then(parse_number)
+                .unwrap_or(f64::MAX);
+            let actual = row_value(row, field)
+                .and_then(parse_number)
+                .unwrap_or(f64::NAN);
             actual >= lower && actual <= upper
         }
         "in_values" => {

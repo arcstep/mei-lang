@@ -3,7 +3,10 @@ use std::{collections::BTreeMap, path::Path};
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 
-use crate::model::{ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape, SourceDecl};
+use crate::model::{
+    ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape,
+    SourceDecl,
+};
 
 use super::{
     analysis::{
@@ -11,7 +14,9 @@ use super::{
         scalar::eval_scalar_value,
         schema::{infer_columns, infer_schema_from_rows},
     },
-    decls::{DatasetViewDecl, LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl, MetricDecl},
+    decls::{
+        DatasetViewDecl, LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl, MetricDecl,
+    },
     resources::csv_record_to_json,
 };
 
@@ -89,7 +94,11 @@ pub(super) fn materialize_legacy_datasets(
 
 fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> Result<Vec<Value>> {
     let source_kind = source.kind.as_deref().unwrap_or("csv");
-    let source_path = source.file.as_deref().or(source.path.as_deref()).unwrap_or("");
+    let source_path = source
+        .file
+        .as_deref()
+        .or(source.path.as_deref())
+        .unwrap_or("");
     if source_path.is_empty() {
         return Ok(Vec::new());
     }
@@ -121,10 +130,7 @@ fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> R
     }
 }
 
-fn apply_legacy_normalize(
-    rows: Vec<Value>,
-    normalize: &BTreeMap<String, String>,
-) -> Vec<Value> {
+fn apply_legacy_normalize(rows: Vec<Value>, normalize: &BTreeMap<String, String>) -> Vec<Value> {
     rows.into_iter()
         .map(|row| {
             let mut out = row.as_object().cloned().unwrap_or_default();
@@ -335,10 +341,13 @@ fn materialize_legacy_metric_map(
         let Some(map) = raw.as_object() else {
             continue;
         };
-        let shape_name = map
-            .get("shape")
-            .and_then(Value::as_str)
-            .unwrap_or_else(|| if map.get("values").is_some() { "scalar_map" } else { "dataframe" });
+        let shape_name = map.get("shape").and_then(Value::as_str).unwrap_or_else(|| {
+            if map.get("values").is_some() {
+                "scalar_map"
+            } else {
+                "dataframe"
+            }
+        });
         let shape = match shape_name {
             "scalar_map" | "scalar" => MetricShape::Scalar,
             "series" => MetricShape::Series,
@@ -357,7 +366,11 @@ fn materialize_legacy_metric_map(
                 out.insert(entry_key.clone(), resolved);
             }
             Value::Object(out)
-        } else if let Some(rowset) = map.get("series").or_else(|| map.get("list")).or_else(|| map.get("value")) {
+        } else if let Some(rowset) = map
+            .get("series")
+            .or_else(|| map.get("list"))
+            .or_else(|| map.get("value"))
+        {
             if let Ok(rows) = eval_rowset(rowset, datasets) {
                 Value::Array(rows)
             } else {
@@ -370,7 +383,10 @@ fn materialize_legacy_metric_map(
             metric_id.clone(),
             MetricContract {
                 id: metric_id.clone(),
-                label: map.get("label").and_then(Value::as_str).map(ToString::to_string),
+                label: map
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
                 purpose: None,
                 shape,
                 schema,

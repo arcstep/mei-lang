@@ -8,7 +8,10 @@ use crate::model::{DatasetView, LoadedResource, ResourceDecl, SourceDecl};
 
 use super::analysis::schema::infer_schema_from_rows;
 
-pub(super) fn load_resources(app_root: &Path, resources: &[ResourceDecl]) -> Result<Vec<LoadedResource>> {
+pub(super) fn load_resources(
+    app_root: &Path,
+    resources: &[ResourceDecl],
+) -> Result<Vec<LoadedResource>> {
     resources
         .iter()
         .map(|resource| load_resource(app_root, resource))
@@ -68,7 +71,10 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         .headers()
         .context("failed to read csv headers")?
         .clone();
-    let columns = headers.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+    let columns = headers
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
     let rows = reader
         .records()
         .map(|record| {

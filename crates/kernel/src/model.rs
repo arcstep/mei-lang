@@ -457,11 +457,27 @@ pub struct WorkspaceNode {
     pub children: Vec<WorkspaceNode>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CompiledEntryMeta {
+    pub entry_id: String,
+    pub scene_id: String,
+    pub target_file: String,
+    pub kind: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledApp {
     pub app_id: String,
     pub title: String,
     pub app_root: String,
+    #[serde(default)]
+    pub entries: Vec<CompiledEntryMeta>,
+    #[serde(default)]
+    pub active_entry: Option<String>,
     pub entry_target: String,
     pub file_tree: Vec<WorkspaceNode>,
     #[serde(default)]
@@ -473,4 +489,3 @@ pub struct CompiledApp {
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
 }
-

@@ -6,8 +6,7 @@ use crate::{RuleEffectDecl, RuleSubjectTimerDecl, SceneContract};
 
 use super::{
     RuntimeCellView, RuntimeClockState, RuntimeEntityView, RuntimeIntent, RuntimeSceneView,
-    RuntimeState, RuntimeSubjectTimerState,
-    RuntimeTraceItem,
+    RuntimeState, RuntimeSubjectTimerState, RuntimeTraceItem,
 };
 
 fn base_seed(seed: u64) -> u64 {
@@ -49,7 +48,9 @@ fn sync_clock_projection(state: &mut RuntimeState) {
     if !state.clock.countdown_remaining.is_finite() {
         state.clock.countdown_remaining = state.countdown.max(0) as f64;
     }
-    if state.clock.countdown_remaining <= 0.0 && state.countdown > 0 && state.clock.current_time <= 0.0
+    if state.clock.countdown_remaining <= 0.0
+        && state.countdown > 0
+        && state.clock.current_time <= 0.0
     {
         state.clock.countdown_remaining = state.countdown as f64;
     }
@@ -92,7 +93,12 @@ fn base_statuses(contract: &SceneContract) -> BTreeMap<String, String> {
             world
                 .entities
                 .iter()
-                .filter_map(|entity| entity.status.clone().map(|status| (entity.id.clone(), status)))
+                .filter_map(|entity| {
+                    entity
+                        .status
+                        .clone()
+                        .map(|status| (entity.id.clone(), status))
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -207,7 +213,10 @@ fn subject_timer_runtime_id(decl: &RuleSubjectTimerDecl, index: usize) -> String
         .unwrap_or_else(|| format!("subject_timer_{index}"))
 }
 
-fn materialize_subject_timers(contract: &SceneContract, current_time: f64) -> Vec<RuntimeSubjectTimerState> {
+fn materialize_subject_timers(
+    contract: &SceneContract,
+    current_time: f64,
+) -> Vec<RuntimeSubjectTimerState> {
     let Some(flow) = &contract.flow else {
         return Vec::new();
     };
@@ -216,7 +225,9 @@ fn materialize_subject_timers(contract: &SceneContract, current_time: f64) -> Ve
         .enumerate()
         .map(|(index, timer)| {
             let delay = timer.delay_seconds.max(0.0);
-            let interval = timer.interval_seconds.and_then(|value| (value > 0.0).then_some(value));
+            let interval = timer
+                .interval_seconds
+                .and_then(|value| (value > 0.0).then_some(value));
             RuntimeSubjectTimerState {
                 id: subject_timer_runtime_id(timer, index),
                 subject_ref: timer.subject_ref.clone(),
@@ -239,7 +250,9 @@ fn subject_timer_decl_by_id<'a>(
         flow.subject_timers
             .iter()
             .enumerate()
-            .find_map(|(index, timer)| (subject_timer_runtime_id(timer, index) == timer_id).then_some(timer))
+            .find_map(|(index, timer)| {
+                (subject_timer_runtime_id(timer, index) == timer_id).then_some(timer)
+            })
     })
 }
 
@@ -292,7 +305,10 @@ fn apply_subject_timers(contract: &SceneContract, state: &mut RuntimeState) {
         if timer.due_at <= now + f64::EPSILON {
             fired.push(timer.id.clone());
             if timer.repeat {
-                if let Some(interval) = timer.interval.and_then(|value| (value > 0.0).then_some(value)) {
+                if let Some(interval) = timer
+                    .interval
+                    .and_then(|value| (value > 0.0).then_some(value))
+                {
                     timer.started_at = now;
                     timer.due_at = now + interval;
                     next_timers.push(timer);
@@ -329,13 +345,19 @@ fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &Rul
                     state.inventory.sort();
                 }
                 push_timeline(state, format!("获得物品: {item}"));
-                push_trace(state, "grant", format!("grant {item}"), json!({ "item": item }));
+                push_trace(
+                    state,
+                    "grant",
+                    format!("grant {item}"),
+                    json!({ "item": item }),
+                );
             }
         }
         "set_status" => {
-            if let (Some(target), Some(value)) =
-                (effect.target.as_deref(), effect.value.as_ref().and_then(Value::as_str))
-            {
+            if let (Some(target), Some(value)) = (
+                effect.target.as_deref(),
+                effect.value.as_ref().and_then(Value::as_str),
+            ) {
                 state.statuses.insert(target.to_string(), value.to_string());
                 push_timeline(state, format!("{target} -> {value}"));
                 push_trace(
@@ -347,9 +369,10 @@ fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &Rul
             }
         }
         "set_flag" => {
-            if let (Some(target), Some(value)) =
-                (effect.target.as_deref(), effect.value.as_ref().and_then(Value::as_bool))
-            {
+            if let (Some(target), Some(value)) = (
+                effect.target.as_deref(),
+                effect.value.as_ref().and_then(Value::as_bool),
+            ) {
                 state.flags.insert(target.to_string(), value);
                 push_timeline(state, format!("{target} = {value}"));
                 push_trace(
@@ -361,7 +384,10 @@ fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &Rul
             }
         }
         "finish" => {
-            let phase = effect.target.clone().unwrap_or_else(|| "success".to_string());
+            let phase = effect
+                .target
+                .clone()
+                .unwrap_or_else(|| "success".to_string());
             let reason = effect
                 .value
                 .as_ref()
@@ -372,7 +398,9 @@ fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &Rul
             state.reason = reason.clone();
             push_timeline(
                 state,
-                reason.clone().unwrap_or_else(|| format!("scene finished: {phase}")),
+                reason
+                    .clone()
+                    .unwrap_or_else(|| format!("scene finished: {phase}")),
             );
             push_trace(
                 state,
@@ -392,7 +420,11 @@ fn apply_effect(contract: &SceneContract, state: &mut RuntimeState, effect: &Rul
     }
 }
 
-fn click_step(contract: &SceneContract, state: &RuntimeState, target: Option<&str>) -> RuntimeState {
+fn click_step(
+    contract: &SceneContract,
+    state: &RuntimeState,
+    target: Option<&str>,
+) -> RuntimeState {
     let mut next = state.clone();
     if next.phase != "running" {
         let phase = next.phase.clone();
@@ -520,60 +552,35 @@ pub fn runtime_step(
             let mut next = state.clone();
             next.clock.paused = true;
             let details = json!({ "current_time": next.clock.current_time });
-            push_trace(
-                &mut next,
-                "pause",
-                "scene clock paused",
-                details,
-            );
+            push_trace(&mut next, "pause", "scene clock paused", details);
             next
         }
         "resume" => {
             let mut next = state.clone();
             next.clock.paused = false;
             let details = json!({ "current_time": next.clock.current_time });
-            push_trace(
-                &mut next,
-                "resume",
-                "scene clock resumed",
-                details,
-            );
+            push_trace(&mut next, "resume", "scene clock resumed", details);
             next
         }
         "rate_half" => {
             let mut next = state.clone();
             next.clock.rate = 0.5;
             let details = json!({ "rate": next.clock.rate });
-            push_trace(
-                &mut next,
-                "rate",
-                "scene clock rate -> 0.5",
-                details,
-            );
+            push_trace(&mut next, "rate", "scene clock rate -> 0.5", details);
             next
         }
         "rate_normal" => {
             let mut next = state.clone();
             next.clock.rate = 1.0;
             let details = json!({ "rate": next.clock.rate });
-            push_trace(
-                &mut next,
-                "rate",
-                "scene clock rate -> 1.0",
-                details,
-            );
+            push_trace(&mut next, "rate", "scene clock rate -> 1.0", details);
             next
         }
         "rate_double" => {
             let mut next = state.clone();
             next.clock.rate = 2.0;
             let details = json!({ "rate": next.clock.rate });
-            push_trace(
-                &mut next,
-                "rate",
-                "scene clock rate -> 2.0",
-                details,
-            );
+            push_trace(&mut next, "rate", "scene clock rate -> 2.0", details);
             next
         }
         _ => state,
@@ -587,7 +594,10 @@ fn entity_flags(state: &RuntimeState, entity_id: &str) -> BTreeMap<String, bool>
     state
         .flags
         .iter()
-        .filter_map(|(key, value)| key.strip_prefix(&prefix).map(|short| (short.to_string(), *value)))
+        .filter_map(|(key, value)| {
+            key.strip_prefix(&prefix)
+                .map(|short| (short.to_string(), *value))
+        })
         .collect()
 }
 
@@ -599,7 +609,11 @@ fn entity_interaction_target(contract: &SceneContract, entity_id: &str) -> Optio
     contract
         .flow
         .as_ref()
-        .and_then(|flow| flow.interactions.iter().find(|rule| rule.target == entity_id))
+        .and_then(|flow| {
+            flow.interactions
+                .iter()
+                .find(|rule| rule.target == entity_id)
+        })
         .map(|rule| rule.target.clone())
 }
 
@@ -607,7 +621,10 @@ fn entity_in_inventory(state: &RuntimeState, entity_id: &str) -> bool {
     state.inventory.iter().any(|owned| owned == entity_id)
 }
 
-fn interaction_is_available(require: Option<&crate::RuleRequireDecl>, state: &RuntimeState) -> bool {
+fn interaction_is_available(
+    require: Option<&crate::RuleRequireDecl>,
+    state: &RuntimeState,
+) -> bool {
     let Some(require) = require else {
         return true;
     };
@@ -650,7 +667,11 @@ fn cell_interaction_target(contract: &SceneContract, cell_id: &str) -> Option<St
         .map(|rule| rule.target.clone())
 }
 
-fn cell_interaction_available(contract: &SceneContract, state: &RuntimeState, cell_id: &str) -> bool {
+fn cell_interaction_available(
+    contract: &SceneContract,
+    state: &RuntimeState,
+    cell_id: &str,
+) -> bool {
     let Some(flow) = &contract.flow else {
         return false;
     };
@@ -738,7 +759,11 @@ pub fn project_runtime_view(contract: &SceneContract, state: &RuntimeState) -> R
                     let interaction_available = contract
                         .flow
                         .as_ref()
-                        .and_then(|flow| flow.interactions.iter().find(|rule| rule.target == entity.id))
+                        .and_then(|flow| {
+                            flow.interactions
+                                .iter()
+                                .find(|rule| rule.target == entity.id)
+                        })
                         .map(|rule| interaction_is_available(rule.require.as_ref(), state))
                         .unwrap_or(false);
                     RuntimeEntityView {
@@ -824,9 +849,8 @@ mod tests {
 
     use crate::{
         model::{EntityDecl, WorldCellDecl, WorldDecl, WorldGridDecl},
-        FlowDecl, RuleClickDecl, RuleEffectDecl, RuleRequireDecl, RuleStartDecl, RuleTimerDecl,
-        RuleSubjectTimerDecl,
-        SceneContract, SceneDecl,
+        FlowDecl, RuleClickDecl, RuleEffectDecl, RuleRequireDecl, RuleStartDecl,
+        RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl,
     };
 
     use super::{project_runtime_view, runtime_step, RuntimeIntent};
@@ -1287,8 +1311,14 @@ mod tests {
             },
         );
         let running_view = project_runtime_view(&contract, &running);
-        assert!(running_view.available_actions.iter().any(|action| action == "pause"));
-        assert!(running_view.available_actions.iter().any(|action| action == "rate_half"));
+        assert!(running_view
+            .available_actions
+            .iter()
+            .any(|action| action == "pause"));
+        assert!(running_view
+            .available_actions
+            .iter()
+            .any(|action| action == "rate_half"));
         assert_eq!(running_view.time_rate, 1.0);
         assert!(!running_view.clock_paused);
 
@@ -1301,7 +1331,13 @@ mod tests {
             },
         );
         let paused_view = project_runtime_view(&contract, &paused);
-        assert!(paused_view.available_actions.iter().any(|action| action == "resume"));
-        assert!(!paused_view.available_actions.iter().any(|action| action == "pause"));
+        assert!(paused_view
+            .available_actions
+            .iter()
+            .any(|action| action == "resume"));
+        assert!(!paused_view
+            .available_actions
+            .iter()
+            .any(|action| action == "pause"));
     }
 }

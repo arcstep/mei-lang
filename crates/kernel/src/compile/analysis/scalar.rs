@@ -57,7 +57,9 @@ pub(crate) fn eval_scalar_value(
         }
         "median" => {
             let mut values = eval_numeric_values(object.get("value"), datasets)?;
-            values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+            values.sort_by(|left, right| {
+                left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+            });
             if values.is_empty() {
                 return Ok(json!(0.0));
             }
@@ -74,12 +76,19 @@ pub(crate) fn eval_scalar_value(
                 return Ok(json!(0));
             };
             let unique = match value_expr {
-                Value::Array(items) => items.iter().map(Value::to_string).collect::<BTreeSet<_>>().len(),
+                Value::Array(items) => items
+                    .iter()
+                    .map(Value::to_string)
+                    .collect::<BTreeSet<_>>()
+                    .len(),
                 Value::Object(map) => {
                     if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
                         && map.get("type").and_then(Value::as_str) == Some("text")
                     {
-                        let source = map.get("source").or_else(|| map.get("rowset")).unwrap_or(&Value::Null);
+                        let source = map
+                            .get("source")
+                            .or_else(|| map.get("rowset"))
+                            .unwrap_or(&Value::Null);
                         let field = map.get("field").and_then(Value::as_str).unwrap_or("");
                         eval_rowset(source, datasets)?
                             .iter()
@@ -100,7 +109,9 @@ pub(crate) fn eval_scalar_value(
             };
             let count = match value_expr {
                 Value::Array(items) => items.len(),
-                _ => eval_rowset(value_expr, datasets).map(|rows| rows.len()).unwrap_or(0),
+                _ => eval_rowset(value_expr, datasets)
+                    .map(|rows| rows.len())
+                    .unwrap_or(0),
             };
             Ok(json!(count))
         }
@@ -133,7 +144,11 @@ pub(crate) fn eval_scalar_value(
                 .unwrap_or_else(|| base_rows.to_vec());
             let matched = object
                 .get("predicate")
-                .map(|predicate| rows.iter().filter(|row| predicate_matches(row, predicate)).count())
+                .map(|predicate| {
+                    rows.iter()
+                        .filter(|row| predicate_matches(row, predicate))
+                        .count()
+                })
                 .unwrap_or(rows.len());
             if rows.is_empty() {
                 Ok(json!(0.0))
@@ -163,7 +178,9 @@ pub(crate) fn eval_scalar_value(
         }
         "number" => {
             let values = eval_numeric_values(Some(expr), datasets)?;
-            Ok(Value::Array(values.into_iter().map(|value| json!(value)).collect()))
+            Ok(Value::Array(
+                values.into_iter().map(|value| json!(value)).collect(),
+            ))
         }
         "lit" => Ok(object.get("value").cloned().unwrap_or(Value::Null)),
         _ => Ok(expr.clone()),

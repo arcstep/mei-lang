@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::Path,
 };
 
@@ -9,8 +9,8 @@ use serde_json::Value;
 use crate::{
     eval::evaluate_mei_file,
     model::{
-        AppDecl, CompiledApp, ComponentAsset, Diagnostic, FlowDecl, FrameDecl, PanelDecl,
-        SceneContract, SceneDecl, Severity, ThemeDecl, UiNodeDecl,
+        AppDecl, CompiledApp, CompiledEntryMeta, ComponentAsset, Diagnostic, FlowDecl, FrameDecl,
+        PanelDecl, SceneContract, SceneDecl, Severity, ThemeDecl, UiNodeDecl,
     },
     workspace::{load_component_assets, source_tree},
 };
@@ -31,22 +31,234 @@ use materialize::{
     materialize_dataset_views, materialize_legacy_datasets, materialize_metric_packs,
 };
 use resources::load_resources;
-use scene::resolve_scene_source;
+use scene::{find_scene_entry, resolve_scene_entries};
+
+#[derive(Debug, Clone, Default)]
+pub struct CompileOptions {
+    pub entry: Option<String>,
+    pub preview_target: Option<String>,
+}
 
 pub fn compile_app(source_root: &Path, app_id: &str) -> Result<CompiledApp> {
+    compile_app_with_options(source_root, app_id, CompileOptions::default())
+}
+
+pub fn compile_app_with_options(
+    source_root: &Path,
+    app_id: &str,
+    options: CompileOptions,
+) -> Result<CompiledApp> {
     let app_root = source_root.join(app_id);
-    compile_app_from_root(source_root, &app_root)
+    compile_app_from_root_with_options(source_root, &app_root, options)
 }
 
 pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<CompiledApp> {
+    compile_app_from_root_with_options(source_root, app_root, CompileOptions::default())
+}
+
+pub fn compile_app_from_root_with_options(
+    source_root: &Path,
+    app_root: &Path,
+    options: CompileOptions,
+) -> Result<CompiledApp> {
     let app_main = app_root.join("main.mei");
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
     let app_decl =
         app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
-    let (entry_target, entry_decls) =
-        resolve_scene_source(app_root, &app_main, &app_decl, &app_decls, &mut diagnostics)?;
+    let mut entry_registry =
+        resolve_scene_entries(&app_main, &app_decl, &app_decls, &mut diagnostics);
+    if entry_registry.entries.is_empty() {
+        entry_registry.entries.push(CompiledEntryMeta {
+            entry_id: "main".to_string(),
+            scene_id: "main".to_string(),
+            target_file: "main.mei".to_string(),
+            kind: "inline".to_string(),
+            title: None,
+            is_default: true,
+        });
+        entry_registry.default_entry_id = Some("main".to_string());
+    }
 
+    let asset_map = load_component_assets(source_root)?;
+    let mut official_results: BTreeMap<String, CompiledEntryPayload> = BTreeMap::new();
+    for entry in &entry_registry.entries {
+        let result = compile_entry_payload_for_target(
+            app_root,
+            &app_decls,
+            &asset_map,
+            entry.target_file.as_str(),
+        );
+        official_results.insert(entry.entry_id.clone(), result);
+    }
+
+    let active_entry_meta = if let Some(requested_entry) = options.entry.as_deref() {
+        let selected = find_scene_entry(&entry_registry.entries, requested_entry).cloned();
+        if selected.is_none() {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "unknown_entry".to_string(),
+                message: format!("entry `{requested_entry}` not found, fallback to default entry"),
+                source_path: Some(app_main.to_string_lossy().to_string()),
+            });
+        }
+        selected
+    } else {
+        entry_registry
+            .default_entry_id
+            .as_deref()
+            .and_then(|entry_id| find_scene_entry(&entry_registry.entries, entry_id))
+            .cloned()
+            .or_else(|| entry_registry.entries.first().cloned())
+    };
+
+    let selected_target = options
+        .preview_target
+        .as_deref()
+        .filter(|_| options.entry.is_none())
+        .map(|value| value.to_string());
+
+    let (active_entry, entry_target, mut active_payload) =
+        if let Some(target_file) = selected_target {
+            if let Some(scene_entry) = entry_registry
+                .entries
+                .iter()
+                .find(|entry| entry.target_file == target_file)
+                .cloned()
+            {
+                let payload = official_results
+                    .get(&scene_entry.entry_id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        compile_entry_payload_for_target(
+                            app_root,
+                            &app_decls,
+                            &asset_map,
+                            target_file.as_str(),
+                        )
+                    });
+                (Some(scene_entry.entry_id), target_file, payload)
+            } else {
+                (
+                    None,
+                    target_file.clone(),
+                    compile_entry_payload_for_target(
+                        app_root,
+                        &app_decls,
+                        &asset_map,
+                        target_file.as_str(),
+                    ),
+                )
+            }
+        } else if let Some(entry_meta) = active_entry_meta {
+            let payload = official_results
+                .get(&entry_meta.entry_id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    compile_entry_payload_for_target(
+                        app_root,
+                        &app_decls,
+                        &asset_map,
+                        entry_meta.target_file.as_str(),
+                    )
+                });
+            (Some(entry_meta.entry_id), entry_meta.target_file, payload)
+        } else {
+            (
+                None,
+                "main.mei".to_string(),
+                compile_entry_payload_for_target(app_root, &app_decls, &asset_map, "main.mei"),
+            )
+        };
+
+    diagnostics.append(&mut active_payload.diagnostics);
+
+    if let Some(active_id) = active_entry.as_deref() {
+        for entry in &mut entry_registry.entries {
+            entry.is_default = entry.entry_id
+                == entry_registry
+                    .default_entry_id
+                    .as_deref()
+                    .unwrap_or(active_id);
+        }
+    }
+    let title = app_decl
+        .title
+        .clone()
+        .unwrap_or_else(|| app_decl.id.clone());
+
+    Ok(CompiledApp {
+        app_id: app_decl.id.clone(),
+        title,
+        app_root: app_root.to_string_lossy().to_string(),
+        entries: entry_registry.entries,
+        active_entry,
+        entry_target,
+        file_tree: source_tree(app_root)?,
+        scene_contract: active_payload.scene_contract,
+        resources: active_payload.resources,
+        component_assets: active_payload.component_assets,
+        diagnostics,
+    })
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompiledEntryPayload {
+    scene_contract: Option<SceneContract>,
+    resources: Vec<crate::model::LoadedResource>,
+    component_assets: Vec<ComponentAsset>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn compile_entry_payload_for_target(
+    app_root: &Path,
+    app_decls: &Value,
+    asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
+    target_file: &str,
+) -> CompiledEntryPayload {
+    match load_entry_decls(app_root, app_decls, target_file) {
+        Ok(entry_decls) => {
+            match compile_entry_payload(app_root, asset_map, target_file, &entry_decls) {
+                Ok(payload) => payload,
+                Err(error) => CompiledEntryPayload {
+                    diagnostics: vec![Diagnostic {
+                        severity: Severity::Error,
+                        code: "compile_entry_failed".to_string(),
+                        message: error.to_string(),
+                        source_path: Some(target_file.to_string()),
+                    }],
+                    ..CompiledEntryPayload::default()
+                },
+            }
+        }
+        Err(error) => CompiledEntryPayload {
+            diagnostics: vec![Diagnostic {
+                severity: Severity::Error,
+                code: "load_entry_failed".to_string(),
+                message: error.to_string(),
+                source_path: Some(target_file.to_string()),
+            }],
+            ..CompiledEntryPayload::default()
+        },
+    }
+}
+
+fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Result<Value> {
+    if target_file == "main.mei" {
+        Ok(app_decls.clone())
+    } else {
+        let entry_path = app_root.join(target_file);
+        evaluate_mei_file(&entry_path)
+    }
+}
+
+fn compile_entry_payload(
+    app_root: &Path,
+    asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
+    target_file: &str,
+    entry_decls: &Value,
+) -> Result<CompiledEntryPayload> {
+    let mut diagnostics = Vec::new();
     let mut frame: Option<FrameDecl> = None;
     let mut scene: Option<SceneDecl> = None;
     let mut themes: Vec<ThemeDecl> = Vec::new();
@@ -66,7 +278,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
                         severity: Severity::Error,
                         code: "decode_legacy_dataset_failed".to_string(),
                         message: error.to_string(),
-                        source_path: Some(entry_target.clone()),
+                        source_path: Some(target_file.to_string()),
                     }),
                 }
                 continue;
@@ -78,7 +290,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
                         severity: Severity::Error,
                         code: "decode_metric_pack_failed".to_string(),
                         message: error.to_string(),
-                        source_path: Some(entry_target.clone()),
+                        source_path: Some(target_file.to_string()),
                     }),
                 }
                 continue;
@@ -99,7 +311,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
                         severity: Severity::Error,
                         code: "decode_dataset_view_failed".to_string(),
                         message: error.to_string(),
-                        source_path: Some(entry_target.clone()),
+                        source_path: Some(target_file.to_string()),
                     }),
                 },
                 "app" | "app_scene_ref" => {}
@@ -107,13 +319,12 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
                     severity: Severity::Warning,
                     code: "unknown_decl".to_string(),
                     message: format!("unknown declaration kind `{kind}`"),
-                    source_path: Some(entry_target.clone()),
+                    source_path: Some(target_file.to_string()),
                 }),
             }
         }
     }
 
-    let asset_map = load_component_assets(source_root)?;
     let mut asset_keys = BTreeSet::new();
     for panel in &panels {
         collect_asset_keys_from_nodes(&panel.blocks, &mut asset_keys);
@@ -128,7 +339,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
             severity: Severity::Error,
             code: "missing_scene".to_string(),
             message: "entry file must declare scene(...) for scene-first authoring".to_string(),
-            source_path: Some(entry_target.clone()),
+            source_path: Some(target_file.to_string()),
         });
     }
 
@@ -137,14 +348,9 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
             severity: Severity::Warning,
             code: "missing_frame".to_string(),
             message: "scene entry should declare frame(...) to define UI layout".to_string(),
-            source_path: Some(entry_target.clone()),
+            source_path: Some(target_file.to_string()),
         });
     }
-
-    let title = app_decl
-        .title
-        .clone()
-        .unwrap_or_else(|| app_decl.id.clone());
 
     let mut resources = match world.as_ref() {
         Some(world_decl) => load_resources(app_root, &world_decl.resources)?,
@@ -186,16 +392,11 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
         themes,
         world,
         flow,
-        frame: frame.clone(),
+        frame,
         panels,
     });
 
-    Ok(CompiledApp {
-        app_id: app_decl.id.clone(),
-        title,
-        app_root: app_root.to_string_lossy().to_string(),
-        entry_target,
-        file_tree: source_tree(app_root)?,
+    Ok(CompiledEntryPayload {
         scene_contract,
         resources,
         component_assets,

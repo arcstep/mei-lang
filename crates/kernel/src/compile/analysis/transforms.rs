@@ -159,7 +159,12 @@ pub(super) fn distinct_rows_by_fields(rows: &[Value], fields: &[String]) -> Vec<
     for row in rows {
         let key = fields
             .iter()
-            .map(|field| row_value(row, field).cloned().unwrap_or(Value::Null).to_string())
+            .map(|field| {
+                row_value(row, field)
+                    .cloned()
+                    .unwrap_or(Value::Null)
+                    .to_string()
+            })
             .collect::<Vec<_>>()
             .join("\u{1f}");
         if seen.insert(key) {
@@ -198,7 +203,9 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                 "text" => {
                     let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
                     row.get(field)
-                        .map(|value| Value::String(value.as_str().unwrap_or(&value.to_string()).to_string()))
+                        .map(|value| {
+                            Value::String(value.as_str().unwrap_or(&value.to_string()).to_string())
+                        })
                         .unwrap_or(Value::Null)
                 }
                 "extract_number" => {

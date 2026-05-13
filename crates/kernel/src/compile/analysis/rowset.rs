@@ -9,12 +9,15 @@ use super::{
     predicate::predicate_matches,
     schema::{row_string, row_value},
     transforms::{
-        aggregate_group_rows, distinct_rows_by_fields, first_rows_by_field, mutate_row, rename_fields,
-        reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
+        aggregate_group_rows, distinct_rows_by_fields, first_rows_by_field, mutate_row,
+        rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
     },
 };
 
-pub(crate) fn eval_rowset(expr: &Value, datasets: &BTreeMap<String, DatasetView>) -> Result<Vec<Value>> {
+pub(crate) fn eval_rowset(
+    expr: &Value,
+    datasets: &BTreeMap<String, DatasetView>,
+) -> Result<Vec<Value>> {
     match expr {
         Value::Array(items) => Ok(items.clone()),
         Value::Object(map) => {
@@ -24,7 +27,9 @@ pub(crate) fn eval_rowset(expr: &Value, datasets: &BTreeMap<String, DatasetView>
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr") {
                 return eval_analysis_rowset(map, datasets);
             }
-            Err(anyhow!("rowset expression must be data_ref or analysis expression"))
+            Err(anyhow!(
+                "rowset expression must be data_ref or analysis expression"
+            ))
         }
         Value::Null => Ok(Vec::new()),
         _ => Err(anyhow!("rowset expression must be array or object")),
@@ -217,10 +222,7 @@ fn eval_analysis_rowset(
                 .or_else(|| map.get("grouped"))
                 .ok_or_else(|| anyhow!("agg expression missing rowset"))?;
             let mut rows = eval_rowset(rowset_expr, datasets)?;
-            let agg = map
-                .get("agg")
-                .and_then(Value::as_str)
-                .unwrap_or("identity");
+            let agg = map.get("agg").and_then(Value::as_str).unwrap_or("identity");
             if agg != "identity" {
                 let value_field = map.get("value").and_then(Value::as_str).unwrap_or("value");
                 rows = summarize_rows(&rows, agg, value_field);
@@ -338,9 +340,13 @@ fn eval_analysis_rowset(
                 .ok_or_else(|| anyhow!("{analysis_type} expression missing rowset"))?;
             let mut rows = eval_rowset(rowset_expr, datasets)?;
             let limit = if analysis_type == "latest_days" {
-                map.get("days").and_then(Value::as_u64).unwrap_or(rows.len() as u64) as usize
+                map.get("days")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(rows.len() as u64) as usize
             } else {
-                map.get("months").and_then(Value::as_u64).unwrap_or(rows.len() as u64) as usize
+                map.get("months")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(rows.len() as u64) as usize
             };
             if rows.len() > limit {
                 rows = rows.split_off(rows.len() - limit);

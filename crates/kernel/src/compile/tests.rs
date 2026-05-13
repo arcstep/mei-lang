@@ -1,4 +1,4 @@
-use super::compile_app_from_root;
+use super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
 use crate::evaluate_mei_file;
 use crate::MetricShape;
 use std::{
@@ -125,6 +125,254 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_collects_scene_entry_registry() {
+    let root = temp_root("entry-registry");
+    let app_root = root.join("registry");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "registry",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+app.add_scene(
+    scene_file_ref("default.mei", id = "home_default"),
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "home_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "home"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("default.mei"),
+        r#"
+app.add_scene(
+    id = "home_default",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "default_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "default"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" }
+  }
+}
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile registry app");
+    assert_eq!(compiled.active_entry.as_deref(), Some("home"));
+    assert_eq!(compiled.entry_target, "main.mei");
+    assert_eq!(compiled.entries.len(), 2);
+    assert!(compiled
+        .entries
+        .iter()
+        .any(|entry| entry.entry_id == "home"
+            && entry.scene_id == "home"
+            && entry.target_file == "main.mei"
+            && entry.kind == "inline"
+            && entry.is_default));
+    assert!(compiled
+        .entries
+        .iter()
+        .any(|entry| entry.entry_id == "home_default"
+            && entry.scene_id == "home_default"
+            && entry.target_file == "default.mei"
+            && entry.kind == "file_ref"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_selects_requested_entry_from_registry() {
+    let root = temp_root("entry-select");
+    let app_root = root.join("entry-select");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "entry-select",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+app.add_scene(
+    scene_file_ref("default.mei", id = "home_default"),
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "home_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "home"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("default.mei"),
+        r#"
+app.add_scene(
+    id = "home_default",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "default_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "default"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" }
+  }
+}
+"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            entry: Some("home_default".to_string()),
+            preview_target: None,
+        },
+    )
+    .expect("compile requested entry");
+    assert_eq!(compiled.active_entry.as_deref(), Some("home_default"));
+    assert_eq!(compiled.entry_target, "default.mei");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "home_default");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_preview_target_for_non_entry_mei_file() {
+    let root = temp_root("preview-target");
+    let app_root = root.join("preview-target");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "preview-target",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "home_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "home"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("scratch.mei"),
+        r#"
+scene(
+    id = "scratch",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "scratch_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "scratch"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" }
+  }
+}
+"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            entry: None,
+            preview_target: Some("scratch.mei".to_string()),
+        },
+    )
+    .expect("compile preview target");
+    assert_eq!(compiled.active_entry, None);
+    assert_eq!(compiled.entry_target, "scratch.mei");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "scratch");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_materializes_dataset_view_and_metrics() {
     let root = temp_root("dataset-view-metrics");
     let app_root = root.join("analytics");
@@ -211,7 +459,10 @@ frame.add_panel(
         .iter()
         .find(|resource| resource.id == "sales_metrics")
         .expect("derived dataset view resource");
-    let dataset = view_resource.dataset.as_ref().expect("dataset view payload");
+    let dataset = view_resource
+        .dataset
+        .as_ref()
+        .expect("dataset view payload");
     assert_eq!(dataset.rows.len(), 3);
     assert_eq!(dataset.columns, vec!["label", "value", "unit"]);
     let overview = dataset
@@ -395,7 +646,10 @@ frame.add_panel(
     assert_eq!(contract.themes.len(), 1);
     assert_eq!(contract.themes[0].id, "cockpit");
     assert_eq!(
-        contract.themes[0].font.get("1").and_then(|value| value.as_str()),
+        contract.themes[0]
+            .font
+            .get("1")
+            .and_then(|value| value.as_str()),
         Some("12px")
     );
     assert_eq!(
@@ -445,11 +699,15 @@ fn parse_cockpit_default_compare_scene_file() {
     let value = evaluate_mei_file(&path).expect("parse default compare scene");
     let values = value.as_array().expect("scene file exports array");
     assert!(
-        values.iter().any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("scene")),
+        values
+            .iter()
+            .any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("scene")),
         "default.mei should declare a scene"
     );
     assert!(
-        values.iter().any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("frame")),
+        values
+            .iter()
+            .any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("frame")),
         "default.mei should declare a frame"
     );
 }
