@@ -14,14 +14,17 @@ pub fn render_page(
     route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
+    chrome_hidden: bool,
 ) -> String {
-    let body_class = if route_mode == UiRouteMode::Access {
+    let body_class = if route_mode == UiRouteMode::Access && chrome_hidden {
+        "access-mode chrome-none"
+    } else if route_mode == UiRouteMode::Access {
         "access-mode"
     } else {
         "manage-mode"
     };
     let shell = match route_mode {
-        UiRouteMode::Access => access_shell(apps, compiled),
+        UiRouteMode::Access => access_shell(apps, compiled, chrome_hidden),
         UiRouteMode::Manage => manage_shell(apps, compiled, target, source),
     };
     let chrome_scripts = chrome_scripts_view(route_mode);
@@ -45,28 +48,44 @@ pub fn render_page(
     page.to_html()
 }
 
-fn access_shell(apps: &[WorkspaceAppMeta], compiled: &CompiledApp) -> AnyView {
+fn access_shell(apps: &[WorkspaceAppMeta], compiled: &CompiledApp, chrome_hidden: bool) -> AnyView {
     let preview = preview::preview_view(compiled);
     let topbar = topbar_view(apps, compiled, UiRouteMode::Access);
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let shell_class = if stage_enabled {
+    let shell_class = if chrome_hidden && stage_enabled {
+        "shell access-shell access-shell-chromeless frame-stage-enabled"
+    } else if chrome_hidden {
+        "shell access-shell access-shell-chromeless"
+    } else if stage_enabled {
         "shell access-shell frame-stage-enabled"
     } else {
         "shell access-shell"
     };
-    let main_class = if stage_enabled {
+    let main_class = if chrome_hidden && stage_enabled {
+        "access-main frame-stage-enabled access-main-chromeless"
+    } else if chrome_hidden {
+        "access-main access-main-chromeless"
+    } else if stage_enabled {
         "access-main frame-stage-enabled"
     } else {
         "access-main"
     };
-    let preview_panel_class = if stage_enabled {
+    let preview_panel_class = if chrome_hidden && stage_enabled {
+        "access-preview-panel frame-stage-enabled access-preview-panel-chromeless"
+    } else if chrome_hidden {
+        "access-preview-panel access-preview-panel-chromeless"
+    } else if stage_enabled {
         "access-preview-panel frame-stage-enabled"
     } else {
         "access-preview-panel"
     };
     view! {
         <div class=shell_class>
-            {topbar}
+            {if chrome_hidden {
+                view! { <></> }.into_any()
+            } else {
+                topbar
+            }}
             <main class=main_class>
                 <section class=preview_panel_class>
                     {preview}
@@ -178,6 +197,7 @@ fn topbar_view(
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
 ) -> AnyView {
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let app_tabs = apps
         .iter()
         .map(|app| {
@@ -192,12 +212,39 @@ fn topbar_view(
         .collect_view();
     let manage_href = format!("/apps/manage/{}", compiled.app_id);
     let access_href = format!("/apps/access/{}", compiled.app_id);
+    let presentation_href = format!("/apps/access/{}?chrome=none", compiled.app_id);
     let mode_tabs = view! {
         <div class="mode-tabs">
-            <a class=if route_mode == UiRouteMode::Manage { "mode-tab active" } else { "mode-tab" } href=manage_href>"编辑态"</a>
-            <a class=if route_mode == UiRouteMode::Access { "mode-tab active" } else { "mode-tab" } href=access_href>"访问态"</a>
+            <a
+                class=if route_mode == UiRouteMode::Manage { "mode-tab active" } else { "mode-tab" }
+                href=manage_href
+                title="编辑态"
+                aria-label="编辑态"
+            >
+                <span class="mode-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 20h9"/>
+                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                    </svg>
+                </span>
+            </a>
+            <a
+                class=if route_mode == UiRouteMode::Access { "mode-tab active" } else { "mode-tab" }
+                href=access_href
+                title="访问态"
+                aria-label="访问态"
+            >
+                <span class="mode-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="4" width="18" height="14" rx="2"/>
+                        <path d="M8 20h8"/>
+                        <path d="M12 18v2"/>
+                    </svg>
+                </span>
+            </a>
         </div>
     };
+    let launch_title = if stage_enabled { "在新标签页打开大屏" } else { "在新标签页打开无 Chrome 应用" };
     view! {
         <header class="topbar">
             <div class="brand">
@@ -215,7 +262,25 @@ fn topbar_view(
                 <span>"AI-Native"</span>
             </div>
             <nav class="app-tabs">{app_tabs}</nav>
-            {mode_tabs}
+            <div class="topbar-actions">
+                {mode_tabs}
+                <a
+                    class="topbar-launch-link"
+                    href=presentation_href
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title=launch_title
+                    aria-label=launch_title
+                >
+                    <span class="mode-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M14 3h7v7"/>
+                            <path d="M10 14L21 3"/>
+                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"/>
+                        </svg>
+                    </span>
+                </a>
+            </div>
         </header>
     }
     .into_any()

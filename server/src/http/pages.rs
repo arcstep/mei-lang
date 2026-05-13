@@ -18,6 +18,7 @@ use crate::{AppError, AppState};
 #[derive(Debug, Deserialize)]
 pub struct AppQuery {
     target: Option<String>,
+    chrome: Option<String>,
 }
 
 pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> {
@@ -38,12 +39,18 @@ pub async fn app_page(
     let target = query.target.unwrap_or_else(|| compiled.entry_target.clone());
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+    let chrome_hidden = query
+        .chrome
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("none"))
+        .unwrap_or(false);
     let html = render_page(
         &apps,
         &compiled,
         UiRouteMode::from_slug(&mode),
         Some(target.as_str()),
         Some(source.as_str()),
+        chrome_hidden,
     );
     Ok(Html(html))
 }
