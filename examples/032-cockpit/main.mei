@@ -8,7 +8,7 @@ app.add_scene(
     id = "home",
     profile = "cockpit",
     theme = "cockpit",
-    summary = "劳务大屏迁移阶段 3：header panel 拆分 + 多组件标题区 + 中部双环形图数据驱动。",
+    summary = "劳务大屏主题对照：通过 theme 与 dataset_view 契约层组织作者态脚本。",
 )
 
 app.add_scene(
@@ -62,6 +62,7 @@ scene.set_world(
     ],
 )
 
+# theme-first 对照：先引入原始 CSV dataset，再通过 dataset_view 固化 UI 消费契约。
 sub_rows = ds.data_ref("subcontract_raw")
 rank_l_rows = ds.data_ref("ranking_left_raw")
 rank_r_rows = ds.data_ref("ranking_right_raw")
@@ -174,15 +175,13 @@ theme(
 
 body_columns_layout = grid(
     columns = ["minmax(260px, 28%)", "minmax(320px, 1.6fr)", "minmax(260px, 28%)"],
-    rows = ["1fr"],
     areas = [
         ["left_col", "center_col", "right_col"],
     ],
     gap = "12px",
-    padding = "0",
 )
 
-column_stack_layout = flex(direction = "column", gap = "12px", padding = "0")
+column_stack_layout = flex(direction = "column", gap = "12px")
 
 def column_panel(id, area, blocks):
     return panel(

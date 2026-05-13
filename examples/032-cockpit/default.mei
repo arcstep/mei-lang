@@ -1,6 +1,6 @@
 app.add_scene(
     id = "home_default",
-    summary = "劳务大屏默认样式对照：不声明 theme，尽量只使用默认 frame/panel 样式。",
+    summary = "劳务大屏默认样式对照：不声明 theme，组件直接消费 CSV dataset，不额外声明 dataset_view。",
 )
 
 scene.set_world(
@@ -50,106 +50,15 @@ scene.set_world(
     ],
 )
 
-sub_rows = ds.data_ref("subcontract_raw")
-rank_l_rows = ds.data_ref("ranking_left_raw")
-rank_r_rows = ds.data_ref("ranking_right_raw")
-person_rows = ds.data_ref("persons_raw")
-kpi_rows = ds.data_ref("kpis_raw")
-donut_visit_rows = ds.data_ref("donut_visit_raw")
-donut_std_rows = ds.data_ref("donut_std_raw")
-
-ds.dataset_view(
-    id = "labor_subcontract_view",
-    title = "劳务分包视图",
-    rowset = sub_rows,
-    schema = [
-        ds.column("category", "string"),
-        ds.column("company", "string"),
-        ds.column("amount", "string"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_ranking_left_view",
-    title = "左下排行视图",
-    rowset = rank_l_rows,
-    schema = [
-        ds.column("rank", "string"),
-        ds.column("col_a", "string"),
-        ds.column("col_b", "string"),
-        ds.column("col_c", "string"),
-        ds.column("bar_pct", "number"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_ranking_right_view",
-    title = "右下排行视图",
-    rowset = rank_r_rows,
-    schema = [
-        ds.column("rank", "string"),
-        ds.column("col_a", "string"),
-        ds.column("col_b", "string"),
-        ds.column("col_c", "string"),
-        ds.column("bar_pct", "number"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_persons_view",
-    title = "人员卡片视图",
-    rowset = person_rows,
-    schema = [
-        ds.column("name", "string"),
-        ds.column("days", "string"),
-        ds.column("company", "string"),
-        ds.column("month_amt", "string"),
-        ds.column("total_amt", "string"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_kpis_view",
-    title = "KPI 视图",
-    rowset = kpi_rows,
-    schema = [
-        ds.column("label", "string"),
-        ds.column("value", "string"),
-        ds.column("unit", "string"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_donut_visit_view",
-    title = "代发人次切片",
-    rowset = donut_visit_rows,
-    schema = [
-        ds.column("label", "string"),
-        ds.column("value", "number"),
-    ],
-)
-
-ds.dataset_view(
-    id = "labor_donut_std_view",
-    title = "代发标准切片",
-    rowset = donut_std_rows,
-    schema = [
-        ds.column("label", "string"),
-        ds.column("value", "number"),
-    ],
-)
-
 body_columns_layout = grid(
     columns = ["minmax(260px, 28%)", "minmax(320px, 1.6fr)", "minmax(260px, 28%)"],
-    rows = ["1fr"],
     areas = [
         ["left_col", "center_col", "right_col"],
     ],
     gap = "12px",
-    padding = "0",
 )
 
-column_stack_layout = flex(direction = "column", gap = "12px", padding = "0")
+column_stack_layout = flex(direction = "column", gap = "12px")
 
 def column_panel(id, area, blocks):
     return panel(
@@ -212,7 +121,7 @@ frame.add_panel(
             props = {
                 "temp": "28°C",
                 "sky": "多云",
-                "title": "这是标题可视化大屏",
+                "title": "默认设置的可视化大屏",
                 "titleBandMinWidth": 648,
                 "stripPad": 208,
             },
@@ -236,8 +145,8 @@ frame.add_panel(
                     title = "这是板块标题",
                     use = "cockpit.labor-subcontract-table",
                     component_props = {
-                        "subcontract": ds.data_ref("labor_subcontract_view"),
-                        "dataset": ds.data_ref("labor_subcontract_view"),
+                        "subcontract": ds.data_ref("subcontract_raw"),
+                        "dataset": ds.data_ref("subcontract_raw"),
                     },
                 ),
                 section_panel(
@@ -245,7 +154,7 @@ frame.add_panel(
                     title = "这是板块标题",
                     use = "cockpit.labor-ranking-list",
                     component_props = {
-                        "dataset": ds.data_ref("labor_ranking_left_view"),
+                        "dataset": ds.data_ref("ranking_left_raw"),
                         "headers": ["字段名称一", "字段名称一", "字段名称一"],
                     },
                 ),
@@ -260,7 +169,7 @@ frame.add_panel(
                     title = "中部上区",
                     use = "cockpit.labor-center-top",
                     component_props = {
-                        "kpis": ds.data_ref("labor_kpis_view"),
+                        "kpis": ds.data_ref("kpis_raw"),
                     },
                     show_heading = False,
                 ),
@@ -269,8 +178,8 @@ frame.add_panel(
                     title = "这是板块标题",
                     use = "cockpit.labor-donut-summary",
                     component_props = {
-                        "donutVisit": ds.data_ref("labor_donut_visit_view"),
-                        "donutStd": ds.data_ref("labor_donut_std_view"),
+                        "donutVisit": ds.data_ref("donut_visit_raw"),
+                        "donutStd": ds.data_ref("donut_std_raw"),
                     },
                 ),
                 section_panel(
@@ -289,7 +198,7 @@ frame.add_panel(
                     title = "这是板块标题",
                     use = "cockpit.labor-person-cards",
                     component_props = {
-                        "dataset": ds.data_ref("labor_persons_view"),
+                        "dataset": ds.data_ref("persons_raw"),
                         "monthLabel": "7月",
                     },
                 ),
@@ -298,7 +207,7 @@ frame.add_panel(
                     title = "这是板块标题",
                     use = "cockpit.labor-ranking-list",
                     component_props = {
-                        "dataset": ds.data_ref("labor_ranking_right_view"),
+                        "dataset": ds.data_ref("ranking_right_raw"),
                         "headers": ["字段名称一", "字段名称一"],
                     },
                 ),
