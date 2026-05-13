@@ -69,6 +69,7 @@ class MeiCockpitLaborHeaderTitle extends HTMLElement {
           align-self: start;
           min-width: 0;
           overflow: visible;
+          color: var(--mei-color-text-primary, #d8f0ff);
         }
         .wrap {
           display: inline-block;
@@ -173,12 +174,12 @@ class MeiCockpitLaborHeaderTitle extends HTMLElement {
           background: transparent;
           text-align: center;
           font-family: "YouSheBiaoTiHei", "YouShe BiaoTiHei", "DIN Alternate", "Microsoft YaHei", sans-serif;
-          font-size: 40px;
+          font-size: var(--mei-font-4, 40px);
           font-weight: 400;
           letter-spacing: 2.5px;
-          color: #d8f0ff;
+          color: var(--mei-color-text-primary, #d8f0ff);
           text-shadow: 0 20px 30px #0091ff, 0 0 4px #0d74c2;
-          line-height: 52px;
+          line-height: calc(var(--mei-font-4, 40px) * 1.3);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;

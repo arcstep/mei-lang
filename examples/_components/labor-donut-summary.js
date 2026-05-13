@@ -19,7 +19,8 @@ class MeiCockpitLaborDonutSummary extends HTMLElement {
       <style>
         :host {
           display: block;
-          color: #e0f2fe;
+          color: var(--mei-color-text-primary, #e0f2fe);
+          font-size: var(--mei-font-2, 14px);
           font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
         }
         .wrap { padding: 6px 12px 14px; }
@@ -27,12 +28,12 @@ class MeiCockpitLaborDonutSummary extends HTMLElement {
           display: grid;
           grid-template-columns: repeat(3, 1fr);
           gap: 8px;
-          font-size: 11px;
-          color: #94a3b8;
+          font-size: var(--mei-font-1, 11px);
+          color: var(--mei-color-text-muted, #94a3b8);
           margin-top: 10px;
         }
         .foot-metrics div { text-align: center; padding: 6px; border-radius: 4px; background: rgba(15,23,42,.5); }
-        .foot-metrics strong { display: block; color: #fde68a; margin-top: 4px; font-size: 13px; }
+        .foot-metrics strong { display: block; color: var(--mei-color-text-accent, #fde68a); margin-top: 4px; font-size: var(--mei-font-2, 13px); }
       </style>
       <div class="wrap">
         <mei-cockpit-labor-donut-row data-props="${donutProps}"></mei-cockpit-labor-donut-row>

@@ -1,18 +1,6 @@
-app(
-    id = "032-cockpit",
-    title = "032 劳务大屏",
-    default_scene = "home",
-)
-
 app.add_scene(
-    id = "home",
-    profile = "cockpit",
-    theme = "cockpit",
-    summary = "劳务大屏迁移阶段 3：header panel 拆分 + 多组件标题区 + 中部双环形图数据驱动。",
-)
-
-app.add_scene(
-    scene_file_ref("default.mei", id = "home_default"),
+    id = "home_default",
+    summary = "劳务大屏默认样式对照：不声明 theme，尽量只使用默认 frame/panel 样式。",
 )
 
 scene.set_world(
@@ -151,27 +139,6 @@ ds.dataset_view(
     ],
 )
 
-theme(
-    id = "cockpit",
-    font = {
-        "1": "12px",
-        "2": "14px",
-        "3": "18px",
-        "4": "40px",
-    },
-    tokens = {
-        "color": {
-            "text_primary": "#d8f0ff",
-            "text_muted": "#94a3b8",
-            "text_accent": "#fde68a",
-        },
-        "panel": {
-            "padding": "12px",
-            "radius": "6px",
-        },
-    },
-)
-
 body_columns_layout = grid(
     columns = ["minmax(260px, 28%)", "minmax(320px, 1.6fr)", "minmax(260px, 28%)"],
     rows = ["1fr"],
@@ -239,10 +206,6 @@ frame.add_panel(
     title = "032 劳务大屏页头",
     area = "header",
     show_heading = False,
-    props = {
-        "background": "linear-gradient(180deg, rgba(9,31,58,.96) 0%, rgba(6,24,45,.9) 52%, rgba(3,13,24,.86) 100%)",
-        "padding": "0",
-    },
     blocks = [
         component(
             "cockpit.labor-header-bar",

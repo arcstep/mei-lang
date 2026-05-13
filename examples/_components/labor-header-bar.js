@@ -41,6 +41,8 @@ class MeiCockpitLaborHeaderBar extends HTMLElement {
           min-width: 0;
           min-height: 92px;
           overflow: visible;
+          color: var(--mei-color-text-primary, #e0f2fe);
+          font-size: var(--mei-font-2, 14px);
         }
         .bar {
           position: relative;
