@@ -860,6 +860,9 @@ mod tests {
             scene: SceneDecl {
                 kind: "scene".to_string(),
                 id: "room_fire_click".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
                 profile: Some("simulation".to_string()),
                 theme: None,
                 summary: Some("test".to_string()),
@@ -869,6 +872,7 @@ mod tests {
             themes: Vec::new(),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
+                id: None,
                 topology: Some(WorldGridDecl {
                     rows: 2,
                     cols: 2,
@@ -896,6 +900,7 @@ mod tests {
             }),
             flow: Some(FlowDecl {
                 kind: "flow".to_string(),
+                id: None,
                 start: Some(RuleStartDecl {
                     mode: Some("manual".to_string()),
                     action_label: Some("开始演练".to_string()),
@@ -960,6 +965,9 @@ mod tests {
             scene: SceneDecl {
                 kind: "scene".to_string(),
                 id: "minimal_fire_cells".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
                 profile: Some("simulation".to_string()),
                 theme: None,
                 summary: Some("cell timer test".to_string()),
@@ -969,6 +977,7 @@ mod tests {
             themes: Vec::new(),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
+                id: None,
                 topology: Some(WorldGridDecl {
                     rows: 2,
                     cols: 2,
@@ -997,6 +1006,7 @@ mod tests {
             }),
             flow: Some(FlowDecl {
                 kind: "flow".to_string(),
+                id: None,
                 start: Some(RuleStartDecl {
                     mode: Some("manual".to_string()),
                     action_label: Some("开始".to_string()),

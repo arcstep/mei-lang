@@ -106,10 +106,13 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         state = state,
     )
 
-def scene_decl(id, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene_decl(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
+        "world": world,
+        "flow": flow,
+        "frame": frame,
         "profile": profile,
         "theme": theme,
         "summary": summary,
@@ -117,9 +120,12 @@ def scene_decl(id, profile = None, theme = None, summary = None, goal = None, st
         "state": state if state != None else {},
     }))
 
-def scene(id, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
     return scene_decl(
         id = id,
+        world = world,
+        flow = flow,
+        frame = frame,
         profile = profile,
         theme = theme,
         summary = summary,
@@ -127,9 +133,10 @@ def scene(id, profile = None, theme = None, summary = None, goal = None, state =
         state = state,
     )
 
-def world(topology = None, resources = None, entities = None):
+def world(id = None, topology = None, resources = None, entities = None):
     return _declare(_clean({
         "kind": "world",
+        "id": id,
         "topology": topology,
         "resources": resources if resources != None else [],
         "entities": entities if entities != None else [],
@@ -244,9 +251,10 @@ def rule_outcome(success = None, fail = None):
         "fail": fail,
     })
 
-def flow(start = None, interactions = None, timer = None, subject_timers = None, outcome = None):
+def flow(id = None, start = None, interactions = None, timer = None, subject_timers = None, outcome = None):
     return _declare(_clean({
         "kind": "flow",
+        "id": id,
         "start": start,
         "interactions": interactions if interactions != None else [],
         "timer": timer,

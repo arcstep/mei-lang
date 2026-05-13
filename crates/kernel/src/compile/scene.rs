@@ -67,25 +67,35 @@ fn collect_entries_from_app_decl(
     seen_entry_ids: &mut BTreeSet<String>,
 ) {
     for entry in &app_decl.entries {
-        let Some(target_file) = entry_source(entry) else {
+        let Some(target_file) = entry_target_file(entry) else {
             continue;
         };
-        let scene_id = entry
-            .scene
-            .as_deref()
-            .map(normalize_scene_name)
-            .or_else(|| entry.id.clone())
-            .or_else(|| entry.frame.clone())
-            .unwrap_or_else(|| normalize_scene_name(&target_file));
+        let scene_id = entry_scene_id(entry, &target_file);
         let entry_id = entry.id.clone().unwrap_or_else(|| scene_id.clone());
+        let frame_id = entry
+            .frame
+            .as_deref()
+            .filter(|value| !is_target_file(value))
+            .map(|value| value.to_string());
+        let kind = if target_file == "main.mei"
+            && entry
+                .scene
+                .as_deref()
+                .is_some_and(|value| !is_target_file(value))
+        {
+            "declarative".to_string()
+        } else {
+            infer_entry_kind(&target_file)
+        };
         append_entry(
             entries,
             seen_entry_ids,
             CompiledEntryMeta {
                 entry_id,
                 scene_id,
+                frame_id,
                 target_file: target_file.clone(),
-                kind: infer_entry_kind(&target_file),
+                kind,
                 title: entry.title.clone(),
                 is_default: false,
             },
@@ -115,6 +125,7 @@ fn collect_inline_scene_entries(
             CompiledEntryMeta {
                 entry_id: scene_id.clone(),
                 scene_id,
+                frame_id: None,
                 target_file: "main.mei".to_string(),
                 kind: "inline".to_string(),
                 title: value
@@ -157,6 +168,7 @@ fn collect_scene_file_ref_entries(
             CompiledEntryMeta {
                 entry_id: scene_id.clone(),
                 scene_id,
+                frame_id: None,
                 target_file: scene_ref.path,
                 kind: "file_ref".to_string(),
                 title: None,
@@ -181,8 +193,20 @@ fn resolve_default_entry_id(app_decl: &AppDecl, entries: &[CompiledEntryMeta]) -
         let explicit_default = first_entry
             .id
             .clone()
-            .or_else(|| first_entry.scene.as_deref().map(normalize_scene_name))
-            .or_else(|| first_entry.frame.clone());
+            .or_else(|| {
+                first_entry
+                    .scene
+                    .as_deref()
+                    .filter(|value| !is_target_file(value))
+                    .map(|value| value.to_string())
+            })
+            .or_else(|| {
+                first_entry
+                    .frame
+                    .as_deref()
+                    .filter(|value| !is_target_file(value))
+                    .map(|value| value.to_string())
+            });
         if let Some(default_id) = explicit_default {
             if find_scene_entry(entries, &default_id).is_some() {
                 return Some(default_id);
@@ -214,8 +238,38 @@ fn scene_name_from_path(path: &str) -> String {
         .to_string()
 }
 
-fn entry_source(entry: &EntryDecl) -> Option<String> {
-    entry.scene.clone().or_else(|| entry.frame.clone())
+fn entry_target_file(entry: &EntryDecl) -> Option<String> {
+    if let Some(scene) = entry.scene.as_deref().filter(|value| is_target_file(value)) {
+        return Some(scene.to_string());
+    }
+    if let Some(frame) = entry.frame.as_deref().filter(|value| is_target_file(value)) {
+        return Some(frame.to_string());
+    }
+    if entry.scene.is_some() || entry.frame.is_some() || entry.id.is_some() {
+        return Some("main.mei".to_string());
+    }
+    None
+}
+
+fn entry_scene_id(entry: &EntryDecl, target_file: &str) -> String {
+    if let Some(scene_id) = entry
+        .scene
+        .as_deref()
+        .filter(|value| !is_target_file(value))
+    {
+        return scene_id.to_string();
+    }
+    entry
+        .id
+        .clone()
+        .or_else(|| {
+            entry
+                .frame
+                .as_deref()
+                .filter(|value| !is_target_file(value))
+                .map(|value| value.to_string())
+        })
+        .unwrap_or_else(|| normalize_scene_name(target_file))
 }
 
 fn infer_entry_kind(target_file: &str) -> String {
@@ -229,9 +283,13 @@ fn infer_entry_kind(target_file: &str) -> String {
 }
 
 fn normalize_scene_name(value: &str) -> String {
-    if value.ends_with(".mei") {
+    if is_target_file(value) {
         scene_name_from_path(value)
     } else {
         value.to_string()
     }
+}
+
+fn is_target_file(value: &str) -> bool {
+    value.ends_with(".mei")
 }

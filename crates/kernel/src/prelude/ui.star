@@ -120,10 +120,11 @@ def flex(direction, wrap = None, gap = None, padding = None, align = None, justi
         "justify": justify,
     })
 
-def frame(title = None, layout = None, blocks = None, profile = None, props = None):
+def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None):
     if blocks != None:
         return _declare(_clean({
             "kind": "frame",
+            "id": id,
             "title": title,
             "layout": layout,
             "blocks": blocks,
@@ -132,6 +133,7 @@ def frame(title = None, layout = None, blocks = None, profile = None, props = No
         }))
     return _declare(_clean({
         "kind": "frame",
+        "id": id,
         "title": title,
         "layout": layout,
         "profile": profile,

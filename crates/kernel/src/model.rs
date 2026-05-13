@@ -61,6 +61,8 @@ pub struct LayoutDecl {
 pub struct FrameDecl {
     pub kind: String,
     #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutDecl>,
@@ -121,6 +123,12 @@ fn default_block_kind() -> String {
 pub struct SceneDecl {
     pub kind: String,
     pub id: String,
+    #[serde(default)]
+    pub world: Option<String>,
+    #[serde(default)]
+    pub flow: Option<String>,
+    #[serde(default)]
+    pub frame: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]
@@ -191,6 +199,8 @@ pub struct WorldCellDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldDecl {
     pub kind: String,
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub topology: Option<WorldGridDecl>,
     #[serde(default)]
@@ -276,6 +286,8 @@ pub struct RuleOutcomeDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowDecl {
     pub kind: String,
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub start: Option<RuleStartDecl>,
     #[serde(default)]
@@ -461,6 +473,8 @@ pub struct WorkspaceNode {
 pub struct CompiledEntryMeta {
     pub entry_id: String,
     pub scene_id: String,
+    #[serde(default)]
+    pub frame_id: Option<String>,
     pub target_file: String,
     pub kind: String,
     #[serde(default)]

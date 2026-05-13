@@ -125,6 +125,238 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_declarative_scene_frame_binding() {
+    let root = temp_root("declarative-scene-frame-binding");
+    let app_root = root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "demo",
+    default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello"),
+    ],
+)
+
+world(
+    id = "unused_world",
+    resources = [
+        resource(id = "unused_doc", kind = "document", content = "unused"),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+
+frame(
+    id = "unused_frame",
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile declarative app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "home");
+    assert_eq!(
+        contract
+            .world
+            .as_ref()
+            .and_then(|world| world.id.as_deref()),
+        Some("home_world")
+    );
+    assert_eq!(
+        contract
+            .frame
+            .as_ref()
+            .and_then(|frame| frame.id.as_deref()),
+        Some("home_frame")
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| diag.code != "missing_scene" && diag.code != "missing_frame"),
+        "declarative binding should resolve selected scene/frame"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_scene_file_ref_main_target_skips_scene_first_missing_diagnostics() {
+    let root = temp_root("scene-file-ref-main-target");
+    let app_root = root.join("fire");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "fire",
+    default_scene = "room_fire_click",
+)
+
+app.add_scene(
+    scene_file_ref("home.mei", id = "room_fire_click"),
+)
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+app.add_scene(
+    id = "room_fire_click",
+    profile = "simulation",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            preview_target: Some("main.mei".to_string()),
+            ..CompileOptions::default()
+        },
+    )
+    .expect("compile main target");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| diag.code != "missing_scene" && diag.code != "missing_frame"),
+        "legacy scene-file-ref main target should not report scene-first missing diagnostics"
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "previewing main.mei should fallback to default entry payload when main is index-only"
+    );
+    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_declarative_main_preview_target_falls_back_to_default_entry_payload() {
+    let root = temp_root("declarative-main-preview-fallback");
+    let app_root = root.join("declarative-preview");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "declarative-preview",
+    default_scene = "room_fire_click",
+    entries = [
+        entry(id = "room_fire_click", scene = "home.mei"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(
+    id = "room_fire_click",
+    frame = "home_frame",
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "status",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "hello declarative"),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            preview_target: Some("main.mei".to_string()),
+            ..CompileOptions::default()
+        },
+    )
+    .expect("compile declarative main target");
+    assert_eq!(compiled.entry_target, "main.mei");
+    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "room_fire_click");
+    assert_eq!(contract.panels.len(), 1);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_reports_missing_scene_for_declarative_entry_without_scene_decl() {
+    let root = temp_root("declarative-missing-scene");
+    let app_root = root.join("missing-scene");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "missing-scene",
+    default_scene = "home",
+    entries = [
+        entry(id = "home", scene = "home", frame = "home_frame"),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile missing scene app");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "missing_scene"
+                && matches!(diag.severity, crate::Severity::Error)),
+        "declarative binding without scene declaration should report missing_scene"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_supports_nested_component_manifests() {
     let root = temp_root("nested-component-manifests");
     let app_root = root.join("nested-manifests");

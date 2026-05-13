@@ -72,6 +72,7 @@ pub fn compile_app_from_root_with_options(
         entry_registry.entries.push(CompiledEntryMeta {
             entry_id: "main".to_string(),
             scene_id: "main".to_string(),
+            frame_id: None,
             target_file: "main.mei".to_string(),
             kind: "inline".to_string(),
             title: None,
@@ -88,6 +89,7 @@ pub fn compile_app_from_root_with_options(
             &app_decls,
             &asset_map,
             entry.target_file.as_str(),
+            Some(entry),
         );
         official_results.insert(entry.entry_id.clone(), result);
     }
@@ -118,58 +120,86 @@ pub fn compile_app_from_root_with_options(
         .filter(|_| options.entry.is_none())
         .map(|value| value.to_string());
 
-    let (active_entry, entry_target, mut active_payload) =
-        if let Some(target_file) = selected_target {
-            if let Some(scene_entry) = entry_registry
-                .entries
-                .iter()
-                .find(|entry| entry.target_file == target_file)
-                .cloned()
-            {
-                let payload = official_results
-                    .get(&scene_entry.entry_id)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        compile_entry_payload_for_target(
-                            app_root,
-                            &app_decls,
-                            &asset_map,
-                            target_file.as_str(),
-                        )
-                    });
-                (Some(scene_entry.entry_id), target_file, payload)
-            } else {
-                (
-                    None,
-                    target_file.clone(),
-                    compile_entry_payload_for_target(
-                        app_root,
-                        &app_decls,
-                        &asset_map,
-                        target_file.as_str(),
-                    ),
-                )
-            }
-        } else if let Some(entry_meta) = active_entry_meta {
+    let (active_entry, entry_target, mut active_payload) = if let Some(target_file) =
+        selected_target
+    {
+        if let Some(scene_entry) = entry_registry
+            .entries
+            .iter()
+            .find(|entry| entry.target_file == target_file)
+            .cloned()
+        {
             let payload = official_results
-                .get(&entry_meta.entry_id)
+                .get(&scene_entry.entry_id)
                 .cloned()
                 .unwrap_or_else(|| {
                     compile_entry_payload_for_target(
                         app_root,
                         &app_decls,
                         &asset_map,
-                        entry_meta.target_file.as_str(),
+                        target_file.as_str(),
+                        Some(&scene_entry),
                     )
                 });
-            (Some(entry_meta.entry_id), entry_meta.target_file, payload)
+            (Some(scene_entry.entry_id), target_file, payload)
         } else {
-            (
+            let payload = compile_entry_payload_for_target(
+                app_root,
+                &app_decls,
+                &asset_map,
+                target_file.as_str(),
                 None,
-                "main.mei".to_string(),
-                compile_entry_payload_for_target(app_root, &app_decls, &asset_map, "main.mei"),
-            )
-        };
+            );
+            if target_file == "main.mei" && payload.scene_contract.is_none() {
+                let fallback_entry = active_entry_meta.clone().or_else(|| {
+                    entry_registry
+                        .default_entry_id
+                        .as_deref()
+                        .and_then(|entry_id| find_scene_entry(&entry_registry.entries, entry_id))
+                        .cloned()
+                });
+                if let Some(entry_meta) = fallback_entry {
+                    let fallback_payload = official_results
+                        .get(&entry_meta.entry_id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            compile_entry_payload_for_target(
+                                app_root,
+                                &app_decls,
+                                &asset_map,
+                                entry_meta.target_file.as_str(),
+                                Some(&entry_meta),
+                            )
+                        });
+                    (Some(entry_meta.entry_id), target_file, fallback_payload)
+                } else {
+                    (None, target_file, payload)
+                }
+            } else {
+                (None, target_file, payload)
+            }
+        }
+    } else if let Some(entry_meta) = active_entry_meta {
+        let payload = official_results
+            .get(&entry_meta.entry_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                compile_entry_payload_for_target(
+                    app_root,
+                    &app_decls,
+                    &asset_map,
+                    entry_meta.target_file.as_str(),
+                    Some(&entry_meta),
+                )
+            });
+        (Some(entry_meta.entry_id), entry_meta.target_file, payload)
+    } else {
+        (
+            None,
+            "main.mei".to_string(),
+            compile_entry_payload_for_target(app_root, &app_decls, &asset_map, "main.mei", None),
+        )
+    };
 
     diagnostics.append(&mut active_payload.diagnostics);
 
@@ -215,10 +245,12 @@ fn compile_entry_payload_for_target(
     app_decls: &Value,
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
     target_file: &str,
+    entry_meta: Option<&CompiledEntryMeta>,
 ) -> CompiledEntryPayload {
     match load_entry_decls(app_root, app_decls, target_file) {
         Ok(entry_decls) => {
-            match compile_entry_payload(app_root, asset_map, target_file, &entry_decls) {
+            match compile_entry_payload(app_root, asset_map, target_file, &entry_decls, entry_meta)
+            {
                 Ok(payload) => payload,
                 Err(error) => CompiledEntryPayload {
                     diagnostics: vec![Diagnostic {
@@ -257,13 +289,17 @@ fn compile_entry_payload(
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
     target_file: &str,
     entry_decls: &Value,
+    entry_meta: Option<&CompiledEntryMeta>,
 ) -> Result<CompiledEntryPayload> {
     let mut diagnostics = Vec::new();
-    let mut frame: Option<FrameDecl> = None;
-    let mut scene: Option<SceneDecl> = None;
+    let mut scenes: BTreeMap<String, SceneDecl> = BTreeMap::new();
+    let mut frames: BTreeMap<String, FrameDecl> = BTreeMap::new();
+    let mut worlds: BTreeMap<String, crate::model::WorldDecl> = BTreeMap::new();
+    let mut flows: BTreeMap<String, FlowDecl> = BTreeMap::new();
+    let mut frame_default: Option<FrameDecl> = None;
+    let mut world_default: Option<crate::model::WorldDecl> = None;
+    let mut flow_default: Option<FlowDecl> = None;
     let mut themes: Vec<ThemeDecl> = Vec::new();
-    let mut world: Option<crate::model::WorldDecl> = None;
-    let mut flow: Option<FlowDecl> = None;
     let mut panels: Vec<PanelDecl> = Vec::new();
     let mut dataset_views: Vec<DatasetViewDecl> = Vec::new();
     let mut legacy_datasets: Vec<LegacyDatasetDecl> = Vec::new();
@@ -299,10 +335,50 @@ fn compile_entry_payload(
                 continue;
             };
             match kind {
-                "frame" => frame = Some(serde_json::from_value(value.clone())?),
-                "scene" => scene = Some(serde_json::from_value(value.clone())?),
-                "world" => world = Some(serde_json::from_value(value.clone())?),
-                "flow" => flow = Some(serde_json::from_value(value.clone())?),
+                "frame" => {
+                    let frame_decl = serde_json::from_value::<FrameDecl>(value.clone())?;
+                    if let Some(id) = frame_decl
+                        .id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        frames.insert(id.to_string(), frame_decl);
+                    } else {
+                        frame_default = Some(frame_decl);
+                    }
+                }
+                "scene" => {
+                    let scene_decl = serde_json::from_value::<SceneDecl>(value.clone())?;
+                    scenes.insert(scene_decl.id.clone(), scene_decl);
+                }
+                "world" => {
+                    let world_decl =
+                        serde_json::from_value::<crate::model::WorldDecl>(value.clone())?;
+                    if let Some(id) = world_decl
+                        .id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        worlds.insert(id.to_string(), world_decl);
+                    } else {
+                        world_default = Some(world_decl);
+                    }
+                }
+                "flow" => {
+                    let flow_decl = serde_json::from_value::<FlowDecl>(value.clone())?;
+                    if let Some(id) = flow_decl
+                        .id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        flows.insert(id.to_string(), flow_decl);
+                    } else {
+                        flow_default = Some(flow_decl);
+                    }
+                }
                 "theme" => themes.push(serde_json::from_value(value.clone())?),
                 "panel" => panels.push(serde_json::from_value(value.clone())?),
                 "dataset_view" => match serde_json::from_value::<DatasetViewDecl>(value.clone()) {
@@ -334,7 +410,19 @@ fn compile_entry_payload(
         .filter_map(|key| asset_map.get(&key).cloned())
         .collect::<Vec<ComponentAsset>>();
 
-    if scene.is_none() {
+    let selected_scene = entry_meta
+        .and_then(|meta| scenes.get(meta.scene_id.as_str()).cloned())
+        .or_else(|| {
+            if scenes.len() == 1 {
+                scenes.values().next().cloned()
+            } else {
+                None
+            }
+        });
+    let requires_declarative_binding = entry_meta
+        .map(|meta| meta.kind == "declarative")
+        .unwrap_or(false);
+    if requires_declarative_binding && selected_scene.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_scene".to_string(),
@@ -343,7 +431,35 @@ fn compile_entry_payload(
         });
     }
 
-    if frame.is_none() {
+    let selected_frame_id = entry_meta
+        .and_then(|meta| meta.frame_id.as_deref())
+        .or_else(|| {
+            selected_scene
+                .as_ref()
+                .and_then(|scene| scene.frame.as_deref())
+        })
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(|id| id.to_string());
+    let frame = if let Some(frame_id) = selected_frame_id {
+        let matched = frames.get(frame_id.as_str()).cloned();
+        if matched.is_none() && requires_declarative_binding {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "missing_bound_frame".to_string(),
+                message: format!("declared frame `{frame_id}` was not found"),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+        matched
+    } else {
+        frame_default.clone().or_else(|| {
+            (frames.len() == 1)
+                .then(|| frames.values().next().cloned())
+                .flatten()
+        })
+    };
+    if requires_declarative_binding && frame.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
             code: "missing_frame".to_string(),
@@ -351,6 +467,33 @@ fn compile_entry_payload(
             source_path: Some(target_file.to_string()),
         });
     }
+
+    let world = selected_scene
+        .as_ref()
+        .and_then(|scene| scene.world.as_deref())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| worlds.get(id).cloned())
+        .or_else(|| {
+            world_default.clone().or_else(|| {
+                (worlds.len() == 1)
+                    .then(|| worlds.values().next().cloned())
+                    .flatten()
+            })
+        });
+    let flow = selected_scene
+        .as_ref()
+        .and_then(|scene| scene.flow.as_deref())
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| flows.get(id).cloned())
+        .or_else(|| {
+            flow_default.clone().or_else(|| {
+                (flows.len() == 1)
+                    .then(|| flows.values().next().cloned())
+                    .flatten()
+            })
+        });
 
     let mut resources = match world.as_ref() {
         Some(world_decl) => load_resources(app_root, &world_decl.resources)?,
@@ -387,7 +530,7 @@ fn compile_entry_payload(
         }
     }
 
-    let scene_contract = scene.map(|scene_decl| SceneContract {
+    let scene_contract = selected_scene.map(|scene_decl| SceneContract {
         scene: scene_decl,
         themes,
         world,
