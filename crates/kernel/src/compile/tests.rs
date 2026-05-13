@@ -235,6 +235,7 @@ fn compile_examples_regressions() {
     for app_id in [
         "021-dataset",
         "031-cockpit",
+        "032-cockpit",
         "041-fire",
         "051-chart",
         "042-fire-minimal",
