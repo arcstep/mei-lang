@@ -168,6 +168,7 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
         path,
         "/api/opencode/config"
             | "/api/opencode/runtime"
+            | "/api/opencode/skill"
             | "/api/opencode/health"
             | "/api/opencode/session"
             | "/favicon.ico"

@@ -6,7 +6,8 @@ use axum::{
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
     response::{Html, Redirect, Response},
 };
-use mei_lang_app::{render_page, UiRouteMode};
+use chrono::{DateTime, Local};
+use mei_lang_app::{render_page, SourcePanelMeta, UiRouteMode};
 use mei_lang_kernel::{compile_app_with_options, discover_apps, read_source_file, CompileOptions};
 use serde::Deserialize;
 
@@ -46,6 +47,7 @@ pub async fn app_page(
         .unwrap_or_else(|| compiled.entry_target.clone());
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+    let source_meta = source_panel_meta(&source_path, &source);
     let chrome_hidden = query
         .chrome
         .as_deref()
@@ -57,6 +59,7 @@ pub async fn app_page(
         UiRouteMode::from_slug(&mode),
         Some(target.as_str()),
         Some(source.as_str()),
+        Some(&source_meta),
         query.entry.as_deref(),
         query.preview_target.as_deref(),
         chrome_hidden,
@@ -124,5 +127,26 @@ fn content_type_for_path(path: &Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("ico") => "image/x-icon",
         _ => "text/plain; charset=utf-8",
+    }
+}
+
+fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {
+    let line_count = if source.is_empty() {
+        0
+    } else {
+        source.split('\n').count()
+    };
+    let char_count = source.chars().count();
+    let last_modified_label = fs::metadata(source_path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .map(|modified| {
+            let modified: DateTime<Local> = modified.into();
+            modified.format("%Y-%m-%d %H:%M:%S").to_string()
+        });
+    SourcePanelMeta {
+        line_count,
+        char_count,
+        last_modified_label,
     }
 }

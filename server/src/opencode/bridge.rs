@@ -24,6 +24,12 @@ pub(crate) struct BridgeModelRef {
 pub(crate) struct BridgePromptRequest {
     pub text: String,
     #[serde(default)]
+    pub app_id: Option<String>,
+    #[serde(default)]
+    pub entry_id: Option<String>,
+    #[serde(default)]
+    pub target_file: Option<String>,
+    #[serde(default)]
     pub system: Option<String>,
     #[serde(default)]
     pub agent: Option<String>,

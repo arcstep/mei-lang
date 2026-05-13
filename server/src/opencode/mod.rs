@@ -34,6 +34,28 @@ pub(crate) struct ManagedOpencodeConfigSummary {
     pub missing_env: Vec<&'static str>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ManagedOpencodeSkillStatus {
+    pub source_dir: String,
+    pub install_dir: String,
+    pub entry_file: String,
+    pub source_present: bool,
+    pub installed: bool,
+    pub stale: bool,
+    pub source_updated_at_ms: Option<u128>,
+    pub install_updated_at_ms: Option<u128>,
+    pub file_count: usize,
+    pub revision: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedOpencodeSkillPrompt {
+    pub entry_markdown: String,
+    pub companion_files: Vec<String>,
+    pub skill_home: String,
+    pub source_kind: String,
+}
+
 #[derive(Debug)]
 pub(crate) struct ManagedOpencodeProcess {
     pub child: Child,

@@ -1,21 +1,28 @@
 use std::{
     collections::BTreeMap,
+    fs,
     path::{Path as FsPath, PathBuf},
     process::{Command as ProcessCommand, ExitStatus},
     time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use serde_json::json;
 use tokio::time::{sleep, Duration};
+use walkdir::WalkDir;
 
 use super::bridge::health as bridge_health;
 use super::{
     ManagedOpencodeConfigSummary, ManagedOpencodeExit, ManagedOpencodeProcess,
-    ManagedOpencodeRuntime, ManagedOpencodeRuntimeStatus, StartManagedOpencodeRequest,
+    ManagedOpencodeRuntime, ManagedOpencodeRuntimeStatus, ManagedOpencodeSkillPrompt,
+    ManagedOpencodeSkillStatus, StartManagedOpencodeRequest,
     MANAGED_OPENCODE_PROVIDER_ID, MANAGED_OPENCODE_PROVIDER_NAME, MANAGED_OPENCODE_READONLY_AGENT,
     MANAGED_OPENCODE_REQUIRED_ENV,
 };
 use crate::AppState;
+
+const MANAGED_SKILL_SOURCE_REL: &str = "guides/claude-skills";
+const MANAGED_SKILL_INSTALL_REL: &str = ".mei/opencode/skills/meilang-author";
 
 pub(crate) fn preferred_opencode_mode() -> String {
     match std::env::var("MEI_OPENCODE_MODE")
@@ -60,6 +67,207 @@ fn repo_dotenv_path(package_root: &FsPath) -> PathBuf {
 
 fn opencode_project_config_path(package_root: &FsPath) -> PathBuf {
     config_root(package_root).join("opencode.json")
+}
+
+fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
+    package_root.join(MANAGED_SKILL_SOURCE_REL)
+}
+
+fn managed_skill_install_dir(package_root: &FsPath) -> PathBuf {
+    config_root(package_root).join(MANAGED_SKILL_INSTALL_REL)
+}
+
+fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
+    value.duration_since(UNIX_EPOCH).ok().map(|dur| dur.as_millis())
+}
+
+fn directory_latest_modified_ms(path: &FsPath) -> Option<u128> {
+    if !path.exists() {
+        return None;
+    }
+    let mut latest = fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(unix_timestamp_ms);
+    for entry in WalkDir::new(path).into_iter().flatten() {
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(unix_timestamp_ms);
+        if modified > latest {
+            latest = modified;
+        }
+    }
+    latest
+}
+
+fn markdown_file_count(path: &FsPath) -> usize {
+    if !path.exists() {
+        return 0;
+    }
+    WalkDir::new(path)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .count()
+}
+
+fn markdown_files(path: &FsPath) -> Vec<String> {
+    if !path.exists() {
+        return Vec::new();
+    }
+    let mut files = WalkDir::new(path)
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
+        .filter_map(|entry| {
+            entry
+                .path()
+                .strip_prefix(path)
+                .ok()
+                .and_then(|value| value.to_str())
+                .map(|value| value.replace('\\', "/"))
+        })
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+fn git_revision_short(package_root: &FsPath) -> Option<String> {
+    let output = ProcessCommand::new("git")
+        .arg("-C")
+        .arg(package_root)
+        .arg("rev-parse")
+        .arg("--short")
+        .arg("HEAD")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let revision = String::from_utf8(output.stdout).ok()?;
+    let revision = revision.trim();
+    if revision.is_empty() {
+        None
+    } else {
+        Some(revision.to_string())
+    }
+}
+
+fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<()> {
+    if install_dir.exists() {
+        fs::remove_dir_all(install_dir).with_context(|| {
+            format!(
+                "failed to reset installed skill directory {}",
+                install_dir.display()
+            )
+        })?;
+    }
+    fs::create_dir_all(install_dir).with_context(|| {
+        format!(
+            "failed to create installed skill directory {}",
+            install_dir.display()
+        )
+    })?;
+    for entry in WalkDir::new(source_dir).into_iter().flatten() {
+        let source_path = entry.path();
+        let Some(relative) = source_path.strip_prefix(source_dir).ok() else {
+            continue;
+        };
+        let target_path = install_dir.join(relative);
+        if entry.file_type().is_dir() {
+            fs::create_dir_all(&target_path).with_context(|| {
+                format!("failed to create {}", target_path.display())
+            })?;
+            continue;
+        }
+        if let Some(parent) = target_path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        fs::copy(source_path, &target_path).with_context(|| {
+            format!(
+                "failed to copy skill file {} -> {}",
+                source_path.display(),
+                target_path.display()
+            )
+        })?;
+    }
+    Ok(())
+}
+
+fn build_skill_status(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
+    let source_dir = managed_skill_source_dir(package_root);
+    let install_dir = managed_skill_install_dir(package_root);
+    let entry_file = install_dir.join("SKILL.md");
+    let source_present = source_dir.join("SKILL.md").exists();
+    let installed = entry_file.exists();
+    let source_updated_at_ms = directory_latest_modified_ms(&source_dir);
+    let install_updated_at_ms = directory_latest_modified_ms(&install_dir);
+    let stale = source_present
+        && installed
+        && source_updated_at_ms
+            .zip(install_updated_at_ms)
+            .is_some_and(|(source_ms, install_ms)| source_ms > install_ms);
+    ManagedOpencodeSkillStatus {
+        source_dir: source_dir.display().to_string(),
+        install_dir: install_dir.display().to_string(),
+        entry_file: entry_file.display().to_string(),
+        source_present,
+        installed,
+        stale,
+        source_updated_at_ms,
+        install_updated_at_ms,
+        file_count: markdown_file_count(if installed { &install_dir } else { &source_dir }),
+        revision: git_revision_short(package_root),
+    }
+}
+
+pub(crate) fn managed_opencode_skill_status(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    Ok(build_skill_status(&state.package_root))
+}
+
+pub(crate) fn sync_managed_opencode_skill(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    let source_dir = managed_skill_source_dir(&state.package_root);
+    let source_entry = source_dir.join("SKILL.md");
+    if !source_entry.exists() {
+        anyhow::bail!(
+            "MeiLang skill source is missing: {}",
+            source_entry.display()
+        );
+    }
+    let install_dir = managed_skill_install_dir(&state.package_root);
+    copy_skill_tree(&source_dir, &install_dir)?;
+    Ok(build_skill_status(&state.package_root))
+}
+
+pub(crate) fn load_managed_opencode_skill_prompt(
+    state: &AppState,
+) -> anyhow::Result<Option<ManagedOpencodeSkillPrompt>> {
+    let status = build_skill_status(&state.package_root);
+    let (home, source_kind) = if status.installed {
+        (PathBuf::from(&status.install_dir), "installed")
+    } else if status.source_present {
+        (PathBuf::from(&status.source_dir), "source")
+    } else {
+        return Ok(None);
+    };
+    let entry_path = home.join("SKILL.md");
+    let entry_markdown = fs::read_to_string(&entry_path)
+        .with_context(|| format!("failed to read {}", entry_path.display()))?;
+    let companion_files = markdown_files(&home)
+        .into_iter()
+        .filter(|file| file != "SKILL.md")
+        .collect::<Vec<_>>();
+    Ok(Some(ManagedOpencodeSkillPrompt {
+        entry_markdown,
+        companion_files,
+        skill_home: home.display().to_string(),
+        source_kind: source_kind.to_string(),
+    }))
 }
 
 pub(crate) fn load_repo_dotenv(package_root: &FsPath) {

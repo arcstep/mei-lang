@@ -33,6 +33,11 @@ pub fn router() -> Router<AppState> {
             "/api/opencode/runtime",
             get(opencode_api::api_opencode_runtime),
         )
+        .route("/api/opencode/skill", get(opencode_api::api_opencode_skill))
+        .route(
+            "/api/opencode/skill/sync",
+            post(opencode_api::api_opencode_sync_skill),
+        )
         .route(
             "/api/opencode/health",
             get(opencode_api::api_opencode_health),
