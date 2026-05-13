@@ -244,7 +244,7 @@ frame.add_panel(
     },
     blocks = [
         component(
-            "cockpit.labor-header-bar",
+            "cockpit.header-bar",
             props = {
                 "temp": "28°C",
                 "sky": "多云",
@@ -270,7 +270,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_left_top",
                     title = "这是板块标题",
-                    use = "cockpit.labor-subcontract-table",
+                    use = "cockpit.subcontract-table",
                     component_props = {
                         "subcontract": ds.data_ref("labor_subcontract_view"),
                         "dataset": ds.data_ref("labor_subcontract_view"),
@@ -279,7 +279,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_left_bottom",
                     title = "这是板块标题",
-                    use = "cockpit.labor-ranking-list",
+                    use = "cockpit.ranking-list",
                     component_props = {
                         "dataset": ds.data_ref("labor_ranking_left_view"),
                         "headers": ["字段名称一", "字段名称一", "字段名称一"],
@@ -294,7 +294,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_center_top",
                     title = "中部上区",
-                    use = "cockpit.labor-center-top",
+                    use = "cockpit.center-top",
                     component_props = {
                         "kpis": ds.data_ref("labor_kpis_view"),
                     },
@@ -303,7 +303,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_center_donut",
                     title = "这是板块标题",
-                    use = "cockpit.labor-donut-summary",
+                    use = "cockpit.donut-summary",
                     component_props = {
                         "donutVisit": ds.data_ref("labor_donut_visit_view"),
                         "donutStd": ds.data_ref("labor_donut_std_view"),
@@ -312,7 +312,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_center_ratio",
                     title = "这是板块标题",
-                    use = "cockpit.labor-ratio-summary",
+                    use = "cockpit.ratio-summary",
                 ),
             ],
         ),
@@ -323,7 +323,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_right_top",
                     title = "这是板块标题",
-                    use = "cockpit.labor-person-cards",
+                    use = "cockpit.person-cards",
                     component_props = {
                         "dataset": ds.data_ref("labor_persons_view"),
                         "monthLabel": "7月",
@@ -332,7 +332,7 @@ frame.add_panel(
                 section_panel(
                     id = "labor_right_bottom",
                     title = "这是板块标题",
-                    use = "cockpit.labor-ranking-list",
+                    use = "cockpit.ranking-list",
                     component_props = {
                         "dataset": ds.data_ref("labor_ranking_right_view"),
                         "headers": ["字段名称一", "字段名称一"],

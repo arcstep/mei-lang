@@ -1,0 +1,52 @@
+{
+  "components": {
+    "cockpit.metric-cards": {
+      "tag": "mei-cockpit-metric-cards",
+      "script": "metric-cards.js"
+    },
+    "cockpit.center-top": {
+      "tag": "mei-cockpit-center-top",
+      "script": "center-top.js"
+    },
+    "cockpit.donut-summary": {
+      "tag": "mei-cockpit-donut-summary",
+      "script": "donut-summary.js"
+    },
+    "cockpit.ratio-summary": {
+      "tag": "mei-cockpit-ratio-summary",
+      "script": "ratio-summary.js"
+    },
+    "cockpit.header-weather": {
+      "tag": "mei-cockpit-header-weather",
+      "script": "header-weather.js"
+    },
+    "cockpit.header-bar": {
+      "tag": "mei-cockpit-header-bar",
+      "script": "header-bar.js"
+    },
+    "cockpit.header-title": {
+      "tag": "mei-cockpit-header-title",
+      "script": "header-title.js"
+    },
+    "cockpit.header-clock": {
+      "tag": "mei-cockpit-header-clock",
+      "script": "header-clock.js"
+    },
+    "cockpit.person-cards": {
+      "tag": "mei-cockpit-person-cards",
+      "script": "person-cards.js"
+    },
+    "cockpit.ranking-list": {
+      "tag": "mei-cockpit-ranking-list",
+      "script": "ranking-list.js"
+    },
+    "cockpit.section-title": {
+      "tag": "mei-cockpit-section-title",
+      "script": "section-title.js"
+    },
+    "cockpit.subcontract-table": {
+      "tag": "mei-cockpit-subcontract-table",
+      "script": "subcontract-table.js"
+    }
+  }
+}
