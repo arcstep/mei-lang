@@ -48,11 +48,27 @@ pub fn render_page(
 fn access_shell(apps: &[WorkspaceAppMeta], compiled: &CompiledApp) -> AnyView {
     let preview = preview::preview_view(compiled);
     let topbar = topbar_view(apps, compiled, UiRouteMode::Access);
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
+    let shell_class = if stage_enabled {
+        "shell access-shell frame-stage-enabled"
+    } else {
+        "shell access-shell"
+    };
+    let main_class = if stage_enabled {
+        "access-main frame-stage-enabled"
+    } else {
+        "access-main"
+    };
+    let preview_panel_class = if stage_enabled {
+        "access-preview-panel frame-stage-enabled"
+    } else {
+        "access-preview-panel"
+    };
     view! {
-        <div class="shell access-shell">
+        <div class=shell_class>
             {topbar}
-            <main class="access-main">
-                <section class="access-preview-panel">
+            <main class=main_class>
+                <section class=preview_panel_class>
                     {preview}
                 </section>
             </main>
@@ -78,9 +94,20 @@ fn manage_shell(
     );
     let diagnostics = diagnostics_view(compiled);
     let topbar = topbar_view(apps, compiled, UiRouteMode::Manage);
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
+    let shell_class = if stage_enabled {
+        "shell frame-stage-enabled"
+    } else {
+        "shell"
+    };
+    let preview_scroll_class = if stage_enabled {
+        "main-pane-scroll preview-pane-scroll frame-stage-enabled"
+    } else {
+        "main-pane-scroll preview-pane-scroll"
+    };
 
     view! {
-        <div class="shell">
+        <div class=shell_class>
             {topbar}
             <div class="workspace" id="workspace-root">
                 <aside class="sidebar left">
@@ -103,7 +130,7 @@ fn manage_shell(
                 <main class="main">
                     <div class="main-stack" id="main-stack-root">
                         <section class="panel preview-panel main-pane preview-pane">
-                            <div class="main-pane-scroll preview-pane-scroll">
+                            <div class=preview_scroll_class>
                                 {preview}
                             </div>
                         </section>
@@ -231,6 +258,7 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     if route_mode == UiRouteMode::Manage {
         view! {
             <>
+                <script src="/app-assets/frame-stage.js"></script>
                 <script src="/app-assets/opencode-panel.js"></script>
                 <script src="/app-assets/workspace-splitters.js"></script>
                 <script src="/app-assets/source-tree-controls.js"></script>
@@ -238,7 +266,7 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
         }
         .into_any()
     } else {
-        view! { <></> }.into_any()
+        view! { <script src="/app-assets/frame-stage.js"></script> }.into_any()
     }
 }
 

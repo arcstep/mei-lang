@@ -1,8 +1,30 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, LoadedResource, SceneContract};
+use mei_lang_kernel::{BlockDecl, CompiledApp, FrameDecl, LoadedResource, SceneContract};
 use serde_json::Value;
+
+#[derive(Debug, Clone)]
+struct FrameViewportConfig {
+    design_width: f64,
+    design_height: f64,
+    scale_mode: String,
+    align_x: String,
+    align_y: String,
+    safe_top: f64,
+    safe_right: f64,
+    safe_bottom: f64,
+    safe_left: f64,
+}
+
+pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
+    compiled
+        .scene_contract
+        .as_ref()
+        .and_then(|scene_contract| scene_contract.frame.as_ref())
+        .and_then(|frame| frame_viewport_config(&frame.props))
+        .is_some()
+}
 
 pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
     let resource_map = compiled
@@ -26,8 +48,31 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
                     )
                 })
                 .collect_view();
+            if let Some(viewport) = frame_viewport_config(&frame.props) {
+                return view! {
+                    <section
+                        class="preview-viewport"
+                        style=frame_viewport_style(&viewport)
+                        data-mei-frame-viewport="true"
+                        data-design-width=viewport.design_width.to_string()
+                        data-design-height=viewport.design_height.to_string()
+                        data-scale-mode=viewport.scale_mode.clone()
+                        data-safe-top=viewport.safe_top.to_string()
+                        data-safe-right=viewport.safe_right.to_string()
+                        data-safe-bottom=viewport.safe_bottom.to_string()
+                        data-safe-left=viewport.safe_left.to_string()
+                    >
+                        <div class="preview-stage-shell">
+                            <section class="preview-surface preview-stage" style=frame_stage_style(frame, &viewport)>
+                                {panels}
+                            </section>
+                        </div>
+                    </section>
+                }
+                .into_any();
+            }
             return view! {
-                <section class="preview-surface" style=surface_layout_style(frame.layout.as_ref())>
+                <section class="preview-surface" style=frame_style(frame)>
                     {panels}
                 </section>
             }
@@ -63,12 +108,19 @@ fn panel_view(
         .map(|block| block_view(block, panel.layout.as_ref(), compiled, scene_contract, resources))
         .collect_view();
     let title = panel.title.clone().unwrap_or_else(|| panel.id.clone());
+    let show_heading = panel_show_heading(&panel.props);
     view! {
-        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout)>
-            <div class="panel-heading">
-                <h3>{title}</h3>
-                <p>{panel.area.clone().unwrap_or_else(|| "auto".to_string())}</p>
-            </div>
+        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout, &panel.props)>
+            {if show_heading {
+                view! {
+                    <div class="panel-heading">
+                        <h3>{title}</h3>
+                        <p>{panel.area.clone().unwrap_or_else(|| "auto".to_string())}</p>
+                    </div>
+                }.into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
             <div class="panel-body" style=panel_body_style(panel.layout.as_ref())>
                 {blocks}
             </div>
@@ -238,6 +290,144 @@ fn escape_html_attr(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+fn frame_style(frame: &FrameDecl) -> String {
+    let mut style = surface_layout_style(frame.layout.as_ref());
+    style.push_str(&container_visual_style(&frame.props));
+    style
+}
+
+fn frame_stage_style(frame: &FrameDecl, viewport: &FrameViewportConfig) -> String {
+    let mut style = frame_style(frame);
+    style.push_str(&format!(
+        "width:{}px;height:{}px;transform-origin:top left;",
+        viewport.design_width, viewport.design_height
+    ));
+    style
+}
+
+fn frame_viewport_style(viewport: &FrameViewportConfig) -> String {
+    format!(
+        "width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;display:grid;justify-items:{};align-items:{};padding:{}px {}px {}px {}px;",
+        viewport.align_x,
+        viewport.align_y,
+        viewport.safe_top,
+        viewport.safe_right,
+        viewport.safe_bottom,
+        viewport.safe_left,
+    )
+}
+
+fn frame_viewport_config(props: &Value) -> Option<FrameViewportConfig> {
+    let map = props.as_object()?;
+    let viewport = map.get("viewport")?.as_object()?;
+    if viewport
+        .get("enabled")
+        .and_then(Value::as_bool)
+        .is_some_and(|value| !value)
+    {
+        return None;
+    }
+    let design_width = viewport
+        .get("design_width")
+        .and_then(Value::as_f64)
+        .filter(|value| *value > 0.0)?;
+    let design_height = viewport
+        .get("design_height")
+        .and_then(Value::as_f64)
+        .filter(|value| *value > 0.0)?;
+    let scale_mode = viewport
+        .get("scale_mode")
+        .and_then(Value::as_str)
+        .unwrap_or("contain")
+        .to_string();
+    let (align_x, align_y) = viewport_align(viewport);
+    let (safe_top, safe_right, safe_bottom, safe_left) = viewport_safe_inset(viewport);
+    Some(FrameViewportConfig {
+        design_width,
+        design_height,
+        scale_mode,
+        align_x,
+        align_y,
+        safe_top,
+        safe_right,
+        safe_bottom,
+        safe_left,
+    })
+}
+
+fn viewport_align(viewport: &serde_json::Map<String, Value>) -> (String, String) {
+    let align_x = viewport
+        .get("align_x")
+        .and_then(Value::as_str)
+        .map(normalize_align_x);
+    let align_y = viewport
+        .get("align_y")
+        .and_then(Value::as_str)
+        .map(normalize_align_y);
+    if align_x.is_some() || align_y.is_some() {
+        return (
+            align_x.unwrap_or_else(|| "center".to_string()),
+            align_y.unwrap_or_else(|| "center".to_string()),
+        );
+    }
+    let align = viewport
+        .get("align")
+        .and_then(Value::as_str)
+        .unwrap_or("center");
+    match align.trim().to_ascii_lowercase().as_str() {
+        "top" | "top-center" => ("center".to_string(), "start".to_string()),
+        "top-left" => ("start".to_string(), "start".to_string()),
+        "top-right" => ("end".to_string(), "start".to_string()),
+        "bottom" | "bottom-center" => ("center".to_string(), "end".to_string()),
+        "bottom-left" => ("start".to_string(), "end".to_string()),
+        "bottom-right" => ("end".to_string(), "end".to_string()),
+        "left" | "center-left" => ("start".to_string(), "center".to_string()),
+        "right" | "center-right" => ("end".to_string(), "center".to_string()),
+        _ => ("center".to_string(), "center".to_string()),
+    }
+}
+
+fn normalize_align_x(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" | "start" => "start".to_string(),
+        "right" | "end" => "end".to_string(),
+        _ => "center".to_string(),
+    }
+}
+
+fn normalize_align_y(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "top" | "start" => "start".to_string(),
+        "bottom" | "end" => "end".to_string(),
+        _ => "center".to_string(),
+    }
+}
+
+fn viewport_safe_inset(viewport: &serde_json::Map<String, Value>) -> (f64, f64, f64, f64) {
+    let all = viewport
+        .get("safe_padding")
+        .or_else(|| viewport.get("safe_inset"))
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        .max(0.0);
+    let Some(inset) = viewport.get("safe_inset").and_then(Value::as_object) else {
+        return (all, all, all, all);
+    };
+    let top = inset.get("top").and_then(Value::as_f64).unwrap_or(all).max(0.0);
+    let right = inset
+        .get("right")
+        .and_then(Value::as_f64)
+        .unwrap_or(all)
+        .max(0.0);
+    let bottom = inset
+        .get("bottom")
+        .and_then(Value::as_f64)
+        .unwrap_or(all)
+        .max(0.0);
+    let left = inset.get("left").and_then(Value::as_f64).unwrap_or(all).max(0.0);
+    (top, right, bottom, left)
+}
+
 fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
     let Some(layout) = layout else {
         return "display:grid;gap:16px;".to_string();
@@ -268,11 +458,18 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
     }
 }
 
-fn panel_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
+fn panel_style(
+    area: Option<&str>,
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+) -> String {
+    let mut style = String::new();
     if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
         && area == Some("full")
     {
-        return "grid-column:1 / -1;".to_string();
+        style.push_str("grid-column:1 / -1;");
+        style.push_str(&container_visual_style(props));
+        return style;
     }
 
     if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
@@ -282,10 +479,94 @@ fn panel_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>)
             .unwrap_or(false)
     {
         if let Some(area) = area {
-            return format!("grid-area:{};", area);
+            style.push_str(&format!("grid-area:{};", area));
+            style.push_str(&container_visual_style(props));
+            return style;
         }
     }
-    String::new()
+    style.push_str(&container_visual_style(props));
+    style
+}
+
+fn panel_show_heading(props: &Value) -> bool {
+    let Some(map) = props.as_object() else {
+        return true;
+    };
+    if let Some(value) = map.get("show_heading").and_then(Value::as_bool) {
+        return value;
+    }
+    !matches!(map.get("chrome").and_then(Value::as_str), Some("bare"))
+}
+
+fn container_visual_style(props: &Value) -> String {
+    let Some(map) = props.as_object() else {
+        return String::new();
+    };
+    let mut style = String::new();
+
+    if let Some(background) = map.get("background") {
+        match background {
+            Value::String(value) if !value.trim().is_empty() => {
+                style.push_str(&format!("background:{};", value.trim()));
+            }
+            Value::Object(bg) => {
+                if let Some(value) = bg.get("color").and_then(Value::as_str) {
+                    style.push_str(&format!("background-color:{};", value));
+                }
+                if let Some(value) = bg.get("image").and_then(Value::as_str) {
+                    style.push_str(&format!(
+                        "background-image:{};",
+                        normalize_background_image(value)
+                    ));
+                }
+                if let Some(value) = bg.get("size").and_then(Value::as_str) {
+                    style.push_str(&format!("background-size:{};", value));
+                }
+                if let Some(value) = bg.get("position").and_then(Value::as_str) {
+                    style.push_str(&format!("background-position:{};", value));
+                }
+                if let Some(value) = bg.get("repeat").and_then(Value::as_str) {
+                    style.push_str(&format!("background-repeat:{};", value));
+                }
+                if let Some(value) = bg.get("attachment").and_then(Value::as_str) {
+                    style.push_str(&format!("background-attachment:{};", value));
+                }
+                if let Some(value) = bg.get("blend_mode").and_then(Value::as_str) {
+                    style.push_str(&format!("background-blend-mode:{};", value));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    append_string_style(&mut style, map.get("padding"), "padding");
+    append_string_style(&mut style, map.get("margin"), "margin");
+    append_string_style(&mut style, map.get("border"), "border");
+    append_string_style(&mut style, map.get("radius"), "border-radius");
+    append_string_style(&mut style, map.get("box_shadow"), "box-shadow");
+    append_string_style(&mut style, map.get("overflow"), "overflow");
+    append_string_style(&mut style, map.get("min_height"), "min-height");
+    append_string_style(&mut style, map.get("min_width"), "min-width");
+
+    style
+}
+
+fn append_string_style(style: &mut String, value: Option<&Value>, css_name: &str) {
+    if let Some(value) = value.and_then(Value::as_str) {
+        style.push_str(&format!("{css_name}:{value};"));
+    }
+}
+
+fn normalize_background_image(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        return "none".to_string();
+    }
+    if value.contains('(') || value.starts_with("var(") || value.starts_with("url(") {
+        value.to_string()
+    } else {
+        format!("url(\"{}\")", value.replace('"', "%22"))
+    }
 }
 
 fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
@@ -373,7 +654,10 @@ fn grid_template_areas_style(layout: &mei_lang_kernel::LayoutDecl) -> String {
 mod tests {
     use std::collections::BTreeMap;
 
-    use super::{block_style, panel_body_style, panel_style, resolve_value, surface_layout_style};
+    use super::{
+        block_style, container_visual_style, frame_viewport_config, frame_viewport_style,
+        panel_body_style, panel_show_heading, panel_style, resolve_value, surface_layout_style,
+    };
     use mei_lang_kernel::{
         ColumnSchema, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
         SceneContract, SceneDecl, SourceDecl,
@@ -403,7 +687,7 @@ mod tests {
     fn panel_style_requires_named_grid_areas() {
         let mut layout = grid_layout();
         layout.areas = None;
-        assert_eq!(panel_style(Some("doc"), Some(&layout)), "");
+        assert_eq!(panel_style(Some("doc"), Some(&layout), &json!({})), "");
     }
 
     #[test]
@@ -418,6 +702,90 @@ mod tests {
     fn block_style_uses_full_span_in_grid() {
         let layout = grid_layout();
         assert_eq!(block_style(Some("full"), Some(&layout)), "grid-column:1 / -1;");
+    }
+
+    #[test]
+    fn panel_style_merges_grid_area_and_visual_props() {
+        let layout = grid_layout();
+        let style = panel_style(
+            Some("doc"),
+            Some(&layout),
+            &json!({
+                "padding": "0",
+                "border": "none",
+                "background": {
+                    "color": "#001122",
+                }
+            }),
+        );
+        assert!(style.contains("grid-area:doc;"));
+        assert!(style.contains("padding:0;"));
+        assert!(style.contains("border:none;"));
+        assert!(style.contains("background-color:#001122;"));
+    }
+
+    #[test]
+    fn container_visual_style_supports_background_image_shorthand() {
+        let style = container_visual_style(&json!({
+            "background": {
+                "image": "/workspace-components/demo.png",
+                "size": "cover",
+                "repeat": "no-repeat",
+            }
+        }));
+        assert!(style.contains("background-image:url(\"/workspace-components/demo.png\")"));
+        assert!(style.contains("background-size:cover;"));
+        assert!(style.contains("background-repeat:no-repeat;"));
+    }
+
+    #[test]
+    fn panel_show_heading_supports_bare_chrome() {
+        assert!(!panel_show_heading(&json!({"show_heading": false})));
+        assert!(!panel_show_heading(&json!({"chrome": "bare"})));
+        assert!(panel_show_heading(&json!({})));
+    }
+
+    #[test]
+    fn frame_viewport_config_supports_align_and_safe_inset() {
+        let viewport = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 1080,
+                "scale_mode": "contain",
+                "align": "top-center",
+                "safe_inset": {
+                    "top": 12,
+                    "right": 24,
+                    "bottom": 16,
+                    "left": 20,
+                }
+            }
+        }))
+        .expect("viewport config");
+        assert_eq!(viewport.align_x, "center");
+        assert_eq!(viewport.align_y, "start");
+        assert_eq!(viewport.safe_top, 12.0);
+        assert_eq!(viewport.safe_right, 24.0);
+        assert_eq!(viewport.safe_bottom, 16.0);
+        assert_eq!(viewport.safe_left, 20.0);
+    }
+
+    #[test]
+    fn frame_viewport_style_applies_alignment_and_padding() {
+        let viewport = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 1080,
+                "align_x": "left",
+                "align_y": "top",
+                "safe_padding": 18,
+            }
+        }))
+        .expect("viewport config");
+        let style = frame_viewport_style(&viewport);
+        assert!(style.contains("justify-items:start;"));
+        assert!(style.contains("align-items:start;"));
+        assert!(style.contains("padding:18px 18px 18px 18px;"));
     }
 
     #[test]
