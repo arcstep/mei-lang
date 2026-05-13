@@ -1,6 +1,4 @@
-import { escapeHtml, COCKPIT_FIGMA_ASSETS, parseProps } from "./shared.js";
-
-const A = COCKPIT_FIGMA_ASSETS;
+import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 
 function numOr(value, fallback) {
   const n = Number(value);
@@ -40,7 +38,7 @@ class MeiCockpitHeaderTitle extends HTMLElement {
     const core = this.shadowRoot?.querySelector(".capStretch");
     const shadow = this.shadowRoot?.querySelector(".bandShadow");
     const overlay = this.shadowRoot?.querySelector(".bandOverlay");
-    if (!title || !wrap || !core || !shadow || !overlay) return;
+    if (!title || !wrap || !core || !shadow) return;
     const p = this.props || {};
     const fixedWidth = Math.max(0, numOr(p.titleBandWidth, 0));
     const minWidth = Math.max(320, numOr(p.titleBandMinWidth, 598));
@@ -50,7 +48,9 @@ class MeiCockpitHeaderTitle extends HTMLElement {
     const nextWidth = fixedWidth > 0 ? Math.max(minWidth, fixedWidth) : Math.max(minWidth, measured);
     core.style.width = `${nextWidth}px`;
     shadow.style.width = `${Math.max(0, nextWidth - 22)}px`;
-    overlay.style.width = `${nextWidth + 11}px`;
+    if (overlay) {
+      overlay.style.width = `${nextWidth + 11}px`;
+    }
     wrap.style.setProperty("--band-width", `${nextWidth}px`);
   }
 
@@ -59,6 +59,10 @@ class MeiCockpitHeaderTitle extends HTMLElement {
     const p = this.props;
     const title = p.title || "这是标题可视化大屏";
     const stripPad = Math.max(80, numOr(p.stripPad, 208));
+    const headerCenter = cockpitAsset(p, "header_center");
+    const headerCenterOverlay = cockpitAsset(p, "header_center_overlay");
+    const triLeft = cockpitAsset(p, "header_tri_left");
+    const triRight = cockpitAsset(p, "header_tri_right");
     this._ro?.disconnect();
     this._ro = null;
     this.shadowRoot.innerHTML = `
@@ -88,12 +92,14 @@ class MeiCockpitHeaderTitle extends HTMLElement {
         .bandShadow {
           position: absolute;
           left: 50%;
-          bottom: -1px;
+          right: auto;
+          bottom: 8px;
           transform: translateX(-50%);
-          width: calc(var(--band-width) - 22px);
-          height: 68px;
-          opacity: 0.66;
-          object-fit: fill;
+          width: calc(var(--band-width) - 48px);
+          height: 52px;
+          border-radius: 999px;
+          background: radial-gradient(ellipse at center, rgba(0, 145, 255, 0.26) 0%, rgba(0, 145, 255, 0.12) 48%, rgba(0, 145, 255, 0) 78%);
+          filter: blur(10px);
           pointer-events: none;
         }
         .bandOverlay {
@@ -211,18 +217,18 @@ class MeiCockpitHeaderTitle extends HTMLElement {
       </style>
       <div class="wrap">
         <div class="band">
-          <img class="bandShadow" src="${A}/labor-hdr-title-shadow.png" alt="" aria-hidden="true" />
+          <div class="bandShadow" aria-hidden="true"></div>
           <div class="goldBar" aria-hidden="true"></div>
-          <div class="capRow" aria-hidden="true">
+          <div class="capRow" aria-hidden="true" ${headerCenter ? "" : 'style="display:none"'}>
             <div class="capStretch">
-              <img class="cap" src="${A}/labor-hdr-center.svg" alt="" />
+              ${headerCenter ? `<img class="cap" src="${headerCenter}" alt="" />` : ""}
             </div>
           </div>
-          <img class="bandOverlay" src="${A}/labor-hdr-center-overlay.svg" alt="" aria-hidden="true" />
+          ${headerCenterOverlay ? `<img class="bandOverlay" src="${headerCenterOverlay}" alt="" aria-hidden="true" />` : ""}
           <div class="titleRow">
-            <img class="tri" src="${A}/labor-hdr-tri-left.svg" alt="" />
+            ${triLeft ? `<img class="tri" src="${triLeft}" alt="" />` : ""}
             <h1 class="title">${escapeHtml(title)}</h1>
-            <img class="tri" src="${A}/labor-hdr-tri-right.svg" alt="" />
+            ${triRight ? `<img class="tri" src="${triRight}" alt="" />` : ""}
           </div>
         </div>
       </div>

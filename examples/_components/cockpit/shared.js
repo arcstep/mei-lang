@@ -1,5 +1,3 @@
-export const COCKPIT_FIGMA_ASSETS = "/workspace-components/labor-figma";
-
 export function parseProps(element) {
   try {
     return JSON.parse(element.dataset.props || "{}");
@@ -42,4 +40,13 @@ export function formatNowParts() {
     date: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
     weekday: weekdays[d.getDay()],
   };
+}
+
+export function cockpitAsset(props, key) {
+  const assets = props?.assets;
+  if (!assets || typeof assets !== "object") {
+    return "";
+  }
+  const value = assets[key];
+  return typeof value === "string" ? value : "";
 }

@@ -1,6 +1,4 @@
-import { escapeHtml, COCKPIT_FIGMA_ASSETS, parseProps } from "./shared.js";
-
-const A = COCKPIT_FIGMA_ASSETS;
+import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 
 class MeiCockpitSectionTitle extends HTMLElement {
   connectedCallback() {
@@ -8,6 +6,8 @@ class MeiCockpitSectionTitle extends HTMLElement {
     const p = parseProps(this);
     const title = p.title || "这是板块标题";
     const flair = p.flair != false;
+    const triLeft = cockpitAsset(p, "header_tri_left");
+    const triRight = cockpitAsset(p, "header_tri_right");
     this.shadowRoot.innerHTML = `
       <style>
         :host {
@@ -83,9 +83,9 @@ class MeiCockpitSectionTitle extends HTMLElement {
       </style>
       <div class="panel-hd">
         <div class="hd-accent"></div>
-        ${flair ? `<img class="hd-tri" src="${A}/labor-hdr-tri-left.svg" alt="" />` : ""}
+        ${flair && triLeft ? `<img class="hd-tri" src="${triLeft}" alt="" />` : ""}
         <div class="hd-title">${escapeHtml(title)}</div>
-        ${flair ? `<img class="hd-tri" src="${A}/labor-hdr-tri-right.svg" alt="" />` : ""}
+        ${flair && triRight ? `<img class="hd-tri" src="${triRight}" alt="" />` : ""}
         <div class="hd-dots"><span></span><span></span><span></span></div>
       </div>
     `;

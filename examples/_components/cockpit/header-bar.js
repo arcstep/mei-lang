@@ -15,6 +15,7 @@ class MeiCockpitHeaderBar extends HTMLElement {
       JSON.stringify({
         temp: p.temp || "28°C",
         sky: p.sky || "多云",
+        assets: p.assets,
       }),
     );
     const titleProps = escapeAttr(
@@ -23,6 +24,7 @@ class MeiCockpitHeaderBar extends HTMLElement {
         titleBandWidth: p.titleBandWidth,
         titleBandMinWidth: p.titleBandMinWidth,
         stripPad: p.stripPad,
+        assets: p.assets,
       }),
     );
     const clockProps = escapeAttr(

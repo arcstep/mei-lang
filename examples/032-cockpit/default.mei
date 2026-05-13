@@ -50,6 +50,16 @@ scene.set_world(
     ],
 )
 
+APP_ASSET_BASE = "/workspace-app-assets/032-cockpit/assets/images"
+
+COCKPIT_APP_ASSETS = {
+    "header_center": APP_ASSET_BASE + "/header-center.svg",
+    "header_center_overlay": APP_ASSET_BASE + "/header-center-overlay.svg",
+    "header_tri_left": APP_ASSET_BASE + "/header-tri-left.svg",
+    "header_tri_right": APP_ASSET_BASE + "/header-tri-right.svg",
+    "weather_icon": APP_ASSET_BASE + "/weather-icon.svg",
+}
+
 body_columns_layout = grid(
     columns = ["minmax(260px, 28%)", "minmax(320px, 1.6fr)", "minmax(260px, 28%)"],
     areas = [
@@ -124,6 +134,7 @@ frame.add_panel(
                 "title": "默认设置的可视化大屏",
                 "titleBandMinWidth": 648,
                 "stripPad": 208,
+                "assets": COCKPIT_APP_ASSETS,
             },
         ),
     ],

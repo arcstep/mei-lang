@@ -1,6 +1,4 @@
-import { escapeHtml, COCKPIT_FIGMA_ASSETS, parseProps } from "./shared.js";
-
-const A = COCKPIT_FIGMA_ASSETS;
+import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 
 class MeiCockpitHeaderWeather extends HTMLElement {
   connectedCallback() {
@@ -8,6 +6,7 @@ class MeiCockpitHeaderWeather extends HTMLElement {
     const p = parseProps(this);
     const temp = p.temp || "28°C";
     const sky = p.sky || "多云";
+    const weatherIcon = cockpitAsset(p, "weather_icon");
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; justify-self: start; align-self: center; min-width: 0; }
@@ -40,7 +39,7 @@ class MeiCockpitHeaderWeather extends HTMLElement {
         }
       </style>
       <div class="wrap">
-        <img class="ico" src="${A}/labor-weather-icon.svg" alt="" />
+        ${weatherIcon ? `<img class="ico" src="${weatherIcon}" alt="" />` : ""}
         <div>
           <div class="line1">${escapeHtml(temp)}</div>
           <div class="line2">${escapeHtml(sky)}</div>
