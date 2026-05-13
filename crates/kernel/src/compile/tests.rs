@@ -125,6 +125,79 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_nested_component_manifests() {
+    let root = temp_root("nested-component-manifests");
+    let app_root = root.join("nested-manifests");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "nested-manifests",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "body",
+    area = "auto",
+    blocks = [
+        component("dataset.table", area = "auto", props = {"dataset": {"rows": []}}),
+        component("chart.donut", area = "auto", props = {"dataset": {"rows": []}}),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/dataset/manifest.json"),
+        r#"
+{
+  "components": {
+    "dataset.table": { "tag": "mei-dataset-table", "script": "table.js" }
+  }
+}
+"#,
+    );
+    write_file(
+        &root.join("_components/chart/echarts/manifest.json"),
+        r#"
+{
+  "components": {
+    "chart.donut": { "tag": "mei-chart-donut", "script": "donut.js" }
+  }
+}
+"#,
+    );
+    write_file(
+        &root.join("_components/dataset/table.js"),
+        "customElements.define('mei-dataset-table', class extends HTMLElement {});\n",
+    );
+    write_file(
+        &root.join("_components/chart/echarts/donut.js"),
+        "customElements.define('mei-chart-donut', class extends HTMLElement {});\n",
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile nested manifest app");
+    assert!(compiled
+        .component_assets
+        .iter()
+        .any(|asset| asset.key == "dataset.table" && asset.script == "dataset/table.js"));
+    assert!(compiled
+        .component_assets
+        .iter()
+        .any(|asset| asset.key == "chart.donut" && asset.script == "chart/echarts/donut.js"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_collects_scene_entry_registry() {
     let root = temp_root("entry-registry");
     let app_root = root.join("registry");
@@ -193,14 +266,11 @@ frame.add_panel(
     assert_eq!(compiled.active_entry.as_deref(), Some("home"));
     assert_eq!(compiled.entry_target, "main.mei");
     assert_eq!(compiled.entries.len(), 2);
-    assert!(compiled
-        .entries
-        .iter()
-        .any(|entry| entry.entry_id == "home"
-            && entry.scene_id == "home"
-            && entry.target_file == "main.mei"
-            && entry.kind == "inline"
-            && entry.is_default));
+    assert!(compiled.entries.iter().any(|entry| entry.entry_id == "home"
+        && entry.scene_id == "home"
+        && entry.target_file == "main.mei"
+        && entry.kind == "inline"
+        && entry.is_default));
     assert!(compiled
         .entries
         .iter()

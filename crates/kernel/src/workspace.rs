@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use walkdir::WalkDir;
 
@@ -122,24 +122,61 @@ struct ComponentManifestEntry {
 }
 
 pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, ComponentAsset>> {
-    let manifest_path = source_root.join("_components/manifest.json");
-    if !manifest_path.exists() {
+    let components_root = source_root.join("_components");
+    if !components_root.exists() {
         return Ok(BTreeMap::new());
     }
-    let raw = fs::read_to_string(&manifest_path)
-        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let manifest: ComponentManifestFile =
-        serde_json::from_str(&raw).context("failed to parse component manifest")?;
-    Ok(manifest
-        .components
+    let mut manifests = WalkDir::new(&components_root)
         .into_iter()
-        .map(|(key, entry)| {
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| entry.file_name() == "manifest.json")
+        .map(|entry| entry.into_path())
+        .collect::<Vec<_>>();
+    manifests.sort();
+
+    let mut assets = BTreeMap::new();
+    for manifest_path in manifests {
+        let raw = fs::read_to_string(&manifest_path)
+            .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+        let manifest: ComponentManifestFile = serde_json::from_str(&raw).with_context(|| {
+            format!(
+                "failed to parse component manifest {}",
+                manifest_path.display()
+            )
+        })?;
+        let manifest_dir = manifest_path.parent().unwrap_or(&components_root);
+        for (key, entry) in manifest.components {
+            let script_path =
+                normalize_component_script_path(&components_root, manifest_dir, &entry.script)
+                    .with_context(|| format!("failed to resolve script for component `{key}`"))?;
             let asset = ComponentAsset {
                 key: key.clone(),
                 tag: entry.tag,
-                script: entry.script,
+                script: script_path,
             };
-            (key, asset)
-        })
-        .collect())
+            if assets.insert(key.clone(), asset).is_some() {
+                bail!(
+                    "duplicate component key `{key}` found while loading {}",
+                    manifest_path.display()
+                );
+            }
+        }
+    }
+    Ok(assets)
+}
+
+fn normalize_component_script_path(
+    components_root: &Path,
+    manifest_dir: &Path,
+    script: &str,
+) -> Result<String> {
+    let resolved = manifest_dir.join(script);
+    let relative = resolved.strip_prefix(components_root).with_context(|| {
+        format!(
+            "script path `{}` escapes _components root",
+            resolved.display()
+        )
+    })?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
 }
