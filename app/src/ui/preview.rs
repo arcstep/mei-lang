@@ -208,9 +208,14 @@ fn node_view(
     theme: &ThemeResolved,
 ) -> AnyView {
     match node {
-        UiNodeDecl::Panel(panel) => {
-            panel_view(panel, parent_layout, compiled, scene_contract, resources, theme)
-        }
+        UiNodeDecl::Panel(panel) => panel_view(
+            panel,
+            parent_layout,
+            compiled,
+            scene_contract,
+            resources,
+            theme,
+        ),
         UiNodeDecl::Block(block) => {
             block_view(block, parent_layout, compiled, scene_contract, resources)
         }
@@ -224,7 +229,10 @@ fn block_view(
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
 ) -> AnyView {
-    let props = attach_host_meta(resolve_value(&block.props, scene_contract, resources), compiled);
+    let props = attach_host_meta(
+        resolve_value(&block.props, scene_contract, resources),
+        compiled,
+    );
     let tag = compiled
         .component_assets
         .iter()
@@ -366,7 +374,8 @@ fn resolve_rows_expr(
 }
 
 fn component_html(tag: &str, props: &Value) -> String {
-    let props = escape_html_attr(&serde_json::to_string(props).unwrap_or_else(|_| "{}".to_string()));
+    let props =
+        escape_html_attr(&serde_json::to_string(props).unwrap_or_else(|_| "{}".to_string()));
     format!("<{tag} data-props=\"{props}\"></{tag}>")
 }
 
@@ -794,7 +803,11 @@ fn viewport_safe_inset(viewport: &serde_json::Map<String, Value>) -> (f64, f64, 
     let Some(inset) = viewport.get("safe_inset").and_then(Value::as_object) else {
         return (all, all, all, all);
     };
-    let top = inset.get("top").and_then(Value::as_f64).unwrap_or(all).max(0.0);
+    let top = inset
+        .get("top")
+        .and_then(Value::as_f64)
+        .unwrap_or(all)
+        .max(0.0);
     let right = inset
         .get("right")
         .and_then(Value::as_f64)
@@ -805,7 +818,11 @@ fn viewport_safe_inset(viewport: &serde_json::Map<String, Value>) -> (f64, f64, 
         .and_then(Value::as_f64)
         .unwrap_or(all)
         .max(0.0);
-    let left = inset.get("left").and_then(Value::as_f64).unwrap_or(all).max(0.0);
+    let left = inset
+        .get("left")
+        .and_then(Value::as_f64)
+        .unwrap_or(all)
+        .max(0.0);
     (top, right, bottom, left)
 }
 
@@ -816,7 +833,10 @@ fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String 
     match layout.layout_type.as_str() {
         "flex" => format!(
             "display:flex;flex-direction:{};gap:{};padding:{};",
-            layout.direction.clone().unwrap_or_else(|| "column".to_string()),
+            layout
+                .direction
+                .clone()
+                .unwrap_or_else(|| "column".to_string()),
             layout.gap.clone().unwrap_or_else(|| "16px".to_string()),
             layout.padding.clone().unwrap_or_else(|| "0".to_string()),
         ),
@@ -1067,7 +1087,11 @@ fn grid_template_areas_style(layout: &mei_lang_kernel::LayoutDecl) -> String {
                 .iter()
                 .map(|area| {
                     let area = area.trim();
-                    if area.is_empty() { "." } else { area }
+                    if area.is_empty() {
+                        "."
+                    } else {
+                        area
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -1133,7 +1157,10 @@ mod tests {
     #[test]
     fn block_style_uses_full_span_in_grid() {
         let layout = grid_layout();
-        assert_eq!(block_style(Some("full"), Some(&layout)), "grid-column:1 / -1;");
+        assert_eq!(
+            block_style(Some("full"), Some(&layout)),
+            "grid-column:1 / -1;"
+        );
     }
 
     #[test]
@@ -1361,9 +1388,13 @@ mod tests {
 
         let data_ref = json!({"__ref":"data","id":"sales_metrics"});
         let resolved_data = resolve_value(&data_ref, &scene_contract, &resources);
-        assert_eq!(resolved_data.get("id").and_then(|value| value.as_str()), Some("sales_metrics"));
+        assert_eq!(
+            resolved_data.get("id").and_then(|value| value.as_str()),
+            Some("sales_metrics")
+        );
 
-        let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
+        let metric_ref =
+            json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
         let resolved_metric = resolve_value(&metric_ref, &scene_contract, &resources);
         assert_eq!(
             resolved_metric.get("id").and_then(|value| value.as_str()),

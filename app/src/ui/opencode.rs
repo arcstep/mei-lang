@@ -15,7 +15,10 @@ pub(super) fn panel_view(
                 class="author-panel"
                 data-app=compiled.app_id.clone()
                 data-target=selected_target.to_string()
-                data-entry=compiled.entry_target.clone()
+                data-entry=compiled
+                    .active_entry
+                    .clone()
+                    .unwrap_or_else(|| compiled.entry_target.clone())
                 data-mode=route_mode.slug()
             >
                 <div class="author-top-row">

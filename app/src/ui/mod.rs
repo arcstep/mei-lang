@@ -14,6 +14,8 @@ pub fn render_page(
     route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
+    selected_entry: Option<&str>,
+    preview_target: Option<&str>,
     chrome_hidden: bool,
 ) -> String {
     let body_class = if route_mode == UiRouteMode::Access && chrome_hidden {
@@ -24,8 +26,21 @@ pub fn render_page(
         "manage-mode"
     };
     let shell = match route_mode {
-        UiRouteMode::Access => access_shell(apps, compiled, chrome_hidden),
-        UiRouteMode::Manage => manage_shell(apps, compiled, target, source),
+        UiRouteMode::Access => access_shell(
+            apps,
+            compiled,
+            selected_entry,
+            preview_target,
+            chrome_hidden,
+        ),
+        UiRouteMode::Manage => manage_shell(
+            apps,
+            compiled,
+            target,
+            source,
+            selected_entry,
+            preview_target,
+        ),
     };
     let chrome_scripts = chrome_scripts_view(route_mode);
 
@@ -48,9 +63,21 @@ pub fn render_page(
     page.to_html()
 }
 
-fn access_shell(apps: &[WorkspaceAppMeta], compiled: &CompiledApp, chrome_hidden: bool) -> AnyView {
+fn access_shell(
+    apps: &[WorkspaceAppMeta],
+    compiled: &CompiledApp,
+    selected_entry: Option<&str>,
+    preview_target: Option<&str>,
+    chrome_hidden: bool,
+) -> AnyView {
     let preview = preview::preview_view(compiled);
-    let topbar = topbar_view(apps, compiled, UiRouteMode::Access);
+    let topbar = topbar_view(
+        apps,
+        compiled,
+        UiRouteMode::Access,
+        selected_entry,
+        preview_target,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if chrome_hidden && stage_enabled {
         "shell access-shell access-shell-chromeless frame-stage-enabled"
@@ -101,18 +128,35 @@ fn manage_shell(
     compiled: &CompiledApp,
     target: Option<&str>,
     source: Option<&str>,
+    selected_entry: Option<&str>,
+    preview_target: Option<&str>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(compiled);
+    let active_entry = compiled.active_entry.as_deref();
+    let source_entries = source_tree::entry_list_view(
+        &compiled.entries,
+        UiRouteMode::Manage,
+        &compiled.app_id,
+        active_entry,
+    );
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
         UiRouteMode::Manage,
         &compiled.app_id,
         selected_target.as_str(),
+        selected_entry.or(active_entry),
+        preview_target,
     );
     let diagnostics = diagnostics_view(compiled);
-    let topbar = topbar_view(apps, compiled, UiRouteMode::Manage);
+    let topbar = topbar_view(
+        apps,
+        compiled,
+        UiRouteMode::Manage,
+        selected_entry.or(active_entry),
+        preview_target,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {
         "shell frame-stage-enabled"
@@ -135,6 +179,7 @@ fn manage_shell(
                             <h2>"资源树"</h2>
                             <p>{compiled.app_id.clone()}</p>
                         </div>
+                        {source_entries}
                         {source_tree::controls_view()}
                     </div>
                     <div class="sidebar-scroll">
@@ -196,6 +241,8 @@ fn topbar_view(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     route_mode: UiRouteMode,
+    selected_entry: Option<&str>,
+    preview_target: Option<&str>,
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let app_tabs = apps
@@ -210,9 +257,17 @@ fn topbar_view(
             view! { <a class=class href=href>{app.id.clone()}</a> }
         })
         .collect_view();
-    let manage_href = format!("/apps/manage/{}", compiled.app_id);
-    let access_href = format!("/apps/access/{}", compiled.app_id);
-    let presentation_href = format!("/apps/access/{}?chrome=none", compiled.app_id);
+    let route_query = route_query(selected_entry, preview_target);
+    let manage_href = format!("/apps/manage/{}{}", compiled.app_id, route_query);
+    let access_href = format!("/apps/access/{}{}", compiled.app_id, route_query);
+    let presentation_href = if route_query.is_empty() {
+        format!("/apps/access/{}?chrome=none", compiled.app_id)
+    } else {
+        format!(
+            "/apps/access/{}{}&chrome=none",
+            compiled.app_id, route_query
+        )
+    };
     let mode_tabs = view! {
         <div class="mode-tabs">
             <a
@@ -244,7 +299,11 @@ fn topbar_view(
             </a>
         </div>
     };
-    let launch_title = if stage_enabled { "在新标签页打开大屏" } else { "在新标签页打开无 Chrome 应用" };
+    let launch_title = if stage_enabled {
+        "在新标签页打开大屏"
+    } else {
+        "在新标签页打开无 Chrome 应用"
+    };
     view! {
         <header class="topbar">
             <div class="brand">
@@ -284,6 +343,16 @@ fn topbar_view(
         </header>
     }
     .into_any()
+}
+
+fn route_query(selected_entry: Option<&str>, preview_target: Option<&str>) -> String {
+    if let Some(preview_target) = preview_target {
+        return format!("?preview_target={preview_target}");
+    }
+    if let Some(entry) = selected_entry {
+        return format!("?entry={entry}");
+    }
+    String::new()
 }
 
 fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
