@@ -84,6 +84,16 @@ pub async fn app_asset(
     )
 }
 
+pub async fn workspace_app_asset(
+    State(state): State<AppState>,
+    AxumPath((app_id, path)): AxumPath<(String, String)>,
+) -> Result<Response, AppError> {
+    serve_static_asset(
+        state.source_root.join(&app_id).join(&path),
+        "workspace app asset",
+    )
+}
+
 fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {
     if !asset_path.exists() {
         return Err(AppError::status(
