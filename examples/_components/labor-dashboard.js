@@ -56,12 +56,9 @@ class MeiCockpitLaborDashboard extends HTMLElement {
         :host { display: block; min-height: 720px; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif; }
         .labor-root {
           min-height: 100%;
-          background:
-            radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%),
-            radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%),
-            linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%);
-          border: 1px solid rgba(56,189,248,.18);
-          border-radius: 8px;
+          background: transparent;
+          border: none;
+          border-radius: 0;
           overflow: hidden;
           color: #e0f2fe;
         }

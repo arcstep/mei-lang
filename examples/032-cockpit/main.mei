@@ -162,12 +162,48 @@ scene.set_frame(
         gap = "0",
         padding = "0",
     ),
+    props = {
+        "viewport": {
+            "enabled": True,
+            "design_width": 1920,
+            "design_height": 1080,
+            "scale_mode": "contain",
+            "align": "top-center",
+            "safe_inset": {
+                "top": 12,
+                "right": 16,
+                "bottom": 12,
+                "left": 16,
+            },
+        },
+        "background": {
+            "image": "radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%), radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%), linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%)",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+        "border": "1px solid rgba(56,189,248,.18)",
+        "radius": "8px",
+        "overflow": "hidden",
+        "padding": "0",
+    },
 )
 
 frame.add_panel(
     id = "labor_main",
     title = "032 劳务大屏（迁移中）",
     area = "main",
+    props = {
+        "show_heading": False,
+        "background": {
+            "color": "rgba(2,6,23,.18)",
+            "image": "linear-gradient(180deg, rgba(8,16,28,.24), rgba(8,16,28,.06))",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+        "border": "none",
+        "radius": "0",
+        "padding": "0",
+    },
     blocks = [
         component(
             "cockpit.labor-dashboard",
