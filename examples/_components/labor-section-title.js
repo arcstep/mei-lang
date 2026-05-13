@@ -10,11 +10,17 @@ class MeiCockpitLaborSectionTitle extends HTMLElement {
     const flair = p.flair != false;
     this.shadowRoot.innerHTML = `
       <style>
-        :host { display: block; }
+        :host {
+          display: block;
+          width: 100%;
+          min-width: 0;
+        }
         .labor-panel-hd {
           display: flex;
           align-items: center;
           gap: 10px;
+          width: 100%;
+          min-width: 0;
           padding: 14px 16px 12px 18px;
           position: relative;
           background: linear-gradient(180deg, rgba(0, 20, 45, 0.55) 0%, rgba(0, 12, 28, 0.15) 100%);
@@ -51,6 +57,9 @@ class MeiCockpitLaborSectionTitle extends HTMLElement {
         .hd-title {
           flex: 1;
           min-width: 0;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
           font-size: 15px;
           font-weight: 700;
           color: #ecfeff;

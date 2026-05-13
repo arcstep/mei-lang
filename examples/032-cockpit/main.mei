@@ -152,16 +152,79 @@ ds.dataset_view(
     ],
 )
 
+panel_shell_bare_props = {
+    "show_heading": False,
+    "background": {
+        "color": "rgba(3,10,20,.76)",
+        "image": "radial-gradient(120% 100% at 0% 0%, rgba(34,211,238,.10), transparent 36%), radial-gradient(120% 100% at 100% 0%, rgba(59,130,246,.08), transparent 34%), linear-gradient(180deg, rgba(8,28,48,.92) 0%, rgba(4,16,30,.9) 58%, rgba(2,10,20,.94) 100%)",
+        "position": "center",
+        "size": "cover",
+        "repeat": "no-repeat",
+    },
+    "border": "1px solid rgba(56,189,248,.14)",
+    "radius": "6px",
+    "box_shadow": "inset 0 1px 0 rgba(125,211,252,.08), inset 0 0 0 1px rgba(15,23,42,.22), 0 10px 24px rgba(2,8,23,.24)",
+    "padding": "0",
+    "overflow": "hidden",
+}
+
+panel_shell_titled_props = {
+    "background": {
+        "color": "rgba(3,10,20,.76)",
+        "image": "radial-gradient(120% 100% at 0% 0%, rgba(34,211,238,.10), transparent 36%), radial-gradient(120% 100% at 100% 0%, rgba(59,130,246,.08), transparent 34%), linear-gradient(180deg, rgba(8,28,48,.92) 0%, rgba(4,16,30,.9) 58%, rgba(2,10,20,.94) 100%)",
+        "position": "center",
+        "size": "cover",
+        "repeat": "no-repeat",
+    },
+    "border": "1px solid rgba(56,189,248,.14)",
+    "radius": "6px",
+    "box_shadow": "inset 0 1px 0 rgba(125,211,252,.08), inset 0 0 0 1px rgba(15,23,42,.22), 0 10px 24px rgba(2,8,23,.24)",
+    "padding": "0",
+    "overflow": "hidden",
+    "heading": {
+        "variant": "screen",
+        "accent": True,
+        "flair": True,
+        "dots": True,
+    },
+}
+
+panel_container_props = {
+    "show_heading": False,
+    "background": "transparent",
+    "border": "none",
+    "radius": "0",
+    "box_shadow": "none",
+    "padding": "0",
+    "overflow": "visible",
+}
+
+body_columns_layout = grid(
+    columns = ["minmax(260px, 28%)", "minmax(320px, 1.6fr)", "minmax(260px, 28%)"],
+    rows = ["1fr"],
+    areas = [
+        ["left_col", "center_col", "right_col"],
+    ],
+    gap = "12px",
+    padding = "0",
+)
+
+left_column_layout = flex(direction = "column", gap = "12px", padding = "0")
+
+center_column_layout = flex(direction = "column", gap = "12px", padding = "0")
+
+right_column_layout = flex(direction = "column", gap = "12px", padding = "0")
+
 scene.set_frame(
     layout = grid(
-        columns = ["minmax(0,1fr)"],
+        columns = ["1fr"],
         rows = ["92px", "minmax(0,1fr)"],
         areas = [
             ["header"],
-            ["main"],
+            ["body"],
         ],
-        gap = "0",
-        padding = "0",
+        gap = "12px",
+        padding = "0 14px 16px",
     ),
     props = {
         "viewport": {
@@ -218,34 +281,135 @@ frame.add_panel(
 )
 
 frame.add_panel(
-    id = "labor_main",
-    title = "032 劳务大屏（迁移中）",
-    area = "main",
-    props = {
-        "show_heading": False,
-        "background": {
-            "color": "rgba(2,6,23,.18)",
-            "image": "linear-gradient(180deg, rgba(8,16,28,.24), rgba(8,16,28,.06))",
-            "position": "center",
-            "repeat": "no-repeat",
-        },
-        "border": "none",
-        "radius": "0",
-        "padding": "0",
-    },
+    id = "labor_body",
+    title = "032 劳务大屏主体",
+    area = "body",
+    layout = body_columns_layout,
+    props = panel_container_props,
     blocks = [
-        component(
-            "cockpit.labor-body",
-            area = "auto",
-            props = {
-                "subcontract": ds.data_ref("labor_subcontract_view"),
-                "rankingLeft": ds.data_ref("labor_ranking_left_view"),
-                "rankingRight": ds.data_ref("labor_ranking_right_view"),
-                "persons": ds.data_ref("labor_persons_view"),
-                "kpis": ds.data_ref("labor_kpis_view"),
-                "donutVisit": ds.data_ref("labor_donut_visit_view"),
-                "donutStd": ds.data_ref("labor_donut_std_view"),
-            },
+        panel(
+            id = "labor_left_col",
+            area = "left_col",
+            layout = left_column_layout,
+            props = panel_container_props,
+            blocks = [
+                panel(
+                    id = "labor_left_top",
+                    title = "这是板块标题",
+                    area = "left_top",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-subcontract-table",
+                            props = {
+                                "subcontract": ds.data_ref("labor_subcontract_view"),
+                                "dataset": ds.data_ref("labor_subcontract_view"),
+                            },
+                        ),
+                    ],
+                ),
+                panel(
+                    id = "labor_left_bottom",
+                    title = "这是板块标题",
+                    area = "left_bottom",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-ranking-list",
+                            props = {
+                                "dataset": ds.data_ref("labor_ranking_left_view"),
+                                "headers": ["字段名称一", "字段名称一", "字段名称一"],
+                            },
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        panel(
+            id = "labor_center_col",
+            area = "center_col",
+            layout = center_column_layout,
+            props = panel_container_props,
+            blocks = [
+                panel(
+                    id = "labor_center_top",
+                    title = "中部上区",
+                    area = "center_top",
+                    props = panel_shell_bare_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-center-top",
+                            props = {
+                                "kpis": ds.data_ref("labor_kpis_view"),
+                            },
+                        ),
+                    ],
+                ),
+                panel(
+                    id = "labor_center_donut",
+                    title = "这是板块标题",
+                    area = "center_donut",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-donut-summary",
+                            props = {
+                                "donutVisit": ds.data_ref("labor_donut_visit_view"),
+                                "donutStd": ds.data_ref("labor_donut_std_view"),
+                            },
+                        ),
+                    ],
+                ),
+                panel(
+                    id = "labor_center_ratio",
+                    title = "这是板块标题",
+                    area = "center_ratio",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-ratio-summary",
+                        ),
+                    ],
+                ),
+            ],
+        ),
+        panel(
+            id = "labor_right_col",
+            area = "right_col",
+            layout = right_column_layout,
+            props = panel_container_props,
+            blocks = [
+                panel(
+                    id = "labor_right_top",
+                    title = "这是板块标题",
+                    area = "right_top",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-person-cards",
+                            props = {
+                                "dataset": ds.data_ref("labor_persons_view"),
+                                "monthLabel": "7月",
+                            },
+                        ),
+                    ],
+                ),
+                panel(
+                    id = "labor_right_bottom",
+                    title = "这是板块标题",
+                    area = "right_bottom",
+                    props = panel_shell_titled_props,
+                    blocks = [
+                        component(
+                            "cockpit.labor-ranking-list",
+                            props = {
+                                "dataset": ds.data_ref("labor_ranking_right_view"),
+                                "headers": ["字段名称一", "字段名称一"],
+                            },
+                        ),
+                    ],
+                ),
+            ],
         ),
     ],
 )

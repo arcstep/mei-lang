@@ -68,6 +68,18 @@
       "tag": "mei-cockpit-labor-body",
       "script": "labor-body.js"
     },
+    "cockpit.labor-center-top": {
+      "tag": "mei-cockpit-labor-center-top",
+      "script": "labor-center-top.js"
+    },
+    "cockpit.labor-donut-summary": {
+      "tag": "mei-cockpit-labor-donut-summary",
+      "script": "labor-donut-summary.js"
+    },
+    "cockpit.labor-ratio-summary": {
+      "tag": "mei-cockpit-labor-ratio-summary",
+      "script": "labor-ratio-summary.js"
+    },
     "cockpit.labor-dashboard": {
       "tag": "mei-cockpit-labor-dashboard",
       "script": "labor-dashboard.js"
@@ -87,6 +99,22 @@
     "cockpit.labor-header-clock": {
       "tag": "mei-cockpit-labor-header-clock",
       "script": "labor-header-clock.js"
+    },
+    "cockpit.labor-person-cards": {
+      "tag": "mei-cockpit-labor-person-cards",
+      "script": "labor-person-cards.js"
+    },
+    "cockpit.labor-ranking-list": {
+      "tag": "mei-cockpit-labor-ranking-list",
+      "script": "labor-ranking-list.js"
+    },
+    "cockpit.labor-section-title": {
+      "tag": "mei-cockpit-labor-section-title",
+      "script": "labor-section-title.js"
+    },
+    "cockpit.labor-subcontract-table": {
+      "tag": "mei-cockpit-labor-subcontract-table",
+      "script": "labor-subcontract-table.js"
     },
     "sim.step-bridge": {
       "tag": "mei-sim-step-bridge",
