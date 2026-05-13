@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, FrameDecl, LoadedResource, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{
+    BlockDecl, CompiledApp, LoadedResource, SceneContract, ThemeDecl, UiNodeDecl,
+};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -26,6 +28,16 @@ struct PanelHeadingConfig {
     show_dots: bool,
 }
 
+#[derive(Debug, Clone)]
+struct ThemeResolved {
+    id: String,
+    frame: Value,
+    panel: Value,
+    panel_bare: Value,
+    heading: Value,
+    css_vars: Vec<(String, String)>,
+}
+
 pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
     compiled
         .scene_contract
@@ -43,7 +55,9 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
         .collect::<BTreeMap<_, _>>();
 
     if let Some(scene_contract) = &compiled.scene_contract {
+        let theme = resolve_theme(scene_contract);
         if let Some(frame) = &scene_contract.frame {
+            let frame_props = deep_merge_value(&theme.frame, &frame.props);
             let panels = scene_contract
                 .panels
                 .iter()
@@ -54,10 +68,11 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
                         compiled,
                         scene_contract,
                         &resource_map,
+                        &theme,
                     )
                 })
                 .collect_view();
-            if let Some(viewport) = frame_viewport_config(&frame.props) {
+            if let Some(viewport) = frame_viewport_config(&frame_props) {
                 return view! {
                     <section
                         class="preview-viewport"
@@ -72,7 +87,7 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
                         data-safe-left=viewport.safe_left.to_string()
                     >
                         <div class="preview-stage-shell">
-                            <section class="preview-surface preview-stage" style=frame_stage_style(frame, &viewport)>
+                            <section class="preview-surface preview-stage" style=frame_stage_style(frame.layout.as_ref(), &frame_props, &viewport, &theme)>
                                 {panels}
                             </section>
                         </div>
@@ -81,7 +96,7 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
                 .into_any();
             }
             return view! {
-                <section class="preview-surface" style=frame_style(frame)>
+                <section class="preview-surface" style=frame_style(frame.layout.as_ref(), &frame_props, &theme)>
                     {panels}
                 </section>
             }
@@ -110,18 +125,29 @@ fn panel_view(
     compiled: &CompiledApp,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
+    theme: &ThemeResolved,
 ) -> AnyView {
+    let panel_props = resolve_panel_props(theme, &panel.props);
     let blocks = panel
         .blocks
         .iter()
-        .map(|node| node_view(node, panel.layout.as_ref(), compiled, scene_contract, resources))
+        .map(|node| {
+            node_view(
+                node,
+                panel.layout.as_ref(),
+                compiled,
+                scene_contract,
+                resources,
+                theme,
+            )
+        })
         .collect_view();
     let title = panel.title.clone().unwrap_or_else(|| panel.id.clone());
-    let show_heading = panel_show_heading(&panel.props);
-    let heading = panel_heading_config(&panel.props);
+    let show_heading = panel_show_heading(&panel_props);
+    let heading = panel_heading_config(&theme.heading, &panel_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
     view! {
-        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout, &panel.props)>
+        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout, &panel_props)>
             {if show_heading {
                 view! {
                     <div
@@ -179,10 +205,11 @@ fn node_view(
     compiled: &CompiledApp,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
+    theme: &ThemeResolved,
 ) -> AnyView {
     match node {
         UiNodeDecl::Panel(panel) => {
-            panel_view(panel, parent_layout, compiled, scene_contract, resources)
+            panel_view(panel, parent_layout, compiled, scene_contract, resources, theme)
         }
         UiNodeDecl::Block(block) => {
             block_view(block, parent_layout, compiled, scene_contract, resources)
@@ -351,14 +378,307 @@ fn escape_html_attr(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
-fn frame_style(frame: &FrameDecl) -> String {
-    let mut style = surface_layout_style(frame.layout.as_ref());
-    style.push_str(&container_visual_style(&frame.props));
+fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
+    let mut theme_id = scene_contract
+        .scene
+        .theme
+        .clone()
+        .or_else(|| scene_contract.scene.profile.clone())
+        .unwrap_or_else(|| "page".to_string());
+    let mut theme = builtin_theme(theme_id.as_str());
+    if theme.is_none() {
+        theme_id = "page".to_string();
+        theme = builtin_theme("page");
+    }
+    let mut theme = theme.unwrap_or_else(|| serde_json::json!({}));
+    if let Some(custom) = scene_contract
+        .themes
+        .iter()
+        .find(|item| item.id == theme_id)
+        .or_else(|| scene_contract.themes.first())
+    {
+        theme = deep_merge_value(&theme, &theme_decl_value(custom));
+        if theme_id != custom.id {
+            theme_id = custom.id.clone();
+        }
+    }
+    let frame = theme
+        .as_object()
+        .and_then(|map| map.get("frame"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let panel = theme
+        .as_object()
+        .and_then(|map| map.get("panel"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let panel_bare = theme
+        .as_object()
+        .and_then(|map| map.get("panel_bare"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let heading = theme
+        .as_object()
+        .and_then(|map| map.get("heading"))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let css_vars = collect_theme_css_vars(&theme);
+    ThemeResolved {
+        id: theme_id,
+        frame,
+        panel,
+        panel_bare,
+        heading,
+        css_vars,
+    }
+}
+
+fn builtin_theme(theme_id: &str) -> Option<Value> {
+    let value = match theme_id {
+        "cockpit" => serde_json::json!({
+            "frame": {
+                "background": {
+                    "image": "radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%), radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%), linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%)",
+                    "position": "center",
+                    "repeat": "no-repeat"
+                },
+                "border": "1px solid rgba(56,189,248,.18)",
+                "radius": "8px",
+                "overflow": "hidden",
+                "padding": "0",
+            },
+            "panel": {
+                "background": {
+                    "color": "rgba(3,10,20,.76)",
+                    "image": "radial-gradient(120% 100% at 0% 0%, rgba(34,211,238,.10), transparent 36%), radial-gradient(120% 100% at 100% 0%, rgba(59,130,246,.08), transparent 34%), linear-gradient(180deg, rgba(8,28,48,.92) 0%, rgba(4,16,30,.9) 58%, rgba(2,10,20,.94) 100%)",
+                    "position": "center",
+                    "size": "cover",
+                    "repeat": "no-repeat"
+                },
+                "border": "1px solid rgba(56,189,248,.14)",
+                "radius": "6px",
+                "box_shadow": "inset 0 1px 0 rgba(125,211,252,.08), inset 0 0 0 1px rgba(15,23,42,.22), 0 10px 24px rgba(2,8,23,.24)",
+                "padding": "0",
+                "overflow": "hidden",
+            },
+            "panel_bare": {
+                "show_heading": false,
+                "background": "transparent",
+                "border": "none",
+                "radius": "0",
+                "box_shadow": "none",
+                "padding": "0",
+                "overflow": "visible"
+            },
+            "heading": {
+                "variant": "screen",
+                "accent": true,
+                "flair": true,
+                "dots": true
+            },
+            "font": {
+                "1": "12px",
+                "2": "14px",
+                "3": "18px",
+                "4": "24px"
+            },
+            "tokens": {
+                "color": {
+                    "text_primary": "#e0f2fe",
+                    "text_muted": "#94a3b8",
+                    "text_accent": "#fde68a"
+                },
+                "panel": {
+                    "radius": "6px",
+                    "padding": "12px"
+                }
+            }
+        }),
+        "game" => serde_json::json!({
+            "frame": {
+                "background": {
+                    "image": "linear-gradient(180deg, #111827 0%, #1f2937 100%)"
+                },
+                "padding": "0"
+            },
+            "panel": {
+                "background": "rgba(17, 24, 39, 0.78)",
+                "border": "1px solid rgba(148,163,184,.18)",
+                "radius": "8px",
+                "padding": "0",
+                "overflow": "hidden"
+            },
+            "panel_bare": {
+                "show_heading": false,
+                "background": "transparent",
+                "border": "none",
+                "padding": "0",
+                "overflow": "visible"
+            },
+            "heading": {
+                "variant": "compact",
+                "accent": true
+            },
+            "font": {
+                "1": "12px",
+                "2": "14px",
+                "3": "17px",
+                "4": "22px"
+            },
+            "tokens": {
+                "color": {
+                    "text_primary": "#f3f4f6",
+                    "text_muted": "#9ca3af",
+                    "text_accent": "#fbbf24"
+                }
+            }
+        }),
+        _ => serde_json::json!({
+            "frame": {
+                "padding": "0"
+            },
+            "panel": {
+                "background": "rgba(2,6,23,.32)",
+                "border": "1px solid rgba(59,130,246,.18)",
+                "radius": "14px",
+                "padding": "12px"
+            },
+            "panel_bare": {
+                "show_heading": false,
+                "background": "transparent",
+                "border": "none",
+                "padding": "0",
+                "overflow": "visible"
+            },
+            "heading": {
+                "variant": "default",
+                "accent": true
+            },
+            "font": {
+                "1": "12px",
+                "2": "14px",
+                "3": "16px",
+                "4": "20px"
+            },
+            "tokens": {
+                "color": {
+                    "text_primary": "#e2e8f0",
+                    "text_muted": "#94a3b8",
+                    "text_accent": "#f8fafc"
+                }
+            }
+        }),
+    };
+    Some(value)
+}
+
+fn theme_decl_value(theme: &ThemeDecl) -> Value {
+    serde_json::json!({
+        "frame": theme.frame,
+        "panel": theme.panel,
+        "panel_bare": theme.panel_bare,
+        "heading": theme.heading,
+        "font": theme.font,
+        "tokens": theme.tokens,
+    })
+}
+
+fn resolve_panel_props(theme: &ThemeResolved, props: &Value) -> Value {
+    let use_bare = props
+        .as_object()
+        .and_then(|map| map.get("chrome"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.eq_ignore_ascii_case("bare"));
+    if use_bare {
+        deep_merge_value(&theme.panel_bare, props)
+    } else {
+        deep_merge_value(&theme.panel, props)
+    }
+}
+
+fn deep_merge_value(base: &Value, overlay: &Value) -> Value {
+    let (Some(base_obj), Some(overlay_obj)) = (base.as_object(), overlay.as_object()) else {
+        return overlay.clone();
+    };
+    let mut merged = base_obj.clone();
+    for (key, value) in overlay_obj {
+        let next = if let Some(existing) = merged.get(key) {
+            deep_merge_value(existing, value)
+        } else {
+            value.clone()
+        };
+        merged.insert(key.clone(), next);
+    }
+    Value::Object(merged)
+}
+
+fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
+    let mut vars = Vec::new();
+    if let Some(font) = theme
+        .as_object()
+        .and_then(|map| map.get("font"))
+        .and_then(Value::as_object)
+    {
+        for (key, value) in font {
+            if let Some(raw) = value.as_str() {
+                vars.push((format!("--mei-font-{key}"), raw.to_string()));
+            }
+        }
+    }
+    if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
+        flatten_tokens(tokens, "mei", &mut vars);
+    }
+    vars
+}
+
+fn flatten_tokens(value: &Value, prefix: &str, vars: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            for (key, entry) in map {
+                let path = format!("{prefix}-{}", key.replace('_', "-"));
+                flatten_tokens(entry, path.as_str(), vars);
+            }
+        }
+        Value::String(raw) if !raw.trim().is_empty() => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        Value::Number(raw) => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        Value::Bool(raw) => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        _ => {}
+    }
+}
+
+fn theme_css_vars_style(theme: &ThemeResolved) -> String {
+    let mut style = String::new();
+    style.push_str(&format!("--mei-theme-id:'{}';", theme.id));
+    for (key, value) in &theme.css_vars {
+        style.push_str(&format!("{key}:{value};"));
+    }
     style
 }
 
-fn frame_stage_style(frame: &FrameDecl, viewport: &FrameViewportConfig) -> String {
-    let mut style = frame_style(frame);
+fn frame_style(
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+    theme: &ThemeResolved,
+) -> String {
+    let mut style = surface_layout_style(layout);
+    style.push_str(&container_visual_style(props));
+    style.push_str(&theme_css_vars_style(theme));
+    style
+}
+
+fn frame_stage_style(
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+    viewport: &FrameViewportConfig,
+    theme: &ThemeResolved,
+) -> String {
+    let mut style = frame_style(layout, props, theme);
     style.push_str(&format!(
         "width:{}px;height:{}px;transform-origin:top left;",
         viewport.design_width, viewport.design_height
@@ -559,29 +879,38 @@ fn panel_show_heading(props: &Value) -> bool {
     !matches!(map.get("chrome").and_then(Value::as_str), Some("bare"))
 }
 
-fn panel_heading_config(props: &Value) -> PanelHeadingConfig {
+fn panel_heading_config(theme_heading: &Value, props: &Value) -> PanelHeadingConfig {
     let mut variant = "default".to_string();
     let mut subtitle = None;
     let mut show_accent = None;
     let mut show_flair = None;
     let mut show_dots = None;
 
+    let heading_props = deep_merge_value(
+        theme_heading,
+        &props
+            .as_object()
+            .and_then(|map| map.get("heading"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+    );
+
     if let Some(map) = props.as_object() {
         subtitle = map
             .get("subtitle")
             .and_then(Value::as_str)
             .map(|value| value.to_string());
-        if let Some(heading) = map.get("heading").and_then(Value::as_object) {
-            if let Some(value) = heading.get("variant").and_then(Value::as_str) {
-                variant = value.to_string();
-            }
-            if let Some(value) = heading.get("subtitle").and_then(Value::as_str) {
-                subtitle = Some(value.to_string());
-            }
-            show_accent = heading.get("accent").and_then(Value::as_bool);
-            show_flair = heading.get("flair").and_then(Value::as_bool);
-            show_dots = heading.get("dots").and_then(Value::as_bool);
+    }
+    if let Some(heading) = heading_props.as_object() {
+        if let Some(value) = heading.get("variant").and_then(Value::as_str) {
+            variant = value.to_string();
         }
+        if let Some(value) = heading.get("subtitle").and_then(Value::as_str) {
+            subtitle = Some(value.to_string());
+        }
+        show_accent = heading.get("accent").and_then(Value::as_bool);
+        show_flair = heading.get("flair").and_then(Value::as_bool);
+        show_dots = heading.get("dots").and_then(Value::as_bool);
     }
 
     let (default_accent, default_flair, default_dots) = match variant.as_str() {
@@ -758,13 +1087,14 @@ mod tests {
 
     use super::{
         block_style, container_visual_style, frame_viewport_config, frame_viewport_style,
-        panel_body_style, panel_show_heading, panel_style, resolve_value, surface_layout_style,
+        panel_body_style, panel_show_heading, panel_style, resolve_panel_props, resolve_value,
+        surface_layout_style, ThemeResolved,
     };
     use mei_lang_kernel::{
         ColumnSchema, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
         SceneContract, SceneDecl, SourceDecl,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn grid_layout() -> LayoutDecl {
         LayoutDecl {
@@ -848,6 +1178,67 @@ mod tests {
     }
 
     #[test]
+    fn resolve_panel_props_merges_theme_panel_defaults() {
+        let theme = ThemeResolved {
+            id: "page".to_string(),
+            frame: json!({}),
+            panel: json!({
+                "padding": "12px",
+                "border": "1px solid #334155",
+            }),
+            panel_bare: json!({
+                "padding": "0",
+                "border": "none",
+            }),
+            heading: json!({}),
+            css_vars: Vec::new(),
+        };
+        let resolved = resolve_panel_props(
+            &theme,
+            &json!({
+                "padding": "4px",
+            }),
+        );
+        assert_eq!(resolved.get("padding").and_then(Value::as_str), Some("4px"));
+        assert_eq!(
+            resolved.get("border").and_then(Value::as_str),
+            Some("1px solid #334155")
+        );
+    }
+
+    #[test]
+    fn resolve_panel_props_prefers_bare_theme_when_chrome_is_bare() {
+        let theme = ThemeResolved {
+            id: "cockpit".to_string(),
+            frame: json!({}),
+            panel: json!({
+                "padding": "12px",
+                "border": "1px solid #334155",
+            }),
+            panel_bare: json!({
+                "padding": "0",
+                "border": "none",
+                "background": "transparent",
+            }),
+            heading: json!({}),
+            css_vars: Vec::new(),
+        };
+        let resolved = resolve_panel_props(
+            &theme,
+            &json!({
+                "chrome": "bare",
+                "padding": "2px",
+            }),
+        );
+        assert_eq!(resolved.get("padding").and_then(Value::as_str), Some("2px"));
+        assert_eq!(resolved.get("border").and_then(Value::as_str), Some("none"));
+        assert_eq!(
+            resolved.get("background").and_then(Value::as_str),
+            Some("transparent")
+        );
+    }
+
+    #[test]
     fn frame_viewport_config_supports_align_and_safe_inset() {
         let viewport = frame_viewport_config(&json!({
             "viewport": {
@@ -897,10 +1288,12 @@ mod tests {
                 kind: "scene".to_string(),
                 id: "home".to_string(),
                 profile: None,
+                theme: None,
                 summary: None,
                 goal: None,
                 state: json!({}),
             },
+            themes: vec![],
             world: None,
             flow: None,
             frame: None,
