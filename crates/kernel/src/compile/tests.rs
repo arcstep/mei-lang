@@ -25,14 +25,14 @@ fn write_file(path: &Path, content: &str) {
 fn build_regression_workspace_root() -> PathBuf {
     let root = temp_root("regression-workspace");
     for app_id in [
-        "021-dataset",
-        "031-cockpit",
-        "032-cockpit",
-        "041-fire",
-        "051-chart",
-        "042-fire-minimal",
-        "043-fire-spread",
-        "044-fire-multiroom",
+        "ds-01-dataset-baseline",
+        "cockpit-01-composition-shell",
+        "cockpit-02-multi-entry",
+        "sim-01-fire-baseline",
+        "chart-01-echarts",
+        "sim-02-fire-minimal",
+        "sim-03-fire-spread",
+        "sim-04-fire-multiroom",
     ] {
         write_file(
             &root.join(app_id).join("main.mei"),
@@ -70,7 +70,7 @@ frame.add_panel(
         );
     }
     write_file(
-        &root.join("032-cockpit").join("default.mei"),
+        &root.join("cockpit-02-multi-entry").join("default.mei"),
         r#"
 scene(
     id = "default_compare",
@@ -1026,14 +1026,14 @@ frame.add_panel(
 fn compile_examples_regressions() {
     let examples = build_regression_workspace_root();
     for app_id in [
-        "021-dataset",
-        "031-cockpit",
-        "032-cockpit",
-        "041-fire",
-        "051-chart",
-        "042-fire-minimal",
-        "043-fire-spread",
-        "044-fire-multiroom",
+        "ds-01-dataset-baseline",
+        "cockpit-01-composition-shell",
+        "cockpit-02-multi-entry",
+        "sim-01-fire-baseline",
+        "chart-01-echarts",
+        "sim-02-fire-minimal",
+        "sim-03-fire-spread",
+        "sim-04-fire-multiroom",
     ] {
         let app_root = examples.join(app_id);
         let compiled = compile_app_from_root(&examples, &app_root)
@@ -1056,7 +1056,7 @@ fn compile_examples_regressions() {
 #[test]
 fn parse_cockpit_default_compare_scene_file() {
     let root = build_regression_workspace_root();
-    let path = root.join("032-cockpit/default.mei");
+    let path = root.join("cockpit-02-multi-entry/default.mei");
     let value = evaluate_mei_file(&path).expect("parse default compare scene");
     let values = value.as_array().expect("scene file exports array");
     assert!(

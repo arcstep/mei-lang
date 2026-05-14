@@ -1,8 +1,0 @@
-app(
-    id = "044-fire-multiroom",
-    title = "044 Fire Multiroom",
-    default_scene = "multiroom_fire_watch",
-    entries = [
-        entry(id = "multiroom_fire_watch", scene = "home.mei"),
-    ],
-)

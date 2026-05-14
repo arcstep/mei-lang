@@ -1,8 +1,0 @@
-app(
-    id = "042-fire-minimal",
-    title = "042 Fire Minimal",
-    default_scene = "minimal_fire_cells",
-    entries = [
-        entry(id = "minimal_fire_cells", scene = "home.mei"),
-    ],
-)

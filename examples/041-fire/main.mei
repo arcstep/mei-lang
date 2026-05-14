@@ -1,8 +1,0 @@
-app(
-    id = "041-fire",
-    title = "041 Fire",
-    default_scene = "room_fire_click",
-    entries = [
-        entry(id = "room_fire_click", scene = "home.mei"),
-    ],
-)

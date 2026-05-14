@@ -39,7 +39,7 @@ enum Command {
 
 #[derive(clap::Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/examples")]
     source_root: PathBuf,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,

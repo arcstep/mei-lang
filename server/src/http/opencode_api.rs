@@ -412,6 +412,19 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
         value.trim().trim_end_matches('/').to_string()
     }
 
+    fn worktree_matches_expected(project_worktree: &str, expected_worktree: &str) -> bool {
+        let project = normalize_path(project_worktree);
+        let expected = normalize_path(expected_worktree);
+        if project == expected {
+            return true;
+        }
+
+        // OpenCode 可能返回 Git 仓库根目录（例如 `workspaces`），
+        // 而 MeiLang `source_root` 是该仓库下的子目录（例如 `workspaces/examples`）。
+        // 这种情况下仍应视为同一工作区上下文。
+        FsPath::new(&expected).starts_with(FsPath::new(&project))
+    }
+
     let server_url = match managed_opencode_server_url(&state) {
         Ok(url) => url,
         Err(_) => {
@@ -459,8 +472,7 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
             let project_matches = status
                 .project_worktree
                 .as_deref()
-                .map(normalize_path)
-                .is_some_and(|value| value == normalize_path(&expected_worktree));
+                .is_some_and(|value| worktree_matches_expected(value, &expected_worktree));
             if !status.healthy {
                 status.history_available = false;
                 status.history_reason =
