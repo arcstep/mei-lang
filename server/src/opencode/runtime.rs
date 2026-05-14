@@ -226,12 +226,18 @@ fn build_skill_status(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
     }
 }
 
+pub(crate) fn managed_opencode_skill_status_for_root(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
+    build_skill_status(package_root)
+}
+
 pub(crate) fn managed_opencode_skill_status(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     Ok(build_skill_status(&state.package_root))
 }
 
-pub(crate) fn sync_managed_opencode_skill(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    let source_dir = managed_skill_source_dir(&state.package_root);
+pub(crate) fn sync_managed_opencode_skill_for_root(
+    package_root: &FsPath,
+) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    let source_dir = managed_skill_source_dir(package_root);
     let source_entry = source_dir.join("SKILL.md");
     if !source_entry.exists() {
         anyhow::bail!(
@@ -239,9 +245,26 @@ pub(crate) fn sync_managed_opencode_skill(state: &AppState) -> anyhow::Result<Ma
             source_entry.display()
         );
     }
-    let install_dir = managed_skill_install_dir(&state.package_root);
+    let install_dir = managed_skill_install_dir(package_root);
     copy_skill_tree(&source_dir, &install_dir)?;
-    Ok(build_skill_status(&state.package_root))
+    Ok(build_skill_status(package_root))
+}
+
+pub(crate) fn sync_managed_opencode_skill(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    sync_managed_opencode_skill_for_root(&state.package_root)
+}
+
+pub(crate) fn ensure_managed_opencode_skill_synced(
+    state: &AppState,
+) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    let status = build_skill_status(&state.package_root);
+    if !status.source_present {
+        return Ok(status);
+    }
+    if status.installed && !status.stale {
+        return Ok(status);
+    }
+    sync_managed_opencode_skill_for_root(&state.package_root)
 }
 
 pub(crate) fn load_managed_opencode_skill_prompt(

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -32,6 +33,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Serve(ServeArgs),
+    Opencode(OpencodeArgs),
 }
 
 #[derive(clap::Args)]
@@ -50,6 +52,31 @@ struct ServeArgs {
     no_auto_opencode: bool,
 }
 
+#[derive(clap::Args)]
+struct OpencodeArgs {
+    #[command(subcommand)]
+    command: OpencodeCommand,
+}
+
+#[derive(Subcommand)]
+enum OpencodeCommand {
+    Skill(OpencodeSkillArgs),
+}
+
+#[derive(clap::Args)]
+struct OpencodeSkillArgs {
+    #[command(subcommand)]
+    command: OpencodeSkillCommand,
+}
+
+#[derive(Subcommand)]
+enum OpencodeSkillCommand {
+    /// 查看当前 MeiLang skill 安装与同步状态
+    Status,
+    /// 手动同步 MeiLang skill 到运行时目录
+    Sync,
+}
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     package_root: Arc<PathBuf>,
@@ -58,7 +85,14 @@ pub(crate) struct AppState {
     opencode_preferred_server_url: Arc<String>,
     opencode_auto_start: bool,
     opencode_runtime: Arc<Mutex<opencode::ManagedOpencodeRuntime>>,
+    opencode_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     opencode_http: Arc<HttpClient>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SessionContextSnapshot {
+    pub signature: String,
+    pub context: String,
 }
 
 #[tokio::main]
@@ -72,16 +106,21 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args).await,
+        Command::Opencode(args) => opencode_command(args),
     }
+}
+
+fn resolve_package_root() -> Result<PathBuf> {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .context("server crate manifest has no parent directory")
+        .map(std::path::Path::to_path_buf)
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
     // 二进制可能在任意 cwd 下启动；不要用 current_dir 推导源码与静态资源路径。
     // `mei-lang-server` 位于 `mei-lang/server/`，仓库根为上一级 `mei-lang/`。
-    let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .context("server crate manifest has no parent directory")?
-        .to_path_buf();
+    let package_root = resolve_package_root()?;
     opencode::runtime::load_repo_dotenv(&package_root);
     let source_root = if args.source_root.is_absolute() {
         args.source_root
@@ -102,6 +141,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         opencode_preferred_server_url: Arc::new(preferred_server_url.clone()),
         opencode_auto_start: auto_opencode,
         opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+        opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
         opencode_http: Arc::new(HttpClient::new()),
     };
     tracing::info!(
@@ -114,6 +154,25 @@ async fn serve(args: ServeArgs) -> Result<()> {
         opencode_auto_start = auto_opencode,
         "mei serve resolved paths"
     );
+    match opencode::runtime::ensure_managed_opencode_skill_synced(&state) {
+        Ok(status) => {
+            if status.source_present {
+                tracing::info!(
+                    installed = status.installed,
+                    stale = status.stale,
+                    file_count = status.file_count,
+                    install_dir = %status.install_dir,
+                    "ensured MeiLang skill is synced on startup"
+                );
+            } else {
+                tracing::warn!(
+                    source_dir = %status.source_dir,
+                    "MeiLang skill source directory is missing on startup"
+                );
+            }
+        }
+        Err(error) => tracing::warn!(%error, "failed to auto-sync MeiLang skill on startup"),
+    }
     let boot_state = state.clone();
     tokio::spawn(async move {
         if !boot_state.opencode_auto_start {
@@ -156,6 +215,24 @@ async fn serve(args: ServeArgs) -> Result<()> {
     tracing::info!("serving MeiLang skeleton at http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
+    Ok(())
+}
+
+fn opencode_command(args: OpencodeArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    opencode::runtime::load_repo_dotenv(&package_root);
+    match args.command {
+        OpencodeCommand::Skill(skill_args) => match skill_args.command {
+            OpencodeSkillCommand::Status => {
+                let status = opencode::runtime::managed_opencode_skill_status_for_root(&package_root);
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            }
+            OpencodeSkillCommand::Sync => {
+                let status = opencode::runtime::sync_managed_opencode_skill_for_root(&package_root)?;
+                println!("{}", serde_json::to_string_pretty(&status)?);
+            }
+        },
+    }
     Ok(())
 }
 

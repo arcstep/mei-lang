@@ -36,7 +36,7 @@ use crate::{
         },
         StartManagedOpencodeRequest,
     },
-    AppState,
+    AppState, SessionContextSnapshot,
 };
 
 use super::error_response;
@@ -155,7 +155,53 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
     Some(lines.join("\n"))
 }
 
-fn build_meilang_system_prompt(state: &AppState, existing: Option<&str>) -> Option<String> {
+fn build_context_signature(request: &BridgePromptRequest) -> Option<String> {
+    let app_id = request.app_id.as_deref()?.trim();
+    if app_id.is_empty() {
+        return None;
+    }
+    let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
+    let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
+    Some(format!("app={app_id}|entry={entry_id}|target={target_file}"))
+}
+
+fn load_or_refresh_session_context(
+    state: &AppState,
+    session_id: &str,
+    request: &BridgePromptRequest,
+) -> Option<String> {
+    let signature = build_context_signature(request)?;
+    {
+        let Ok(cache) = state.opencode_session_context.lock() else {
+            tracing::warn!("opencode session context cache lock poisoned; fallback to rebuild");
+            return build_dynamic_mei_context(state, request);
+        };
+        if let Some(snapshot) = cache.get(session_id) {
+            if snapshot.signature == signature {
+                return Some(snapshot.context.clone());
+            }
+        }
+    }
+    let context = build_dynamic_mei_context(state, request)?;
+    let Ok(mut cache) = state.opencode_session_context.lock() else {
+        tracing::warn!("opencode session context cache lock poisoned; skip cache write");
+        return Some(context);
+    };
+    cache.insert(
+        session_id.to_string(),
+        SessionContextSnapshot {
+            signature,
+            context: context.clone(),
+        },
+    );
+    Some(context)
+}
+
+fn build_meilang_system_prompt(
+    state: &AppState,
+    existing: Option<&str>,
+    session_context: Option<&str>,
+) -> Option<String> {
     let mut blocks = Vec::new();
     if let Some(system) = existing.map(str::trim).filter(|value| !value.is_empty()) {
         blocks.push(system.to_string());
@@ -176,10 +222,13 @@ fn build_meilang_system_prompt(state: &AppState, existing: Option<&str>) -> Opti
                 "source_kind: {}\npath: {}",
                 skill_prompt.source_kind, skill_prompt.skill_home
             ));
+            block.push_str(
+                "\n\n[Important]\nCompanion files are relative to skill_home. Resolve them as `skill_home/<file>` before reading.",
+            );
             if !skill_prompt.companion_files.is_empty() {
                 block.push_str("\n\n[Companion Files]\n");
                 for item in skill_prompt.companion_files {
-                    block.push_str(&format!("- {item}\n"));
+                    block.push_str(&format!("- rel: {item}\n"));
                 }
             }
             blocks.push(block.trim().to_string());
@@ -189,6 +238,9 @@ fn build_meilang_system_prompt(state: &AppState, existing: Option<&str>) -> Opti
             tracing::warn!(%error, "failed to load mei-lang skill prompt");
         }
     }
+    if let Some(context) = session_context {
+        blocks.push(format!("[MeiLang Session Context]\n{context}"));
+    }
     if blocks.is_empty() {
         None
     } else {
@@ -196,14 +248,18 @@ fn build_meilang_system_prompt(state: &AppState, existing: Option<&str>) -> Opti
     }
 }
 
-fn enrich_prompt_request(state: &AppState, mut request: BridgePromptRequest) -> BridgePromptRequest {
+fn enrich_prompt_request(
+    state: &AppState,
+    session_context: Option<&str>,
+    mut request: BridgePromptRequest,
+) -> BridgePromptRequest {
     let user_text = request.text.trim().to_string();
-    if let Some(context) = build_dynamic_mei_context(state, &request) {
-        request.text = format!("{context}\n\n[User Request]\n{user_text}");
-    } else {
-        request.text = user_text;
-    }
-    request.system = build_meilang_system_prompt(state, request.system.as_deref());
+    request.text = user_text;
+    request.system = build_meilang_system_prompt(
+        state,
+        request.system.as_deref(),
+        session_context,
+    );
     request
 }
 
@@ -333,7 +389,8 @@ pub async fn api_opencode_send_message(
         Ok(url) => url,
         Err(error) => return error_response(error),
     };
-    let request = enrich_prompt_request(&state, request);
+    let session_context = load_or_refresh_session_context(&state, &session_id, &request);
+    let request = enrich_prompt_request(&state, session_context.as_deref(), request);
     match bridge_send_prompt(&state.opencode_http, &server_url, &session_id, request).await {
         Ok(summary) => Json(summary).into_response(),
         Err(error) => error_response(error),
