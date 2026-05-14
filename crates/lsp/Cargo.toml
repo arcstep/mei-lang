@@ -1,0 +1,17 @@
+[package]
+name = "mei-lang-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "mei-lsp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+mei-lang-kernel = { path = "../kernel" }
+tokio = { workspace = true, features = ["io-std"] }
+tower-lsp.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

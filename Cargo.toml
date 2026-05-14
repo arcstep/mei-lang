@@ -2,6 +2,7 @@
 members = [
   "app",
   "crates/kernel",
+  "crates/lsp",
   "server",
 ]
 resolver = "2"
@@ -22,6 +23,7 @@ serde_json = "1"
 starlark = "0.13.0"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tower-lsp = "0.20"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
