@@ -23,9 +23,12 @@ pub struct AppQuery {
 
 pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> {
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
-    let first = apps
-        .first()
-        .ok_or_else(|| AppError::msg("examples source root does not contain any apps"))?;
+    let first = apps.first().ok_or_else(|| {
+        AppError::msg(format!(
+            "source root does not contain any apps: {}",
+            state.source_root.display()
+        ))
+    })?;
     Ok(Redirect::to(&format!("/apps/manage/{}", first.id)))
 }
 

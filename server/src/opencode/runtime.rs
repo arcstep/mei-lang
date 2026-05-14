@@ -15,9 +15,8 @@ use super::bridge::health as bridge_health;
 use super::{
     ManagedOpencodeConfigSummary, ManagedOpencodeExit, ManagedOpencodeProcess,
     ManagedOpencodeRuntime, ManagedOpencodeRuntimeStatus, ManagedOpencodeSkillPrompt,
-    ManagedOpencodeSkillStatus, StartManagedOpencodeRequest,
-    MANAGED_OPENCODE_PROVIDER_ID, MANAGED_OPENCODE_PROVIDER_NAME, MANAGED_OPENCODE_READONLY_AGENT,
-    MANAGED_OPENCODE_REQUIRED_ENV,
+    ManagedOpencodeSkillStatus, StartManagedOpencodeRequest, MANAGED_OPENCODE_PROVIDER_ID,
+    MANAGED_OPENCODE_PROVIDER_NAME, MANAGED_OPENCODE_READONLY_AGENT, MANAGED_OPENCODE_REQUIRED_ENV,
 };
 use crate::AppState;
 
@@ -78,7 +77,10 @@ fn managed_skill_install_dir(package_root: &FsPath) -> PathBuf {
 }
 
 fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
-    value.duration_since(UNIX_EPOCH).ok().map(|dur| dur.as_millis())
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|dur| dur.as_millis())
 }
 
 fn directory_latest_modified_ms(path: &FsPath) -> Option<u128> {
@@ -179,9 +181,8 @@ fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<
         };
         let target_path = install_dir.join(relative);
         if entry.file_type().is_dir() {
-            fs::create_dir_all(&target_path).with_context(|| {
-                format!("failed to create {}", target_path.display())
-            })?;
+            fs::create_dir_all(&target_path)
+                .with_context(|| format!("failed to create {}", target_path.display()))?;
             continue;
         }
         if let Some(parent) = target_path.parent() {
@@ -226,11 +227,15 @@ fn build_skill_status(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
     }
 }
 
-pub(crate) fn managed_opencode_skill_status_for_root(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
+pub(crate) fn managed_opencode_skill_status_for_root(
+    package_root: &FsPath,
+) -> ManagedOpencodeSkillStatus {
     build_skill_status(package_root)
 }
 
-pub(crate) fn managed_opencode_skill_status(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+pub(crate) fn managed_opencode_skill_status(
+    state: &AppState,
+) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     Ok(build_skill_status(&state.package_root))
 }
 
@@ -250,7 +255,9 @@ pub(crate) fn sync_managed_opencode_skill_for_root(
     Ok(build_skill_status(package_root))
 }
 
-pub(crate) fn sync_managed_opencode_skill(state: &AppState) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+pub(crate) fn sync_managed_opencode_skill(
+    state: &AppState,
+) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     sync_managed_opencode_skill_for_root(&state.package_root)
 }
 
@@ -593,7 +600,13 @@ pub(crate) async fn start_managed_opencode(
         anyhow::bail!("opencode host cannot be empty");
     }
     let port = request.port.unwrap_or(4099);
-    let working_directory = state.package_root.as_ref().to_path_buf();
+    let working_directory = state.source_root.as_ref().to_path_buf();
+    fs::create_dir_all(&working_directory).with_context(|| {
+        format!(
+            "failed to create opencode working directory {}",
+            working_directory.display()
+        )
+    })?;
 
     {
         let mut runtime = state

@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fs,
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -38,7 +39,7 @@ enum Command {
 
 #[derive(clap::Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "examples")]
+    #[arg(long, default_value = "../workspaces")]
     source_root: PathBuf,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
@@ -127,6 +128,18 @@ async fn serve(args: ServeArgs) -> Result<()> {
     } else {
         package_root.join(args.source_root)
     };
+    fs::create_dir_all(&source_root).with_context(|| {
+        format!(
+            "failed to create or access source root {}",
+            source_root.display()
+        )
+    })?;
+    let source_root = source_root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize source root {}",
+            source_root.display()
+        )
+    })?;
     let preferred_mode = if args.auto_opencode {
         "managed".to_string()
     } else {
@@ -224,11 +237,13 @@ fn opencode_command(args: OpencodeArgs) -> Result<()> {
     match args.command {
         OpencodeCommand::Skill(skill_args) => match skill_args.command {
             OpencodeSkillCommand::Status => {
-                let status = opencode::runtime::managed_opencode_skill_status_for_root(&package_root);
+                let status =
+                    opencode::runtime::managed_opencode_skill_status_for_root(&package_root);
                 println!("{}", serde_json::to_string_pretty(&status)?);
             }
             OpencodeSkillCommand::Sync => {
-                let status = opencode::runtime::sync_managed_opencode_skill_for_root(&package_root)?;
+                let status =
+                    opencode::runtime::sync_managed_opencode_skill_for_root(&package_root)?;
                 println!("{}", serde_json::to_string_pretty(&status)?);
             }
         },

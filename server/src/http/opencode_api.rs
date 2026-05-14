@@ -19,20 +19,25 @@ use crate::{
         bridge::{
             abort_session as bridge_abort_session, create_session as bridge_create_session,
             global_event as bridge_global_event, health as bridge_health,
-            list_sessions as bridge_list_sessions, respond_permission as bridge_respond_permission,
-            send_prompt as bridge_send_prompt, session_messages as bridge_session_messages,
+            list_sessions as bridge_list_sessions,
+            project_current_worktree as bridge_project_current_worktree,
+            respond_permission as bridge_respond_permission,
+            revert_session_message as bridge_revert_session_message,
+            send_prompt as bridge_send_prompt, session_diff as bridge_session_diff,
+            session_messages as bridge_session_messages,
+            unrevert_session as bridge_unrevert_session, vcs_summary as bridge_vcs_summary,
             BridgeCreateSessionRequest, BridgeHealthResponse, BridgePermissionResponseRequest,
-            BridgePromptRequest, BridgeSessionSummary,
+            BridgePromptRequest, BridgeRevertRequest, BridgeSessionDiffQuery, BridgeSessionSummary,
         },
         events::{
             extract_sse_data, normalize_global_event_to_host_event,
             normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
         },
         runtime::{
-            managed_opencode_config_summary, managed_opencode_runtime_status,
-            load_managed_opencode_skill_prompt, managed_opencode_server_url,
-            managed_opencode_skill_status,
-            start_managed_opencode, stop_managed_opencode, sync_managed_opencode_skill,
+            load_managed_opencode_skill_prompt, managed_opencode_config_summary,
+            managed_opencode_runtime_status, managed_opencode_server_url,
+            managed_opencode_skill_status, start_managed_opencode, stop_managed_opencode,
+            sync_managed_opencode_skill,
         },
         StartManagedOpencodeRequest,
     },
@@ -137,7 +142,10 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
     } else if let Some(target) = request.target_file.as_deref() {
         lines.push(format!("target: {}", target.trim()));
     }
-    lines.push("language: MeiLang .mei (Starlark-hosted DSL), not Music Encoding Initiative XML".to_string());
+    lines.push(
+        "language: MeiLang .mei (Starlark-hosted DSL), not Music Encoding Initiative XML"
+            .to_string(),
+    );
     lines.push(String::new());
     lines.push("[Application Mei Files]".to_string());
     if mei_files.is_empty() {
@@ -162,7 +170,9 @@ fn build_context_signature(request: &BridgePromptRequest) -> Option<String> {
     }
     let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
-    Some(format!("app={app_id}|entry={entry_id}|target={target_file}"))
+    Some(format!(
+        "app={app_id}|entry={entry_id}|target={target_file}"
+    ))
 }
 
 fn load_or_refresh_session_context(
@@ -255,11 +265,7 @@ fn enrich_prompt_request(
 ) -> BridgePromptRequest {
     let user_text = request.text.trim().to_string();
     request.text = user_text;
-    request.system = build_meilang_system_prompt(
-        state,
-        request.system.as_deref(),
-        session_context,
-    );
+    request.system = build_meilang_system_prompt(state, request.system.as_deref(), session_context);
     request
 }
 
@@ -289,6 +295,10 @@ pub async fn api_opencode_sync_skill(State(state): State<AppState>) -> Response 
 }
 
 pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
+    fn normalize_path(value: &str) -> String {
+        value.trim().trim_end_matches('/').to_string()
+    }
+
     let server_url = match managed_opencode_server_url(&state) {
         Ok(url) => url,
         Err(_) => {
@@ -296,12 +306,71 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
                 server_url: String::new(),
                 healthy: false,
                 version: String::new(),
+                expected_worktree: Some(state.source_root.display().to_string()),
+                project_worktree: None,
+                vcs_detected: false,
+                vcs_branch: None,
+                history_available: false,
+                history_reason: Some(
+                    "OpenCode 服务当前不可用；Undo/Redo 与自动刷新依赖正确的 worktree 和 Git/VCS 视角。"
+                        .to_string(),
+                ),
             })
             .into_response()
         }
     };
     match bridge_health(&state.opencode_http, &server_url).await {
-        Ok(status) => Json(status).into_response(),
+        Ok(mut status) => {
+            let expected_worktree = state.source_root.display().to_string();
+            status.expected_worktree = Some(expected_worktree.clone());
+            match bridge_project_current_worktree(&state.opencode_http, &server_url).await {
+                Ok(project_worktree) => status.project_worktree = project_worktree,
+                Err(error) => {
+                    status.history_available = false;
+                    status.history_reason =
+                        Some(format!("无法读取 OpenCode 当前 worktree：{error}"));
+                    return Json(status).into_response();
+                }
+            }
+            match bridge_vcs_summary(&state.opencode_http, &server_url).await {
+                Ok((vcs_detected, vcs_branch)) => {
+                    status.vcs_detected = vcs_detected;
+                    status.vcs_branch = vcs_branch;
+                }
+                Err(error) => {
+                    status.history_available = false;
+                    status.history_reason = Some(format!("无法读取 OpenCode VCS 状态：{error}"));
+                    return Json(status).into_response();
+                }
+            }
+            let project_matches = status
+                .project_worktree
+                .as_deref()
+                .map(normalize_path)
+                .is_some_and(|value| value == normalize_path(&expected_worktree));
+            if !status.healthy {
+                status.history_available = false;
+                status.history_reason =
+                    Some("OpenCode 服务未连接；Undo/Redo 与自动刷新当前不可用。".to_string());
+            } else if !project_matches {
+                status.history_available = false;
+                status.history_reason = Some(format!(
+                    "OpenCode 当前 worktree 为 {}，而 MeiLang 预期工作区为 {}；Undo/Redo 与自动刷新不可用。",
+                    status.project_worktree.as_deref().unwrap_or("(unknown)"),
+                    expected_worktree
+                ));
+            } else if !status.vcs_detected {
+                status.history_available = false;
+                status.history_reason = Some(
+                    "OpenCode 当前 worktree 未检测到 Git/VCS；Undo/Redo 与自动刷新不可用。"
+                        .to_string(),
+                );
+            } else {
+                status.history_available = true;
+                status.history_reason = None;
+            }
+            Json(status).into_response()
+        }
         Err(error) => error_response(error),
     }
 }
@@ -499,6 +568,28 @@ pub async fn api_opencode_session_messages(
     }
 }
 
+pub async fn api_opencode_session_diff(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Query(query): Query<BridgeSessionDiffQuery>,
+) -> Response {
+    let server_url = match managed_opencode_server_url(&state) {
+        Ok(url) => url,
+        Err(error) => return error_response(error),
+    };
+    match bridge_session_diff(
+        &state.opencode_http,
+        &server_url,
+        &session_id,
+        query.message_id.as_deref(),
+    )
+    .await
+    {
+        Ok(summary) => Json(summary).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
 pub async fn api_opencode_abort_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
@@ -508,6 +599,37 @@ pub async fn api_opencode_abort_session(
         Err(error) => return error_response(error),
     };
     match bridge_abort_session(&state.opencode_http, &server_url, &session_id).await {
+        Ok(summary) => Json(summary).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_opencode_revert_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(request): Json<BridgeRevertRequest>,
+) -> Response {
+    let server_url = match managed_opencode_server_url(&state) {
+        Ok(url) => url,
+        Err(error) => return error_response(error),
+    };
+    match bridge_revert_session_message(&state.opencode_http, &server_url, &session_id, request)
+        .await
+    {
+        Ok(summary) => Json(summary).into_response(),
+        Err(error) => error_response(error),
+    }
+}
+
+pub async fn api_opencode_unrevert_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Response {
+    let server_url = match managed_opencode_server_url(&state) {
+        Ok(url) => url,
+        Err(error) => return error_response(error),
+    };
+    match bridge_unrevert_session(&state.opencode_http, &server_url, &session_id).await {
         Ok(summary) => Json(summary).into_response(),
         Err(error) => error_response(error),
     }

@@ -42,6 +42,12 @@ pub(crate) struct BridgeHealthResponse {
     pub server_url: String,
     pub healthy: bool,
     pub version: String,
+    pub expected_worktree: Option<String>,
+    pub project_worktree: Option<String>,
+    pub vcs_detected: bool,
+    pub vcs_branch: Option<String>,
+    pub history_available: bool,
+    pub history_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,6 +86,20 @@ pub(crate) struct BridgePermissionResponseRequest {
     pub response: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct BridgeSessionDiffQuery {
+    #[serde(default, alias = "messageID")]
+    pub message_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct BridgeRevertRequest {
+    #[serde(alias = "messageID")]
+    pub message_id: String,
+    #[serde(default, alias = "partID")]
+    pub part_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BridgePermissionResponseSummary {
     pub session_id: String,
@@ -94,10 +114,48 @@ pub(crate) struct BridgeAbortSummary {
     pub aborted: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BridgeFileDiffSummary {
+    pub file: String,
+    pub additions: u64,
+    pub deletions: u64,
+    pub before: String,
+    pub after: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BridgeDiffSummary {
+    pub session_id: String,
+    pub message_id: Option<String>,
+    pub additions: u64,
+    pub deletions: u64,
+    pub files: Vec<BridgeFileDiffSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BridgeRevertSummary {
+    pub session_id: String,
+    pub message_id: String,
+    pub part_id: Option<String>,
+    pub reverted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct BridgeUnrevertSummary {
+    pub session_id: String,
+    pub restored: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct UpstreamHealth {
     healthy: bool,
     version: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpstreamProjectCurrent {
+    #[serde(default)]
+    worktree: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -148,6 +206,15 @@ struct UpstreamPromptResponse {
     info: UpstreamAssistantInfo,
     #[serde(default)]
     parts: Vec<Value>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpstreamFileDiff {
+    file: String,
+    before: String,
+    after: String,
+    additions: u64,
+    deletions: u64,
 }
 
 fn normalize_server_url(server_url: &str) -> String {
@@ -222,7 +289,45 @@ pub(crate) async fn health(client: &Client, server_url: &str) -> Result<BridgeHe
         server_url,
         healthy: upstream.healthy,
         version: upstream.version,
+        expected_worktree: None,
+        project_worktree: None,
+        vcs_detected: false,
+        vcs_branch: None,
+        history_available: false,
+        history_reason: None,
     })
+}
+
+pub(crate) async fn project_current_worktree(
+    client: &Client,
+    server_url: &str,
+) -> Result<Option<String>> {
+    let server_url = normalize_server_url(server_url);
+    let upstream =
+        get_json::<UpstreamProjectCurrent>(client, &format!("{server_url}/project/current"))
+            .await?;
+    Ok(upstream
+        .worktree
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty()))
+}
+
+pub(crate) async fn vcs_summary(
+    client: &Client,
+    server_url: &str,
+) -> Result<(bool, Option<String>)> {
+    let server_url = normalize_server_url(server_url);
+    let upstream = get_json::<Value>(client, &format!("{server_url}/vcs")).await?;
+    let detected = upstream
+        .as_object()
+        .map(|value| !value.is_empty())
+        .unwrap_or(false);
+    let branch = upstream
+        .get("branch")
+        .and_then(Value::as_str)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    Ok((detected, branch))
 }
 
 fn summarize_session(session: UpstreamSession) -> BridgeSessionSummary {
@@ -260,6 +365,36 @@ fn summarize_prompt_response(response: UpstreamPromptResponse) -> BridgePromptSu
         texts,
         part_types,
         error: response.info.error,
+    }
+}
+
+fn summarize_diff(
+    session_id: &str,
+    message_id: Option<String>,
+    files: Vec<UpstreamFileDiff>,
+) -> BridgeDiffSummary {
+    let mut additions = 0;
+    let mut deletions = 0;
+    let files = files
+        .into_iter()
+        .map(|item| {
+            additions += item.additions;
+            deletions += item.deletions;
+            BridgeFileDiffSummary {
+                file: item.file,
+                additions: item.additions,
+                deletions: item.deletions,
+                before: item.before,
+                after: item.after,
+            }
+        })
+        .collect::<Vec<_>>();
+    BridgeDiffSummary {
+        session_id: session_id.to_string(),
+        message_id,
+        additions,
+        deletions,
+        files,
     }
 }
 
@@ -354,6 +489,27 @@ pub(crate) async fn session_messages(
     .await
 }
 
+pub(crate) async fn session_diff(
+    client: &Client,
+    server_url: &str,
+    session_id: &str,
+    message_id: Option<&str>,
+) -> Result<BridgeDiffSummary> {
+    let server_url = normalize_server_url(server_url);
+    let mut url = format!("{server_url}/session/{session_id}/diff");
+    let requested_message_id = message_id.map(str::trim).filter(|value| !value.is_empty());
+    if let Some(mid) = requested_message_id {
+        url.push_str("?messageID=");
+        url.push_str(mid);
+    }
+    let upstream = get_json::<Vec<UpstreamFileDiff>>(client, &url).await?;
+    Ok(summarize_diff(
+        session_id,
+        requested_message_id.map(ToString::to_string),
+        upstream,
+    ))
+}
+
 pub(crate) async fn abort_session(
     client: &Client,
     server_url: &str,
@@ -369,6 +525,57 @@ pub(crate) async fn abort_session(
     Ok(BridgeAbortSummary {
         session_id: session_id.to_string(),
         aborted,
+    })
+}
+
+pub(crate) async fn revert_session_message(
+    client: &Client,
+    server_url: &str,
+    session_id: &str,
+    request: BridgeRevertRequest,
+) -> Result<BridgeRevertSummary> {
+    let message_id = request.message_id.trim().to_string();
+    if message_id.is_empty() {
+        anyhow::bail!("message_id is required");
+    }
+    let part_id = request
+        .part_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let server_url = normalize_server_url(server_url);
+    let mut body = json!({ "messageID": message_id });
+    if let Some(part_id) = part_id.as_deref() {
+        body["partID"] = Value::String(part_id.to_string());
+    }
+    let reverted = post_json::<bool>(
+        client,
+        &format!("{server_url}/session/{session_id}/revert"),
+        body,
+    )
+    .await?;
+    Ok(BridgeRevertSummary {
+        session_id: session_id.to_string(),
+        message_id,
+        part_id,
+        reverted,
+    })
+}
+
+pub(crate) async fn unrevert_session(
+    client: &Client,
+    server_url: &str,
+    session_id: &str,
+) -> Result<BridgeUnrevertSummary> {
+    let server_url = normalize_server_url(server_url);
+    let restored = post_json::<bool>(
+        client,
+        &format!("{server_url}/session/{session_id}/unrevert"),
+        json!({}),
+    )
+    .await?;
+    Ok(BridgeUnrevertSummary {
+        session_id: session_id.to_string(),
+        restored,
     })
 }
 

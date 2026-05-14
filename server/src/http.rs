@@ -65,6 +65,18 @@ pub fn router() -> Router<AppState> {
             get(opencode_api::api_opencode_session_messages),
         )
         .route(
+            "/api/opencode/session/:session_id/diff",
+            get(opencode_api::api_opencode_session_diff),
+        )
+        .route(
+            "/api/opencode/session/:session_id/revert",
+            post(opencode_api::api_opencode_revert_session),
+        )
+        .route(
+            "/api/opencode/session/:session_id/unrevert",
+            post(opencode_api::api_opencode_unrevert_session),
+        )
+        .route(
             "/api/opencode/session/:session_id/abort",
             post(opencode_api::api_opencode_abort_session),
         )
