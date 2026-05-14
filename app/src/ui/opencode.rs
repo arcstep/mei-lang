@@ -35,9 +35,6 @@ pub(super) fn panel_view(
                         <button type="button" class="author-btn" id="author-reconnect-btn" title="重连服务" hidden>
                             "重连"
                         </button>
-                        <button type="button" class="author-btn" id="author-skill-sync-btn" title="同步 MeiLang Skill">
-                            "同步Skill"
-                        </button>
                     </div>
                     <div class="author-top-actions author-top-actions-right">
                         <button

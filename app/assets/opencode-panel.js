@@ -9,7 +9,6 @@
     modelLabel: document.getElementById("author-model-label"),
     reconnect: document.getElementById("author-reconnect-btn"),
     newSession: document.getElementById("author-session-btn"),
-    skillSync: document.getElementById("author-skill-sync-btn"),
     skillLine: document.getElementById("author-skill-line"),
     sessionSelect: document.getElementById("author-session-select"),
     chatLog: document.getElementById("author-chat-log"),
@@ -40,7 +39,7 @@
     generationSettleTimer: null,
     _meiAutoSessionOnce: false,
     _meiClientAutoOpencodeOnce: false,
-    syncingSkill: false,
+    lastMessagesFingerprint: "",
   };
 
   const sessionStorageKey =
@@ -50,6 +49,7 @@
     String(root.dataset.target || "");
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
+  const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
 
   function escapeHtml(value) {
     return String(value)
@@ -142,7 +142,6 @@
     const controlsDisabled = disabled || state.sending || state.aborting;
     if (els.reconnect) els.reconnect.disabled = controlsDisabled;
     if (els.newSession) els.newSession.disabled = controlsDisabled;
-    if (els.skillSync) els.skillSync.disabled = controlsDisabled || state.syncingSkill;
     if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
     renderRunButton(disabled);
   }
@@ -569,16 +568,42 @@
     );
   }
 
+  function chatScrollSnapshot() {
+    if (!els.chatLog) return null;
+    const scrollTop = Number(els.chatLog.scrollTop || 0);
+    const clientHeight = Number(els.chatLog.clientHeight || 0);
+    const scrollHeight = Number(els.chatLog.scrollHeight || 0);
+    const distanceToBottom = scrollHeight - (scrollTop + clientHeight);
+    return {
+      scrollTop: scrollTop,
+      nearBottom: distanceToBottom <= CHAT_BOTTOM_STICKY_THRESHOLD_PX,
+    };
+  }
+
+  function restoreChatScroll(snapshot, autoStickBottom) {
+    if (!els.chatLog) return;
+    if (autoStickBottom) {
+      els.chatLog.scrollTop = els.chatLog.scrollHeight;
+      return;
+    }
+    if (!snapshot) return;
+    els.chatLog.scrollTop = snapshot.scrollTop;
+  }
+
   function renderMessages() {
     if (!els.chatLog) return;
+    const scrollSnapshot = chatScrollSnapshot();
+    const shouldStickBottom = !scrollSnapshot || scrollSnapshot.nearBottom;
     if (!state.sessionId) {
       els.chatLog.innerHTML =
         '<div class="author-chat-empty">未选择会话。可先点击“新建对话”，或等待宿主自动创建/恢复会话。</div>';
+      restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
     if (!state.messages.length) {
       els.chatLog.innerHTML =
         '<div class="author-chat-empty">发送任务后，这里会连续显示输入、参考信息和模型回复。</div>';
+      restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
     els.chatLog.innerHTML = state.messages
@@ -678,7 +703,7 @@
       });
     });
 
-    els.chatLog.scrollTop = els.chatLog.scrollHeight;
+    restoreChatScroll(scrollSnapshot, shouldStickBottom);
   }
 
   function pushMessage(role, body, options) {
@@ -938,6 +963,7 @@
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
         state.messages = [];
+        state.lastMessagesFingerprint = "";
         rememberSession();
       }
       if (!state.sessionId && boundSessions.length > 0) {
@@ -991,25 +1017,6 @@
     await refreshAll();
   }
 
-  async function syncSkill() {
-    if (state.syncingSkill) return;
-    state.syncingSkill = true;
-    setButtonState(false);
-    try {
-      const status = await fetchJson("/api/opencode/skill/sync", {
-        method: "POST",
-      });
-      state.skillStatus = status;
-      renderSkillStatus();
-      setInlineNote("MeiLang Skill 已同步");
-    } catch (error) {
-      setInlineNote("同步 Skill 失败：" + String(error.message || error));
-    } finally {
-      state.syncingSkill = false;
-      setButtonState(false);
-    }
-  }
-
   function buildSessionTitle() {
     return buildBoundSessionTitle(currentTargetKey());
   }
@@ -1039,6 +1046,7 @@
   async function refreshMessages() {
     if (!state.sessionId || !(state.health && state.health.healthy)) {
       closeEventStream();
+      state.lastMessagesFingerprint = "";
       renderMessages();
       return;
     }
@@ -1048,6 +1056,11 @@
         "/messages?limit=80",
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
+    const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
+    if (nextFingerprint === state.lastMessagesFingerprint) {
+      return;
+    }
+    state.lastMessagesFingerprint = nextFingerprint;
     state.messages = list.map(normalizeMessage);
     renderMessages();
   }
@@ -1180,14 +1193,6 @@
     els.newSession.addEventListener("click", function () {
       createSession().catch(function (error) {
         setInlineNote("创建会话失败：" + String(error.message || error));
-      });
-    });
-  }
-
-  if (els.skillSync) {
-    els.skillSync.addEventListener("click", function () {
-      syncSkill().catch(function (error) {
-        setInlineNote("同步 Skill 失败：" + String(error.message || error));
       });
     });
   }
