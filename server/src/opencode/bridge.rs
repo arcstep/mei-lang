@@ -293,6 +293,17 @@ async fn post_json<T: DeserializeOwned>(client: &Client, url: &str, body: Value)
         .with_context(|| format!("failed to decode JSON from {url}: {text}"))
 }
 
+fn decode_applied_response(action: &str, value: Value) -> Result<bool> {
+    match value {
+        Value::Bool(applied) => Ok(applied),
+        Value::Object(_) => Ok(true),
+        other => anyhow::bail!(
+            "unexpected {action} response shape: {}",
+            serde_json::to_string(&other).unwrap_or_else(|_| "<non-json>".to_string())
+        ),
+    }
+}
+
 pub(crate) async fn health(client: &Client, server_url: &str) -> Result<BridgeHealthResponse> {
     let server_url = normalize_server_url(server_url);
     let upstream =
@@ -572,12 +583,15 @@ pub(crate) async fn revert_session_message(
     if let Some(part_id) = part_id.as_deref() {
         body["partID"] = Value::String(part_id.to_string());
     }
-    let reverted = post_json::<bool>(
-        client,
-        &format!("{server_url}/session/{session_id}/revert"),
-        body,
-    )
-    .await?;
+    let reverted = decode_applied_response(
+        "revert",
+        post_json::<Value>(
+            client,
+            &format!("{server_url}/session/{session_id}/revert"),
+            body,
+        )
+        .await?,
+    )?;
     Ok(BridgeRevertSummary {
         session_id: session_id.to_string(),
         message_id,
@@ -592,12 +606,15 @@ pub(crate) async fn unrevert_session(
     session_id: &str,
 ) -> Result<BridgeUnrevertSummary> {
     let server_url = normalize_server_url(server_url);
-    let restored = post_json::<bool>(
-        client,
-        &format!("{server_url}/session/{session_id}/unrevert"),
-        json!({}),
-    )
-    .await?;
+    let restored = decode_applied_response(
+        "unrevert",
+        post_json::<Value>(
+            client,
+            &format!("{server_url}/session/{session_id}/unrevert"),
+            json!({}),
+        )
+        .await?,
+    )?;
     Ok(BridgeUnrevertSummary {
         session_id: session_id.to_string(),
         restored,
@@ -640,4 +657,35 @@ pub(crate) async fn global_event(client: &Client, server_url: &str) -> Result<re
         .with_context(|| format!("failed to GET {server_url}/global/event"))?
         .error_for_status()
         .with_context(|| format!("GET {server_url}/global/event returned error status"))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::decode_applied_response;
+
+    #[test]
+    fn decode_applied_response_accepts_bool() {
+        assert!(decode_applied_response("revert", json!(true)).expect("bool response"));
+    }
+
+    #[test]
+    fn decode_applied_response_accepts_session_object() {
+        assert!(
+            decode_applied_response(
+                "revert",
+                json!({
+                    "id": "ses_demo",
+                    "revert": { "messageID": "msg_demo" }
+                }),
+            )
+            .expect("object response")
+        );
+    }
+
+    #[test]
+    fn decode_applied_response_rejects_unexpected_shape() {
+        assert!(decode_applied_response("revert", json!("unexpected")).is_err());
+    }
 }

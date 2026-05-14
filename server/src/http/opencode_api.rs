@@ -127,6 +127,45 @@ fn blocked_notice_from_pending(item: BridgePendingPermission) -> HostBlockedPerm
     }
 }
 
+async fn collect_and_reject_blocked_permissions(
+    state: &AppState,
+    server_url: &str,
+    session_id: &str,
+) -> anyhow::Result<Vec<HostBlockedPermissionNotice>> {
+    let items = bridge_list_pending_permissions(&state.opencode_http, server_url).await?;
+    let mut notices = Vec::new();
+    for item in items.into_iter().filter(|item| item.session_id == session_id) {
+        let permission_id = item.id.trim().to_string();
+        let mut notice = blocked_notice_from_pending(item);
+        if !permission_id.is_empty() {
+            match bridge_respond_permission(
+                &state.opencode_http,
+                server_url,
+                session_id,
+                &permission_id,
+                BridgePermissionResponseRequest {
+                    response: "reject".to_string(),
+                },
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        session_id = %session_id,
+                        permission_id = %permission_id,
+                        %error,
+                        "failed to auto-reject pending opencode permission"
+                    );
+                    notice.message = format!("{}（自动拒绝失败：{}）", notice.message, error);
+                }
+            }
+        }
+        notices.push(notice);
+    }
+    Ok(notices)
+}
+
 fn sanitize_relative_path(value: &str) -> Option<String> {
     let mut parts = Vec::new();
     for component in FsPath::new(value).components() {
@@ -525,15 +564,8 @@ pub async fn api_opencode_pending_permissions(
         Ok(url) => url,
         Err(error) => return error_response(error),
     };
-    match bridge_list_pending_permissions(&state.opencode_http, &server_url).await {
-        Ok(items) => {
-            let pending = items
-                .into_iter()
-                .filter(|item| item.session_id == session_id)
-                .map(blocked_notice_from_pending)
-                .collect::<Vec<_>>();
-            Json(HostBlockedPermissionList { session_id, pending }).into_response()
-        }
+    match collect_and_reject_blocked_permissions(&state, &server_url, &session_id).await {
+        Ok(pending) => Json(HostBlockedPermissionList { session_id, pending }).into_response(),
         Err(error) => error_response(error),
     }
 }

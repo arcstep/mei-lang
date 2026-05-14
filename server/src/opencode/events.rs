@@ -14,6 +14,8 @@ pub(crate) struct HostOpencodeMessageSnapshot {
     pub session_id: String,
     pub message_id: String,
     pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub finish: Option<String>,
     pub parts: Vec<HostOpencodePartSummary>,
 }
 
@@ -57,6 +59,7 @@ pub(crate) enum HostOpencodeEvent {
         session_id: String,
         message_id: String,
         role: String,
+        finish: Option<String>,
     },
     MessagePartUpsert {
         session_id: String,
@@ -217,6 +220,10 @@ pub(crate) fn normalize_upstream_message_to_snapshot(
         .and_then(Value::as_str)
         .unwrap_or("assistant")
         .to_string();
+    let finish = info
+        .get("finish")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
     let parts = raw
         .parts
         .iter()
@@ -226,6 +233,7 @@ pub(crate) fn normalize_upstream_message_to_snapshot(
         session_id,
         message_id,
         role,
+        finish,
         parts,
     })
 }
@@ -270,6 +278,7 @@ pub(crate) fn normalize_global_event_to_host_event(
                 session_id: session_id.to_string(),
                 message_id,
                 role,
+                finish: info.get("finish").and_then(Value::as_str).map(ToString::to_string),
             })
         }
         "message.part.updated" => {
