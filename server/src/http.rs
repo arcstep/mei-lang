@@ -19,12 +19,12 @@ pub fn router() -> Router<AppState> {
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
         .route("/", get(pages::index))
-        .route("/apps/:mode/:app_id", get(pages::app_page))
+        .route("/apps/:mode/*app_id", get(pages::app_page))
         .route(
-            "/api/projection/:app_id",
+            "/api/projection/*app_id",
             get(projection_api::projection_api),
         )
-        .route("/api/sim/step/:app_id", post(scene_api::sim_step_api))
+        .route("/api/sim/step/*app_id", post(scene_api::sim_step_api))
         .route(
             "/api/opencode/config",
             get(opencode_api::api_opencode_config),

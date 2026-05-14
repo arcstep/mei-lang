@@ -12,28 +12,34 @@ use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
 pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = Vec::new();
-    for entry in fs::read_dir(source_root)
-        .with_context(|| format!("failed to read source root {}", source_root.display()))?
-    {
-        let entry = entry?;
-        let path = entry.path();
-        if !path.is_dir() {
+    let walker = WalkDir::new(source_root)
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|entry| {
+            if !entry.file_type().is_dir() {
+                return true;
+            }
+            let name = entry.file_name().to_string_lossy();
+            !name.starts_with('_') && !name.starts_with('.')
+        });
+    for entry in walker.filter_map(|entry| entry.ok()) {
+        if !entry.file_type().is_file() || entry.file_name() != "main.mei" {
             continue;
         }
-        let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        let Some(app_root) = entry.path().parent() else {
             continue;
         };
-        if name.starts_with('_') {
+        let Ok(relative) = app_root.strip_prefix(source_root) else {
             continue;
-        }
-        let main_path = path.join("main.mei");
-        if !main_path.exists() {
+        };
+        let id = relative.to_string_lossy().replace('\\', "/");
+        if id.is_empty() {
             continue;
         }
         apps.push(WorkspaceAppMeta {
-            id: name.to_string(),
-            title: name.to_string(),
-            root: path.to_string_lossy().to_string(),
+            id: id.clone(),
+            title: id,
+            root: app_root.to_string_lossy().to_string(),
         });
     }
     apps.sort_by(|left, right| left.id.cmp(&right.id));
@@ -122,7 +128,19 @@ struct ComponentManifestEntry {
 }
 
 pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, ComponentAsset>> {
-    let components_root = source_root.join("_components");
+    let components_root = if source_root.join("_components").exists() {
+        source_root.join("_components")
+    } else if source_root
+        .parent()
+        .is_some_and(|parent| parent.join("_components").exists())
+    {
+        source_root
+            .parent()
+            .map(|parent| parent.join("_components"))
+            .expect("parent existence checked above")
+    } else {
+        source_root.join("_components")
+    };
     if !components_root.exists() {
         return Ok(BTreeMap::new());
     }

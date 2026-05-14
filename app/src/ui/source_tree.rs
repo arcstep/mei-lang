@@ -15,7 +15,7 @@ pub(super) fn controls_view() -> impl IntoView {
 pub(super) fn source_tree_view(
     nodes: &[WorkspaceNode],
     route_mode: UiRouteMode,
-    app_id: &str,
+    app_path: &str,
     selected_target: &str,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
@@ -28,7 +28,7 @@ pub(super) fn source_tree_view(
                 let children = source_tree_view(
                     &node.children,
                     route_mode,
-                    app_id,
+                    app_path,
                     selected_target,
                     selected_entry,
                     preview_target,
@@ -47,7 +47,7 @@ pub(super) fn source_tree_view(
             } else {
                 let href = source_href(
                     route_mode,
-                    app_id,
+                    app_path,
                     node.path.as_str(),
                     selected_entry,
                     preview_target,
@@ -72,7 +72,7 @@ pub(super) fn source_tree_view(
 pub(super) fn entry_list_view(
     entries: &[CompiledEntryMeta],
     route_mode: UiRouteMode,
-    app_id: &str,
+    app_path: &str,
     active_entry: Option<&str>,
 ) -> AnyView {
     if entries.is_empty() {
@@ -84,7 +84,7 @@ pub(super) fn entry_list_view(
             let href = format!(
                 "/apps/{}/{}?entry={}&target={}",
                 route_mode.slug(),
-                app_id,
+                app_path,
                 entry.entry_id,
                 entry.target_file
             );
@@ -115,7 +115,7 @@ pub(super) fn entry_list_view(
 
 fn source_href(
     route_mode: UiRouteMode,
-    app_id: &str,
+    app_path: &str,
     path: &str,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
@@ -124,12 +124,12 @@ fn source_href(
         return format!(
             "/apps/{}/{}?target={}&preview_target={}",
             route_mode.slug(),
-            app_id,
+            app_path,
             path,
             path
         );
     }
-    let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_id, path);
+    let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
     if let Some(preview_target) = preview_target {
         href.push_str("&preview_target=");
         href.push_str(preview_target);

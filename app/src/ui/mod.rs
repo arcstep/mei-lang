@@ -1,5 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 mod opencode;
 mod preview;
@@ -15,9 +17,43 @@ pub struct SourcePanelMeta {
     pub last_modified_label: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TopbarMenuConfig {
+    #[serde(default)]
+    pub skip_prefixes: Vec<String>,
+    #[serde(default)]
+    pub groups: Vec<TopbarMenuConfigGroup>,
+    #[serde(default)]
+    pub items: Vec<TopbarMenuConfigItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopbarMenuConfigGroup {
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub order: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopbarMenuConfigItem {
+    pub app_id: String,
+    #[serde(default)]
+    pub group: Option<String>,
+    #[serde(default)]
+    pub subgroup: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub order: Option<i32>,
+}
+
 pub fn render_page(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
+    app_path: &str,
+    topbar_menu_config: Option<&TopbarMenuConfig>,
     route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
@@ -37,6 +73,8 @@ pub fn render_page(
         UiRouteMode::Access => access_shell(
             apps,
             compiled,
+            app_path,
+            topbar_menu_config,
             selected_entry,
             preview_target,
             chrome_hidden,
@@ -44,6 +82,8 @@ pub fn render_page(
         UiRouteMode::Manage => manage_shell(
             apps,
             compiled,
+            app_path,
+            topbar_menu_config,
             target,
             source,
             source_meta,
@@ -67,6 +107,7 @@ pub fn render_page(
             <body class=body_class>
                 {shell}
                 {component_scripts(compiled)}
+                <script src="/app-assets/topbar-menu.js"></script>
                 {chrome_scripts}
             </body>
         </html>
@@ -77,14 +118,18 @@ pub fn render_page(
 fn access_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
+    app_path: &str,
+    topbar_menu_config: Option<&TopbarMenuConfig>,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
     chrome_hidden: bool,
 ) -> AnyView {
-    let preview = preview::preview_view(compiled);
+    let preview = preview::preview_view(compiled, app_path);
     let topbar = topbar_view(
         apps,
         compiled,
+        app_path,
+        topbar_menu_config,
         UiRouteMode::Access,
         selected_entry,
         preview_target,
@@ -137,6 +182,8 @@ fn access_shell(
 fn manage_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
+    app_path: &str,
+    topbar_menu_config: Option<&TopbarMenuConfig>,
     target: Option<&str>,
     source: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
@@ -147,18 +194,18 @@ fn manage_shell(
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
     let source_meta_text = source_meta_summary(source_meta);
-    let preview = preview::preview_view(compiled);
+    let preview = preview::preview_view(compiled, app_path);
     let active_entry = compiled.active_entry.as_deref();
     let source_entries = source_tree::entry_list_view(
         &compiled.entries,
         UiRouteMode::Manage,
-        &compiled.app_id,
+        app_path,
         active_entry,
     );
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
         UiRouteMode::Manage,
-        &compiled.app_id,
+        app_path,
         selected_target.as_str(),
         selected_entry.or(active_entry),
         preview_target,
@@ -167,6 +214,8 @@ fn manage_shell(
     let topbar = topbar_view(
         apps,
         compiled,
+        app_path,
+        topbar_menu_config,
         UiRouteMode::Manage,
         selected_entry.or(active_entry),
         preview_target,
@@ -191,7 +240,7 @@ fn manage_shell(
                     <div class="sidebar-header">
                         <div class="panel-heading">
                             <h2>"资源树"</h2>
-                            <p>{compiled.app_id.clone()}</p>
+                            <p>{app_path.to_string()}</p>
                         </div>
                         {source_entries}
                         {source_tree::controls_view()}
@@ -260,7 +309,7 @@ fn manage_shell(
                 ></div>
                 <aside class="sidebar right">
                     <div class="sidebar-scroll">
-                        {opencode::panel_view(compiled, UiRouteMode::Manage, selected_target.as_str())}
+                        {opencode::panel_view(compiled, app_path, UiRouteMode::Manage, selected_target.as_str())}
                     </div>
                 </aside>
             </div>
@@ -272,32 +321,85 @@ fn manage_shell(
 fn topbar_view(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
+    active_app_path: &str,
+    topbar_menu_config: Option<&TopbarMenuConfig>,
     route_mode: UiRouteMode,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let app_tabs = apps
-        .iter()
-        .map(|app| {
-            let class = if app.id == compiled.app_id {
-                "app-tab active"
-            } else {
-                "app-tab"
-            };
-            let href = format!("/apps/{}/{}", route_mode.slug(), app.id);
-            view! { <a class=class href=href>{app.id.clone()}</a> }
+    let app_tabs = build_topbar_menu_groups(apps, topbar_menu_config)
+        .into_iter()
+        .map(|group| {
+            let group_id = group.id.clone();
+            let group_label = group.label.clone();
+            let mut direct_items = Vec::new();
+            let mut subgroup_items: BTreeMap<String, Vec<_>> = BTreeMap::new();
+            for item in &group.items {
+                if let Some(subgroup) = &item.subgroup {
+                    subgroup_items
+                        .entry(subgroup.clone())
+                        .or_default()
+                        .push(item.clone());
+                } else {
+                    direct_items.push(item.clone());
+                }
+            }
+            let direct_links = direct_items
+                .iter()
+                .map(|item| {
+                    let class = if item.app_id.as_str() == active_app_path {
+                        "app-tab app-tab-sub active"
+                    } else {
+                        "app-tab app-tab-sub"
+                    };
+                    let href = format!("/apps/{}/{}", route_mode.slug(), item.app_id);
+                    view! { <a class=class href=href>{item.label.clone()}</a> }
+                })
+                .collect_view();
+            let subgroup_blocks = subgroup_items
+                .into_iter()
+                .map(|(subgroup, items)| {
+                    let links = items
+                        .iter()
+                        .map(|item| {
+                            let class = if item.app_id.as_str() == active_app_path {
+                                "app-tab app-tab-sub active"
+                            } else {
+                                "app-tab app-tab-sub"
+                            };
+                            let href = format!("/apps/{}/{}", route_mode.slug(), item.app_id);
+                            view! { <a class=class href=href>{item.label.clone()}</a> }
+                        })
+                        .collect_view();
+                    view! {
+                        <section class="app-subgroup">
+                            <h4 class="app-subgroup-title">{subgroup}</h4>
+                            <div class="app-subgroup-items">{links}</div>
+                        </section>
+                    }
+                })
+                .collect_view();
+            view! {
+                <details class="app-group" data-topbar-menu-group=group_id.clone()>
+                    <summary class="app-group-summary" data-topbar-menu-trigger=group_id.clone()>{group_label}</summary>
+                    <div class="app-group-menu">
+                        {direct_links}
+                        {subgroup_blocks}
+                    </div>
+                </details>
+            }
         })
         .collect_view();
     let route_query = route_query(selected_entry, preview_target);
-    let manage_href = format!("/apps/manage/{}{}", compiled.app_id, route_query);
-    let access_href = format!("/apps/access/{}{}", compiled.app_id, route_query);
+    let manage_href = format!("/apps/manage/{}{}", active_app_path, route_query);
+    let access_href = format!("/apps/access/{}{}", active_app_path, route_query);
     let presentation_href = if route_query.is_empty() {
-        format!("/apps/access/{}?chrome=none", compiled.app_id)
+        format!("/apps/access/{}?chrome=none", active_app_path)
     } else {
         format!(
             "/apps/access/{}{}&chrome=none",
-            compiled.app_id, route_query
+            active_app_path, route_query
         )
     };
     let mode_tabs = view! {
@@ -375,6 +477,188 @@ fn topbar_view(
         </header>
     }
     .into_any()
+}
+
+#[derive(Debug, Clone)]
+struct TopbarMenuItem {
+    app_id: String,
+    subgroup: Option<String>,
+    label: String,
+    order: i32,
+}
+
+#[derive(Debug, Clone)]
+struct TopbarMenuGroup {
+    id: String,
+    label: String,
+    order: i32,
+    items: Vec<TopbarMenuItem>,
+}
+
+fn build_topbar_menu_groups(
+    apps: &[WorkspaceAppMeta],
+    config: Option<&TopbarMenuConfig>,
+) -> Vec<TopbarMenuGroup> {
+    let mut groups: BTreeMap<String, TopbarMenuGroup> = BTreeMap::new();
+    let mut group_overrides: BTreeMap<String, (Option<String>, i32)> = BTreeMap::new();
+    if let Some(config) = config {
+        for group in &config.groups {
+            group_overrides.insert(
+                group.id.clone(),
+                (group.label.clone(), group.order.unwrap_or(i32::MAX / 2)),
+            );
+        }
+    }
+    let item_overrides = config
+        .map(|cfg| {
+            cfg.items
+                .iter()
+                .map(|item| (item.app_id.clone(), item.clone()))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+    let skip_prefixes = normalized_skip_prefixes(config);
+    for app in apps {
+        let mut segments = app.id.split('/').filter(|value| !value.is_empty()).collect::<Vec<_>>();
+        while segments.len() > 1 {
+            let head = segments.first().map(|value| value.to_ascii_lowercase());
+            if head
+                .as_deref()
+                .is_some_and(|value| skip_prefixes.iter().any(|prefix| prefix == value))
+            {
+                segments.remove(0);
+                continue;
+            }
+            break;
+        }
+        if segments.is_empty() {
+            continue;
+        }
+        let (mut group, mut subgroup, mut label) = menu_placement_from_segments(&segments);
+        let mut item_order = infer_order_from_label(&label).unwrap_or(i32::MAX / 2);
+        if let Some(override_item) = item_overrides.get(&app.id) {
+            if let Some(override_group) = &override_item.group {
+                group = override_group.clone();
+            }
+            if override_item.subgroup.is_some() {
+                subgroup = override_item.subgroup.clone();
+            }
+            if let Some(override_label) = &override_item.label {
+                label = override_label.clone();
+            }
+            if let Some(order) = override_item.order {
+                item_order = order;
+            }
+        }
+        let (group_label, group_order) = if let Some((label_override, order_override)) =
+            group_overrides.get(&group)
+        {
+            (
+                label_override
+                    .clone()
+                    .unwrap_or_else(|| menu_group_display_label(&group)),
+                *order_override,
+            )
+        } else {
+            (menu_group_display_label(&group), i32::MAX / 2)
+        };
+        groups
+            .entry(group.clone())
+            .or_insert_with(|| TopbarMenuGroup {
+                id: group.clone(),
+                label: group_label,
+                order: group_order,
+                items: Vec::new(),
+            })
+            .items
+            .push(TopbarMenuItem {
+                app_id: app.id.clone(),
+                subgroup,
+                label,
+                order: item_order,
+            });
+    }
+    let mut ordered = groups.into_values().collect::<Vec<_>>();
+    for group in &mut ordered {
+        group.items.sort_by(|left, right| {
+            left.order
+                .cmp(&right.order)
+                .then(left.subgroup.cmp(&right.subgroup))
+                .then(left.label.cmp(&right.label))
+                .then(left.app_id.cmp(&right.app_id))
+        });
+    }
+    ordered.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then(left.label.cmp(&right.label))
+            .then(left.id.cmp(&right.id))
+    });
+    ordered
+}
+
+fn menu_placement_from_segments(segments: &[&str]) -> (String, Option<String>, String) {
+    if segments.len() == 1 {
+        let only = segments[0];
+        if let Some((prefix, rest)) = only.split_once('-') {
+            if !prefix.is_empty() && !rest.is_empty() {
+                return (
+                    prefix.to_string(),
+                    None,
+                    rest.trim_start_matches('-').to_string(),
+                );
+            }
+        }
+        return ("misc".to_string(), None, only.to_string());
+    }
+    if segments.len() == 2 {
+        return (
+            segments[0].to_string(),
+            None,
+            segments[1].to_string(),
+        );
+    }
+    (
+        segments[0].to_string(),
+        Some(segments[1].to_string()),
+        segments[2..].join("/"),
+    )
+}
+
+fn menu_group_display_label(group: &str) -> String {
+    if group == "misc" {
+        "其他".to_string()
+    } else {
+        group.to_string()
+    }
+}
+
+fn normalized_skip_prefixes(config: Option<&TopbarMenuConfig>) -> Vec<String> {
+    if let Some(config) = config {
+        if !config.skip_prefixes.is_empty() {
+            return config
+                .skip_prefixes
+                .iter()
+                .map(|value| value.to_ascii_lowercase())
+                .collect();
+        }
+    }
+    vec!["examples".to_string(), "workspaces".to_string()]
+}
+
+fn infer_order_from_label(label: &str) -> Option<i32> {
+    let mut digits = String::new();
+    for ch in label.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        } else {
+            break;
+        }
+    }
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse::<i32>().ok()
 }
 
 fn route_query(selected_entry: Option<&str>, preview_target: Option<&str>) -> String {

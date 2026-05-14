@@ -7,7 +7,7 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{DateTime, Local};
-use mei_lang_app::{render_page, SourcePanelMeta, UiRouteMode};
+use mei_lang_app::{render_page, SourcePanelMeta, TopbarMenuConfig, UiRouteMode};
 use mei_lang_kernel::{
     compile_app_with_options, discover_apps, read_source_file, CompileOptions, WorkspaceAppMeta,
 };
@@ -37,9 +37,16 @@ pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> 
 
 pub async fn app_page(
     State(state): State<AppState>,
-    AxumPath((mode, app_id)): AxumPath<(String, String)>,
+    AxumPath((mode, app_id_raw)): AxumPath<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Result<Response, AppError> {
+    let app_id = app_id_raw.trim_start_matches('/').to_string();
+    if app_id.is_empty() {
+        return Err(AppError::status(
+            StatusCode::NOT_FOUND,
+            "missing app id in route",
+        ));
+    }
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
     let route_mode = UiRouteMode::from_slug(&mode);
     let chrome_hidden = query
@@ -83,9 +90,12 @@ pub async fn app_page(
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_meta = source_panel_meta(&source_path, &source);
+    let topbar_menu_config = load_topbar_menu_config(&state.source_root);
     let html = render_page(
         &apps,
         &compiled,
+        &app_id,
+        topbar_menu_config.as_ref(),
         route_mode,
         Some(target.as_str()),
         Some(source.as_str()),
@@ -190,6 +200,32 @@ fn choose_default_app<'a>(
             return Some(app);
         }
         tracing::warn!(app_id = %app.id, "skip broken app as default landing target");
+    }
+    None
+}
+
+fn load_topbar_menu_config(source_root: &Path) -> Option<TopbarMenuConfig> {
+    let candidates = [
+        source_root.join("_menu.json"),
+        source_root.join("menu.json"),
+    ];
+    for path in candidates {
+        if !path.exists() {
+            continue;
+        }
+        let raw = match fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "failed to read topbar menu config");
+                continue;
+            }
+        };
+        match serde_json::from_str::<TopbarMenuConfig>(&raw) {
+            Ok(config) => return Some(config),
+            Err(error) => {
+                tracing::warn!(path = %path.display(), %error, "failed to parse topbar menu config");
+            }
+        }
     }
     None
 }

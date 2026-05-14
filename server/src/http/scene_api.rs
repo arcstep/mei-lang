@@ -28,12 +28,13 @@ pub struct SimStepResponse {
 
 pub async fn sim_step_api(
     State(state): State<AppState>,
-    AxumPath(app_id): AxumPath<String>,
+    AxumPath(app_id_raw): AxumPath<String>,
     Json(request): Json<SimStepRequest>,
 ) -> Result<Json<SimStepResponse>, AppError> {
-    let compiled = compile_app(&state.source_root, &app_id).map_err(AppError::from)?;
+    let app_id = app_id_raw.trim_start_matches('/');
+    let compiled = compile_app(&state.source_root, app_id).map_err(AppError::from)?;
     let contract = compiled.scene_contract.ok_or_else(|| {
-        AppError::msg(format!("app `{app_id}` does not provide a scene contract"))
+        AppError::msg(format!("app `{}` does not provide a scene contract", app_id))
     })?;
     let current_state = request
         .state

@@ -2,4 +2,4 @@
 
 mod ui;
 
-pub use ui::{render_page, SourcePanelMeta, UiRouteMode};
+pub use ui::{render_page, SourcePanelMeta, TopbarMenuConfig, UiRouteMode};

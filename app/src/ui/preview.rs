@@ -47,7 +47,7 @@ pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
         .is_some()
 }
 
-pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
+pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
     let resource_map = compiled
         .resources
         .iter()
@@ -66,6 +66,7 @@ pub(super) fn preview_view(compiled: &CompiledApp) -> AnyView {
                         panel,
                         frame.layout.as_ref(),
                         compiled,
+                        app_path,
                         scene_contract,
                         &resource_map,
                         &theme,
@@ -123,6 +124,7 @@ fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
     frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
+    app_path: &str,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
     theme: &ThemeResolved,
@@ -136,6 +138,7 @@ fn panel_view(
                 node,
                 panel.layout.as_ref(),
                 compiled,
+                app_path,
                 scene_contract,
                 resources,
                 theme,
@@ -203,6 +206,7 @@ fn node_view(
     node: &UiNodeDecl,
     parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
+    app_path: &str,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
     theme: &ThemeResolved,
@@ -212,12 +216,13 @@ fn node_view(
             panel,
             parent_layout,
             compiled,
+            app_path,
             scene_contract,
             resources,
             theme,
         ),
         UiNodeDecl::Block(block) => {
-            block_view(block, parent_layout, compiled, scene_contract, resources)
+            block_view(block, parent_layout, compiled, app_path, scene_contract, resources)
         }
     }
 }
@@ -226,12 +231,14 @@ fn block_view(
     block: &BlockDecl,
     panel_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
+    app_path: &str,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
 ) -> AnyView {
     let props = attach_host_meta(
         resolve_value(&block.props, scene_contract, resources),
         compiled,
+        app_path,
     );
     let tag = compiled
         .component_assets
@@ -248,14 +255,15 @@ fn block_view(
     .into_any()
 }
 
-fn attach_host_meta(mut props: Value, compiled: &CompiledApp) -> Value {
+fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_path: &str) -> Value {
     if let Some(map) = props.as_object_mut() {
         map.insert(
             "_mei".to_string(),
             serde_json::json!({
                 "app_id": compiled.app_id,
+                "app_path": app_path,
                 "entry_target": compiled.entry_target,
-                "step_api": format!("/api/sim/step/{}", compiled.app_id),
+                "step_api": format!("/api/sim/step/{}", app_path),
             }),
         );
     }

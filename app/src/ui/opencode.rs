@@ -5,6 +5,7 @@ use super::UiRouteMode;
 
 pub(super) fn panel_view(
     compiled: &CompiledApp,
+    app_path: &str,
     route_mode: UiRouteMode,
     selected_target: &str,
 ) -> impl IntoView {
@@ -13,7 +14,7 @@ pub(super) fn panel_view(
             <div
                 id="meilang-author-panel"
                 class="author-panel"
-                data-app=compiled.app_id.clone()
+                data-app=app_path.to_string()
                 data-target=selected_target.to_string()
                 data-entry=compiled
                     .active_entry

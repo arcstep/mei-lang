@@ -44,7 +44,79 @@ a { color: inherit; text-decoration: none; }
 }
 .brand strong { font-size: 16px; }
 .brand span { color: #94a3b8; font-size: 12px; }
-.app-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.app-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: flex-start;
+}
+.app-group {
+  position: relative;
+  display: inline-flex;
+}
+.app-group > summary {
+  list-style: none;
+}
+.app-group > summary::-webkit-details-marker {
+  display: none;
+}
+.app-group-summary {
+  padding: 8px 12px;
+  border: 1px solid rgba(96,165,250,.24);
+  border-radius: 999px;
+  background: rgba(30,41,59,.8);
+  color: #cbd5e1;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+.app-group-summary:hover,
+.app-group-summary:focus-visible,
+.app-group[open] > .app-group-summary {
+  background: rgba(37,99,235,.28);
+  color: #eff6ff;
+  border-color: rgba(96,165,250,.54);
+}
+.app-group-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 240px;
+  max-width: min(520px, 70vw);
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid rgba(148,163,184,.24);
+  border-radius: 12px;
+  background: rgba(15,23,42,.98);
+  box-shadow: 0 16px 40px rgba(2,6,23,.45);
+  z-index: 20;
+}
+.app-group[open] > .app-group-menu {
+  display: flex;
+}
+.app-subgroup {
+  display: grid;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(148,163,184,.16);
+}
+.app-subgroup:first-of-type {
+  margin-top: 2px;
+}
+.app-subgroup-title {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.app-subgroup-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .mode-tabs {
   display: inline-flex;
   align-items: center;
@@ -68,6 +140,18 @@ a { color: inherit; text-decoration: none; }
   background: rgba(30,41,59,.8);
   color: #cbd5e1;
   font-size: 13px;
+}
+.app-tab-sub {
+  border-radius: 10px;
+  font-size: 12px;
+  padding: 7px 10px;
+  text-align: left;
+}
+.app-tab-sub:hover,
+.app-tab-sub:focus-visible {
+  background: rgba(30,58,138,.28);
+  color: #e2e8f0;
+  border-color: rgba(96,165,250,.5);
 }
 .mode-tab {
   width: 38px;
