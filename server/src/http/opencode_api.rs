@@ -329,6 +329,12 @@ fn build_meilang_system_prompt(
     blocks.push(
         "Prefer declarative bindings: app(entries=[entry(...)]), scene(world/flow/frame=...), world(id=...), flow(id=...), frame(id=...), frame.add_panel(...).".to_string(),
     );
+    blocks.push(
+        "Default to Chinese (Simplified Chinese) for all responses, plans, progress updates, and explanations unless the user explicitly requests another language.".to_string(),
+    );
+    blocks.push(
+        "When presenting a plan, keep the execution-oriented content in Chinese and avoid switching to English by default.".to_string(),
+    );
     match load_managed_opencode_skill_prompt(state) {
         Ok(Some(skill_prompt)) => {
             let mut block = String::new();
