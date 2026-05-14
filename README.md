@@ -29,7 +29,7 @@ cargo run -p mei-lang-server -- serve
 默认行为：
 
 - `mei-lang` 监听 **http://127.0.0.1:3000**
-- 示例工程根目录为仓库下的 **`examples/`**
+- 源码工作区根目录由 **`--source-root`** 控制（未传参时使用服务端默认值）
 - 默认按 `external` 模式连接 **http://127.0.0.1:4099**
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。

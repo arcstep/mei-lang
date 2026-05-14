@@ -52,12 +52,54 @@ pub(super) fn panel_view(
                     <div class="author-chat-log" id="author-chat-log"></div>
                     <div class="author-composer-row">
                         <div class="author-composer-shell">
+                            <div class="author-composer-header">
+                                <div class="author-history-actions" role="group" aria-label="历史操作">
+                                    <button
+                                        type="button"
+                                        class="author-history-btn"
+                                        id="author-undo-btn"
+                                        title="撤回上一轮消息及其代码影响"
+                                        disabled
+                                    >
+                                        "Undo"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="author-history-btn"
+                                        id="author-redo-btn"
+                                        title="恢复最近撤回的消息及其代码影响"
+                                        disabled
+                                    >
+                                        "Redo"
+                                    </button>
+                                </div>
+                            </div>
                             <textarea
                                 id="author-intent-input"
                                 rows="3"
                                 placeholder="输入并发送"
                             ></textarea>
                             <div class="author-composer-footer">
+                                <div class="author-agent-mode" id="author-agent-mode" role="group" aria-label="OpenCode 工作模式">
+                                    <button
+                                        type="button"
+                                        class="author-mode-btn"
+                                        id="author-mode-plan-btn"
+                                        data-agent-mode="plan"
+                                        title="仅分析与规划"
+                                    >
+                                        "Plan"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="author-mode-btn is-active"
+                                        id="author-mode-build-btn"
+                                        data-agent-mode="build"
+                                        title="直接修改代码"
+                                    >
+                                        "Build"
+                                    </button>
+                                </div>
                                 <span class="author-model-label" id="author-model-label">
                                     "模型"
                                 </span>

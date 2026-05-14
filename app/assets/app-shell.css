@@ -755,6 +755,43 @@ a { color: inherit; text-decoration: none; }
   background: rgba(15,23,42,.92);
   border: 1px solid rgba(71,85,105,.42);
 }
+.author-composer-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 20px;
+}
+.author-history-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.author-history-btn {
+  appearance: none;
+  border: 1px solid rgba(71, 85, 105, 0.7);
+  background: rgba(2, 6, 23, 0.35);
+  color: #94a3b8;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+.author-history-btn:hover:not(:disabled) {
+  color: #dbeafe;
+  border-color: rgba(191, 219, 254, 0.75);
+  background: rgba(30, 64, 175, 0.3);
+}
+.author-history-btn.is-active {
+  color: #dbeafe;
+  border-color: rgba(96, 165, 250, 0.8);
+  background: rgba(30, 64, 175, 0.45);
+}
+.author-history-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .author-composer-row textarea {
   width: 100%;
   min-height: 84px;
@@ -780,6 +817,39 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.author-agent-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: 1px solid rgba(71, 85, 105, 0.6);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.65);
+}
+.author-mode-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+.author-mode-btn:hover {
+  color: #dbeafe;
+}
+.author-mode-btn.is-active {
+  color: #dbeafe;
+  border-color: rgba(147, 197, 253, 0.6);
+  background: rgba(30, 58, 138, 0.45);
+}
+.author-mode-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 .author-model-label {
   min-width: 0;
@@ -840,6 +910,8 @@ a { color: inherit; text-decoration: none; }
 .author-chat-block-reasoning .author-chat-block-label { color: #fde68a; }
 .author-chat-block-tool .author-chat-block-label { color: #99f6e4; }
 .author-chat-block-debug .author-chat-block-label { color: #e9d5ff; }
+.author-chat-block-diff .author-chat-block-label { color: #facc15; }
+.author-chat-block-code .author-chat-block-label { color: #bfdbfe; }
 .author-chat-body {
   margin: 0;
   white-space: pre-wrap;

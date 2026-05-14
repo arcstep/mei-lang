@@ -14,6 +14,10 @@
     chatLog: document.getElementById("author-chat-log"),
     input: document.getElementById("author-intent-input"),
     run: document.getElementById("author-run-btn"),
+    modePlan: document.getElementById("author-mode-plan-btn"),
+    modeBuild: document.getElementById("author-mode-build-btn"),
+    undo: document.getElementById("author-undo-btn"),
+    redo: document.getElementById("author-redo-btn"),
   };
 
   const state = {
@@ -40,10 +44,27 @@
     _meiAutoSessionOnce: false,
     _meiClientAutoOpencodeOnce: false,
     lastMessagesFingerprint: "",
+    inlineNote: "",
+    agentMode: "build",
+    sessionHasRevertedChanges: {},
+    revertedMessageIds: {},
+    messageMeta: {},
+    messageDiffCache: {},
+    pendingReloadMessageId: "",
   };
 
   const sessionStorageKey =
     "mei-lang.opencode.session." +
+    String(root.dataset.app || "") +
+    "." +
+    String(root.dataset.target || "");
+  const modeStorageKey =
+    "mei-lang.opencode.mode." +
+    String(root.dataset.app || "") +
+    "." +
+    String(root.dataset.target || "");
+  const revertedStorageKey =
+    "mei-lang.opencode.reverted." +
     String(root.dataset.app || "") +
     "." +
     String(root.dataset.target || "");
@@ -62,7 +83,11 @@
   async function fetchJson(url, init) {
     const response = await fetch(url, init);
     if (!response.ok) {
-      throw new Error(url + " -> " + response.status);
+      let detail = "";
+      try {
+        detail = (await response.text()).trim();
+      } catch (_) {}
+      throw new Error(detail || (url + " -> " + response.status));
     }
     return response.json();
   }
@@ -81,6 +106,150 @@
 
   function currentTargetKey() {
     return normalizeTargetKey(currentTarget());
+  }
+
+  function normalizeAgentMode(value) {
+    return String(value || "").toLowerCase() === "plan" ? "plan" : "build";
+  }
+
+  function messageKey(sessionId, messageId) {
+    return String(sessionId || "") + "::" + String(messageId || "");
+  }
+
+  function setMessageMeta(messageId, patch) {
+    const key = messageKey(state.sessionId, messageId);
+    if (!key || key === "::") return;
+    const prev = state.messageMeta[key] || {};
+    state.messageMeta[key] = Object.assign({}, prev, patch || {});
+  }
+
+  function getMessageMeta(sessionId, messageId) {
+    return state.messageMeta[messageKey(sessionId, messageId)] || null;
+  }
+
+  function setSessionRevertedFlag(sessionId, hasReverted) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return;
+    state.sessionHasRevertedChanges[sid] = !!hasReverted;
+  }
+
+  function hasSessionRevertedChanges(sessionId) {
+    return !!state.sessionHasRevertedChanges[String(sessionId || "").trim()];
+  }
+
+  function persistRevertedState() {
+    try {
+      localStorage.setItem(revertedStorageKey, JSON.stringify(state.revertedMessageIds));
+    } catch (_) {}
+  }
+
+  function restoreRevertedState() {
+    try {
+      const raw = localStorage.getItem(revertedStorageKey);
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object") return;
+      state.revertedMessageIds = parsed;
+      Object.keys(parsed).forEach(function (sid) {
+        setSessionRevertedFlag(sid, Array.isArray(parsed[sid]) && parsed[sid].length > 0);
+      });
+    } catch (_) {}
+  }
+
+  function revertedIdsForSession(sessionId) {
+    const sid = String(sessionId || "").trim();
+    const list = sid ? state.revertedMessageIds[sid] : null;
+    return Array.isArray(list) ? list.slice() : [];
+  }
+
+  function setRevertedIdsForSession(sessionId, nextIds) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return;
+    const deduped = Array.from(
+      new Set(
+        (Array.isArray(nextIds) ? nextIds : [])
+          .map(function (item) { return String(item || "").trim(); })
+          .filter(Boolean),
+      ),
+    );
+    state.revertedMessageIds[sid] = deduped;
+    setSessionRevertedFlag(sid, deduped.length > 0);
+    persistRevertedState();
+  }
+
+  function isMessageReverted(sessionId, messageId) {
+    return revertedIdsForSession(sessionId).includes(String(messageId || "").trim());
+  }
+
+  function latestUndoMessageId() {
+    if (!state.sessionId) return "";
+    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
+      const message = state.messages[index];
+      if (!message || String(message.role || "") !== "assistant") continue;
+      const messageId = String(message.id || "").trim();
+      if (!messageId) continue;
+      const meta = getMessageMeta(state.sessionId, messageId);
+      if (!meta || meta.hasDiff !== true) continue;
+      if (isMessageReverted(state.sessionId, messageId)) continue;
+      return messageId;
+    }
+    return "";
+  }
+
+  function canUndo() {
+    return !!latestUndoMessageId();
+  }
+
+  function canRedo() {
+    return hasSessionRevertedChanges(state.sessionId);
+  }
+
+  function scheduleHostReload(reason) {
+    const text = String(reason || "").trim();
+    if (text) setInlineNote(text);
+    state.pendingReloadMessageId = "";
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 120);
+  }
+
+  function continueEditing() {
+    if (!els.input) return;
+    els.input.focus();
+  }
+
+  function isNotFoundError(error) {
+    const text = String((error && error.message) || error || "");
+    return text.includes("404") || text.includes("Not Found");
+  }
+
+  function historyUnavailableReason() {
+    if (!state.health || state.health.history_available !== false) return "";
+    return String(state.health.history_reason || "").trim();
+  }
+
+  function renderInlineNote() {
+    if (!els.config) return;
+    const text = String(state.inlineNote || "").trim() || historyUnavailableReason();
+    els.config.hidden = !text;
+    els.config.textContent = text;
+  }
+
+  function renderHistoryButtons() {
+    const unavailableReason = historyUnavailableReason();
+    const undoEnabled =
+      !unavailableReason && !state.loading && !state.sending && !state.aborting && canUndo();
+    const redoEnabled =
+      !unavailableReason && !state.loading && !state.sending && !state.aborting && canRedo();
+    if (els.undo) {
+      els.undo.disabled = !undoEnabled;
+      els.undo.classList.toggle("is-active", undoEnabled);
+      els.undo.title = unavailableReason || "撤回上一轮消息及其代码影响";
+    }
+    if (els.redo) {
+      els.redo.disabled = !redoEnabled;
+      els.redo.classList.toggle("is-active", redoEnabled);
+      els.redo.title = unavailableReason || "恢复最近撤回的消息及其代码影响";
+    }
   }
 
   function hasServerTarget() {
@@ -132,10 +301,8 @@
   }
 
   function setInlineNote(message) {
-    if (!els.config) return;
-    const text = String(message || "").trim();
-    els.config.hidden = !text;
-    els.config.textContent = text;
+    state.inlineNote = String(message || "").trim();
+    renderInlineNote();
   }
 
   function setButtonState(disabled) {
@@ -143,7 +310,10 @@
     if (els.reconnect) els.reconnect.disabled = controlsDisabled;
     if (els.newSession) els.newSession.disabled = controlsDisabled;
     if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
+    if (els.modePlan) els.modePlan.disabled = controlsDisabled;
+    if (els.modeBuild) els.modeBuild.disabled = controlsDisabled;
     renderRunButton(disabled);
+    renderHistoryButtons();
   }
 
   function clearGenerationSettleTimer() {
@@ -234,8 +404,51 @@
     if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
   }
 
+  function renderAgentMode() {
+    const mode = normalizeAgentMode(state.agentMode);
+    state.agentMode = mode;
+    if (els.modePlan) {
+      const active = mode === "plan";
+      els.modePlan.classList.toggle("is-active", active);
+      els.modePlan.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    if (els.modeBuild) {
+      const active = mode === "build";
+      els.modeBuild.classList.toggle("is-active", active);
+      els.modeBuild.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
+  function rememberAgentMode() {
+    try {
+      localStorage.setItem(modeStorageKey, normalizeAgentMode(state.agentMode));
+    } catch (_) {}
+  }
+
+  function restoreAgentMode() {
+    try {
+      const saved = localStorage.getItem(modeStorageKey);
+      if (saved) {
+        state.agentMode = normalizeAgentMode(saved);
+      }
+    } catch (_) {}
+    renderAgentMode();
+  }
+
+  function switchAgentMode(nextMode) {
+    state.agentMode = normalizeAgentMode(nextMode);
+    rememberAgentMode();
+    renderAgentMode();
+    setInlineNote(
+      state.agentMode === "plan"
+        ? "已切换到 Plan（分析为主，不主动生成代码改动）"
+        : "已切换到 Build（可直接改代码）",
+    );
+  }
+
   function renderRuntime() {
     renderStatus();
+    renderInlineNote();
   }
 
   function formatMsTime(value) {
@@ -546,6 +759,15 @@
     };
   }
 
+  function inferAgentModeFromRawMessage(raw) {
+    if (!raw || String(raw.role || "") !== "assistant") return null;
+    const parts = Array.isArray(raw.parts) ? raw.parts : [];
+    const hasPatchPart = parts.some(function (part) {
+      return String(part && part.part_type ? part.part_type : "") === "patch";
+    });
+    return hasPatchPart ? "build" : null;
+  }
+
   function renderMessageActions(message, messageId) {
     const actions = Array.isArray(message && message.actions) ? message.actions : [];
     if (!actions.length) return "";
@@ -566,6 +788,258 @@
         .join("") +
       "</div>"
     );
+  }
+
+  function formatDiffSummary(diff) {
+    if (!diff) return "";
+    return (
+      "消息: " +
+      String(diff.message_id || "-") +
+      "\n文件: " +
+      String(Array.isArray(diff.files) ? diff.files.length : 0) +
+      "\n新增: +" +
+      String(diff.additions || 0) +
+      "\n删除: -" +
+      String(diff.deletions || 0)
+    );
+  }
+
+  function buildDiffBlocks(diff) {
+    const blocks = [];
+    const summary = makeTextBlock("差异概览", formatDiffSummary(diff), "diff");
+    if (summary) blocks.push(summary);
+    const files = Array.isArray(diff && diff.files) ? diff.files : [];
+    files.forEach(function (file, index) {
+      const body =
+        "文件: " +
+        String(file.file || "") +
+        "\n新增: +" +
+        String(file.additions || 0) +
+        "\n删除: -" +
+        String(file.deletions || 0) +
+        "\n\n[before]\n" +
+        String(file.before || "") +
+        "\n\n[after]\n" +
+        String(file.after || "");
+      const block = makeTextBlock(
+        "变更 #" + String(index + 1),
+        body,
+        "diff",
+        true,
+      );
+      if (block) blocks.push(block);
+    });
+    return blocks;
+  }
+
+  function buildCurrentCodeBlocks(messageId, diff, reverted) {
+    const blocks = [];
+    const summary = makeTextBlock(
+      "当前代码",
+      "消息: " +
+        String(messageId || "") +
+        "\n来源: " +
+        (reverted ? "revert 后（before）" : "build 后（after）"),
+      "code",
+    );
+    if (summary) blocks.push(summary);
+    const files = Array.isArray(diff && diff.files) ? diff.files : [];
+    files.forEach(function (file) {
+      const code = reverted ? String(file.before || "") : String(file.after || "");
+      const block = makeTextBlock(
+        "文件: " + String(file.file || ""),
+        code || "(空文件)",
+        "code",
+        true,
+      );
+      if (block) blocks.push(block);
+    });
+    return blocks;
+  }
+
+  async function fetchSessionDiff(messageId) {
+    if (!state.sessionId) return null;
+    const query = messageId
+      ? "?message_id=" + encodeURIComponent(String(messageId))
+      : "";
+    return fetchJson(
+      "/api/opencode/session/" +
+        encodeURIComponent(state.sessionId) +
+        "/diff" +
+        query,
+    );
+  }
+
+  async function applyRevertForMessage(messageId) {
+    const sid = String(state.sessionId || "").trim();
+    const mid = String(messageId || "").trim();
+    if (!sid || !mid) return;
+    await fetchJson("/api/opencode/session/" + encodeURIComponent(sid) + "/revert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ message_id: mid }),
+    });
+    setSessionRevertedFlag(sid, true);
+    setMessageMeta(mid, { reverted: true });
+    const revertedIds = revertedIdsForSession(sid);
+    revertedIds.push(mid);
+    setRevertedIdsForSession(sid, revertedIds);
+    pushMessage("system", "已撤回上一轮消息及其代码影响。", {
+      id: "revert:" + mid,
+    });
+    await refreshMessages();
+    scheduleHostReload("已撤回修改，正在刷新预览与源码…");
+  }
+
+  async function applyUnrevertForSession() {
+    const sid = String(state.sessionId || "").trim();
+    if (!sid) return;
+    await fetchJson("/api/opencode/session/" + encodeURIComponent(sid) + "/unrevert", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    setSessionRevertedFlag(sid, false);
+    setRevertedIdsForSession(sid, []);
+    Object.keys(state.messageMeta).forEach(function (key) {
+      if (key.startsWith(sid + "::")) {
+        state.messageMeta[key] = Object.assign({}, state.messageMeta[key], {
+          reverted: false,
+        });
+      }
+    });
+    pushMessage("system", "已恢复最近撤回的消息及其代码影响。", {
+      id: "unrevert:" + sid,
+    });
+    await refreshMessages();
+    scheduleHostReload("已恢复撤回修改，正在刷新预览与源码…");
+  }
+
+  async function showDiffForMessage(messageId) {
+    const sid = String(state.sessionId || "").trim();
+    const mid = String(messageId || "").trim();
+    if (!sid || !mid) return;
+    const diff = await fetchSessionDiff(mid);
+    setMessageMeta(mid, { hasDiff: !!(diff && Array.isArray(diff.files) && diff.files.length > 0) });
+    state.messageDiffCache[messageKey(sid, mid)] = diff;
+    if (!(diff && Array.isArray(diff.files) && diff.files.length > 0)) {
+      pushMessage("system", "该轮未产生可回退的文件修改。", {
+        id: "diff:" + mid,
+      });
+      renderMessages();
+      return;
+    }
+    pushMessage("system", "已加载该轮修改差异。", {
+      id: "diff:" + mid,
+      blocks: buildDiffBlocks(diff),
+      actions: [
+        {
+          label: "查看当前代码结果",
+          onClick: function () {
+            showCurrentCodeForMessage(mid).catch(function (error) {
+              setInlineNote("读取当前代码失败：" + String(error.message || error));
+            });
+          },
+        },
+      ],
+    });
+    renderMessages();
+  }
+
+  async function showCurrentCodeForMessage(messageId) {
+    const sid = String(state.sessionId || "").trim();
+    const mid = String(messageId || "").trim();
+    if (!sid || !mid) return;
+    const cacheKey = messageKey(sid, mid);
+    const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
+    state.messageDiffCache[cacheKey] = diff;
+    if (!(diff && Array.isArray(diff.files) && diff.files.length > 0)) {
+      pushMessage("system", "该轮没有可展示的代码结果。", {
+        id: "current:" + mid,
+      });
+      return;
+    }
+    const meta = getMessageMeta(sid, mid) || {};
+    const reverted = !!meta.reverted;
+    pushMessage("system", "当前代码结果已刷新。", {
+      id: "current:" + mid,
+      blocks: buildCurrentCodeBlocks(mid, diff, reverted),
+    });
+  }
+
+  function actionsForAssistantMessage(message) {
+    if (historyUnavailableReason()) return [];
+    const messageId = String(message && message.id ? message.id : "");
+    if (!messageId || String(message.role || "") !== "assistant") return [];
+    const meta = getMessageMeta(state.sessionId, messageId);
+    if (!meta || meta.hasDiff !== true) {
+      return [];
+    }
+    return [
+      {
+        label: "查看差异",
+        onClick: function () {
+          showDiffForMessage(messageId).catch(function (error) {
+            setInlineNote("读取差异失败：" + String(error.message || error));
+          });
+        },
+      },
+    ];
+  }
+
+  async function hydrateBuildDiffMeta(messages) {
+    if (!Array.isArray(messages) || !state.sessionId) return;
+    if (historyUnavailableReason()) {
+      renderHistoryButtons();
+      return;
+    }
+    let changed = false;
+    let shouldReloadForPendingBuild = false;
+    for (const message of messages) {
+      if (!message || String(message.role || "") !== "assistant") continue;
+      const messageId = String(message.id || "");
+      if (!messageId) continue;
+      const meta = getMessageMeta(state.sessionId, messageId) || {};
+      if (typeof meta.hasDiff === "boolean") continue;
+      try {
+        const diff = await fetchSessionDiff(messageId);
+        const hasDiff = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+        setMessageMeta(messageId, { hasDiff: hasDiff });
+        if (hasDiff) {
+          state.messageDiffCache[messageKey(state.sessionId, messageId)] = diff;
+          if (
+            state.pendingReloadMessageId &&
+            String(state.pendingReloadMessageId) === messageId
+          ) {
+            shouldReloadForPendingBuild = true;
+          }
+        }
+        changed = true;
+      } catch (_) {}
+    }
+    if (changed) {
+      state.messages = state.messages.map(function (row) {
+        return Object.assign({}, row, { actions: actionsForAssistantMessage(row) });
+      });
+      renderMessages();
+    }
+    renderHistoryButtons();
+    if (shouldReloadForPendingBuild) {
+      scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
+    }
+  }
+
+  function decorateMessageActions() {
+    state.messages = state.messages.map(function (message) {
+      return Object.assign({}, message, {
+        actions:
+          String(message.role || "") === "assistant"
+            ? actionsForAssistantMessage(message)
+            : Array.isArray(message.actions)
+              ? message.actions
+              : [],
+      });
+    });
+    renderHistoryButtons();
   }
 
   function chatScrollSnapshot() {
@@ -932,7 +1406,7 @@
           state.health = null;
         }
         try {
-          state.sessions = await fetchAllSessions({ preferCache: true });
+          state.sessions = await fetchAllSessions({ skipCache: true });
           if (
             state.sessionId &&
             state.sessions.length > 0 &&
@@ -1061,8 +1535,19 @@
       return;
     }
     state.lastMessagesFingerprint = nextFingerprint;
+    list.forEach(function (raw) {
+      const inferred = inferAgentModeFromRawMessage(raw);
+      const messageId = String(raw && raw.message_id ? raw.message_id : "");
+      if (!inferred || !messageId) return;
+      const meta = getMessageMeta(state.sessionId, messageId);
+      if (!meta || !meta.agent) {
+        setMessageMeta(messageId, { agent: inferred, hasDiff: null, reverted: false });
+      }
+    });
     state.messages = list.map(normalizeMessage);
+    decorateMessageActions();
     renderMessages();
+    await hydrateBuildDiffMeta(state.messages);
   }
 
   function summarizePromptError(error) {
@@ -1109,6 +1594,24 @@
     }
   }
 
+  async function postPromptWithCurrentSession(text, controller) {
+    return fetchJson(
+      "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text: text,
+          app_id: String(root.dataset.app || ""),
+          entry_id: String(root.dataset.entry || ""),
+          target_file: currentTargetKey(),
+          agent: normalizeAgentMode(state.agentMode),
+        }),
+        signal: controller.signal,
+      },
+    );
+  }
+
   async function sendPrompt() {
     if (state.sending) {
       await stopSending();
@@ -1144,20 +1647,28 @@
     try {
       const controller = new AbortController();
       state.sendAbortController = controller;
-      const summary = await fetchJson(
-        "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            text: text,
-            app_id: String(root.dataset.app || ""),
-            entry_id: String(root.dataset.entry || ""),
-            target_file: currentTargetKey(),
-          }),
-          signal: controller.signal,
-        },
-      );
+      let summary;
+      try {
+        summary = await postPromptWithCurrentSession(text, controller);
+      } catch (error) {
+        if (!isNotFoundError(error)) {
+          throw error;
+        }
+        state.sendAbortController = null;
+        state.sessionId = "";
+        state.messages = [];
+        state.lastMessagesFingerprint = "";
+        rememberSession();
+        invalidateSessionCache();
+        setInlineNote("检测到旧会话已失效，正在自动重建会话后重试…");
+        await createSession();
+        if (!state.sessionId) {
+          throw error;
+        }
+        const retryController = new AbortController();
+        state.sendAbortController = retryController;
+        summary = await postPromptWithCurrentSession(text, retryController);
+      }
       state.sendAbortController = null;
       if (summary && summary.error) {
         const detail = summarizePromptError(summary.error);
@@ -1166,7 +1677,31 @@
         finishSending({ restoreDraft: true });
         return;
       }
+      if (summary && summary.message_id) {
+        setMessageMeta(summary.message_id, {
+          agent: normalizeAgentMode(state.agentMode),
+          hasDiff: state.agentMode === "build" ? null : false,
+          reverted: false,
+        });
+        if (normalizeAgentMode(state.agentMode) === "build") {
+          state.pendingReloadMessageId = String(summary.message_id);
+        }
+      }
       await refreshMessages();
+      if (summary && summary.message_id && normalizeAgentMode(state.agentMode) === "build") {
+        try {
+          const diff = await fetchSessionDiff(summary.message_id);
+          const hasDiff = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+          setMessageMeta(summary.message_id, { hasDiff: hasDiff });
+          if (hasDiff) {
+            state.messageDiffCache[messageKey(state.sessionId, summary.message_id)] = diff;
+            decorateMessageActions();
+            renderMessages();
+            scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
+          }
+        } catch (_) {}
+      }
+      renderHistoryButtons();
       connectEvents(false);
       markGenerationActivity();
     } catch (error) {
@@ -1228,6 +1763,39 @@
     });
   }
 
+  if (els.modePlan) {
+    els.modePlan.addEventListener("click", function () {
+      switchAgentMode("plan");
+    });
+  }
+
+  if (els.modeBuild) {
+    els.modeBuild.addEventListener("click", function () {
+      switchAgentMode("build");
+    });
+  }
+
+  if (els.undo) {
+    els.undo.addEventListener("click", function () {
+      const messageId = latestUndoMessageId();
+      if (!messageId) return;
+      applyRevertForMessage(messageId).catch(function (error) {
+        setInlineNote("撤回失败：" + String(error.message || error));
+      });
+    });
+  }
+
+  if (els.redo) {
+    els.redo.addEventListener("click", function () {
+      if (!canRedo()) return;
+      applyUnrevertForSession().catch(function (error) {
+        setInlineNote("恢复失败：" + String(error.message || error));
+      });
+    });
+  }
+
+  restoreRevertedState();
+  restoreAgentMode();
   restoreSession();
   refreshAll();
   window.addEventListener("beforeunload", closeEventStream);
