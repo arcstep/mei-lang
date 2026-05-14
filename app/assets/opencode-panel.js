@@ -1,4 +1,12 @@
 (function () {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeOpencodePanel === "function") {
+    try {
+      boot.disposeOpencodePanel();
+    } catch (_) {}
+    boot.disposeOpencodePanel = null;
+  }
+
   const root = document.getElementById("meilang-author-panel");
   if (!root) return;
 
@@ -2523,8 +2531,16 @@
   renderProgressStrip();
   syncSourceDiffEntry();
   refreshAll();
-  window.addEventListener("beforeunload", closeEventStream);
-  window.setInterval(function () {
+  const beforeUnloadHandler = function () {
+    closeEventStream();
+  };
+  window.addEventListener("beforeunload", beforeUnloadHandler);
+  const refreshTimerId = window.setInterval(function () {
     refreshAll().catch(function () {});
   }, 8000);
+  boot.disposeOpencodePanel = function () {
+    closeEventStream();
+    window.removeEventListener("beforeunload", beforeUnloadHandler);
+    if (refreshTimerId) window.clearInterval(refreshTimerId);
+  };
 })();

@@ -1,4 +1,11 @@
 (function initWorkspaceSplitters() {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeWorkspaceSplitters === "function") {
+    try {
+      boot.disposeWorkspaceSplitters();
+    } catch (_) {}
+    boot.disposeWorkspaceSplitters = null;
+  }
   const root = document.getElementById("workspace-root");
   const mainStack = document.getElementById("main-stack-root");
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
@@ -151,11 +158,25 @@
     handle.addEventListener("mousedown", onStart);
     handle.addEventListener("touchstart", onStart, { passive: false });
   });
-  window.addEventListener("resize", function () {
+  const onResize = function () {
     Object.keys(config).forEach((side) => {
       const meta = config[side];
       if (!meta || !meta.target) return;
       writePx(side, clamp(readPx(side), meta.min, maxPx(side)));
     });
-  });
+  };
+  window.addEventListener("resize", onResize);
+  boot.disposeWorkspaceSplitters = function () {
+    onEnd();
+    handles.forEach((handle) => {
+      handle.removeEventListener("mousedown", onStart);
+      handle.removeEventListener("touchstart", onStart, { passive: false });
+    });
+    window.removeEventListener("resize", onResize);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onEnd);
+    window.removeEventListener("touchmove", onMove);
+    window.removeEventListener("touchend", onEnd);
+    window.removeEventListener("touchcancel", onEnd);
+  };
 })();

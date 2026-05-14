@@ -1,5 +1,13 @@
 (() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeFrameStage === "function") {
+    try {
+      boot.disposeFrameStage();
+    } catch (_) {}
+    boot.disposeFrameStage = null;
+  }
   const tracked = new WeakMap();
+  const observers = new Set();
 
   function round(value) {
     return Math.round(value * 1000) / 1000;
@@ -50,6 +58,7 @@
     const observer = new ResizeObserver(() => updateViewport(root));
     observer.observe(root);
     tracked.set(root, observer);
+    observers.add(observer);
     updateViewport(root);
   }
 
@@ -59,11 +68,27 @@
       .forEach((root) => observeViewport(root));
   }
 
+  let domReadyHandler = null;
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scan, { once: true });
+    domReadyHandler = () => scan();
+    document.addEventListener("DOMContentLoaded", domReadyHandler, { once: true });
   } else {
     scan();
   }
   window.addEventListener("resize", scan);
   window.addEventListener("meilang:preview-updated", scan);
+  boot.disposeFrameStage = () => {
+    window.removeEventListener("resize", scan);
+    window.removeEventListener("meilang:preview-updated", scan);
+    if (domReadyHandler) {
+      document.removeEventListener("DOMContentLoaded", domReadyHandler);
+      domReadyHandler = null;
+    }
+    observers.forEach((observer) => {
+      try {
+        observer.disconnect();
+      } catch (_) {}
+    });
+    observers.clear();
+  };
 })();

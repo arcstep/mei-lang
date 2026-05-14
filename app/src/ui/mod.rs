@@ -117,6 +117,7 @@ pub fn render_page(
                 {shell}
                 {component_scripts(compiled)}
                 {chrome_scripts}
+                <script src="/app-assets/spa-navigation.js"></script>
             </body>
         </html>
     };
