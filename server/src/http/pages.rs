@@ -111,10 +111,8 @@ pub async fn component_asset(
     State(state): State<AppState>,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    serve_static_asset(
-        state.source_root.join("_components").join(&path),
-        "component asset",
-    )
+    let components_root = resolve_components_root(&state.source_root);
+    serve_static_asset(components_root.join(&path), "component asset")
 }
 
 pub async fn app_asset(
@@ -202,6 +200,20 @@ fn choose_default_app<'a>(
         tracing::warn!(app_id = %app.id, "skip broken app as default landing target");
     }
     None
+}
+
+fn resolve_components_root(source_root: &Path) -> std::path::PathBuf {
+    let local = source_root.join("_components");
+    if local.exists() {
+        return local;
+    }
+    if let Some(parent) = source_root.parent() {
+        let shared = parent.join("_components");
+        if shared.exists() {
+            return shared;
+        }
+    }
+    local
 }
 
 fn load_topbar_menu_config(source_root: &Path) -> Option<TopbarMenuConfig> {

@@ -62,13 +62,14 @@ pub fn render_page(
     preview_target: Option<&str>,
     chrome_hidden: bool,
 ) -> String {
-    let body_class = if route_mode == UiRouteMode::Access && chrome_hidden {
+    let shell_mode_class = if route_mode == UiRouteMode::Access && chrome_hidden {
         "access-mode chrome-none"
     } else if route_mode == UiRouteMode::Access {
         "access-mode"
     } else {
         "manage-mode"
     };
+    let body_class = format!("{shell_mode_class} sl-theme-dark");
     let shell = match route_mode {
         UiRouteMode::Access => access_shell(
             apps,
@@ -103,11 +104,18 @@ pub fn render_page(
                 <link rel="stylesheet" href="/app-assets/app-shell.css"/>
                 <link rel="stylesheet" href="/app-assets/vendor/codemirror.css"/>
                 <link rel="stylesheet" href="/app-assets/vendor/codemirror-merge.css"/>
+                <link
+                    rel="stylesheet"
+                    href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css"
+                />
+                <script
+                    type="module"
+                    src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"
+                ></script>
             </head>
             <body class=body_class>
                 {shell}
                 {component_scripts(compiled)}
-                <script src="/app-assets/topbar-menu.js"></script>
                 {chrome_scripts}
             </body>
         </html>
@@ -269,17 +277,18 @@ fn manage_shell(
                         <section class="panel source-panel main-pane source-pane">
                             <div class="main-pane-scroll source-pane-scroll">
                                 <div class="source-view-switcher" role="group" aria-label="源码视图">
-                                    <button
-                                        type="button"
+                                    <sl-button
                                         class="source-view-btn is-active"
                                         id="source-view-source-btn"
                                         data-view-mode="source"
+                                        size="small"
+                                        pill=true
                                     >
                                         "当前源码"
-                                    </button>
-                                    <span class="source-view-status" id="source-view-status">
+                                    </sl-button>
+                                    <sl-tag class="source-view-status" id="source-view-status" size="small" variant="primary" pill=true>
                                         "仅支持最后一轮 Build"
-                                    </span>
+                                    </sl-tag>
                                     <span class="source-panel-meta source-panel-meta-inline">{source_meta_text}</span>
                                 </div>
                                 <div class="source-view-host" id="source-view-host">
@@ -333,6 +342,15 @@ fn topbar_view(
         .map(|group| {
             let group_id = group.id.clone();
             let group_label = group.label.clone();
+            let group_has_active = group
+                .items
+                .iter()
+                .any(|item| item.app_id.as_str() == active_app_path);
+            let trigger_class = if group_has_active {
+                "app-group-trigger is-active"
+            } else {
+                "app-group-trigger"
+            };
             let mut direct_items = Vec::new();
             let mut subgroup_items: BTreeMap<String, Vec<_>> = BTreeMap::new();
             for item in &group.items {
@@ -381,13 +399,26 @@ fn topbar_view(
                 })
                 .collect_view();
             view! {
-                <details class="app-group" data-topbar-menu-group=group_id.clone()>
-                    <summary class="app-group-summary" data-topbar-menu-trigger=group_id.clone()>{group_label}</summary>
+                <sl-dropdown
+                    class="app-group-dropdown"
+                    data-topbar-menu-group=group_id.clone()
+                    placement="bottom-start"
+                    distance="4"
+                    hoist=true
+                >
+                    <sl-button
+                        slot="trigger"
+                        class=trigger_class
+                        size="small"
+                        caret=true
+                    >
+                        {group_label}
+                    </sl-button>
                     <div class="app-group-menu">
                         {direct_links}
                         {subgroup_blocks}
                     </div>
-                </details>
+                </sl-dropdown>
             }
         })
         .collect_view();
@@ -404,33 +435,43 @@ fn topbar_view(
     };
     let mode_tabs = view! {
         <div class="mode-tabs">
-            <a
-                class=if route_mode == UiRouteMode::Manage { "mode-tab active" } else { "mode-tab" }
-                href=manage_href
-                title="编辑态"
-                aria-label="编辑态"
-            >
-                <span class="mode-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M12 20h9"/>
-                        <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
-                    </svg>
-                </span>
-            </a>
-            <a
-                class=if route_mode == UiRouteMode::Access { "mode-tab active" } else { "mode-tab" }
-                href=access_href
-                title="访问态"
-                aria-label="访问态"
-            >
-                <span class="mode-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="14" rx="2"/>
-                        <path d="M8 20h8"/>
-                        <path d="M12 18v2"/>
-                    </svg>
-                </span>
-            </a>
+            <sl-button-group class="mode-tab-group" label="模式切换">
+                <sl-button
+                    class=if route_mode == UiRouteMode::Manage { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    size="small"
+                    href=manage_href
+                    title="编辑态"
+                    aria-label="编辑态"
+                >
+                    <span class="mode-btn-content">
+                        <span class="mode-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 20h9"/>
+                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                            </svg>
+                        </span>
+                        <span class="mode-label">"管理"</span>
+                    </span>
+                </sl-button>
+                <sl-button
+                    class=if route_mode == UiRouteMode::Access { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    size="small"
+                    href=access_href
+                    title="访问态"
+                    aria-label="访问态"
+                >
+                    <span class="mode-btn-content">
+                        <span class="mode-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="14" rx="2"/>
+                                <path d="M8 20h8"/>
+                                <path d="M12 18v2"/>
+                            </svg>
+                        </span>
+                        <span class="mode-label">"访问"</span>
+                    </span>
+                </sl-button>
+            </sl-button-group>
         </div>
     };
     let launch_title = if stage_enabled {
@@ -457,22 +498,24 @@ fn topbar_view(
             <nav class="app-tabs">{app_tabs}</nav>
             <div class="topbar-actions">
                 {mode_tabs}
-                <a
-                    class="topbar-launch-link"
-                    href=presentation_href
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title=launch_title
-                    aria-label=launch_title
-                >
-                    <span class="mode-icon" aria-hidden="true">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M14 3h7v7"/>
-                            <path d="M10 14L21 3"/>
-                            <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"/>
-                        </svg>
-                    </span>
-                </a>
+                <sl-tooltip content=launch_title placement="bottom">
+                    <sl-button
+                        class="topbar-launch-btn"
+                        size="small"
+                        href=presentation_href
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label=launch_title
+                    >
+                        <span class="mode-icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M14 3h7v7"/>
+                                <path d="M10 14L21 3"/>
+                                <path d="M21 14v4a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3h4"/>
+                            </svg>
+                        </span>
+                    </sl-button>
+                </sl-tooltip>
             </div>
         </header>
     }

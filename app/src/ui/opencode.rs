@@ -29,24 +29,28 @@ pub(super) fn panel_view(
                             <strong id="author-server-status">"已断开"</strong>
                         </div>
                         <div class="author-history-controls">
-                            <select id="author-session-select" title="历史对话">
-                                <option value="">"历史"</option>
-                            </select>
+                            <sl-select id="author-session-select" title="历史对话" size="small" value="" hoist=true>
+                                <sl-option value="">"历史"</sl-option>
+                            </sl-select>
                         </div>
-                        <button type="button" class="author-btn" id="author-reconnect-btn" title="重连服务" hidden>
-                            "重连"
-                        </button>
+                        <sl-tooltip content="重连服务" placement="bottom">
+                            <sl-button class="author-btn" id="author-reconnect-btn" size="small" hidden=true>
+                                "重连"
+                            </sl-button>
+                        </sl-tooltip>
                     </div>
                     <div class="author-top-actions author-top-actions-right">
-                        <button
-                            type="button"
-                            class="author-btn author-btn-icon"
-                            id="author-session-btn"
-                            title="新建对话"
-                            aria-label="新建对话"
-                        >
-                            "+"
-                        </button>
+                        <sl-tooltip content="新建对话" placement="bottom">
+                            <sl-button
+                                class="author-btn author-btn-icon"
+                                id="author-session-btn"
+                                size="small"
+                                circle=true
+                                aria-label="新建对话"
+                            >
+                                "+"
+                            </sl-button>
+                        </sl-tooltip>
                     </div>
                 </div>
                 <section class="author-chat-section">
@@ -63,36 +67,36 @@ pub(super) fn panel_view(
                     <div class="author-composer-row">
                         <div class="author-composer-shell">
                             <div class="author-composer-header">
-                                <div class="author-history-actions" role="group" aria-label="历史操作">
-                                    <button
-                                        type="button"
+                                <sl-button-group class="author-history-actions" label="历史操作">
+                                    <sl-button
                                         class="author-history-btn"
                                         id="source-view-diff-btn"
                                         data-view-mode="diff"
                                         title="查看最后一轮 Build 差异"
-                                        disabled
+                                        size="small"
+                                        disabled=true
                                     >
                                         "Diff"
-                                    </button>
-                                    <button
-                                        type="button"
+                                    </sl-button>
+                                    <sl-button
                                         class="author-history-btn"
                                         id="author-undo-btn"
                                         title="撤回本轮代码修改"
-                                        disabled
+                                        size="small"
+                                        disabled=true
                                     >
                                         "Undo"
-                                    </button>
-                                    <button
-                                        type="button"
+                                    </sl-button>
+                                    <sl-button
                                         class="author-history-btn"
                                         id="author-redo-btn"
                                         title="恢复最近撤回的代码修改"
-                                        disabled
+                                        size="small"
+                                        disabled=true
                                     >
                                         "Redo"
-                                    </button>
-                                </div>
+                                    </sl-button>
+                                </sl-button-group>
                             </div>
                             <textarea
                                 id="author-intent-input"
@@ -100,37 +104,37 @@ pub(super) fn panel_view(
                                 placeholder="输入并发送"
                             ></textarea>
                             <div class="author-composer-footer">
-                                <div class="author-agent-mode" id="author-agent-mode" role="group" aria-label="OpenCode 工作模式">
-                                    <button
-                                        type="button"
+                                <sl-button-group class="author-agent-mode" id="author-agent-mode" label="OpenCode 工作模式">
+                                    <sl-button
                                         class="author-mode-btn"
                                         id="author-mode-plan-btn"
                                         data-agent-mode="plan"
                                         title="仅分析与规划"
+                                        size="small"
                                     >
                                         "Plan"
-                                    </button>
-                                    <button
-                                        type="button"
+                                    </sl-button>
+                                    <sl-button
                                         class="author-mode-btn is-active"
                                         id="author-mode-build-btn"
                                         data-agent-mode="build"
                                         title="直接修改代码"
+                                        size="small"
                                     >
                                         "Build"
-                                    </button>
-                                </div>
+                                    </sl-button>
+                                </sl-button-group>
                                 <span class="author-model-label" id="author-model-label">
                                     "模型"
                                 </span>
-                                <button type="button" class="author-btn author-btn-primary author-btn-icon" id="author-run-btn" title="发送">
+                                <sl-button class="author-btn author-btn-primary author-btn-icon" id="author-run-btn" title="发送" size="small" circle=true>
                                     "➤"
-                                </button>
+                                </sl-button>
                             </div>
                         </div>
                     </div>
-                    <div class="author-skill-line" id="author-skill-line"></div>
-                    <div class="author-config-line" id="author-config-line" hidden></div>
+                    <sl-tag class="author-skill-line" id="author-skill-line" size="small"></sl-tag>
+                    <sl-tag class="author-config-line" id="author-config-line" size="small" variant="warning" hidden=true></sl-tag>
                 </section>
             </div>
         </section>

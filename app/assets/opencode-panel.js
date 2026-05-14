@@ -1192,7 +1192,7 @@
     );
     const current = String(selectedId || state.sessionId || "");
     els.sessionSelect.innerHTML = "";
-    const placeholder = document.createElement("option");
+    const placeholder = document.createElement("sl-option");
     placeholder.value = "";
     placeholder.textContent = "历史（当前文件）";
     els.sessionSelect.appendChild(placeholder);
@@ -1200,7 +1200,7 @@
       if (!session || typeof session !== "object") return;
       const id = String(session.id || "");
       if (!id) return;
-      const option = document.createElement("option");
+      const option = document.createElement("sl-option");
       option.value = id;
       option.textContent = formatSessionOptionLabel(session);
       els.sessionSelect.appendChild(option);
@@ -2429,7 +2429,7 @@
   }
 
   if (els.sessionSelect) {
-    els.sessionSelect.addEventListener("change", function () {
+    const onSessionSelectChange = function () {
       state.sessionId = String(els.sessionSelect.value || "");
       state.sessionTargetKey = currentTargetKey();
       resetPendingPermissionState();
@@ -2438,7 +2438,9 @@
         setInlineNote("读取会话失败：" + String(error.message || error));
       });
       connectEvents(true);
-    });
+    };
+    els.sessionSelect.addEventListener("sl-change", onSessionSelectChange);
+    els.sessionSelect.addEventListener("change", onSessionSelectChange);
   }
 
   if (els.run) {
