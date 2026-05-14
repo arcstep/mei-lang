@@ -2210,9 +2210,18 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 };
 
 
-// The following export code was added by @ForbesLindesay
-module.exports = diff_match_patch;
-module.exports['diff_match_patch'] = diff_match_patch;
-module.exports['DIFF_DELETE'] = DIFF_DELETE;
-module.exports['DIFF_INSERT'] = DIFF_INSERT;
-module.exports['DIFF_EQUAL'] = DIFF_EQUAL;
+// Browser/global export shim for MeiLang static assets.
+(function(root) {
+  if (typeof module !== "undefined" && module && module.exports) {
+    module.exports = diff_match_patch;
+    module.exports['diff_match_patch'] = diff_match_patch;
+    module.exports['DIFF_DELETE'] = DIFF_DELETE;
+    module.exports['DIFF_INSERT'] = DIFF_INSERT;
+    module.exports['DIFF_EQUAL'] = DIFF_EQUAL;
+    return;
+  }
+  root.diff_match_patch = diff_match_patch;
+  root.DIFF_DELETE = DIFF_DELETE;
+  root.DIFF_INSERT = DIFF_INSERT;
+  root.DIFF_EQUAL = DIFF_EQUAL;
+})(typeof window !== "undefined" ? window : globalThis);
