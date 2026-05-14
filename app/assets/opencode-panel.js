@@ -18,6 +18,12 @@
     modeBuild: document.getElementById("author-mode-build-btn"),
     undo: document.getElementById("author-undo-btn"),
     redo: document.getElementById("author-redo-btn"),
+    sourceViewSourceBtn: document.getElementById("source-view-source-btn"),
+    sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
+    sourceViewStatus: document.getElementById("source-view-status"),
+    sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
+    sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
+    sourceCode: document.querySelector('[data-source-viewer="1"]'),
   };
 
   const state = {
@@ -54,6 +60,13 @@
     pendingPermissionsFingerprint: "",
     pendingPermissionsFetchedAt: 0,
     pendingPermissionNotices: [],
+    pendingPermissionsBootstrappedSessionId: "",
+    activeGenerationMessageId: "",
+    latestRoundAssistantId: "",
+    latestDiffMessageId: "",
+    sourceViewMode: "source",
+    sourceDiffMessageId: "",
+    sourceDiffMergeView: null,
   };
 
   const sessionStorageKey =
@@ -113,6 +126,93 @@
 
   function normalizeAgentMode(value) {
     return String(value || "").toLowerCase() === "plan" ? "plan" : "build";
+  }
+
+  function composerDraftText() {
+    return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
+  }
+
+  function canSubmitPrompt() {
+    return composerDraftText().trim().length > 0;
+  }
+
+  function normalizeFilePath(value) {
+    return String(value || "")
+      .trim()
+      .replace(/\\/g, "/")
+      .replace(/^\.\/+/, "");
+  }
+
+  function sourceTargetKey() {
+    if (els.sourceCode && els.sourceCode.dataset && els.sourceCode.dataset.sourceTarget) {
+      return normalizeFilePath(els.sourceCode.dataset.sourceTarget);
+    }
+    return currentTargetKey();
+  }
+
+  function conversationRounds(messages) {
+    const rounds = [];
+    let current = null;
+    let orphan = 0;
+    (Array.isArray(messages) ? messages : []).forEach(function (message) {
+      if (!message || typeof message !== "object") return;
+      const role = String(message.role || "");
+      if (role === "user") {
+        current = {
+          id: "round-user-" + String(message.id || String(rounds.length)),
+          user: message,
+          assistant: null,
+          system: [],
+        };
+        rounds.push(current);
+        return;
+      }
+      if (role === "assistant") {
+        if (!current) {
+          orphan += 1;
+          current = {
+            id: "round-orphan-" + String(orphan),
+            user: null,
+            assistant: null,
+            system: [],
+          };
+          rounds.push(current);
+        }
+        current.assistant = message;
+        return;
+      }
+      if (!current) {
+        orphan += 1;
+        current = {
+          id: "round-system-" + String(orphan),
+          user: null,
+          assistant: null,
+          system: [],
+        };
+        rounds.push(current);
+      }
+      current.system.push(message);
+    });
+    return rounds;
+  }
+
+  function latestRoundAssistantMessageId() {
+    const rounds = conversationRounds(state.messages);
+    for (let index = rounds.length - 1; index >= 0; index -= 1) {
+      const round = rounds[index];
+      const assistant = round && round.assistant;
+      const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
+      if (messageId) return messageId;
+    }
+    return "";
+  }
+
+  function latestDiffEligibleMessageId() {
+    const latestAssistantId = latestRoundAssistantMessageId();
+    if (!latestAssistantId) return "";
+    const meta = getMessageMeta(state.sessionId, latestAssistantId);
+    if (!meta || meta.hasDiff !== true) return "";
+    return latestAssistantId;
   }
 
   function messageKey(sessionId, messageId) {
@@ -185,10 +285,10 @@
 
   function latestUndoMessageId() {
     if (!state.sessionId) return "";
-    for (let index = state.messages.length - 1; index >= 0; index -= 1) {
-      const message = state.messages[index];
-      if (!message || String(message.role || "") !== "assistant") continue;
-      const messageId = String(message.id || "").trim();
+    const rounds = conversationRounds(state.messages);
+    for (let index = rounds.length - 1; index >= 0; index -= 1) {
+      const message = rounds[index] && rounds[index].assistant;
+      const messageId = String(message && message.id ? message.id : "").trim();
       if (!messageId) continue;
       const meta = getMessageMeta(state.sessionId, messageId);
       if (!meta || meta.hasDiff !== true) continue;
@@ -204,6 +304,151 @@
 
   function canRedo() {
     return hasSessionRevertedChanges(state.sessionId);
+  }
+
+  function renderSourceViewStatus(text) {
+    if (!els.sourceViewStatus) return;
+    const message = String(text || "").trim();
+    els.sourceViewStatus.textContent = message || "仅支持最后一轮 Build";
+  }
+
+  function destroySourceDiffView() {
+    state.sourceDiffMergeView = null;
+    if (els.sourceViewDiffPanel) {
+      els.sourceViewDiffPanel.innerHTML = "";
+    }
+  }
+
+  function renderSourceViewMode(mode) {
+    const nextMode = mode === "diff" ? "diff" : "source";
+    state.sourceViewMode = nextMode;
+    if (els.sourceViewSourcePanel) {
+      els.sourceViewSourcePanel.hidden = nextMode !== "source";
+    }
+    if (els.sourceViewDiffPanel) {
+      els.sourceViewDiffPanel.hidden = nextMode !== "diff";
+    }
+    if (els.sourceViewSourceBtn) {
+      const active = nextMode === "source";
+      els.sourceViewSourceBtn.classList.toggle("is-active", active);
+      els.sourceViewSourceBtn.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    if (els.sourceViewDiffBtn) {
+      const active = nextMode === "diff";
+      els.sourceViewDiffBtn.classList.toggle("is-active", active);
+      els.sourceViewDiffBtn.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
+  function pickDiffFileForTarget(diff) {
+    const files = Array.isArray(diff && diff.files) ? diff.files : [];
+    if (!files.length) return null;
+    const target = sourceTargetKey();
+    const exact = files.find(function (file) {
+      return normalizeFilePath(file && file.file) === target;
+    });
+    if (exact) return exact;
+    const targetName = target.split("/").pop() || target;
+    const fuzzy = files.find(function (file) {
+      const filePath = normalizeFilePath(file && file.file);
+      return filePath === targetName || filePath.endsWith("/" + targetName);
+    });
+    return fuzzy || files[0];
+  }
+
+  function renderSourceDiff(fileDiff, messageId) {
+    if (!els.sourceViewDiffPanel) return false;
+    if (!window.CodeMirror || typeof window.CodeMirror.MergeView !== "function") {
+      setInlineNote("差异视图不可用：CodeMirror 未加载。");
+      return false;
+    }
+    if (typeof window.diff_match_patch !== "function") {
+      setInlineNote("差异视图不可用：diff 引擎未加载。");
+      return false;
+    }
+    const beforeText = String(fileDiff && fileDiff.before ? fileDiff.before : "");
+    const afterText = String(fileDiff && fileDiff.after ? fileDiff.after : "");
+    destroySourceDiffView();
+    state.sourceDiffMergeView = window.CodeMirror.MergeView(els.sourceViewDiffPanel, {
+      value: afterText,
+      orig: beforeText,
+      lineNumbers: true,
+      readOnly: true,
+      mode: "python",
+      theme: "default",
+      highlightDifferences: true,
+      connect: "align",
+      collapseIdentical: false,
+      revertButtons: false,
+    });
+    state.sourceDiffMessageId = String(messageId || "");
+    renderSourceViewMode("diff");
+    renderSourceViewStatus("差异文件：" + String(fileDiff && fileDiff.file ? fileDiff.file : ""));
+    return true;
+  }
+
+  function leaveDiffView() {
+    state.sourceDiffMessageId = "";
+    destroySourceDiffView();
+    renderSourceViewMode("source");
+    const message = state.latestDiffMessageId
+      ? "仅支持最后一轮 Build"
+      : "最后一轮 Build 生成改动后可查看差异";
+    renderSourceViewStatus(message);
+  }
+
+  async function inspectDiffForMessage(messageId) {
+    const sid = String(state.sessionId || "").trim();
+    const mid = String(messageId || "").trim();
+    if (!sid || !mid) return false;
+    if (mid !== String(state.latestDiffMessageId || "")) {
+      setInlineNote("仅支持查看最后一轮 Build 的差异。");
+      return false;
+    }
+    const cacheKey = messageKey(sid, mid);
+    const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
+    state.messageDiffCache[cacheKey] = diff;
+    const hasFiles = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+    setMessageMeta(mid, { hasDiff: hasFiles });
+    if (!hasFiles) {
+      setInlineNote("最后一轮未产生可显示的文件差异。");
+      leaveDiffView();
+      return false;
+    }
+    const fileDiff = pickDiffFileForTarget(diff);
+    if (!fileDiff) {
+      setInlineNote("当前目标文件没有可显示差异。");
+      leaveDiffView();
+      return false;
+    }
+    return renderSourceDiff(fileDiff, mid);
+  }
+
+  function syncSourceDiffEntry() {
+    state.latestRoundAssistantId = latestRoundAssistantMessageId();
+    state.latestDiffMessageId = latestDiffEligibleMessageId();
+    if (els.sourceViewDiffBtn) {
+      const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
+      els.sourceViewDiffBtn.disabled = !enabled;
+      els.sourceViewDiffBtn.title = enabled
+        ? "查看最后一轮 Build 差异"
+        : (historyUnavailableReason() || "最后一轮 Build 生成改动后可查看差异");
+    }
+    if (
+      state.sourceViewMode === "diff" &&
+      state.sourceDiffMessageId &&
+      state.sourceDiffMessageId !== state.latestDiffMessageId
+    ) {
+      leaveDiffView();
+    } else if (!state.latestDiffMessageId && state.sourceViewMode === "diff") {
+      leaveDiffView();
+    } else if (state.sourceViewMode !== "diff") {
+      renderSourceViewStatus(
+        state.latestDiffMessageId
+          ? "仅支持最后一轮 Build"
+          : "最后一轮 Build 生成改动后可查看差异",
+      );
+    }
   }
 
   function scheduleHostReload(reason) {
@@ -246,12 +491,12 @@
     if (els.undo) {
       els.undo.disabled = !undoEnabled;
       els.undo.classList.toggle("is-active", undoEnabled);
-      els.undo.title = unavailableReason || "撤回上一轮消息及其代码影响";
+      els.undo.title = unavailableReason || "撤回本轮代码修改";
     }
     if (els.redo) {
       els.redo.disabled = !redoEnabled;
       els.redo.classList.toggle("is-active", redoEnabled);
-      els.redo.title = unavailableReason || "恢复最近撤回的消息及其代码影响";
+      els.redo.title = unavailableReason || "恢复最近撤回的代码修改";
     }
   }
 
@@ -296,11 +541,22 @@
     if (!els.run) return;
     const isSending = state.sending;
     const isStopping = state.aborting;
-    els.run.disabled = isStopping || (disabled && !isSending);
+    const canSubmit = canSubmitPrompt();
+    const isPassive = !isSending && !canSubmit;
+    els.run.disabled = isSending ? isStopping : (disabled || !canSubmit);
     els.run.textContent = isSending ? "■" : "➤";
-    els.run.title = isSending ? (isStopping ? "停止中" : "停止发送") : "发送";
+    els.run.title = isSending
+      ? (isStopping ? "停止中" : "停止发送")
+      : canSubmit
+        ? "发送"
+        : "输入内容后可发送";
+    els.run.setAttribute(
+      "aria-label",
+      isSending ? (isStopping ? "停止中" : "停止发送") : canSubmit ? "发送" : "等待输入",
+    );
     els.run.classList.toggle("author-btn-danger", isSending);
-    els.run.classList.toggle("author-btn-primary", !isSending);
+    els.run.classList.toggle("author-btn-primary", !isSending && canSubmit);
+    els.run.classList.toggle("author-btn-passive", isPassive);
   }
 
   function setInlineNote(message) {
@@ -345,6 +601,7 @@
     state.sending = false;
     state.aborting = false;
     state.sendAbortController = null;
+    state.activeGenerationMessageId = "";
     if (opts.restoreDraft) {
       mergeDraftBackIntoInput();
     } else {
@@ -356,9 +613,17 @@
   function markGenerationActivity() {
     if (!state.sending) return;
     clearGenerationSettleTimer();
-    state.generationSettleTimer = window.setTimeout(function () {
-      finishSending();
-    }, 1800);
+  }
+
+  function activeGenerationFinished(rawMessages) {
+    if (!state.sending) return false;
+    const activeId = String(state.activeGenerationMessageId || "").trim();
+    if (!activeId) return false;
+    const message = (Array.isArray(rawMessages) ? rawMessages : []).find(function (item) {
+      return String(item && item.message_id ? item.message_id : "") === activeId;
+    });
+    if (!message || String(message.role || "") !== "assistant") return false;
+    return String(message.finish || "").trim().length > 0;
   }
 
   function renderStatus() {
@@ -771,12 +1036,58 @@
     return merged;
   }
 
+  function blockedPermissionFingerprint(notices) {
+    return mergeBlockedPermissionNotices(notices, [])
+      .map(function (item) {
+        return [
+          String(item && item.id || ""),
+          String(item && item.permissionId || ""),
+          String(item && item.path || ""),
+        ].join("|");
+      })
+      .filter(Boolean)
+      .sort()
+      .join("||");
+  }
+
+  function rememberBlockedPermissionNotice(notice) {
+    state.pendingPermissionNotices = mergeBlockedPermissionNotices(
+      [notice],
+      state.pendingPermissionNotices,
+    );
+  }
+
+  function resetPendingPermissionState() {
+    state.pendingPermissionsFingerprint = "";
+    state.pendingPermissionsFetchedAt = 0;
+    state.pendingPermissionNotices = [];
+    state.pendingPermissionsBootstrappedSessionId = "";
+    state.activeGenerationMessageId = "";
+    state.latestRoundAssistantId = "";
+    state.latestDiffMessageId = "";
+    state.sourceDiffMessageId = "";
+    if (state.sourceViewMode === "diff") {
+      leaveDiffView();
+    } else {
+      destroySourceDiffView();
+      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+    }
+  }
+
   function applyBlockedPermissionNotices(notices) {
-    (Array.isArray(notices) ? notices : []).forEach(function (notice) {
-      pushMessage("system", blockedPermissionBody(notice), {
-        id: "permission-blocked:" + String(notice.id || ""),
-      });
-    });
+    const list = Array.isArray(notices) ? notices : [];
+    if (!list.length) return;
+    const summary = list
+      .map(function (notice) {
+        const path = String(notice && notice.path ? notice.path : "").trim();
+        const message = String(notice && notice.message ? notice.message : "").trim();
+        return path ? "已拒绝未授权目录：" + path : message;
+      })
+      .filter(Boolean)
+      .join("；");
+    if (summary) {
+      setInlineNote(summary);
+    }
   }
 
   function deriveBlockedNoticesFromRawMessages(rawMessages) {
@@ -915,73 +1226,6 @@
     );
   }
 
-  function formatDiffSummary(diff) {
-    if (!diff) return "";
-    return (
-      "消息: " +
-      String(diff.message_id || "-") +
-      "\n文件: " +
-      String(Array.isArray(diff.files) ? diff.files.length : 0) +
-      "\n新增: +" +
-      String(diff.additions || 0) +
-      "\n删除: -" +
-      String(diff.deletions || 0)
-    );
-  }
-
-  function buildDiffBlocks(diff) {
-    const blocks = [];
-    const summary = makeTextBlock("差异概览", formatDiffSummary(diff), "diff");
-    if (summary) blocks.push(summary);
-    const files = Array.isArray(diff && diff.files) ? diff.files : [];
-    files.forEach(function (file, index) {
-      const body =
-        "文件: " +
-        String(file.file || "") +
-        "\n新增: +" +
-        String(file.additions || 0) +
-        "\n删除: -" +
-        String(file.deletions || 0) +
-        "\n\n[before]\n" +
-        String(file.before || "") +
-        "\n\n[after]\n" +
-        String(file.after || "");
-      const block = makeTextBlock(
-        "变更 #" + String(index + 1),
-        body,
-        "diff",
-        true,
-      );
-      if (block) blocks.push(block);
-    });
-    return blocks;
-  }
-
-  function buildCurrentCodeBlocks(messageId, diff, reverted) {
-    const blocks = [];
-    const summary = makeTextBlock(
-      "当前代码",
-      "消息: " +
-        String(messageId || "") +
-        "\n来源: " +
-        (reverted ? "revert 后（before）" : "build 后（after）"),
-      "code",
-    );
-    if (summary) blocks.push(summary);
-    const files = Array.isArray(diff && diff.files) ? diff.files : [];
-    files.forEach(function (file) {
-      const code = reverted ? String(file.before || "") : String(file.after || "");
-      const block = makeTextBlock(
-        "文件: " + String(file.file || ""),
-        code || "(空文件)",
-        "code",
-        true,
-      );
-      if (block) blocks.push(block);
-    });
-    return blocks;
-  }
-
   async function fetchSessionDiff(messageId) {
     if (!state.sessionId) return null;
     const query = messageId
@@ -1009,9 +1253,7 @@
     const revertedIds = revertedIdsForSession(sid);
     revertedIds.push(mid);
     setRevertedIdsForSession(sid, revertedIds);
-    pushMessage("system", "已撤回上一轮消息及其代码影响。", {
-      id: "revert:" + mid,
-    });
+    setInlineNote("已撤回上一轮代码修改。");
     await refreshMessages();
     scheduleHostReload("已撤回修改，正在刷新预览与源码…");
   }
@@ -1032,76 +1274,32 @@
         });
       }
     });
-    pushMessage("system", "已恢复最近撤回的消息及其代码影响。", {
-      id: "unrevert:" + sid,
-    });
+    setInlineNote("已恢复最近撤回的代码修改。");
     await refreshMessages();
     scheduleHostReload("已恢复撤回修改，正在刷新预览与源码…");
   }
 
   async function showDiffForMessage(messageId) {
-    const sid = String(state.sessionId || "").trim();
-    const mid = String(messageId || "").trim();
-    if (!sid || !mid) return;
-    const diff = await fetchSessionDiff(mid);
-    setMessageMeta(mid, { hasDiff: !!(diff && Array.isArray(diff.files) && diff.files.length > 0) });
-    state.messageDiffCache[messageKey(sid, mid)] = diff;
-    if (!(diff && Array.isArray(diff.files) && diff.files.length > 0)) {
-      pushMessage("system", "该轮未产生可回退的文件修改。", {
-        id: "diff:" + mid,
-      });
-      renderMessages();
+    if (!(await inspectDiffForMessage(messageId))) {
       return;
     }
-    pushMessage("system", "已加载该轮修改差异。", {
-      id: "diff:" + mid,
-      blocks: buildDiffBlocks(diff),
-      actions: [
-        {
-          label: "查看当前代码结果",
-          onClick: function () {
-            showCurrentCodeForMessage(mid).catch(function (error) {
-              setInlineNote("读取当前代码失败：" + String(error.message || error));
-            });
-          },
-        },
-      ],
-    });
-    renderMessages();
-  }
-
-  async function showCurrentCodeForMessage(messageId) {
-    const sid = String(state.sessionId || "").trim();
-    const mid = String(messageId || "").trim();
-    if (!sid || !mid) return;
-    const cacheKey = messageKey(sid, mid);
-    const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
-    state.messageDiffCache[cacheKey] = diff;
-    if (!(diff && Array.isArray(diff.files) && diff.files.length > 0)) {
-      pushMessage("system", "该轮没有可展示的代码结果。", {
-        id: "current:" + mid,
-      });
-      return;
-    }
-    const meta = getMessageMeta(sid, mid) || {};
-    const reverted = !!meta.reverted;
-    pushMessage("system", "当前代码结果已刷新。", {
-      id: "current:" + mid,
-      blocks: buildCurrentCodeBlocks(mid, diff, reverted),
-    });
+    setInlineNote("差异已加载到左侧源码区。");
   }
 
   function actionsForAssistantMessage(message) {
     if (historyUnavailableReason()) return [];
     const messageId = String(message && message.id ? message.id : "");
     if (!messageId || String(message.role || "") !== "assistant") return [];
+    if (messageId !== String(state.latestRoundAssistantId || "")) {
+      return [];
+    }
     const meta = getMessageMeta(state.sessionId, messageId);
     if (!meta || meta.hasDiff !== true) {
       return [];
     }
     return [
       {
-        label: "查看差异",
+        label: "查看最后一轮差异",
         onClick: function () {
           showDiffForMessage(messageId).catch(function (error) {
             setInlineNote("读取差异失败：" + String(error.message || error));
@@ -1142,6 +1340,7 @@
       } catch (_) {}
     }
     if (changed) {
+      syncSourceDiffEntry();
       state.messages = state.messages.map(function (row) {
         return Object.assign({}, row, { actions: actionsForAssistantMessage(row) });
       });
@@ -1154,6 +1353,7 @@
   }
 
   function decorateMessageActions() {
+    syncSourceDiffEntry();
     state.messages = state.messages.map(function (message) {
       return Object.assign({}, message, {
         actions:
@@ -1189,6 +1389,77 @@
     els.chatLog.scrollTop = snapshot.scrollTop;
   }
 
+  function renderChatMessageCard(message, forcedRole, extraClass) {
+    const roleRaw = String(forcedRole || message && message.role || "assistant").toLowerCase();
+    const role = escapeHtml(roleRaw);
+    const messageId = String(message && message.id ? message.id : "");
+    const reverted = roleRaw === "assistant" && isMessageReverted(state.sessionId, messageId);
+    const classList = [
+      "author-chat-message",
+      roleRaw === "user"
+        ? "author-chat-user"
+        : roleRaw === "assistant"
+          ? "author-chat-assistant"
+          : "author-chat-system",
+    ];
+    if (reverted) classList.push("author-chat-assistant-reverted");
+    if (extraClass) classList.push(extraClass);
+    const cls = classList.join(" ");
+    const blocks = Array.isArray(message && message.blocks) ? message.blocks : [];
+    const time = escapeHtml(String(message && message.time ? message.time : ""));
+    const bodyHtml =
+      blocks.length > 0
+        ? blocks
+            .map(function (block) {
+              const label = String(block.label || "").trim();
+              const content = escapeHtml(block.content || "");
+              if (block.collapsed) {
+                return (
+                  '<details class="author-chat-block author-chat-block-details author-chat-block-' +
+                  escapeHtml(block.type || "text") +
+                  '"><summary class="author-chat-block-label">' +
+                  escapeHtml(label || "展开") +
+                  '</summary><pre class="author-chat-body">' +
+                  content +
+                  "</pre></details>"
+                );
+              }
+              return (
+                '<section class="author-chat-block author-chat-block-' +
+                escapeHtml(block.type || "text") +
+                '">' +
+                (label
+                  ? '<div class="author-chat-block-label">' + escapeHtml(label) + "</div>"
+                  : "") +
+                '<pre class="author-chat-body">' +
+                content +
+                "</pre></section>"
+              );
+            })
+            .join("")
+        : '<pre class="author-chat-body">' + escapeHtml(message && message.body ? message.body : "") + "</pre>";
+    const actions = roleRaw === "assistant" ? renderMessageActions(message, messageId) : "";
+    return (
+      '<div class="' +
+      cls +
+      '" data-message-id="' +
+      escapeHtml(messageId) +
+      '">' +
+      '<div class="author-chat-head"><div class="author-chat-role author-chat-role-' +
+      role +
+      '">' +
+      (roleRaw === "user" ? "我" : roleRaw === "assistant" ? escapeHtml(state.modelLabel || "模型") : "系统") +
+      '</div><div class="author-chat-meta"><span class="author-chat-time">' +
+      time +
+      '</span><button type="button" class="author-chat-copy-btn opencode-copy-btn" data-message-id="' +
+      escapeHtml(messageId) +
+      '">⧉</button></div></div>' +
+      bodyHtml +
+      actions +
+      "</div>"
+    );
+  }
+
   function renderMessages() {
     if (!els.chatLog) return;
     const scrollSnapshot = chatScrollSnapshot();
@@ -1205,67 +1476,30 @@
       restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
-    els.chatLog.innerHTML = state.messages
-      .map(function (message) {
-        const role = escapeHtml(message.role || "assistant");
-        const cls =
-          role === "user"
-            ? "author-chat-message author-chat-user"
-            : role === "assistant"
-              ? "author-chat-message author-chat-assistant"
-              : "author-chat-message author-chat-system";
-        const blocks = Array.isArray(message.blocks) ? message.blocks : [];
-        const time = escapeHtml(message.time || "");
-        const bodyHtml =
-          blocks.length > 0
-            ? blocks
-                .map(function (block) {
-                  const label = String(block.label || "").trim();
-                  const content = escapeHtml(block.content || "");
-                  if (block.collapsed) {
-                    return (
-                      '<details class="author-chat-block author-chat-block-details author-chat-block-' +
-                      escapeHtml(block.type || "text") +
-                      '"><summary class="author-chat-block-label">' +
-                      escapeHtml(label || "展开") +
-                      '</summary><pre class="author-chat-body">' +
-                      content +
-                      "</pre></details>"
-                    );
-                  }
-                  return (
-                    '<section class="author-chat-block author-chat-block-' +
-                    escapeHtml(block.type || "text") +
-                    '">' +
-                    (label
-                      ? '<div class="author-chat-block-label">' + escapeHtml(label) + "</div>"
-                      : "") +
-                    '<pre class="author-chat-body">' +
-                    content +
-                    "</pre></section>"
-                  );
-                })
-                .join("")
-            : '<pre class="author-chat-body">' + escapeHtml(message.body || "") + "</pre>";
+    const rounds = conversationRounds(state.messages);
+    const html = rounds
+      .map(function (round) {
+        const user = round && round.user ? round.user : null;
+        const assistant = round && round.assistant ? round.assistant : null;
+        const systemOnly = !user && !assistant && round && Array.isArray(round.system)
+          ? round.system
+          : [];
+        if (systemOnly.length > 0) {
+          return systemOnly
+            .map(function (message) {
+              return renderChatMessageCard(message, "system", "author-chat-row-system");
+            })
+            .join("");
+        }
         return (
-          '<div class="' +
-          cls +
-          '">' +
-          '<div class="author-chat-head"><div class="author-chat-role author-chat-role-' +
-          role +
-          '">' +
-          (role === "user" ? "我" : role === "assistant" ? escapeHtml(state.modelLabel || "模型") : "系统") +
-          '</div><div class="author-chat-meta"><span class="author-chat-time">' +
-          time +
-          '</span><button type="button" class="author-chat-copy-btn opencode-copy-btn" data-message-id="' +
-          escapeHtml(message.id || "") +
-          '">⧉</button></div></div>' +
-          bodyHtml +
-          renderMessageActions(message, message.id || "") +
-          "</div>"
+          '<section class="author-chat-round">' +
+          (user ? renderChatMessageCard(user, "user", "author-chat-row-user") : "") +
+          (assistant ? renderChatMessageCard(assistant, "assistant", "author-chat-row-assistant") : "") +
+          "</section>"
         );
       })
       .join("");
+    els.chatLog.innerHTML = html;
 
     Array.from(els.chatLog.querySelectorAll(".opencode-action-btn")).forEach(function (button) {
       button.addEventListener("click", function () {
@@ -1303,38 +1537,6 @@
     });
 
     restoreChatScroll(scrollSnapshot, shouldStickBottom);
-  }
-
-  function pushMessage(role, body, options) {
-    const opts = options || {};
-    const id = String(opts.id || "local:" + Date.now() + ":" + Math.random());
-    const existing = state.messages.find(function (item) {
-      return String(item && item.id ? item.id : "") === id;
-    });
-    const next = {
-      id: id,
-      role: role,
-      body: String(body || "").trim(),
-      blocks: Array.isArray(opts.blocks) ? opts.blocks : [],
-      actions: Array.isArray(opts.actions) ? opts.actions : [],
-      time: new Date().toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }),
-    };
-    if (existing) {
-      existing.body = next.body;
-      existing.blocks = next.blocks;
-      existing.actions = next.actions;
-      existing.time = next.time;
-    } else {
-      state.messages.push(next);
-      if (state.messages.length > 120) {
-        state.messages = state.messages.slice(-120);
-      }
-    }
-    renderMessages();
   }
 
   function closeEventStream() {
@@ -1400,9 +1602,7 @@
         body: JSON.stringify({ response: reply }),
       },
     );
-    pushMessage("system", "permission_id: " + pid + "\nresponse: " + reply, {
-      id: "permission-result:" + pid,
-    });
+    setInlineNote("权限请求已处理：permission_id=" + pid + "，response=" + reply);
   }
 
   function applyHostEvent(event) {
@@ -1440,30 +1640,24 @@
     if (kind === "permission_requested") {
       markGenerationActivity();
       const notice = blockedPermissionNoticeFromData(event);
-      pushMessage("system", blockedPermissionBody(notice), {
-        id: "permission-blocked:" + String(notice.id || ""),
-      });
+      rememberBlockedPermissionNotice(notice);
+      setInlineNote("已拒绝未授权权限请求：" + String(notice.path || notice.permission || "unknown"));
       return;
     }
     if (kind === "permission_blocked") {
       markGenerationActivity();
       const notice = blockedPermissionNoticeFromData(event);
-      pushMessage("system", blockedPermissionBody(notice), {
-        id: "permission-blocked:" + String(notice.id || ""),
-      });
+      rememberBlockedPermissionNotice(notice);
+      setInlineNote(String(notice.message || "会话触发了未授权访问，已自动拒绝。"));
       return;
     }
     if (kind === "permission_resolved") {
       markGenerationActivity();
-      pushMessage(
-        "system",
-        "permission_id: " +
+      setInlineNote(
+        "权限请求已自动处理：permission_id=" +
           String(event.permission_id || "") +
-          "\nresponse: " +
+          "，response=" +
           String(event.response || ""),
-        {
-          id: "permission-result:" + String(event.permission_id || ""),
-        },
       );
     }
   }
@@ -1539,6 +1733,7 @@
         state.sessionId = "";
         state.messages = [];
         state.lastMessagesFingerprint = "";
+        resetPendingPermissionState();
         rememberSession();
       }
       if (!state.sessionId && boundSessions.length > 0) {
@@ -1546,6 +1741,7 @@
         const saved = savedId ? boundSessions.find(function (item) { return item.id === savedId; }) : null;
         const preferred = saved || boundSessions[0];
         state.sessionId = preferred ? preferred.id : "";
+        resetPendingPermissionState();
       }
       if (
         !state._meiAutoSessionOnce &&
@@ -1561,8 +1757,9 @@
         }
       }
       renderSessions();
+      syncSourceDiffEntry();
       if (state.health && state.health.healthy && state.sessionId) {
-        await refreshMessages();
+        await refreshMessages({ forcePendingPermissions: true });
         connectEvents(false);
       } else {
         closeEventStream();
@@ -1604,6 +1801,7 @@
       body: JSON.stringify({ title: buildSessionTitle() }),
     });
     state.sessionId = session.id || "";
+    resetPendingPermissionState();
     rememberSession();
     invalidateSessionCache();
     await refreshAll();
@@ -1618,10 +1816,12 @@
     await postNewBoundSession();
   }
 
-  async function refreshMessages() {
+  async function refreshMessages(options) {
+    const opts = options || {};
     if (!state.sessionId || !(state.health && state.health.healthy)) {
       closeEventStream();
       state.lastMessagesFingerprint = "";
+      resetPendingPermissionState();
       renderMessages();
       return;
     }
@@ -1632,11 +1832,19 @@
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
-    const now = Date.now();
+    const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
+    const runningBlockedFingerprint = blockedPermissionFingerprint(runningBlocked);
+    const shouldBootstrapPendingPermissions =
+      opts.forcePendingPermissions === true &&
+      state.pendingPermissionsBootstrappedSessionId !== String(state.sessionId || "");
     const shouldRefreshPendingPermissions =
-      !state.pendingPermissionsFingerprint ||
-      now - Number(state.pendingPermissionsFetchedAt || 0) >= 3000;
+      shouldBootstrapPendingPermissions ||
+      (
+        !!runningBlockedFingerprint &&
+        runningBlockedFingerprint !== state.pendingPermissionsFingerprint
+      );
     if (nextFingerprint === state.lastMessagesFingerprint && !shouldRefreshPendingPermissions) {
+      state.pendingPermissionsFingerprint = runningBlockedFingerprint;
       return;
     }
     let pendingBlocked = Array.isArray(state.pendingPermissionNotices)
@@ -1656,10 +1864,13 @@
       } catch (_) {
         pendingBlocked = [];
       }
-      state.pendingPermissionsFingerprint = JSON.stringify(pendingBlocked);
-      state.pendingPermissionsFetchedAt = now;
+      state.pendingPermissionsFetchedAt = Date.now();
       state.pendingPermissionNotices = pendingBlocked.slice();
+      if (shouldBootstrapPendingPermissions) {
+        state.pendingPermissionsBootstrappedSessionId = String(state.sessionId || "");
+      }
     }
+    state.pendingPermissionsFingerprint = runningBlockedFingerprint;
     state.lastMessagesFingerprint = nextFingerprint;
     list.forEach(function (raw) {
       const inferred = inferAgentModeFromRawMessage(raw);
@@ -1671,12 +1882,15 @@
       }
     });
     state.messages = list.map(normalizeMessage);
-    const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
+    syncSourceDiffEntry();
     const mergedBlocked = mergeBlockedPermissionNotices(pendingBlocked, runningBlocked);
     applyBlockedPermissionNotices(mergedBlocked);
     decorateMessageActions();
     renderMessages();
     await hydrateBuildDiffMeta(state.messages);
+    if (activeGenerationFinished(list)) {
+      finishSending();
+    }
   }
 
   function summarizePromptError(error) {
@@ -1787,6 +2001,7 @@
         state.sessionId = "";
         state.messages = [];
         state.lastMessagesFingerprint = "";
+        resetPendingPermissionState();
         rememberSession();
         invalidateSessionCache();
         setInlineNote("检测到旧会话已失效，正在自动重建会话后重试…");
@@ -1807,6 +2022,7 @@
         return;
       }
       if (summary && summary.message_id) {
+        state.activeGenerationMessageId = String(summary.message_id);
         setMessageMeta(summary.message_id, {
           agent: normalizeAgentMode(state.agentMode),
           hasDiff: state.agentMode === "build" ? null : false,
@@ -1817,6 +2033,9 @@
         }
       }
       await refreshMessages();
+      if (summary && summary.finish) {
+        finishSending();
+      }
       if (summary && summary.message_id && normalizeAgentMode(state.agentMode) === "build") {
         try {
           const diff = await fetchSessionDiff(summary.message_id);
@@ -1865,6 +2084,7 @@
     els.sessionSelect.addEventListener("change", function () {
       state.sessionId = String(els.sessionSelect.value || "");
       state.sessionTargetKey = currentTargetKey();
+      resetPendingPermissionState();
       rememberSession();
       refreshMessages().catch(function (error) {
         setInlineNote("读取会话失败：" + String(error.message || error));
@@ -1882,6 +2102,9 @@
   }
 
   if (els.input) {
+    els.input.addEventListener("input", function () {
+      renderRunButton(state.loading);
+    });
     els.input.addEventListener("keydown", function (event) {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
@@ -1901,6 +2124,24 @@
   if (els.modeBuild) {
     els.modeBuild.addEventListener("click", function () {
       switchAgentMode("build");
+    });
+  }
+
+  if (els.sourceViewSourceBtn) {
+    els.sourceViewSourceBtn.addEventListener("click", function () {
+      leaveDiffView();
+    });
+  }
+
+  if (els.sourceViewDiffBtn) {
+    els.sourceViewDiffBtn.addEventListener("click", function () {
+      if (!state.latestDiffMessageId) {
+        setInlineNote("最后一轮 Build 生成改动后才可查看差异。");
+        return;
+      }
+      inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+        setInlineNote("读取差异失败：" + String(error.message || error));
+      });
     });
   }
 
@@ -1926,6 +2167,9 @@
   restoreRevertedState();
   restoreAgentMode();
   restoreSession();
+  renderSourceViewMode("source");
+  renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+  syncSourceDiffEntry();
   refreshAll();
   window.addEventListener("beforeunload", closeEventStream);
   window.setInterval(function () {

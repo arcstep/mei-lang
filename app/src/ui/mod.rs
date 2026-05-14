@@ -63,6 +63,8 @@ pub fn render_page(
                 <title>{format!("{} - MeiLang", compiled.title)}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-assets/app-shell.css"/>
+                <link rel="stylesheet" href="/app-assets/vendor/codemirror.css"/>
+                <link rel="stylesheet" href="/app-assets/vendor/codemirror-merge.css"/>
             </head>
             <body class=body_class>
                 {shell}
@@ -224,12 +226,37 @@ fn manage_shell(
                                     <h3>{source_title}</h3>
                                     <p class="source-panel-meta">{source_meta_text}</p>
                                 </div>
-                                <pre class="source-block"><code
-                                    class="source-code"
-                                    data-source-viewer="1"
-                                    data-source-target=selected_target.clone()
-                                    data-source-lang=source_lang
-                                >{source_panel}</code></pre>
+                                <div class="source-view-switcher" role="group" aria-label="源码与差异视图">
+                                    <button
+                                        type="button"
+                                        class="source-view-btn is-active"
+                                        id="source-view-source-btn"
+                                        data-view-mode="source"
+                                    >
+                                        "当前源码"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="source-view-btn"
+                                        id="source-view-diff-btn"
+                                        data-view-mode="diff"
+                                        disabled
+                                    >
+                                        "查看最后一轮差异"
+                                    </button>
+                                    <span class="source-view-status" id="source-view-status">
+                                        "仅支持最后一轮 Build"
+                                    </span>
+                                </div>
+                                <div class="source-view-host" id="source-view-host">
+                                    <pre class="source-block" id="source-view-source-panel"><code
+                                        class="source-code"
+                                        data-source-viewer="1"
+                                        data-source-target=selected_target.clone()
+                                        data-source-lang=source_lang
+                                    >{source_panel}</code></pre>
+                                    <div class="source-diff-host" id="source-view-diff-panel" hidden></div>
+                                </div>
                                 {diagnostics}
                             </div>
                         </section>
@@ -438,6 +465,10 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
         view! {
             <>
                 <script src="/app-assets/frame-stage.js"></script>
+                <script src="/app-assets/vendor/diff-match-patch.js"></script>
+                <script src="/app-assets/vendor/codemirror.js"></script>
+                <script src="/app-assets/vendor/codemirror-mode-python.js"></script>
+                <script src="/app-assets/vendor/codemirror-merge.js"></script>
                 <script src="/app-assets/opencode-panel.js"></script>
                 <script src="/app-assets/workspace-splitters.js"></script>
                 <script src="/app-assets/source-tree-controls.js"></script>

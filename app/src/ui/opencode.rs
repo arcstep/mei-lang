@@ -58,19 +58,19 @@ pub(super) fn panel_view(
                                         type="button"
                                         class="author-history-btn"
                                         id="author-undo-btn"
-                                        title="撤回上一轮消息及其代码影响"
+                                        title="撤回本轮代码修改"
                                         disabled
                                     >
-                                        "Undo"
+                                        "撤回修改"
                                     </button>
                                     <button
                                         type="button"
                                         class="author-history-btn"
                                         id="author-redo-btn"
-                                        title="恢复最近撤回的消息及其代码影响"
+                                        title="恢复最近撤回的代码修改"
                                         disabled
                                     >
-                                        "Redo"
+                                        "恢复修改"
                                     </button>
                                 </div>
                             </div>
