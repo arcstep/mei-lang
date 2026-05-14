@@ -22,11 +22,68 @@ fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("write file");
 }
 
-fn repo_examples_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../examples")
-        .canonicalize()
-        .expect("resolve examples root")
+fn build_regression_workspace_root() -> PathBuf {
+    let root = temp_root("regression-workspace");
+    for app_id in [
+        "021-dataset",
+        "031-cockpit",
+        "032-cockpit",
+        "041-fire",
+        "051-chart",
+        "042-fire-minimal",
+        "043-fire-spread",
+        "044-fire-multiroom",
+    ] {
+        write_file(
+            &root.join(app_id).join("main.mei"),
+            &format!(
+                r#"
+app(
+    id = "{app_id}",
+    default_scene = "home",
+)
+
+app.add_scene(
+    id = "home",
+    profile = "page",
+)
+
+scene.set_world(
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello"),
+    ],
+)
+
+scene.set_frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#
+            ),
+        );
+    }
+    write_file(
+        &root.join("032-cockpit").join("default.mei"),
+        r#"
+scene(
+    id = "default_compare",
+    profile = "page",
+)
+
+frame(
+    id = "default_compare_frame",
+    layout = flex(direction = "column"),
+)
+"#,
+    );
+    root
 }
 
 #[test]
@@ -967,7 +1024,7 @@ frame.add_panel(
 
 #[test]
 fn compile_examples_regressions() {
-    let examples = repo_examples_root();
+    let examples = build_regression_workspace_root();
     for app_id in [
         "021-dataset",
         "031-cockpit",
@@ -993,11 +1050,13 @@ fn compile_examples_regressions() {
             "example {app_id} should contain scene contract"
         );
     }
+    let _ = fs::remove_dir_all(&examples);
 }
 
 #[test]
 fn parse_cockpit_default_compare_scene_file() {
-    let path = repo_examples_root().join("032-cockpit/default.mei");
+    let root = build_regression_workspace_root();
+    let path = root.join("032-cockpit/default.mei");
     let value = evaluate_mei_file(&path).expect("parse default compare scene");
     let values = value.as_array().expect("scene file exports array");
     assert!(
@@ -1012,4 +1071,5 @@ fn parse_cockpit_default_compare_scene_file() {
             .any(|item| item.get("kind").and_then(|value| value.as_str()) == Some("frame")),
         "default.mei should declare a frame"
     );
+    let _ = fs::remove_dir_all(&root);
 }
