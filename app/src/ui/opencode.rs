@@ -49,6 +49,15 @@ pub(super) fn panel_view(
                     </div>
                 </div>
                 <section class="author-chat-section">
+                    <div class="author-progress-strip" id="author-progress-strip" hidden>
+                        <div class="author-progress-main">
+                            <span class="author-progress-label" id="author-progress-label">
+                                "准备中"
+                            </span>
+                            <span class="author-progress-detail" id="author-progress-detail"></span>
+                        </div>
+                        <div class="author-progress-items" id="author-progress-items"></div>
+                    </div>
                     <div class="author-chat-log" id="author-chat-log"></div>
                     <div class="author-composer-row">
                         <div class="author-composer-shell">
@@ -57,11 +66,21 @@ pub(super) fn panel_view(
                                     <button
                                         type="button"
                                         class="author-history-btn"
+                                        id="source-view-diff-btn"
+                                        data-view-mode="diff"
+                                        title="查看最后一轮 Build 差异"
+                                        disabled
+                                    >
+                                        "Diff"
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="author-history-btn"
                                         id="author-undo-btn"
                                         title="撤回本轮代码修改"
                                         disabled
                                     >
-                                        "撤回修改"
+                                        "Undo"
                                     </button>
                                     <button
                                         type="button"
@@ -70,7 +89,7 @@ pub(super) fn panel_view(
                                         title="恢复最近撤回的代码修改"
                                         disabled
                                     >
-                                        "恢复修改"
+                                        "Redo"
                                     </button>
                                 </div>
                             </div>

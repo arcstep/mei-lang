@@ -474,7 +474,13 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 8px;
   margin: 0 0 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.source-panel-meta-inline {
+  margin-left: auto;
+  text-align: right;
+  flex-shrink: 0;
 }
 .source-view-btn {
   appearance: none;
@@ -486,6 +492,7 @@ a { color: inherit; text-decoration: none; }
   font-size: 11px;
   font-weight: 700;
   cursor: pointer;
+  flex-shrink: 0;
 }
 .source-view-btn:hover:not(:disabled) {
   border-color: rgba(191,219,254,.68);
@@ -505,24 +512,85 @@ a { color: inherit; text-decoration: none; }
   color: #93c5fd;
   font-size: 11px;
   line-height: 1.4;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .source-view-host {
-  display: grid;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
   gap: 10px;
 }
+.source-editor-host {
+  flex: 1;
+  min-height: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(30, 41, 59, 0.95);
+  background:
+    linear-gradient(180deg, rgba(2, 6, 23, 0.98), rgba(2, 6, 23, 0.96)),
+    linear-gradient(180deg, rgba(59, 130, 246, 0.08), rgba(14, 165, 233, 0.03));
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.05),
+    0 10px 24px rgba(2, 6, 23, 0.28);
+  overflow: hidden;
+}
+.source-editor-host .CodeMirror {
+  height: 100%;
+  min-height: 100%;
+  font-size: 12px;
+  line-height: 1.65;
+  background: transparent;
+  color: #cbd5e1;
+}
+.source-editor-host .CodeMirror-scroll {
+  min-height: 100%;
+}
+.source-editor-host .CodeMirror-gutters {
+  background: rgba(2, 6, 23, 0.86);
+  border-right: 1px solid rgba(51, 65, 85, 0.72);
+}
+.source-editor-host .CodeMirror-linenumber {
+  color: #64748b;
+}
 .source-diff-host {
+  flex: 1;
+  min-height: 0;
   border-radius: 12px;
   border: 1px solid rgba(56, 189, 248, 0.25);
   background: rgba(2, 6, 23, 0.92);
   overflow: auto;
 }
+.source-pane-scroll {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.source-block {
+  flex: 1;
+  min-height: 0;
+}
+.source-diff-host .CodeMirror-merge {
+  display: flex;
+  min-height: 100%;
+  height: 100%;
+  border: none;
+  background: rgba(2, 6, 23, 0.92);
+}
+.source-diff-host .CodeMirror-merge,
+.source-diff-host .CodeMirror-merge .CodeMirror,
+.source-diff-host .CodeMirror-merge-pane,
+.source-diff-host .CodeMirror-merge-pane .CodeMirror {
+  height: 100%;
+}
 .source-diff-host .CodeMirror {
-  height: auto;
-  min-height: 220px;
+  min-height: 100%;
   font-size: 12px;
   line-height: 1.5;
   background: rgba(2, 6, 23, 0.92);
-  color: #dbeafe;
+  color: #cbd5e1;
 }
 .source-diff-host .CodeMirror-gutters {
   background: rgba(2, 6, 23, 0.92);
@@ -533,6 +601,60 @@ a { color: inherit; text-decoration: none; }
   border-right: 1px solid rgba(51, 65, 85, 0.55);
   background: rgba(15, 23, 42, 0.85);
 }
+.source-diff-host .CodeMirror-merge-scrolllock {
+  color: #93c5fd;
+}
+.source-diff-host .CodeMirror-merge-r-inserted,
+.source-diff-host .CodeMirror-merge-l-inserted,
+.source-diff-host .CodeMirror-merge-r-deleted,
+.source-diff-host .CodeMirror-merge-l-deleted {
+  background-image: none;
+}
+.source-diff-host .CodeMirror-merge-r-chunk,
+.source-diff-host .CodeMirror-merge-r-chunk-start,
+.source-diff-host .CodeMirror-merge-r-chunk-end {
+  background: rgba(6, 95, 70, 0.34) !important;
+  border-color: rgba(52, 211, 153, 0.5) !important;
+}
+.source-diff-host .CodeMirror-merge-l-chunk,
+.source-diff-host .CodeMirror-merge-l-chunk-start,
+.source-diff-host .CodeMirror-merge-l-chunk-end {
+  background: rgba(127, 29, 29, 0.28) !important;
+  border-color: rgba(248, 113, 113, 0.46) !important;
+}
+.source-diff-host .CodeMirror-merge-l-connect {
+  fill: rgba(127, 29, 29, 0.28);
+  stroke: rgba(248, 113, 113, 0.46);
+}
+.source-diff-host .CodeMirror-merge-r-connect {
+  fill: rgba(6, 95, 70, 0.34);
+  stroke: rgba(52, 211, 153, 0.5);
+}
+.source-diff-host .CodeMirror-merge-l-inserted,
+.source-diff-host .CodeMirror-merge-r-inserted {
+  background: rgba(15, 118, 110, 0.38) !important;
+  color: #ecfeff !important;
+}
+.source-diff-host .CodeMirror-merge-l-deleted,
+.source-diff-host .CodeMirror-merge-r-deleted {
+  background: rgba(153, 27, 27, 0.34) !important;
+  color: #fff1f2 !important;
+}
+.source-diff-host .CodeMirror pre {
+  color: #cbd5e1;
+}
+.source-view-host .cm-mei-comment { color: #64748b; font-style: italic; }
+.source-view-host .cm-mei-string { color: #86efac; }
+.source-view-host .cm-mei-number { color: #f9a8d4; }
+.source-view-host .cm-mei-keyword { color: #c084fc; font-weight: 600; }
+.source-view-host .cm-mei-literal { color: #f59e0b; font-weight: 600; }
+.source-view-host .cm-mei-decl { color: #38bdf8; font-weight: 700; }
+.source-view-host .cm-mei-attr { color: #93c5fd; }
+.source-view-host .cm-mei-call { color: #fda4af; }
+.source-view-host .cm-mei-namespace,
+.source-view-host .cm-mei-member { color: #67e8f9; }
+.source-view-host .cm-mei-operator,
+.source-view-host .cm-mei-punct { color: #94a3b8; }
 .source-code {
   display: block;
   min-height: 1lh;
@@ -808,6 +930,69 @@ a { color: inherit; text-decoration: none; }
   padding-right: 2px;
   align-content: start;
   grid-auto-rows: max-content;
+}
+.author-progress-strip {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(71, 85, 105, 0.45);
+  background: rgba(15, 23, 42, 0.72);
+}
+.author-progress-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+.author-progress-label {
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.author-progress-detail {
+  color: #93c5fd;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.author-progress-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.author-progress-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(71, 85, 105, 0.58);
+  background: rgba(2, 6, 23, 0.42);
+  color: #cbd5e1;
+  font-size: 10px;
+  font-weight: 700;
+}
+.author-progress-chip.is-running {
+  border-color: rgba(45, 212, 191, 0.5);
+  color: #ccfbf1;
+  background: rgba(13, 148, 136, 0.18);
+}
+.author-progress-chip.is-done {
+  border-color: rgba(96, 165, 250, 0.46);
+  color: #dbeafe;
+  background: rgba(30, 64, 175, 0.2);
+}
+.author-progress-chip.is-error {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fee2e2;
+  background: rgba(127, 29, 29, 0.24);
+}
+.author-progress-chip.is-pending {
+  border-color: rgba(250, 204, 21, 0.44);
+  color: #fef3c7;
+  background: rgba(120, 53, 15, 0.2);
 }
 .author-composer-row {
   position: sticky;

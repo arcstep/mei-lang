@@ -12,6 +12,10 @@
     skillLine: document.getElementById("author-skill-line"),
     sessionSelect: document.getElementById("author-session-select"),
     chatLog: document.getElementById("author-chat-log"),
+    progressStrip: document.getElementById("author-progress-strip"),
+    progressLabel: document.getElementById("author-progress-label"),
+    progressDetail: document.getElementById("author-progress-detail"),
+    progressItems: document.getElementById("author-progress-items"),
     input: document.getElementById("author-intent-input"),
     run: document.getElementById("author-run-btn"),
     modePlan: document.getElementById("author-mode-plan-btn"),
@@ -21,9 +25,10 @@
     sourceViewSourceBtn: document.getElementById("source-view-source-btn"),
     sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
     sourceViewStatus: document.getElementById("source-view-status"),
+    sourceViewHost: document.getElementById("source-view-host"),
     sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
+    sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
     sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
-    sourceCode: document.querySelector('[data-source-viewer="1"]'),
   };
 
   const state = {
@@ -67,6 +72,15 @@
     sourceViewMode: "source",
     sourceDiffMessageId: "",
     sourceDiffMergeView: null,
+    sourceCodeMirror: null,
+    sourceDiffResizeObserver: null,
+    sourceViewResizeObserver: null,
+    progress: {
+      visible: false,
+      label: "",
+      detail: "",
+      items: [],
+    },
   };
 
   const sessionStorageKey =
@@ -144,10 +158,23 @@
   }
 
   function sourceTargetKey() {
-    if (els.sourceCode && els.sourceCode.dataset && els.sourceCode.dataset.sourceTarget) {
-      return normalizeFilePath(els.sourceCode.dataset.sourceTarget);
+    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+    if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
+      return normalizeFilePath(targetNode.dataset.sourceTarget);
     }
     return currentTargetKey();
+  }
+
+  function sourceLanguage() {
+    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+    if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
+      return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
+    }
+    return "plain";
+  }
+
+  function sourceRawText() {
+    return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
   }
 
   function conversationRounds(messages) {
@@ -161,7 +188,7 @@
         current = {
           id: "round-user-" + String(message.id || String(rounds.length)),
           user: message,
-          assistant: null,
+          assistants: [],
           system: [],
         };
         rounds.push(current);
@@ -173,12 +200,12 @@
           current = {
             id: "round-orphan-" + String(orphan),
             user: null,
-            assistant: null,
+            assistants: [],
             system: [],
           };
           rounds.push(current);
         }
-        current.assistant = message;
+        current.assistants.push(message);
         return;
       }
       if (!current) {
@@ -186,7 +213,7 @@
         current = {
           id: "round-system-" + String(orphan),
           user: null,
-          assistant: null,
+          assistants: [],
           system: [],
         };
         rounds.push(current);
@@ -200,7 +227,8 @@
     const rounds = conversationRounds(state.messages);
     for (let index = rounds.length - 1; index >= 0; index -= 1) {
       const round = rounds[index];
-      const assistant = round && round.assistant;
+      const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
+      const assistant = assistants.length ? assistants[assistants.length - 1] : null;
       const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
       if (messageId) return messageId;
     }
@@ -306,17 +334,252 @@
     return hasSessionRevertedChanges(state.sessionId);
   }
 
+  function progressStatusClass(status) {
+    const value = String(status || "").trim().toLowerCase();
+    if (value === "completed" || value === "done" || value === "finished") return "done";
+    if (value === "error" || value === "failed") return "error";
+    if (value === "running") return "running";
+    return "pending";
+  }
+
+  function progressLabelForTool(tool) {
+    const title = String(tool && tool.title ? tool.title : "").trim();
+    const name = String(tool && tool.tool ? tool.tool : "").trim();
+    return title || (name ? "工具：" + name : "工具步骤");
+  }
+
+  function activeAssistantRawMessage(rawMessages) {
+    const rows = Array.isArray(rawMessages) ? rawMessages : [];
+    const activeId = String(state.activeGenerationMessageId || "").trim();
+    if (activeId) {
+      const match = rows.find(function (row) {
+        return (
+          row &&
+          String(row.role || "") === "assistant" &&
+          String(row.message_id || "").trim() === activeId
+        );
+      });
+      if (match) return match;
+    }
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row && String(row.role || "") === "assistant") {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  function deriveProgressFromMessages(rawMessages) {
+    const active = activeAssistantRawMessage(rawMessages);
+    if (!state.sending || !active) {
+      return {
+        visible: false,
+        label: "",
+        detail: "",
+        items: [],
+      };
+    }
+    const messageId = String(active.message_id || "").trim();
+    const meta = getMessageMeta(state.sessionId, messageId) || {};
+    const agent = normalizeAgentMode(meta.agent || state.agentMode);
+    const parts = Array.isArray(active.parts) ? active.parts : [];
+    const stepStarts = parts.filter(function (part) {
+      return String(part && part.part_type || "") === "step-start";
+    }).length;
+    const stepFinishes = parts.filter(function (part) {
+      return String(part && part.part_type || "") === "step-finish";
+    }).length;
+    const tools = parts
+      .filter(function (part) {
+        return String(part && part.part_type || "") === "tool" && part.tool;
+      })
+      .map(function (part) {
+        return part.tool;
+      });
+    const runningTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "running";
+    });
+    const pendingTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "pending";
+    });
+    const doneTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "completed";
+    });
+    const errorTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "error";
+    });
+
+    let label = agent === "plan" ? "正在规划" : "正在执行";
+    if (runningTools.length > 0) {
+      label = (agent === "plan" ? "正在规划" : "正在执行") + " · 工具运行中";
+    } else if (stepStarts > stepFinishes) {
+      label = (agent === "plan" ? "正在规划" : "正在执行") + " · 步骤处理中";
+    } else if (parts.length > 0) {
+      label = agent === "plan" ? "正在生成计划" : "正在生成结果";
+    }
+
+    const totalSteps = Math.max(stepStarts, stepFinishes);
+    const detailParts = [];
+    if (totalSteps > 0) {
+      detailParts.push("步骤 " + String(stepFinishes) + "/" + String(totalSteps));
+    }
+    if (runningTools.length > 0) {
+      detailParts.push("运行中工具 " + String(runningTools.length));
+    } else if (pendingTools.length > 0) {
+      detailParts.push("待处理工具 " + String(pendingTools.length));
+    } else if (doneTools.length > 0) {
+      detailParts.push("已完成工具 " + String(doneTools.length));
+    }
+
+    const items = [];
+    tools.slice(-4).forEach(function (tool) {
+      items.push({
+        label: progressLabelForTool(tool),
+        status: progressStatusClass(tool && tool.status),
+      });
+    });
+    if (!items.length && totalSteps > 0) {
+      for (let index = 0; index < totalSteps; index += 1) {
+        items.push({
+          label: "步骤 " + String(index + 1),
+          status: index < stepFinishes ? "done" : (index < stepStarts ? "running" : "pending"),
+        });
+      }
+    }
+    if (!items.length) {
+      items.push({
+        label: agent === "plan" ? "等待规划输出" : "等待执行输出",
+        status: "running",
+      });
+    }
+
+    return {
+      visible: true,
+      label: label,
+      detail: detailParts.join(" · "),
+      items: items,
+    };
+  }
+
   function renderSourceViewStatus(text) {
     if (!els.sourceViewStatus) return;
     const message = String(text || "").trim();
     els.sourceViewStatus.textContent = message || "仅支持最后一轮 Build";
   }
 
+  function destroySourceEditor() {
+    if (state.sourceViewResizeObserver) {
+      try {
+        state.sourceViewResizeObserver.disconnect();
+      } catch (_) {}
+      state.sourceViewResizeObserver = null;
+    }
+    state.sourceCodeMirror = null;
+    if (els.sourceViewSourcePanel) {
+      els.sourceViewSourcePanel.innerHTML = "";
+    }
+  }
+
   function destroySourceDiffView() {
+    if (state.sourceDiffResizeObserver) {
+      try {
+        state.sourceDiffResizeObserver.disconnect();
+      } catch (_) {}
+      state.sourceDiffResizeObserver = null;
+    }
     state.sourceDiffMergeView = null;
     if (els.sourceViewDiffPanel) {
       els.sourceViewDiffPanel.innerHTML = "";
     }
+  }
+
+  function refreshSourceEditors() {
+    const views = [
+      state.sourceCodeMirror,
+      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.editor === "function"
+        ? state.sourceDiffMergeView.editor()
+        : null,
+      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.leftOriginal === "function"
+        ? state.sourceDiffMergeView.leftOriginal()
+        : null,
+      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.rightOriginal === "function"
+        ? state.sourceDiffMergeView.rightOriginal()
+        : null,
+    ].filter(Boolean);
+    views.forEach(function (view) {
+      if (view && typeof view.refresh === "function") {
+        view.refresh();
+      }
+    });
+  }
+
+  function refreshSourceDiffView() {
+    refreshSourceEditors();
+  }
+
+  function scheduleSourceDiffRefresh() {
+    if (!state.sourceDiffMergeView || typeof window.requestAnimationFrame !== "function") {
+      refreshSourceDiffView();
+      return;
+    }
+    window.requestAnimationFrame(function () {
+      refreshSourceDiffView();
+      window.requestAnimationFrame(function () {
+        refreshSourceDiffView();
+      });
+    });
+  }
+
+  function bindSourceDiffResizeRefresh() {
+    if (!els.sourceViewDiffPanel || typeof ResizeObserver !== "function") {
+      return;
+    }
+    if (state.sourceDiffResizeObserver) {
+      try {
+        state.sourceDiffResizeObserver.disconnect();
+      } catch (_) {}
+    }
+    state.sourceDiffResizeObserver = new ResizeObserver(function () {
+      scheduleSourceDiffRefresh();
+    });
+    state.sourceDiffResizeObserver.observe(els.sourceViewDiffPanel);
+  }
+
+  function bindSourceViewResizeRefresh() {
+    if (!els.sourceViewHost || typeof ResizeObserver !== "function") {
+      return;
+    }
+    if (state.sourceViewResizeObserver) {
+      try {
+        state.sourceViewResizeObserver.disconnect();
+      } catch (_) {}
+    }
+    state.sourceViewResizeObserver = new ResizeObserver(function () {
+      scheduleSourceDiffRefresh();
+    });
+    state.sourceViewResizeObserver.observe(els.sourceViewHost);
+    if (els.sourceViewSourcePanel) {
+      state.sourceViewResizeObserver.observe(els.sourceViewSourcePanel);
+    }
+  }
+
+  function initSourceEditor() {
+    if (!els.sourceViewSourcePanel || !window.CodeMirror) {
+      return;
+    }
+    destroySourceEditor();
+    state.sourceCodeMirror = window.CodeMirror(els.sourceViewSourcePanel, {
+      value: sourceRawText(),
+      lineNumbers: true,
+      readOnly: true,
+      mode: sourceLanguage() === "mei" ? "mei" : null,
+      theme: "default",
+      lineWrapping: false,
+      scrollbarStyle: "native",
+    });
+    bindSourceViewResizeRefresh();
+    scheduleSourceDiffRefresh();
   }
 
   function renderSourceViewMode(mode) {
@@ -338,6 +601,7 @@
       els.sourceViewDiffBtn.classList.toggle("is-active", active);
       els.sourceViewDiffBtn.setAttribute("aria-pressed", active ? "true" : "false");
     }
+    scheduleSourceDiffRefresh();
   }
 
   function pickDiffFileForTarget(diff) {
@@ -369,12 +633,13 @@
     const beforeText = String(fileDiff && fileDiff.before ? fileDiff.before : "");
     const afterText = String(fileDiff && fileDiff.after ? fileDiff.after : "");
     destroySourceDiffView();
+    renderSourceViewMode("diff");
     state.sourceDiffMergeView = window.CodeMirror.MergeView(els.sourceViewDiffPanel, {
       value: afterText,
       orig: beforeText,
       lineNumbers: true,
       readOnly: true,
-      mode: "python",
+      mode: "mei",
       theme: "default",
       highlightDifferences: true,
       connect: "align",
@@ -382,8 +647,9 @@
       revertButtons: false,
     });
     state.sourceDiffMessageId = String(messageId || "");
-    renderSourceViewMode("diff");
     renderSourceViewStatus("差异文件：" + String(fileDiff && fileDiff.file ? fileDiff.file : ""));
+    bindSourceDiffResizeRefresh();
+    scheduleSourceDiffRefresh();
     return true;
   }
 
@@ -432,7 +698,7 @@
       els.sourceViewDiffBtn.disabled = !enabled;
       els.sourceViewDiffBtn.title = enabled
         ? "查看最后一轮 Build 差异"
-        : (historyUnavailableReason() || "最后一轮 Build 生成改动后可查看差异");
+        : (historyUnavailableReason() || "最后一轮 Build 生成改动后可查看 Diff");
     }
     if (
       state.sourceViewMode === "diff" &&
@@ -480,6 +746,30 @@
     const text = String(state.inlineNote || "").trim() || historyUnavailableReason();
     els.config.hidden = !text;
     els.config.textContent = text;
+  }
+
+  function renderProgressStrip() {
+    if (!els.progressStrip || !els.progressLabel || !els.progressDetail || !els.progressItems) {
+      return;
+    }
+    const progress = state.progress || {};
+    const visible = !!progress.visible;
+    els.progressStrip.hidden = !visible;
+    if (!visible) {
+      els.progressLabel.textContent = "";
+      els.progressDetail.textContent = "";
+      els.progressItems.innerHTML = "";
+      return;
+    }
+    els.progressLabel.textContent = String(progress.label || "").trim();
+    els.progressDetail.textContent = String(progress.detail || "").trim();
+    els.progressItems.innerHTML = (Array.isArray(progress.items) ? progress.items : [])
+      .map(function (item) {
+        const label = escapeHtml(String(item && item.label ? item.label : "").trim());
+        const status = escapeHtml(String(item && item.status ? item.status : "pending").trim());
+        return '<span class="author-progress-chip is-' + status + '">' + label + "</span>";
+      })
+      .join("");
   }
 
   function renderHistoryButtons() {
@@ -607,7 +897,14 @@
     } else {
       state.pendingPromptDraft = "";
     }
+    state.progress = {
+      visible: false,
+      label: "",
+      detail: "",
+      items: [],
+    };
     setButtonState(false);
+    renderProgressStrip();
   }
 
   function markGenerationActivity() {
@@ -1072,6 +1369,13 @@
       destroySourceDiffView();
       renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
     }
+    state.progress = {
+      visible: false,
+      label: "",
+      detail: "",
+      items: [],
+    };
+    renderProgressStrip();
   }
 
   function applyBlockedPermissionNotices(notices) {
@@ -1299,7 +1603,7 @@
     }
     return [
       {
-        label: "查看最后一轮差异",
+        label: "最近差异",
         onClick: function () {
           showDiffForMessage(messageId).catch(function (error) {
             setInlineNote("读取差异失败：" + String(error.message || error));
@@ -1460,6 +1764,26 @@
     );
   }
 
+  function debugCopyTextForMessage(message) {
+    const messageId = String(message && message.id ? message.id : "");
+    const blocks = Array.isArray(message && message.blocks) ? message.blocks : [];
+    const body =
+      blocks.length > 0
+        ? blocks
+            .map(function (block) {
+              return (block.label ? "[" + String(block.label) + "]\n" : "") + String(block.content || "");
+            })
+            .join("\n\n")
+        : String(message && message.body ? message.body : "");
+    return [
+      "session_id: " + String(state.sessionId || ""),
+      "message_id: " + messageId,
+      "role: " + String(message && message.role ? message.role : ""),
+      "",
+      body,
+    ].join("\n");
+  }
+
   function renderMessages() {
     if (!els.chatLog) return;
     const scrollSnapshot = chatScrollSnapshot();
@@ -1480,8 +1804,8 @@
     const html = rounds
       .map(function (round) {
         const user = round && round.user ? round.user : null;
-        const assistant = round && round.assistant ? round.assistant : null;
-        const systemOnly = !user && !assistant && round && Array.isArray(round.system)
+        const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
+        const systemOnly = !user && assistants.length === 0 && round && Array.isArray(round.system)
           ? round.system
           : [];
         if (systemOnly.length > 0) {
@@ -1494,7 +1818,16 @@
         return (
           '<section class="author-chat-round">' +
           (user ? renderChatMessageCard(user, "user", "author-chat-row-user") : "") +
-          (assistant ? renderChatMessageCard(assistant, "assistant", "author-chat-row-assistant") : "") +
+          assistants
+            .map(function (assistant, assistantIndex) {
+              return renderChatMessageCard(
+                assistant,
+                "assistant",
+                "author-chat-row-assistant" +
+                  (assistantIndex > 0 ? " author-chat-row-assistant-followup" : ""),
+              );
+            })
+            .join("") +
           "</section>"
         );
       })
@@ -1525,13 +1858,7 @@
         if (!message) return;
         const blocks = Array.isArray(message.blocks) ? message.blocks : [];
         const text =
-          blocks.length > 0
-            ? blocks
-                .map(function (block) {
-                  return (block.label ? "[" + String(block.label) + "]\n" : "") + String(block.content || "");
-                })
-                .join("\n\n")
-            : String(message.body || "");
+          debugCopyTextForMessage(message);
         copyText(text).catch(function () {});
       });
     });
@@ -1822,6 +2149,13 @@
       closeEventStream();
       state.lastMessagesFingerprint = "";
       resetPendingPermissionState();
+      state.progress = {
+        visible: false,
+        label: "",
+        detail: "",
+        items: [],
+      };
+      renderProgressStrip();
       renderMessages();
       return;
     }
@@ -1832,6 +2166,8 @@
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
+    state.progress = deriveProgressFromMessages(list);
+    renderProgressStrip();
     const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
     const runningBlockedFingerprint = blockedPermissionFingerprint(runningBlocked);
     const shouldBootstrapPendingPermissions =
@@ -1981,6 +2317,18 @@
     state.sending = true;
     state.aborting = false;
     state.pendingPromptDraft = draftText;
+    state.progress = {
+      visible: true,
+      label: normalizeAgentMode(state.agentMode) === "plan" ? "正在规划" : "正在执行",
+      detail: normalizeAgentMode(state.agentMode) === "plan" ? "等待规划输出" : "等待执行输出",
+      items: [
+        {
+          label: normalizeAgentMode(state.agentMode) === "plan" ? "规划中" : "执行中",
+          status: "running",
+        },
+      ],
+    };
+    renderProgressStrip();
     clearGenerationSettleTimer();
     if (els.input) {
       els.input.value = "";
@@ -2167,8 +2515,10 @@
   restoreRevertedState();
   restoreAgentMode();
   restoreSession();
+  initSourceEditor();
   renderSourceViewMode("source");
   renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+  renderProgressStrip();
   syncSourceDiffEntry();
   refreshAll();
   window.addEventListener("beforeunload", closeEventStream);

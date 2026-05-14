@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
@@ -148,7 +146,6 @@ fn manage_shell(
     let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
-    let source_title = source_display_name(selected_target.as_str());
     let source_meta_text = source_meta_summary(source_meta);
     let preview = preview::preview_view(compiled);
     let active_entry = compiled.active_entry.as_deref();
@@ -222,11 +219,7 @@ fn manage_shell(
                         ></div>
                         <section class="panel source-panel main-pane source-pane">
                             <div class="main-pane-scroll source-pane-scroll">
-                                <div class="panel-heading source-panel-heading">
-                                    <h3>{source_title}</h3>
-                                    <p class="source-panel-meta">{source_meta_text}</p>
-                                </div>
-                                <div class="source-view-switcher" role="group" aria-label="源码与差异视图">
+                                <div class="source-view-switcher" role="group" aria-label="源码视图">
                                     <button
                                         type="button"
                                         class="source-view-btn is-active"
@@ -235,26 +228,24 @@ fn manage_shell(
                                     >
                                         "当前源码"
                                     </button>
-                                    <button
-                                        type="button"
-                                        class="source-view-btn"
-                                        id="source-view-diff-btn"
-                                        data-view-mode="diff"
-                                        disabled
-                                    >
-                                        "查看最后一轮差异"
-                                    </button>
                                     <span class="source-view-status" id="source-view-status">
                                         "仅支持最后一轮 Build"
                                     </span>
+                                    <span class="source-panel-meta source-panel-meta-inline">{source_meta_text}</span>
                                 </div>
                                 <div class="source-view-host" id="source-view-host">
-                                    <pre class="source-block" id="source-view-source-panel"><code
-                                        class="source-code"
-                                        data-source-viewer="1"
+                                    <div
+                                        class="source-editor-host"
+                                        id="source-view-source-panel"
                                         data-source-target=selected_target.clone()
                                         data-source-lang=source_lang
-                                    >{source_panel}</code></pre>
+                                    ></div>
+                                    <div
+                                        id="source-view-source-raw"
+                                        hidden
+                                        data-source-target=selected_target.clone()
+                                        data-source-lang=source_lang
+                                    >{source_panel}</div>
                                     <div class="source-diff-host" id="source-view-diff-panel" hidden></div>
                                 </div>
                                 {diagnostics}
@@ -404,14 +395,6 @@ fn source_language(target: &str) -> &'static str {
     }
 }
 
-fn source_display_name(target: &str) -> String {
-    Path::new(target)
-        .file_name()
-        .and_then(|value| value.to_str())
-        .unwrap_or(target)
-        .to_string()
-}
-
 fn source_meta_summary(meta: Option<&SourcePanelMeta>) -> String {
     let Some(meta) = meta else {
         return "0 行 · 0 字 · 最后编辑时间未知".to_string();
@@ -467,7 +450,7 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
                 <script src="/app-assets/frame-stage.js"></script>
                 <script src="/app-assets/vendor/diff-match-patch.js"></script>
                 <script src="/app-assets/vendor/codemirror.js"></script>
-                <script src="/app-assets/vendor/codemirror-mode-python.js"></script>
+                <script src="/app-assets/source-codemirror-mode.js"></script>
                 <script src="/app-assets/vendor/codemirror-merge.js"></script>
                 <script src="/app-assets/opencode-panel.js"></script>
                 <script src="/app-assets/workspace-splitters.js"></script>
