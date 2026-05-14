@@ -22,6 +22,8 @@ use crate::AppState;
 
 const MANAGED_SKILL_SOURCE_REL: &str = "guides/claude-skills";
 const MANAGED_SKILL_INSTALL_REL: &str = ".mei/opencode/skills/meilang-author";
+const MANAGED_SKILL_ALLOW_PATH_GLOB: &str = "*/.mei/opencode/skills/meilang-author";
+const MANAGED_SKILL_ALLOW_FILE_GLOB: &str = "*/.mei/opencode/skills/meilang-author/*";
 
 pub(crate) fn preferred_opencode_mode() -> String {
     match std::env::var("MEI_OPENCODE_MODE")
@@ -328,6 +330,15 @@ fn managed_opencode_default_model(completion_model: &str) -> String {
     format!("{MANAGED_OPENCODE_PROVIDER_ID}/{completion_model}")
 }
 
+fn managed_external_directory_permissions() -> serde_json::Value {
+    json!({
+        "external_directory": {
+            MANAGED_SKILL_ALLOW_PATH_GLOB: "allow",
+            MANAGED_SKILL_ALLOW_FILE_GLOB: "allow",
+        }
+    })
+}
+
 fn current_unix_timestamp_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -360,6 +371,7 @@ fn render_managed_opencode_runtime_config_content(
         },
         "model": default_model,
         "small_model": default_model,
+        "permission": managed_external_directory_permissions(),
         "agent": {
             MANAGED_OPENCODE_READONLY_AGENT: {
                 "description": "Read-only MeiLang assistant for guides apps.",

@@ -86,6 +86,18 @@ pub(crate) struct BridgePermissionResponseRequest {
     pub response: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct BridgePendingPermission {
+    pub id: String,
+    #[serde(rename = "sessionID")]
+    pub session_id: String,
+    pub permission: String,
+    #[serde(default)]
+    pub patterns: Vec<String>,
+    #[serde(default)]
+    pub metadata: Value,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BridgeSessionDiffQuery {
     #[serde(default, alias = "messageID")]
@@ -435,6 +447,19 @@ pub(crate) async fn list_sessions(
         .into_iter()
         .map(summarize_session)
         .collect::<Vec<_>>())
+}
+
+pub(crate) async fn list_pending_permissions(
+    client: &Client,
+    server_url: &str,
+) -> Result<Vec<BridgePendingPermission>> {
+    let server_url = normalize_server_url(server_url);
+    get_json_with_timeout::<Vec<BridgePendingPermission>>(
+        client,
+        &format!("{server_url}/permission"),
+        Duration::from_secs(5),
+    )
+    .await
 }
 
 fn prompt_body(request: BridgePromptRequest) -> Value {

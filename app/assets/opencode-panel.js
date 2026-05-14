@@ -51,6 +51,9 @@
     messageMeta: {},
     messageDiffCache: {},
     pendingReloadMessageId: "",
+    pendingPermissionsFingerprint: "",
+    pendingPermissionsFetchedAt: 0,
+    pendingPermissionNotices: [],
   };
 
   const sessionStorageKey =
@@ -667,10 +670,132 @@
     const lines = [];
     lines.push("工具: " + String(tool.tool || "unknown"));
     lines.push("状态: " + String(tool.status || "pending"));
+    if (tool.input_path) lines.push("路径: " + String(tool.input_path));
     if (tool.title) lines.push("标题: " + String(tool.title));
     if (tool.output) lines.push("输出:\n" + String(tool.output));
     if (tool.error) lines.push("错误:\n" + String(tool.error));
     return lines.join("\n");
+  }
+
+  function looksLikeSkillPath(path) {
+    return String(path || "").replaceAll("\\", "/").includes("/.mei/opencode/skills/meilang-author");
+  }
+
+  function blockedPermissionNoticeFromData(data) {
+    const permissionId = String((data && data.permission_id) || "").trim();
+    const permission = String((data && data.permission) || "unknown").trim() || "unknown";
+    const patterns = Array.isArray(data && data.patterns)
+      ? data.patterns
+          .map(function (item) { return String(item || "").trim(); })
+          .filter(Boolean)
+      : [];
+    const rawPath = String((data && data.path) || "").trim();
+    const path = rawPath || (patterns.length > 0 ? patterns[0] : "");
+    const requiresAdmin = !!(data && data.requires_admin);
+    const message = String((data && data.message) || "").trim();
+    return {
+      id: permissionId || "path:" + (path || permission || "unknown"),
+      permissionId: permissionId,
+      permission: permission,
+      path: path,
+      patterns: patterns,
+      requiresAdmin: requiresAdmin,
+      message: message,
+    };
+  }
+
+  function blockedPermissionNoticeFromRunningRead(messageId, part) {
+    const tool = part && part.tool ? part.tool : null;
+    const path = String((tool && tool.input_path) || "").trim();
+    const id = String((part && part.part_id) || "") || String(messageId || "");
+    if (!path) return null;
+    if (looksLikeSkillPath(path)) {
+      return {
+        id: "running-read:" + id,
+        permissionId: "",
+        permission: "external_directory",
+        path: path,
+        patterns: [path],
+        requiresAdmin: true,
+        message:
+          "系统尝试读取 MeiLang skill 目录但当前未获授权。请联系管理员检查 OpenCode external_directory 白名单配置。",
+      };
+    }
+    return {
+      id: "running-read:" + id,
+      permissionId: "",
+      permission: "external_directory",
+      path: path,
+      patterns: [path],
+      requiresAdmin: true,
+      message:
+        "检测到会话尝试访问未授权目录。请先检查你输入的目标路径；若这是系统预期目录，请联系管理员处理白名单。",
+    };
+  }
+
+  function blockedPermissionBody(notice) {
+    const lines = [];
+    lines.push("类型: 权限阻塞");
+    lines.push("permission: " + String(notice.permission || "unknown"));
+    if (notice.permissionId) lines.push("permission_id: " + String(notice.permissionId));
+    if (notice.path) lines.push("目录: " + String(notice.path));
+    if (notice.patterns && notice.patterns.length > 0) {
+      lines.push("匹配模式:");
+      notice.patterns.forEach(function (pattern) {
+        lines.push("- " + String(pattern));
+      });
+    }
+    if (notice.message) lines.push("说明: " + String(notice.message));
+    lines.push(
+      notice.requiresAdmin
+        ? "建议: 若目录正确，请联系管理员；若目录异常，请修正你的任务路径。"
+        : "建议: 请检查当前任务与目录范围。",
+    );
+    return lines.join("\n");
+  }
+
+  function mergeBlockedPermissionNotices(primary, fallback) {
+    const merged = [];
+    const seen = new Set();
+    function addList(list) {
+      (Array.isArray(list) ? list : []).forEach(function (item) {
+        if (!item || typeof item !== "object") return;
+        const id = String(item.id || "").trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        merged.push(item);
+      });
+    }
+    addList(primary);
+    addList(fallback);
+    return merged;
+  }
+
+  function applyBlockedPermissionNotices(notices) {
+    (Array.isArray(notices) ? notices : []).forEach(function (notice) {
+      pushMessage("system", blockedPermissionBody(notice), {
+        id: "permission-blocked:" + String(notice.id || ""),
+      });
+    });
+  }
+
+  function deriveBlockedNoticesFromRawMessages(rawMessages) {
+    const notices = [];
+    (Array.isArray(rawMessages) ? rawMessages : []).forEach(function (raw) {
+      if (!raw || String(raw.role || "") !== "assistant") return;
+      const messageId = String(raw.message_id || "");
+      const parts = Array.isArray(raw.parts) ? raw.parts : [];
+      parts.forEach(function (part) {
+        if (!part || String(part.part_type || "") !== "tool") return;
+        const tool = part.tool || null;
+        if (!tool) return;
+        if (String(tool.tool || "") !== "read") return;
+        if (String(tool.status || "") !== "running") return;
+        const notice = blockedPermissionNoticeFromRunningRead(messageId, part);
+        if (notice) notices.push(notice);
+      });
+    });
+    return notices;
   }
 
   function copyText(text) {
@@ -1314,42 +1439,18 @@
     }
     if (kind === "permission_requested") {
       markGenerationActivity();
-      const metadata = event.metadata ? JSON.stringify(event.metadata, null, 2) : "{}";
-      const permissionId = String(event.permission_id || "");
-      pushMessage(
-        "system",
-        "permission_id: " +
-          permissionId +
-          "\npermission: " +
-          String(event.permission || "") +
-          "\nmetadata:\n" +
-          metadata,
-        {
-          id: "permission:" + permissionId,
-          actions: permissionId
-            ? [
-                {
-                  label: "允许一次",
-                  onClick: function () {
-                    respondPermissionRequest(permissionId, "once").catch(function () {});
-                  },
-                },
-                {
-                  label: "始终允许",
-                  onClick: function () {
-                    respondPermissionRequest(permissionId, "always").catch(function () {});
-                  },
-                },
-                {
-                  label: "拒绝",
-                  onClick: function () {
-                    respondPermissionRequest(permissionId, "reject").catch(function () {});
-                  },
-                },
-              ]
-            : [],
-        },
-      );
+      const notice = blockedPermissionNoticeFromData(event);
+      pushMessage("system", blockedPermissionBody(notice), {
+        id: "permission-blocked:" + String(notice.id || ""),
+      });
+      return;
+    }
+    if (kind === "permission_blocked") {
+      markGenerationActivity();
+      const notice = blockedPermissionNoticeFromData(event);
+      pushMessage("system", blockedPermissionBody(notice), {
+        id: "permission-blocked:" + String(notice.id || ""),
+      });
       return;
     }
     if (kind === "permission_resolved") {
@@ -1531,8 +1632,33 @@
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
-    if (nextFingerprint === state.lastMessagesFingerprint) {
+    const now = Date.now();
+    const shouldRefreshPendingPermissions =
+      !state.pendingPermissionsFingerprint ||
+      now - Number(state.pendingPermissionsFetchedAt || 0) >= 3000;
+    if (nextFingerprint === state.lastMessagesFingerprint && !shouldRefreshPendingPermissions) {
       return;
+    }
+    let pendingBlocked = Array.isArray(state.pendingPermissionNotices)
+      ? state.pendingPermissionNotices.slice()
+      : [];
+    if (shouldRefreshPendingPermissions) {
+      try {
+        const pendingPayload = await fetchJson(
+          "/api/opencode/session/" +
+            encodeURIComponent(state.sessionId) +
+            "/permissions/pending",
+        );
+        const pending = pendingPayload && Array.isArray(pendingPayload.pending)
+          ? pendingPayload.pending
+          : [];
+        pendingBlocked = pending.map(blockedPermissionNoticeFromData);
+      } catch (_) {
+        pendingBlocked = [];
+      }
+      state.pendingPermissionsFingerprint = JSON.stringify(pendingBlocked);
+      state.pendingPermissionsFetchedAt = now;
+      state.pendingPermissionNotices = pendingBlocked.slice();
     }
     state.lastMessagesFingerprint = nextFingerprint;
     list.forEach(function (raw) {
@@ -1545,6 +1671,9 @@
       }
     });
     state.messages = list.map(normalizeMessage);
+    const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
+    const mergedBlocked = mergeBlockedPermissionNotices(pendingBlocked, runningBlocked);
+    applyBlockedPermissionNotices(mergedBlocked);
     decorateMessageActions();
     renderMessages();
     await hydrateBuildDiffMeta(state.messages);

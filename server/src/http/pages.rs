@@ -4,7 +4,7 @@ use anyhow::Context;
 use axum::{
     extract::{Path as AxumPath, Query, State},
     http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
-    response::{Html, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{DateTime, Local};
 use mei_lang_app::{render_page, SourcePanelMeta, UiRouteMode};
@@ -36,14 +36,42 @@ pub async fn app_page(
     State(state): State<AppState>,
     AxumPath((mode, app_id)): AxumPath<(String, String)>,
     Query(query): Query<AppQuery>,
-) -> Result<Html<String>, AppError> {
+) -> Result<Response, AppError> {
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
+    let route_mode = UiRouteMode::from_slug(&mode);
+    let chrome_hidden = query
+        .chrome
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("none"))
+        .unwrap_or(false);
     let compile_options = CompileOptions {
         entry: query.entry.clone(),
         preview_target: query.preview_target.clone(),
     };
-    let compiled = compile_app_with_options(&state.source_root, &app_id, compile_options)
-        .map_err(AppError::from)?;
+    let compiled = match compile_app_with_options(&state.source_root, &app_id, compile_options) {
+        Ok(compiled) => compiled,
+        Err(error) => {
+            tracing::warn!(app_id = %app_id, %error, "failed to compile app page");
+            let target = query
+                .target
+                .clone()
+                .or_else(|| query.preview_target.clone())
+                .unwrap_or_else(|| "main.mei".to_string());
+            let source_path = state.source_root.join(&app_id).join(&target);
+            let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+            let source_meta = source_panel_meta(&source_path, &source);
+            let html = render_compile_error_page(
+                &app_id,
+                route_mode.slug(),
+                target.as_str(),
+                &error.to_string(),
+                source.as_str(),
+                &source_meta,
+                chrome_hidden,
+            );
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Html(html)).into_response());
+        }
+    };
     let target = query
         .target
         .or_else(|| query.preview_target.clone())
@@ -51,15 +79,10 @@ pub async fn app_page(
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_meta = source_panel_meta(&source_path, &source);
-    let chrome_hidden = query
-        .chrome
-        .as_deref()
-        .map(|value| value.eq_ignore_ascii_case("none"))
-        .unwrap_or(false);
     let html = render_page(
         &apps,
         &compiled,
-        UiRouteMode::from_slug(&mode),
+        route_mode,
         Some(target.as_str()),
         Some(source.as_str()),
         Some(&source_meta),
@@ -67,7 +90,7 @@ pub async fn app_page(
         query.preview_target.as_deref(),
         chrome_hidden,
     );
-    Ok(Html(html))
+    Ok(Html(html).into_response())
 }
 
 pub async fn component_asset(
@@ -151,5 +174,128 @@ fn source_panel_meta(source_path: &Path, source: &str) -> SourcePanelMeta {
         line_count,
         char_count,
         last_modified_label,
+    }
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn render_compile_error_page(
+    app_id: &str,
+    route_mode: &str,
+    target: &str,
+    error: &str,
+    source: &str,
+    source_meta: &SourcePanelMeta,
+    chrome_hidden: bool,
+) -> String {
+    let title = format!("MeiLang 编译失败 · {app_id}");
+    let source_block = if source.trim().is_empty() {
+        "<p style=\"color:#94a3b8\">当前目标文件内容不可读取。</p>".to_string()
+    } else {
+        format!(
+            "<pre style=\"margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:12px;overflow:auto;\">{}</pre>",
+            escape_html(source)
+        )
+    };
+    let chrome_style = if chrome_hidden { "display:none;" } else { "" };
+    let last_modified = source_meta
+        .last_modified_label
+        .as_deref()
+        .unwrap_or("unknown");
+    format!(
+        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title></head><body style=\"margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#020617;color:#e2e8f0;\"><div style=\"{}padding:20px 24px;border-bottom:1px solid rgba(148,163,184,0.2);background:#0f172a;\"><strong>MeiLang</strong><span style=\"margin-left:12px;color:#94a3b8;\">/{}/{}</span></div><main style=\"max-width:1120px;margin:0 auto;padding:24px;\"><section style=\"background:#111827;border:1px solid rgba(248,113,113,0.35);border-radius:16px;padding:20px 22px;margin-bottom:20px;\"><h1 style=\"margin:0 0 12px;font-size:22px;\">应用页面编译失败</h1><p style=\"margin:0 0 12px;color:#cbd5e1;\">当前 `.mei` 文件包含编译错误；服务器进程仍在运行，但该应用页面无法成功渲染。</p><p style=\"margin:0 0 8px;\"><strong>app:</strong> {}</p><p style=\"margin:0 0 8px;\"><strong>target:</strong> {}</p><p style=\"margin:0 0 8px;\"><strong>last modified:</strong> {}</p><pre style=\"margin:12px 0 0;white-space:pre-wrap;word-break:break-word;background:#1e293b;color:#fecaca;padding:16px;border-radius:12px;overflow:auto;\">{}</pre></section><section style=\"background:#111827;border:1px solid rgba(148,163,184,0.2);border-radius:16px;padding:20px 22px;\"><h2 style=\"margin:0 0 12px;font-size:18px;\">当前文件内容</h2><p style=\"margin:0 0 12px;color:#94a3b8;\">lines: {} · chars: {}</p>{}</section></main></body></html>",
+        escape_html(&title),
+        chrome_style,
+        escape_html(route_mode),
+        escape_html(app_id),
+        escape_html(app_id),
+        escape_html(target),
+        escape_html(last_modified),
+        escape_html(error),
+        source_meta.line_count,
+        source_meta.char_count,
+        source_block,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        fs,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use axum::{
+        body::to_bytes,
+        extract::{Path as AxumPath, Query, State},
+        http::StatusCode,
+    };
+    use reqwest::Client as HttpClient;
+
+    use super::{app_page, AppQuery};
+    use crate::{opencode, AppState};
+
+    #[tokio::test]
+    async fn app_page_returns_html_error_page_when_compile_fails() {
+        let root = unique_test_root("bad-app");
+        let app_root = root.join("bad-app");
+        fs::create_dir_all(&app_root).expect("create app root");
+        fs::write(
+            app_root.join("main.mei"),
+            "app(\n    id = \"bad-app\",\n    title = \"Broken\",\n    default_scene = \"home\",\n)\n\nscene(\n    id = \"home\",\n    summary = \"unterminated,\n)\n",
+        )
+        .expect("write invalid mei file");
+
+        let state = AppState {
+            package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+            source_root: Arc::new(root.clone()),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            opencode_http: Arc::new(HttpClient::new()),
+        };
+
+        let response = app_page(
+            State(state),
+            AxumPath(("manage".to_string(), "bad-app".to_string())),
+            Query(AppQuery {
+                target: None,
+                entry: None,
+                preview_target: None,
+                chrome: None,
+            }),
+        )
+        .await
+        .expect("render app page response");
+
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read html body");
+        let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+        assert!(html.contains("应用页面编译失败"));
+        assert!(html.contains("bad-app"));
+        assert!(html.contains("Parse error"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn unique_test_root(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("mei-lang-server-{label}-{nonce}"))
     }
 }

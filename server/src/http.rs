@@ -57,6 +57,10 @@ pub fn router() -> Router<AppState> {
             post(opencode_api::api_opencode_send_message),
         )
         .route(
+            "/api/opencode/session/:session_id/permissions/pending",
+            get(opencode_api::api_opencode_pending_permissions),
+        )
+        .route(
             "/api/opencode/session/:session_id/events",
             get(opencode_api::api_opencode_session_events),
         )

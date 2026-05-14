@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
@@ -20,17 +20,19 @@ use crate::{
             abort_session as bridge_abort_session, create_session as bridge_create_session,
             global_event as bridge_global_event, health as bridge_health,
             list_sessions as bridge_list_sessions,
+            list_pending_permissions as bridge_list_pending_permissions,
             project_current_worktree as bridge_project_current_worktree,
             respond_permission as bridge_respond_permission,
             revert_session_message as bridge_revert_session_message,
             send_prompt as bridge_send_prompt, session_diff as bridge_session_diff,
             session_messages as bridge_session_messages,
             unrevert_session as bridge_unrevert_session, vcs_summary as bridge_vcs_summary,
-            BridgeCreateSessionRequest, BridgeHealthResponse, BridgePermissionResponseRequest,
-            BridgePromptRequest, BridgeRevertRequest, BridgeSessionDiffQuery, BridgeSessionSummary,
+            BridgeCreateSessionRequest, BridgeHealthResponse, BridgePendingPermission,
+            BridgePermissionResponseRequest, BridgePromptRequest, BridgeRevertRequest,
+            BridgeSessionDiffQuery, BridgeSessionSummary,
         },
         events::{
-            extract_sse_data, normalize_global_event_to_host_event,
+            extract_sse_data, looks_like_meilang_skill_path, normalize_global_event_to_host_event,
             normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
         },
         runtime::{
@@ -54,9 +56,75 @@ pub struct SessionMessagesQuery {
 const DEFAULT_SESSION_MESSAGES_LIMIT: usize = 80;
 const MAX_SESSION_MESSAGES_LIMIT: usize = 300;
 
+#[derive(Debug, Clone, Serialize)]
+struct HostBlockedPermissionNotice {
+    permission_id: String,
+    permission: String,
+    path: Option<String>,
+    patterns: Vec<String>,
+    requires_admin: bool,
+    message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct HostBlockedPermissionList {
+    session_id: String,
+    pending: Vec<HostBlockedPermissionNotice>,
+}
+
 fn normalize_session_messages_limit(limit: Option<usize>) -> usize {
     let resolved = limit.unwrap_or(DEFAULT_SESSION_MESSAGES_LIMIT);
     resolved.clamp(1, MAX_SESSION_MESSAGES_LIMIT)
+}
+
+fn classify_blocked_permission(
+    permission: &str,
+    patterns: &[String],
+) -> (Option<String>, bool, String) {
+    let path = patterns
+        .iter()
+        .map(String::as_str)
+        .find(|value| !value.trim().is_empty())
+        .map(|value| value.trim().to_string());
+    if permission == "external_directory" {
+        let all_skill = !patterns.is_empty()
+            && patterns
+                .iter()
+                .all(|pattern| looks_like_meilang_skill_path(pattern));
+        if all_skill {
+            return (
+                path,
+                true,
+                "系统尝试读取 MeiLang skill 目录，但当前 OpenCode 白名单未生效；请联系管理员检查权限配置。"
+                    .to_string(),
+            );
+        }
+        return (
+            path,
+            true,
+            "你尝试访问了未授权的文件夹。请检查任务路径是否正确；若这是系统预期目录，请联系管理员加入白名单。"
+                .to_string(),
+        );
+    }
+    (
+        path,
+        true,
+        format!(
+            "触发了未支持的运行时授权请求（permission={permission}）。请联系管理员检查策略。"
+        ),
+    )
+}
+
+fn blocked_notice_from_pending(item: BridgePendingPermission) -> HostBlockedPermissionNotice {
+    let (path, requires_admin, message) = classify_blocked_permission(&item.permission, &item.patterns);
+    HostBlockedPermissionNotice {
+        permission_id: item.id,
+        permission: item.permission,
+        path,
+        patterns: item.patterns,
+        requires_admin,
+        message,
+    }
 }
 
 fn sanitize_relative_path(value: &str) -> Option<String> {
@@ -449,6 +517,27 @@ pub async fn api_opencode_list_sessions(State(state): State<AppState>) -> Respon
     }
 }
 
+pub async fn api_opencode_pending_permissions(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Response {
+    let server_url = match managed_opencode_server_url(&state) {
+        Ok(url) => url,
+        Err(error) => return error_response(error),
+    };
+    match bridge_list_pending_permissions(&state.opencode_http, &server_url).await {
+        Ok(items) => {
+            let pending = items
+                .into_iter()
+                .filter(|item| item.session_id == session_id)
+                .map(blocked_notice_from_pending)
+                .collect::<Vec<_>>();
+            Json(HostBlockedPermissionList { session_id, pending }).into_response()
+        }
+        Err(error) => error_response(error),
+    }
+}
+
 pub async fn api_opencode_send_message(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
@@ -482,6 +571,8 @@ pub async fn api_opencode_session_events(
     };
     match bridge_global_event(&state.opencode_http, &server_url).await {
         Ok(upstream) => {
+            let opencode_http = state.opencode_http.clone();
+            let server_url = server_url.clone();
             let stream = async_stream::stream! {
                 let mut upstream = upstream;
                 let mut buffer = String::new();
@@ -514,6 +605,40 @@ pub async fn api_opencode_session_events(
                                         json!({ "raw": data }),
                                     ))
                                 }
+                            };
+                            let normalized = match normalized {
+                                Some(HostOpencodeEvent::PermissionRequested {
+                                    session_id,
+                                    permission_id,
+                                    permission,
+                                    patterns,
+                                    ..
+                                }) => {
+                                    let (path, requires_admin, message) =
+                                        classify_blocked_permission(&permission, &patterns);
+                                    if !permission_id.trim().is_empty() {
+                                        let _ = bridge_respond_permission(
+                                            &opencode_http,
+                                            &server_url,
+                                            &session_id,
+                                            &permission_id,
+                                            BridgePermissionResponseRequest {
+                                                response: "reject".to_string(),
+                                            },
+                                        )
+                                        .await;
+                                    }
+                                    Some(HostOpencodeEvent::PermissionBlocked {
+                                        session_id,
+                                        permission_id,
+                                        permission,
+                                        path,
+                                        patterns,
+                                        requires_admin,
+                                        message,
+                                    })
+                                }
+                                other => other,
                             };
                             if let Some(event) = normalized {
                                 if let Ok(encoded) = serde_json::to_string(&event) {

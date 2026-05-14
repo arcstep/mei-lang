@@ -36,6 +36,8 @@ pub(crate) struct HostOpencodeToolSummary {
     pub tool: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
@@ -77,7 +79,17 @@ pub(crate) enum HostOpencodeEvent {
         session_id: String,
         permission_id: String,
         permission: String,
+        patterns: Vec<String>,
         metadata: Value,
+    },
+    PermissionBlocked {
+        session_id: String,
+        permission_id: String,
+        permission: String,
+        path: Option<String>,
+        patterns: Vec<String>,
+        requires_admin: bool,
+        message: String,
     },
     PermissionResolved {
         session_id: String,
@@ -104,6 +116,11 @@ impl HostOpencodeEvent {
 
 fn as_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
+}
+
+pub(crate) fn looks_like_meilang_skill_path(value: &str) -> bool {
+    let normalized = value.replace('\\', "/");
+    normalized.contains("/.mei/opencode/skills/meilang-author")
 }
 
 fn extract_payload_event(value: &Value) -> Option<&Value> {
@@ -144,6 +161,10 @@ fn normalize_part_value(part: &Value, with_raw: bool) -> Option<HostOpencodePart
             .and_then(|s| as_str(s, "status"))
             .unwrap_or("pending")
             .to_string();
+        let input_path = state
+            .and_then(|s| s.get("input"))
+            .and_then(|input| as_str(input, "filePath"))
+            .map(ToString::to_string);
         let title = state
             .and_then(|s| as_str(s, "title"))
             .map(ToString::to_string);
@@ -157,6 +178,7 @@ fn normalize_part_value(part: &Value, with_raw: bool) -> Option<HostOpencodePart
             call_id,
             tool: tool_name,
             status,
+            input_path,
             title,
             output,
             error,
@@ -273,20 +295,38 @@ pub(crate) fn normalize_global_event_to_host_event(
         }),
         "permission.asked" => Some(HostOpencodeEvent::PermissionRequested {
             session_id: session_id.to_string(),
-            permission_id: as_str(&properties, "id").unwrap_or_default().to_string(),
-            permission: as_str(&properties, "permission")
-                .unwrap_or("unknown")
+            permission_id: as_str(&properties, "id")
+                .or_else(|| as_str(&properties, "requestID"))
+                .unwrap_or_default()
                 .to_string(),
+            permission: as_str(&properties, "permission").unwrap_or("unknown").to_string(),
+            patterns: properties
+                .get("patterns")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
             metadata: properties.get("metadata").cloned().unwrap_or(Value::Null),
         }),
-        "permission.replied" => Some(HostOpencodeEvent::PermissionResolved {
-            session_id: session_id.to_string(),
-            permission_id: as_str(&properties, "id").unwrap_or_default().to_string(),
-            response: as_str(&properties, "response")
-                .or_else(|| as_str(&properties, "reply"))
-                .unwrap_or("unknown")
-                .to_string(),
-        }),
+        "permission.replied" => {
+            let permission_id = as_str(&properties, "id")
+                .or_else(|| as_str(&properties, "requestID"))
+                .unwrap_or_default()
+                .to_string();
+            Some(HostOpencodeEvent::PermissionResolved {
+                session_id: session_id.to_string(),
+                permission_id,
+                response: as_str(&properties, "response")
+                    .or_else(|| as_str(&properties, "reply"))
+                    .unwrap_or("unknown")
+                    .to_string(),
+            })
+        }
         _ => Some(HostOpencodeEvent::DebugRawEvent {
             session_id: Some(session_id.to_string()),
             event_type,
