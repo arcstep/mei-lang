@@ -1199,9 +1199,11 @@ a { color: inherit; text-decoration: none; }
 .asset-markdown-preview .is-empty {
   color: #94a3b8;
 }
-.author-panel { --sl-z-index-dropdown: 2200; }
+.author-panel {
+  --sl-z-index-dropdown: 2200;
+}
 .author-surface-top {
-  border: none;
+  border-bottom: 1px solid rgba(97, 127, 159, 0.12);
   background: transparent;
 }
 .author-surface-chat {
@@ -1210,38 +1212,48 @@ a { color: inherit; text-decoration: none; }
 }
 .author-surface-progress {
   border: none;
-  background: rgba(17, 29, 41, 0.38);
+  background: rgba(17, 29, 41, 0.18);
 }
 .author-surface-composer-row {
-  border-top: 1px solid rgba(73, 135, 133, 0.14);
+  border-top: none;
   background: transparent;
 }
 .author-surface-composer {
-  border: none;
-  background: rgba(16, 26, 39, 0.3);
+  border: 1px solid rgba(72, 103, 132, 0.28);
+  border-radius: 10px;
+  background: rgba(12, 20, 31, 0.72);
+}
+.author-composer-tool-rail {
+  position: relative;
+  z-index: 2;
+  margin-bottom: -6px;
+}
+.author-composer-body {
+  min-height: 0;
 }
 .author-history-controls sl-select::part(combobox) {
-  border: 1px solid rgba(79, 141, 162, 0.3);
-  background: rgba(11, 20, 31, 0.86);
+  border: 1px solid rgba(79, 141, 162, 0.26);
+  background: rgba(11, 20, 31, 0.72);
   color: #d8edf6;
   border-radius: 999px;
-  font-size: 11px;
-  min-height: 30px;
+  font-size: 10px;
+  min-height: 26px;
 }
 .author-history-controls sl-select::part(display-input) {
   color: #dbeafe;
+  font-size: 10px;
 }
 .author-history-controls sl-select:focus-within::part(combobox) {
   outline: 1px solid rgba(96,165,250,.55);
   border-color: rgba(96,165,250,.55);
 }
 .author-btn::part(base) {
-  border: 1px solid rgba(82, 135, 153, 0.28);
-  background: rgba(20, 31, 45, 0.92);
+  border: 1px solid rgba(82, 135, 153, 0.24);
+  background: rgba(20, 31, 45, 0.76);
   color: #d7eef8;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
 }
 .author-btn:hover::part(base) {
   border-color: rgba(114, 194, 192, 0.46);
@@ -1260,68 +1272,86 @@ a { color: inherit; text-decoration: none; }
   cursor: default;
 }
 .author-btn-icon::part(base) {
-  min-width: 32px;
-  height: 32px;
-  padding: 7px 9px;
+  min-width: 26px;
+  height: 26px;
+  padding: 4px 6px;
   line-height: 1;
 }
 .author-history-actions::part(base) {
-  background: rgba(6, 11, 18, 0.28);
-  border-radius: 999px;
+  background: transparent;
+  border-radius: 0;
 }
 .author-history-btn::part(base) {
-  border: 1px solid rgba(74, 101, 122, 0.66);
-  background: rgba(10, 16, 24, 0.5);
-  color: #9fb3c7;
+  border: 1px solid rgba(110, 161, 193, 0.42);
+  background: rgba(12, 21, 33, 0.74);
+  color: #d2e6f8;
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 1px 10px;
+  min-height: 22px;
+  min-width: 46px;
+  font-size: 10px;
+}
+.author-history-btn-icon::part(base) {
+  width: 46px;
+  min-width: 46px;
+  padding: 1px 10px;
+}
+.author-history-btn-diff::part(base) {
+  min-width: 46px;
 }
 .author-history-btn:hover::part(base),
 .author-history-btn:focus-visible::part(base) {
-  color: #e5f7f8;
-  border-color: rgba(124, 211, 208, 0.56);
-  background: rgba(21, 79, 89, 0.36);
+  color: #f1fbff;
+  border-color: rgba(131, 220, 217, 0.7);
+  background: rgba(18, 95, 104, 0.5);
 }
 .author-history-btn.is-active::part(base) {
-  color: #eefdfd;
-  border-color: rgba(96, 203, 201, 0.7);
-  background: rgba(18, 95, 104, 0.45);
+  color: #f3ffff;
+  border-color: rgba(96, 203, 201, 0.78);
+  background: rgba(18, 95, 104, 0.64);
 }
 .author-history-btn[disabled]::part(base) {
-  opacity: 0.45;
+  opacity: 0.52;
   cursor: default;
 }
 .author-composer-row textarea {
   width: 100%;
-  min-height: 84px;
-  max-height: 220px;
+  min-height: 0;
+  max-height: none;
   resize: none;
   border-radius: 0;
   border: 1px solid transparent;
   background: transparent;
   color: #e2e8f0;
-  padding: 0;
+  padding: 0.5rem;
   font: inherit;
-  line-height: 1.45;
+  line-height: 1.4;
+  font-size: 13px;
+  overflow-y: hidden;
 }
 .author-composer-row textarea::placeholder {
-  color: #64748b;
+  color: #6b7f94;
 }
 .author-composer-row textarea:focus {
   outline: none;
   border-color: transparent;
 }
 .author-agent-mode::part(base) {
-  border: 1px solid rgba(74, 101, 122, 0.6);
+  border: 1px solid rgba(74, 101, 122, 0.46);
   border-radius: 999px;
-  background: rgba(11, 18, 28, 0.72);
+  background: rgba(11, 18, 28, 0.56);
+}
+.author-mode-btn {
+  --sl-input-height-small: 20px;
 }
 .author-mode-btn::part(base) {
   border: 1px solid transparent;
   border-radius: 999px;
-  padding: 3px 10px;
+  min-height: 20px;
+  padding: 0 8px;
   background: transparent;
   color: #94a3b8;
+  font-size: 10px;
 }
 .author-mode-btn:hover::part(base),
 .author-mode-btn:focus-visible::part(base) {
@@ -1329,8 +1359,8 @@ a { color: inherit; text-decoration: none; }
 }
 .author-mode-btn.is-active::part(base) {
   color: #ecfcfd;
-  border-color: rgba(106, 205, 203, 0.56);
-  background: rgba(17, 90, 98, 0.46);
+  border-color: rgba(106, 205, 203, 0.46);
+  background: rgba(17, 90, 98, 0.32);
 }
 .author-mode-btn[disabled]::part(base) {
   opacity: 0.55;

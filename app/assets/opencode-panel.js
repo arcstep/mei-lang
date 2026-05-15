@@ -111,6 +111,8 @@
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
   const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
+  const COMPOSER_MIN_ROWS = 2;
+  const COMPOSER_MAX_ROWS = 12;
   const CHAT_CLASS = {
     messageBase:
       "author-chat-message group grid gap-1 bg-transparent px-0 py-0.5 pl-2 border-l-2 border-l-transparent",
@@ -245,6 +247,37 @@
 
   function composerDraftText() {
     return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
+  }
+
+  function parsePx(value) {
+    const n = Number.parseFloat(String(value || "0"));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function resolveComposerLineHeightPx(inputEl, style) {
+    const explicit = parsePx(style && style.lineHeight ? style.lineHeight : "");
+    if (explicit > 0) return explicit;
+    const fontSize = parsePx(style && style.fontSize ? style.fontSize : "");
+    return fontSize > 0 ? fontSize * 1.4 : 18;
+  }
+
+  function autoResizeComposerInput() {
+    if (!els.input) return;
+    const inputEl = els.input;
+    const style = window.getComputedStyle(inputEl);
+    const lineHeight = resolveComposerLineHeightPx(inputEl, style);
+    const verticalPadding =
+      parsePx(style.paddingTop) +
+      parsePx(style.paddingBottom) +
+      parsePx(style.borderTopWidth) +
+      parsePx(style.borderBottomWidth);
+    const minHeight = Math.round(lineHeight * COMPOSER_MIN_ROWS + verticalPadding);
+    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_ROWS + verticalPadding);
+    inputEl.style.height = "auto";
+    const scrollHeight = Math.max(inputEl.scrollHeight, minHeight);
+    const nextHeight = Math.min(scrollHeight, maxHeight);
+    inputEl.style.height = String(nextHeight) + "px";
+    inputEl.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
   }
 
   function canSubmitPrompt() {
@@ -1004,6 +1037,7 @@
     if (!draft || !els.input) return;
     const current = String(els.input.value || "");
     els.input.value = current.trim() ? draft + "\n\n" + current : draft;
+    autoResizeComposerInput();
     const cursor = draft.length;
     try {
       els.input.focus();
@@ -2549,6 +2583,7 @@
     clearGenerationSettleTimer();
     if (els.input) {
       els.input.value = "";
+      autoResizeComposerInput();
       els.input.focus();
     }
     setButtonState(false);
@@ -2670,6 +2705,7 @@
 
   if (els.input) {
     els.input.addEventListener("input", function () {
+      autoResizeComposerInput();
       renderRunButton(state.loading);
     });
     els.input.addEventListener("keydown", function (event) {
@@ -2680,7 +2716,13 @@
         });
       }
     });
+    autoResizeComposerInput();
   }
+
+  const onComposerInputWindowResize = function () {
+    autoResizeComposerInput();
+  };
+  window.addEventListener("resize", onComposerInputWindowResize);
 
   if (els.modePlan) {
     els.modePlan.addEventListener("click", function () {
@@ -2782,6 +2824,7 @@
     closeEventStream();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
+    window.removeEventListener("resize", onComposerInputWindowResize);
     if (refreshTimerId) window.clearInterval(refreshTimerId);
   };
 })();
