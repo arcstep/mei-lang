@@ -9,8 +9,9 @@ use serde_json::Value;
 use crate::{
     eval::evaluate_mei_file,
     model::{
-        AppDecl, CompiledApp, CompiledEntryMeta, ComponentAsset, Diagnostic, FlowDecl, FrameDecl,
-        PanelDecl, SceneContract, SceneDecl, Severity, ThemeDecl, UiNodeDecl,
+        AppDecl, CompiledApp, CompiledEntryMeta, ComponentAsset, Diagnostic, EntityDecl, FlowDecl,
+        FrameDecl, PanelDecl, ResourceDecl, SceneContract, SceneDecl, Severity, ThemeDecl,
+        UiNodeDecl, WorldGridDecl,
     },
     workspace::{load_component_assets, source_tree},
 };
@@ -27,13 +28,14 @@ mod resources;
 mod scene;
 
 use decls::{
-    DatasetViewDecl, FrameFileRefDecl, LegacyDatasetDecl, LegacyMetricPackDecl, WorldFileRefDecl,
+    DatasetViewDecl, FrameFileRefDecl, FrameSetLayoutDecl, LegacyDatasetDecl, LegacyMetricPackDecl,
+    WorldAddEntityDecl, WorldAddResourceDecl, WorldFileRefDecl, WorldSetTopologyDecl,
 };
 use materialize::{
     materialize_dataset_views, materialize_legacy_datasets, materialize_metric_packs,
 };
 use resources::load_resources;
-use scene::{find_scene_entry, resolve_scene_entries};
+use scene::{find_scene_entry, resolve_scene_entries, scene_name_from_path};
 
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
@@ -289,9 +291,15 @@ fn compile_entry_payload(
     let mut scene_decl_count = 0usize;
     let mut frame_decl_count = 0usize;
     let mut world_decl_count = 0usize;
+    let mut world_topology_set_count = 0usize;
+    let mut frame_layout_set_count = 0usize;
     let mut frame_default: Option<FrameDecl> = None;
     let mut world_default: Option<crate::model::WorldDecl> = None;
     let mut flow_default: Option<FlowDecl> = None;
+    let mut pending_world_resources = Vec::new();
+    let mut pending_world_entities = Vec::new();
+    let mut pending_world_topology: Option<crate::model::WorldGridDecl> = None;
+    let mut pending_frame_layout: Option<crate::model::LayoutDecl> = None;
     let mut themes: Vec<ThemeDecl> = Vec::new();
     let mut panels: Vec<PanelDecl> = Vec::new();
     let mut dataset_views: Vec<DatasetViewDecl> = Vec::new();
@@ -346,7 +354,7 @@ fn compile_entry_payload(
                 }
                 "scene" => {
                     scene_decl_count += 1;
-                    let scene_decl = serde_json::from_value::<SceneDecl>(value.clone())?;
+                    let scene_decl = decode_scene_decl(value, target_file)?;
                     scenes.entry(scene_decl.id.clone()).or_insert(scene_decl);
                 }
                 "world" => {
@@ -363,6 +371,39 @@ fn compile_entry_payload(
                     } else {
                         if world_default.is_none() {
                             world_default = Some(world_decl);
+                        }
+                    }
+                }
+                "world_add_resource" => {
+                    let decl = serde_json::from_value::<WorldAddResourceDecl>(value.clone())?;
+                    if decl.kind == "world_add_resource" {
+                        pending_world_resources.push(decl.resource);
+                    }
+                }
+                "world_add_entity" => {
+                    let decl = serde_json::from_value::<WorldAddEntityDecl>(value.clone())?;
+                    if decl.kind == "world_add_entity" {
+                        pending_world_entities.push(decl.entity);
+                    }
+                }
+                "world_set_topology" => {
+                    let decl = serde_json::from_value::<WorldSetTopologyDecl>(value.clone())?;
+                    if decl.kind == "world_set_topology" {
+                        world_topology_set_count += 1;
+                        if pending_world_topology.is_none() {
+                            pending_world_topology = Some(decl.topology);
+                        }
+                    }
+                }
+                "frame_set_layout" => {
+                    let decl = serde_json::from_value::<FrameSetLayoutDecl>(value.clone())?;
+                    if decl.kind == "frame_set_layout" {
+                        frame_layout_set_count += 1;
+                        if pending_frame_layout.is_none() {
+                            pending_frame_layout =
+                                Some(serde_json::from_value::<crate::model::LayoutDecl>(
+                                    decl.layout,
+                                )?);
                         }
                     }
                 }
@@ -400,6 +441,44 @@ fn compile_entry_payload(
             }
         }
     }
+    if world_topology_set_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_world_topologies".to_string(),
+            message: format!(
+                "file `{target_file}` declares {world_topology_set_count} world.set_topology(...) blocks, expected at most one"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+    if frame_layout_set_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_frame_layouts".to_string(),
+            message: format!(
+                "file `{target_file}` declares {frame_layout_set_count} frame.set_layout(...) blocks, expected at most one"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+    apply_world_mutations(
+        &mut worlds,
+        &mut world_default,
+        &pending_world_resources,
+        &pending_world_entities,
+        pending_world_topology,
+        &mut diagnostics,
+        target_file,
+        world_decl_count,
+    );
+    apply_frame_mutations(
+        &mut frames,
+        &mut frame_default,
+        pending_frame_layout,
+        &mut diagnostics,
+        target_file,
+        frame_decl_count,
+    );
     if scene_decl_count > 1 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -653,6 +732,20 @@ fn compile_entry_payload(
     })
 }
 
+fn decode_scene_decl(value: &Value, target_file: &str) -> Result<SceneDecl> {
+    let mut raw = value.clone();
+    let missing_scene_id = raw
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|id| id.is_empty())
+        .unwrap_or(true);
+    if missing_scene_id {
+        raw["id"] = Value::String(scene_name_from_path(target_file));
+    }
+    serde_json::from_value::<SceneDecl>(raw).map_err(Into::into)
+}
+
 #[derive(Debug, Clone)]
 enum SceneBinding {
     Absent,
@@ -719,6 +812,46 @@ fn pick_only_frame(
     frame_default.or_else(|| frames.values().next().cloned())
 }
 
+fn apply_frame_mutations(
+    frames: &mut BTreeMap<String, FrameDecl>,
+    frame_default: &mut Option<FrameDecl>,
+    layout: Option<crate::model::LayoutDecl>,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+    frame_decl_count: usize,
+) {
+    let Some(layout) = layout else {
+        return;
+    };
+    match frame_decl_count {
+        0 => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "missing_frame_declaration".to_string(),
+                message: "frame.set_layout(...) requires a frame(...) declaration in the same file".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+        1 => {
+            if let Some(frame_decl) = frame_default.as_mut() {
+                frame_decl.layout = Some(layout);
+                return;
+            }
+            if let Some((_id, frame_decl)) = frames.iter_mut().next() {
+                frame_decl.layout = Some(layout);
+            }
+        }
+        _ => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "ambiguous_frame_mutation".to_string(),
+                message: "frame.set_layout(...) requires exactly one frame(...) declaration in the file".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+    }
+}
+
 fn pick_only_world(
     worlds: &BTreeMap<String, crate::model::WorldDecl>,
     world_default: Option<crate::model::WorldDecl>,
@@ -729,6 +862,62 @@ fn pick_only_world(
     world_default.or_else(|| worlds.values().next().cloned())
 }
 
+fn apply_world_mutations(
+    worlds: &mut BTreeMap<String, crate::model::WorldDecl>,
+    world_default: &mut Option<crate::model::WorldDecl>,
+    resources: &[ResourceDecl],
+    entities: &[EntityDecl],
+    topology: Option<WorldGridDecl>,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+    world_decl_count: usize,
+) {
+    let has_mutations = !resources.is_empty() || !entities.is_empty() || topology.is_some();
+    if !has_mutations {
+        return;
+    }
+    match world_decl_count {
+        0 => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "missing_world_declaration".to_string(),
+                message: "world.add_* / world.set_topology(...) requires a world(...) declaration in the same file".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+        1 => {
+            if let Some(world_decl) = world_default.as_mut() {
+                apply_world_mutations_to_decl(world_decl, resources, entities, topology);
+                return;
+            }
+            if let Some((_id, world_decl)) = worlds.iter_mut().next() {
+                apply_world_mutations_to_decl(world_decl, resources, entities, topology);
+            }
+        }
+        _ => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "ambiguous_world_mutation".to_string(),
+                message: "world.add_* / world.set_topology(...) requires exactly one world(...) declaration in the file".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+    }
+}
+
+fn apply_world_mutations_to_decl(
+    world_decl: &mut crate::model::WorldDecl,
+    resources: &[ResourceDecl],
+    entities: &[EntityDecl],
+    topology: Option<WorldGridDecl>,
+) {
+    world_decl.resources.extend(resources.iter().cloned());
+    world_decl.entities.extend(entities.iter().cloned());
+    if let Some(topology) = topology {
+        world_decl.topology = Some(topology);
+    }
+}
+
 fn load_world_from_file(
     app_root: &Path,
     relative_path: &str,
@@ -737,10 +926,61 @@ fn load_world_from_file(
     let source_path = app_root.join(relative_path);
     let decls = evaluate_mei_file(&source_path)?;
     let mut worlds = Vec::new();
+    let mut pending_resources = Vec::new();
+    let mut pending_entities = Vec::new();
+    let mut pending_topology = None;
+    let mut world_topology_set_count = 0usize;
     if let Some(values) = decls.as_array() {
         for value in values {
-            if value.get("kind").and_then(Value::as_str) == Some("world") {
-                worlds.push(serde_json::from_value::<crate::model::WorldDecl>(value.clone())?);
+            match value.get("kind").and_then(Value::as_str) {
+                Some("world") => {
+                    worlds.push(serde_json::from_value::<crate::model::WorldDecl>(value.clone())?);
+                }
+                Some("world_add_resource") => {
+                    let decl = serde_json::from_value::<WorldAddResourceDecl>(value.clone())?;
+                    pending_resources.push(decl.resource);
+                }
+                Some("world_add_entity") => {
+                    let decl = serde_json::from_value::<WorldAddEntityDecl>(value.clone())?;
+                    pending_entities.push(decl.entity);
+                }
+                Some("world_set_topology") => {
+                    let decl = serde_json::from_value::<WorldSetTopologyDecl>(value.clone())?;
+                    world_topology_set_count += 1;
+                    if pending_topology.is_none() {
+                        pending_topology = Some(decl.topology);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if world_topology_set_count > 1 {
+        return Err(anyhow!(
+            "world_file_ref `{relative_path}` declared multiple world.set_topology(...) blocks"
+        ));
+    }
+    if !pending_resources.is_empty() || !pending_entities.is_empty() || pending_topology.is_some() {
+        match worlds.len() {
+            0 => {
+                return Err(anyhow!(
+                    "world_file_ref `{relative_path}` used world.add_* / world.set_topology(...) without world(...)"
+                ));
+            }
+            1 => {
+                if let Some(world_decl) = worlds.first_mut() {
+                    apply_world_mutations_to_decl(
+                        world_decl,
+                        &pending_resources,
+                        &pending_entities,
+                        pending_topology,
+                    );
+                }
+            }
+            count => {
+                return Err(anyhow!(
+                    "world_file_ref `{relative_path}` used world.add_* / world.set_topology(...) with {count} world(...) declarations"
+                ));
             }
         }
     }
@@ -776,10 +1016,48 @@ fn load_frame_from_file(
     let source_path = app_root.join(relative_path);
     let decls = evaluate_mei_file(&source_path)?;
     let mut frames = Vec::new();
+    let mut pending_layout: Option<crate::model::LayoutDecl> = None;
+    let mut frame_layout_set_count = 0usize;
     if let Some(values) = decls.as_array() {
         for value in values {
-            if value.get("kind").and_then(Value::as_str) == Some("frame") {
-                frames.push(serde_json::from_value::<FrameDecl>(value.clone())?);
+            match value.get("kind").and_then(Value::as_str) {
+                Some("frame") => {
+                    frames.push(serde_json::from_value::<FrameDecl>(value.clone())?);
+                }
+                Some("frame_set_layout") => {
+                    let decl = serde_json::from_value::<FrameSetLayoutDecl>(value.clone())?;
+                    frame_layout_set_count += 1;
+                    if pending_layout.is_none() {
+                        pending_layout = Some(serde_json::from_value::<crate::model::LayoutDecl>(
+                            decl.layout,
+                        )?);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    if frame_layout_set_count > 1 {
+        return Err(anyhow!(
+            "frame_file_ref `{relative_path}` declared multiple frame.set_layout(...) blocks"
+        ));
+    }
+    if let Some(layout) = pending_layout {
+        match frames.len() {
+            0 => {
+                return Err(anyhow!(
+                    "frame_file_ref `{relative_path}` used frame.set_layout(...) without frame(...)"
+                ));
+            }
+            1 => {
+                if let Some(frame_decl) = frames.first_mut() {
+                    frame_decl.layout = Some(layout);
+                }
+            }
+            count => {
+                return Err(anyhow!(
+                    "frame_file_ref `{relative_path}` used frame.set_layout(...) with {count} frame(...) declarations"
+                ));
             }
         }
     }

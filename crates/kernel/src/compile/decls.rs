@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::model::ColumnSchema;
+use crate::model::{ColumnSchema, EntityDecl, ResourceDecl, WorldGridDecl};
 
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct SceneFileRefDecl {
@@ -27,6 +27,30 @@ pub(super) struct FrameFileRefDecl {
     pub path: String,
     #[serde(default)]
     pub id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorldAddResourceDecl {
+    pub kind: String,
+    pub resource: ResourceDecl,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorldAddEntityDecl {
+    pub kind: String,
+    pub entity: EntityDecl,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorldSetTopologyDecl {
+    pub kind: String,
+    pub topology: WorldGridDecl,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct FrameSetLayoutDecl {
+    pub kind: String,
+    pub layout: Value,
 }
 
 #[derive(Debug, Clone, Deserialize)]

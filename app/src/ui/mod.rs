@@ -239,7 +239,11 @@ fn manage_shell(
     let diagnostics = diagnostics_view(compiled);
     let diagnostics_total = compiled.diagnostics.len();
     let script_target = is_mei_script_target(selected_target.as_str());
-    let active_manage_tab = manage_view_tab_from_query(active_tab, script_target);
+    let active_manage_tab = manage_view_tab_from_query(
+        active_tab,
+        script_target,
+        compiled_has_error_diagnostics(compiled),
+    );
     let topbar = topbar_view(
         apps,
         compiled,
@@ -392,7 +396,11 @@ fn manage_shell(
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         <nav class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5" role="tablist" aria-label="管理主视图">
-                            {tab_links}
+                            <div class="manage-view-tabs-cluster">
+                                <div class="manage-view-tabs-group" role="presentation">
+                                    {tab_links}
+                                </div>
+                            </div>
                         </nav>
                         {if script_target {
                             view! {
@@ -987,16 +995,13 @@ fn infer_order_from_label(label: &str) -> Option<i32> {
 fn route_query(
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
-    active_tab: Option<&str>,
+    _active_tab: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
     if let Some(preview_target) = preview_target {
         parts.push(format!("preview_target={preview_target}"));
     } else if let Some(entry) = selected_entry {
         parts.push(format!("entry={entry}"));
-    }
-    if let Some(tab) = manage_tab_from_slug(active_tab) {
-        parts.push(format!("tab={}", tab.slug()));
     }
     if parts.is_empty() {
         String::new()
@@ -1106,13 +1111,30 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
     }
 }
 
-fn manage_view_tab_from_query(active_tab: Option<&str>, script_target: bool) -> ManageViewTab {
-    let next = manage_tab_from_slug(active_tab).unwrap_or(ManageViewTab::Preview);
+fn manage_view_tab_from_query(
+    active_tab: Option<&str>,
+    script_target: bool,
+    prefer_diagnostics: bool,
+) -> ManageViewTab {
+    let next = manage_tab_from_slug(active_tab).unwrap_or_else(|| {
+        if prefer_diagnostics {
+            ManageViewTab::Diagnostics
+        } else {
+            ManageViewTab::Preview
+        }
+    });
     if script_target {
         next
     } else {
         ManageViewTab::Preview
     }
+}
+
+fn compiled_has_error_diagnostics(compiled: &CompiledApp) -> bool {
+    compiled
+        .diagnostics
+        .iter()
+        .any(|diag| matches!(diag.severity, mei_lang_kernel::Severity::Error))
 }
 
 fn is_mei_script_target(target: &str) -> bool {
@@ -1653,4 +1675,34 @@ fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
         })
         .collect_view();
     view! { <>{scripts}</> }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{manage_view_tab_from_query, route_query, ManageViewTab};
+
+    #[test]
+    fn manage_defaults_to_diagnostics_when_errors_exist() {
+        assert!(matches!(
+            manage_view_tab_from_query(None, true, true),
+            ManageViewTab::Diagnostics
+        ));
+    }
+
+    #[test]
+    fn manage_respects_explicit_preview_tab_even_when_errors_exist() {
+        assert!(matches!(
+            manage_view_tab_from_query(Some("preview"), true, true),
+            ManageViewTab::Preview
+        ));
+    }
+
+    #[test]
+    fn route_query_omits_tab_for_cross_app_navigation() {
+        assert_eq!(route_query(None, None, Some("source")), "");
+        assert_eq!(
+            route_query(None, Some("main.mei"), Some("diagnostics")),
+            "?preview_target=main.mei"
+        );
+    }
 }

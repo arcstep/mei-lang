@@ -180,10 +180,13 @@ fn collect_inline_scene_entries(
         if value.get("kind").and_then(Value::as_str) != Some("scene") {
             continue;
         }
-        let Some(scene_id) = value.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let scene_id = scene_id.to_string();
+        let scene_id = value
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| scene_name_from_path("main.mei"));
         append_entry(
             entries,
             seen_entry_ids,
@@ -295,7 +298,7 @@ fn resolve_default_entry_id(app_decl: &AppDecl, entries: &[CompiledEntryMeta]) -
         .map(|entry| entry.entry_id.clone())
 }
 
-fn scene_name_from_path(path: &str) -> String {
+pub(super) fn scene_name_from_path(path: &str) -> String {
     Path::new(path)
         .file_stem()
         .and_then(|value| value.to_str())

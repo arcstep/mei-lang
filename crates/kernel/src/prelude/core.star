@@ -121,7 +121,7 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         state = state,
     )
 
-def scene_decl(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
@@ -135,7 +135,7 @@ def scene_decl(id, world = None, flow = None, frame = None, profile = None, them
         "state": state if state != None else {},
     }))
 
-def scene(id, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
     return scene_decl(
         id = id,
         world = world,
@@ -155,6 +155,28 @@ def world(id = None, topology = None, resources = None, entities = None):
         "topology": topology,
         "resources": resources if resources != None else [],
         "entities": entities if entities != None else [],
+    }))
+
+def world_add_resource(item):
+    return _declare({
+        "kind": "world_add_resource",
+        "resource": item,
+    })
+
+def world_add_entity(item):
+    return _declare({
+        "kind": "world_add_entity",
+        "entity": item,
+    })
+
+def world_set_topology(rows, cols, cells = None):
+    return _declare(_clean({
+        "kind": "world_set_topology",
+        "topology": {
+            "rows": rows,
+            "cols": cols,
+            "cells": cells if cells != None else [],
+        },
     }))
 
 def cell(id, row = None, col = None, surface_kind = None, flammable = None, walkable = None, occupiable = None, capacity = None, hazard_state = None, tags = None):

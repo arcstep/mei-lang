@@ -140,6 +140,12 @@ def frame(id = None, title = None, layout = None, blocks = None, profile = None,
         "props": props if props != None else {},
     }))
 
+def frame_set_layout(layout):
+    return _declare({
+        "kind": "frame_set_layout",
+        "layout": layout,
+    })
+
 def theme(id, frame = None, panel = None, panel_bare = None, heading = None, font = None, tokens = None):
     return _declare(_clean({
         "kind": "theme",

@@ -141,6 +141,129 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_incremental_world_authoring() {
+    let root = temp_root("incremental-world-authoring");
+    let app_root = root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "demo",
+)
+
+scene(
+    profile = "simulation",
+)
+
+world()
+
+world.set_topology(
+    rows = 2,
+    cols = 2,
+    cells = [
+        cell(id = "r1c1", row = 1, col = 1, walkable = True),
+        cell(id = "r1c2", row = 1, col = 2, walkable = True),
+    ],
+)
+
+world.add_resource(
+    resource(id = "welcome_doc", kind = "document", content = "hello"),
+)
+
+world.add_entity(
+    entity(id = "guide", kind = "assistant", label = "Guide"),
+)
+
+frame(
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile incremental world app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    let world = contract.world.expect("world");
+    assert_eq!(world.resources.len(), 1);
+    assert_eq!(world.entities.len(), 1);
+    assert_eq!(world.topology.as_ref().map(|topology| topology.rows), Some(2));
+    assert_eq!(world.topology.as_ref().map(|topology| topology.cols), Some(2));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "incremental world authoring should not produce error diagnostics"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_incremental_frame_authoring() {
+    let root = temp_root("incremental-frame-authoring");
+    let app_root = root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "demo",
+)
+
+scene(
+    profile = "page",
+)
+
+world(
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello"),
+    ],
+)
+
+frame()
+
+frame.set_layout(
+    flex(direction = "column", gap = "12px", padding = "16px"),
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile incremental frame app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    let frame = contract.frame.expect("frame");
+    let layout = frame.layout.expect("frame layout");
+    assert_eq!(layout.layout_type, "flex");
+    assert_eq!(layout.direction.as_deref(), Some("column"));
+    assert_eq!(layout.gap.as_deref(), Some("12px"));
+    assert_eq!(layout.padding.as_deref(), Some("16px"));
+    assert_eq!(contract.panels.len(), 1);
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "incremental frame authoring should not produce error diagnostics"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_supports_scene_file_ref_authoring() {
     let root = temp_root("scene-file-ref");
     let app_root = root.join("fire");
@@ -197,7 +320,7 @@ fn compile_supports_app_scene_field_with_scene_file_ref() {
         r#"
 app(
     id = "fire",
-    scene = scene_file_ref("home.mei", id = "room_fire_click"),
+    scene = scene_file_ref("home.mei"),
 )
 "#,
     );
@@ -205,19 +328,16 @@ app(
         &app_root.join("home.mei"),
         r#"
 scene(
-    id = "room_fire_click",
     profile = "simulation",
 )
 
 world(
-    id = "home_world",
     resources = [
         resource(id = "welcome_doc", kind = "document", content = "hello"),
     ],
 )
 
 frame(
-    id = "home_frame",
     layout = flex(direction = "column"),
 )
 
@@ -233,9 +353,9 @@ frame.add_panel(
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile app.scene app");
     assert_eq!(compiled.entry_target, "home.mei");
-    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+    assert_eq!(compiled.active_entry.as_deref(), Some("home"));
     let contract = compiled.scene_contract.expect("scene contract");
-    assert_eq!(contract.scene.id, "room_fire_click");
+    assert_eq!(contract.scene.id, "home");
     assert_eq!(contract.panels.len(), 1);
     assert_eq!(contract.world.expect("world").resources.len(), 1);
 
@@ -251,13 +371,11 @@ fn compile_supports_world_and_frame_file_refs() {
         r#"
 app(
     id = "ref-app",
-    default_scene = "home",
 )
 
 scene(
-    id = "home",
-    world = world_file_ref("shared-world.mei", id = "shared_world"),
-    frame = frame_file_ref("shared-frame.mei", id = "shared_frame"),
+    world = world_file_ref("shared-world.mei"),
+    frame = frame_file_ref("shared-frame.mei"),
     profile = "page",
 )
 
@@ -273,40 +391,40 @@ frame.add_panel(
     write_file(
         &app_root.join("shared-world.mei"),
         r#"
-world(
-    id = "shared_world",
-    resources = [
-        resource(id = "welcome_doc", kind = "document", content = "hello from file ref"),
-    ],
+world()
+
+world.add_resource(
+    resource(id = "welcome_doc", kind = "document", content = "hello from file ref"),
 )
 "#,
     );
     write_file(
         &app_root.join("shared-frame.mei"),
         r#"
-frame(
-    id = "shared_frame",
-    layout = flex(direction = "column"),
+frame()
+
+frame.set_layout(
+    flex(direction = "column"),
 )
 "#,
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile file ref app");
     let contract = compiled.scene_contract.expect("scene contract");
-    assert_eq!(contract.scene.id, "home");
+    assert_eq!(contract.scene.id, "main");
     assert_eq!(
         contract
             .frame
             .as_ref()
             .and_then(|frame| frame.id.as_deref()),
-        Some("shared_frame")
+        None
     );
     assert_eq!(
         contract
             .world
             .as_ref()
             .and_then(|world| world.id.as_deref()),
-        Some("shared_world")
+        None
     );
     assert!(
         compiled
@@ -1180,10 +1298,14 @@ fn compile_examples_regressions() {
 }
 
 #[test]
-fn compile_core_examples_single_file_baselines() {
+fn compile_core_examples_baselines() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/core");
-    for app_id in ["01-single-file-doc", "02-single-scene-resource"] {
+    for app_id in [
+        "01-single-file-doc",
+        "02-external-scene-file",
+        "03-multi-panel-baseline",
+    ] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)
             .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));

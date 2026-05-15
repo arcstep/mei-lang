@@ -18,6 +18,7 @@
     diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
   };
   const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
+  let currentTab = "preview";
 
   function normalizeTab(raw) {
     const value = String(raw || "").trim().toLowerCase();
@@ -104,6 +105,7 @@
   function switchManageTab(nextTab, options) {
     const opts = options || {};
     const active = resolveRenderableTab(nextTab);
+    currentTab = active;
     tabVisual(active);
     panelVisibility(active);
     if (opts.updateUrl !== false) {
@@ -114,6 +116,19 @@
       emitTabChange(active);
     }
     return active;
+  }
+
+  function maybeRewriteManageNavigation(target) {
+    if (!target || !(target instanceof HTMLAnchorElement)) return;
+    if (!target.href) return;
+    if (target.dataset.preserveManageTab !== "1") return;
+    try {
+      const url = new URL(target.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (!url.pathname.startsWith("/apps/manage/")) return;
+      url.searchParams.set("tab", resolveRenderableTab(currentTab));
+      target.href = url.toString();
+    } catch (_) {}
   }
 
   function onClick(event) {
@@ -132,7 +147,19 @@
     });
   }
 
+  function onNavClick(event) {
+    if (event.defaultPrevented) return;
+    if (event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const target =
+      event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!target) return;
+    if (target.matches("a.manage-view-tab[data-manage-tab]")) return;
+    maybeRewriteManageNavigation(target);
+  }
+
   document.addEventListener("click", onClick, true);
+  document.addEventListener("click", onNavClick, true);
 
   boot.switchManageTab = function (tab) {
     return switchManageTab(tab, { updateUrl: true, emit: true });
@@ -142,6 +169,7 @@
 
   boot.disposeManageTabs = function () {
     document.removeEventListener("click", onClick, true);
+    document.removeEventListener("click", onNavClick, true);
     if (boot.switchManageTab) {
       boot.switchManageTab = null;
     }

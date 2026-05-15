@@ -170,7 +170,8 @@
     });
   }
 
-  function disposeRuntimeHooks() {
+  function disposeRuntimeHooks(options) {
+    const opts = options || {};
     const names = [
       "disposeOpencodePanel",
       "disposeStatusBar",
@@ -179,6 +180,9 @@
       "disposeFrameStage",
     ];
     names.forEach((name) => {
+      if (opts.preserveOpencodePanel && name === "disposeOpencodePanel") return;
+      if (opts.preserveStatusBar && name === "disposeStatusBar") return;
+      if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
       const hook = boot[name];
       if (typeof hook === "function") {
         try {
@@ -220,13 +224,32 @@
     });
   }
 
-  async function syncScriptsFromDocument(doc, navigationId) {
+  async function syncScriptsFromDocument(doc, navigationId, options) {
+    const opts = options || {};
     const scripts = collectBodyScripts(doc);
     for (const src of scripts) {
       if (navigationId !== currentNavigationId) return;
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
+      if (opts.preserveOpencodePanel && path === "/app-assets/opencode-panel.js") {
+        continue;
+      }
+      if (opts.preserveStatusBar && path === "/app-assets/statusbar.js") {
+        continue;
+      }
+      if (
+        opts.preserveWorkspaceSplitters &&
+        path === "/app-assets/workspace-splitters.js"
+      ) {
+        continue;
+      }
+      if (
+        opts.preserveSourceTreeControls &&
+        path === "/app-assets/source-tree-controls.js"
+      ) {
+        continue;
+      }
       if (path.startsWith("/workspace-components/")) {
         await loadScript(src, { module: true, persistentKey: path });
         continue;
@@ -239,6 +262,161 @@
       }
       await loadScript(src, { persistentKey: path });
     }
+  }
+
+  function cloneNodeOrNull(node) {
+    return node ? node.cloneNode(true) : null;
+  }
+
+  function extractManagePanelContext(root) {
+    if (!root) return null;
+    return {
+      app: String(root.dataset.app || ""),
+      target: String(root.dataset.target || ""),
+      entry: String(root.dataset.entry || ""),
+      mode: String(root.dataset.mode || ""),
+      sourceViews: String(root.dataset.sourceViews || ""),
+      viewTab: String(root.dataset.viewTab || ""),
+    };
+  }
+
+  function dispatchManageContextChange(detail) {
+    if (!detail) return;
+    document.dispatchEvent(
+      new CustomEvent("mei:manage-context-change", {
+        detail,
+      }),
+    );
+  }
+
+  function normalizeNavHref(rawHref) {
+    try {
+      const url = new URL(rawHref, window.location.href);
+      url.searchParams.delete("tab");
+      return url.pathname + "?" + url.searchParams.toString();
+    } catch (_) {
+      return String(rawHref || "");
+    }
+  }
+
+  function syncSidebarLinkState(currentSidebar, nextSidebar) {
+    if (!currentSidebar || !nextSidebar) return;
+    currentSidebar.className = nextSidebar.className;
+    const currentLinks = Array.from(currentSidebar.querySelectorAll("a.tree-link"));
+    const nextLinks = Array.from(nextSidebar.querySelectorAll("a.tree-link"));
+    const nextByKey = new Map();
+    nextLinks.forEach((link) => {
+      nextByKey.set(normalizeNavHref(link.getAttribute("href") || ""), link);
+    });
+    currentLinks.forEach((link) => {
+      const key = normalizeNavHref(link.getAttribute("href") || "");
+      const next = nextByKey.get(key);
+      if (!next) return;
+      link.className = next.className;
+      link.setAttribute("href", next.getAttribute("href") || "");
+      if (next.hasAttribute("title")) {
+        link.setAttribute("title", next.getAttribute("title") || "");
+      } else {
+        link.removeAttribute("title");
+      }
+      Array.from(link.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.removeAttribute(attr.name));
+      Array.from(next.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.setAttribute(attr.name, attr.value));
+    });
+    const currentDetails = Array.from(
+      currentSidebar.querySelectorAll(".tree-li-branch > details"),
+    );
+    const nextDetails = Array.from(
+      nextSidebar.querySelectorAll(".tree-li-branch > details"),
+    );
+    currentDetails.forEach((detail, index) => {
+      if (index >= nextDetails.length) return;
+      detail.open = nextDetails[index].open;
+    });
+  }
+
+  function syncStatusbarContent(currentStatusbar, nextStatusbar) {
+    if (!currentStatusbar || !nextStatusbar) return;
+    currentStatusbar.className = nextStatusbar.className;
+    const currentLayout = currentStatusbar.querySelector(".statusbar-layout");
+    const nextLayout = nextStatusbar.querySelector(".statusbar-layout");
+    if (!currentLayout || !nextLayout) return;
+    currentLayout.className = nextLayout.className;
+    const currentTracks = Array.from(currentLayout.children);
+    const nextTracks = Array.from(nextLayout.children);
+    currentTracks.forEach((track, index) => {
+      if (index >= nextTracks.length) return;
+      track.className = nextTracks[index].className;
+      track.replaceChildren(
+        ...Array.from(nextTracks[index].childNodes).map((node) => node.cloneNode(true)),
+      );
+    });
+  }
+
+  function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
+    return (
+      currentUrl.pathname === nextUrl.pathname &&
+      currentUrl.pathname.startsWith("/apps/manage/")
+    );
+  }
+
+  function swapManageWorkspace(doc, url, replaceHistory) {
+    const currentShell = document.querySelector(".shell");
+    const nextShell = doc.querySelector(".shell");
+    const currentWorkspace = document.getElementById("workspace-root");
+    const nextWorkspace = doc.getElementById("workspace-root");
+    const currentLeftSidebar =
+      currentWorkspace && currentWorkspace.querySelector("aside.sidebar.left");
+    const nextLeftSidebar =
+      nextWorkspace && nextWorkspace.querySelector("aside.sidebar.left");
+    const currentMain = currentWorkspace && currentWorkspace.querySelector("main.main");
+    const nextMain = nextWorkspace && nextWorkspace.querySelector("main.main");
+    const currentRightSidebar =
+      currentWorkspace && currentWorkspace.querySelector("aside.sidebar.right");
+    const nextRightSidebar =
+      nextWorkspace && nextWorkspace.querySelector("aside.sidebar.right");
+    const currentStatusbar = document.querySelector(".statusbar");
+    const nextStatusbar = doc.querySelector(".statusbar");
+    const nextPanelRoot =
+      nextRightSidebar && nextRightSidebar.querySelector("#meilang-author-panel");
+    const nextPanelContext = extractManagePanelContext(nextPanelRoot);
+
+    if (
+      !currentShell ||
+      !nextShell ||
+      !currentWorkspace ||
+      !currentLeftSidebar ||
+      !nextLeftSidebar ||
+      !currentMain ||
+      !nextMain ||
+      !currentRightSidebar ||
+      !nextRightSidebar
+    ) {
+      return false;
+    }
+
+    currentShell.className = nextShell.className;
+    currentWorkspace.className = nextWorkspace.className;
+    syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
+    currentRightSidebar.className = nextRightSidebar.className;
+    const preparedMain = cloneNodeOrNull(nextMain);
+    if (!preparedMain) return false;
+    preparedMain.classList.add("spa-fragment-enter");
+    currentMain.replaceWith(preparedMain);
+    if (currentStatusbar && nextStatusbar) {
+      syncStatusbarContent(currentStatusbar, nextStatusbar);
+    }
+
+    if (replaceHistory) {
+      window.history.replaceState({}, "", url);
+    } else {
+      window.history.pushState({}, "", url);
+    }
+    dispatchManageContextChange(nextPanelContext);
+    return true;
   }
 
   async function loadAndSwap(url, replaceHistory, navigationId, controller) {
@@ -257,22 +435,50 @@
       window.location.assign(url);
       return;
     }
-    disposeRuntimeHooks();
+    const currentUrl = new URL(window.location.href);
+    const nextUrl = new URL(url, window.location.href);
+    const preserveManageWorkspace = shouldPreserveManageWorkspace(currentUrl, nextUrl);
+    disposeRuntimeHooks({
+      preserveOpencodePanel: preserveManageWorkspace,
+      preserveStatusBar: preserveManageWorkspace,
+      preserveWorkspaceSplitters: preserveManageWorkspace,
+    });
     document.title = doc.title || document.title;
     if (document.body.className !== doc.body.className) {
       document.body.className = doc.body.className;
     }
-    currentShell.className = nextShell.className;
-    const nextNodes = Array.from(nextShell.childNodes).map((node) =>
-      node.cloneNode(true),
-    );
-    currentShell.replaceChildren(...nextNodes);
-    if (replaceHistory) {
-      window.history.replaceState({}, "", url);
+    if (preserveManageWorkspace) {
+      const swapped = swapManageWorkspace(doc, url, replaceHistory);
+      if (!swapped) {
+        currentShell.className = nextShell.className;
+        const nextNodes = Array.from(nextShell.childNodes).map((node) =>
+          node.cloneNode(true),
+        );
+        currentShell.replaceChildren(...nextNodes);
+        if (replaceHistory) {
+          window.history.replaceState({}, "", url);
+        } else {
+          window.history.pushState({}, "", url);
+        }
+      }
     } else {
-      window.history.pushState({}, "", url);
+      currentShell.className = nextShell.className;
+      const nextNodes = Array.from(nextShell.childNodes).map((node) =>
+        node.cloneNode(true),
+      );
+      currentShell.replaceChildren(...nextNodes);
+      if (replaceHistory) {
+        window.history.replaceState({}, "", url);
+      } else {
+        window.history.pushState({}, "", url);
+      }
     }
-    await syncScriptsFromDocument(doc, navigationId);
+    await syncScriptsFromDocument(doc, navigationId, {
+      preserveOpencodePanel: preserveManageWorkspace,
+      preserveStatusBar: preserveManageWorkspace,
+      preserveWorkspaceSplitters: preserveManageWorkspace,
+      preserveSourceTreeControls: preserveManageWorkspace,
+    });
   }
 
   async function navigate(url, replaceHistory) {

@@ -93,21 +93,6 @@
     },
   };
 
-  const sessionStorageKey =
-    "mei-lang.opencode.session." +
-    String(root.dataset.app || "") +
-    "." +
-    String(root.dataset.target || "");
-  const modeStorageKey =
-    "mei-lang.opencode.mode." +
-    String(root.dataset.app || "") +
-    "." +
-    String(root.dataset.target || "");
-  const revertedStorageKey =
-    "mei-lang.opencode.reverted." +
-    String(root.dataset.app || "") +
-    "." +
-    String(root.dataset.target || "");
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
   const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
@@ -239,6 +224,22 @@
 
   function currentTargetKey() {
     return normalizeTargetKey(currentTarget());
+  }
+
+  function currentAppKey() {
+    return String(root.dataset.app || "").trim();
+  }
+
+  function sessionStorageKey() {
+    return "mei-lang.opencode.session." + currentAppKey() + "." + currentTargetKey();
+  }
+
+  function modeStorageKey() {
+    return "mei-lang.opencode.mode." + currentAppKey() + "." + currentTargetKey();
+  }
+
+  function revertedStorageKey() {
+    return "mei-lang.opencode.reverted." + currentAppKey() + "." + currentTargetKey();
   }
 
   function normalizeAgentMode(value) {
@@ -404,13 +405,15 @@
 
   function persistRevertedState() {
     try {
-      localStorage.setItem(revertedStorageKey, JSON.stringify(state.revertedMessageIds));
+      localStorage.setItem(revertedStorageKey(), JSON.stringify(state.revertedMessageIds));
     } catch (_) {}
   }
 
   function restoreRevertedState() {
+    state.revertedMessageIds = {};
+    state.sessionHasRevertedChanges = {};
     try {
-      const raw = localStorage.getItem(revertedStorageKey);
+      const raw = localStorage.getItem(revertedStorageKey());
       const parsed = raw ? JSON.parse(raw) : {};
       if (!parsed || typeof parsed !== "object") return;
       state.revertedMessageIds = parsed;
@@ -1151,13 +1154,13 @@
 
   function rememberAgentMode() {
     try {
-      localStorage.setItem(modeStorageKey, normalizeAgentMode(state.agentMode));
+      localStorage.setItem(modeStorageKey(), normalizeAgentMode(state.agentMode));
     } catch (_) {}
   }
 
   function restoreAgentMode() {
     try {
-      const saved = localStorage.getItem(modeStorageKey);
+      const saved = localStorage.getItem(modeStorageKey());
       if (saved) {
         state.agentMode = normalizeAgentMode(saved);
       }
@@ -2243,16 +2246,17 @@
   function rememberSession() {
     try {
       if (state.sessionId) {
-        localStorage.setItem(sessionStorageKey, state.sessionId);
+        localStorage.setItem(sessionStorageKey(), state.sessionId);
       } else {
-        localStorage.removeItem(sessionStorageKey);
+        localStorage.removeItem(sessionStorageKey());
       }
     } catch (_) {}
   }
 
   function restoreSession() {
+    state.sessionId = "";
     try {
-      const saved = localStorage.getItem(sessionStorageKey);
+      const saved = localStorage.getItem(sessionStorageKey());
       if (saved) state.sessionId = saved;
     } catch (_) {}
   }
@@ -2315,7 +2319,7 @@
         rememberSession();
       }
       if (!state.sessionId && boundSessions.length > 0) {
-        const savedId = String(localStorage.getItem(sessionStorageKey) || "").trim();
+        const savedId = String(localStorage.getItem(sessionStorageKey()) || "").trim();
         const saved = savedId ? boundSessions.find(function (item) { return item.id === savedId; }) : null;
         const preferred = saved || boundSessions[0];
         state.sessionId = preferred ? preferred.id : "";
@@ -2790,6 +2794,42 @@
   };
   document.addEventListener("mei:manage-tab-change", onManageTabChange);
 
+  const onManageContextChange = function (event) {
+    const detail = event && event.detail && typeof event.detail === "object"
+      ? event.detail
+      : {};
+    if (detail && typeof detail.app === "string") {
+      root.dataset.app = detail.app;
+    }
+    if (detail && typeof detail.target === "string") {
+      root.dataset.target = detail.target;
+    }
+    if (detail && typeof detail.entry === "string") {
+      root.dataset.entry = detail.entry;
+    }
+    if (detail && typeof detail.mode === "string") {
+      root.dataset.mode = detail.mode;
+    }
+    if (detail && typeof detail.sourceViews === "string") {
+      root.dataset.sourceViews = detail.sourceViews;
+    }
+    if (detail && typeof detail.viewTab === "string") {
+      root.dataset.viewTab = detail.viewTab;
+    }
+    root.classList.add("is-soft-refresh");
+    restoreRevertedState();
+    restoreAgentMode();
+    restoreSession();
+    refreshAll().catch(function (error) {
+      setInlineNote("刷新 OpenCode 面板失败：" + String(error.message || error));
+    }).finally(function () {
+      window.setTimeout(function () {
+        root.classList.remove("is-soft-refresh");
+      }, 80);
+    });
+  };
+  document.addEventListener("mei:manage-context-change", onManageContextChange);
+
   restoreRevertedState();
   restoreAgentMode();
   restoreSession();
@@ -2823,6 +2863,7 @@
   boot.disposeOpencodePanel = function () {
     closeEventStream();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
+    document.removeEventListener("mei:manage-context-change", onManageContextChange);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
     if (refreshTimerId) window.clearInterval(refreshTimerId);

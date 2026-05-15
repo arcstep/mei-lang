@@ -72,9 +72,14 @@ pub(super) fn source_tree_view(
                 } else {
                     "tree-link block rounded-lg bg-slate-800/60 px-2.5 py-2 text-[13px] text-slate-300 transition-colors hover:bg-slate-700/70 hover:text-slate-100"
                 };
+                let preserve_manage_tab = if is_mei_script_path(node.path.as_str()) {
+                    "1"
+                } else {
+                    "0"
+                };
                 view! {
                     <li class="tree-node">
-                        <a class=class href=href>{node.name.clone()}</a>
+                        <a class=class href=href data-preserve-manage-tab=preserve_manage_tab>{node.name.clone()}</a>
                     </li>
                 }
                 .into_any()
@@ -90,7 +95,7 @@ pub(super) fn entry_list_view(
     app_path: &str,
     active_entry: Option<&str>,
     preview_target: Option<&str>,
-    active_tab: Option<&str>,
+    _active_tab: Option<&str>,
 ) -> AnyView {
     if entries.is_empty() {
         return view! { <></> }.into_any();
@@ -109,8 +114,6 @@ pub(super) fn entry_list_view(
                 href.push_str("&preview_target=");
                 href.push_str(preview_target);
             }
-            href.push_str("&tab=");
-            href.push_str(resolve_tab(active_tab, true));
             let class = if active_entry == Some(entry.entry_id.as_str()) {
                 "tree-link active block rounded-lg bg-blue-600/30 px-2.5 py-2 text-[13px] text-slate-50 transition-colors"
             } else {
@@ -119,7 +122,7 @@ pub(super) fn entry_list_view(
             let label = format!("{} · {}", entry.scene_id, entry.target_file);
             view! {
                 <li class="tree-node">
-                    <a class=class href=href title=label.clone()>{label.clone()}</a>
+                    <a class=class href=href title=label.clone() data-preserve-manage-tab="1">{label.clone()}</a>
                 </li>
             }
         })
@@ -142,16 +145,15 @@ fn source_href(
     path: &str,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
-    active_tab: Option<&str>,
+    _active_tab: Option<&str>,
 ) -> String {
     if is_mei_script_path(path) {
         return format!(
-            "/apps/{}/{}?target={}&preview_target={}&tab={}",
+            "/apps/{}/{}?target={}&preview_target={}",
             route_mode.slug(),
             app_path,
             path,
-            path,
-            resolve_tab(active_tab, true)
+            path
         );
     }
     let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
@@ -168,17 +170,4 @@ fn source_href(
 
 fn is_mei_script_path(path: &str) -> bool {
     path.ends_with(".mei") || path.ends_with(".star")
-}
-
-fn resolve_tab(active_tab: Option<&str>, script_target: bool) -> &'static str {
-    if !script_target {
-        return "preview";
-    }
-    match active_tab.unwrap_or("").trim().to_ascii_lowercase().as_str() {
-        "preview" => "preview",
-        "source" => "source",
-        "diff" => "diff",
-        "diagnostics" => "diagnostics",
-        _ => "preview",
-    }
 }

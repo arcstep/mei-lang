@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    BlockDecl, CompiledApp, LoadedResource, SceneContract, ThemeDecl, UiNodeDecl,
+    BlockDecl, CompiledApp, LoadedResource, SceneContract, Severity, ThemeDecl, UiNodeDecl,
 };
 use serde_json::Value;
 
@@ -112,6 +112,48 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
                     <li>{format!("观察面区块：{}", scene_contract.panels.len())}</li>
                     <li>{format!("目标：{}", scene_contract.scene.goal.clone().unwrap_or_else(|| "未声明".to_string()))}</li>
                 </ul>
+            </section>
+        }
+        .into_any();
+    }
+
+    let blocking_errors = compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| matches!(diag.severity, Severity::Error))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !blocking_errors.is_empty() {
+        let error_items = blocking_errors
+            .into_iter()
+            .take(3)
+            .map(|diag| {
+                let source = diag
+                    .source_path
+                    .map(|path| format!(" · {}", path))
+                    .unwrap_or_default();
+                view! {
+                    <li class="rounded-xl border border-red-400/25 bg-red-950/30 px-3 py-2">
+                        <div class="text-xs font-semibold uppercase tracking-[0.02em] text-red-200">
+                            {diag.code}
+                        </div>
+                        <div class="mt-1 text-sm leading-6 text-slate-200">
+                            {diag.message}
+                        </div>
+                        <div class="mt-1 text-[11px] text-slate-400">
+                            {source}
+                        </div>
+                    </li>
+                }
+            })
+            .collect_view();
+        return view! {
+            <section class="scene-placeholder rounded-[14px] border border-red-500/30 bg-slate-950/35 p-4">
+                <h3 class="mb-2 text-base font-semibold text-slate-100">"编译失败，预览已降级"</h3>
+                <p class="text-slate-300">
+                    "当前入口未能生成可渲染的 scene/frame。你仍可继续查看源码、错误诊断，并切换到其他文件或应用。"
+                </p>
+                <ul class="mt-3 grid gap-2 pl-0">{error_items}</ul>
             </section>
         }
         .into_any();

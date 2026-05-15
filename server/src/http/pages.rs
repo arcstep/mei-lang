@@ -9,7 +9,8 @@ use axum::{
 use chrono::{DateTime, Local};
 use mei_lang_app::{render_page, SourcePanelMeta, TopbarMenuConfig, UiRouteMode};
 use mei_lang_kernel::{
-    compile_app_with_options, discover_apps, read_source_file, CompileOptions, WorkspaceAppMeta,
+    compile_app_with_options, discover_apps, read_source_file, source_tree, CompileOptions,
+    CompiledApp, Diagnostic, Severity, WorkspaceAppMeta,
 };
 use serde::Deserialize;
 
@@ -71,17 +72,28 @@ pub async fn app_page(
             let source_path = state.source_root.join(&app_id).join(&target);
             let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
             let source_meta = source_panel_meta(&source_path, &source);
-            let html = render_compile_error_page(
-                &apps,
+            let topbar_menu_config = load_topbar_menu_config(&state.source_root);
+            let compiled = compile_error_fallback_app(
+                &state.source_root,
                 &app_id,
-                route_mode.slug(),
                 target.as_str(),
-                &error.to_string(),
-                source.as_str(),
-                &source_meta,
+                error.to_string().as_str(),
+            );
+            let html = render_page(
+                &apps,
+                &compiled,
+                &app_id,
+                topbar_menu_config.as_ref(),
+                route_mode,
+                Some(target.as_str()),
+                Some(source.as_str()),
+                Some(&source_meta),
+                query.entry.as_deref(),
+                query.preview_target.as_deref(),
+                query.tab.as_deref(),
                 chrome_hidden,
             );
-            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Html(html)).into_response());
+            return Ok(Html(html).into_response());
         }
     };
     let target = query
@@ -248,72 +260,32 @@ fn load_topbar_menu_config(source_root: &Path) -> Option<TopbarMenuConfig> {
     None
 }
 
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
-fn render_compile_error_page(
-    apps: &[WorkspaceAppMeta],
+fn compile_error_fallback_app(
+    source_root: &Path,
     app_id: &str,
-    route_mode: &str,
     target: &str,
     error: &str,
-    source: &str,
-    source_meta: &SourcePanelMeta,
-    chrome_hidden: bool,
-) -> String {
-    let title = format!("MeiLang 编译失败 · {app_id}");
-    let app_tabs = apps
-        .iter()
-        .map(|app| {
-            let href = format!("/apps/{}/{}", route_mode, app.id);
-            let active_style = if app.id == app_id {
-                "background:#2563eb;color:#eff6ff;border-color:#3b82f6;"
-            } else {
-                "background:#111827;color:#cbd5e1;border-color:rgba(148,163,184,0.25);"
-            };
-            format!(
-                "<a href=\"{}\" style=\"display:inline-flex;align-items:center;padding:8px 12px;border-radius:999px;border:1px solid {};text-decoration:none;{}\">{}</a>",
-                escape_html(&href),
-                if app.id == app_id { "#3b82f6" } else { "rgba(148,163,184,0.25)" },
-                active_style,
-                escape_html(&app.id),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    let source_block = if source.trim().is_empty() {
-        "<p style=\"color:#94a3b8\">当前目标文件内容不可读取。</p>".to_string()
-    } else {
-        format!(
-            "<pre style=\"margin:0;white-space:pre-wrap;word-break:break-word;background:#0f172a;color:#e2e8f0;padding:16px;border-radius:12px;overflow:auto;\">{}</pre>",
-            escape_html(source)
-        )
-    };
-    let chrome_style = if chrome_hidden { "display:none;" } else { "" };
-    let last_modified = source_meta
-        .last_modified_label
-        .as_deref()
-        .unwrap_or("unknown");
-    format!(
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title></head><body style=\"margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#020617;color:#e2e8f0;\"><div style=\"{}padding:20px 24px;border-bottom:1px solid rgba(148,163,184,0.2);background:#0f172a;\"><div style=\"display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;\"><div><strong>MeiLang</strong><span style=\"margin-left:12px;color:#94a3b8;\">/{}/{}</span></div><a href=\"/\" style=\"color:#93c5fd;text-decoration:none;\">返回默认应用</a></div><nav style=\"display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;\">{}</nav></div><main style=\"max-width:1120px;margin:0 auto;padding:24px;\"><section style=\"background:#111827;border:1px solid rgba(248,113,113,0.35);border-radius:16px;padding:20px 22px;margin-bottom:20px;\"><h1 style=\"margin:0 0 12px;font-size:22px;\">应用页面编译失败</h1><p style=\"margin:0 0 12px;color:#cbd5e1;\">当前 `.mei` 文件包含编译错误；服务器进程仍在运行，但该应用页面无法成功渲染。你仍可切换到其他应用继续工作。</p><p style=\"margin:0 0 8px;\"><strong>app:</strong> {}</p><p style=\"margin:0 0 8px;\"><strong>target:</strong> {}</p><p style=\"margin:0 0 8px;\"><strong>last modified:</strong> {}</p><pre style=\"margin:12px 0 0;white-space:pre-wrap;word-break:break-word;background:#1e293b;color:#fecaca;padding:16px;border-radius:12px;overflow:auto;\">{}</pre></section><section style=\"background:#111827;border:1px solid rgba(148,163,184,0.2);border-radius:16px;padding:20px 22px;\"><h2 style=\"margin:0 0 12px;font-size:18px;\">当前文件内容</h2><p style=\"margin:0 0 12px;color:#94a3b8;\">lines: {} · chars: {}</p>{}</section></main></body></html>",
-        escape_html(&title),
-        chrome_style,
-        escape_html(route_mode),
-        escape_html(app_id),
-        app_tabs,
-        escape_html(app_id),
-        escape_html(target),
-        escape_html(last_modified),
-        escape_html(error),
-        source_meta.line_count,
-        source_meta.char_count,
-        source_block,
-    )
+) -> CompiledApp {
+    let app_root = source_root.join(app_id);
+    let source_path = app_root.join(target);
+    CompiledApp {
+        app_id: app_id.to_string(),
+        title: app_id.to_string(),
+        app_root: app_root.to_string_lossy().to_string(),
+        entries: Vec::new(),
+        active_entry: None,
+        entry_target: target.to_string(),
+        file_tree: source_tree(&app_root).unwrap_or_default(),
+        scene_contract: None,
+        resources: Vec::new(),
+        component_assets: Vec::new(),
+        diagnostics: vec![Diagnostic {
+            severity: Severity::Error,
+            code: "compile_failed".to_string(),
+            message: error.to_string(),
+            source_path: Some(source_path.to_string_lossy().to_string()),
+        }],
+    }
 }
 
 #[cfg(test)]
@@ -410,15 +382,16 @@ frame.add_panel(
         .await
         .expect("render app page response");
 
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("read html body");
         let html = String::from_utf8(body.to_vec()).expect("response body utf8");
-        assert!(html.contains("应用页面编译失败"));
+        assert!(html.contains("编译失败，预览已降级"));
         assert!(html.contains("bad-app"));
+        assert!(html.contains("compile_failed"));
         assert!(html.contains("Parse error"));
-        assert!(html.contains("返回默认应用"));
+        assert!(html.contains("错误诊断"));
 
         let _ = fs::remove_dir_all(&root);
     }
