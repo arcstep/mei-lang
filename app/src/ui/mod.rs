@@ -139,6 +139,7 @@ fn access_shell(
     chrome_hidden: bool,
 ) -> AnyView {
     let preview = preview::preview_view(compiled, app_path);
+    let current_target = preview_target.unwrap_or(&compiled.entry_target);
     let topbar = topbar_view(
         apps,
         compiled,
@@ -149,13 +150,21 @@ fn access_shell(
         preview_target,
         active_tab,
     );
+    let statusbar = statusbar_view(
+        app_path,
+        route_mode_slug(UiRouteMode::Access),
+        current_target,
+        None,
+        compiled,
+        false,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if chrome_hidden {
-        "shell block min-h-screen h-screen overflow-hidden bg-slate-900 max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else if stage_enabled {
-        "shell grid min-h-screen h-screen overflow-hidden bg-slate-900 [grid-template-rows:auto_minmax(0,1fr)] max-[1200px]:block max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "shell shell-surface grid min-h-screen h-screen overflow-hidden [grid-template-rows:auto_minmax(0,1fr)_auto] max-[1200px]:grid max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else {
-        "shell block min-h-screen h-auto overflow-visible bg-slate-900"
+        "shell shell-surface min-h-screen h-auto overflow-visible"
     };
     let main_class = if chrome_hidden {
         "min-h-0 min-w-0 h-full overflow-hidden p-0 max-[1200px]:h-auto max-[1200px]:overflow-visible"
@@ -183,6 +192,11 @@ fn access_shell(
                     {preview}
                 </section>
             </main>
+            {if chrome_hidden {
+                view! { <></> }.into_any()
+            } else {
+                statusbar
+            }}
         </div>
     }
     .into_any()
@@ -203,7 +217,6 @@ fn manage_shell(
     let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
-    let source_meta_text = source_meta_summary(source_meta);
     let preview = preview::preview_view(compiled, app_path);
     let active_entry = compiled.active_entry.as_deref();
     let source_entries = source_tree::entry_list_view(
@@ -225,21 +238,6 @@ fn manage_shell(
     );
     let diagnostics = diagnostics_view(compiled);
     let diagnostics_total = compiled.diagnostics.len();
-    let diagnostics_errors = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
-        .count();
-    let diagnostics_warnings = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Warning))
-        .count();
-    let diagnostics_infos = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Info))
-        .count();
     let script_target = is_mei_script_target(selected_target.as_str());
     let active_manage_tab = manage_view_tab_from_query(active_tab, script_target);
     let topbar = topbar_view(
@@ -252,11 +250,19 @@ fn manage_shell(
         preview_target,
         active_tab,
     );
+    let statusbar = statusbar_view(
+        app_path,
+        route_mode_slug(UiRouteMode::Manage),
+        selected_target.as_str(),
+        source_meta,
+        compiled,
+        true,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {
-        "shell frame-stage-enabled bg-slate-900 text-slate-200"
+        "shell shell-surface frame-stage-enabled text-slate-200"
     } else {
-        "shell bg-slate-900 text-slate-200"
+        "shell shell-surface text-slate-200"
     };
     let preview_scroll_class = if stage_enabled {
         "main-pane-scroll preview-pane-scroll frame-stage-enabled flex-1 min-h-0 overflow-hidden p-0"
@@ -351,8 +357,8 @@ fn manage_shell(
                 class="workspace min-h-0 h-full overflow-hidden p-4 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_8px_minmax(0,1fr)_8px_var(--workspace-right-aside)]"
                 id="workspace-root"
             >
-                <aside class="sidebar left h-full min-h-0 min-w-0 overflow-hidden flex flex-col rounded-2xl border border-slate-400/15 bg-slate-900/80 p-3.5">
-                    <div class="sidebar-header sticky top-0 z-[2] grid gap-2.5 pb-2.5 bg-slate-900/80">
+                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col p-3.5">
+                    <div class="sidebar-header workspace-panel-header sticky top-0 z-[2] grid gap-2.5 pb-2.5">
                         <div class="mb-3 grid gap-1">
                             <h2 class="m-0 text-[15px] font-semibold text-slate-50">"资源树"</h2>
                             <p class="m-0 text-xs text-slate-400">{app_path.to_string()}</p>
@@ -370,21 +376,9 @@ fn manage_shell(
                     title="拖拽调整左侧资源栏宽度"
                 ></div>
                 <main class="main min-w-0 min-h-0 overflow-hidden px-4">
-                    <section class="main-pane min-w-0 min-h-0 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-400/15 bg-slate-900/80 p-3.5">
-                        <nav class="manage-view-tabs mb-3 flex min-w-0 flex-wrap items-center gap-2 border-b border-slate-600/35 pb-2.5" role="tablist" aria-label="管理主视图">
+                    <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden p-3.5">
+                        <nav class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5" role="tablist" aria-label="管理主视图">
                             {tab_links}
-                            {if script_target {
-                                view! {
-                                    <div class="ml-auto flex items-center gap-2 text-[11px] text-slate-400">
-                                        <span>{format!("Error {}", diagnostics_errors)}</span>
-                                        <span>{format!("Warning {}", diagnostics_warnings)}</span>
-                                        <span>{format!("Info {}", diagnostics_infos)}</span>
-                                    </div>
-                                }
-                                    .into_any()
-                            } else {
-                                view! { <></> }.into_any()
-                            }}
                         </nav>
                         {if script_target {
                             view! {
@@ -418,7 +412,6 @@ fn manage_shell(
                                                 <sl-tag class="source-view-status min-w-0" id="source-view-status" size="small" variant="primary" pill=true>
                                                     {source_status_text}
                                                 </sl-tag>
-                                                <span class="ml-auto shrink-0 text-right text-xs leading-5 text-slate-400">{source_meta_text.clone()}</span>
                                             </div>
                                             <div class="source-view-host flex flex-1 min-h-0 flex-col gap-2.5" id="source-view-host" data-source-mode=source_mode>
                                                 <div
@@ -453,7 +446,6 @@ fn manage_shell(
                                 app_path,
                                 selected_target.as_str(),
                                 source_panel.as_str(),
-                                source_meta_text.as_str(),
                             )
                         }}
                     </section>
@@ -463,7 +455,7 @@ fn manage_shell(
                     data-workspace-splitter="right"
                     title="拖拽调整右侧 OpenCode 栏宽度"
                 ></div>
-                <aside class="sidebar right h-full min-h-0 min-w-0 overflow-hidden flex flex-col rounded-2xl border border-slate-400/15 bg-slate-900/80 p-3.5">
+                <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col p-3.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
                         {opencode::panel_view(
                             compiled,
@@ -476,6 +468,7 @@ fn manage_shell(
                     </div>
                 </aside>
             </div>
+            {statusbar}
         </div>
     }
     .into_any()
@@ -595,8 +588,7 @@ fn topbar_view(
         .map(|(group_label, item_label)| {
             let aria_label = format!("当前位置：{group_label} / {item_label}");
             view! {
-                <div class="app-current-path ml-auto inline-flex min-w-0 max-w-[min(320px,40vw)] items-center gap-2 border-l border-slate-400/15 pl-3.5 text-xs text-slate-400" aria-label=aria_label>
-                    <span class="app-current-path-label shrink-0 text-slate-500">"当前"</span>
+                <div class="app-current-path inline-flex min-w-0 max-w-[min(260px,26vw)] items-center gap-1.5 border-l border-slate-400/15 pl-2.5 text-[11px] text-slate-400" aria-label=aria_label>
                     <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap">
                         <span class="app-current-path-group shrink-0 text-slate-400">{group_label}</span>
                         <span class="app-current-path-separator shrink-0 text-slate-400/70" aria-hidden="true">"/"</span>
@@ -664,26 +656,25 @@ fn topbar_view(
         "在新标签页打开无 Chrome 应用"
     };
     view! {
-        <header class="topbar sticky top-0 z-10 grid grid-cols-[220px_minmax(0,1fr)_auto] items-center gap-4 border-b border-slate-400/15 bg-slate-900/90 px-5 py-3.5">
-            <div class="brand grid gap-0.5">
+        <header class="topbar topbar-shell sticky top-0 z-10 mx-6 mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 px-6 py-1.5 backdrop-blur-md max-[1200px]:mx-3 max-[1200px]:px-4">
+            <div class="brand flex min-w-0 items-center gap-2">
                 <div class="brand-title-row flex min-w-0 items-center gap-2">
                     <img
-                        class="brand-mark block h-[22px] w-[22px] shrink-0"
+                        class="brand-mark block h-[18px] w-[18px] shrink-0"
                         src="/app-assets/favicon.svg"
-                        width="22"
-                        height="22"
+                        width="18"
+                        height="18"
                         alt=""
                         aria-hidden="true"
                     />
-                    <strong class="text-base font-semibold text-slate-100">"MeiLang"</strong>
+                    <strong class="text-[13px] font-semibold text-slate-100">"MeiLang"</strong>
                 </div>
-                <span class="text-xs text-slate-400">"AI-Native"</span>
             </div>
-            <nav class="app-tabs flex min-w-0 items-center justify-between gap-4">
-                <div class="app-tabs-groups flex min-w-0 flex-wrap items-start gap-2">{app_tabs}</div>
+            <nav class="app-tabs flex min-w-0 items-center gap-2.5 overflow-hidden">
+                <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1">{app_tabs}</div>
                 {active_item_breadcrumb}
             </nav>
-            <div class="topbar-actions flex flex-wrap items-center justify-end gap-2.5">
+            <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1.5">
                 {mode_tabs}
                 <sl-tooltip content=launch_title placement="bottom">
                     <sl-button
@@ -705,6 +696,80 @@ fn topbar_view(
                 </sl-tooltip>
             </div>
         </header>
+    }
+    .into_any()
+}
+
+fn statusbar_view(
+    app_path: &str,
+    route_mode: &'static str,
+    current_target: &str,
+    source_meta: Option<&SourcePanelMeta>,
+    compiled: &CompiledApp,
+    runtime_enabled: bool,
+) -> AnyView {
+    let app_summary = format!("应用 {}", compiled.title);
+    let app_summary_title = format!("应用：{app_path}");
+    let route_mode_label = if route_mode == "manage" {
+        "管理态"
+    } else {
+        "访问态"
+    };
+    let file_label = current_target
+        .rsplit('/')
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(current_target);
+    let file_summary = if let Some(meta) = source_meta {
+        format!("文件 {file_label} · {}行", meta.line_count)
+    } else {
+        format!("文件 {file_label}")
+    };
+    let file_summary_title = if let Some(meta) = source_meta {
+        format!(
+            "当前文件：{} · {}行 · {}字",
+            current_target, meta.line_count, meta.char_count
+        )
+    } else {
+        format!("当前文件：{current_target}")
+    };
+    let (errors, warnings, infos) = compile_status_counts(compiled);
+    let error_tone = if errors > 0 { "danger" } else { "neutral" };
+    let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
+    let info_tone = if infos > 0 { "info" } else { "neutral" };
+    let compile_summary = compile_status_summary(compiled);
+    let compile_summary_title = compile_status_title(compiled);
+    let compile_tone = compile_status_tone(compiled);
+    let runtime_skill = if runtime_enabled {
+        "Skill 检测中"
+    } else {
+        "Skill --"
+    };
+    let runtime_opencode = if runtime_enabled {
+        "OpenCode 检测中"
+    } else {
+        "OpenCode --"
+    };
+    view! {
+        <footer class="statusbar statusbar-shell sticky bottom-0 z-10 mx-6 mb-2 px-6 py-1.5 backdrop-blur-md max-[1200px]:mx-3 max-[1200px]:px-4">
+            <div class="statusbar-layout min-w-0 text-[10px]">
+                <div class="statusbar-track statusbar-track-left min-w-0">
+                    <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
+                    <span class="status-chip status-chip-file max-w-[26vw]" title=file_summary_title>{file_summary}</span>
+                    <span class="status-chip status-chip-mode" data-tone="info">{route_mode_label}</span>
+                </div>
+                <div class="statusbar-track statusbar-track-center min-w-0">
+                    <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title>{compile_summary}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=error_tone>{format!("Error {}", errors)}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
+                </div>
+                <div class="statusbar-track statusbar-track-right min-w-0">
+                    <span class="status-chip status-chip-runtime max-w-[200px]" id="mei-status-skill" data-tone="neutral">{runtime_skill}</span>
+                    <span class="status-chip status-chip-runtime max-w-[240px]" id="mei-status-opencode" data-tone="neutral">{runtime_opencode}</span>
+                </div>
+            </div>
+        </footer>
     }
     .into_any()
 }
@@ -912,6 +977,10 @@ fn route_query(
     }
 }
 
+fn route_mode_slug(route_mode: UiRouteMode) -> &'static str {
+    route_mode.slug()
+}
+
 fn source_language(target: &str) -> &'static str {
     if is_mei_script_target(target) {
         "mei"
@@ -920,19 +989,64 @@ fn source_language(target: &str) -> &'static str {
     }
 }
 
-fn source_meta_summary(meta: Option<&SourcePanelMeta>) -> String {
-    let Some(meta) = meta else {
-        return "0 行 · 0 字 · 最后编辑时间未知".to_string();
-    };
-    let last_modified = meta
-        .last_modified_label
-        .as_deref()
-        .map(|value| format!("最后编辑 {value}"))
-        .unwrap_or_else(|| "最后编辑时间未知".to_string());
-    format!(
-        "{} 行 · {} 字 · {}",
-        meta.line_count, meta.char_count, last_modified
-    )
+fn compile_status_summary(compiled: &CompiledApp) -> String {
+    let (errors, warnings, infos) = compile_status_counts(compiled);
+    if errors == 0 && warnings == 0 && infos == 0 {
+        "编译 正常".to_string()
+    } else {
+        let mut parts = Vec::new();
+        if errors > 0 {
+            parts.push(format!("{errors}错"));
+        }
+        if warnings > 0 {
+            parts.push(format!("{warnings}警"));
+        }
+        if infos > 0 {
+            parts.push(format!("{infos}提"));
+        }
+        format!("编译 {}", parts.join(" "))
+    }
+}
+
+fn compile_status_title(compiled: &CompiledApp) -> String {
+    let (errors, warnings, infos) = compile_status_counts(compiled);
+    if errors == 0 && warnings == 0 && infos == 0 {
+        "当前没有编译诊断".to_string()
+    } else {
+        format!("编译诊断：{} 错误，{} 警告，{} 提示", errors, warnings, infos)
+    }
+}
+
+fn compile_status_tone(compiled: &CompiledApp) -> &'static str {
+    let (errors, warnings, infos) = compile_status_counts(compiled);
+    if errors > 0 {
+        "danger"
+    } else if warnings > 0 {
+        "warn"
+    } else if infos > 0 {
+        "info"
+    } else {
+        "good"
+    }
+}
+
+fn compile_status_counts(compiled: &CompiledApp) -> (usize, usize, usize) {
+    let errors = compiled
+        .diagnostics
+        .iter()
+        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
+        .count();
+    let warnings = compiled
+        .diagnostics
+        .iter()
+        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Warning))
+        .count();
+    let infos = compiled
+        .diagnostics
+        .iter()
+        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Info))
+        .count();
+    (errors, warnings, infos)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1010,7 +1124,6 @@ fn asset_preview_view(
     app_path: &str,
     target: &str,
     source: &str,
-    source_meta_text: &str,
 ) -> AnyView {
     let kind = asset_preview_kind(target);
     let asset_src = workspace_asset_href(app_path, target);
@@ -1128,11 +1241,7 @@ fn asset_preview_view(
         }
     };
     view! {
-        <section class="asset-preview-pane grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2.5" data-manage-tab-panel="preview">
-            <div class="inline-flex min-w-0 items-center justify-between gap-2 rounded-xl border border-slate-700/55 bg-slate-900/55 px-3 py-2 text-xs">
-                <div class="min-w-0 truncate text-slate-200">{target.to_string()}</div>
-                <div class="shrink-0 text-slate-400">{source_meta_text.to_string()}</div>
-            </div>
+        <section class="asset-preview-pane h-full min-h-0" data-manage-tab-panel="preview">
             {content}
         </section>
     }
@@ -1496,7 +1605,13 @@ fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
         }
         .into_any()
     } else {
-        view! { <script src="/app-assets/frame-stage.js"></script> }.into_any()
+        view! {
+            <>
+                <script src="/app-assets/frame-stage.js"></script>
+                <script src="/app-assets/statusbar.js"></script>
+            </>
+        }
+        .into_any()
     }
 }
 

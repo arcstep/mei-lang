@@ -5,6 +5,7 @@
 
   const RELOAD_APP_SCRIPTS = new Set([
     "/app-assets/frame-stage.js",
+    "/app-assets/statusbar.js",
     "/app-assets/manage-tabs.js",
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
@@ -172,6 +173,7 @@
   function disposeRuntimeHooks() {
     const names = [
       "disposeOpencodePanel",
+      "disposeStatusBar",
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",

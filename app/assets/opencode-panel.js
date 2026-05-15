@@ -37,6 +37,8 @@
     sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
     sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
     sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
+    statusSkill: document.getElementById("mei-status-skill"),
+    statusOpenCode: document.getElementById("mei-status-opencode"),
   };
 
   const state = {
@@ -1049,10 +1051,8 @@
   }
 
   function renderStatus() {
-    if (!els.serverStatus || !els.serverDot) return;
     const runtime = state.runtime;
     const health = state.health;
-    const config = state.config;
     let label = "未配置";
     let dotClass = "author-server-dot author-server-dot-off";
     if (state.loading) {
@@ -1070,8 +1070,12 @@
     } else if (canStartManaged()) {
       label = "可启动";
     }
-    els.serverStatus.textContent = label;
-    els.serverDot.className = dotClass;
+    if (els.serverStatus) {
+      els.serverStatus.textContent = label;
+    }
+    if (els.serverDot) {
+      els.serverDot.className = dotClass;
+    }
     if (els.reconnect) {
       const shouldShowReconnect =
         !state.loading &&
@@ -1086,12 +1090,14 @@
     if (!config) {
       state.modelLabel = "模型";
       if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+      renderStatusBarOpenCode();
       return;
     }
     state.modelLabel =
       String(config.completion_model || config.provider_name || config.provider_id || "模型").trim() ||
       "模型";
     if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+    renderStatusBarOpenCode();
   }
 
   function renderAgentMode() {
@@ -1139,6 +1145,7 @@
   function renderRuntime() {
     renderStatus();
     renderInlineNote();
+    renderStatusBarOpenCode();
   }
 
   function formatMsTime(value) {
@@ -1153,10 +1160,12 @@
   }
 
   function renderSkillStatus() {
-    if (!els.skillLine) return;
     const skill = state.skillStatus;
     if (!skill || !skill.source_present) {
-      els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
+      if (els.skillLine) {
+        els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
+      }
+      renderStatusBarSkill();
       return;
     }
     const summary = [];
@@ -1172,7 +1181,78 @@
     if (skill.revision) {
       summary.push("rev " + String(skill.revision));
     }
-    els.skillLine.textContent = summary.join(" · ");
+    if (els.skillLine) {
+      els.skillLine.textContent = summary.join(" · ");
+    }
+    renderStatusBarSkill();
+  }
+
+  function renderStatusBarSkill() {
+    if (!els.statusSkill) return;
+    const skill = state.skillStatus;
+    let text = "Skill 缺失";
+    let tone = "danger";
+    let title = "Skill 源目录不存在";
+    if (skill && skill.source_present) {
+      if (skill.installed && skill.stale) {
+        text = "Skill 待同步";
+        tone = "warn";
+        title = "Skill 已安装，但版本落后于源目录";
+      } else if (skill.installed) {
+        text = "Skill 已装";
+        tone = "good";
+        title = "Skill 已安装并可用";
+      } else {
+        text = "Skill 源目录";
+        tone = "info";
+        title = "Skill 源目录存在，但尚未安装";
+      }
+    }
+    els.statusSkill.textContent = text;
+    els.statusSkill.title = title;
+    els.statusSkill.dataset.tone = tone;
+  }
+
+  function renderStatusBarOpenCode() {
+    if (!els.statusOpenCode) return;
+    const config = state.config;
+    const runtime = state.runtime;
+    const health = state.health;
+    const modeRaw = String(
+      (runtime && runtime.connection_source) ||
+        (config && config.preferred_mode) ||
+        "",
+    )
+      .trim()
+      .toLowerCase();
+    const mode = modeRaw === "managed" ? "托管" : modeRaw === "external" ? "外部" : "--";
+    let phase = "未配";
+    let tone = "neutral";
+    if (state.loading) {
+      phase = "刷新中";
+      tone = "info";
+    } else if (health && health.healthy && state.streamConnected) {
+      phase = "会话";
+      tone = "good";
+    } else if (health && health.healthy) {
+      phase = "在线";
+      tone = "good";
+    } else if (runtime && runtime.running) {
+      phase = mode === "托管" ? "启动中" : "未连";
+      tone = mode === "托管" ? "warn" : "danger";
+    } else if (canStartManaged()) {
+      phase = "可启动";
+      tone = "info";
+    }
+    const model =
+      String(state.modelLabel || "").trim() && String(state.modelLabel || "").trim() !== "模型"
+        ? String(state.modelLabel || "").trim().slice(0, 20)
+        : "";
+    const text = "OpenCode " + mode + "·" + phase;
+    const title = model ? text + " · " + model : text;
+    els.statusOpenCode.textContent = text;
+    els.statusOpenCode.title = title;
+    els.statusOpenCode.dataset.tone = tone;
   }
 
   function readSessionCache() {

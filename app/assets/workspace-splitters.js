@@ -10,6 +10,7 @@
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
   if (!root || !handles.length || window.matchMedia("(max-width: 1200px)").matches) return;
   const splitterPx = 8;
+  const activateDragDeltaPx = 3;
   const minMain = 320;
   const config = {
     left: {
@@ -77,6 +78,7 @@
   let activeHandle = null;
   let startCoord = 0;
   let startW = 0;
+  let dragActivated = false;
   function applySize(clientCoord) {
     if (!draggingSide) return;
     const meta = config[draggingSide];
@@ -93,6 +95,10 @@
     const meta = config[draggingSide];
     const point = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
     const coord = meta && meta.axis === "y" ? point.clientY : point.clientX;
+    if (!dragActivated && Math.abs(coord - startCoord) >= activateDragDeltaPx) {
+      dragActivated = true;
+      if (activeHandle) activeHandle.classList.add("splitter-active");
+    }
     applySize(coord);
     if (ev.cancelable) ev.preventDefault();
   }
@@ -100,6 +106,7 @@
     if (!dragging) return;
     dragging = false;
     if (activeHandle) activeHandle.classList.remove("splitter-active");
+    dragActivated = false;
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     window.removeEventListener("mousemove", onMove);
@@ -129,7 +136,8 @@
     const point = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
     startCoord = meta.axis === "y" ? point.clientY : point.clientX;
     startW = readPx(side);
-    handle.classList.add("splitter-active");
+    dragActivated = false;
+    handle.classList.remove("splitter-active");
     document.body.style.cursor = meta.axis === "y" ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
     window.addEventListener("mousemove", onMove);
