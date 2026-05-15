@@ -8,6 +8,7 @@
   }
   const root = document.getElementById("workspace-root");
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
+  const toggleButtons = Array.from(document.querySelectorAll("[data-workspace-toggle]"));
   if (!root || !handles.length || window.matchMedia("(max-width: 1200px)").matches) return;
   const splitterPx = 8;
   const activateDragDeltaPx = 3;
@@ -16,6 +17,7 @@
     left: {
       cssVar: "--workspace-left-aside",
       storageKey: "mei-lang.workspaceLeftAsidePx",
+      collapsedKey: "mei-lang.workspaceLeftAsideCollapsed",
       fallback: 260,
       min: 220,
       axis: "x",
@@ -24,12 +26,33 @@
     right: {
       cssVar: "--workspace-right-aside",
       storageKey: "mei-lang.workspaceRightAsidePx",
+      collapsedKey: "mei-lang.workspaceRightAsideCollapsed",
       fallback: 320,
       min: 280,
       axis: "x",
       target: root
     }
   };
+  const collapsed = { left: false, right: false };
+  function toggleButton(side) {
+    return toggleButtons.find(function (button) {
+      return button.getAttribute("data-workspace-toggle") === side;
+    }) || null;
+  }
+  function syncCollapsedUi() {
+    root.dataset.leftCollapsed = collapsed.left ? "true" : "false";
+    root.dataset.rightCollapsed = collapsed.right ? "true" : "false";
+    ["left", "right"].forEach(function (side) {
+      const button = toggleButton(side);
+      if (!button) return;
+      const isCollapsed = !!collapsed[side];
+      button.dataset.collapsed = isCollapsed ? "true" : "false";
+      const noun = side === "left" ? "左侧资源栏" : "右侧 OpenCode 栏";
+      const action = isCollapsed ? "展开" : "折叠";
+      button.setAttribute("aria-label", action + noun);
+      button.setAttribute("title", action + noun);
+    });
+  }
   function clamp(n, lo, hi) {
     return Math.max(lo, Math.min(hi, n));
   }
@@ -62,6 +85,7 @@
     try {
       const meta = config[side];
       if (!meta.target) return;
+      collapsed[side] = localStorage.getItem(meta.collapsedKey) === "1";
       const saved = localStorage.getItem(meta.storageKey);
       let px = meta.fallback;
       if (saved) {
@@ -70,9 +94,14 @@
           px = parsed;
         }
       }
-      writePx(side, clamp(px, meta.min, maxPx(side)));
+      if (collapsed[side]) {
+        writePx(side, 0);
+      } else {
+        writePx(side, clamp(px, meta.min, maxPx(side)));
+      }
     } catch (_) {}
   });
+  syncCollapsedUi();
   let dragging = false;
   let draggingSide = "";
   let activeHandle = null;
@@ -125,9 +154,11 @@
   }
   function onStart(ev) {
     if (ev.type === "mousedown" && ev.button !== 0) return;
+    if (ev.target instanceof Element && ev.target.closest("[data-workspace-toggle]")) return;
     const handle = ev.currentTarget;
     const side = handle && handle.getAttribute ? handle.getAttribute("data-workspace-splitter") : "";
     if (!config[side]) return;
+    if (collapsed[side]) return;
     const meta = config[side];
     if (!meta.target) return;
     dragging = true;
@@ -147,16 +178,64 @@
     window.addEventListener("touchcancel", onEnd);
     ev.preventDefault();
   }
+  function toggleSide(side) {
+    const meta = config[side];
+    if (!meta || !meta.target) return;
+    if (collapsed[side]) {
+      collapsed[side] = false;
+      try {
+        localStorage.removeItem(meta.collapsedKey);
+      } catch (_) {}
+      const saved = localStorage.getItem(meta.storageKey);
+      let px = meta.fallback;
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed >= meta.min) {
+          px = parsed;
+        }
+      }
+      writePx(side, clamp(px, meta.min, maxPx(side)));
+    } else {
+      const current = readPx(side);
+      if (current >= meta.min) {
+        try {
+          localStorage.setItem(meta.storageKey, String(current));
+        } catch (_) {}
+      }
+      collapsed[side] = true;
+      writePx(side, 0);
+      try {
+        localStorage.setItem(meta.collapsedKey, "1");
+      } catch (_) {}
+    }
+    syncCollapsedUi();
+  }
+  function onToggleClick(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const button = ev.currentTarget;
+    const side = button && button.getAttribute ? button.getAttribute("data-workspace-toggle") || "" : "";
+    if (!side) return;
+    toggleSide(side);
+  }
   handles.forEach((handle) => {
     handle.addEventListener("mousedown", onStart);
     handle.addEventListener("touchstart", onStart, { passive: false });
+  });
+  toggleButtons.forEach((button) => {
+    button.addEventListener("click", onToggleClick);
   });
   const onResize = function () {
     Object.keys(config).forEach((side) => {
       const meta = config[side];
       if (!meta || !meta.target) return;
-      writePx(side, clamp(readPx(side), meta.min, maxPx(side)));
+      if (collapsed[side]) {
+        writePx(side, 0);
+      } else {
+        writePx(side, clamp(readPx(side), meta.min, maxPx(side)));
+      }
     });
+    syncCollapsedUi();
   };
   window.addEventListener("resize", onResize);
   boot.disposeWorkspaceSplitters = function () {
@@ -164,6 +243,9 @@
     handles.forEach((handle) => {
       handle.removeEventListener("mousedown", onStart);
       handle.removeEventListener("touchstart", onStart, { passive: false });
+    });
+    toggleButtons.forEach((button) => {
+      button.removeEventListener("click", onToggleClick);
     });
     window.removeEventListener("resize", onResize);
     window.removeEventListener("mousemove", onMove);

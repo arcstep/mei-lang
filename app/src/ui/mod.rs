@@ -354,10 +354,10 @@ fn manage_shell(
         <div class=shell_class>
             {topbar}
             <div
-                class="workspace min-h-0 h-full overflow-hidden p-4 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_8px_minmax(0,1fr)_8px_var(--workspace-right-aside)]"
+                class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_8px_minmax(0,1fr)_8px_var(--workspace-right-aside)]"
                 id="workspace-root"
             >
-                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col p-3.5">
+                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
                     <div class="sidebar-header workspace-panel-header sticky top-0 z-[2] grid gap-2.5 pb-2.5">
                         <div class="mb-3 grid gap-1">
                             <h2 class="m-0 text-[15px] font-semibold text-slate-50">"资源树"</h2>
@@ -374,9 +374,23 @@ fn manage_shell(
                     class="splitter"
                     data-workspace-splitter="left"
                     title="拖拽调整左侧资源栏宽度"
-                ></div>
-                <main class="main min-w-0 min-h-0 overflow-hidden px-4">
-                    <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden p-3.5">
+                >
+                    <button
+                        class="splitter-toggle"
+                        type="button"
+                        data-workspace-toggle="left"
+                        aria-label="折叠左侧资源栏"
+                        title="折叠左侧资源栏"
+                    >
+                        <span class="splitter-toggle-icon" aria-hidden="true">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10.5 3.5 6 8l4.5 4.5"/>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                <main class="main min-w-0 min-h-0 overflow-hidden px-0">
+                    <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         <nav class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5" role="tablist" aria-label="管理主视图">
                             {tab_links}
                         </nav>
@@ -454,8 +468,22 @@ fn manage_shell(
                     class="splitter splitter-right"
                     data-workspace-splitter="right"
                     title="拖拽调整右侧 OpenCode 栏宽度"
-                ></div>
-                <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col p-3.5">
+                >
+                    <button
+                        class="splitter-toggle"
+                        type="button"
+                        data-workspace-toggle="right"
+                        aria-label="折叠右侧 OpenCode 栏"
+                        title="折叠右侧 OpenCode 栏"
+                    >
+                        <span class="splitter-toggle-icon" aria-hidden="true">
+                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M5.5 3.5 10 8l-4.5 4.5"/>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-0 py-2.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
                         {opencode::panel_view(
                             compiled,
@@ -656,7 +684,7 @@ fn topbar_view(
         "在新标签页打开无 Chrome 应用"
     };
     view! {
-        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-10 mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
+        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
             <div class="brand flex min-w-0 items-center gap-2">
                 <div class="brand-title-row flex min-w-0 items-center gap-2">
                     <img
@@ -751,7 +779,7 @@ fn statusbar_view(
         "OpenCode --"
     };
     view! {
-        <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 mb-2 py-1.5 backdrop-blur-md">
+        <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
             <div class="statusbar-layout min-w-0 text-[10px]">
                 <div class="statusbar-track statusbar-track-left min-w-0">
                     <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
