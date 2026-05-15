@@ -656,7 +656,7 @@ fn topbar_view(
         "在新标签页打开无 Chrome 应用"
     };
     view! {
-        <header class="topbar topbar-shell sticky top-0 z-10 mx-6 mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 px-6 py-1.5 backdrop-blur-md max-[1200px]:mx-3 max-[1200px]:px-4">
+        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-10 mt-2 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
             <div class="brand flex min-w-0 items-center gap-2">
                 <div class="brand-title-row flex min-w-0 items-center gap-2">
                     <img
@@ -751,7 +751,7 @@ fn statusbar_view(
         "OpenCode --"
     };
     view! {
-        <footer class="statusbar statusbar-shell sticky bottom-0 z-10 mx-6 mb-2 px-6 py-1.5 backdrop-blur-md max-[1200px]:mx-3 max-[1200px]:px-4">
+        <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 mb-2 py-1.5 backdrop-blur-md">
             <div class="statusbar-layout min-w-0 text-[10px]">
                 <div class="statusbar-track statusbar-track-left min-w-0">
                     <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
