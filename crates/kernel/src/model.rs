@@ -36,6 +36,8 @@ pub struct AppDecl {
     #[serde(default)]
     pub default_scene: Option<String>,
     #[serde(default)]
+    pub scene: Option<Value>,
+    #[serde(default)]
     pub entries: Vec<EntryDecl>,
 }
 
@@ -124,11 +126,11 @@ pub struct SceneDecl {
     pub kind: String,
     pub id: String,
     #[serde(default)]
-    pub world: Option<String>,
+    pub world: Option<Value>,
     #[serde(default)]
     pub flow: Option<String>,
     #[serde(default)]
-    pub frame: Option<String>,
+    pub frame: Option<Value>,
     #[serde(default)]
     pub profile: Option<String>,
     #[serde(default)]

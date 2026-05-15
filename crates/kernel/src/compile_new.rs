@@ -26,7 +26,9 @@ mod resources;
 #[path = "compile/scene.rs"]
 mod scene;
 
-use decls::{DatasetViewDecl, LegacyDatasetDecl, LegacyMetricPackDecl};
+use decls::{
+    DatasetViewDecl, FrameFileRefDecl, LegacyDatasetDecl, LegacyMetricPackDecl, WorldFileRefDecl,
+};
 use materialize::{
     materialize_dataset_views, materialize_legacy_datasets, materialize_metric_packs,
 };
@@ -68,18 +70,6 @@ pub fn compile_app_from_root_with_options(
         app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
     let mut entry_registry =
         resolve_scene_entries(&app_main, &app_decl, &app_decls, &mut diagnostics);
-    if entry_registry.entries.is_empty() {
-        entry_registry.entries.push(CompiledEntryMeta {
-            entry_id: "main".to_string(),
-            scene_id: "main".to_string(),
-            frame_id: None,
-            target_file: "main.mei".to_string(),
-            kind: "inline".to_string(),
-            title: None,
-            is_default: true,
-        });
-        entry_registry.default_entry_id = Some("main".to_string());
-    }
 
     let asset_map = load_component_assets(source_root)?;
     let mut official_results: BTreeMap<String, CompiledEntryPayload> = BTreeMap::new();
@@ -296,6 +286,9 @@ fn compile_entry_payload(
     let mut frames: BTreeMap<String, FrameDecl> = BTreeMap::new();
     let mut worlds: BTreeMap<String, crate::model::WorldDecl> = BTreeMap::new();
     let mut flows: BTreeMap<String, FlowDecl> = BTreeMap::new();
+    let mut scene_decl_count = 0usize;
+    let mut frame_decl_count = 0usize;
+    let mut world_decl_count = 0usize;
     let mut frame_default: Option<FrameDecl> = None;
     let mut world_default: Option<crate::model::WorldDecl> = None;
     let mut flow_default: Option<FlowDecl> = None;
@@ -336,6 +329,7 @@ fn compile_entry_payload(
             };
             match kind {
                 "frame" => {
+                    frame_decl_count += 1;
                     let frame_decl = serde_json::from_value::<FrameDecl>(value.clone())?;
                     if let Some(id) = frame_decl
                         .id
@@ -343,16 +337,20 @@ fn compile_entry_payload(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
-                        frames.insert(id.to_string(), frame_decl);
+                        frames.entry(id.to_string()).or_insert(frame_decl);
                     } else {
-                        frame_default = Some(frame_decl);
+                        if frame_default.is_none() {
+                            frame_default = Some(frame_decl);
+                        }
                     }
                 }
                 "scene" => {
+                    scene_decl_count += 1;
                     let scene_decl = serde_json::from_value::<SceneDecl>(value.clone())?;
-                    scenes.insert(scene_decl.id.clone(), scene_decl);
+                    scenes.entry(scene_decl.id.clone()).or_insert(scene_decl);
                 }
                 "world" => {
+                    world_decl_count += 1;
                     let world_decl =
                         serde_json::from_value::<crate::model::WorldDecl>(value.clone())?;
                     if let Some(id) = world_decl
@@ -361,9 +359,11 @@ fn compile_entry_payload(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
-                        worlds.insert(id.to_string(), world_decl);
+                        worlds.entry(id.to_string()).or_insert(world_decl);
                     } else {
-                        world_default = Some(world_decl);
+                        if world_default.is_none() {
+                            world_default = Some(world_decl);
+                        }
                     }
                 }
                 "flow" => {
@@ -400,6 +400,36 @@ fn compile_entry_payload(
             }
         }
     }
+    if scene_decl_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_scenes".to_string(),
+            message: format!(
+                "file `{target_file}` declares {scene_decl_count} scene(...) blocks, expected exactly one"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+    if world_decl_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_worlds".to_string(),
+            message: format!(
+                "file `{target_file}` declares {world_decl_count} world(...) blocks, expected exactly one"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+    if frame_decl_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_frames".to_string(),
+            message: format!(
+                "file `{target_file}` declares {frame_decl_count} frame(...) blocks, expected exactly one"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
 
     let mut asset_keys = BTreeSet::new();
     for panel in &panels {
@@ -419,10 +449,8 @@ fn compile_entry_payload(
                 None
             }
         });
-    let requires_declarative_binding = entry_meta
-        .map(|meta| meta.kind == "declarative")
-        .unwrap_or(false);
-    if requires_declarative_binding && selected_scene.is_none() {
+    let requires_scene_contract = entry_meta.is_some() || target_file != "main.mei";
+    if requires_scene_contract && selected_scene.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_scene".to_string(),
@@ -431,56 +459,134 @@ fn compile_entry_payload(
         });
     }
 
-    let selected_frame_id = entry_meta
+    let frame = if let Some(frame_id) = entry_meta
         .and_then(|meta| meta.frame_id.as_deref())
-        .or_else(|| {
-            selected_scene
-                .as_ref()
-                .and_then(|scene| scene.frame.as_deref())
-        })
         .map(str::trim)
         .filter(|id| !id.is_empty())
-        .map(|id| id.to_string());
-    let frame = if let Some(frame_id) = selected_frame_id {
+        .map(|id| id.to_string())
+    {
         let matched = frames.get(frame_id.as_str()).cloned();
-        if matched.is_none() && requires_declarative_binding {
+        if matched.is_none() {
             diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
+                severity: Severity::Error,
                 code: "missing_bound_frame".to_string(),
                 message: format!("declared frame `{frame_id}` was not found"),
                 source_path: Some(target_file.to_string()),
             });
         }
         matched
+    } else if let Some(scene_decl) = selected_scene.as_ref() {
+        let binding = scene_decl
+            .frame
+            .as_ref()
+            .map(|value| parse_scene_binding(value, "frame_file_ref", "frame"));
+        match binding {
+            Some(Ok(SceneBinding::LocalId(frame_id))) => {
+                let matched = frames.get(frame_id.as_str()).cloned();
+                if matched.is_none() {
+                    diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "missing_bound_frame".to_string(),
+                        message: format!("declared frame `{frame_id}` was not found"),
+                        source_path: Some(target_file.to_string()),
+                    });
+                }
+                matched
+            }
+            Some(Ok(SceneBinding::FileRef { path, id })) => {
+                match load_frame_from_file(app_root, path.as_str(), id.as_deref()) {
+                    Ok(frame_decl) => Some(frame_decl),
+                    Err(error) => {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "load_frame_file_ref_failed".to_string(),
+                            message: error.to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                        None
+                    }
+                }
+            }
+            Some(Ok(SceneBinding::Absent)) => pick_only_frame(&frames, frame_default.clone()),
+            Some(Err(message)) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "invalid_scene_frame_binding".to_string(),
+                    message: message.to_string(),
+                    source_path: Some(target_file.to_string()),
+                });
+                None
+            }
+            None => pick_only_frame(&frames, frame_default.clone()),
+        }
     } else {
-        frame_default.clone().or_else(|| {
-            (frames.len() == 1)
-                .then(|| frames.values().next().cloned())
-                .flatten()
-        })
+        pick_only_frame(&frames, frame_default.clone())
     };
-    if requires_declarative_binding && frame.is_none() {
+    if selected_scene.is_some() && frame.is_none() && frame_decl_count == 0 {
         diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
+            severity: Severity::Error,
             code: "missing_frame".to_string(),
-            message: "scene entry should declare frame(...) to define UI layout".to_string(),
+            message: "scene entry requires a frame(...) declaration or frame_file_ref(...)".to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
 
-    let world = selected_scene
-        .as_ref()
-        .and_then(|scene| scene.world.as_deref())
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .and_then(|id| worlds.get(id).cloned())
-        .or_else(|| {
-            world_default.clone().or_else(|| {
-                (worlds.len() == 1)
-                    .then(|| worlds.values().next().cloned())
-                    .flatten()
-            })
+    let world = if let Some(scene_decl) = selected_scene.as_ref() {
+        let binding = scene_decl
+            .world
+            .as_ref()
+            .map(|value| parse_scene_binding(value, "world_file_ref", "world"));
+        match binding {
+            Some(Ok(SceneBinding::LocalId(world_id))) => {
+                let matched = worlds.get(world_id.as_str()).cloned();
+                if matched.is_none() {
+                    diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "missing_bound_world".to_string(),
+                        message: format!("declared world `{world_id}` was not found"),
+                        source_path: Some(target_file.to_string()),
+                    });
+                }
+                matched
+            }
+            Some(Ok(SceneBinding::FileRef { path, id })) => {
+                match load_world_from_file(app_root, path.as_str(), id.as_deref()) {
+                    Ok(world_decl) => Some(world_decl),
+                    Err(error) => {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "load_world_file_ref_failed".to_string(),
+                            message: error.to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                        None
+                    }
+                }
+            }
+            Some(Ok(SceneBinding::Absent)) => pick_only_world(&worlds, world_default.clone()),
+            Some(Err(message)) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "invalid_scene_world_binding".to_string(),
+                    message: message.to_string(),
+                    source_path: Some(target_file.to_string()),
+                });
+                None
+            }
+            None => pick_only_world(&worlds, world_default.clone()),
+        }
+    } else {
+        pick_only_world(&worlds, world_default.clone())
+    };
+    if selected_scene.is_some() && world.is_none() && world_decl_count == 0 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "missing_world".to_string(),
+            message: "scene entry requires a world(...) declaration or world_file_ref(...)".to_string(),
+            source_path: Some(target_file.to_string()),
         });
+    }
+
     let flow = selected_scene
         .as_ref()
         .and_then(|scene| scene.flow.as_deref())
@@ -547,6 +653,160 @@ fn compile_entry_payload(
     })
 }
 
+#[derive(Debug, Clone)]
+enum SceneBinding {
+    Absent,
+    LocalId(String),
+    FileRef { path: String, id: Option<String> },
+}
+
+fn parse_scene_binding(value: &Value, expected_kind: &str, label: &str) -> Result<SceneBinding> {
+    if value.is_null() {
+        return Ok(SceneBinding::Absent);
+    }
+    if let Some(id) = value.as_str().map(str::trim) {
+        if id.is_empty() {
+            return Ok(SceneBinding::Absent);
+        }
+        return Ok(SceneBinding::LocalId(id.to_string()));
+    }
+    if expected_kind == "world_file_ref" {
+        let world_ref = serde_json::from_value::<WorldFileRefDecl>(value.clone())
+            .map_err(|error| anyhow!("invalid {label} binding: {error}"))?;
+        if world_ref.kind != expected_kind {
+            return Err(anyhow!(
+                "invalid {label} binding kind `{}`, expected `{expected_kind}`",
+                world_ref.kind
+            ));
+        }
+        if world_ref.path.trim().is_empty() {
+            return Err(anyhow!("{label}_file_ref path must not be empty"));
+        }
+        return Ok(SceneBinding::FileRef {
+            path: world_ref.path,
+            id: world_ref.id,
+        });
+    }
+    if expected_kind == "frame_file_ref" {
+        let frame_ref = serde_json::from_value::<FrameFileRefDecl>(value.clone())
+            .map_err(|error| anyhow!("invalid {label} binding: {error}"))?;
+        if frame_ref.kind != expected_kind {
+            return Err(anyhow!(
+                "invalid {label} binding kind `{}`, expected `{expected_kind}`",
+                frame_ref.kind
+            ));
+        }
+        if frame_ref.path.trim().is_empty() {
+            return Err(anyhow!("{label}_file_ref path must not be empty"));
+        }
+        return Ok(SceneBinding::FileRef {
+            path: frame_ref.path,
+            id: frame_ref.id,
+        });
+    }
+    Err(anyhow!(
+        "unsupported {label} binding; expected local id string or {expected_kind}(...)"
+    ))
+}
+
+fn pick_only_frame(
+    frames: &BTreeMap<String, FrameDecl>,
+    frame_default: Option<FrameDecl>,
+) -> Option<FrameDecl> {
+    if frames.len() + usize::from(frame_default.is_some()) != 1 {
+        return None;
+    }
+    frame_default.or_else(|| frames.values().next().cloned())
+}
+
+fn pick_only_world(
+    worlds: &BTreeMap<String, crate::model::WorldDecl>,
+    world_default: Option<crate::model::WorldDecl>,
+) -> Option<crate::model::WorldDecl> {
+    if worlds.len() + usize::from(world_default.is_some()) != 1 {
+        return None;
+    }
+    world_default.or_else(|| worlds.values().next().cloned())
+}
+
+fn load_world_from_file(
+    app_root: &Path,
+    relative_path: &str,
+    world_id: Option<&str>,
+) -> Result<crate::model::WorldDecl> {
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file(&source_path)?;
+    let mut worlds = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            if value.get("kind").and_then(Value::as_str) == Some("world") {
+                worlds.push(serde_json::from_value::<crate::model::WorldDecl>(value.clone())?);
+            }
+        }
+    }
+    if let Some(expected_id) = world_id {
+        return worlds
+            .into_iter()
+            .find(|decl| decl.id.as_deref() == Some(expected_id))
+            .ok_or_else(|| {
+                anyhow!(
+                    "world_file_ref `{relative_path}` did not contain world id `{expected_id}`"
+                )
+            });
+    }
+    match worlds.len() {
+        0 => Err(anyhow!(
+            "world_file_ref `{relative_path}` did not contain world(...) declarations"
+        )),
+        1 => worlds
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("world_file_ref `{relative_path}` did not contain world")),
+        count => Err(anyhow!(
+            "world_file_ref `{relative_path}` matched {count} world(...) declarations; provide id"
+        )),
+    }
+}
+
+fn load_frame_from_file(
+    app_root: &Path,
+    relative_path: &str,
+    frame_id: Option<&str>,
+) -> Result<FrameDecl> {
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file(&source_path)?;
+    let mut frames = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            if value.get("kind").and_then(Value::as_str) == Some("frame") {
+                frames.push(serde_json::from_value::<FrameDecl>(value.clone())?);
+            }
+        }
+    }
+    if let Some(expected_id) = frame_id {
+        return frames
+            .into_iter()
+            .find(|decl| decl.id.as_deref() == Some(expected_id))
+            .ok_or_else(|| {
+                anyhow!(
+                    "frame_file_ref `{relative_path}` did not contain frame id `{expected_id}`"
+                )
+            });
+    }
+    match frames.len() {
+        0 => Err(anyhow!(
+            "frame_file_ref `{relative_path}` did not contain frame(...) declarations"
+        )),
+        1 => frames
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("frame_file_ref `{relative_path}` did not contain frame")),
+        count => Err(anyhow!(
+            "frame_file_ref `{relative_path}` matched {count} frame(...) declarations; provide id"
+        )),
+    }
+}
+
 fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
     for node in nodes {
         match node {
@@ -561,11 +821,17 @@ fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet
 fn decode_app_decl(path: &Path, raw: &Value) -> (Option<AppDecl>, Vec<Diagnostic>) {
     let mut app_decl = None;
     let mut diagnostics = Vec::new();
+    let mut app_decl_count = 0usize;
     if let Some(values) = raw.as_array() {
         for value in values {
             if value.get("kind").and_then(Value::as_str) == Some("app") {
+                app_decl_count += 1;
                 match serde_json::from_value::<AppDecl>(value.clone()) {
-                    Ok(decl) => app_decl = Some(decl),
+                    Ok(decl) => {
+                        if app_decl.is_none() {
+                            app_decl = Some(decl);
+                        }
+                    }
                     Err(error) => diagnostics.push(Diagnostic {
                         severity: Severity::Error,
                         code: "decode_app_failed".to_string(),
@@ -575,6 +841,17 @@ fn decode_app_decl(path: &Path, raw: &Value) -> (Option<AppDecl>, Vec<Diagnostic
                 }
             }
         }
+    }
+    if app_decl_count > 1 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "multiple_apps".to_string(),
+            message: format!(
+                "file `{}` declares {app_decl_count} app(...) blocks, expected exactly one",
+                path.display()
+            ),
+            source_path: Some(path.to_string_lossy().to_string()),
+        });
     }
     (app_decl, diagnostics)
 }

@@ -14,6 +14,22 @@ pub(super) struct SceneFileRefDecl {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorldFileRefDecl {
+    pub kind: String,
+    pub path: String,
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(super) struct FrameFileRefDecl {
+    pub kind: String,
+    pub path: String,
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(super) struct DatasetViewDecl {
     pub kind: String,
     pub id: String,

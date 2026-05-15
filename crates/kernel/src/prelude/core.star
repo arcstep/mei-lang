@@ -67,12 +67,13 @@ def _data_product(shape, id = None, key = None, label = None, value = None, valu
         "drilldown": drilldown,
     })
 
-def app(id, title = None, default_scene = None, entries = None):
+def app(id, title = None, default_scene = None, scene = None, entries = None):
     return _declare(_clean({
         "kind": "app",
         "id": id,
         "title": title,
         "default_scene": default_scene,
+        "scene": scene,
         "entries": entries if entries != None else [],
     }))
 
@@ -87,6 +88,20 @@ def entry(scene = None, frame = None, id = None, title = None):
 def scene_file_ref(path, id = None):
     return _clean({
         "kind": "scene_file_ref",
+        "path": path,
+        "id": id,
+    })
+
+def world_file_ref(path, id = None):
+    return _clean({
+        "kind": "world_file_ref",
+        "path": path,
+        "id": id,
+    })
+
+def frame_file_ref(path, id = None):
+    return _clean({
+        "kind": "frame_file_ref",
         "path": path,
         "id": id,
     })

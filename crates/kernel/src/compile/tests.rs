@@ -22,6 +22,13 @@ fn write_file(path: &Path, content: &str) {
     fs::write(path, content).expect("write file");
 }
 
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../..")
+        .canonicalize()
+        .expect("workspace root")
+}
+
 fn build_regression_workspace_root() -> PathBuf {
     let root = temp_root("regression-workspace");
     for app_id in [
@@ -182,6 +189,137 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_app_scene_field_with_scene_file_ref() {
+    let root = temp_root("app-scene-field-scene-file-ref");
+    let app_root = root.join("fire");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "fire",
+    scene = scene_file_ref("home.mei", id = "room_fire_click"),
+)
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(
+    id = "room_fire_click",
+    profile = "simulation",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello"),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "status",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile app.scene app");
+    assert_eq!(compiled.entry_target, "home.mei");
+    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "room_fire_click");
+    assert_eq!(contract.panels.len(), 1);
+    assert_eq!(contract.world.expect("world").resources.len(), 1);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_world_and_frame_file_refs() {
+    let root = temp_root("world-frame-file-ref");
+    let app_root = root.join("ref-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "ref-app",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = world_file_ref("shared-world.mei", id = "shared_world"),
+    frame = frame_file_ref("shared-frame.mei", id = "shared_frame"),
+    profile = "page",
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("shared-world.mei"),
+        r#"
+world(
+    id = "shared_world",
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello from file ref"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("shared-frame.mei"),
+        r#"
+frame(
+    id = "shared_frame",
+    layout = flex(direction = "column"),
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile file ref app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.id, "home");
+    assert_eq!(
+        contract
+            .frame
+            .as_ref()
+            .and_then(|frame| frame.id.as_deref()),
+        Some("shared_frame")
+    );
+    assert_eq!(
+        contract
+            .world
+            .as_ref()
+            .and_then(|world| world.id.as_deref()),
+        Some("shared_world")
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "world/frame file refs should not produce error diagnostics"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_supports_declarative_scene_frame_binding() {
     let root = temp_root("declarative-scene-frame-binding");
     let app_root = root.join("demo");
@@ -210,20 +348,8 @@ world(
     ],
 )
 
-world(
-    id = "unused_world",
-    resources = [
-        resource(id = "unused_doc", kind = "document", content = "unused"),
-    ],
-)
-
 frame(
     id = "home_frame",
-    layout = flex(direction = "column"),
-)
-
-frame(
-    id = "unused_frame",
     layout = flex(direction = "column"),
 )
 
@@ -1051,6 +1177,65 @@ fn compile_examples_regressions() {
         );
     }
     let _ = fs::remove_dir_all(&examples);
+}
+
+#[test]
+fn compile_core_examples_single_file_baselines() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/core");
+    for app_id in ["01-single-file-doc", "02-single-scene-resource"] {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+            "example {app_id} should not produce error diagnostics"
+        );
+        assert!(
+            compiled.scene_contract.is_some(),
+            "example {app_id} should produce a scene contract"
+        );
+    }
+}
+
+#[test]
+fn compile_core_invalid_examples_report_expected_errors() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/core/_invalid");
+    let cases = [
+        ("01-multiple-apps", "multiple_apps"),
+        ("02-multiple-scenes", "multiple_scenes"),
+        ("03-multiple-worlds", "multiple_worlds"),
+        ("04-multiple-frames", "multiple_frames"),
+        ("05-scene-missing-world", "missing_world"),
+        ("06-scene-missing-frame", "missing_frame"),
+        ("07-app-missing-scene", "missing_app_scene"),
+        (
+            "08-scene-external-world-without-world_file_ref",
+            "missing_bound_world",
+        ),
+        (
+            "09-scene-external-frame-without-frame_file_ref",
+            "missing_bound_frame",
+        ),
+    ];
+
+    for (app_id, expected_code) in cases {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .any(|diag| diag.code == expected_code
+                    && matches!(diag.severity, crate::Severity::Error)),
+            "example {app_id} should report `{expected_code}`"
+        );
+    }
 }
 
 #[test]

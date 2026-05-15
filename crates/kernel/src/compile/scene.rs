@@ -20,9 +20,21 @@ pub(super) fn resolve_scene_entries(
     let mut entries = Vec::new();
     let mut seen_entry_ids = BTreeSet::new();
 
+    collect_entry_from_app_scene_field(app_decl, &mut entries, &mut seen_entry_ids);
     collect_entries_from_app_decl(app_decl, &mut entries, &mut seen_entry_ids);
     collect_inline_scene_entries(app_decls, &mut entries, &mut seen_entry_ids);
     collect_scene_file_ref_entries(app_decls, &mut entries, &mut seen_entry_ids);
+
+    if entries.is_empty() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "missing_app_scene".to_string(),
+            message:
+                "app(...) must bind at least one scene (inline scene, app.scene, entry, or app.add_scene(scene_file_ref(...)))"
+                    .to_string(),
+            source_path: Some(app_main.to_string_lossy().to_string()),
+        });
+    }
 
     let mut default_entry_id = resolve_default_entry_id(app_decl, &entries);
     if default_entry_id.is_none() && app_decl.entries.is_empty() {
@@ -101,6 +113,59 @@ fn collect_entries_from_app_decl(
             },
         );
     }
+}
+
+fn collect_entry_from_app_scene_field(
+    app_decl: &AppDecl,
+    entries: &mut Vec<CompiledEntryMeta>,
+    seen_entry_ids: &mut BTreeSet<String>,
+) {
+    let Some(raw_scene) = app_decl.scene.as_ref() else {
+        return;
+    };
+    if let Some(scene_id) = raw_scene
+        .as_str()
+        .map(str::trim)
+        .filter(|scene_id| !scene_id.is_empty())
+    {
+        append_entry(
+            entries,
+            seen_entry_ids,
+            CompiledEntryMeta {
+                entry_id: scene_id.to_string(),
+                scene_id: scene_id.to_string(),
+                frame_id: None,
+                target_file: "main.mei".to_string(),
+                kind: "declarative".to_string(),
+                title: None,
+                is_default: false,
+            },
+        );
+        return;
+    }
+    let Ok(scene_ref) = serde_json::from_value::<SceneFileRefDecl>(raw_scene.clone()) else {
+        return;
+    };
+    if scene_ref.kind != "scene_file_ref" {
+        return;
+    }
+    let scene_id = scene_ref
+        .id
+        .clone()
+        .unwrap_or_else(|| scene_name_from_path(&scene_ref.path));
+    append_entry(
+        entries,
+        seen_entry_ids,
+        CompiledEntryMeta {
+            entry_id: scene_id.clone(),
+            scene_id,
+            frame_id: None,
+            target_file: scene_ref.path,
+            kind: "file_ref".to_string(),
+            title: None,
+            is_default: false,
+        },
+    );
 }
 
 fn collect_inline_scene_entries(
