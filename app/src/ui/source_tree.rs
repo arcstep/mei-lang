@@ -5,9 +5,21 @@ use super::UiRouteMode;
 
 pub(super) fn controls_view() -> impl IntoView {
     view! {
-        <div class="tree-toolbar">
-            <button class="tree-toolbar-btn" type="button" data-tree-expand="1">"展开"</button>
-            <button class="tree-toolbar-btn" type="button" data-tree-collapse="1">"收起"</button>
+        <div class="tree-toolbar mb-2.5 flex gap-2">
+            <button
+                class="tree-toolbar-btn inline-flex items-center rounded-lg border border-slate-400/20 bg-slate-800/70 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-blue-400/40 hover:text-slate-100"
+                type="button"
+                data-tree-expand="1"
+            >
+                "展开"
+            </button>
+            <button
+                class="tree-toolbar-btn inline-flex items-center rounded-lg border border-slate-400/20 bg-slate-800/70 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-blue-400/40 hover:text-slate-100"
+                type="button"
+                data-tree-collapse="1"
+            >
+                "收起"
+            </button>
         </div>
     }
 }
@@ -19,6 +31,7 @@ pub(super) fn source_tree_view(
     selected_target: &str,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
+    active_tab: Option<&str>,
 ) -> AnyView {
     let items = nodes
         .iter()
@@ -32,11 +45,12 @@ pub(super) fn source_tree_view(
                     selected_target,
                     selected_entry,
                     preview_target,
+                    active_tab,
                 );
                 view! {
                     <li class="tree-node tree-li-branch">
-                        <details open=open>
-                            <summary class="tree-folder-summary">
+                        <details class="pl-1" open=open>
+                            <summary class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1.5 py-1 text-xs font-bold text-slate-300">
                                 <span class="tree-folder-label">{node.name.clone()}</span>
                             </summary>
                             {children}
@@ -51,11 +65,12 @@ pub(super) fn source_tree_view(
                     node.path.as_str(),
                     selected_entry,
                     preview_target,
+                    active_tab,
                 );
                 let class = if node.path == selected_target {
-                    "tree-link active"
+                    "tree-link active block rounded-lg bg-blue-600/30 px-2.5 py-2 text-[13px] text-slate-50 transition-colors"
                 } else {
-                    "tree-link"
+                    "tree-link block rounded-lg bg-slate-800/60 px-2.5 py-2 text-[13px] text-slate-300 transition-colors hover:bg-slate-700/70 hover:text-slate-100"
                 };
                 view! {
                     <li class="tree-node">
@@ -66,7 +81,7 @@ pub(super) fn source_tree_view(
             }
         })
         .collect_view();
-    view! { <ul class="tree">{items}</ul> }.into_any()
+    view! { <ul class="tree m-0 grid list-none gap-1.5 p-0">{items}</ul> }.into_any()
 }
 
 pub(super) fn entry_list_view(
@@ -74,6 +89,8 @@ pub(super) fn entry_list_view(
     route_mode: UiRouteMode,
     app_path: &str,
     active_entry: Option<&str>,
+    preview_target: Option<&str>,
+    active_tab: Option<&str>,
 ) -> AnyView {
     if entries.is_empty() {
         return view! { <></> }.into_any();
@@ -81,17 +98,23 @@ pub(super) fn entry_list_view(
     let items = entries
         .iter()
         .map(|entry| {
-            let href = format!(
+            let mut href = format!(
                 "/apps/{}/{}?entry={}&target={}",
                 route_mode.slug(),
                 app_path,
                 entry.entry_id,
                 entry.target_file
             );
+            if let Some(preview_target) = preview_target {
+                href.push_str("&preview_target=");
+                href.push_str(preview_target);
+            }
+            href.push_str("&tab=");
+            href.push_str(resolve_tab(active_tab, true));
             let class = if active_entry == Some(entry.entry_id.as_str()) {
-                "tree-link active"
+                "tree-link active block rounded-lg bg-blue-600/30 px-2.5 py-2 text-[13px] text-slate-50 transition-colors"
             } else {
-                "tree-link"
+                "tree-link block rounded-lg bg-slate-800/60 px-2.5 py-2 text-[13px] text-slate-300 transition-colors hover:bg-slate-700/70 hover:text-slate-100"
             };
             let label = format!("{} · {}", entry.scene_id, entry.target_file);
             view! {
@@ -102,12 +125,12 @@ pub(super) fn entry_list_view(
         })
         .collect_view();
     view! {
-        <section class="source-entry-list">
-            <div class="panel-heading">
-                <h3>"应用入口"</h3>
-                <p>"scene / entry"</p>
+        <section class="source-entry-list mb-3 grid gap-2 border-b border-slate-600/35 pb-3">
+            <div class="mb-0.5 grid gap-1">
+                <h3 class="m-0 text-[15px] font-semibold text-slate-50">"应用入口"</h3>
+                <p class="m-0 text-xs text-slate-400">"scene / entry"</p>
             </div>
-            <ul class="tree">{items}</ul>
+            <ul class="tree m-0 grid list-none gap-1.5 p-0">{items}</ul>
         </section>
     }
     .into_any()
@@ -119,14 +142,16 @@ fn source_href(
     path: &str,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
+    active_tab: Option<&str>,
 ) -> String {
-    if path.ends_with(".mei") {
+    if is_mei_script_path(path) {
         return format!(
-            "/apps/{}/{}?target={}&preview_target={}",
+            "/apps/{}/{}?target={}&preview_target={}&tab={}",
             route_mode.slug(),
             app_path,
             path,
-            path
+            path,
+            resolve_tab(active_tab, true)
         );
     }
     let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
@@ -137,5 +162,23 @@ fn source_href(
         href.push_str("&entry=");
         href.push_str(entry);
     }
+    href.push_str("&tab=preview");
     href
+}
+
+fn is_mei_script_path(path: &str) -> bool {
+    path.ends_with(".mei") || path.ends_with(".star")
+}
+
+fn resolve_tab(active_tab: Option<&str>, script_target: bool) -> &'static str {
+    if !script_target {
+        return "preview";
+    }
+    match active_tab.unwrap_or("").trim().to_ascii_lowercase().as_str() {
+        "preview" => "preview",
+        "source" => "source",
+        "diff" => "diff",
+        "diagnostics" => "diagnostics",
+        _ => "preview",
+    }
 }

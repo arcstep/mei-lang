@@ -7,12 +7,10 @@
     boot.disposeWorkspaceSplitters = null;
   }
   const root = document.getElementById("workspace-root");
-  const mainStack = document.getElementById("main-stack-root");
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
   if (!root || !handles.length || window.matchMedia("(max-width: 1200px)").matches) return;
   const splitterPx = 8;
   const minMain = 320;
-  const minSourcePane = 220;
   const config = {
     left: {
       cssVar: "--workspace-left-aside",
@@ -29,14 +27,6 @@
       min: 280,
       axis: "x",
       target: root
-    },
-    preview: {
-      cssVar: "--workspace-preview-height",
-      storageKey: "mei-lang.workspacePreviewHeightPx",
-      fallback: 420,
-      min: 240,
-      axis: "y",
-      target: mainStack
     }
   };
   function clamp(n, lo, hi) {
@@ -58,11 +48,6 @@
   function maxPx(side) {
     const meta = config[side];
     if (!meta || !meta.target) return meta ? meta.fallback : 0;
-    if (side === "preview") {
-      const rect = mainStack ? mainStack.getBoundingClientRect() : null;
-      if (!rect) return meta.fallback;
-      return Math.max(meta.min, rect.height - splitterPx - minSourcePane);
-    }
     const otherSide = side === "left" ? "right" : "left";
     const otherWidth = readPx(otherSide);
     const rect = root.getBoundingClientRect();

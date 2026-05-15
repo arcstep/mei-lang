@@ -105,10 +105,10 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
         }
 
         return view! {
-            <section class="scene-placeholder">
-                <h3>{scene_contract.scene.id.clone()}</h3>
-                <p>{scene_contract.scene.summary.clone().unwrap_or_else(|| "已生成 scene contract，运行态将在后续阶段接入。".to_string())}</p>
-                <ul>
+            <section class="scene-placeholder rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4">
+                <h3 class="mb-2 text-base font-semibold text-slate-100">{scene_contract.scene.id.clone()}</h3>
+                <p class="text-slate-300">{scene_contract.scene.summary.clone().unwrap_or_else(|| "已生成 scene contract，运行态将在后续阶段接入。".to_string())}</p>
+                <ul class="mt-3 list-disc pl-[18px] text-slate-400">
                     <li>{format!("观察面区块：{}", scene_contract.panels.len())}</li>
                     <li>{format!("目标：{}", scene_contract.scene.goal.clone().unwrap_or_else(|| "未声明".to_string()))}</li>
                 </ul>
@@ -117,7 +117,7 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
         .into_any();
     }
 
-    view! { <div class="empty-preview">"当前入口还没有可渲染的 frame 或 scene。"</div> }.into_any()
+    view! { <div class="empty-preview rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4 text-slate-300">"当前入口还没有可渲染的 frame 或 scene。"</div> }.into_any()
 }
 
 fn panel_view(
@@ -194,7 +194,7 @@ fn panel_view(
             } else {
                 view! { <></> }.into_any()
             }}
-            <div class="panel-body" style=panel_body_style(panel.layout.as_ref())>
+            <div class="grid min-w-0 gap-3" style=panel_body_style(panel.layout.as_ref())>
                 {blocks}
             </div>
         </section>

@@ -20,6 +20,7 @@ pub struct AppQuery {
     target: Option<String>,
     entry: Option<String>,
     preview_target: Option<String>,
+    tab: Option<String>,
     chrome: Option<String>,
 }
 
@@ -102,6 +103,7 @@ pub async fn app_page(
         Some(&source_meta),
         query.entry.as_deref(),
         query.preview_target.as_deref(),
+        query.tab.as_deref(),
         chrome_hidden,
     );
     Ok(Html(html).into_response())
@@ -158,6 +160,10 @@ fn content_type_for_path(path: &Path) -> &'static str {
         Some("js") | Some("mjs") => "text/javascript; charset=utf-8",
         Some("css") => "text/css; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
+        Some("md") | Some("markdown") => "text/markdown; charset=utf-8",
+        Some("csv") => "text/csv; charset=utf-8",
+        Some("tsv") => "text/tab-separated-values; charset=utf-8",
+        Some("pdf") => "application/pdf",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
@@ -397,6 +403,7 @@ frame.add_panel(
                 target: None,
                 entry: None,
                 preview_target: None,
+                tab: None,
                 chrome: None,
             }),
         )

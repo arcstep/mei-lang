@@ -109,6 +109,76 @@
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
   const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
+  const CHAT_CLASS = {
+    messageBase:
+      "author-chat-message group grid gap-1 bg-transparent px-0 py-0.5 pl-2 border-l-2 border-l-transparent",
+    messageUser: "author-chat-user border-l-blue-400/65",
+    messageAssistant: "author-chat-assistant border-l-emerald-400/55",
+    messageAssistantReverted: "author-chat-assistant-reverted border-l-slate-400/65",
+    messageSystem: "author-chat-system border-l-amber-300/55",
+    roleBase: "author-chat-role text-[10px] font-bold tracking-[0.02em] opacity-90",
+    roleUser: "text-blue-300",
+    roleAssistant: "text-emerald-300",
+    roleAssistantReverted: "text-slate-400",
+    roleSystem: "text-amber-300",
+    head: "author-chat-head flex items-center justify-between gap-2",
+    meta:
+      "author-chat-meta inline-flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto",
+    time: "author-chat-time whitespace-nowrap text-[10px] text-slate-400",
+    copyButton:
+      "author-chat-copy-btn opencode-copy-btn rounded-full border border-blue-400/30 bg-slate-950/40 px-2 py-0.5 text-[10px] font-bold text-blue-300 transition-colors hover:border-blue-300/70 hover:bg-blue-600/20",
+    inlineActions: "author-chat-inline-actions flex flex-wrap gap-2",
+    actionButton:
+      "author-chat-action-btn opencode-action-btn rounded-full border border-blue-300/45 bg-blue-900/30 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition-colors hover:border-blue-200/80 hover:bg-blue-600/40",
+    round: "author-chat-round grid gap-2",
+    empty:
+      "author-chat-empty rounded-xl border border-dashed border-slate-600/55 px-4 py-4 text-center text-xs leading-6 text-slate-400",
+    block: "author-chat-block grid gap-1 border-none bg-transparent p-0",
+    blockDetails: "author-chat-block-details grid gap-1.5",
+    blockSummary: "author-chat-block-label list-none cursor-pointer text-[11px] font-bold tracking-[0.01em]",
+    blockLabel: "author-chat-block-label text-[11px] font-bold tracking-[0.01em]",
+    body: "author-chat-body m-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-slate-200",
+    progressChip:
+      "author-progress-chip inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-950/45 px-2 py-0.5 text-[10px] font-bold text-slate-300",
+    progressChipRunning: "border-teal-400/50 bg-teal-700/20 text-teal-100",
+    progressChipDone: "border-blue-400/50 bg-blue-800/25 text-blue-100",
+    progressChipError: "border-red-400/55 bg-red-900/30 text-red-100",
+    progressChipPending: "border-amber-400/45 bg-amber-900/25 text-amber-100",
+  };
+
+  function chatMessageRoleClass(roleRaw, reverted) {
+    if (roleRaw === "user") return CHAT_CLASS.messageUser;
+    if (roleRaw === "assistant") {
+      return reverted ? CHAT_CLASS.messageAssistantReverted : CHAT_CLASS.messageAssistant;
+    }
+    return CHAT_CLASS.messageSystem;
+  }
+
+  function chatRoleTextClass(roleRaw, reverted) {
+    if (roleRaw === "user") return CHAT_CLASS.roleUser;
+    if (roleRaw === "assistant") {
+      return reverted ? CHAT_CLASS.roleAssistantReverted : CHAT_CLASS.roleAssistant;
+    }
+    return CHAT_CLASS.roleSystem;
+  }
+
+  function chatBlockLabelToneClass(type) {
+    const kind = String(type || "text").toLowerCase();
+    if (kind === "reasoning") return "text-amber-200";
+    if (kind === "tool") return "text-teal-200";
+    if (kind === "debug") return "text-violet-200";
+    if (kind === "diff") return "text-amber-300";
+    if (kind === "code") return "text-blue-200";
+    return "text-blue-300";
+  }
+
+  function progressChipClass(status) {
+    const kind = String(status || "pending").toLowerCase();
+    if (kind === "running") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipRunning;
+    if (kind === "done") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipDone;
+    if (kind === "error") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipError;
+    return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipPending;
+  }
 
   function escapeHtml(value) {
     return String(value)
@@ -133,6 +203,27 @@
   function currentTarget() {
     const params = new URLSearchParams(window.location.search);
     return params.get("target") || String(root.dataset.target || "");
+  }
+
+  function currentManageTab() {
+    const params = new URLSearchParams(window.location.search);
+    const raw = String(params.get("tab") || root.dataset.viewTab || "preview")
+      .trim()
+      .toLowerCase();
+    if (raw === "source" || raw === "diff" || raw === "diagnostics") return raw;
+    return "preview";
+  }
+
+  function setManageTab(tab) {
+    const next = String(tab || "").trim().toLowerCase();
+    if (!next) return currentManageTab();
+    if (typeof boot.switchManageTab === "function") {
+      return boot.switchManageTab(next);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", next);
+    window.location.assign(url.toString());
+    return next;
   }
 
   function normalizeTargetKey(target) {
@@ -664,11 +755,37 @@
   function leaveDiffView() {
     state.sourceDiffMessageId = "";
     destroySourceDiffView();
-    renderSourceViewMode("source");
+    const keepDiffMode = currentManageTab() === "diff";
+    renderSourceViewMode(keepDiffMode ? "diff" : "source");
     const message = state.latestDiffMessageId
       ? "仅支持最后一轮 Build"
       : "最后一轮 Build 生成改动后可查看差异";
     renderSourceViewStatus(message);
+    if (keepDiffMode && els.sourceViewDiffPanel) {
+      els.sourceViewDiffPanel.innerHTML =
+        '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可显示差异</div>';
+    }
+  }
+
+  function applyManageTabMode(tab) {
+    const next = String(tab || "").trim().toLowerCase();
+    if (next === "source") {
+      leaveDiffView();
+      return;
+    }
+    if (next !== "diff") return;
+    renderSourceViewMode("diff");
+    if (!state.latestDiffMessageId) {
+      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+      if (els.sourceViewDiffPanel) {
+        els.sourceViewDiffPanel.innerHTML =
+          '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">等待最后一轮 Build 产生差异</div>';
+      }
+      return;
+    }
+    inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+      setInlineNote("读取差异失败：" + String(error.message || error));
+    });
   }
 
   async function inspectDiffForMessage(messageId) {
@@ -774,8 +891,8 @@
     els.progressItems.innerHTML = (Array.isArray(progress.items) ? progress.items : [])
       .map(function (item) {
         const label = escapeHtml(String(item && item.label ? item.label : "").trim());
-        const status = escapeHtml(String(item && item.status ? item.status : "pending").trim());
-        return '<span class="author-progress-chip is-' + status + '">' + label + "</span>";
+        const status = String(item && item.status ? item.status : "pending").trim();
+        return '<span class="' + progressChipClass(status) + '">' + label + "</span>";
       })
       .join("");
   }
@@ -1520,11 +1637,11 @@
     const actions = Array.isArray(message && message.actions) ? message.actions : [];
     if (!actions.length) return "";
     return (
-      '<div class="author-chat-inline-actions">' +
+      '<div class="' + CHAT_CLASS.inlineActions + '">' +
       actions
         .map(function (action, index) {
           return (
-            '<button type="button" class="author-chat-action-btn opencode-action-btn" data-message-id="' +
+            '<button type="button" class="' + CHAT_CLASS.actionButton + '" data-message-id="' +
             escapeHtml(messageId) +
             '" data-action-index="' +
             String(index) +
@@ -1707,16 +1824,12 @@
     const messageId = String(message && message.id ? message.id : "");
     const reverted = roleRaw === "assistant" && isMessageReverted(state.sessionId, messageId);
     const classList = [
-      "author-chat-message",
-      roleRaw === "user"
-        ? "author-chat-user"
-        : roleRaw === "assistant"
-          ? "author-chat-assistant"
-          : "author-chat-system",
+      CHAT_CLASS.messageBase,
+      chatMessageRoleClass(roleRaw, reverted),
     ];
-    if (reverted) classList.push("author-chat-assistant-reverted");
     if (extraClass) classList.push(extraClass);
     const cls = classList.join(" ");
+    const roleTextClass = chatRoleTextClass(roleRaw, reverted);
     const blocks = Array.isArray(message && message.blocks) ? message.blocks : [];
     const time = escapeHtml(String(message && message.time ? message.time : ""));
     const bodyHtml =
@@ -1725,31 +1838,45 @@
             .map(function (block) {
               const label = String(block.label || "").trim();
               const content = escapeHtml(block.content || "");
+              const blockType = String(block.type || "text");
+              const labelToneClass = chatBlockLabelToneClass(blockType);
               if (block.collapsed) {
                 return (
-                  '<details class="author-chat-block author-chat-block-details author-chat-block-' +
-                  escapeHtml(block.type || "text") +
-                  '"><summary class="author-chat-block-label">' +
+                  '<details class="' +
+                  CHAT_CLASS.block +
+                  " " +
+                  CHAT_CLASS.blockDetails +
+                  " author-chat-block-" +
+                  escapeHtml(blockType) +
+                  '"><summary class="' +
+                  CHAT_CLASS.blockSummary +
+                  " " +
+                  labelToneClass +
+                  '">' +
                   escapeHtml(label || "展开") +
-                  '</summary><pre class="author-chat-body">' +
+                  '</summary><pre class="' +
+                  CHAT_CLASS.body +
+                  '">' +
                   content +
                   "</pre></details>"
                 );
               }
               return (
-                '<section class="author-chat-block author-chat-block-' +
-                escapeHtml(block.type || "text") +
+                '<section class="' +
+                CHAT_CLASS.block +
+                " author-chat-block-" +
+                escapeHtml(blockType) +
                 '">' +
                 (label
-                  ? '<div class="author-chat-block-label">' + escapeHtml(label) + "</div>"
+                  ? '<div class="' + CHAT_CLASS.blockLabel + " " + labelToneClass + '">' + escapeHtml(label) + "</div>"
                   : "") +
-                '<pre class="author-chat-body">' +
+                '<pre class="' + CHAT_CLASS.body + '">' +
                 content +
                 "</pre></section>"
               );
             })
             .join("")
-        : '<pre class="author-chat-body">' + escapeHtml(message && message.body ? message.body : "") + "</pre>";
+        : '<pre class="' + CHAT_CLASS.body + '">' + escapeHtml(message && message.body ? message.body : "") + "</pre>";
     const actions = roleRaw === "assistant" ? renderMessageActions(message, messageId) : "";
     return (
       '<div class="' +
@@ -1757,13 +1884,15 @@
       '" data-message-id="' +
       escapeHtml(messageId) +
       '">' +
-      '<div class="author-chat-head"><div class="author-chat-role author-chat-role-' +
+      '<div class="' + CHAT_CLASS.head + '"><div class="' + CHAT_CLASS.roleBase + " author-chat-role-" +
       role +
+      " " +
+      roleTextClass +
       '">' +
       (roleRaw === "user" ? "我" : roleRaw === "assistant" ? escapeHtml(state.modelLabel || "模型") : "系统") +
-      '</div><div class="author-chat-meta"><span class="author-chat-time">' +
+      '</div><div class="' + CHAT_CLASS.meta + '"><span class="' + CHAT_CLASS.time + '">' +
       time +
-      '</span><button type="button" class="author-chat-copy-btn opencode-copy-btn" data-message-id="' +
+      '</span><button type="button" class="' + CHAT_CLASS.copyButton + '" data-message-id="' +
       escapeHtml(messageId) +
       '">⧉</button></div></div>' +
       bodyHtml +
@@ -1798,13 +1927,13 @@
     const shouldStickBottom = !scrollSnapshot || scrollSnapshot.nearBottom;
     if (!state.sessionId) {
       els.chatLog.innerHTML =
-        '<div class="author-chat-empty">未选择会话。可先点击“新建对话”，或等待宿主自动创建/恢复会话。</div>';
+        '<div class="' + CHAT_CLASS.empty + '">未选择会话。可先点击“新建对话”，或等待宿主自动创建/恢复会话。</div>';
       restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
     if (!state.messages.length) {
       els.chatLog.innerHTML =
-        '<div class="author-chat-empty">发送任务后，这里会连续显示输入、参考信息和模型回复。</div>';
+        '<div class="' + CHAT_CLASS.empty + '">发送任务后，这里会连续显示输入、参考信息和模型回复。</div>';
       restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
@@ -1824,7 +1953,7 @@
             .join("");
         }
         return (
-          '<section class="author-chat-round">' +
+          '<section class="' + CHAT_CLASS.round + '">' +
           (user ? renderChatMessageCard(user, "user", "author-chat-row-user") : "") +
           assistants
             .map(function (assistant, assistantIndex) {
@@ -2487,12 +2616,20 @@
 
   if (els.sourceViewSourceBtn) {
     els.sourceViewSourceBtn.addEventListener("click", function () {
+      if (currentManageTab() !== "source") {
+        setManageTab("source");
+        return;
+      }
       leaveDiffView();
     });
   }
 
   if (els.sourceViewDiffBtn) {
     els.sourceViewDiffBtn.addEventListener("click", function () {
+      if (currentManageTab() !== "diff") {
+        setManageTab("diff");
+        return;
+      }
       if (!state.latestDiffMessageId) {
         setInlineNote("最后一轮 Build 生成改动后才可查看差异。");
         return;
@@ -2522,15 +2659,38 @@
     });
   }
 
+  const onManageTabChange = function (event) {
+    const nextTab =
+      event && event.detail && typeof event.detail.tab === "string"
+        ? event.detail.tab
+        : currentManageTab();
+    applyManageTabMode(nextTab);
+  };
+  document.addEventListener("mei:manage-tab-change", onManageTabChange);
+
   restoreRevertedState();
   restoreAgentMode();
   restoreSession();
+  const initialTab = currentManageTab();
   initSourceEditor();
-  renderSourceViewMode("source");
-  renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+  renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
+  renderSourceViewStatus(
+    initialTab === "diff"
+      ? "差异视图仅支持最后一轮 Build。"
+      : "最后一轮 Build 生成改动后可查看差异",
+  );
   renderProgressStrip();
   syncSourceDiffEntry();
-  refreshAll();
+  refreshAll().then(function () {
+    if (initialTab !== "diff") return;
+    if (!state.latestDiffMessageId) {
+      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
+      return;
+    }
+    inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+      setInlineNote("读取差异失败：" + String(error.message || error));
+    });
+  }).catch(function () {});
   const beforeUnloadHandler = function () {
     closeEventStream();
   };
@@ -2540,6 +2700,7 @@
   }, 8000);
   boot.disposeOpencodePanel = function () {
     closeEventStream();
+    document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     if (refreshTimerId) window.clearInterval(refreshTimerId);
   };

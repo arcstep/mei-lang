@@ -23,6 +23,7 @@ opencode serve --hostname 127.0.0.1 --port 4099
 
 ```bash
 cd mei-lang
+./scripts/tailwind-build.sh
 cargo run -p mei-lang-server -- serve
 ```
 
@@ -33,6 +34,17 @@ cargo run -p mei-lang-server -- serve
 - 默认按 `external` 模式连接 **http://127.0.0.1:4099**
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。
+
+### 3. 样式增量构建（可选）
+
+如果你在开发过程中频繁调整宿主 UI 样式，可以开一个并行终端：
+
+```bash
+cd mei-lang
+./scripts/tailwind-build.sh --watch
+```
+
+`tailwind-build.sh` 使用 Tailwind standalone CLI，会在首次执行时自动下载对应平台二进制并生成 `app/assets/tailwind.css`。
 
 ## 停止服务
 

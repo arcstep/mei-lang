@@ -5,14 +5,19 @@
 
   const RELOAD_APP_SCRIPTS = new Set([
     "/app-assets/frame-stage.js",
+    "/app-assets/manage-tabs.js",
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
     "/app-assets/opencode-panel.js",
   ]);
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
+  const LOADING_DELAY_MS = 140;
+  const LOADING_MIN_VISIBLE_MS = 180;
   let currentNavigationId = 0;
   let activeController = null;
+  let loadingTimer = null;
+  let loadingVisibleAt = 0;
 
   function createLoadingOverlay() {
     if (document.getElementById("mei-spa-loading")) return;
@@ -27,15 +32,38 @@
     document.body.appendChild(overlay);
   }
 
+  function clearLoadingTimer() {
+    if (loadingTimer) {
+      clearTimeout(loadingTimer);
+      loadingTimer = null;
+    }
+  }
+
   function showLoading() {
-    createLoadingOverlay();
-    const overlay = document.getElementById("mei-spa-loading");
-    if (overlay) overlay.classList.add("is-visible");
+    clearLoadingTimer();
+    loadingTimer = setTimeout(() => {
+      createLoadingOverlay();
+      const overlay = document.getElementById("mei-spa-loading");
+      if (!overlay) return;
+      overlay.classList.add("is-visible");
+      loadingVisibleAt = Date.now();
+      loadingTimer = null;
+    }, LOADING_DELAY_MS);
   }
 
   function hideLoading() {
+    clearLoadingTimer();
     const overlay = document.getElementById("mei-spa-loading");
-    if (overlay) overlay.classList.remove("is-visible");
+    if (!overlay || !overlay.classList.contains("is-visible")) return;
+    const elapsed = Date.now() - loadingVisibleAt;
+    const finish = () => {
+      overlay.classList.remove("is-visible");
+    };
+    if (elapsed < LOADING_MIN_VISIBLE_MS) {
+      setTimeout(finish, LOADING_MIN_VISIBLE_MS - elapsed);
+    } else {
+      finish();
+    }
   }
 
   function sameOrigin(url) {
@@ -51,6 +79,20 @@
     if (!sameOrigin(url)) return false;
     const parsed = new URL(url, window.location.href);
     return parsed.pathname.startsWith("/apps/");
+  }
+
+  function isSameLocation(url) {
+    try {
+      const next = new URL(url, window.location.href);
+      const current = new URL(window.location.href);
+      return (
+        next.pathname === current.pathname &&
+        next.search === current.search &&
+        next.hash === current.hash
+      );
+    } catch (_) {
+      return false;
+    }
   }
 
   function resolveClickTarget(event) {
@@ -76,6 +118,20 @@
       }
     }
     return null;
+  }
+
+  function shouldBypassSpaClick(event) {
+    const path = event.composedPath ? event.composedPath() : [];
+    for (const item of path) {
+      if (
+        item instanceof HTMLElement &&
+        item.matches &&
+        item.matches("a.manage-view-tab[data-manage-tab]")
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function normalizePath(rawUrl) {
@@ -116,6 +172,7 @@
   function disposeRuntimeHooks() {
     const names = [
       "disposeOpencodePanel",
+      "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
     ];
@@ -200,8 +257,14 @@
     }
     disposeRuntimeHooks();
     document.title = doc.title || document.title;
-    document.body.className = doc.body.className;
-    currentShell.replaceWith(nextShell);
+    if (document.body.className !== doc.body.className) {
+      document.body.className = doc.body.className;
+    }
+    currentShell.className = nextShell.className;
+    const nextNodes = Array.from(nextShell.childNodes).map((node) =>
+      node.cloneNode(true),
+    );
+    currentShell.replaceChildren(...nextNodes);
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
     } else {
@@ -241,11 +304,16 @@
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (shouldBypassSpaClick(event)) return;
       const target = resolveClickTarget(event);
       if (!target) return;
       if (target.download) return;
       if (target.target && target.target !== "_self") return;
       if (!shouldHandleUrl(target.url)) return;
+      if (isSameLocation(target.url)) {
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       void navigate(target.url, false);
     },
