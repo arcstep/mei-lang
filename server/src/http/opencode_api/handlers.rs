@@ -5,6 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{
@@ -37,12 +38,15 @@ use crate::{
 };
 
 use super::super::error_response;
+use super::super::scene_api::{
+    build_world_context_snapshot, default_resource_query_tools, WorldScope,
+};
 use super::permissions::{
-    classify_blocked_permission, collect_and_reject_blocked_permissions, HostBlockedPermissionList,
-    normalize_session_messages_limit, SessionMessagesQuery,
+    classify_blocked_permission, collect_and_reject_blocked_permissions,
+    normalize_session_messages_limit, HostBlockedPermissionList, SessionMessagesQuery,
 };
 use super::prompt_context::{
-    apply_world_directive_to_prompt, enrich_prompt_request, load_or_refresh_session_context,
+    build_dynamic_session_context_preview, enrich_prompt_request, load_or_refresh_session_context,
 };
 use super::sse::{sse_session_status_notice, take_sse_frame};
 
@@ -224,18 +228,101 @@ pub async fn api_opencode_pending_permissions(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OpencodeContextPreviewQuery {
+    pub app_id: String,
+    #[serde(default)]
+    pub scene_id: Option<String>,
+    #[serde(default)]
+    pub entry_id: Option<String>,
+    #[serde(default)]
+    pub target_file: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpencodeContextPreviewResponse {
+    pub app_id: String,
+    #[serde(default)]
+    pub scene_id: Option<String>,
+    #[serde(default)]
+    pub entry_id: Option<String>,
+    #[serde(default)]
+    pub target_file: Option<String>,
+    pub session_context: String,
+    pub system_prompt: String,
+    #[serde(default)]
+    pub query_tools: Vec<Value>,
+    pub resource_inventory: Value,
+    #[serde(default)]
+    pub skill_status: Option<Value>,
+}
+
+pub async fn api_opencode_context_preview(
+    State(state): State<AppState>,
+    Query(query): Query<OpencodeContextPreviewQuery>,
+) -> Response {
+    let app_id = query.app_id.trim();
+    if app_id.is_empty() {
+        return error_response("query parameter `app_id` is required");
+    }
+    let mut request = BridgePromptRequest {
+        text: String::new(),
+        app_id: Some(app_id.to_string()),
+        scene_id: query.scene_id.clone(),
+        entry_id: query.entry_id.clone(),
+        target_file: query.target_file.clone(),
+        system: None,
+        agent: None,
+        model: None,
+    };
+    let session_context =
+        build_dynamic_session_context_preview(&state, &request).unwrap_or_else(|| String::new());
+    request = enrich_prompt_request(&state, Some(&session_context), request);
+    let scope = WorldScope {
+        scene_id: query.scene_id.clone(),
+        entry_id: query.entry_id.clone(),
+        target_file: query.target_file.clone(),
+    };
+    let snapshot = match build_world_context_snapshot(&state.source_root, app_id, Some(&scope)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => return error_response(error),
+    };
+    let tools = if snapshot.query_tools.is_empty() {
+        default_resource_query_tools()
+    } else {
+        snapshot.query_tools.clone()
+    };
+    let query_tools = tools
+        .into_iter()
+        .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
+        .collect::<Vec<_>>();
+    let skill_status = crate::opencode::runtime::managed_opencode_skill_status(&state)
+        .ok()
+        .and_then(|item| serde_json::to_value(item).ok());
+    Json(OpencodeContextPreviewResponse {
+        app_id: app_id.to_string(),
+        scene_id: query.scene_id,
+        entry_id: query.entry_id,
+        target_file: query.target_file,
+        session_context,
+        system_prompt: request.system.unwrap_or_default(),
+        query_tools,
+        resource_inventory: serde_json::to_value(snapshot.resource_inventory)
+            .unwrap_or(Value::Null),
+        skill_status,
+    })
+    .into_response()
+}
+
 pub async fn api_opencode_send_message(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
-    Json(mut request): Json<BridgePromptRequest>,
+    Json(request): Json<BridgePromptRequest>,
 ) -> Response {
     let server_url = match managed_opencode_server_url(&state) {
         Ok(url) => url,
         Err(error) => return error_response(error),
     };
-    if let Err(error) = apply_world_directive_to_prompt(&state, &mut request) {
-        return error.into_response();
-    }
     let session_context = load_or_refresh_session_context(&state, &session_id, &request);
     let request = enrich_prompt_request(&state, session_context.as_deref(), request);
     match bridge_send_prompt(&state.opencode_http, &server_url, &session_id, request).await {

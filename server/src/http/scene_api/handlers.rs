@@ -15,7 +15,8 @@ use super::types::{
     WorldRuntimePeekResponse, WorldScopeQuery,
 };
 use super::world::{
-    build_world_context_snapshot, query_world_asset, query_world_assets, query_world_runtime,
+    build_world_context_snapshot, query_resource_get, query_resource_list,
+    query_resource_runtime_peek,
 };
 
 pub async fn world_context_api(
@@ -37,7 +38,7 @@ pub async fn world_assets_api(
 ) -> Result<Json<WorldAssetListResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
     let scope = query.scope.to_scope();
-    let response = query_world_assets(
+    let response = query_resource_list(
         &state.source_root,
         app_id,
         Some(&scope),
@@ -62,7 +63,7 @@ pub async fn world_asset_api(
             "query parameter `id` is required",
         ));
     }
-    let response = query_world_asset(&state.source_root, app_id, Some(&scope), &target_id)
+    let response = query_resource_get(&state.source_root, app_id, Some(&scope), &target_id)
         .map_err(|error| {
             let msg = error.to_string();
             if msg.contains("not found") {
@@ -83,8 +84,9 @@ pub async fn world_runtime_api(
 ) -> Result<Json<WorldRuntimePeekResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
     let scope = query.scope.to_scope();
-    let response = query_world_runtime(&state.source_root, app_id, Some(&scope), query.trace_limit)
-        .map_err(AppError::from)?;
+    let response =
+        query_resource_runtime_peek(&state.source_root, app_id, Some(&scope), query.trace_limit)
+            .map_err(AppError::from)?;
     Ok(Json(response))
 }
 

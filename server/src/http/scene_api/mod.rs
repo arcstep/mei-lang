@@ -7,6 +7,4 @@ pub use handlers::{
 };
 
 pub(crate) use types::WorldScope;
-pub(crate) use world::{
-    build_world_context_snapshot, query_world_asset, query_world_assets, query_world_runtime,
-};
+pub(crate) use world::{build_world_context_snapshot, default_resource_query_tools};

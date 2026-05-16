@@ -52,6 +52,10 @@ pub fn router() -> Router<AppState> {
             post(opencode_api::api_opencode_sync_skill),
         )
         .route(
+            "/api/opencode/context/preview",
+            get(opencode_api::api_opencode_context_preview),
+        )
+        .route(
             "/api/opencode/health",
             get(opencode_api::api_opencode_health),
         )

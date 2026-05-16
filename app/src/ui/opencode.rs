@@ -88,45 +88,35 @@ pub(super) fn panel_view(
                         </div>
                         <div class="author-progress-items flex flex-wrap gap-1" id="author-progress-items"></div>
                     </div>
+                    <div
+                        id="author-context-preview"
+                        class="author-context-preview grid gap-1 rounded-xl border border-slate-700/55 bg-slate-950/35 px-2 py-1.5"
+                    >
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] font-bold tracking-[0.02em] text-slate-300">"上下文预期"</span>
+                            <sl-button
+                                class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
+                                id="author-context-refresh-btn"
+                                title="刷新上下文预期"
+                                size="small"
+                            >
+                                "刷新"
+                            </sl-button>
+                        </div>
+                        <div id="author-context-preview-scope" class="text-[10px] text-slate-400"></div>
+                        <div id="author-context-preview-skill" class="text-[10px] text-slate-400"></div>
+                        <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                            <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"可用工具"</summary>
+                            <pre id="author-context-preview-tools" class="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                        </details>
+                        <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                            <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"提示语注入预览"</summary>
+                            <pre id="author-context-preview-prompt" class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                        </details>
+                    </div>
                     <div class="author-chat-log grid min-h-0 flex-1 content-start gap-1.5 overflow-auto pr-0 [grid-auto-rows:max-content]" id="author-chat-log"></div>
                     <div class="author-composer-row author-surface-composer-row sticky bottom-0 flex flex-col gap-1 pt-0">
                         <div class="author-composer-tool-rail flex min-h-0 items-center justify-end gap-1 pr-1">
-                            <sl-select
-                                class="author-world-query-action max-w-[148px]"
-                                id="author-world-query-action"
-                                title="World 查询动作"
-                                size="small"
-                                value=""
-                                hoist=true
-                            >
-                                <sl-option value="">"World"</sl-option>
-                                <sl-option value="context">"context"</sl-option>
-                                <sl-option value="assets_entity">"assets entity"</sl-option>
-                                <sl-option value="assets_resource">"assets resource"</sl-option>
-                                <sl-option value="assets_cell">"assets cell"</sl-option>
-                                <sl-option value="asset">"asset by id"</sl-option>
-                                <sl-option value="runtime">"runtime"</sl-option>
-                            </sl-select>
-                            <sl-select
-                                class="author-world-query-asset max-w-[180px]"
-                                id="author-world-asset-select"
-                                title="当前 scene 的 world 资产"
-                                size="small"
-                                value=""
-                                hidden=true
-                                hoist=true
-                            >
-                                <sl-option value="">"选择资产"</sl-option>
-                            </sl-select>
-                            <sl-button
-                                class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
-                                id="author-world-insert-btn"
-                                title="插入 world 查询命令"
-                                size="small"
-                                disabled=true
-                            >
-                                "World"
-                            </sl-button>
                             {if source_views_enabled {
                                 view! {
                                     <sl-button
@@ -170,10 +160,6 @@ pub(super) fn panel_view(
                                     rows="2"
                                     placeholder="输入并发送"
                                 ></textarea>
-                                <div
-                                    id="author-world-suggest"
-                                    class="author-world-suggest mt-1 hidden flex-wrap gap-1"
-                                ></div>
                             </div>
                             <div class="author-composer-footer flex items-center justify-between gap-1.5">
                                 <sl-button-group class="author-agent-mode inline-flex items-center" id="author-agent-mode" label="OpenCode 工作模式">

@@ -71,6 +71,31 @@ pub(super) fn append_world_context_lines(
     }
 
     lines.push(String::new());
+    lines.push("[Resource Inventory]".to_string());
+    lines.push(format!(
+        "total_items: {}",
+        snapshot.resource_inventory.total_items
+    ));
+    if let Some(target) = snapshot.resource_inventory.target_file.as_deref() {
+        lines.push(format!("target_file: {target}"));
+    }
+    for item in snapshot.resource_inventory.items.iter().take(40) {
+        let title = item.title.as_deref().unwrap_or("-");
+        let summary = item.summary.as_deref().unwrap_or("-");
+        let related = if item.related_to_target { "yes" } else { "no" };
+        lines.push(format!(
+            "- {} [{}] title={} related_to_target={} summary={}",
+            item.id, item.resource_type, title, related, summary
+        ));
+        if let Some(path) = item.source_path.as_deref() {
+            lines.push(format!("  source_path: {path}"));
+        }
+        if !item.references.is_empty() {
+            lines.push(format!("  refs: {}", item.references.join(", ")));
+        }
+    }
+
+    lines.push(String::new());
     lines.push("[Runtime Summary]".to_string());
     lines.push(format!("phase: {}", snapshot.runtime_summary.phase));
     lines.push(format!("result: {}", snapshot.runtime_summary.result));
@@ -97,8 +122,8 @@ pub(super) fn append_world_context_lines(
     }
 
     lines.push(String::new());
-    lines.push("[World Query Capabilities]".to_string());
-    for capability in snapshot.query_capabilities {
+    lines.push("[Resource Query Tools]".to_string());
+    for capability in snapshot.query_tools {
         lines.push(format!(
             "- id: {} | status: {} | purpose: {}",
             capability.id, capability.status, capability.purpose
@@ -108,13 +133,13 @@ pub(super) fn append_world_context_lines(
     }
 
     lines.push(String::new());
-    lines.push("[World Query Skill]".to_string());
+    lines.push("[Resource Query Skill]".to_string());
     lines.push(
-        "1) 先基于 world_snapshot 与 runtime_summary 回答；如果信息不足，再选择对应 world 查询能力。"
+        "1) 先基于资源树清单与 runtime_summary 回答；信息不足时，使用 resource.* 只读查询工具按需补充。"
             .to_string(),
     );
     lines.push(
-        "2) 优先围绕 world 核心资产（entity/resource/topology/relation）推理，不要回退到整个工作区源码。"
+        "2) 优先围绕当前 scene 的资源树推理（scene/world/frame/panel/resource/entity/dataset），避免跨 scene 扩散。"
             .to_string(),
     );
     lines.push(
@@ -122,11 +147,7 @@ pub(super) fn append_world_context_lines(
             .to_string(),
     );
     lines.push(
-        "4) 如需显式触发查询，可使用 /world 指令：/world context | /world assets [kind] [limit] | /world asset <id> | /world runtime [trace_limit]。"
-            .to_string(),
-    );
-    lines.push(
-        "5) world 查询默认绑定当前 scene；当 app 内存在多个 scene 时，不要跨 scene 混合推理。"
+        "4) 查询工具默认绑定当前 scope(scene_id/entry_id/target_file)；禁止跨 scene 混合资源。"
             .to_string(),
     );
 }

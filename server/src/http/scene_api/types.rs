@@ -21,6 +21,7 @@ pub struct SimStepResponse {
 
 #[derive(Debug, Clone)]
 pub(crate) struct WorldRuntimeBundle {
+    pub(crate) compiled: mei_lang_kernel::CompiledApp,
     pub(crate) entry_target: String,
     pub(crate) contract: mei_lang_kernel::SceneContract,
     pub(crate) state: RuntimeState,
@@ -35,12 +36,35 @@ pub(crate) struct WorldScope {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct WorldQueryCapabilitySummary {
+pub struct ResourceQueryToolSpec {
     pub id: String,
     pub status: String,
     pub purpose: String,
     pub input: String,
     pub output: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceInventoryItem {
+    pub id: String,
+    pub resource_type: String,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub source_path: Option<String>,
+    #[serde(default)]
+    pub references: Vec<String>,
+    pub related_to_target: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResourceInventorySnapshot {
+    #[serde(default)]
+    pub target_file: Option<String>,
+    pub total_items: usize,
+    pub items: Vec<ResourceInventoryItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -72,8 +96,9 @@ pub struct WorldContextSnapshot {
     pub app_id: String,
     pub entry_target: String,
     pub world_snapshot: WorldSnapshotSummary,
+    pub resource_inventory: ResourceInventorySnapshot,
     pub runtime_summary: WorldRuntimeSummary,
-    pub query_capabilities: Vec<WorldQueryCapabilitySummary>,
+    pub query_tools: Vec<ResourceQueryToolSpec>,
 }
 
 #[derive(Debug, Clone, Serialize)]

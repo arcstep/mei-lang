@@ -3,10 +3,7 @@ use std::{
     path::{Path as FsPath, PathBuf},
 };
 
-use crate::{
-    opencode::bridge::BridgePromptRequest,
-    AppState, SessionContextSnapshot,
-};
+use crate::{opencode::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
 
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
 use super::paths::{resolve_app_root, sanitize_relative_path};
@@ -78,6 +75,13 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
     Some(lines.join("\n"))
 }
 
+pub(crate) fn build_dynamic_session_context_preview(
+    state: &AppState,
+    request: &BridgePromptRequest,
+) -> Option<String> {
+    build_dynamic_mei_context(state, request)
+}
+
 fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
     let (app_id, app_root) = resolve_app_root(state, request)?;
     let scene_id = request.scene_id.as_deref().map(str::trim).unwrap_or("");
@@ -120,4 +124,76 @@ pub(crate) fn load_or_refresh_session_context(
         },
     );
     Some(context)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        fs,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    use reqwest::Client as HttpClient;
+
+    use super::*;
+    use crate::opencode::ManagedOpencodeRuntime;
+
+    fn build_test_state(source_root: PathBuf) -> AppState {
+        AppState {
+            package_root: Arc::new(source_root.clone()),
+            source_root: Arc::new(source_root),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            opencode_http: Arc::new(HttpClient::new()),
+        }
+    }
+
+    fn prepare_app_root() -> (PathBuf, PathBuf) {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("mei_dynamic_context_test_{stamp}"));
+        let app_root = root.join("demo");
+        fs::create_dir_all(&app_root).expect("create app root");
+        fs::write(
+            app_root.join("main.mei"),
+            "app(kind=\"app\", id=\"demo\", entries=[entry(id=\"main\", scene=\"s1\")])\n",
+        )
+        .expect("write main.mei");
+        (root, app_root)
+    }
+
+    #[test]
+    fn context_signature_tracks_scope_fields() {
+        let (root, _) = prepare_app_root();
+        let state = build_test_state(root.clone());
+        let request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("demo".to_string()),
+            scene_id: Some("scene-a".to_string()),
+            entry_id: Some("entry-a".to_string()),
+            target_file: Some("main.mei".to_string()),
+            system: None,
+            agent: None,
+            model: None,
+        };
+        let signature = build_context_signature(&state, &request).expect("signature");
+        assert!(signature.contains("scene=scene-a"));
+        assert!(signature.contains("entry=entry-a"));
+        assert!(signature.contains("target=main.mei"));
+
+        let mut changed = request.clone();
+        changed.scene_id = Some("scene-b".to_string());
+        let changed_signature = build_context_signature(&state, &changed).expect("changed signature");
+        assert_ne!(signature, changed_signature);
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }
