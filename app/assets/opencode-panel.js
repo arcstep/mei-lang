@@ -91,6 +91,9 @@
     sourceDiffResizeObserver: null,
     sourceViewResizeObserver: null,
     contextPreview: null,
+    contextPreviewBackoffUntilMs: 0,
+    contextPreviewFetchedAtMs: 0,
+    contextPreviewScopeKey: "",
     progress: {
       visible: false,
       label: "",
@@ -1237,11 +1240,17 @@
     const app = currentAppKey();
     const sceneId = currentSceneId();
     const entryId = String(root.dataset.entry || "").trim();
+    const entryTarget = normalizeTargetKey(String(root.dataset.entryTarget || ""));
     const target = currentTargetKey();
     if (app) params.set("app_id", app);
-    if (sceneId) params.set("scene_id", sceneId);
-    if (entryId) params.set("entry_id", entryId);
     if (target) params.set("target_file", target);
+    // 非入口文件预览（如 data/dataset/**）不应携带 scene/entry 约束，
+    // 否则会触发 scope 校验失败并导致无意义重试。
+    const scopedToEntry = !target || (entryTarget && target === entryTarget);
+    if (scopedToEntry) {
+      if (sceneId) params.set("scene_id", sceneId);
+      if (entryId) params.set("entry_id", entryId);
+    }
     return params;
   }
 
@@ -1399,7 +1408,11 @@
     }
   }
 
-  async function refreshContextPreview() {
+  async function refreshContextPreview(force) {
+    const forceRefresh = Boolean(force);
+    if (!forceRefresh && state.contextPreviewBackoffUntilMs > Date.now()) {
+      return;
+    }
     const app = currentAppKey();
     if (!app) {
       state.contextPreview = null;
@@ -1408,11 +1421,38 @@
     }
     try {
       const params = currentScopeParams();
+      const scopeKey = params.toString();
+      const nowMs = Date.now();
+      const sameScope =
+        state.contextPreviewScopeKey &&
+        state.contextPreviewScopeKey === scopeKey;
+      if (
+        !forceRefresh &&
+        sameScope &&
+        state.contextPreviewFetchedAtMs > 0 &&
+        nowMs - state.contextPreviewFetchedAtMs < 60000
+      ) {
+        return;
+      }
       const payload = await fetchJson("/api/opencode/context/preview?" + params.toString());
       state.contextPreview = payload;
+      state.contextPreviewScopeKey = scopeKey;
+      state.contextPreviewFetchedAtMs = nowMs;
+      const previewError = String(payload && payload.preview_error ? payload.preview_error : "").trim();
+      if (previewError && !forceRefresh) {
+        // 对确定性失败做退避，避免持续无意义轮询刷日志。
+        state.contextPreviewBackoffUntilMs = Date.now() + 60000;
+      } else {
+        state.contextPreviewBackoffUntilMs = 0;
+      }
       renderContextPreview();
     } catch (error) {
       state.contextPreview = null;
+      state.contextPreviewScopeKey = "";
+      state.contextPreviewFetchedAtMs = 0;
+      if (!forceRefresh) {
+        state.contextPreviewBackoffUntilMs = Date.now() + 60000;
+      }
       renderContextPreview();
       setInlineNote("读取上下文预览失败：" + String(error.message || error));
     }
@@ -2496,6 +2536,7 @@
   }
 
   async function refreshAll() {
+    let refreshFailed = false;
     state.loading = true;
     setButtonState(true);
     renderStatus();
@@ -2533,6 +2574,7 @@
         state.sessions = [];
       }
     } catch (error) {
+      refreshFailed = true;
       state.health = null;
       state.sessions = [];
       state.skillStatus = null;
@@ -2576,13 +2618,18 @@
       renderSessions();
       syncSourceDiffEntry();
       if (state.health && state.health.healthy && state.sessionId) {
-        await refreshMessages({ forcePendingPermissions: true });
+        try {
+          await refreshMessages({ forcePendingPermissions: true });
+        } catch (_) {
+          refreshFailed = true;
+        }
         connectEvents(false);
       } else {
         closeEventStream();
         renderMessages();
       }
     }
+    return !refreshFailed;
   }
 
   async function startServer() {
@@ -2945,7 +2992,7 @@
 
   if (els.contextRefresh) {
     els.contextRefresh.addEventListener("click", function () {
-      refreshContextPreview().catch(function (error) {
+      refreshContextPreview(true).catch(function (error) {
         setInlineNote("刷新上下文预览失败：" + String(error.message || error));
       });
     });
@@ -3044,6 +3091,9 @@
     if (detail && typeof detail.entry === "string") {
       root.dataset.entry = detail.entry;
     }
+    if (detail && typeof detail.entryTarget === "string") {
+      root.dataset.entryTarget = detail.entryTarget;
+    }
     if (detail && typeof detail.mode === "string") {
       root.dataset.mode = detail.mode;
     }
@@ -3054,6 +3104,9 @@
       root.dataset.viewTab = detail.viewTab;
     }
     state.contextPreview = null;
+    state.contextPreviewBackoffUntilMs = 0;
+    state.contextPreviewScopeKey = "";
+    state.contextPreviewFetchedAtMs = 0;
     renderContextPreview();
     destroySourceDiffView();
     destroySourceEditor();
@@ -3096,15 +3149,60 @@
     closeEventStream();
   };
   window.addEventListener("beforeunload", beforeUnloadHandler);
-  const refreshTimerId = window.setInterval(function () {
-    refreshAll().catch(function () {});
-  }, 8000);
+  const POLL_ACTIVE_MS = 8000;
+  const POLL_IDLE_MS = 30000;
+  const POLL_MAX_MS = 60000;
+  let refreshTimerId = 0;
+  let refreshPollFailureCount = 0;
+  let refreshPollInFlight = false;
+  function currentBasePollDelayMs() {
+    const hasActiveGeneration = Boolean(
+      state.sending || state.loading || state.streamConnected || state.activeGenerationMessageId,
+    );
+    return hasActiveGeneration ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+  }
+  function nextRefreshPollDelayMs() {
+    const base = currentBasePollDelayMs();
+    return Math.min(POLL_MAX_MS, base * Math.pow(2, refreshPollFailureCount));
+  }
+  function scheduleRefreshPoll(delayMs) {
+    if (refreshTimerId) {
+      window.clearTimeout(refreshTimerId);
+    }
+    refreshTimerId = window.setTimeout(
+      runRefreshPoll,
+      Math.max(1000, Number(delayMs) || currentBasePollDelayMs()),
+    );
+  }
+  async function runRefreshPoll() {
+    if (refreshPollInFlight) {
+      scheduleRefreshPoll(nextRefreshPollDelayMs());
+      return;
+    }
+    if (document.visibilityState === "hidden") {
+      scheduleRefreshPoll(Math.max(currentBasePollDelayMs(), nextRefreshPollDelayMs()));
+      return;
+    }
+    refreshPollInFlight = true;
+    try {
+      const ok = await refreshAll().catch(function () { return false; });
+      if (ok) {
+        refreshPollFailureCount = 0;
+      } else {
+        refreshPollFailureCount = Math.min(refreshPollFailureCount + 1, 4);
+      }
+    } finally {
+      refreshPollInFlight = false;
+      scheduleRefreshPoll(nextRefreshPollDelayMs());
+    }
+  }
+  scheduleRefreshPoll(currentBasePollDelayMs());
   boot.disposeOpencodePanel = function () {
     closeEventStream();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
-    if (refreshTimerId) window.clearInterval(refreshTimerId);
+    if (refreshTimerId) window.clearTimeout(refreshTimerId);
   };
 })();

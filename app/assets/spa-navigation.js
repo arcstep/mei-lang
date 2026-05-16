@@ -275,6 +275,7 @@
       scene: String(root.dataset.scene || ""),
       target: String(root.dataset.target || ""),
       entry: String(root.dataset.entry || ""),
+      entryTarget: String(root.dataset.entryTarget || ""),
       mode: String(root.dataset.mode || ""),
       sourceViews: String(root.dataset.sourceViews || ""),
       viewTab: String(root.dataset.viewTab || ""),

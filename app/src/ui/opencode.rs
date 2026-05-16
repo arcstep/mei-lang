@@ -20,6 +20,12 @@ pub(super) fn panel_view(
             .or_else(|| compiled.entries.first().map(|item| item.entry_id.clone()))
     })
     .unwrap_or_default();
+    let active_entry_target = compiled
+        .entries
+        .iter()
+        .find(|item| item.entry_id == active_entry)
+        .map(|item| item.target_file.clone())
+        .unwrap_or_else(|| compiled.entry_target.clone());
     let active_scene = compiled
         .entries
         .iter()
@@ -40,6 +46,7 @@ pub(super) fn panel_view(
                 data-app=app_path.to_string()
                 data-target=selected_target.to_string()
                 data-entry=active_entry
+                data-entry-target=active_entry_target
                 data-scene=active_scene
                 data-mode=route_mode.slug()
                 data-source-views=if source_views_enabled { "true" } else { "false" }

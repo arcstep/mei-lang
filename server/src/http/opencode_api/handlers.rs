@@ -263,6 +263,8 @@ pub struct OpencodeContextPreviewResponse {
     pub query_tools: Vec<Value>,
     pub resource_inventory: Value,
     #[serde(default)]
+    pub preview_error: Option<String>,
+    #[serde(default)]
     pub skill_status: Option<Value>,
 }
 
@@ -292,15 +294,33 @@ pub async fn api_opencode_context_preview(
         entry_id: query.entry_id.clone(),
         target_file: query.target_file.clone(),
     };
-    let snapshot = match build_world_context_snapshot(&state.source_root, app_id, Some(&scope)) {
-        Ok(snapshot) => snapshot,
-        Err(error) => return error_response(error),
-    };
-    let tools = if snapshot.query_tools.is_empty() {
-        default_resource_query_tools()
-    } else {
-        snapshot.query_tools.clone()
-    };
+    let (tools, resource_inventory, preview_error) =
+        match build_world_context_snapshot(&state.source_root, app_id, Some(&scope)) {
+            Ok(snapshot) => {
+                let tools = if snapshot.query_tools.is_empty() {
+                    default_resource_query_tools()
+                } else {
+                    snapshot.query_tools.clone()
+                };
+                (
+                    tools,
+                    serde_json::to_value(snapshot.resource_inventory).unwrap_or(Value::Null),
+                    None,
+                )
+            }
+            Err(error) => {
+                // 上下文预览属于辅助信息，不应因为 scope 不匹配/编译中间态持续返回 500。
+                tracing::debug!(
+                    app_id = %app_id,
+                    scene_id = ?query.scene_id,
+                    entry_id = ?query.entry_id,
+                    target_file = ?query.target_file,
+                    %error,
+                    "degraded context preview snapshot"
+                );
+                (default_resource_query_tools(), Value::Null, Some(error.to_string()))
+            }
+        };
     let query_tools = tools
         .into_iter()
         .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
@@ -317,8 +337,8 @@ pub async fn api_opencode_context_preview(
         system_prompt: request.system.unwrap_or_default(),
         query_schema_version: RESOURCE_QUERY_SCHEMA_VERSION.to_string(),
         query_tools,
-        resource_inventory: serde_json::to_value(snapshot.resource_inventory)
-            .unwrap_or(Value::Null),
+        resource_inventory,
+        preview_error,
         skill_status,
     })
     .into_response()

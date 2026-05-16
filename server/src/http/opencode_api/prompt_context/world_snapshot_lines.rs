@@ -11,7 +11,17 @@ pub(super) fn append_world_context_lines(
     let snapshot = match build_world_context_snapshot(source_root, app_id, Some(scope)) {
         Ok(value) => value,
         Err(error) => {
-            tracing::warn!(app_id = %app_id, %error, "failed to build world context snapshot");
+            let message = error.to_string();
+            let is_scope_mismatch = message.contains("is not bound to target")
+                || message.contains("does not match entry")
+                || message.contains("entry `")
+                || message.contains("scene `")
+                || message.contains("does not provide a scene contract");
+            if is_scope_mismatch {
+                tracing::debug!(app_id = %app_id, error = %message, "skip world snapshot due to scope mismatch");
+            } else {
+                tracing::warn!(app_id = %app_id, error = %message, "failed to build world context snapshot");
+            }
             return;
         }
     };
