@@ -102,6 +102,12 @@ pub(super) struct LegacySourceDecl {
     pub file: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
+    /// 工作表名称；缺省为工作簿中的第一张表。
+    #[serde(default)]
+    pub sheet: Option<String>,
+    /// 表头所在行号（从 1 计数，与 Excel 行号一致）；缺省为 1。
+    #[serde(default)]
+    pub header_row: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

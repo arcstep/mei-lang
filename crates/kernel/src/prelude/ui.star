@@ -57,6 +57,8 @@ def _metric_data_ref(data):
         return None
     if _is_dict(data) and data.get("__ref") == "data":
         return data.get("id")
+    if _is_dict(data) and data.get("__kind") == "analysis_expr" and data.get("type") == "rows":
+        return data.get("dataset")
     metric_items = _metric_data_items(data)
     if len(metric_items) == 0:
         return None
@@ -274,8 +276,11 @@ def box_decl(id = None, title = None, area = None, layout = None, blocks = [], d
 
 def component(use, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = [], interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None):
     resolved_props = _with_metric_data_props(data, props)
-    if data != None and resolved_props.get("data") == None and _is_dict(data) and data.get("__ref") == "data":
-        resolved_props["data"] = data
+    if data != None and resolved_props.get("data") == None and _is_dict(data):
+        if data.get("__ref") == "data":
+            resolved_props["data"] = data
+        if data.get("__kind") == "analysis_expr" and data.get("type") == "rows":
+            resolved_props["data"] = data
     if mapping != None:
         resolved_props["mapping"] = mapping
     component_ref = _without_empty({

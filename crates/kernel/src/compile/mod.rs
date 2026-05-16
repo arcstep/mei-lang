@@ -13,6 +13,7 @@ mod app_decl;
 mod decls;
 mod entry_payload;
 mod load_external;
+mod loaders;
 mod materialize;
 mod mutations;
 mod resources;

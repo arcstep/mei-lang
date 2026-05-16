@@ -17,13 +17,18 @@ use super::{
     decls::{
         DatasetViewDecl, LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl, MetricDecl,
     },
+    loaders::load_legacy_xlsx_rows,
     resources::csv_record_to_json,
 };
 
+/// `source_mei_rel`：定义该批 legacy dataset 的 `.mei` 相对路径（如 `data/dataset/foo.mei`）。
+/// 当 `ds.dataset` 未写 `id`/`key` 时，数据集会注册为 `__source_path__`，与 `ds.data_ref("...同一路径...")`
+/// 对齐需要把同一份 `DatasetView` 再挂到该路径 id 上。
 pub(super) fn materialize_legacy_datasets(
     app_root: &Path,
     resources: &[LoadedResource],
     decls: &[LegacyDatasetDecl],
+    source_mei_rel: Option<&str>,
 ) -> Result<Vec<LoadedResource>> {
     let mut datasets = BTreeMap::<String, DatasetView>::new();
     for resource in resources {
@@ -62,6 +67,28 @@ pub(super) fn materialize_legacy_datasets(
         } else {
             schema.iter().map(|column| column.name.clone()).collect()
         };
+        let dataset_stub = DatasetView {
+            id: dataset_id.clone(),
+            title: decl.title.clone(),
+            purpose: None,
+            schema: schema.clone(),
+            stage_schema: Vec::new(),
+            columns: columns.clone(),
+            rows: rows.clone(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: format!("legacy.dataset:{dataset_id}"),
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+        };
+        datasets.insert(dataset_id.clone(), dataset_stub.clone());
+        if dataset_id == "__source_path__" {
+            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
+                datasets.insert(rel.to_string(), dataset_stub);
+            }
+        }
         let metrics = materialize_legacy_metric_map(&decl.metrics, &rows, &datasets)
             .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
         let dataset = DatasetView {
@@ -81,19 +108,34 @@ pub(super) fn materialize_legacy_datasets(
             metrics,
         };
         datasets.insert(dataset_id.clone(), dataset.clone());
+        if dataset_id == "__source_path__" {
+            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
+                datasets.insert(rel.to_string(), dataset.clone());
+            }
+        }
         compiled.push(LoadedResource {
-            id: dataset_id,
+            id: dataset_id.clone(),
             kind: "dataset".to_string(),
             title: decl.title.clone(),
             document: None,
-            dataset: Some(dataset),
+            dataset: Some(dataset.clone()),
         });
+        if dataset_id == "__source_path__" {
+            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
+                compiled.push(LoadedResource {
+                    id: rel.to_string(),
+                    kind: "dataset".to_string(),
+                    title: decl.title.clone(),
+                    document: None,
+                    dataset: Some(dataset),
+                });
+            }
+        }
     }
     Ok(compiled)
 }
 
 fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> Result<Vec<Value>> {
-    let source_kind = source.kind.as_deref().unwrap_or("csv");
     let source_path = source
         .file
         .as_deref()
@@ -102,6 +144,13 @@ fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> R
     if source_path.is_empty() {
         return Ok(Vec::new());
     }
+    let path_lower = source_path.to_ascii_lowercase();
+    let inferred = if path_lower.ends_with(".xlsx") || path_lower.ends_with(".xls") {
+        "xlsx"
+    } else {
+        "csv"
+    };
+    let source_kind = source.kind.as_deref().unwrap_or(inferred);
     let path = app_root.join(source_path);
     match source_kind {
         "csv" => {
@@ -125,6 +174,11 @@ fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> R
             let json: Value = serde_json::from_str(&raw)
                 .with_context(|| format!("invalid json dataset {}", path.display()))?;
             Ok(json.as_array().cloned().unwrap_or_default())
+        }
+        "xlsx" => {
+            let header_row = source.header_row.unwrap_or(1).max(1) as usize;
+            load_legacy_xlsx_rows(&path, source.sheet.as_deref(), header_row)
+                .with_context(|| format!("failed to read xlsx dataset {}", path.display()))
         }
         other => Err(anyhow!("unsupported legacy dataset source kind `{other}`")),
     }

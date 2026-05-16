@@ -239,6 +239,28 @@ fn compile_entry_payload(
             }
         }
     }
+    let has_dataset_library_content = !legacy_datasets.is_empty()
+        || !legacy_metric_packs.is_empty()
+        || !dataset_views.is_empty();
+    let had_pending_topology = pending_world_topology.is_some();
+    let had_pending_frame_layout = pending_frame_layout.is_some();
+    let has_authoring_surface = scene_decl_count > 0
+        || frame_decl_count > 0
+        || world_decl_count > 0
+        || !flows.is_empty()
+        || flow_default.is_some()
+        || !panels.is_empty()
+        || !themes.is_empty()
+        || world_topology_set_count > 0
+        || frame_layout_set_count > 0
+        || !pending_world_resources.is_empty()
+        || !pending_world_entities.is_empty()
+        || had_pending_topology
+        || had_pending_frame_layout;
+    let dataset_library_only = has_dataset_library_content
+        && !has_authoring_surface
+        && target_file != "main.mei";
+
     if world_topology_set_count > 1 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -326,7 +348,8 @@ fn compile_entry_payload(
                 None
             }
         });
-    let requires_scene_contract = entry_meta.is_some() || target_file != "main.mei";
+    let requires_scene_contract = (entry_meta.is_some() || target_file != "main.mei")
+        && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -485,7 +508,7 @@ fn compile_entry_payload(
         None => Vec::new(),
     };
     if !legacy_datasets.is_empty() {
-        let derived = materialize_legacy_datasets(app_root, &resources, &legacy_datasets)?;
+        let derived = materialize_legacy_datasets(app_root, &resources, &legacy_datasets, Some(target_file))?;
         for resource in derived {
             if let Some(index) = resources.iter().position(|item| item.id == resource.id) {
                 resources[index] = resource;
