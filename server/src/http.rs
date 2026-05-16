@@ -105,6 +105,7 @@ pub fn router() -> Router<AppState> {
             "/api/opencode/session/:session_id/permissions/:permission_id",
             post(opencode_api::api_opencode_respond_permission),
         )
+        .route("/app-bundles/:mode", get(pages::app_bundle))
         .route("/app-assets/*path", get(pages::app_asset))
         .route(
             "/workspace-app-assets/:app_id/*path",

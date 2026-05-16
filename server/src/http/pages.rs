@@ -140,6 +140,38 @@ pub async fn app_asset(
     )
 }
 
+pub async fn app_bundle(
+    State(state): State<AppState>,
+    AxumPath(mode): AxumPath<String>,
+) -> Result<Response, AppError> {
+    let scripts = app_bundle_scripts(&mode).ok_or_else(|| {
+        AppError::status(
+            StatusCode::NOT_FOUND,
+            format!("unsupported app bundle mode: {mode}"),
+        )
+    })?;
+    let assets_root = state.package_root.join("app").join("assets");
+    let mut merged = String::new();
+    merged.push_str("// Runtime merged bundle served by mei-lang-server.\n");
+    for script in scripts {
+        let script_path = assets_root.join(script);
+        let content = fs::read_to_string(&script_path)
+            .with_context(|| format!("failed to read app bundle script {}", script_path.display()))
+            .map_err(AppError::from)?;
+        merged.push_str("\n/* ===== ");
+        merged.push_str(script);
+        merged.push_str(" ===== */\n");
+        merged.push_str(&content);
+        merged.push_str("\n;\n");
+    }
+    let mut response = Response::new(merged.into());
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("text/javascript; charset=utf-8"),
+    );
+    Ok(response)
+}
+
 pub async fn workspace_app_asset(
     State(state): State<AppState>,
     AxumPath((app_id, path)): AxumPath<(String, String)>,
@@ -148,6 +180,28 @@ pub async fn workspace_app_asset(
         state.source_root.join(&app_id).join(&path),
         "workspace app asset",
     )
+}
+
+fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
+    const MANAGE_SCRIPTS: &[&str] = &[
+        "frame-stage.js",
+        "vendor/diff-match-patch.js",
+        "vendor/codemirror.js",
+        "source-codemirror-mode.js",
+        "vendor/codemirror-merge.js",
+        "manage-tabs.js",
+        "opencode-panel.js",
+        "workspace-splitters.js",
+        "source-tree-controls.js",
+        "source-highlight.js",
+        "spa-navigation.js",
+    ];
+    const ACCESS_SCRIPTS: &[&str] = &["frame-stage.js", "statusbar.js", "spa-navigation.js"];
+    match mode {
+        "manage.js" | "manage" => Some(MANAGE_SCRIPTS),
+        "access.js" | "access" => Some(ACCESS_SCRIPTS),
+        _ => None,
+    }
 }
 
 fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {

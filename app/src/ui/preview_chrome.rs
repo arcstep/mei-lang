@@ -492,24 +492,14 @@ pub(super) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     if route_mode == UiRouteMode::Manage {
         view! {
             <>
-                <script src="/app-assets/frame-stage.js"></script>
-                <script src="/app-assets/vendor/diff-match-patch.js"></script>
-                <script src="/app-assets/vendor/codemirror.js"></script>
-                <script src="/app-assets/source-codemirror-mode.js"></script>
-                <script src="/app-assets/vendor/codemirror-merge.js"></script>
-                <script src="/app-assets/manage-tabs.js"></script>
-                <script src="/app-assets/opencode-panel.js"></script>
-                <script src="/app-assets/workspace-splitters.js"></script>
-                <script src="/app-assets/source-tree-controls.js"></script>
-                <script src="/app-assets/source-highlight.js"></script>
+                <script src="/app-bundles/manage.js"></script>
             </>
         }
         .into_any()
     } else {
         view! {
             <>
-                <script src="/app-assets/frame-stage.js"></script>
-                <script src="/app-assets/statusbar.js"></script>
+                <script src="/app-bundles/access.js"></script>
             </>
         }
         .into_any()
