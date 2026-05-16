@@ -5,8 +5,9 @@ use axum::{
     Json,
 };
 use mei_lang_kernel::{
-    compile_app, initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step,
-    RuntimeIntent, RuntimeSceneView, RuntimeState, RuntimeTraceItem,
+    compile_app, compile_app_with_options, initial_runtime_state, project_runtime_view,
+    render_runtime_html, runtime_step, CompileOptions, RuntimeIntent, RuntimeSceneView,
+    RuntimeState, RuntimeTraceItem,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -37,6 +38,13 @@ struct WorldRuntimeBundle {
     contract: mei_lang_kernel::SceneContract,
     state: RuntimeState,
     scene_view: RuntimeSceneView,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WorldScope {
+    pub scene_id: Option<String>,
+    pub entry_id: Option<String>,
+    pub target_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -126,6 +134,8 @@ pub struct WorldRuntimePeekResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct WorldAssetListQuery {
+    #[serde(flatten)]
+    pub scope: WorldScopeQuery,
     #[serde(default)]
     pub kind: Option<String>,
     #[serde(default)]
@@ -134,13 +144,37 @@ pub struct WorldAssetListQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct WorldAssetGetQuery {
+    #[serde(flatten)]
+    pub scope: WorldScopeQuery,
     pub id: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct WorldRuntimePeekQuery {
+    #[serde(flatten)]
+    pub scope: WorldScopeQuery,
     #[serde(default)]
     pub trace_limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct WorldScopeQuery {
+    #[serde(default)]
+    pub scene_id: Option<String>,
+    #[serde(default)]
+    pub entry_id: Option<String>,
+    #[serde(default)]
+    pub target_file: Option<String>,
+}
+
+impl WorldScopeQuery {
+    fn to_scope(&self) -> WorldScope {
+        WorldScope {
+            scene_id: self.scene_id.clone(),
+            entry_id: self.entry_id.clone(),
+            target_file: self.target_file.clone(),
+        }
+    }
 }
 
 fn normalize_asset_kind(kind: Option<&str>) -> String {
@@ -156,11 +190,84 @@ fn normalize_limit(limit: Option<usize>, default: usize, max: usize) -> usize {
     limit.unwrap_or(default).clamp(1, max)
 }
 
-fn load_world_runtime_bundle(source_root: &Path, app_id: &str) -> Result<WorldRuntimeBundle> {
-    let compiled = compile_app(source_root, app_id)?;
+fn normalize_scope_field(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_world_scope(scope: Option<&WorldScope>) -> WorldScope {
+    WorldScope {
+        scene_id: normalize_scope_field(scope.and_then(|item| item.scene_id.as_deref())),
+        entry_id: normalize_scope_field(scope.and_then(|item| item.entry_id.as_deref())),
+        target_file: normalize_scope_field(scope.and_then(|item| item.target_file.as_deref())),
+    }
+}
+
+fn load_world_runtime_bundle(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+) -> Result<WorldRuntimeBundle> {
+    let scope = normalize_world_scope(scope);
+    let requested_scene = scope.scene_id.as_deref();
+    let requested_entry = scope.entry_id.as_deref();
+    let requested_target = scope.target_file.clone();
+
+    let mut selected_entry = requested_entry.map(str::to_string);
+    if let Some(scene_id) = requested_scene {
+        let base_compiled = compile_app(source_root, app_id)?;
+        let scene_entry = base_compiled
+            .entries
+            .iter()
+            .find(|item| item.scene_id == scene_id || item.entry_id == scene_id)
+            .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
+        if let Some(entry_id) = requested_entry {
+            if entry_id != scene_entry.entry_id {
+                return Err(anyhow!(
+                    "scene `{scene_id}` does not match entry `{entry_id}`"
+                ));
+            }
+        }
+        if let Some(target_file) = requested_target.as_deref() {
+            if target_file != scene_entry.target_file {
+                return Err(anyhow!(
+                    "scene `{scene_id}` is not bound to target `{target_file}`"
+                ));
+            }
+        }
+        selected_entry = Some(scene_entry.entry_id.clone());
+    }
+
+    let compiled = compile_app_with_options(
+        source_root,
+        app_id,
+        CompileOptions {
+            entry: selected_entry.clone(),
+            preview_target: if selected_entry.is_some() {
+                None
+            } else {
+                requested_target.clone()
+            },
+        },
+    )?;
+    if let Some(entry_id) = selected_entry.as_deref() {
+        if compiled.active_entry.as_deref() != Some(entry_id) {
+            return Err(anyhow!("entry `{entry_id}` not found in app `{app_id}`"));
+        }
+    }
     let contract = compiled
         .scene_contract
         .ok_or_else(|| anyhow!("app `{}` does not provide a scene contract", app_id))?;
+    if let Some(scene_id) = requested_scene {
+        if contract.scene.id != scene_id {
+            return Err(anyhow!(
+                "requested scene `{scene_id}` but active scene is `{}`",
+                contract.scene.id
+            ));
+        }
+    }
     let state = initial_runtime_state(&contract, 1);
     let scene_view = project_runtime_view(&contract, &state);
     Ok(WorldRuntimeBundle {
@@ -254,28 +361,126 @@ fn recent_trace_messages(state: &RuntimeState, trace_limit: usize) -> Vec<String
         .collect()
 }
 
+pub(crate) fn query_world_assets(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    kind: Option<&str>,
+    limit: Option<usize>,
+) -> Result<WorldAssetListResponse> {
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let normalized_kind = normalize_asset_kind(kind);
+    let normalized_limit = normalize_limit(limit, 20, 200);
+    let (total, items) = collect_world_asset_items(&bundle, &normalized_kind, normalized_limit);
+    Ok(WorldAssetListResponse {
+        app_id: app_id.to_string(),
+        scene_id: bundle.contract.scene.id.clone(),
+        query_kind: normalized_kind,
+        total,
+        items,
+    })
+}
+
+pub(crate) fn query_world_asset(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    id: &str,
+) -> Result<WorldAssetGetResponse> {
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let target_id = id.trim();
+    if target_id.is_empty() {
+        return Err(anyhow!("query parameter `id` is required"));
+    }
+
+    if let Some(world) = &bundle.contract.world {
+        if let Some(item) = world.resources.iter().find(|item| item.id == target_id) {
+            return Ok(WorldAssetGetResponse {
+                app_id: app_id.to_string(),
+                scene_id: bundle.contract.scene.id.clone(),
+                id: item.id.clone(),
+                kind: "resource".to_string(),
+                payload: serde_json::to_value(item).unwrap_or(Value::Null),
+            });
+        }
+        if let Some(item) = world.entities.iter().find(|item| item.id == target_id) {
+            return Ok(WorldAssetGetResponse {
+                app_id: app_id.to_string(),
+                scene_id: bundle.contract.scene.id.clone(),
+                id: item.id.clone(),
+                kind: "entity".to_string(),
+                payload: serde_json::to_value(item).unwrap_or(Value::Null),
+            });
+        }
+        if let Some(topology) = &world.topology {
+            if let Some(item) = topology.cells.iter().find(|item| item.id == target_id) {
+                return Ok(WorldAssetGetResponse {
+                    app_id: app_id.to_string(),
+                    scene_id: bundle.contract.scene.id.clone(),
+                    id: item.id.clone(),
+                    kind: "cell".to_string(),
+                    payload: serde_json::to_value(item).unwrap_or(Value::Null),
+                });
+            }
+        }
+    }
+
+    Err(anyhow!("world asset `{target_id}` not found"))
+}
+
+pub(crate) fn query_world_runtime(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    trace_limit: Option<usize>,
+) -> Result<WorldRuntimePeekResponse> {
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let normalized_trace_limit = normalize_limit(trace_limit, 5, 50);
+    Ok(WorldRuntimePeekResponse {
+        app_id: app_id.to_string(),
+        scene_id: bundle.contract.scene.id.clone(),
+        phase: bundle.state.phase.clone(),
+        result: bundle.state.result.clone(),
+        countdown: bundle.state.countdown,
+        available_actions: bundle
+            .scene_view
+            .available_actions
+            .iter()
+            .take(20)
+            .cloned()
+            .collect(),
+        recent_trace_messages: recent_trace_messages(&bundle.state, normalized_trace_limit),
+    })
+}
+
 fn default_world_query_capabilities() -> Vec<WorldQueryCapabilitySummary> {
     vec![
         WorldQueryCapabilitySummary {
             id: "world.asset.list".to_string(),
-            status: "phase1_context".to_string(),
+            status: "phase2_api_ready".to_string(),
             purpose: "按类型查看 world 里的核心资产清单（entity/resource/cell）".to_string(),
             input: "{kind?: entity|resource|cell, limit?: number}".to_string(),
-            output: "{items: [{id, kind, label_or_title, tags?}], total}".to_string(),
+            output:
+                "{items: [{id, kind, label_or_title, tags?}], total}; endpoint: GET /api/world/assets/*app_id?scene_id=..."
+                    .to_string(),
         },
         WorldQueryCapabilitySummary {
             id: "world.asset.get".to_string(),
-            status: "phase2_planned_tool".to_string(),
+            status: "phase2_api_ready".to_string(),
             purpose: "按资产 id 查看单个对象详情".to_string(),
             input: "{id: string}".to_string(),
-            output: "{id, kind, fields, relations?}".to_string(),
+            output:
+                "{id, kind, fields, relations?}; endpoint: GET /api/world/asset/*app_id?id=...&scene_id=..."
+                .to_string(),
         },
         WorldQueryCapabilitySummary {
             id: "world.runtime.peek".to_string(),
-            status: "phase1_context".to_string(),
+            status: "phase2_api_ready".to_string(),
             purpose: "查看运行态关键信息（phase/result/actions/trace）".to_string(),
             input: "{include?: [state|actions|trace], trace_limit?: number}".to_string(),
-            output: "{phase, result, available_actions, recent_trace_messages}".to_string(),
+            output:
+                "{phase, result, available_actions, recent_trace_messages}; endpoint: GET /api/world/runtime/*app_id?scene_id=..."
+                    .to_string(),
         },
     ]
 }
@@ -283,8 +488,9 @@ fn default_world_query_capabilities() -> Vec<WorldQueryCapabilitySummary> {
 pub(crate) fn build_world_context_snapshot(
     source_root: &Path,
     app_id: &str,
+    scope: Option<&WorldScope>,
 ) -> Result<WorldContextSnapshot> {
-    let bundle = load_world_runtime_bundle(source_root, app_id)?;
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
     let world = bundle.contract.world.clone();
 
     let (resource_kind_counts, key_resource_ids, world_resource_count) = if let Some(world) = &world
@@ -365,10 +571,12 @@ pub(crate) fn build_world_context_snapshot(
 pub async fn world_context_api(
     State(state): State<AppState>,
     AxumPath(app_id_raw): AxumPath<String>,
+    Query(scope_query): Query<WorldScopeQuery>,
 ) -> Result<Json<WorldContextSnapshot>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let snapshot =
-        build_world_context_snapshot(&state.source_root, app_id).map_err(AppError::from)?;
+    let scope = scope_query.to_scope();
+    let snapshot = build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
+        .map_err(AppError::from)?;
     Ok(Json(snapshot))
 }
 
@@ -378,17 +586,16 @@ pub async fn world_assets_api(
     Query(query): Query<WorldAssetListQuery>,
 ) -> Result<Json<WorldAssetListResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let bundle = load_world_runtime_bundle(&state.source_root, app_id).map_err(AppError::from)?;
-    let kind = normalize_asset_kind(query.kind.as_deref());
-    let limit = normalize_limit(query.limit, 20, 200);
-    let (total, items) = collect_world_asset_items(&bundle, &kind, limit);
-    Ok(Json(WorldAssetListResponse {
-        app_id: app_id.to_string(),
-        scene_id: bundle.contract.scene.id.clone(),
-        query_kind: kind,
-        total,
-        items,
-    }))
+    let scope = query.scope.to_scope();
+    let response = query_world_assets(
+        &state.source_root,
+        app_id,
+        Some(&scope),
+        query.kind.as_deref(),
+        query.limit,
+    )
+    .map_err(AppError::from)?;
+    Ok(Json(response))
 }
 
 pub async fn world_asset_api(
@@ -397,51 +604,26 @@ pub async fn world_asset_api(
     Query(query): Query<WorldAssetGetQuery>,
 ) -> Result<Json<WorldAssetGetResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let bundle = load_world_runtime_bundle(&state.source_root, app_id).map_err(AppError::from)?;
-    let target_id = query.id.trim();
+    let scope = query.scope.to_scope();
+    let target_id = query.id.trim().to_string();
     if target_id.is_empty() {
         return Err(AppError::status(
             StatusCode::BAD_REQUEST,
             "query parameter `id` is required",
         ));
     }
-
-    if let Some(world) = &bundle.contract.world {
-        if let Some(item) = world.resources.iter().find(|item| item.id == target_id) {
-            return Ok(Json(WorldAssetGetResponse {
-                app_id: app_id.to_string(),
-                scene_id: bundle.contract.scene.id.clone(),
-                id: item.id.clone(),
-                kind: "resource".to_string(),
-                payload: serde_json::to_value(item).unwrap_or(Value::Null),
-            }));
-        }
-        if let Some(item) = world.entities.iter().find(|item| item.id == target_id) {
-            return Ok(Json(WorldAssetGetResponse {
-                app_id: app_id.to_string(),
-                scene_id: bundle.contract.scene.id.clone(),
-                id: item.id.clone(),
-                kind: "entity".to_string(),
-                payload: serde_json::to_value(item).unwrap_or(Value::Null),
-            }));
-        }
-        if let Some(topology) = &world.topology {
-            if let Some(item) = topology.cells.iter().find(|item| item.id == target_id) {
-                return Ok(Json(WorldAssetGetResponse {
-                    app_id: app_id.to_string(),
-                    scene_id: bundle.contract.scene.id.clone(),
-                    id: item.id.clone(),
-                    kind: "cell".to_string(),
-                    payload: serde_json::to_value(item).unwrap_or(Value::Null),
-                }));
+    let response = query_world_asset(&state.source_root, app_id, Some(&scope), &target_id)
+        .map_err(|error| {
+            let msg = error.to_string();
+            if msg.contains("not found") {
+                AppError::status(StatusCode::NOT_FOUND, msg)
+            } else if msg.contains("required") {
+                AppError::status(StatusCode::BAD_REQUEST, msg)
+            } else {
+                AppError::from(error)
             }
-        }
-    }
-
-    Err(AppError::status(
-        StatusCode::NOT_FOUND,
-        format!("world asset `{target_id}` not found"),
-    ))
+        })?;
+    Ok(Json(response))
 }
 
 pub async fn world_runtime_api(
@@ -450,23 +632,10 @@ pub async fn world_runtime_api(
     Query(query): Query<WorldRuntimePeekQuery>,
 ) -> Result<Json<WorldRuntimePeekResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let bundle = load_world_runtime_bundle(&state.source_root, app_id).map_err(AppError::from)?;
-    let trace_limit = normalize_limit(query.trace_limit, 5, 50);
-    Ok(Json(WorldRuntimePeekResponse {
-        app_id: app_id.to_string(),
-        scene_id: bundle.contract.scene.id.clone(),
-        phase: bundle.state.phase.clone(),
-        result: bundle.state.result.clone(),
-        countdown: bundle.state.countdown,
-        available_actions: bundle
-            .scene_view
-            .available_actions
-            .iter()
-            .take(20)
-            .cloned()
-            .collect(),
-        recent_trace_messages: recent_trace_messages(&bundle.state, trace_limit),
-    }))
+    let scope = query.scope.to_scope();
+    let response = query_world_runtime(&state.source_root, app_id, Some(&scope), query.trace_limit)
+        .map_err(AppError::from)?;
+    Ok(Json(response))
 }
 
 pub async fn sim_step_api(

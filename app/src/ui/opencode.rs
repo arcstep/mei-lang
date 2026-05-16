@@ -11,6 +11,22 @@ pub(super) fn panel_view(
     source_views_enabled: bool,
     active_tab: &str,
 ) -> impl IntoView {
+    let active_entry = compiled
+        .active_entry
+        .clone()
+        .unwrap_or_else(|| compiled.entry_target.clone());
+    let active_scene = compiled
+        .entries
+        .iter()
+        .find(|item| item.entry_id == active_entry)
+        .map(|item| item.scene_id.clone())
+        .or_else(|| {
+            compiled
+                .scene_contract
+                .as_ref()
+                .map(|item| item.scene.id.clone())
+        })
+        .unwrap_or_default();
     view! {
         <section class="author-panel-section h-full min-h-0">
             <div
@@ -18,10 +34,8 @@ pub(super) fn panel_view(
                 class="author-panel flex h-full min-h-0 flex-col gap-1.5 overflow-hidden"
                 data-app=app_path.to_string()
                 data-target=selected_target.to_string()
-                data-entry=compiled
-                    .active_entry
-                    .clone()
-                    .unwrap_or_else(|| compiled.entry_target.clone())
+                data-entry=active_entry
+                data-scene=active_scene
                 data-mode=route_mode.slug()
                 data-source-views=if source_views_enabled { "true" } else { "false" }
                 data-view-tab=active_tab.to_string()
@@ -77,6 +91,42 @@ pub(super) fn panel_view(
                     <div class="author-chat-log grid min-h-0 flex-1 content-start gap-1.5 overflow-auto pr-0 [grid-auto-rows:max-content]" id="author-chat-log"></div>
                     <div class="author-composer-row author-surface-composer-row sticky bottom-0 flex flex-col gap-1 pt-0">
                         <div class="author-composer-tool-rail flex min-h-0 items-center justify-end gap-1 pr-1">
+                            <sl-select
+                                class="author-world-query-action max-w-[148px]"
+                                id="author-world-query-action"
+                                title="World 查询动作"
+                                size="small"
+                                value=""
+                                hoist=true
+                            >
+                                <sl-option value="">"World"</sl-option>
+                                <sl-option value="context">"context"</sl-option>
+                                <sl-option value="assets_entity">"assets entity"</sl-option>
+                                <sl-option value="assets_resource">"assets resource"</sl-option>
+                                <sl-option value="assets_cell">"assets cell"</sl-option>
+                                <sl-option value="asset">"asset by id"</sl-option>
+                                <sl-option value="runtime">"runtime"</sl-option>
+                            </sl-select>
+                            <sl-select
+                                class="author-world-query-asset max-w-[180px]"
+                                id="author-world-asset-select"
+                                title="当前 scene 的 world 资产"
+                                size="small"
+                                value=""
+                                hidden=true
+                                hoist=true
+                            >
+                                <sl-option value="">"选择资产"</sl-option>
+                            </sl-select>
+                            <sl-button
+                                class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
+                                id="author-world-insert-btn"
+                                title="插入 world 查询命令"
+                                size="small"
+                                disabled=true
+                            >
+                                "World"
+                            </sl-button>
                             {if source_views_enabled {
                                 view! {
                                     <sl-button
@@ -120,6 +170,10 @@ pub(super) fn panel_view(
                                     rows="2"
                                     placeholder="输入并发送"
                                 ></textarea>
+                                <div
+                                    id="author-world-suggest"
+                                    class="author-world-suggest mt-1 hidden flex-wrap gap-1"
+                                ></div>
                             </div>
                             <div class="author-composer-footer flex items-center justify-between gap-1.5">
                                 <sl-button-group class="author-agent-mode inline-flex items-center" id="author-agent-mode" label="OpenCode 工作模式">

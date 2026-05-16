@@ -76,13 +76,17 @@ impl Backend {
             preview_target: Some(target),
         };
 
-        let mut grouped = match compile_app_from_root_with_options(&source_root, &app_root, options) {
+        let mut grouped = match compile_app_from_root_with_options(&source_root, &app_root, options)
+        {
             Ok(compiled) => group_diagnostics(compiled.diagnostics, &source_root, &app_root, &uri),
             Err(error) => {
                 let mut map = HashMap::new();
                 map.insert(
                     uri.clone(),
-                    vec![compile_failure_diagnostic("compile_error", error.to_string())],
+                    vec![compile_failure_diagnostic(
+                        "compile_error",
+                        error.to_string(),
+                    )],
                 );
                 map
             }
@@ -100,7 +104,9 @@ impl Backend {
         };
 
         for (uri, diagnostics) in grouped {
-            self.client.publish_diagnostics(uri, diagnostics, None).await;
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
         }
 
         for uri in previous_uris.difference(&next_uris) {
@@ -116,7 +122,10 @@ impl Backend {
 
 #[async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> tower_lsp::jsonrpc::Result<InitializeResult> {
+    async fn initialize(
+        &self,
+        _: InitializeParams,
+    ) -> tower_lsp::jsonrpc::Result<InitializeResult> {
         Ok(InitializeResult {
             server_info: Some(ServerInfo {
                 name: SERVER_NAME.to_string(),
@@ -199,12 +208,19 @@ fn group_diagnostics(
     for diag in diagnostics {
         let uri = resolve_source_uri(diag.source_path.as_deref(), source_root, app_root)
             .unwrap_or_else(|| fallback_uri.clone());
-        grouped.entry(uri).or_default().push(to_lsp_diagnostic(diag));
+        grouped
+            .entry(uri)
+            .or_default()
+            .push(to_lsp_diagnostic(diag));
     }
     grouped
 }
 
-fn resolve_source_uri(source_path: Option<&str>, source_root: &Path, app_root: &Path) -> Option<Url> {
+fn resolve_source_uri(
+    source_path: Option<&str>,
+    source_root: &Path,
+    app_root: &Path,
+) -> Option<Url> {
     let source_path = source_path?;
     let path = PathBuf::from(source_path);
     let resolved = if path.is_absolute() {

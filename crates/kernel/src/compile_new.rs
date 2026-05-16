@@ -400,10 +400,9 @@ fn compile_entry_payload(
                     if decl.kind == "frame_set_layout" {
                         frame_layout_set_count += 1;
                         if pending_frame_layout.is_none() {
-                            pending_frame_layout =
-                                Some(serde_json::from_value::<crate::model::LayoutDecl>(
-                                    decl.layout,
-                                )?);
+                            pending_frame_layout = Some(serde_json::from_value::<
+                                crate::model::LayoutDecl,
+                            >(decl.layout)?);
                         }
                     }
                 }
@@ -605,7 +604,8 @@ fn compile_entry_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_frame".to_string(),
-            message: "scene entry requires a frame(...) declaration or frame_file_ref(...)".to_string(),
+            message: "scene entry requires a frame(...) declaration or frame_file_ref(...)"
+                .to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
@@ -661,7 +661,8 @@ fn compile_entry_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_world".to_string(),
-            message: "scene entry requires a world(...) declaration or world_file_ref(...)".to_string(),
+            message: "scene entry requires a world(...) declaration or world_file_ref(...)"
+                .to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
@@ -828,7 +829,8 @@ fn apply_frame_mutations(
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
                 code: "missing_frame_declaration".to_string(),
-                message: "frame.set_layout(...) requires a frame(...) declaration in the same file".to_string(),
+                message: "frame.set_layout(...) requires a frame(...) declaration in the same file"
+                    .to_string(),
                 source_path: Some(target_file.to_string()),
             });
         }
@@ -845,7 +847,9 @@ fn apply_frame_mutations(
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
                 code: "ambiguous_frame_mutation".to_string(),
-                message: "frame.set_layout(...) requires exactly one frame(...) declaration in the file".to_string(),
+                message:
+                    "frame.set_layout(...) requires exactly one frame(...) declaration in the file"
+                        .to_string(),
                 source_path: Some(target_file.to_string()),
             });
         }
@@ -934,7 +938,9 @@ fn load_world_from_file(
         for value in values {
             match value.get("kind").and_then(Value::as_str) {
                 Some("world") => {
-                    worlds.push(serde_json::from_value::<crate::model::WorldDecl>(value.clone())?);
+                    worlds.push(serde_json::from_value::<crate::model::WorldDecl>(
+                        value.clone(),
+                    )?);
                 }
                 Some("world_add_resource") => {
                     let decl = serde_json::from_value::<WorldAddResourceDecl>(value.clone())?;
@@ -989,9 +995,7 @@ fn load_world_from_file(
             .into_iter()
             .find(|decl| decl.id.as_deref() == Some(expected_id))
             .ok_or_else(|| {
-                anyhow!(
-                    "world_file_ref `{relative_path}` did not contain world id `{expected_id}`"
-                )
+                anyhow!("world_file_ref `{relative_path}` did not contain world id `{expected_id}`")
             });
     }
     match worlds.len() {
@@ -1066,9 +1070,7 @@ fn load_frame_from_file(
             .into_iter()
             .find(|decl| decl.id.as_deref() == Some(expected_id))
             .ok_or_else(|| {
-                anyhow!(
-                    "frame_file_ref `{relative_path}` did not contain frame id `{expected_id}`"
-                )
+                anyhow!("frame_file_ref `{relative_path}` did not contain frame id `{expected_id}`")
             });
     }
     match frames.len() {

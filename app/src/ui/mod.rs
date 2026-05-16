@@ -543,7 +543,8 @@ fn topbar_view(
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href = format!("/apps/{}/{}{}", route_mode.slug(), item.app_id, route_query);
+                    let href =
+                        format!("/apps/{}/{}{}", route_mode.slug(), item.app_id, route_query);
                     view! { <a class=class href=href>{item.label.clone()}</a> }
                 })
                 .collect_view();
@@ -829,7 +830,11 @@ fn build_topbar_menu_groups(
         .unwrap_or_default();
     let skip_prefixes = normalized_skip_prefixes(config);
     for app in apps {
-        let mut segments = app.id.split('/').filter(|value| !value.is_empty()).collect::<Vec<_>>();
+        let mut segments = app
+            .id
+            .split('/')
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
         while segments.len() > 1 {
             let head = segments.first().map(|value| value.to_ascii_lowercase());
             if head
@@ -860,18 +865,17 @@ fn build_topbar_menu_groups(
                 item_order = order;
             }
         }
-        let (group_label, group_order) = if let Some((label_override, order_override)) =
-            group_overrides.get(&group)
-        {
-            (
-                label_override
-                    .clone()
-                    .unwrap_or_else(|| menu_group_display_label(&group)),
-                *order_override,
-            )
-        } else {
-            (menu_group_display_label(&group), i32::MAX / 2)
-        };
+        let (group_label, group_order) =
+            if let Some((label_override, order_override)) = group_overrides.get(&group) {
+                (
+                    label_override
+                        .clone()
+                        .unwrap_or_else(|| menu_group_display_label(&group)),
+                    *order_override,
+                )
+            } else {
+                (menu_group_display_label(&group), i32::MAX / 2)
+            };
         groups
             .entry(group.clone())
             .or_insert_with(|| TopbarMenuGroup {
@@ -922,11 +926,7 @@ fn menu_placement_from_segments(segments: &[&str]) -> (String, Option<String>, S
         return ("misc".to_string(), None, only.to_string());
     }
     if segments.len() == 2 {
-        return (
-            segments[0].to_string(),
-            None,
-            segments[1].to_string(),
-        );
+        return (segments[0].to_string(), None, segments[1].to_string());
     }
     (
         segments[0].to_string(),
@@ -1025,7 +1025,10 @@ fn compile_status_title(compiled: &CompiledApp) -> String {
     if errors == 0 && warnings == 0 && infos == 0 {
         "当前没有编译诊断".to_string()
     } else {
-        format!("编译诊断：{} 错误，{} 警告，{} 提示", errors, warnings, infos)
+        format!(
+            "编译诊断：{} 错误，{} 警告，{} 提示",
+            errors, warnings, infos
+        )
     }
 }
 
@@ -1134,7 +1137,11 @@ fn manage_tab_href(
     } else if let Some(entry) = selected_entry {
         query.push(format!("entry={entry}"));
     }
-    let route_tab = if script_target { tab } else { ManageViewTab::Preview };
+    let route_tab = if script_target {
+        tab
+    } else {
+        ManageViewTab::Preview
+    };
     query.push(format!("tab={}", route_tab.slug()));
     format!("/apps/manage/{app_path}?{}", query.join("&"))
 }
@@ -1149,11 +1156,7 @@ enum AssetPreviewKind {
     Unsupported,
 }
 
-fn asset_preview_view(
-    app_path: &str,
-    target: &str,
-    source: &str,
-) -> AnyView {
+fn asset_preview_view(app_path: &str, target: &str, source: &str) -> AnyView {
     let kind = asset_preview_kind(target);
     let asset_src = workspace_asset_href(app_path, target);
     let extension = target
@@ -1285,14 +1288,13 @@ fn asset_preview_kind(target: &str) -> AssetPreviewKind {
         .unwrap_or_default();
     match ext.as_str() {
         "md" | "markdown" => AssetPreviewKind::Markdown,
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" => {
-            AssetPreviewKind::Image
-        }
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" => AssetPreviewKind::Image,
         "pdf" => AssetPreviewKind::Pdf,
         "csv" => AssetPreviewKind::Csv,
-        "txt" | "json" | "yaml" | "yml" | "toml" | "xml" | "log" | "rs" | "js" | "ts"
-        | "tsx" | "jsx" | "css" | "html" | "htm" | "sh" | "zsh" | "bash" | "mei"
-        | "star" => AssetPreviewKind::Text,
+        "txt" | "json" | "yaml" | "yml" | "toml" | "xml" | "log" | "rs" | "js" | "ts" | "tsx"
+        | "jsx" | "css" | "html" | "htm" | "sh" | "zsh" | "bash" | "mei" | "star" => {
+            AssetPreviewKind::Text
+        }
         _ => {
             if ext.is_empty() {
                 AssetPreviewKind::Text
@@ -1314,8 +1316,8 @@ fn workspace_asset_href(app_path: &str, target: &str) -> String {
 fn percent_encode_path(value: &str) -> String {
     let mut output = String::new();
     for byte in value.bytes() {
-        let is_allowed = byte.is_ascii_alphanumeric()
-            || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'/');
+        let is_allowed =
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~' | b'/');
         if is_allowed {
             output.push(char::from(byte));
         } else {
@@ -1344,7 +1346,11 @@ fn csv_preview_table(
                     truncated = true;
                     break;
                 }
-                let mut row = record.iter().take(max_cols).map(|value| value.to_string()).collect::<Vec<_>>();
+                let mut row = record
+                    .iter()
+                    .take(max_cols)
+                    .map(|value| value.to_string())
+                    .collect::<Vec<_>>();
                 if record.len() > max_cols {
                     truncated = true;
                 }
@@ -1370,7 +1376,13 @@ fn csv_preview_table(
         }
     }
     if rows.is_empty() {
-        return (vec!["内容".to_string()], vec![vec!["".to_string()]], false, 1, 1);
+        return (
+            vec!["内容".to_string()],
+            vec![vec!["".to_string()]],
+            false,
+            1,
+            1,
+        );
     }
     let width = max_width.max(1);
     for row in &mut rows {
@@ -1381,7 +1393,11 @@ fn csv_preview_table(
     let headers = (0..width)
         .map(|idx| rows[0].get(idx).cloned().unwrap_or_default())
         .collect::<Vec<_>>();
-    let body = if rows.len() > 1 { rows[1..].to_vec() } else { Vec::new() };
+    let body = if rows.len() > 1 {
+        rows[1..].to_vec()
+    } else {
+        Vec::new()
+    };
     let shown_rows = body.len().max(1);
     (headers, body, truncated, shown_rows, width)
 }

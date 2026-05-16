@@ -25,9 +25,13 @@
     progressDetail: document.getElementById("author-progress-detail"),
     progressItems: document.getElementById("author-progress-items"),
     input: document.getElementById("author-intent-input"),
+    worldSuggest: document.getElementById("author-world-suggest"),
     run: document.getElementById("author-run-btn"),
     modePlan: document.getElementById("author-mode-plan-btn"),
     modeBuild: document.getElementById("author-mode-build-btn"),
+    worldQueryAction: document.getElementById("author-world-query-action"),
+    worldAssetSelect: document.getElementById("author-world-asset-select"),
+    worldInsert: document.getElementById("author-world-insert-btn"),
     undo: document.getElementById("author-undo-btn"),
     redo: document.getElementById("author-redo-btn"),
     sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
@@ -84,6 +88,10 @@
     sourceEditorContainer: null,
     sourceDiffResizeObserver: null,
     sourceViewResizeObserver: null,
+    worldAssetsCache: {},
+    worldAssetsLoading: false,
+    worldSuggestItems: [],
+    worldSuggestIndex: 0,
     progress: {
       visible: false,
       label: "",
@@ -227,6 +235,10 @@
 
   function currentAppKey() {
     return String(root.dataset.app || "").trim();
+  }
+
+  function currentSceneId() {
+    return String(root.dataset.scene || "").trim();
   }
 
   function sessionStorageKey() {
@@ -986,6 +998,9 @@
     const params = new URLSearchParams();
     params.set("app", String(root.dataset.app || ""));
     params.set("target", String(targetKey || ""));
+    if (root.dataset.scene) {
+      params.set("scene", String(root.dataset.scene || ""));
+    }
     if (root.dataset.entry) {
       params.set("entry", String(root.dataset.entry || ""));
     }
@@ -999,9 +1014,10 @@
       const params = new URLSearchParams(value.slice(4));
       const app = String(params.get("app") || "").trim();
       const target = normalizeTargetKey(params.get("target") || "");
+      const scene = String(params.get("scene") || "").trim();
       const entry = String(params.get("entry") || "").trim();
       if (!app || !target) return null;
-      return { app: app, target: target, entry: entry };
+      return { app: app, target: target, scene: scene, entry: entry };
     } catch (_) {
       return null;
     }
@@ -1043,6 +1059,12 @@
     if (els.modeBuild) els.modeBuild.disabled = controlsDisabled;
     renderRunButton(disabled);
     renderHistoryButtons();
+    syncWorldQueryControls();
+    if (controlsDisabled) {
+      clearWorldSuggest();
+    } else {
+      renderWorldSuggest();
+    }
   }
 
   function clearGenerationSettleTimer() {
@@ -1200,6 +1222,304 @@
     renderStatus();
     renderInlineNote();
     renderStatusBarOpenCode();
+  }
+
+  function currentWorldScopeParams() {
+    const params = new URLSearchParams();
+    const sceneId = currentSceneId();
+    const entryId = String(root.dataset.entry || "").trim();
+    const target = currentTargetKey();
+    if (sceneId) params.set("scene_id", sceneId);
+    if (entryId) params.set("entry_id", entryId);
+    if (target) params.set("target_file", target);
+    return params;
+  }
+
+  function currentWorldScopeCacheKey() {
+    return [
+      currentAppKey(),
+      currentSceneId(),
+      String(root.dataset.entry || "").trim(),
+      currentTargetKey(),
+    ].join("|");
+  }
+
+  function selectedWorldAction() {
+    return String(els.worldQueryAction && els.worldQueryAction.value ? els.worldQueryAction.value : "")
+      .trim();
+  }
+
+  function selectedWorldAssetId() {
+    return String(els.worldAssetSelect && els.worldAssetSelect.value ? els.worldAssetSelect.value : "")
+      .trim();
+  }
+
+  function buildWorldCommandFromControls() {
+    const action = selectedWorldAction();
+    if (action === "context") return "/world context";
+    if (action === "assets_entity") return "/world assets entity 20";
+    if (action === "assets_resource") return "/world assets resource 20";
+    if (action === "assets_cell") return "/world assets cell 20";
+    if (action === "runtime") return "/world runtime 8";
+    if (action === "asset") {
+      const assetId = selectedWorldAssetId();
+      return assetId ? "/world asset " + assetId : "";
+    }
+    return "";
+  }
+
+  function renderWorldAssetSelect(items) {
+    if (!els.worldAssetSelect) return;
+    const list = Array.isArray(items) ? items : [];
+    els.worldAssetSelect.innerHTML = "";
+    const placeholder = document.createElement("sl-option");
+    placeholder.value = "";
+    placeholder.textContent = list.length > 0 ? "选择资产" : "当前 scene 无资产";
+    els.worldAssetSelect.appendChild(placeholder);
+    list.forEach(function (item) {
+      if (!item || typeof item !== "object") return;
+      const id = String(item.id || "").trim();
+      if (!id) return;
+      const kind = String(item.kind || "asset").trim();
+      const name =
+        String(item.label || "").trim() || String(item.title || "").trim() || id;
+      const option = document.createElement("sl-option");
+      option.value = id;
+      option.textContent = kind + " · " + name;
+      els.worldAssetSelect.appendChild(option);
+    });
+    els.worldAssetSelect.value = "";
+  }
+
+  async function fetchWorldAssetsForCurrentScope(force) {
+    const app = currentAppKey();
+    if (!app) return [];
+    const cacheKey = currentWorldScopeCacheKey();
+    if (!force && Array.isArray(state.worldAssetsCache[cacheKey])) {
+      return state.worldAssetsCache[cacheKey];
+    }
+    const params = currentWorldScopeParams();
+    params.set("kind", "all");
+    params.set("limit", "200");
+    const payload = await fetchJson(
+      "/api/world/assets/" + encodeURIComponent(app) + "?" + params.toString(),
+    );
+    const list = Array.isArray(payload && payload.items) ? payload.items : [];
+    state.worldAssetsCache[cacheKey] = list;
+    return list;
+  }
+
+  function syncWorldQueryControls() {
+    const action = selectedWorldAction();
+    const showAssetSelect = action === "asset";
+    if (els.worldAssetSelect) {
+      els.worldAssetSelect.hidden = !showAssetSelect;
+      els.worldAssetSelect.disabled =
+        !showAssetSelect || state.loading || state.sending || state.aborting;
+    }
+    if (els.worldQueryAction) {
+      els.worldQueryAction.disabled = state.loading || state.sending || state.aborting;
+    }
+    if (els.worldInsert) {
+      const command = buildWorldCommandFromControls();
+      els.worldInsert.disabled = state.loading || state.sending || state.aborting || !command;
+      els.worldInsert.title = command ? "插入：" + command : "先选择 world 查询动作";
+    }
+  }
+
+  function resetWorldQueryControls() {
+    state.worldAssetsLoading = false;
+    if (els.worldQueryAction) {
+      els.worldQueryAction.value = "";
+    }
+    renderWorldAssetSelect([]);
+    syncWorldQueryControls();
+    clearWorldSuggest();
+  }
+
+  async function onWorldQueryActionChange() {
+    syncWorldQueryControls();
+    if (selectedWorldAction() !== "asset") {
+      return;
+    }
+    if (!els.worldAssetSelect) return;
+    state.worldAssetsLoading = true;
+    els.worldAssetSelect.disabled = true;
+    try {
+      const list = await fetchWorldAssetsForCurrentScope(false);
+      renderWorldAssetSelect(list);
+      if (!list.length) {
+        setInlineNote("当前 scene 未发现可选 world 资产。");
+      }
+    } catch (error) {
+      renderWorldAssetSelect([]);
+      setInlineNote("读取 world 资产失败：" + String(error.message || error));
+    } finally {
+      state.worldAssetsLoading = false;
+      syncWorldQueryControls();
+    }
+  }
+
+  function composerLastLine() {
+    const text = composerDraftText();
+    const lines = String(text).split(/\r?\n/);
+    return lines.length > 0 ? String(lines[lines.length - 1] || "") : "";
+  }
+
+  function normalizeWorldLine(line) {
+    const trimmed = String(line || "").trim();
+    return trimmed.toLowerCase();
+  }
+
+  function worldBaseSuggestionCommands() {
+    return [
+      "/world context",
+      "/world assets entity 20",
+      "/world assets resource 20",
+      "/world assets cell 20",
+      "/world runtime 8",
+    ];
+  }
+
+  function cachedWorldAssetIds() {
+    const cacheKey = currentWorldScopeCacheKey();
+    const list = Array.isArray(state.worldAssetsCache[cacheKey]) ? state.worldAssetsCache[cacheKey] : [];
+    return list
+      .map(function (item) { return String(item && item.id ? item.id : "").trim(); })
+      .filter(Boolean);
+  }
+
+  function shouldSuggestAssetIds(worldLineLower) {
+    return worldLineLower.startsWith("/world asset");
+  }
+
+  function buildWorldSuggestItems(worldLine) {
+    const line = String(worldLine || "").trim();
+    const lower = line.toLowerCase();
+    if (!lower.startsWith("/world")) return [];
+    const base = worldBaseSuggestionCommands();
+    const out = [];
+    if (lower === "/world") {
+      out.push.apply(out, base);
+      out.push("/world asset <id>");
+      return out;
+    }
+    base.forEach(function (cmd) {
+      if (cmd.startsWith(lower)) out.push(cmd);
+    });
+    if (shouldSuggestAssetIds(lower)) {
+      const ids = cachedWorldAssetIds();
+      const idRaw = line.replace(/^\/world\s+asset\s*/i, "").trim();
+      ids.forEach(function (id) {
+        if (!idRaw || id.toLowerCase().startsWith(idRaw.toLowerCase())) {
+          out.push("/world asset " + id);
+        }
+      });
+      if (!ids.length) {
+        out.push("/world asset <id>");
+      }
+    }
+    return Array.from(new Set(out)).slice(0, 8);
+  }
+
+  function renderWorldSuggest() {
+    if (!els.worldSuggest) return;
+    const items = Array.isArray(state.worldSuggestItems) ? state.worldSuggestItems : [];
+    if (!items.length || state.sending || state.aborting) {
+      els.worldSuggest.classList.add("hidden");
+      els.worldSuggest.innerHTML = "";
+      return;
+    }
+    els.worldSuggest.classList.remove("hidden");
+    els.worldSuggest.innerHTML = "";
+    items.forEach(function (item, index) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className =
+        "author-world-suggest-chip rounded-full border px-2 py-0.5 text-[10px] font-bold transition-colors " +
+        (index === state.worldSuggestIndex
+          ? "border-blue-300/80 bg-blue-700/35 text-blue-100"
+          : "border-slate-600/60 bg-slate-900/50 text-slate-300 hover:border-blue-300/60 hover:text-blue-200");
+      btn.textContent = item;
+      btn.dataset.index = String(index);
+      btn.addEventListener("click", function () {
+        applyWorldSuggestion(index);
+      });
+      els.worldSuggest.appendChild(btn);
+    });
+  }
+
+  function clearWorldSuggest() {
+    state.worldSuggestItems = [];
+    state.worldSuggestIndex = 0;
+    renderWorldSuggest();
+  }
+
+  function applyWorldSuggestion(index) {
+    if (!els.input) return;
+    const items = Array.isArray(state.worldSuggestItems) ? state.worldSuggestItems : [];
+    if (!items.length) return;
+    const next = String(items[index] || items[0] || "").trim();
+    if (!next) return;
+    const text = composerDraftText();
+    const lines = String(text).split(/\r?\n/);
+    if (!lines.length) {
+      lines.push(next);
+    } else {
+      const last = lines.length - 1;
+      const lastLine = String(lines[last] || "");
+      if (normalizeWorldLine(lastLine).startsWith("/world")) {
+        lines[last] = next;
+      } else if (!String(text).trim()) {
+        lines[last] = next;
+      } else {
+        lines.push(next);
+      }
+    }
+    els.input.value = lines.join("\n");
+    autoResizeComposerInput();
+    renderRunButton(state.loading);
+    clearWorldSuggest();
+    els.input.focus();
+  }
+
+  function moveWorldSuggestCursor(step) {
+    const items = Array.isArray(state.worldSuggestItems) ? state.worldSuggestItems : [];
+    if (!items.length) return false;
+    const size = items.length;
+    const current = Number.isFinite(state.worldSuggestIndex) ? state.worldSuggestIndex : 0;
+    const next = (current + step + size) % size;
+    state.worldSuggestIndex = next;
+    renderWorldSuggest();
+    return true;
+  }
+
+  async function syncWorldSuggestFromComposer() {
+    const line = composerLastLine();
+    const lower = normalizeWorldLine(line);
+    if (!lower.startsWith("/world")) {
+      clearWorldSuggest();
+      return;
+    }
+    if (
+      shouldSuggestAssetIds(lower) &&
+      !cachedWorldAssetIds().length &&
+      !state.worldAssetsLoading
+    ) {
+      state.worldAssetsLoading = true;
+      try {
+        await fetchWorldAssetsForCurrentScope(false);
+      } catch (_) {
+      } finally {
+        state.worldAssetsLoading = false;
+      }
+    }
+    const nextItems = buildWorldSuggestItems(line);
+    state.worldSuggestItems = nextItems;
+    if (state.worldSuggestIndex >= nextItems.length) {
+      state.worldSuggestIndex = 0;
+    }
+    renderWorldSuggest();
   }
 
   function formatMsTime(value) {
@@ -1423,6 +1743,7 @@
 
   function listBoundSessionsForTarget(sessions, targetKey) {
     const app = String(root.dataset.app || "");
+    const scene = currentSceneId();
     const entry = String(root.dataset.entry || "");
     const target = normalizeTargetKey(targetKey);
     return (Array.isArray(sessions) ? sessions : [])
@@ -1432,6 +1753,7 @@
         if (!meta) return false;
         if (meta.app !== app) return false;
         if (meta.target !== target) return false;
+        if (scene && meta.scene && meta.scene !== scene) return false;
         if (entry && meta.entry && meta.entry !== entry) return false;
         return true;
       })
@@ -2553,6 +2875,7 @@
         body: JSON.stringify({
           text: text,
           app_id: String(root.dataset.app || ""),
+          scene_id: currentSceneId(),
           entry_id: String(root.dataset.entry || ""),
           target_file: currentTargetKey(),
           agent: normalizeAgentMode(state.agentMode),
@@ -2723,12 +3046,70 @@
     });
   }
 
+  if (els.worldQueryAction) {
+    const onActionChange = function () {
+      onWorldQueryActionChange().catch(function (error) {
+        setInlineNote("world 查询动作切换失败：" + String(error.message || error));
+      });
+    };
+    els.worldQueryAction.addEventListener("sl-change", onActionChange);
+    els.worldQueryAction.addEventListener("change", onActionChange);
+  }
+
+  if (els.worldAssetSelect) {
+    const onAssetChange = function () {
+      syncWorldQueryControls();
+    };
+    els.worldAssetSelect.addEventListener("sl-change", onAssetChange);
+    els.worldAssetSelect.addEventListener("change", onAssetChange);
+  }
+
+  if (els.worldInsert) {
+    els.worldInsert.addEventListener("click", function () {
+      const command = buildWorldCommandFromControls();
+      if (!command) {
+        setInlineNote("请先选择 world 查询动作。");
+        return;
+      }
+      if (!els.input) return;
+      const draft = composerDraftText();
+      const next = draft.trim().length > 0 ? draft.replace(/\s*$/, "") + "\n" + command : command;
+      els.input.value = next;
+      autoResizeComposerInput();
+      renderRunButton(state.loading);
+      syncWorldSuggestFromComposer().catch(function () {});
+      els.input.focus();
+      setInlineNote("已插入 world 查询命令。");
+    });
+  }
+
   if (els.input) {
     els.input.addEventListener("input", function () {
       autoResizeComposerInput();
       renderRunButton(state.loading);
+      syncWorldSuggestFromComposer().catch(function () {});
     });
     els.input.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && state.worldSuggestItems.length > 0) {
+        event.preventDefault();
+        clearWorldSuggest();
+        return;
+      }
+      if (event.key === "ArrowDown" && state.worldSuggestItems.length > 0) {
+        event.preventDefault();
+        moveWorldSuggestCursor(1);
+        return;
+      }
+      if (event.key === "ArrowUp" && state.worldSuggestItems.length > 0) {
+        event.preventDefault();
+        moveWorldSuggestCursor(-1);
+        return;
+      }
+      if (event.key === "Tab" && state.worldSuggestItems.length > 0) {
+        event.preventDefault();
+        applyWorldSuggestion(state.worldSuggestIndex || 0);
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
         sendPrompt().catch(function (error) {
@@ -2737,6 +3118,7 @@
       }
     });
     autoResizeComposerInput();
+    syncWorldSuggestFromComposer().catch(function () {});
   }
 
   const onComposerInputWindowResize = function () {
@@ -2807,6 +3189,9 @@
     if (detail && typeof detail.app === "string") {
       root.dataset.app = detail.app;
     }
+    if (detail && typeof detail.scene === "string") {
+      root.dataset.scene = detail.scene;
+    }
     if (detail && typeof detail.target === "string") {
       root.dataset.target = detail.target;
     }
@@ -2822,6 +3207,8 @@
     if (detail && typeof detail.viewTab === "string") {
       root.dataset.viewTab = detail.viewTab;
     }
+    state.worldAssetsCache = {};
+    resetWorldQueryControls();
     destroySourceDiffView();
     destroySourceEditor();
     refreshLinkedViewRefs();
@@ -2848,6 +3235,7 @@
   initSourceEditor();
   renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
   renderProgressStrip();
+  resetWorldQueryControls();
   syncSourceDiffEntry();
   refreshAll().then(function () {
     if (initialTab !== "diff") return;

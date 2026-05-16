@@ -193,8 +193,14 @@ frame.add_panel(
     let world = contract.world.expect("world");
     assert_eq!(world.resources.len(), 1);
     assert_eq!(world.entities.len(), 1);
-    assert_eq!(world.topology.as_ref().map(|topology| topology.rows), Some(2));
-    assert_eq!(world.topology.as_ref().map(|topology| topology.cols), Some(2));
+    assert_eq!(
+        world.topology.as_ref().map(|topology| topology.rows),
+        Some(2)
+    );
+    assert_eq!(
+        world.topology.as_ref().map(|topology| topology.cols),
+        Some(2)
+    );
     assert!(
         compiled
             .diagnostics

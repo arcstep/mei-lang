@@ -26,6 +26,8 @@ pub(crate) struct BridgePromptRequest {
     #[serde(default)]
     pub app_id: Option<String>,
     #[serde(default)]
+    pub scene_id: Option<String>,
+    #[serde(default)]
     pub entry_id: Option<String>,
     #[serde(default)]
     pub target_file: Option<String>,

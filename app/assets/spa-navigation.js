@@ -272,6 +272,7 @@
     if (!root) return null;
     return {
       app: String(root.dataset.app || ""),
+      scene: String(root.dataset.scene || ""),
       target: String(root.dataset.target || ""),
       entry: String(root.dataset.entry || ""),
       mode: String(root.dataset.mode || ""),

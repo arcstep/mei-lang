@@ -263,9 +263,14 @@ fn node_view(
             resources,
             theme,
         ),
-        UiNodeDecl::Block(block) => {
-            block_view(block, parent_layout, compiled, app_path, scene_contract, resources)
-        }
+        UiNodeDecl::Block(block) => block_view(
+            block,
+            parent_layout,
+            compiled,
+            app_path,
+            scene_contract,
+            resources,
+        ),
     }
 }
 
