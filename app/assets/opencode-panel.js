@@ -28,6 +28,7 @@
     contextScope: document.getElementById("author-context-preview-scope"),
     contextSkill: document.getElementById("author-context-preview-skill"),
     contextTools: document.getElementById("author-context-preview-tools"),
+    contextInventory: document.getElementById("author-context-preview-inventory"),
     contextPrompt: document.getElementById("author-context-preview-prompt"),
     input: document.getElementById("author-intent-input"),
     run: document.getElementById("author-run-btn"),
@@ -1276,6 +1277,96 @@
     return lines.join("\n");
   }
 
+  function readContextInventory(payload) {
+    const inventory = payload && payload.resource_inventory ? payload.resource_inventory : null;
+    if (!inventory || typeof inventory !== "object") {
+      return { target: "", total: 0, items: [] };
+    }
+    return {
+      target: String(inventory.target_file || "").trim(),
+      total: Number.isFinite(Number(inventory.total_items)) ? Number(inventory.total_items) : 0,
+      items: Array.isArray(inventory.items) ? inventory.items : [],
+    };
+  }
+
+  function groupInventoryItemsByType(items) {
+    const grouped = {};
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      if (!item || typeof item !== "object") return;
+      const type = String(item.resource_type || "unknown").trim() || "unknown";
+      if (!grouped[type]) grouped[type] = [];
+      grouped[type].push(item);
+    });
+    return grouped;
+  }
+
+  function renderContextInventory(payload) {
+    if (!els.contextInventory) return;
+    const inventory = readContextInventory(payload);
+    const groups = groupInventoryItemsByType(inventory.items);
+    const types = Object.keys(groups).sort();
+    els.contextInventory.innerHTML = "";
+    if (!types.length) {
+      els.contextInventory.textContent = "(none)";
+      return;
+    }
+    const head = document.createElement("div");
+    head.className = "text-[10px] text-slate-400";
+    head.textContent =
+      "target=" + (inventory.target || "-") + " | total=" + String(inventory.total || 0);
+    els.contextInventory.appendChild(head);
+
+    types.forEach(function (type, index) {
+      const items = groups[type] || [];
+      const details = document.createElement("details");
+      details.className = "rounded border border-slate-700/60 bg-slate-950/40 px-2 py-1";
+      details.open = index < 2;
+
+      const summary = document.createElement("summary");
+      summary.className = "cursor-pointer text-[10px] font-bold text-slate-200";
+      summary.textContent = type + " (" + String(items.length) + ")";
+      details.appendChild(summary);
+
+      const list = document.createElement("div");
+      list.className = "mt-1 grid gap-1";
+      items.forEach(function (item) {
+        const row = document.createElement("div");
+        row.className = "rounded border border-slate-700/50 bg-slate-900/45 px-1.5 py-1";
+        const id = String(item.id || "").trim() || "(no-id)";
+        const title = String(item.title || "").trim();
+        const summaryText = String(item.summary || "").trim();
+        const sourcePath = String(item.source_path || "").trim();
+        const refs = Array.isArray(item.references) ? item.references : [];
+        const related = item.related_to_target ? " [target]" : "";
+        const firstLine = document.createElement("div");
+        firstLine.className = "font-mono text-[10px] text-slate-100";
+        firstLine.textContent = id + (title ? " · " + title : "") + related;
+        row.appendChild(firstLine);
+        if (summaryText) {
+          const sub = document.createElement("div");
+          sub.className = "text-[10px] text-slate-300";
+          sub.textContent = summaryText;
+          row.appendChild(sub);
+        }
+        if (sourcePath) {
+          const sub = document.createElement("div");
+          sub.className = "font-mono text-[10px] text-blue-300";
+          sub.textContent = "source: " + sourcePath;
+          row.appendChild(sub);
+        }
+        if (refs.length) {
+          const sub = document.createElement("div");
+          sub.className = "text-[10px] text-slate-400";
+          sub.textContent = "refs: " + refs.slice(0, 8).join(", ");
+          row.appendChild(sub);
+        }
+        list.appendChild(row);
+      });
+      details.appendChild(list);
+      els.contextInventory.appendChild(details);
+    });
+  }
+
   function renderContextPreview() {
     if (els.contextScope) {
       els.contextScope.textContent = formatContextScopeText(state.contextPreview);
@@ -1285,6 +1376,9 @@
     }
     if (els.contextTools) {
       els.contextTools.textContent = formatContextToolsText(state.contextPreview);
+    }
+    if (els.contextInventory) {
+      renderContextInventory(state.contextPreview);
     }
     if (els.contextPrompt) {
       els.contextPrompt.textContent = formatContextPromptText(state.contextPreview);

@@ -14,7 +14,7 @@ use super::types::{
     WorldAssetListQuery, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimePeekQuery,
     WorldRuntimePeekResponse, WorldScopeQuery,
 };
-use super::world::{
+use super::{
     build_world_context_snapshot, query_resource_get, query_resource_list,
     query_resource_runtime_peek,
 };

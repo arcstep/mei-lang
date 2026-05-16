@@ -40,6 +40,7 @@ use crate::{
 use super::super::error_response;
 use super::super::scene_api::{
     build_world_context_snapshot, default_resource_query_tools, WorldScope,
+    RESOURCE_QUERY_SCHEMA_VERSION,
 };
 use super::permissions::{
     classify_blocked_permission, collect_and_reject_blocked_permissions,
@@ -250,6 +251,7 @@ pub struct OpencodeContextPreviewResponse {
     pub target_file: Option<String>,
     pub session_context: String,
     pub system_prompt: String,
+    pub query_schema_version: String,
     #[serde(default)]
     pub query_tools: Vec<Value>,
     pub resource_inventory: Value,
@@ -306,6 +308,7 @@ pub async fn api_opencode_context_preview(
         target_file: query.target_file,
         session_context,
         system_prompt: request.system.unwrap_or_default(),
+        query_schema_version: RESOURCE_QUERY_SCHEMA_VERSION.to_string(),
         query_tools,
         resource_inventory: serde_json::to_value(snapshot.resource_inventory)
             .unwrap_or(Value::Null),

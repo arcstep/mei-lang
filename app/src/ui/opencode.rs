@@ -90,28 +90,39 @@ pub(super) fn panel_view(
                     </div>
                     <div
                         id="author-context-preview"
-                        class="author-context-preview grid gap-1 rounded-xl border border-slate-700/55 bg-slate-950/35 px-2 py-1.5"
+                        class="author-context-preview min-h-0 overflow-hidden rounded-xl border border-slate-700/55 bg-slate-950/35 px-2 py-1.5"
                     >
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-[10px] font-bold tracking-[0.02em] text-slate-300">"上下文预期"</span>
-                            <sl-button
-                                class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
-                                id="author-context-refresh-btn"
-                                title="刷新上下文预期"
-                                size="small"
+                        <details class="grid gap-1">
+                            <summary class="cursor-pointer text-[10px] font-bold tracking-[0.02em] text-slate-300">"上下文预期"</summary>
+                            <div
+                                class="mt-1 grid min-h-0 gap-1 pr-1"
+                                style="max-height:min(50vh,12.5rem);overflow-y:auto;overscroll-behavior:contain;"
                             >
-                                "刷新"
-                            </sl-button>
-                        </div>
-                        <div id="author-context-preview-scope" class="text-[10px] text-slate-400"></div>
-                        <div id="author-context-preview-skill" class="text-[10px] text-slate-400"></div>
-                        <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                            <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"可用工具"</summary>
-                            <pre id="author-context-preview-tools" class="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
-                        </details>
-                        <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                            <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"提示语注入预览"</summary>
-                            <pre id="author-context-preview-prompt" class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                <div class="flex items-center justify-end gap-2">
+                                    <sl-button
+                                        class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
+                                        id="author-context-refresh-btn"
+                                        title="刷新上下文预期"
+                                        size="small"
+                                    >
+                                        "刷新"
+                                    </sl-button>
+                                </div>
+                                <div id="author-context-preview-scope" class="text-[10px] text-slate-400"></div>
+                                <div id="author-context-preview-skill" class="text-[10px] text-slate-400"></div>
+                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"可用工具"</summary>
+                                    <pre id="author-context-preview-tools" class="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                </details>
+                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"资源树（按类型）"</summary>
+                                    <div id="author-context-preview-inventory" class="mt-1 grid gap-1 text-[10px] text-slate-200"></div>
+                                </details>
+                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"提示语注入预览"</summary>
+                                    <pre id="author-context-preview-prompt" class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                </details>
+                            </div>
                         </details>
                     </div>
                     <div class="author-chat-log grid min-h-0 flex-1 content-start gap-1.5 overflow-auto pr-0 [grid-auto-rows:max-content]" id="author-chat-log"></div>
