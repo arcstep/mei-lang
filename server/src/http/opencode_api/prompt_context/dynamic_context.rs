@@ -32,7 +32,7 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("unknown");
-    let mei_entries = collect_mei_file_entries(&app_root);
+    let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let mei_files = mei_entries
         .iter()
         .map(|item| item.relative_path.clone())
@@ -87,7 +87,7 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let scene_id = request.scene_id.as_deref().map(str::trim).unwrap_or("");
     let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
-    let mei_entries = collect_mei_file_entries(&app_root);
+    let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
         "v=world-context-v2|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mei_revision={revision}"

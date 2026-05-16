@@ -66,10 +66,7 @@ impl Backend {
                 .await;
             return;
         };
-        let source_root = app_root
-            .parent()
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| app_root.clone());
+        let source_root = resolve_source_root_for_assets(&app_root);
         let target = to_preview_target(&app_root, &path).unwrap_or_else(|| "main.mei".to_string());
         let options = CompileOptions {
             entry: None,
@@ -190,6 +187,21 @@ fn find_app_root(file: &Path) -> Option<PathBuf> {
         current = dir.parent();
     }
     None
+}
+
+/// `compile_app_from_root` 用该根目录加载 `workspaces/_components`；对嵌套 app 需向上找到含 `_components` 的祖先。
+fn resolve_source_root_for_assets(app_root: &Path) -> PathBuf {
+    let mut current: Option<&Path> = Some(app_root);
+    while let Some(dir) = current {
+        if dir.join("_components").is_dir() {
+            return dir.to_path_buf();
+        }
+        current = dir.parent();
+    }
+    app_root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| app_root.to_path_buf())
 }
 
 fn to_preview_target(app_root: &Path, file: &Path) -> Option<String> {

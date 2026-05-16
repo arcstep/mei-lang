@@ -5,13 +5,13 @@ use super::preview;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
-use super::TopbarMenuConfig;
+use super::TopbarMenuContext;
 
 pub(super) fn access_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     app_path: &str,
-    topbar_menu_config: Option<&TopbarMenuConfig>,
+    topbar_menu: Option<&TopbarMenuContext>,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
@@ -23,7 +23,7 @@ pub(super) fn access_shell(
         apps,
         compiled,
         app_path,
-        topbar_menu_config,
+        topbar_menu,
         UiRouteMode::Access,
         selected_entry,
         preview_target,

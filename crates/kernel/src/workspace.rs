@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs,
     path::{Path, PathBuf},
 };
@@ -10,37 +10,94 @@ use walkdir::WalkDir;
 
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
+#[derive(Debug, Default, Deserialize)]
+struct MeiConfigDiscover {
+    #[serde(default)]
+    skip_directories: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct MeiConfigDisk {
+    #[serde(default)]
+    discover: MeiConfigDiscover,
+}
+
+fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
+    let mut out: HashSet<String> = ["node_modules", ".git", "target", "dist"]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    let path = segment_root.join(".mei-config.json");
+    if let Ok(raw) = fs::read_to_string(&path) {
+        if let Ok(cfg) = serde_json::from_str::<MeiConfigDisk>(&raw) {
+            for d in cfg.discover.skip_directories {
+                let t = d.trim().trim_matches('/').replace('\\', "/");
+                if !t.is_empty() && !t.contains('/') {
+                    out.insert(t);
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 仅在 `source_root` 的**一级子目录**下递归发现应用（不会把 `source_root/main.mei` 当作应用，
+/// 也不会从 `spbjw/` 扫描到 `examples/` 等兄弟目录）。
 pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     let mut apps = Vec::new();
-    let walker = WalkDir::new(source_root)
-        .min_depth(1)
-        .into_iter()
-        .filter_entry(|entry| {
-            if !entry.file_type().is_dir() {
-                return true;
+    if !source_root.is_dir() {
+        bail!(
+            "discover_apps: source_root `{}` is not a directory",
+            source_root.display()
+        );
+    }
+    for child in fs::read_dir(source_root)
+        .with_context(|| format!("discover_apps: read_dir {}", source_root.display()))?
+    {
+        let child = child.context("discover_apps: read_dir entry")?;
+        let name = child.file_name().to_string_lossy().to_string();
+        if !child.file_type().context("discover_apps: file_type")?.is_dir() {
+            continue;
+        }
+        if name.starts_with('.') || name.starts_with('_') {
+            continue;
+        }
+        let child_root = child.path();
+        let skip_dirs = segment_discover_skip_dirs(&child_root);
+        let skip = skip_dirs.clone();
+        let walker = WalkDir::new(&child_root)
+            .min_depth(1)
+            .into_iter()
+            .filter_entry(move |entry| {
+                if !entry.file_type().is_dir() {
+                    return true;
+                }
+                let seg = entry.file_name().to_string_lossy();
+                if seg.starts_with('_') || seg.starts_with('.') {
+                    return false;
+                }
+                !skip.contains(seg.as_ref())
+            });
+        for entry in walker.filter_map(|entry| entry.ok()) {
+            if !entry.file_type().is_file() || entry.file_name() != "main.mei" {
+                continue;
             }
-            let name = entry.file_name().to_string_lossy();
-            !name.starts_with('_') && !name.starts_with('.')
-        });
-    for entry in walker.filter_map(|entry| entry.ok()) {
-        if !entry.file_type().is_file() || entry.file_name() != "main.mei" {
-            continue;
+            let Some(app_root) = entry.path().parent() else {
+                continue;
+            };
+            let Ok(relative) = app_root.strip_prefix(source_root) else {
+                continue;
+            };
+            let id = relative.to_string_lossy().replace('\\', "/");
+            if id.is_empty() {
+                continue;
+            }
+            apps.push(WorkspaceAppMeta {
+                id: id.clone(),
+                title: id,
+                root: app_root.to_string_lossy().to_string(),
+            });
         }
-        let Some(app_root) = entry.path().parent() else {
-            continue;
-        };
-        let Ok(relative) = app_root.strip_prefix(source_root) else {
-            continue;
-        };
-        let id = relative.to_string_lossy().replace('\\', "/");
-        if id.is_empty() {
-            continue;
-        }
-        apps.push(WorkspaceAppMeta {
-            id: id.clone(),
-            title: id,
-            root: app_root.to_string_lossy().to_string(),
-        });
     }
     apps.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(apps)
@@ -65,7 +122,10 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        if relative.starts_with('.') {
+        if relative
+            .split('/')
+            .any(|seg| !seg.is_empty() && seg.starts_with('.'))
+        {
             continue;
         }
         let parent = path

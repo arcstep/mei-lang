@@ -62,20 +62,39 @@ fn load_world_runtime_bundle(
             .find(|item| item.scene_id == scene_id || item.entry_id == scene_id)
             .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
         if let Some(entry_id) = requested_entry {
-            if entry_id != scene_entry.entry_id {
+            let matches_scene = entry_id == scene_entry.entry_id
+                || entry_id == scene_entry.target_file.as_str();
+            if !matches_scene {
                 return Err(anyhow!(
                     "scene `{scene_id}` does not match entry `{entry_id}`"
                 ));
             }
         }
         if let Some(target_file) = requested_target.as_deref() {
-            if target_file != scene_entry.target_file {
+            let matches_target = target_file == scene_entry.target_file.as_str()
+                || target_file == scene_entry.entry_id.as_str();
+            if !matches_target {
                 return Err(anyhow!(
                     "scene `{scene_id}` is not bound to target `{target_file}`"
                 ));
             }
         }
         selected_entry = Some(scene_entry.entry_id.clone());
+    } else if let Some(ref entry_id) = selected_entry {
+        let base_compiled = compile_app(source_root, app_id)?;
+        let known = base_compiled
+            .entries
+            .iter()
+            .any(|item| item.entry_id == *entry_id);
+        if !known {
+            if let Some(found) = base_compiled
+                .entries
+                .iter()
+                .find(|item| item.target_file == *entry_id)
+            {
+                selected_entry = Some(found.entry_id.clone());
+            }
+        }
     }
 
     let compiled = compile_app_with_options(

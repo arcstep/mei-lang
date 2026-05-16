@@ -233,7 +233,21 @@
   }
 
   function currentAppKey() {
-    return String(root.dataset.app || "").trim();
+    const fromDataset = String(root.dataset.app || "").trim();
+    try {
+      const path = window.location.pathname || "";
+      const prefixes = ["/apps/manage/", "/apps/access/"];
+      for (const prefix of prefixes) {
+        if (!path.startsWith(prefix)) continue;
+        let rest = path.slice(prefix.length);
+        const slashQ = rest.indexOf("/?");
+        if (slashQ >= 0) rest = rest.slice(0, slashQ);
+        rest = rest.replace(/\/+$/, "");
+        if (rest) return rest;
+        break;
+      }
+    } catch (_) {}
+    return fromDataset;
   }
 
   function currentSceneId() {

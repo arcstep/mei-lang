@@ -11,10 +11,15 @@ pub(super) fn panel_view(
     source_views_enabled: bool,
     active_tab: &str,
 ) -> impl IntoView {
-    let active_entry = compiled
-        .active_entry
-        .clone()
-        .unwrap_or_else(|| compiled.entry_target.clone());
+    let active_entry = compiled.active_entry.clone().or_else(|| {
+        compiled
+            .entries
+            .iter()
+            .find(|item| item.target_file == compiled.entry_target)
+            .map(|item| item.entry_id.clone())
+            .or_else(|| compiled.entries.first().map(|item| item.entry_id.clone()))
+    })
+    .unwrap_or_default();
     let active_scene = compiled
         .entries
         .iter()

@@ -7,12 +7,13 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use chrono::{DateTime, Local};
-use mei_lang_app::{render_page, SourcePanelMeta, TopbarMenuConfig, UiRouteMode};
+use mei_lang_app::{render_page, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode};
 use mei_lang_kernel::{
     compile_app_with_options, discover_apps, read_source_file, source_tree, CompileOptions,
     CompiledApp, Diagnostic, Severity, WorkspaceAppMeta,
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 
@@ -30,7 +31,7 @@ pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> 
     let first = choose_default_app(&state.source_root, &apps).or_else(|| apps.first());
     let first = first.ok_or_else(|| {
         AppError::msg(format!(
-            "source root does not contain any apps: {}",
+            "source root has no discoverable apps (need at least one first-level subdirectory under `{}` containing `main.mei`; root-level `main.mei` is ignored)",
             state.source_root.display()
         ))
     })?;
@@ -72,7 +73,7 @@ pub async fn app_page(
             let source_path = state.source_root.join(&app_id).join(&target);
             let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
             let source_meta = source_panel_meta(&source_path, &source);
-            let topbar_menu_config = load_topbar_menu_config(&state.source_root);
+            let topbar_menus = load_segment_topbar_menus(&state.source_root);
             let compiled = compile_error_fallback_app(
                 &state.source_root,
                 &app_id,
@@ -83,7 +84,7 @@ pub async fn app_page(
                 &apps,
                 &compiled,
                 &app_id,
-                topbar_menu_config.as_ref(),
+                Some(&topbar_menus),
                 route_mode,
                 Some(target.as_str()),
                 Some(source.as_str()),
@@ -103,12 +104,12 @@ pub async fn app_page(
     let source_path = state.source_root.join(&app_id).join(&target);
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_meta = source_panel_meta(&source_path, &source);
-    let topbar_menu_config = load_topbar_menu_config(&state.source_root);
+    let topbar_menus = load_segment_topbar_menus(&state.source_root);
     let html = render_page(
         &apps,
         &compiled,
         &app_id,
-        topbar_menu_config.as_ref(),
+        Some(&topbar_menus),
         route_mode,
         Some(target.as_str()),
         Some(source.as_str()),
@@ -234,30 +235,87 @@ fn resolve_components_root(source_root: &Path) -> std::path::PathBuf {
     local
 }
 
-fn load_topbar_menu_config(source_root: &Path) -> Option<TopbarMenuConfig> {
-    let candidates = [
-        source_root.join("_menu.json"),
-        source_root.join("menu.json"),
-    ];
-    for path in candidates {
-        if !path.exists() {
-            continue;
+#[derive(Debug, Deserialize)]
+struct MeiConfigMenuEnvelope {
+    #[serde(default)]
+    menu: Option<TopbarMenuConfig>,
+}
+
+fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
+    if !path.is_file() {
+        return None;
+    }
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "failed to read topbar menu file");
+            return None;
         }
-        let raw = match fs::read_to_string(&path) {
-            Ok(raw) => raw,
-            Err(error) => {
-                tracing::warn!(path = %path.display(), %error, "failed to read topbar menu config");
-                continue;
-            }
-        };
-        match serde_json::from_str::<TopbarMenuConfig>(&raw) {
-            Ok(config) => return Some(config),
-            Err(error) => {
-                tracing::warn!(path = %path.display(), %error, "failed to parse topbar menu config");
-            }
+    };
+    match serde_json::from_str::<TopbarMenuConfig>(&raw) {
+        Ok(config) => Some(config),
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "failed to parse topbar menu json");
+            None
         }
     }
-    None
+}
+
+fn read_menu_from_mei_config(path: &Path) -> Option<TopbarMenuConfig> {
+    if !path.is_file() {
+        return None;
+    }
+    let raw = match fs::read_to_string(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "failed to read .mei-config.json");
+            return None;
+        }
+    };
+    match serde_json::from_str::<MeiConfigMenuEnvelope>(&raw) {
+        Ok(envelope) => {
+            if let Some(menu) = envelope.menu {
+                return Some(menu);
+            }
+            None
+        }
+        Err(error) => {
+            tracing::warn!(path = %path.display(), %error, "failed to parse .mei-config.json menu envelope");
+            None
+        }
+    }
+}
+
+fn load_topbar_menu_from_dir(dir: &Path) -> Option<TopbarMenuConfig> {
+    let modern = dir.join(".mei-config.json");
+    if let Some(menu) = read_menu_from_mei_config(&modern) {
+        return Some(menu);
+    }
+    read_topbar_menu_json(&dir.join("_menu.json"))
+}
+
+fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext {
+    let mut by_segment = BTreeMap::new();
+    let root = load_topbar_menu_from_dir(source_root);
+    let Ok(entries) = fs::read_dir(source_root) else {
+        return TopbarMenuContext { root, by_segment };
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.starts_with('_') {
+            continue;
+        }
+        if let Some(config) = load_topbar_menu_from_dir(&entry.path()) {
+            by_segment.insert(name, config);
+        }
+    }
+    TopbarMenuContext { root, by_segment }
 }
 
 fn compile_error_fallback_app(

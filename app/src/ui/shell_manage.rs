@@ -12,13 +12,13 @@ use super::route::UiRouteMode;
 use super::source_tree;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
-use super::{SourcePanelMeta, TopbarMenuConfig};
+use super::{SourcePanelMeta, TopbarMenuContext};
 
 pub(super) fn manage_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     app_path: &str,
-    topbar_menu_config: Option<&TopbarMenuConfig>,
+    topbar_menu: Option<&TopbarMenuContext>,
     target: Option<&str>,
     source: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
@@ -60,7 +60,7 @@ pub(super) fn manage_shell(
         apps,
         compiled,
         app_path,
-        topbar_menu_config,
+        topbar_menu,
         UiRouteMode::Manage,
         selected_entry.or(active_entry),
         preview_target,

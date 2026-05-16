@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use super::manage_routing::route_query;
 use super::preview;
 use super::route::UiRouteMode;
-use super::{TopbarMenuConfig};
+use super::{TopbarMenuConfig, TopbarMenuContext};
 #[derive(Debug, Clone)]
 struct TopbarMenuItem {
     app_id: String,
@@ -22,30 +22,44 @@ struct TopbarMenuGroup {
     items: Vec<TopbarMenuItem>,
 }
 
+fn first_path_segment(app_id: &str) -> &str {
+    app_id
+        .split('/')
+        .find(|value| !value.is_empty())
+        .unwrap_or("")
+}
+
 fn build_topbar_menu_groups(
     apps: &[WorkspaceAppMeta],
-    config: Option<&TopbarMenuConfig>,
+    menus: Option<&TopbarMenuContext>,
 ) -> Vec<TopbarMenuGroup> {
     let mut groups: BTreeMap<String, TopbarMenuGroup> = BTreeMap::new();
-    let mut group_overrides: BTreeMap<String, (Option<String>, i32)> = BTreeMap::new();
-    if let Some(config) = config {
-        for group in &config.groups {
-            group_overrides.insert(
-                group.id.clone(),
-                (group.label.clone(), group.order.unwrap_or(i32::MAX / 2)),
-            );
-        }
-    }
-    let item_overrides = config
-        .map(|cfg| {
-            cfg.items
-                .iter()
-                .map(|item| (item.app_id.clone(), item.clone()))
-                .collect::<BTreeMap<_, _>>()
-        })
-        .unwrap_or_default();
-    let skip_prefixes = normalized_skip_prefixes(config);
     for app in apps {
+        let segment = first_path_segment(&app.id);
+        let config = menus.and_then(|menu| {
+            menu.by_segment
+                .get(segment)
+                .or(menu.root.as_ref())
+        });
+
+        let mut group_overrides: BTreeMap<String, (Option<String>, i32)> = BTreeMap::new();
+        if let Some(cfg) = config {
+            for group in &cfg.groups {
+                group_overrides.insert(
+                    group.id.clone(),
+                    (group.label.clone(), group.order.unwrap_or(i32::MAX / 2)),
+                );
+            }
+        }
+        let item_overrides = config
+            .map(|cfg| {
+                cfg.items
+                    .iter()
+                    .map(|item| (item.app_id.clone(), item.clone()))
+                    .collect::<BTreeMap<_, _>>()
+            })
+            .unwrap_or_default();
+        let skip_prefixes = normalized_skip_prefixes(config);
         let mut segments = app
             .id
             .split('/')
@@ -190,7 +204,7 @@ pub(super) fn topbar_view(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     active_app_path: &str,
-    topbar_menu_config: Option<&TopbarMenuConfig>,
+    topbar_menu: Option<&TopbarMenuContext>,
     route_mode: UiRouteMode,
     selected_entry: Option<&str>,
     preview_target: Option<&str>,
@@ -198,7 +212,7 @@ pub(super) fn topbar_view(
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let route_query = route_query(selected_entry, preview_target, active_tab);
-    let menu_groups = build_topbar_menu_groups(apps, topbar_menu_config);
+    let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
     let active_menu_context = menu_groups.iter().find_map(|group| {
         group
             .items

@@ -28,6 +28,7 @@ pub(super) fn workspace_root() -> PathBuf {
 
 pub(super) fn build_regression_workspace_root() -> PathBuf {
     let root = temp_root("regression-workspace");
+    let suite = root.join("regression-suite");
     for app_id in [
         "ds-01-dataset-baseline",
         "cockpit-01-composition-shell",
@@ -39,7 +40,7 @@ pub(super) fn build_regression_workspace_root() -> PathBuf {
         "sim-04-fire-multiroom",
     ] {
         write_file(
-            &root.join(app_id).join("main.mei"),
+            &suite.join(app_id).join("main.mei"),
             &format!(
                 r#"
 app(
@@ -74,7 +75,7 @@ frame.add_panel(
         );
     }
     write_file(
-        &root.join("cockpit-02-multi-entry").join("default.mei"),
+        &suite.join("cockpit-02-multi-entry").join("default.mei"),
         r#"
 scene(
     id = "default_compare",

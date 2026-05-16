@@ -17,7 +17,7 @@ fn compile_examples_regressions() {
         "sim-03-fire-spread",
         "sim-04-fire-multiroom",
     ] {
-        let app_root = examples.join(app_id);
+        let app_root = examples.join("regression-suite").join(app_id);
         let compiled = compile_app_from_root(&examples, &app_root)
             .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
         assert!(
@@ -59,6 +59,27 @@ fn compile_core_examples_baselines() {
             "example {app_id} should produce a scene contract"
         );
     }
+}
+
+#[test]
+fn compile_workspaces_spbjw_baseline() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile spbjw failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "spbjw should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "spbjw should produce scene contract"
+    );
 }
 
 #[test]
@@ -123,7 +144,7 @@ fn compile_capability_examples_baselines() {
 #[test]
 fn parse_cockpit_default_compare_scene_file() {
     let root = build_regression_workspace_root();
-    let path = root.join("cockpit-02-multi-entry/default.mei");
+    let path = root.join("regression-suite/cockpit-02-multi-entry/default.mei");
     let value = evaluate_mei_file(&path).expect("parse default compare scene");
     let values = value.as_array().expect("scene file exports array");
     assert!(

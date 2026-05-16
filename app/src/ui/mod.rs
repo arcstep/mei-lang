@@ -2,6 +2,8 @@ use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
 mod compile_status;
 mod manage_routing;
 mod opencode;
@@ -37,6 +39,14 @@ pub struct TopbarMenuConfig {
     pub items: Vec<TopbarMenuConfigItem>,
 }
 
+/// 顶栏菜单：优先按 app id 首段匹配 `<source_root>/<segment>/.mei-config.json` 的 `menu`；若无则回退 `<segment>/_menu.json`；再回退 `<source_root>/.mei-config.json` / `<source_root>/_menu.json`（用于 `source_root` 直接指向 `examples` 等子树时的整段配置）。
+#[derive(Debug, Clone, Default)]
+pub struct TopbarMenuContext {
+    /// `source_root/.mei-config.json`（`menu`）或 `source_root/_menu.json`，对该 `source_root` 下所有应用生效（在首段无专用配置时作为回退）。
+    pub root: Option<TopbarMenuConfig>,
+    pub by_segment: BTreeMap<String, TopbarMenuConfig>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopbarMenuConfigGroup {
     pub id: String,
@@ -63,7 +73,7 @@ pub fn render_page(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     app_path: &str,
-    topbar_menu_config: Option<&TopbarMenuConfig>,
+    topbar_menu: Option<&TopbarMenuContext>,
     route_mode: UiRouteMode,
     target: Option<&str>,
     source: Option<&str>,
@@ -86,7 +96,7 @@ pub fn render_page(
             apps,
             compiled,
             app_path,
-            topbar_menu_config,
+            topbar_menu,
             selected_entry,
             preview_target,
             active_tab,
@@ -96,7 +106,7 @@ pub fn render_page(
             apps,
             compiled,
             app_path,
-            topbar_menu_config,
+            topbar_menu,
             target,
             source,
             source_meta,

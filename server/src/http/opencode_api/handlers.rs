@@ -88,10 +88,17 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
             return true;
         }
 
-        // OpenCode 可能返回 Git 仓库根目录（例如 `workspaces`），
-        // 而 MeiLang `source_root` 是该仓库下的子目录（例如 `workspaces/examples`）。
-        // 这种情况下仍应视为同一工作区上下文。
-        FsPath::new(&expected).starts_with(FsPath::new(&project))
+        let project_path = FsPath::new(&project);
+        let expected_path = FsPath::new(&expected);
+        // OpenCode 可能返回更外层的 project/worktree，Mei `source_root` 更具体
+        if expected_path.starts_with(project_path) {
+            return true;
+        }
+        // OpenCode cwd 在子目录，Mei 绑定整个 `workspaces`
+        if project_path.starts_with(expected_path) {
+            return true;
+        }
+        false
     }
 
     let server_url = match managed_opencode_server_url(&state) {
