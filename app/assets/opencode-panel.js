@@ -30,9 +30,7 @@
     modeBuild: document.getElementById("author-mode-build-btn"),
     undo: document.getElementById("author-undo-btn"),
     redo: document.getElementById("author-redo-btn"),
-    sourceViewSourceBtn: document.getElementById("source-view-source-btn"),
     sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
-    sourceViewStatus: document.getElementById("source-view-status"),
     sourceViewHost: document.getElementById("source-view-host"),
     sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
     sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
@@ -83,6 +81,7 @@
     sourceDiffMessageId: "",
     sourceDiffMergeView: null,
     sourceCodeMirror: null,
+    sourceEditorContainer: null,
     sourceDiffResizeObserver: null,
     sourceViewResizeObserver: null,
     progress: {
@@ -250,6 +249,15 @@
     return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
   }
 
+  function refreshLinkedViewRefs() {
+    els.sourceViewHost = document.getElementById("source-view-host");
+    els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
+    els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
+    els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
+    els.statusSkill = document.getElementById("mei-status-skill");
+    els.statusOpenCode = document.getElementById("mei-status-opencode");
+  }
+
   function parsePx(value) {
     const n = Number.parseFloat(String(value || "0"));
     return Number.isFinite(n) ? n : 0;
@@ -293,6 +301,7 @@
   }
 
   function sourceTargetKey() {
+    refreshLinkedViewRefs();
     const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
     if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
       return normalizeFilePath(targetNode.dataset.sourceTarget);
@@ -301,6 +310,7 @@
   }
 
   function sourceLanguage() {
+    refreshLinkedViewRefs();
     const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
     if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
       return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
@@ -309,6 +319,7 @@
   }
 
   function sourceRawText() {
+    refreshLinkedViewRefs();
     return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
   }
 
@@ -599,12 +610,6 @@
     };
   }
 
-  function renderSourceViewStatus(text) {
-    if (!els.sourceViewStatus) return;
-    const message = String(text || "").trim();
-    els.sourceViewStatus.textContent = message || "仅支持最后一轮 Build";
-  }
-
   function destroySourceEditor() {
     if (state.sourceViewResizeObserver) {
       try {
@@ -613,12 +618,14 @@
       state.sourceViewResizeObserver = null;
     }
     state.sourceCodeMirror = null;
+    state.sourceEditorContainer = null;
     if (els.sourceViewSourcePanel) {
       els.sourceViewSourcePanel.innerHTML = "";
     }
   }
 
   function destroySourceDiffView() {
+    refreshLinkedViewRefs();
     if (state.sourceDiffResizeObserver) {
       try {
         state.sourceDiffResizeObserver.disconnect();
@@ -669,6 +676,7 @@
   }
 
   function bindSourceDiffResizeRefresh() {
+    refreshLinkedViewRefs();
     if (!els.sourceViewDiffPanel || typeof ResizeObserver !== "function") {
       return;
     }
@@ -684,6 +692,7 @@
   }
 
   function bindSourceViewResizeRefresh() {
+    refreshLinkedViewRefs();
     if (!els.sourceViewHost || typeof ResizeObserver !== "function") {
       return;
     }
@@ -701,7 +710,23 @@
     }
   }
 
+  function ensureSourceEditor() {
+    refreshLinkedViewRefs();
+    if (!els.sourceViewSourcePanel || !window.CodeMirror) {
+      return;
+    }
+    if (
+      state.sourceCodeMirror &&
+      state.sourceEditorContainer === els.sourceViewSourcePanel
+    ) {
+      refreshSourceEditors();
+      return;
+    }
+    initSourceEditor();
+  }
+
   function initSourceEditor() {
+    refreshLinkedViewRefs();
     if (!els.sourceViewSourcePanel || !window.CodeMirror) {
       return;
     }
@@ -715,11 +740,13 @@
       lineWrapping: false,
       scrollbarStyle: "native",
     });
+    state.sourceEditorContainer = els.sourceViewSourcePanel;
     bindSourceViewResizeRefresh();
     scheduleSourceDiffRefresh();
   }
 
   function renderSourceViewMode(mode) {
+    refreshLinkedViewRefs();
     const nextMode = mode === "diff" ? "diff" : "source";
     state.sourceViewMode = nextMode;
     if (els.sourceViewSourcePanel) {
@@ -728,15 +755,13 @@
     if (els.sourceViewDiffPanel) {
       els.sourceViewDiffPanel.hidden = nextMode !== "diff";
     }
-    if (els.sourceViewSourceBtn) {
-      const active = nextMode === "source";
-      els.sourceViewSourceBtn.classList.toggle("is-active", active);
-      els.sourceViewSourceBtn.setAttribute("aria-pressed", active ? "true" : "false");
-    }
     if (els.sourceViewDiffBtn) {
       const active = nextMode === "diff";
       els.sourceViewDiffBtn.classList.toggle("is-active", active);
       els.sourceViewDiffBtn.setAttribute("aria-pressed", active ? "true" : "false");
+    }
+    if (nextMode === "source") {
+      ensureSourceEditor();
     }
     scheduleSourceDiffRefresh();
   }
@@ -758,6 +783,7 @@
   }
 
   function renderSourceDiff(fileDiff, messageId) {
+    refreshLinkedViewRefs();
     if (!els.sourceViewDiffPanel) return false;
     if (!window.CodeMirror || typeof window.CodeMirror.MergeView !== "function") {
       setInlineNote("差异视图不可用：CodeMirror 未加载。");
@@ -784,21 +810,17 @@
       revertButtons: false,
     });
     state.sourceDiffMessageId = String(messageId || "");
-    renderSourceViewStatus("差异文件：" + String(fileDiff && fileDiff.file ? fileDiff.file : ""));
     bindSourceDiffResizeRefresh();
     scheduleSourceDiffRefresh();
     return true;
   }
 
   function leaveDiffView() {
+    refreshLinkedViewRefs();
     state.sourceDiffMessageId = "";
     destroySourceDiffView();
     const keepDiffMode = currentManageTab() === "diff";
     renderSourceViewMode(keepDiffMode ? "diff" : "source");
-    const message = state.latestDiffMessageId
-      ? "仅支持最后一轮 Build"
-      : "最后一轮 Build 生成改动后可查看差异";
-    renderSourceViewStatus(message);
     if (keepDiffMode && els.sourceViewDiffPanel) {
       els.sourceViewDiffPanel.innerHTML =
         '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可显示差异</div>';
@@ -806,18 +828,19 @@
   }
 
   function applyManageTabMode(tab) {
+    refreshLinkedViewRefs();
     const next = String(tab || "").trim().toLowerCase();
     if (next === "source") {
+      ensureSourceEditor();
       leaveDiffView();
       return;
     }
     if (next !== "diff") return;
     renderSourceViewMode("diff");
     if (!state.latestDiffMessageId) {
-      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
       if (els.sourceViewDiffPanel) {
         els.sourceViewDiffPanel.innerHTML =
-          '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">等待最后一轮 Build 产生差异</div>';
+          '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可查看差异</div>';
       }
       return;
     }
@@ -840,7 +863,7 @@
     const hasFiles = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
     setMessageMeta(mid, { hasDiff: hasFiles });
     if (!hasFiles) {
-      setInlineNote("最后一轮未产生可显示的文件差异。");
+      setInlineNote("暂无可显示的文件差异。");
       leaveDiffView();
       return false;
     }
@@ -860,8 +883,8 @@
       const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
       els.sourceViewDiffBtn.disabled = !enabled;
       els.sourceViewDiffBtn.title = enabled
-        ? "查看最后一轮 Build 差异"
-        : (historyUnavailableReason() || "最后一轮 Build 生成改动后可查看 Diff");
+        ? "查看差异"
+        : (historyUnavailableReason() || "暂无可查看差异");
     }
     if (
       state.sourceViewMode === "diff" &&
@@ -871,12 +894,6 @@
       leaveDiffView();
     } else if (!state.latestDiffMessageId && state.sourceViewMode === "diff") {
       leaveDiffView();
-    } else if (state.sourceViewMode !== "diff") {
-      renderSourceViewStatus(
-        state.latestDiffMessageId
-          ? "仅支持最后一轮 Build"
-          : "最后一轮 Build 生成改动后可查看差异",
-      );
     }
   }
 
@@ -1609,7 +1626,6 @@
       leaveDiffView();
     } else {
       destroySourceDiffView();
-      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
     }
     state.progress = {
       visible: false,
@@ -2740,16 +2756,6 @@
     });
   }
 
-  if (els.sourceViewSourceBtn) {
-    els.sourceViewSourceBtn.addEventListener("click", function () {
-      if (currentManageTab() !== "source") {
-        setManageTab("source");
-        return;
-      }
-      leaveDiffView();
-    });
-  }
-
   if (els.sourceViewDiffBtn) {
     els.sourceViewDiffBtn.addEventListener("click", function () {
       if (currentManageTab() !== "diff") {
@@ -2816,6 +2822,11 @@
     if (detail && typeof detail.viewTab === "string") {
       root.dataset.viewTab = detail.viewTab;
     }
+    destroySourceDiffView();
+    destroySourceEditor();
+    refreshLinkedViewRefs();
+    ensureSourceEditor();
+    applyManageTabMode(currentManageTab());
     root.classList.add("is-soft-refresh");
     restoreRevertedState();
     restoreAgentMode();
@@ -2836,17 +2847,11 @@
   const initialTab = currentManageTab();
   initSourceEditor();
   renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
-  renderSourceViewStatus(
-    initialTab === "diff"
-      ? "差异视图仅支持最后一轮 Build。"
-      : "最后一轮 Build 生成改动后可查看差异",
-  );
   renderProgressStrip();
   syncSourceDiffEntry();
   refreshAll().then(function () {
     if (initialTab !== "diff") return;
     if (!state.latestDiffMessageId) {
-      renderSourceViewStatus("最后一轮 Build 生成改动后可查看差异");
       return;
     }
     inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {

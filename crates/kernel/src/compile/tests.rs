@@ -1361,6 +1361,28 @@ fn compile_core_invalid_examples_report_expected_errors() {
 }
 
 #[test]
+fn compile_capability_examples_baselines() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/capability");
+    for app_id in ["01-file-query"] {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+            "example {app_id} should not produce error diagnostics"
+        );
+        assert!(
+            compiled.scene_contract.is_some(),
+            "example {app_id} should produce a scene contract"
+        );
+    }
+}
+
+#[test]
 fn parse_cockpit_default_compare_scene_file() {
     let root = build_regression_workspace_root();
     let path = root.join("cockpit-02-multi-entry/default.mei");

@@ -348,12 +348,6 @@ fn manage_shell(
     let source_tab_active =
         active_manage_tab == ManageViewTab::Source || active_manage_tab == ManageViewTab::Diff;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
-    let source_status_text = if source_mode == "diff" {
-        "差异视图仅支持最后一轮 Build。"
-    } else {
-        "仅支持最后一轮 Build。"
-    };
-
     view! {
         <div class=shell_class>
             {topbar}
@@ -420,21 +414,6 @@ fn manage_shell(
                                         hidden=!source_tab_active
                                     >
                                         <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
-                                            <div class="source-view-switcher mb-2.5 flex min-w-0 flex-nowrap items-center gap-2" role="group" aria-label="源码视图">
-                                                <sl-button
-                                                    class="source-view-btn hidden"
-                                                    id="source-view-source-btn"
-                                                    data-view-mode="source"
-                                                    size="small"
-                                                    pill=true
-                                                    hidden=true
-                                                >
-                                                    "当前源码"
-                                                </sl-button>
-                                                <sl-tag class="source-view-status min-w-0" id="source-view-status" size="small" variant="primary" pill=true>
-                                                    {source_status_text}
-                                                </sl-tag>
-                                            </div>
                                             <div class="source-view-host flex flex-1 min-h-0 flex-col gap-2.5" id="source-view-host" data-source-mode=source_mode>
                                                 <div
                                                     class="source-editor-host"
