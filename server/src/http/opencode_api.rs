@@ -1,5 +1,6 @@
 use std::{
     fs,
+    hash::{Hash, Hasher},
     path::{Component, Path as FsPath, PathBuf},
 };
 
@@ -19,8 +20,8 @@ use crate::{
         bridge::{
             abort_session as bridge_abort_session, create_session as bridge_create_session,
             global_event as bridge_global_event, health as bridge_health,
-            list_sessions as bridge_list_sessions,
             list_pending_permissions as bridge_list_pending_permissions,
+            list_sessions as bridge_list_sessions,
             project_current_worktree as bridge_project_current_worktree,
             respond_permission as bridge_respond_permission,
             revert_session_message as bridge_revert_session_message,
@@ -46,7 +47,7 @@ use crate::{
     AppState, SessionContextSnapshot,
 };
 
-use super::error_response;
+use super::{error_response, scene_api::build_world_context_snapshot};
 
 #[derive(Debug, Deserialize)]
 pub struct SessionMessagesQuery {
@@ -109,14 +110,13 @@ fn classify_blocked_permission(
     (
         path,
         true,
-        format!(
-            "触发了未支持的运行时授权请求（permission={permission}）。请联系管理员检查策略。"
-        ),
+        format!("触发了未支持的运行时授权请求（permission={permission}）。请联系管理员检查策略。"),
     )
 }
 
 fn blocked_notice_from_pending(item: BridgePendingPermission) -> HostBlockedPermissionNotice {
-    let (path, requires_admin, message) = classify_blocked_permission(&item.permission, &item.patterns);
+    let (path, requires_admin, message) =
+        classify_blocked_permission(&item.permission, &item.patterns);
     HostBlockedPermissionNotice {
         permission_id: item.id,
         permission: item.permission,
@@ -134,7 +134,10 @@ async fn collect_and_reject_blocked_permissions(
 ) -> anyhow::Result<Vec<HostBlockedPermissionNotice>> {
     let items = bridge_list_pending_permissions(&state.opencode_http, server_url).await?;
     let mut notices = Vec::new();
-    for item in items.into_iter().filter(|item| item.session_id == session_id) {
+    for item in items
+        .into_iter()
+        .filter(|item| item.session_id == session_id)
+    {
         let permission_id = item.id.trim().to_string();
         let mut notice = blocked_notice_from_pending(item);
         if !permission_id.is_empty() {
@@ -194,23 +197,165 @@ fn resolve_app_root(state: &AppState, request: &BridgePromptRequest) -> Option<(
     Some((app_id.to_string(), root))
 }
 
-fn collect_mei_files(app_root: &FsPath) -> Vec<String> {
+#[derive(Debug, Clone)]
+struct MeiFileEntry {
+    relative_path: String,
+    modified_epoch_ms: u128,
+}
+
+fn collect_mei_file_entries(app_root: &FsPath) -> Vec<MeiFileEntry> {
     let mut files = WalkDir::new(app_root)
         .into_iter()
         .flatten()
         .filter(|entry| entry.file_type().is_file())
         .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("mei"))
         .filter_map(|entry| {
-            entry
+            let relative_path = entry
                 .path()
                 .strip_prefix(app_root)
                 .ok()
                 .and_then(|path| path.to_str())
-                .map(|path| path.replace('\\', "/"))
+                .map(|path| path.replace('\\', "/"))?;
+            let modified_epoch_ms = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|value| value.as_millis())
+                .unwrap_or(0);
+            Some(MeiFileEntry {
+                relative_path,
+                modified_epoch_ms,
+            })
         })
         .collect::<Vec<_>>();
-    files.sort();
+    files.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
     files
+}
+
+fn build_mei_files_revision(entries: &[MeiFileEntry]) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for entry in entries {
+        entry.relative_path.hash(&mut hasher);
+        entry.modified_epoch_ms.hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn append_world_context_lines(lines: &mut Vec<String>, app_id: &str, app_root: &FsPath) {
+    let snapshot = match build_world_context_snapshot(app_root, app_id) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(app_id = %app_id, %error, "failed to build world context snapshot");
+            return;
+        }
+    };
+
+    lines.push(String::new());
+    lines.push("[World Snapshot]".to_string());
+    lines.push(format!("scene_id: {}", snapshot.world_snapshot.scene_id));
+    lines.push(format!("entry_target: {}", snapshot.entry_target));
+    lines.push(format!(
+        "world_id: {}",
+        snapshot
+            .world_snapshot
+            .world_id
+            .as_deref()
+            .unwrap_or("unknown")
+    ));
+    lines.push(format!(
+        "resource_count: {}",
+        snapshot.world_snapshot.world_resource_count
+    ));
+    lines.push(format!(
+        "entity_count: {}",
+        snapshot.world_snapshot.world_entity_count
+    ));
+    if let Some(topology) = snapshot.world_snapshot.world_topology.as_deref() {
+        lines.push(format!("topology: {topology}"));
+    }
+    if !snapshot
+        .world_snapshot
+        .world_resource_kind_counts
+        .is_empty()
+    {
+        lines.push(format!(
+            "resource_kind_counts: {}",
+            serde_json::to_string(&snapshot.world_snapshot.world_resource_kind_counts)
+                .unwrap_or_else(|_| "{}".to_string())
+        ));
+    }
+    if !snapshot.world_snapshot.world_entity_kind_counts.is_empty() {
+        lines.push(format!(
+            "entity_kind_counts: {}",
+            serde_json::to_string(&snapshot.world_snapshot.world_entity_kind_counts)
+                .unwrap_or_else(|_| "{}".to_string())
+        ));
+    }
+    if !snapshot.world_snapshot.world_key_resource_ids.is_empty() {
+        lines.push(format!(
+            "key_resource_ids: {}",
+            snapshot.world_snapshot.world_key_resource_ids.join(", ")
+        ));
+    }
+    if !snapshot.world_snapshot.world_key_entity_ids.is_empty() {
+        lines.push(format!(
+            "key_entity_ids: {}",
+            snapshot.world_snapshot.world_key_entity_ids.join(", ")
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push("[Runtime Summary]".to_string());
+    lines.push(format!("phase: {}", snapshot.runtime_summary.phase));
+    lines.push(format!("result: {}", snapshot.runtime_summary.result));
+    lines.push(format!("countdown: {}", snapshot.runtime_summary.countdown));
+    lines.push(format!(
+        "scene_view_entities: {}",
+        snapshot.runtime_summary.scene_view_entities
+    ));
+    lines.push(format!(
+        "scene_view_cells: {}",
+        snapshot.runtime_summary.scene_view_cells
+    ));
+    if !snapshot.runtime_summary.available_actions.is_empty() {
+        lines.push(format!(
+            "available_actions: {}",
+            snapshot.runtime_summary.available_actions.join(", ")
+        ));
+    }
+    if !snapshot.runtime_summary.recent_trace_messages.is_empty() {
+        lines.push(format!(
+            "recent_trace_messages: {}",
+            snapshot.runtime_summary.recent_trace_messages.join(" | ")
+        ));
+    }
+
+    lines.push(String::new());
+    lines.push("[World Query Capabilities]".to_string());
+    for capability in snapshot.query_capabilities {
+        lines.push(format!(
+            "- id: {} | status: {} | purpose: {}",
+            capability.id, capability.status, capability.purpose
+        ));
+        lines.push(format!("  input: {}", capability.input));
+        lines.push(format!("  output: {}", capability.output));
+    }
+
+    lines.push(String::new());
+    lines.push("[World Query Skill]".to_string());
+    lines.push(
+        "1) 先基于 world_snapshot 与 runtime_summary 回答；如果信息不足，再选择对应 world 查询能力。"
+            .to_string(),
+    );
+    lines.push(
+        "2) 优先围绕 world 核心资产（entity/resource/topology/relation）推理，不要回退到整个工作区源码。"
+            .to_string(),
+    );
+    lines.push(
+        "3) 访问侧默认只读，不直接改写正式作者态；涉及结构修改时，先提出 session patch 建议。"
+            .to_string(),
+    );
 }
 
 fn current_target_path(
@@ -233,7 +378,11 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("unknown");
-    let mei_files = collect_mei_files(&app_root);
+    let mei_entries = collect_mei_file_entries(&app_root);
+    let mei_files = mei_entries
+        .iter()
+        .map(|item| item.relative_path.clone())
+        .collect::<Vec<_>>();
     let target_context = current_target_path(&app_root, request).and_then(|(target, path)| {
         fs::read_to_string(&path)
             .ok()
@@ -267,18 +416,18 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
         lines.push(content);
         lines.push("```".to_string());
     }
+    append_world_context_lines(&mut lines, &app_id, &app_root);
     Some(lines.join("\n"))
 }
 
-fn build_context_signature(request: &BridgePromptRequest) -> Option<String> {
-    let app_id = request.app_id.as_deref()?.trim();
-    if app_id.is_empty() {
-        return None;
-    }
+fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
+    let (app_id, app_root) = resolve_app_root(state, request)?;
     let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
+    let mei_entries = collect_mei_file_entries(&app_root);
+    let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "app={app_id}|entry={entry_id}|target={target_file}"
+        "v=world-context-v1|app={app_id}|entry={entry_id}|target={target_file}|mei_revision={revision}"
     ))
 }
 
@@ -287,7 +436,7 @@ fn load_or_refresh_session_context(
     session_id: &str,
     request: &BridgePromptRequest,
 ) -> Option<String> {
-    let signature = build_context_signature(request)?;
+    let signature = build_context_signature(state, request)?;
     {
         let Ok(cache) = state.opencode_session_context.lock() else {
             tracing::warn!("opencode session context cache lock poisoned; fallback to rebuild");
@@ -583,7 +732,11 @@ pub async fn api_opencode_pending_permissions(
         Err(error) => return error_response(error),
     };
     match collect_and_reject_blocked_permissions(&state, &server_url, &session_id).await {
-        Ok(pending) => Json(HostBlockedPermissionList { session_id, pending }).into_response(),
+        Ok(pending) => Json(HostBlockedPermissionList {
+            session_id,
+            pending,
+        })
+        .into_response(),
         Err(error) => error_response(error),
     }
 }

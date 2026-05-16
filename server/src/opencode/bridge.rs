@@ -672,16 +672,14 @@ mod tests {
 
     #[test]
     fn decode_applied_response_accepts_session_object() {
-        assert!(
-            decode_applied_response(
-                "revert",
-                json!({
-                    "id": "ses_demo",
-                    "revert": { "messageID": "msg_demo" }
-                }),
-            )
-            .expect("object response")
-        );
+        assert!(decode_applied_response(
+            "revert",
+            json!({
+                "id": "ses_demo",
+                "revert": { "messageID": "msg_demo" }
+            }),
+        )
+        .expect("object response"));
     }
 
     #[test]

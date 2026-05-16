@@ -24,6 +24,19 @@ pub fn router() -> Router<AppState> {
             "/api/projection/*app_id",
             get(projection_api::projection_api),
         )
+        .route(
+            "/api/world/context/*app_id",
+            get(scene_api::world_context_api),
+        )
+        .route(
+            "/api/world/assets/*app_id",
+            get(scene_api::world_assets_api),
+        )
+        .route("/api/world/asset/*app_id", get(scene_api::world_asset_api))
+        .route(
+            "/api/world/runtime/*app_id",
+            get(scene_api::world_runtime_api),
+        )
         .route("/api/sim/step/*app_id", post(scene_api::sim_step_api))
         .route(
             "/api/opencode/config",

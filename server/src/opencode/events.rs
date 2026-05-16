@@ -278,7 +278,10 @@ pub(crate) fn normalize_global_event_to_host_event(
                 session_id: session_id.to_string(),
                 message_id,
                 role,
-                finish: info.get("finish").and_then(Value::as_str).map(ToString::to_string),
+                finish: info
+                    .get("finish")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
             })
         }
         "message.part.updated" => {
@@ -308,7 +311,9 @@ pub(crate) fn normalize_global_event_to_host_event(
                 .or_else(|| as_str(&properties, "requestID"))
                 .unwrap_or_default()
                 .to_string(),
-            permission: as_str(&properties, "permission").unwrap_or("unknown").to_string(),
+            permission: as_str(&properties, "permission")
+                .unwrap_or("unknown")
+                .to_string(),
             patterns: properties
                 .get("patterns")
                 .and_then(Value::as_array)
