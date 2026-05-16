@@ -71,13 +71,11 @@ pub(super) fn manage_tab_href(
 
 pub(super) fn route_query(
     selected_entry: Option<&str>,
-    preview_target: Option<&str>,
+    _preview_target: Option<&str>,
     _active_tab: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
-    if let Some(preview_target) = preview_target {
-        parts.push(format!("preview_target={preview_target}"));
-    } else if let Some(entry) = selected_entry {
+    if let Some(entry) = selected_entry {
         parts.push(format!("entry={entry}"));
     }
     if parts.is_empty() {

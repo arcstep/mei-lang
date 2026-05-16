@@ -144,13 +144,47 @@ pub async fn app_bundle(
     State(state): State<AppState>,
     AxumPath(mode): AxumPath<String>,
 ) -> Result<Response, AppError> {
+    let assets_root = state.package_root.join("app").join("assets");
+    if let Some(dist_rel_path) = app_bundle_dist_path(&mode) {
+        let dist_path = assets_root.join(dist_rel_path);
+        if dist_path.exists() {
+            return serve_static_asset(dist_path, "app dist bundle");
+        }
+    }
+    if matches!(mode.as_str(), "shoelace.js" | "shoelace") {
+        return serve_static_asset(
+            assets_root.join("shoelace-local.js"),
+            "shoelace fallback bundle",
+        );
+    }
+    if matches!(mode.as_str(), "styles.css" | "styles") {
+        let styles = app_bundle_styles();
+        let mut merged = String::new();
+        merged.push_str("/* Runtime merged stylesheet served by mei-lang-server. */\n");
+        for style in styles {
+            let style_path = assets_root.join(style);
+            let content = fs::read_to_string(&style_path)
+                .with_context(|| format!("failed to read style bundle file {}", style_path.display()))
+                .map_err(AppError::from)?;
+            merged.push_str("\n/* ===== ");
+            merged.push_str(style);
+            merged.push_str(" ===== */\n");
+            merged.push_str(&content);
+            merged.push('\n');
+        }
+        let mut response = Response::new(merged.into());
+        response.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/css; charset=utf-8"),
+        );
+        return Ok(response);
+    }
     let scripts = app_bundle_scripts(&mode).ok_or_else(|| {
         AppError::status(
             StatusCode::NOT_FOUND,
             format!("unsupported app bundle mode: {mode}"),
         )
     })?;
-    let assets_root = state.package_root.join("app").join("assets");
     let mut merged = String::new();
     merged.push_str("// Runtime merged bundle served by mei-lang-server.\n");
     for script in scripts {
@@ -202,6 +236,26 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
         "access.js" | "access" => Some(ACCESS_SCRIPTS),
         _ => None,
     }
+}
+
+fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
+    match mode {
+        "manage.js" | "manage" => Some("dist/manage.bundle.js"),
+        "access.js" | "access" => Some("dist/access.bundle.js"),
+        "shoelace.js" | "shoelace" => Some("dist/shoelace.bundle.js"),
+        "styles.css" | "styles" => Some("dist/styles.bundle.css"),
+        _ => None,
+    }
+}
+
+fn app_bundle_styles() -> &'static [&'static str] {
+    &[
+        "app-shell.css",
+        "tailwind.css",
+        "vendor/codemirror.css",
+        "vendor/codemirror-merge.css",
+        "vendor/shoelace/themes/dark.css",
+    ]
 }
 
 fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {
@@ -418,7 +472,7 @@ mod tests {
     };
     use reqwest::Client as HttpClient;
 
-    use super::{app_page, index, AppQuery};
+    use super::{app_bundle, app_page, index, AppQuery};
     use crate::{opencode, AppState};
 
     const VALID_APP_SOURCE: &str = r#"
@@ -457,6 +511,87 @@ frame.add_panel(
     ],
 )
 "#;
+
+    #[tokio::test]
+    async fn app_bundle_returns_merged_javascript() {
+        let state = AppState {
+            package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+            source_root: Arc::new(std::env::temp_dir()),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            opencode_http: Arc::new(HttpClient::new()),
+        };
+
+        let response = app_bundle(State(state), AxumPath("manage.js".to_string()))
+            .await
+            .expect("build manage bundle");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read bundle body");
+        let script = String::from_utf8(body.to_vec()).expect("bundle body utf8");
+        assert!(script.contains("meiLangBoot"));
+        assert!(
+            script.contains("spaNavigationMounted") || script.contains("spa-navigation"),
+            "bundle should include spa navigation code"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_bundle_supports_shoelace_mode() {
+        let state = AppState {
+            package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+            source_root: Arc::new(std::env::temp_dir()),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            opencode_http: Arc::new(HttpClient::new()),
+        };
+
+        let response = app_bundle(State(state), AxumPath("shoelace.js".to_string()))
+            .await
+            .expect("build shoelace bundle");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read shoelace body");
+        assert!(
+            body.len() > 256,
+            "shoelace bundle should not be empty"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_bundle_supports_styles_mode() {
+        let state = AppState {
+            package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+            source_root: Arc::new(std::env::temp_dir()),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            opencode_http: Arc::new(HttpClient::new()),
+        };
+        let response = app_bundle(State(state), AxumPath("styles.css".to_string()))
+            .await
+            .expect("build styles bundle");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read styles body");
+        let css = String::from_utf8(body.to_vec()).expect("styles body utf8");
+        assert!(
+            css.contains(".sl-theme-dark") || css.contains("Generated by scripts/build-assets.mjs"),
+            "styles bundle should contain merged stylesheet content"
+        );
+    }
 
     #[tokio::test]
     async fn app_page_returns_html_error_page_when_compile_fails() {

@@ -94,7 +94,7 @@ pub(super) fn entry_list_view(
     route_mode: UiRouteMode,
     app_path: &str,
     active_entry: Option<&str>,
-    preview_target: Option<&str>,
+    _preview_target: Option<&str>,
     _active_tab: Option<&str>,
 ) -> AnyView {
     if entries.is_empty() {
@@ -103,17 +103,13 @@ pub(super) fn entry_list_view(
     let items = entries
         .iter()
         .map(|entry| {
-            let mut href = format!(
+            let href = format!(
                 "/apps/{}/{}?entry={}&target={}",
                 route_mode.slug(),
                 app_path,
                 entry.entry_id,
                 entry.target_file
             );
-            if let Some(preview_target) = preview_target {
-                href.push_str("&preview_target=");
-                href.push_str(preview_target);
-            }
             let class = if active_entry == Some(entry.entry_id.as_str()) {
                 "tree-link active block rounded-lg bg-blue-600/30 px-2.5 py-2 text-[13px] text-slate-50 transition-colors"
             } else {
@@ -164,7 +160,6 @@ fn source_href(
         href.push_str("&entry=");
         href.push_str(entry);
     }
-    href.push_str("&tab=preview");
     href
 }
 

@@ -3149,9 +3149,10 @@
     closeEventStream();
   };
   window.addEventListener("beforeunload", beforeUnloadHandler);
-  const POLL_ACTIVE_MS = 8000;
-  const POLL_IDLE_MS = 30000;
-  const POLL_MAX_MS = 60000;
+  const POLL_ACTIVE_MS = 30000;
+  const POLL_IDLE_MS = 120000;
+  const POLL_STREAM_HEALTHY_MS = 180000;
+  const POLL_MAX_MS = 300000;
   let refreshTimerId = 0;
   let refreshPollFailureCount = 0;
   let refreshPollInFlight = false;
@@ -3164,6 +3165,15 @@
   function nextRefreshPollDelayMs() {
     const base = currentBasePollDelayMs();
     return Math.min(POLL_MAX_MS, base * Math.pow(2, refreshPollFailureCount));
+  }
+  function rightSidebarCollapsed() {
+    const workspaceRoot = document.getElementById("workspace-root");
+    return !!(workspaceRoot && workspaceRoot.dataset.rightCollapsed === "true");
+  }
+  function shouldPausePolling() {
+    if (document.visibilityState === "hidden") return true;
+    if (rightSidebarCollapsed()) return true;
+    return false;
   }
   function scheduleRefreshPoll(delayMs) {
     if (refreshTimerId) {
@@ -3179,8 +3189,18 @@
       scheduleRefreshPoll(nextRefreshPollDelayMs());
       return;
     }
-    if (document.visibilityState === "hidden") {
+    if (shouldPausePolling()) {
       scheduleRefreshPoll(Math.max(currentBasePollDelayMs(), nextRefreshPollDelayMs()));
+      return;
+    }
+    if (
+      state.streamConnected &&
+      state.health &&
+      state.health.healthy &&
+      !state.sending &&
+      !state.loading
+    ) {
+      scheduleRefreshPoll(POLL_STREAM_HEALTHY_MS);
       return;
     }
     refreshPollInFlight = true;

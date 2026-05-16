@@ -121,10 +121,19 @@
 
   function start() {
     refresh();
+    const manageMode =
+      document.body && document.body.classList.contains("manage-mode");
+    // 管理页由右侧 OpenCode 面板负责更高频状态同步，避免重复轮询。
+    if (manageMode) {
+      return;
+    }
     if (refreshTimer) {
       clearInterval(refreshTimer);
     }
-    refreshTimer = window.setInterval(refresh, 15000);
+    refreshTimer = window.setInterval(function () {
+      if (document.visibilityState === "hidden") return;
+      refresh();
+    }, 60000);
   }
 
   function stop() {

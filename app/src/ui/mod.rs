@@ -124,17 +124,10 @@ pub fn render_page(
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>{format!("{} - MeiLang", compiled.title)}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
-                <link rel="stylesheet" href="/app-assets/app-shell.css"/>
-                <link rel="stylesheet" href="/app-assets/tailwind.css"/>
-                <link rel="stylesheet" href="/app-assets/vendor/codemirror.css"/>
-                <link rel="stylesheet" href="/app-assets/vendor/codemirror-merge.css"/>
-                <link
-                    rel="stylesheet"
-                    href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/dark.css"
-                />
+                <link rel="stylesheet" href="/app-bundles/styles.css"/>
                 <script
                     type="module"
-                    src="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js"
+                    src="/app-bundles/shoelace.js"
                 ></script>
             </head>
             <body class=body_class>
@@ -172,7 +165,7 @@ mod tests {
         assert_eq!(route_query(None, None, Some("source")), "");
         assert_eq!(
             route_query(None, Some("main.mei"), Some("diagnostics")),
-            "?preview_target=main.mei"
+            ""
         );
     }
 }
