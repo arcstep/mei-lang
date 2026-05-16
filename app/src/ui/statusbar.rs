@@ -1,0 +1,80 @@
+use leptos::prelude::*;
+use mei_lang_kernel::CompiledApp;
+
+use super::compile_status::{
+    compile_status_counts, compile_status_summary, compile_status_title, compile_status_tone,
+};
+use super::SourcePanelMeta;
+pub(super) fn statusbar_view(
+    app_path: &str,
+    route_mode: &'static str,
+    current_target: &str,
+    source_meta: Option<&SourcePanelMeta>,
+    compiled: &CompiledApp,
+    runtime_enabled: bool,
+) -> AnyView {
+    let app_summary = format!("应用 {}", compiled.title);
+    let app_summary_title = format!("应用：{app_path}");
+    let route_mode_label = if route_mode == "manage" {
+        "管理态"
+    } else {
+        "访问态"
+    };
+    let file_label = current_target
+        .rsplit('/')
+        .next()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(current_target);
+    let file_summary = if let Some(meta) = source_meta {
+        format!("文件 {file_label} · {}行", meta.line_count)
+    } else {
+        format!("文件 {file_label}")
+    };
+    let file_summary_title = if let Some(meta) = source_meta {
+        format!(
+            "当前文件：{} · {}行 · {}字",
+            current_target, meta.line_count, meta.char_count
+        )
+    } else {
+        format!("当前文件：{current_target}")
+    };
+    let (errors, warnings, infos) = compile_status_counts(compiled);
+    let error_tone = if errors > 0 { "danger" } else { "neutral" };
+    let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
+    let info_tone = if infos > 0 { "info" } else { "neutral" };
+    let compile_summary = compile_status_summary(compiled);
+    let compile_summary_title = compile_status_title(compiled);
+    let compile_tone = compile_status_tone(compiled);
+    let runtime_skill = if runtime_enabled {
+        "Skill 检测中"
+    } else {
+        "Skill --"
+    };
+    let runtime_opencode = if runtime_enabled {
+        "OpenCode 检测中"
+    } else {
+        "OpenCode --"
+    };
+    view! {
+        <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
+            <div class="statusbar-layout min-w-0 text-[10px]">
+                <div class="statusbar-track statusbar-track-left min-w-0">
+                    <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
+                    <span class="status-chip status-chip-file max-w-[26vw]" title=file_summary_title>{file_summary}</span>
+                    <span class="status-chip status-chip-mode" data-tone="info">{route_mode_label}</span>
+                </div>
+                <div class="statusbar-track statusbar-track-center min-w-0">
+                    <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title>{compile_summary}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=error_tone>{format!("Error {}", errors)}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
+                    <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
+                </div>
+                <div class="statusbar-track statusbar-track-right min-w-0">
+                    <span class="status-chip status-chip-runtime max-w-[200px]" id="mei-status-skill" data-tone="neutral">{runtime_skill}</span>
+                    <span class="status-chip status-chip-runtime max-w-[240px]" id="mei-status-opencode" data-tone="neutral">{runtime_opencode}</span>
+                </div>
+            </div>
+        </footer>
+    }
+    .into_any()
+}
