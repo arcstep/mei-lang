@@ -1,3 +1,4 @@
 /target*/
 /.tailwind/
 .DS_Store
+node_modules/

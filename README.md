@@ -23,6 +23,8 @@ opencode serve --hostname 127.0.0.1 --port 4099
 
 ```bash
 cd mei-lang
+npm install
+npm run assets:build
 ./scripts/tailwind-build.sh
 cargo run -p mei-lang-server -- serve
 ```

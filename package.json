@@ -1,0 +1,11 @@
+{
+  "name": "mei-lang-assets",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "assets:build": "node ./scripts/build-assets.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}
