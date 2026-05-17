@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 
@@ -54,24 +54,6 @@ fn message_assistant_text_content(msg: &Value) -> Option<String> {
     }
 }
 
-/// 将非流式 `chat/completions` 返回的正文写入 parts。
-///
-/// 历史上曾按 `as_bytes().chunks(64)` + `str::from_utf8` 切片；在中文等多字节 UTF-8 下极易落在码点中间，
-/// `from_utf8` 失败则整段被 `unwrap_or("")` **丢弃**，数据库里会只剩半截 Markdown，与「提取问题」极像。
-fn emit_nonstream_assistant_text(
-    text: &str,
-    abort_flag: Option<&AtomicBool>,
-    on_text_delta: &mut impl FnMut(&str) -> Result<()>,
-) -> Result<()> {
-    if text.is_empty() {
-        return Ok(());
-    }
-    if abort_flag.is_some_and(|f| f.load(Ordering::SeqCst)) {
-        anyhow::bail!("aborted");
-    }
-    on_text_delta(text)
-}
-
 /// 在阻塞线程内调用（配合 `rusqlite` 等非 Send 状态）；无 tools。
 pub(crate) fn stream_chat_completion_blocking(
     client: &Client,
@@ -99,6 +81,138 @@ pub(crate) fn stream_chat_completion_blocking(
         .with_context(|| format!("POST {url} error status"))?;
 
     stream_sse_deltas(&mut response, abort_flag, &mut on_text_delta)
+}
+
+#[derive(Debug, Clone, Default)]
+struct StreamToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct StreamToolRound {
+    assistant_text: String,
+    tool_calls: Vec<StreamToolCall>,
+}
+
+const MAX_STREAM_TOOL_CALLS_PER_ROUND: usize = 32;
+
+fn apply_stream_tool_delta(calls: &mut Vec<StreamToolCall>, item: &Value) {
+    let index = item
+        .get("index")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(calls.len());
+    if index >= MAX_STREAM_TOOL_CALLS_PER_ROUND {
+        return;
+    }
+    if calls.len() <= index {
+        calls.resize(index + 1, StreamToolCall::default());
+    }
+    let slot = &mut calls[index];
+    if let Some(id) = item.get("id").and_then(Value::as_str) {
+        if !id.is_empty() {
+            slot.id = id.to_string();
+        }
+    }
+    if let Some(name) = item.pointer("/function/name").and_then(Value::as_str) {
+        if !name.is_empty() {
+            slot.name = name.to_string();
+        }
+    }
+    if let Some(args_piece) = item.pointer("/function/arguments").and_then(Value::as_str) {
+        if !args_piece.is_empty() {
+            slot.arguments.push_str(args_piece);
+        }
+    }
+}
+
+fn stream_chat_with_tools_round_blocking(
+    client: &Client,
+    url: &str,
+    api_key: &str,
+    model: &str,
+    messages: &[Value],
+    tools: &[Value],
+    abort_flag: Option<&AtomicBool>,
+    on_text_delta: &mut impl FnMut(&str) -> Result<()>,
+) -> Result<StreamToolRound> {
+    if abort_flag.is_some_and(|f| f.load(Ordering::SeqCst)) {
+        anyhow::bail!("aborted");
+    }
+    let body = json!({
+        "model": model,
+        "messages": messages,
+        "tools": tools,
+        "tool_choice": "auto",
+        "stream": true,
+    });
+    let mut response = client
+        .post(url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .with_context(|| format!("POST {url}"))?
+        .error_for_status()
+        .with_context(|| format!("POST {url} error status"))?;
+
+    let mut round = StreamToolRound::default();
+    let mut carry = String::new();
+    let mut buf = [0u8; 4096];
+    loop {
+        if abort_flag.is_some_and(|f| f.load(Ordering::SeqCst)) {
+            anyhow::bail!("aborted");
+        }
+        let n = response.read(&mut buf).context("read stream with tools")?;
+        if n == 0 {
+            break;
+        }
+        carry.push_str(&String::from_utf8_lossy(&buf[..n]));
+        if carry.contains("\r\n") {
+            carry = carry.replace("\r\n", "\n");
+        }
+        while let Some(pos) = carry.find("\n\n") {
+            let frame = carry[..pos].to_string();
+            carry = carry[pos + 2..].to_string();
+            for line in frame.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                let Some(data) = line.strip_prefix("data:") else {
+                    continue;
+                };
+                let data = data.trim();
+                if data == "[DONE]" {
+                    return Ok(round);
+                }
+                let chunk: Value = match serde_json::from_str(data) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if let Some(piece) = chunk
+                    .pointer("/choices/0/delta/content")
+                    .and_then(Value::as_str)
+                {
+                    if !piece.is_empty() {
+                        round.assistant_text.push_str(piece);
+                        on_text_delta(piece)?;
+                    }
+                }
+                if let Some(items) = chunk
+                    .pointer("/choices/0/delta/tool_calls")
+                    .and_then(Value::as_array)
+                {
+                    for item in items {
+                        apply_stream_tool_delta(&mut round.tool_calls, item);
+                    }
+                }
+            }
+        }
+    }
+    Ok(round)
 }
 
 fn stream_sse_deltas(
@@ -213,50 +327,9 @@ pub(crate) fn execute_read_file_under_root(source_root: &Path, arguments_json: &
     }
 }
 
-fn complete_chat_nonstream_blocking(
-    client: &Client,
-    url: &str,
-    api_key: &str,
-    model: &str,
-    messages: &[Value],
-    tools: &[Value],
-    abort_flag: Option<&AtomicBool>,
-) -> Result<Value> {
-    if abort_flag.is_some_and(|f| f.load(Ordering::SeqCst)) {
-        anyhow::bail!("aborted");
-    }
-    let body = json!({
-        "model": model,
-        "messages": messages,
-        "tools": tools,
-        "tool_choice": "auto",
-        "stream": false,
-    });
-    let text = client
-        .post(url)
-        .header("Authorization", format!("Bearer {api_key}"))
-        .header("Content-Type", "application/json")
-        .json(&body)
-        .send()
-        .with_context(|| format!("POST {url}"))?
-        .error_for_status()
-        .with_context(|| format!("POST {url} error status"))?
-        .text()
-        .context("read completion body")?;
-    let v: Value = serde_json::from_str(&text).with_context(|| {
-        format!(
-            "parse completion JSON (prefix {}): {}",
-            text.len().min(200),
-            &text.chars().take(200).collect::<String>()
-        )
-    })?;
-    if let Some(err) = v.pointer("/error/message").and_then(Value::as_str) {
-        anyhow::bail!("LLM API error: {err}");
-    }
-    Ok(v)
-}
-
-/// 多轮 tool 用非流式，最终 assistant 文本用流式（与面板 delta 一致）。
+/// 统一走流式：
+/// - 无工具调用：首个 delta 直接透传到前端；
+/// - 有工具调用：先流出该轮正文，再执行工具，下一轮继续流式，直到无 tool_call 收敛。
 pub(crate) fn stream_chat_with_tools_blocking(
     client: &Client,
     base_url: &str,
@@ -269,50 +342,78 @@ pub(crate) fn stream_chat_with_tools_blocking(
     mut on_text_delta: impl FnMut(&str) -> Result<()>,
     mut on_after_tool_calls: impl FnMut() -> Result<()>,
 ) -> Result<()> {
+    if tools.is_empty() {
+        return stream_chat_completion_blocking(
+            client,
+            base_url,
+            api_key,
+            model,
+            messages.clone(),
+            abort_flag,
+            on_text_delta,
+        );
+    }
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
-    let mut had_tool_round = false;
-
     for _ in 0..MAX_TOOL_ROUNDS {
-        let resp = complete_chat_nonstream_blocking(
-            client, &url, api_key, model, messages, tools, abort_flag,
+        let round = stream_chat_with_tools_round_blocking(
+            client,
+            &url,
+            api_key,
+            model,
+            messages,
+            tools,
+            abort_flag,
+            &mut on_text_delta,
         )?;
-        let msg = resp
-            .pointer("/choices/0/message")
-            .cloned()
-            .unwrap_or(Value::Null);
-        let tool_calls = msg
-            .get("tool_calls")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        if !tool_calls.is_empty() {
-            had_tool_round = true;
-            // 与 UI 一致：同一轮里「模型先说的正文」必须落在工具块之前（此前仅进 messages，未写入 parts）。
-            if let Some(s) = message_assistant_text_content(&msg) {
-                if !s.is_empty() {
-                    emit_nonstream_assistant_text(s.as_str(), abort_flag, &mut on_text_delta)?;
-                }
+
+        if round.tool_calls.is_empty() {
+            // 无论是否有正文，这一轮都不再触发工具，直接结束。
+            return Ok(());
+        }
+
+        let tool_calls_json = round
+            .tool_calls
+            .iter()
+            .map(|tc| {
+                json!({
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.name,
+                        "arguments": tc.arguments,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut assistant_msg = json!({
+            "role": "assistant",
+            "content": if round.assistant_text.is_empty() {
+                Value::Null
+            } else {
+                Value::String(round.assistant_text.clone())
+            },
+            "tool_calls": tool_calls_json,
+        });
+
+        if message_assistant_text_content(&assistant_msg).is_none() && !round.assistant_text.is_empty() {
+            assistant_msg["content"] = Value::String(round.assistant_text.clone());
+        }
+        messages.push(assistant_msg);
+
+        let mut batch: Vec<(String, String, String)> = Vec::with_capacity(round.tool_calls.len());
+        for tc in &round.tool_calls {
+            let id = tc.id.trim();
+            let name = tc.name.trim();
+            if id.is_empty() || name.is_empty() {
+                anyhow::bail!("stream tool call missing id or name");
             }
-            messages.push(msg);
-            let mut batch: Vec<(String, String, String)> = Vec::with_capacity(tool_calls.len());
-            for tc in &tool_calls {
-                let id = tc
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("tool_calls entry missing id"))?
-                    .to_string();
-                let name = tc
-                    .pointer("/function/name")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| anyhow!("tool_calls entry missing function.name"))?
-                    .to_string();
-                let args = tc
-                    .pointer("/function/arguments")
-                    .and_then(Value::as_str)
-                    .unwrap_or("{}")
-                    .to_string();
-                batch.push((id, name, args));
-            }
+            let args = if tc.arguments.trim().is_empty() {
+                "{}".to_string()
+            } else {
+                tc.arguments.clone()
+            };
+            batch.push((id.to_string(), name.to_string(), args));
+        }
             let outputs = run_tool_batch(&batch);
             if outputs.len() != batch.len() {
                 anyhow::bail!(
@@ -330,32 +431,10 @@ pub(crate) fn stream_chat_with_tools_blocking(
             }
             // 让后续流式/非流式正文写入新的 text part，使 parts 顺序与对话时间线一致（正文、工具、再正文…）。
             on_after_tool_calls()?;
-            continue;
-        }
-
-        if let Some(s) = message_assistant_text_content(&msg) {
-            if !s.is_empty() {
-                // 一旦出现过工具回调，最终正文必须走 stream，避免「工具后正文整段蹦出」。
-                if had_tool_round {
-                    break;
-                }
-                emit_nonstream_assistant_text(s.as_str(), abort_flag, &mut on_text_delta)?;
-                return Ok(());
-            }
-        }
-
-        messages.push(msg);
-        break;
     }
 
-    stream_chat_completion_blocking(
-        client,
-        base_url,
-        api_key,
-        model,
-        messages.clone(),
-        abort_flag,
-        on_text_delta,
+    anyhow::bail!(
+        "tool rounds exceeded max limit ({MAX_TOOL_ROUNDS}); stop to prevent infinite loop"
     )
 }
 
