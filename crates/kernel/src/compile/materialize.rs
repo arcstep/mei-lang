@@ -55,7 +55,7 @@ pub(super) fn materialize_legacy_datasets(
             .and_then(|value| value.strip_prefix("dataset."))
             .map(ToString::to_string)
             .unwrap_or_else(|| decl.dataset.key.clone());
-        let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false, false);
+        let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false);
         let mut source_truncated = false;
         let mut rows = if decl.dataset.kind == "dataframe" {
             let snapshot = load_legacy_rows_from_source(app_root, &decl.source)?;
@@ -112,7 +112,6 @@ pub(super) fn materialize_legacy_datasets(
             source: legacy_dataset_source_decl(
                 &decl.source,
                 &decl.dataset.normalize,
-                true,
                 source_truncated,
             ),
             sources: Vec::new(),
@@ -242,7 +241,6 @@ fn source_max_page_size(source: &LegacySourceDecl) -> usize {
 fn legacy_dataset_source_decl(
     source: &LegacySourceDecl,
     normalize: &BTreeMap<String, String>,
-    lazy_enabled: bool,
     preview_truncated: bool,
 ) -> SourceDecl {
     let source_path = source
@@ -260,7 +258,6 @@ fn legacy_dataset_source_decl(
     });
     let meta = serde_json::json!({
         "lazy": {
-            "enabled": lazy_enabled,
             "preview_rows": source_preview_rows(source),
             "default_page_size": source_page_size(source),
             "max_page_size": source_max_page_size(source),

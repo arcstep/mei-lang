@@ -90,7 +90,6 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
     }
     let source_meta = serde_json::json!({
         "lazy": {
-            "enabled": true,
             "preview_rows": DEFAULT_PREVIEW_ROWS,
             "default_page_size": DEFAULT_PAGE_SIZE,
             "max_page_size": DEFAULT_MAX_PAGE_SIZE,
