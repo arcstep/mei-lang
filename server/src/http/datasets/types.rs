@@ -44,8 +44,6 @@ pub(crate) struct SourceMeta {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(crate) struct LazyMeta {
     #[serde(default)]
-    pub(crate) enabled: Option<bool>,
-    #[serde(default)]
     pub(crate) default_page_size: Option<usize>,
     #[serde(default)]
     pub(crate) max_page_size: Option<usize>,

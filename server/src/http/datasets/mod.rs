@@ -56,6 +56,50 @@ mod tests {
         assert!(!result.lazy);
     }
 
+    /// 未在元数据写开关时，csv 等外部文件仍走查询路径
+    #[test]
+    fn query_csv_file_backed_defaults_to_lazy_without_lazy_flag() {
+        let root = std::env::temp_dir().join("mei-dataset-query-default-lazy");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create temp root");
+        let csv_path = root.join("rows.csv");
+        fs::write(
+            &csv_path,
+            "name,city\nalice,chongqing\nbob,beijing\n",
+        )
+        .expect("write csv");
+        let dataset = DatasetView {
+            id: "rows".to_string(),
+            title: Some("Rows".to_string()),
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["name".to_string(), "city".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "csv".to_string(),
+                path: "rows.csv".to_string(),
+                content: Some(r#"{"normalize":{}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+        };
+        let result = query_dataset_rows(
+            &root,
+            &dataset,
+            DatasetQueryOptions {
+                page: 1,
+                page_size: 10,
+                search: None,
+                filters: BTreeMap::new(),
+            },
+        )
+        .expect("query csv default lazy");
+        assert!(result.lazy);
+        assert_eq!(result.total, 2);
+        assert_eq!(result.rows.len(), 2);
+    }
+
     #[test]
     fn query_csv_dataset_with_lazy_filters() {
         let root = std::env::temp_dir().join("mei-dataset-query-test");
@@ -80,7 +124,7 @@ mod tests {
                 path: "rows.csv".to_string(),
                 content: Some(
                     json!({
-                        "lazy": {"enabled": true, "default_page_size": 2, "max_page_size": 5},
+                        "lazy": {"default_page_size": 2, "max_page_size": 5},
                         "normalize": {},
                     })
                     .to_string(),
