@@ -117,6 +117,15 @@ pub fn render_page(
     };
     let chrome_scripts = chrome_scripts_view(route_mode);
 
+    let manage_timing_meta = match route_mode {
+        UiRouteMode::Manage => view! {
+            <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
+            <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
+        }
+        .into_any(),
+        _ => view! { <></> }.into_any(),
+    };
+
     let page = view! {
         <html lang="zh-CN">
             <head>
@@ -129,8 +138,13 @@ pub fn render_page(
                     type="module"
                     src="/app-bundles/shoelace.js"
                 ></script>
+                {manage_timing_meta}
             </head>
-            <body class=body_class>
+            <body
+                class=body_class
+                data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
+                data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
+            >
                 {shell}
                 {component_scripts(compiled)}
                 {chrome_scripts}

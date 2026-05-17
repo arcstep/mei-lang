@@ -142,7 +142,9 @@ pub(crate) fn push_manage_page_pipeline_diag(
                 "浏览器网络排队、TLS、下载与解析 JS/CSS/字体",
                 "首屏后 hydration、预览 iframe 内 fetch（见 runtime_perf）",
                 "本请求 compile_ms=0 仅表示命中编译缓存；体感「前几秒」常来自浏览器侧或其它请求",
-                "若存在 ssr_emit 行：本 server_total.ms 仍不含「为输出最终 HTML」在写入本 JSON 之后再跑的那一遍 SSR（与页面 shell 上 total_ms=__TOTAL_MS__ 的差额约等于该遍）"
+                "若存在 ssr_emit 行：本 server_total.ms 仍不含「为输出最终 HTML」在写入本 JSON 之后再跑的那一遍 SSR（与页面 shell 上 total_ms=__TOTAL_MS__ 的差额约等于该遍）",
+                "管理页 diagnostics/source 标签时「应用预览」区为 HTML hidden，但 SSR 仍会输出预览 DOM；此前 dataset 组件在 connectedCallback 即拉 /api/datasets/query 或 ECharts CDN，主线程阻塞不会反映在本 JSON。已在 workspaces/_components 对 table/summary-cards/chart 做「可见后再初始化」（并监听 mei:manage-tab-change）",
+                "从 app_page 入口到 Html 字符串就绪的完整墙钟见 request_timing 与响应头 X-Mei-Handler-Html-Ready-Ms（与末遍 SSR 耗时 X-Mei-Ssr-Http-Response-Body-Ms）；仍不含 Axum 将字节写入 TCP 与浏览器解析"
             ]
         }
     }));
@@ -163,7 +165,12 @@ pub(crate) fn push_manage_page_pipeline_diag(
                 "label": "数据绑定 / 外部数据源动态查询",
                 "hint": "由预览 iframe 内 mei-dataset-table 上报；见下方 runtime_perf 与 #mei-runtime-dataset-perf-json"
             }
-        ]
+        ],
+        "request_timing": {
+            "hint": "精确墙钟见 HTTP 响应头 X-Mei-Handler-Html-Ready-Ms / X-Mei-Ssr-Http-Response-Body-Ms，以及 head 中 meta mei-handler-html-ready-ms、body data-mei-handler-html-ready-ms（由 fill_manage_wall_clock_placeholders 在末遍 SSR 之后写入）",
+            "handler_html_ready_ms": "__MEI_HANDLER_HTML_READY_MS__",
+            "ssr_http_response_body_ms": "__MEI_SSR_HTTP_BODY_MS__"
+        }
     });
     let pretty = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
     compiled.diagnostics.push(Diagnostic {
@@ -177,5 +184,19 @@ pub(crate) fn push_manage_page_pipeline_diag(
 pub(crate) fn fill_perf_placeholders(mut html: String, render_ms: u64, total_ms: u64) -> String {
     html = html.replace("render_ms=__RENDER_MS__", format!("render_ms={render_ms}ms").as_str());
     html = html.replace("total_ms=__TOTAL_MS__", format!("total_ms={total_ms}ms").as_str());
+    html
+}
+
+/// 将管理页「请求结束」墙钟写入 HTML（meta / body data-* / manage_page_pipeline JSON 内占位符）。
+/// 占位符与 `push_manage_page_pipeline_diag` 产出的 `request_timing` 字段一致。
+pub(crate) fn fill_manage_wall_clock_placeholders(
+    mut html: String,
+    ssr_http_response_body_ms: u64,
+    handler_html_ready_ms: u64,
+) -> String {
+    let body = ssr_http_response_body_ms.to_string();
+    let ready = handler_html_ready_ms.to_string();
+    html = html.replace("__MEI_SSR_HTTP_BODY_MS__", body.as_str());
+    html = html.replace("__MEI_HANDLER_HTML_READY_MS__", ready.as_str());
     html
 }

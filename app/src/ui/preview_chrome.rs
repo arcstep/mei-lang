@@ -554,6 +554,61 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                 }
                 .into_any()
             };
+            let timing_block = v.get("request_timing").map(|rt| {
+                let hint = rt
+                    .get("hint")
+                    .and_then(|h| h.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let h_ms = rt
+                    .get("handler_html_ready_ms")
+                    .map(|x| {
+                        x.as_u64()
+                            .map(|n| n.to_string())
+                            .or_else(|| x.as_str().map(|s| s.to_string()))
+                            .unwrap_or_else(|| x.to_string())
+                    })
+                    .unwrap_or_else(|| "—".to_string());
+                let b_ms = rt
+                    .get("ssr_http_response_body_ms")
+                    .map(|x| {
+                        x.as_u64()
+                            .map(|n| n.to_string())
+                            .or_else(|| x.as_str().map(|s| s.to_string()))
+                            .unwrap_or_else(|| x.to_string())
+                    })
+                    .unwrap_or_else(|| "—".to_string());
+                view! {
+                    <div class="mt-2 grid gap-1 rounded-lg border border-slate-600/40 bg-slate-950/40 p-2">
+                        <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                            "请求墙钟（服务端）"
+                        </span>
+                        <div class="grid gap-0.5 text-[11px] leading-5 text-slate-200">
+                            <div>
+                                <span class="text-slate-400">"handler_html_ready_ms "</span>
+                                <span class="font-mono">{h_ms.clone()}</span>
+                                <span class="text-slate-500">" · 亦见响应头 "</span>
+                                <code class="text-slate-300">"X-Mei-Handler-Html-Ready-Ms"</code>
+                            </div>
+                            <div>
+                                <span class="text-slate-400">"ssr_http_response_body_ms "</span>
+                                <span class="font-mono">{b_ms.clone()}</span>
+                                <span class="text-slate-500">" · 亦见 "</span>
+                                <code class="text-slate-300">"X-Mei-Ssr-Http-Response-Body-Ms"</code>
+                            </div>
+                            {if hint.is_empty() {
+                                view! { <></> }.into_any()
+                            } else {
+                                view! {
+                                    <p class="m-0 text-[10px] leading-4 text-slate-500">{hint}</p>
+                                }
+                                .into_any()
+                            }}
+                        </div>
+                    </div>
+                }
+                .into_any()
+            });
             let json_compact =
                 serde_json::to_string(&v).unwrap_or_else(|_| diag.message.clone());
             let json_attr = escape_html_attr(&json_compact);
@@ -585,6 +640,7 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                         </span>
                         {pending_view}
                     </div>
+                    {timing_block.unwrap_or_else(|| view! { <></> }.into_any())}
                     <details class="mt-1">
                         <summary class="cursor-pointer text-[11px] text-slate-400">"原始 JSON"</summary>
                         <pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-2 font-mono text-[10px] leading-4 text-slate-300">{diag.message.clone()}</pre>
@@ -642,10 +698,31 @@ pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
                 <p class="m-0 text-xs text-slate-400">
                     "编译期 diagnostics；管理页加载流水线见 "
                     <code class="text-slate-200">"manage_page_pipeline"</code>
-                    "（JSON）。"
+                    "（JSON）。运行时 "
+                    <code class="text-slate-200">"/api/datasets/query"</code>
+                    " / metrics 失败见下方 "
+                    <code class="text-slate-200">"runtime_query_errors"</code>
+                    "（由组件上报）。"
                 </p>
             </div>
             {diagnostics}
+            <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-red-500/25">
+                <strong class="text-xs font-semibold text-slate-50">"runtime_query_errors"</strong>
+                <span class="text-xs leading-5 text-slate-300">
+                    <code class="text-slate-200">"mei-dataset-table"</code>
+                    " / "
+                    <code class="text-slate-200">"dataset.summary-cards"</code>
+                    " / "
+                    <code class="text-slate-200">"chart.*"</code>
+                    " 在请求失败时写入（最新 25 条）。"
+                </span>
+                <div
+                    id="mei-runtime-query-errors"
+                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                >
+                    "尚无 /api/datasets/query 或 metrics 运行时错误上报。"
+                </div>
+            </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-slate-500/35">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_perf"</strong>
                 <span class="text-xs leading-5 text-slate-300">

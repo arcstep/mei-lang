@@ -1,4 +1,4 @@
-use std::{path::Path, sync::Arc, time::Instant};
+use std::{fs, path::Path, sync::Arc, time::Instant};
 
 use anyhow::{anyhow, Context, Result};
 use calamine::{open_workbook, Reader, Xls, Xlsx};
@@ -15,6 +15,16 @@ use super::paths::resolve_source_path;
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
 use super::xlsx_format::{xlsx_cell, xlsx_header};
+
+/// OLE 复合文档头（旧 `.xls` BIFF）；扩展名写成 `.xlsx` 时仍可能为此格式。
+fn is_ole_compound_document(path: &Path) -> bool {
+    fs::read(path)
+        .map(|bytes| {
+            bytes.len() >= 8
+                && bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
+        })
+        .unwrap_or(false)
+}
 
 pub(crate) fn query_xlsx_rows(
     app_root: &Path,
@@ -47,7 +57,8 @@ pub(crate) fn query_xlsx_rows(
             }
             let lookup_ms = elapsed_ms(lookup_started);
             let load_started = Instant::now();
-            let (columns, rows) = load_xlsx_rows(&path, source.path.ends_with(".xls"), sheet, header_row)?;
+            let (columns, rows) =
+                load_xlsx_rows(&path, source.path.as_str(), sheet, header_row)?;
             let load_ms = elapsed_ms(load_started);
             let dataset = Arc::new(CachedExternalDataset {
                 columns: columns.clone(),
@@ -80,7 +91,8 @@ pub(crate) fn query_xlsx_rows(
         }
     }
     let open_started = Instant::now();
-    if source.path.ends_with(".xls") {
+    let ext_xls = source.path.to_ascii_lowercase().ends_with(".xls");
+    if ext_xls || is_ole_compound_document(&path) {
         let mut workbook: Xls<_> = open_workbook(&path)
             .with_context(|| format!("failed to open legacy xls {}", path.display()))?;
         let mut result =
@@ -90,14 +102,33 @@ pub(crate) fn query_xlsx_rows(
             .insert("xlsx_open_ms".to_string(), elapsed_ms(open_started));
         return Ok(result);
     }
-    let mut workbook: Xlsx<_> = open_workbook(&path)
-        .with_context(|| format!("failed to open xlsx {}", path.display()))?;
-    let mut result =
-        paginate_xlsx_reader(&mut workbook, sheet, header_row, &meta.normalize, options)?;
-    result
-        .perf
-        .insert("xlsx_open_ms".to_string(), elapsed_ms(open_started));
-    Ok(result)
+    match open_workbook::<Xlsx<_>, &Path>(&path) {
+        Ok(mut workbook) => {
+            let mut result =
+                paginate_xlsx_reader(&mut workbook, sheet, header_row, &meta.normalize, options)?;
+            result
+                .perf
+                .insert("xlsx_open_ms".to_string(), elapsed_ms(open_started));
+            Ok(result)
+        }
+        Err(xlsx_err) => {
+            let mut workbook: Xls<_> = open_workbook(&path).with_context(|| {
+                format!(
+                    "failed to open as Office Open XML ({xlsx_err}); legacy xls fallback also failed for {}",
+                    path.display()
+                )
+            })?;
+            let mut result =
+                paginate_xlsx_reader(&mut workbook, sheet, header_row, &meta.normalize, options)?;
+            result
+                .perf
+                .insert("xlsx_open_ms".to_string(), elapsed_ms(open_started));
+            result
+                .perf
+                .insert("excel_reader_xls_fallback".to_string(), 1);
+            Ok(result)
+        }
+    }
 }
 
 pub(crate) fn paginate_xlsx_reader<R, RS>(
@@ -170,18 +201,28 @@ where
 
 fn load_xlsx_rows(
     path: &Path,
-    is_xls: bool,
+    source_path: &str,
     sheet: Option<&str>,
     header_row: usize,
 ) -> Result<(Vec<String>, Vec<Value>)> {
-    if is_xls {
+    let ext_xls = source_path.to_ascii_lowercase().ends_with(".xls");
+    if ext_xls || is_ole_compound_document(path) {
         let mut workbook: Xls<_> = open_workbook(path)
             .with_context(|| format!("failed to open legacy xls {}", path.display()))?;
         return load_all_xlsx_reader(&mut workbook, sheet, header_row);
     }
-    let mut workbook: Xlsx<_> =
-        open_workbook(path).with_context(|| format!("failed to open xlsx {}", path.display()))?;
-    load_all_xlsx_reader(&mut workbook, sheet, header_row)
+    match open_workbook::<Xlsx<_>, &Path>(path) {
+        Ok(mut workbook) => load_all_xlsx_reader(&mut workbook, sheet, header_row),
+        Err(xlsx_err) => {
+            let mut workbook: Xls<_> = open_workbook(path).with_context(|| {
+                format!(
+                    "failed to open as Office Open XML ({xlsx_err}); legacy xls fallback also failed for {}",
+                    path.display()
+                )
+            })?;
+            load_all_xlsx_reader(&mut workbook, sheet, header_row)
+        }
+    }
 }
 
 fn load_all_xlsx_reader<R, RS>(

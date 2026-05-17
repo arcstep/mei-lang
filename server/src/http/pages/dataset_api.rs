@@ -89,24 +89,17 @@ pub async fn dataset_query_api(
     let compiled = compile_outcome.compiled;
     let compile_ms = compile_outcome.compile_ms;
     let normalized_dataset_id = request.dataset_id.trim();
-    let fallback_id = request
-        .target
-        .as_deref()
-        .filter(|_| normalized_dataset_id == "__source_path__")
-        .map(|value| value.to_string());
+    if normalized_dataset_id == "__source_path__" || normalized_dataset_id.ends_with(".mei") {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            "dataset_id must be an explicit stable world resource id",
+        ));
+    }
     let locate_started = Instant::now();
     let resource = compiled
         .resources
         .iter()
         .find(|resource| resource.id == normalized_dataset_id)
-        .or_else(|| {
-            fallback_id.as_ref().and_then(|id| {
-                compiled
-                    .resources
-                    .iter()
-                    .find(|resource| resource.id == *id)
-            })
-        })
         .ok_or_else(|| {
             AppError::status(
                 StatusCode::NOT_FOUND,

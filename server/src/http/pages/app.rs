@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use axum::{
     extract::{Path as AxumPath, Query, State},
-    http::StatusCode,
+    http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use mei_lang_app::{render_page, UiRouteMode};
@@ -18,7 +18,10 @@ use super::app_render::{
 };
 use super::components::resolve_components_root;
 use super::menus::load_segment_topbar_menus;
-use super::util::{elapsed_ms, fill_perf_placeholders, is_script_target, push_manage_page_pipeline_diag};
+use super::util::{
+    elapsed_ms, fill_manage_wall_clock_placeholders, fill_perf_placeholders, is_script_target,
+    push_manage_page_pipeline_diag,
+};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
@@ -246,12 +249,12 @@ pub async fn app_page(
                 Some(ssr_emit_ms),
                 total_ms,
             );
-            let html = {
+            let (html, ssr_http_response_body_ms, handler_html_ready_ms) = {
                 let t = Instant::now();
                 let h = render(&compiled).0;
                 let last_pass_ms = elapsed_ms(t);
                 let total_wall = elapsed_ms(app_started);
-                fill_perf_placeholders(
+                let h = fill_perf_placeholders(
                     h,
                     ssr_baseline_ms
                         .saturating_add(ssr_publish_ms)
@@ -261,9 +264,27 @@ pub async fn app_page(
                         .saturating_add(ssr_emit_ms)
                         .saturating_add(last_pass_ms),
                     total_wall,
-                )
+                );
+                let handler_ms = elapsed_ms(app_started);
+                let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+                (h, last_pass_ms, handler_ms)
             };
-            return Ok(Html(html).into_response());
+            let mut res = Html(html).into_response();
+            if route_mode == UiRouteMode::Manage {
+                if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
+                    res.headers_mut().insert(
+                        HeaderName::from_static("x-mei-handler-html-ready-ms"),
+                        v,
+                    );
+                }
+                if let Ok(v) = HeaderValue::from_str(&ssr_http_response_body_ms.to_string()) {
+                    res.headers_mut().insert(
+                        HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
+                        v,
+                    );
+                }
+            }
+            return Ok(res);
         }
     };
     let mut compiled = compile_outcome.compiled;
@@ -447,12 +468,12 @@ pub async fn app_page(
         Some(ssr_emit_ms),
         total_ms,
     );
-    let html = {
+    let (html, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let h = render(&compiled).0;
         let last_pass_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);
-        fill_perf_placeholders(
+        let h = fill_perf_placeholders(
             h,
             ssr_baseline_ms
                 .saturating_add(ssr_publish_ms)
@@ -462,7 +483,25 @@ pub async fn app_page(
                 .saturating_add(ssr_emit_ms)
                 .saturating_add(last_pass_ms),
             total_wall,
-        )
+        );
+        let handler_ms = elapsed_ms(app_started);
+        let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+        (h, last_pass_ms, handler_ms)
     };
-    Ok(Html(html).into_response())
+    let mut res = Html(html).into_response();
+    if route_mode == UiRouteMode::Manage {
+        if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
+            res.headers_mut().insert(
+                HeaderName::from_static("x-mei-handler-html-ready-ms"),
+                v,
+            );
+        }
+        if let Ok(v) = HeaderValue::from_str(&ssr_http_response_body_ms.to_string()) {
+            res.headers_mut().insert(
+                HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
+                v,
+            );
+        }
+    }
+    Ok(res)
 }

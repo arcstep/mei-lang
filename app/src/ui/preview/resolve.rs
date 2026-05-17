@@ -29,6 +29,9 @@ pub(super) fn resolve_value(
         Value::Object(map) => {
             if map.get("__ref").and_then(Value::as_str) == Some("world") {
                 if let Some(id) = map.get("id").and_then(Value::as_str) {
+                    if is_forbidden_legacy_resource_id(id) {
+                        return Value::Null;
+                    }
                     if let Some(resource) = resources.get(id) {
                         return serde_json::to_value(resource).unwrap_or(Value::Null);
                     }
@@ -121,8 +124,14 @@ fn resolve_data_ref(
     resources: &BTreeMap<String, LoadedResource>,
 ) -> Option<(mei_lang_kernel::DatasetView, String)> {
     let id = map.get("id").and_then(Value::as_str)?;
+    if is_forbidden_legacy_resource_id(id) {
+        return None;
+    }
     let from_dataset = map.get("from_dataset").and_then(Value::as_str);
     let dataset_id = from_dataset.unwrap_or(id);
+    if is_forbidden_legacy_resource_id(dataset_id) {
+        return None;
+    }
     Some((resources.get(dataset_id)?.dataset.clone()?, dataset_id.to_string()))
 }
 
@@ -132,6 +141,9 @@ fn resolve_metric_ref(
 ) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
     if let Some(dataset_id) = map.get("from_dataset").and_then(Value::as_str) {
+        if is_forbidden_legacy_resource_id(dataset_id) {
+            return None;
+        }
         return Some((
             resources
             .get(dataset_id)?
@@ -163,6 +175,9 @@ fn resolve_rows_expr(
         .get("dataset")
         .and_then(Value::as_str)
         .map(|value| value.strip_prefix("dataset.").unwrap_or(value).to_string())?;
+    if is_forbidden_legacy_resource_id(dataset.as_str()) {
+        return None;
+    }
     Some((resources.get(&dataset)?.dataset.clone()?, dataset))
 }
 
@@ -171,4 +186,8 @@ fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
         map.insert("__mei_runtime_ref".to_string(), runtime_ref);
     }
     value
+}
+
+fn is_forbidden_legacy_resource_id(id: &str) -> bool {
+    id.trim() == "__source_path__" || id.trim().ends_with(".mei")
 }
