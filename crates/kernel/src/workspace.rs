@@ -107,6 +107,33 @@ pub fn read_source_file(path: &Path) -> Result<String> {
     fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
 }
 
+fn mei_body_declares_scene(body: &str) -> bool {
+    for line in body.lines() {
+        let head = line.split('#').next().unwrap_or("").trim_start();
+        if head.starts_with("scene(") || head.starts_with("scene (") {
+            return true;
+        }
+    }
+    false
+}
+
+fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String> {
+    if !file_name.ends_with(".mei") {
+        return None;
+    }
+    if file_name.eq_ignore_ascii_case("main.mei") {
+        return Some("main".into());
+    }
+    let path = root.join(relative);
+    let Ok(body) = fs::read_to_string(&path) else {
+        return Some("mei".into());
+    };
+    if mei_body_declares_scene(&body) {
+        return Some("scene".into());
+    }
+    Some("mei".into())
+}
+
 pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
     let mut by_parent: BTreeMap<String, Vec<WorkspaceNode>> = BTreeMap::new();
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -140,13 +167,16 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
                 name,
                 path: relative,
                 kind: "dir".to_string(),
+                mei_kind: None,
                 children: Vec::new(),
             });
         } else {
+            let mei_kind = mei_file_kind(root, &relative, &name);
             by_parent.entry(parent).or_default().push(WorkspaceNode {
                 name,
                 path: relative,
                 kind: "file".to_string(),
+                mei_kind,
                 children: Vec::new(),
             });
         }
