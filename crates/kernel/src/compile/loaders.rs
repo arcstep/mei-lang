@@ -123,7 +123,16 @@ pub(super) fn load_legacy_xlsx_rows(
             .with_context(|| format!("failed to open legacy xls {}", path.display()))?;
         return xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows);
     }
-    let mut workbook: Xlsx<_> = open_workbook(path)
-        .with_context(|| format!("failed to open xlsx {}", path.display()))?;
-    xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows)
+    match open_workbook::<Xlsx<_>, &Path>(path) {
+        Ok(mut workbook) => xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows),
+        Err(xlsx_err) => {
+            let mut workbook: Xls<_> = open_workbook(path).with_context(|| {
+                format!(
+                    "failed to open as Office Open XML ({xlsx_err}); legacy xls fallback also failed for {}",
+                    path.display()
+                )
+            })?;
+            xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows)
+        }
+    }
 }

@@ -193,13 +193,17 @@ def cell(id, row = None, col = None, surface_kind = None, flammable = None, walk
         "tags": tags if tags != None else [],
     })
 
-def resource(id, kind, title = None, source = None, content = None):
+def resource(id, kind, title = None, purpose = None, source = None, content = None, dataset = None, metrics = None, filters = None):
     return _clean({
         "id": id,
         "kind": kind,
         "title": title,
+        "purpose": purpose,
         "source": source,
         "content": content,
+        "dataset": dataset,
+        "metrics": metrics,
+        "filters": filters,
     })
 
 def entity(id, kind, label = None, spawns = None, status = None, flags = None):

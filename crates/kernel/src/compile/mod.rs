@@ -20,6 +20,7 @@ mod mutations;
 mod resources;
 mod scene;
 mod scene_binding;
+mod ui_data_policy;
 
 use app_decl::decode_app_decl;
 use entry_payload::{compile_entry_payload_for_target, CompiledEntryPayload};

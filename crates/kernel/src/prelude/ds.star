@@ -48,10 +48,18 @@ def column(name, type, source = None, optional = False, unit = None):
         "unit": unit,
     })
 
-def dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+def _resolve_resource_id(kind, id = None, key = None):
     dataset_id = id if id != None else key
     if dataset_id == None:
-        dataset_id = "__source_path__"
+        fail(kind + " requires explicit `id` or `key` in world-only mode")
+    if dataset_id == "__source_path__":
+        fail(kind + " does not allow legacy id `__source_path__`; use a stable id")
+    if type(dataset_id) == "string" and dataset_id.endswith(".mei"):
+        fail(kind + " does not allow `.mei` path aliases as resource id; use a stable id")
+    return dataset_id
+
+def dataset_resource(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+    dataset_id = _resolve_resource_id("dataset_resource", id = id, key = key)
     dataset_schema = schema if schema != None else columns
     if dataset_schema == None:
         dataset_schema = []
@@ -83,7 +91,6 @@ def dataset(id = None, key = None, title = None, desc = None, purpose = None, so
     if source != None:
         source_node = _without_empty({
             "kind": source.get("__source", "xlsx"),
-            "file": source.get("path"),
             "path": source.get("path"),
             "sheet": source.get("sheet"),
             "header_row": source.get("header_row"),
@@ -95,16 +102,50 @@ def dataset(id = None, key = None, title = None, desc = None, purpose = None, so
             "connection": source.get("connection"),
         })
 
-    return _declare(_without_empty({
+    return resource(
+        id = dataset_id,
+        kind = "dataset",
+        title = title,
+        purpose = desc if desc != None else purpose,
+        source = source_node,
+        dataset = dataset_node,
+        metrics = metric_map,
+        filters = filters,
+    )
+
+def world_add_dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+    return world_add_resource(dataset_resource(
+        id = id,
+        key = key,
+        title = title,
+        desc = desc,
+        purpose = purpose,
+        source = source,
+        schema = schema,
+        columns = columns,
+        metrics = metrics,
+        filters = filters,
+    ))
+
+def dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+    legacy_id = id if id != None else key
+    if legacy_id == None:
+        legacy_id = "__forbidden_world_only__"
+    return _declare({
         "schema_version": "0.1.0",
-        "data_ref": "dataset." + dataset_id,
+        "data_ref": "dataset." + legacy_id,
         "purpose": desc if desc != None else purpose,
         "title": title,
-        "source": source_node,
-        "dataset": dataset_node,
-        "metrics": metric_map,
+        "source": {},
+        "dataset": {
+            "key": legacy_id,
+            "kind": "dataframe",
+            "columns": [],
+        },
+        "metrics": {},
         "filters": filters,
-    }))
+        "__forbidden_world_only__": "dataset",
+    })
 
 def dataset_ref(id, path = None):
     return _without_empty({
@@ -148,44 +189,87 @@ def _computed_metric_source(metric):
         source["op"] = metric.get("op")
     return source
 
-def metric_pack(id, desc = None, purpose = None, metrics = []):
+def metric_pack_resource(id, desc = None, purpose = None, metrics = []):
+    pack_id = _resolve_resource_id("metric_pack_resource", id = id)
     metric_map = {}
     for item in metrics:
         metric_map[item["key"]] = _computed_metric_source(item)
+    return resource(
+        id = pack_id,
+        kind = "metric_pack",
+        title = desc if desc != None else purpose,
+        purpose = desc if desc != None else purpose,
+        metrics = metric_map,
+    )
+
+def world_add_metric_pack(id, desc = None, purpose = None, metrics = []):
+    return world_add_resource(metric_pack_resource(
+        id = id,
+        desc = desc,
+        purpose = purpose,
+        metrics = metrics,
+    ))
+
+def metric_pack(id, desc = None, purpose = None, metrics = []):
     return _declare({
         "schema_version": "0.1.0",
-        "metric_pack": _without_empty({
+        "metric_pack": {
             "id": id,
             "purpose": desc if desc != None else purpose,
-        }),
-        "metrics": metric_map,
+        },
+        "metrics": {},
+        "__forbidden_world_only__": "metric_pack",
     })
 
-def dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
-    dataset_id = id
-    if dataset_id == None:
-        dataset_id = "__source_path__"
+def dataset_view_resource(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+    dataset_id = _resolve_resource_id("dataset_view_resource", id = id)
     dataset_schema = schema if schema != None else columns
     if dataset_schema == None:
         dataset_schema = []
     metric_map = {}
     for item in metrics:
         metric_map[item["key"]] = _computed_metric_source(item)
-    return _declare(_without_empty({
-        "schema_version": "0.1.0",
-        "data_ref": "dataset." + dataset_id,
-        "purpose": desc if desc != None else purpose,
-        "title": title,
-        "dataset": {
+    return resource(
+        id = dataset_id,
+        kind = "dataset_view",
+        title = title,
+        purpose = desc if desc != None else purpose,
+        dataset = {
             "key": dataset_id,
             "kind": "dataset_view",
             "sources": sources,
             "columns": dataset_schema,
             "rowset": rowset,
         },
-        "metrics": metric_map,
-        "filters": filters,
-    }))
+        metrics = metric_map,
+        filters = filters,
+    )
+
+def world_add_dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+    return world_add_resource(dataset_view_resource(
+        id = id,
+        title = title,
+        desc = desc,
+        purpose = purpose,
+        sources = sources,
+        rowset = rowset,
+        schema = schema,
+        columns = columns,
+        metrics = metrics,
+        filters = filters,
+    ))
+
+def dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+    legacy_id = id if id != None else "__forbidden_world_only__"
+    return _declare({
+        "kind": "dataset_view",
+        "id": legacy_id,
+        "title": title,
+        "rowset": rowset,
+        "schema": schema if schema != None else (columns if columns != None else []),
+        "metrics": [],
+        "__forbidden_world_only__": "dataset_view",
+    })
 
 def computed_metric(id = None, key = None, label = None, unit = None, dataset = None, transforms = [], op = None, fallback = None, drilldown = None):
     metric_id = id if id != None else key

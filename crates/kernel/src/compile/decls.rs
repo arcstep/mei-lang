@@ -54,35 +54,6 @@ pub(super) struct FrameSetLayoutDecl {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(super) struct DatasetViewDecl {
-    pub kind: String,
-    pub id: String,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub rowset: Option<Value>,
-    #[serde(default)]
-    pub schema: Vec<ColumnSchema>,
-    #[serde(default)]
-    pub metrics: Vec<MetricDecl>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub(super) struct MetricDecl {
-    pub kind: String,
-    pub metric_type: String,
-    pub id: String,
-    #[serde(default)]
-    pub label: Option<String>,
-    #[serde(default)]
-    pub schema: Vec<ColumnSchema>,
-    #[serde(default)]
-    pub values: BTreeMap<String, Value>,
-    #[serde(default)]
-    pub value: Option<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub(super) struct LegacyDatasetNodeDecl {
     pub key: String,
     pub kind: String,

@@ -101,6 +101,14 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
     let source_with_meta = SourceDecl {
         kind: source.kind.clone(),
         path: source.path.clone(),
+        sheet: source.sheet.clone(),
+        header_row: source.header_row,
+        preview_rows: source.preview_rows,
+        page_size: source.page_size,
+        max_page_size: source.max_page_size,
+        table: source.table.clone(),
+        query: source.query.clone(),
+        connection: source.connection.clone(),
         content: serde_json::to_string(&source_meta).ok(),
     };
     Ok(DatasetView {

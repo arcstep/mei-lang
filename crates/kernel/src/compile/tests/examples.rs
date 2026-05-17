@@ -102,6 +102,14 @@ fn compile_core_invalid_examples_report_expected_errors() {
             "09-scene-external-frame-without-frame_file_ref",
             "missing_bound_frame",
         ),
+        (
+            "10-world-mutation-before-world-decl",
+            "world_mutation_before_world_decl",
+        ),
+        (
+            "11-world-before-scene-decl",
+            "world_before_scene_decl",
+        ),
     ];
 
     for (app_id, expected_code) in cases {

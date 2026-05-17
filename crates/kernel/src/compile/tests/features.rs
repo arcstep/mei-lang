@@ -100,15 +100,17 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         },
     )
     .expect("compile spbjw with dataset mei preview");
-    let contract = compiled
-        .scene_contract
-        .as_ref()
-        .expect("preview should yield scene contract");
+    let contract = compiled.scene_contract.as_ref().unwrap_or_else(|| {
+        panic!(
+            "preview should yield scene contract, diagnostics: {:?}",
+            compiled.diagnostics
+        )
+    });
     assert!(
         !contract.panels.is_empty(),
         "preview needs frame.add_panel blocks; got 0 panels"
     );
-    let path_id = "data/dataset/典型案例/监督典型案例.mei";
+    let path_id = "typical_cases";
     let row_count = compiled
         .resources
         .iter()
@@ -118,7 +120,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         .unwrap_or(0);
     assert!(
         row_count > 0,
-        "data_ref uses Mei path as resource id; expected rows from xlsx, got {row_count}"
+        "expected rows from xlsx for typical_cases, got {row_count}"
     );
     assert!(
         compiled
@@ -145,10 +147,12 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
         },
     )
     .expect("compile spbjw enterprise whitelist preview");
-    let contract = compiled
-        .scene_contract
-        .as_ref()
-        .expect("preview should yield scene contract");
+    let contract = compiled.scene_contract.as_ref().unwrap_or_else(|| {
+        panic!(
+            "preview should yield scene contract, diagnostics: {:?}",
+            compiled.diagnostics
+        )
+    });
     assert!(
         !contract.panels.is_empty(),
         "preview needs frame.add_panel blocks; got 0 panels"
@@ -156,7 +160,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
     let row_count = compiled
         .resources
         .iter()
-        .find(|r| r.id == target)
+        .find(|r| r.id == "enterprise_whitelist")
         .and_then(|r| r.dataset.as_ref())
         .map(|d| d.rows.len())
         .unwrap_or(0);
@@ -170,6 +174,132 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
             .iter()
             .all(|d| !matches!(d.severity, crate::Severity::Error)),
         "unexpected errors: {:?}",
+        compiled.diagnostics
+    );
+}
+
+#[test]
+fn compile_world_only_rejects_top_level_dataset_decl() {
+    let root = temp_root("world-only-top-level-dataset");
+    let app_root = root.join("world-only-top-level-dataset");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "world-only-top-level-dataset",
+    default_scene = "home",
+)
+"#,
+    );
+    write_file(
+        &app_root.join("legacy.mei"),
+        r#"
+scene(id = "legacy")
+world()
+frame()
+
+dataset(
+    id = "legacy_rows",
+    source = ds.csv(path = "data/legacy.csv"),
+)
+
+frame.add_panel(
+    id = "table",
+    area = "auto",
+    blocks = [
+        component("dataset.table", area = "auto", props = {"data": world_ref("legacy_rows")}),
+    ],
+)
+"#,
+    );
+    write_file(&app_root.join("data/legacy.csv"), "label,value\nA,1\n");
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"{ "components": { "dataset.table": { "tag": "mei-dataset-table", "script": "dataset-table.js" } } }"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            entry: None,
+            preview_target: Some("legacy.mei".to_string()),
+        },
+    )
+    .expect("compile legacy preview");
+
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "forbidden_top_level_dataset_decls"),
+        "expected world-only top-level dataset diagnostic, got {:?}",
+        compiled.diagnostics
+    );
+}
+
+#[test]
+fn compile_world_only_rejects_legacy_resource_ids_and_unknown_world_ref() {
+    let root = temp_root("world-only-id-policy");
+    let app_root = root.join("world-only-id-policy");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "world-only-id-policy",
+    default_scene = "home",
+)
+"#,
+    );
+    write_file(
+        &app_root.join("invalid.mei"),
+        r#"
+scene(id = "invalid")
+world(
+    resources = [
+        resource(id = "__source_path__", kind = "dataset", source = ds.csv(path = "data/rows.csv")),
+    ],
+)
+frame()
+frame.add_panel(
+    id = "table",
+    area = "auto",
+    blocks = [
+        component("dataset.table", area = "auto", props = {"data": world_ref("missing_rows")}),
+    ],
+)
+"#,
+    );
+    write_file(&app_root.join("data/rows.csv"), "label,value\nA,1\n");
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"{ "components": { "dataset.table": { "tag": "mei-dataset-table", "script": "dataset-table.js" } } }"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            entry: None,
+            preview_target: Some("invalid.mei".to_string()),
+        },
+    )
+    .expect("compile invalid id preview");
+
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "forbidden_legacy_resource_id"),
+        "expected forbidden legacy resource id diagnostic, got {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "invalid_world_resource_ref"),
+        "expected invalid world ref diagnostic, got {:?}",
         compiled.diagnostics
     );
 }
@@ -203,7 +333,7 @@ scene.set_world(
 
 rows = ds.data_ref("sales_data")
 
-ds.dataset_view(
+world.add_dataset_view(
     id = "sales_metrics",
     title = "销售指标视图",
     rowset = rows,
@@ -237,6 +367,18 @@ ds.dataset_view(
     ],
 )
 
+world.add_metric_pack(
+    id = "sales_pack",
+    metrics = [
+        ds.computed_metric(
+            key = "pack_total_rows",
+            dataset = "sales_metrics",
+            op = ds.count_rows(),
+            fallback = 0,
+        ),
+    ],
+)
+
 scene.set_frame(
     layout = flex(direction = "column"),
 )
@@ -245,7 +387,7 @@ frame.add_panel(
     id = "table",
     area = "auto",
     blocks = [
-        component("dataset.table", area = "auto", props = {"data": ds.data_ref("sales_metrics")}),
+        component("dataset.table", area = "auto", props = {"data": world_ref("sales_metrics")}),
     ],
 )
 "#,
@@ -281,6 +423,16 @@ frame.add_panel(
     assert!(ranking.value.as_array().is_some());
     assert!(dataset.runtime_metric_defs.contains_key("overview"));
     assert!(dataset.runtime_metric_defs.contains_key("ranking"));
+    let pack_resource = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "sales_pack")
+        .expect("metric pack dataset resource");
+    let pack_dataset = pack_resource.dataset.as_ref().expect("metric pack as dataset");
+    assert!(
+        pack_dataset.metrics.contains_key("pack_total_rows"),
+        "metric pack should materialize computed metrics"
+    );
 
     let filtered_rows = dataset
         .rows

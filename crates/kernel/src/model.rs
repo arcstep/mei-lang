@@ -80,6 +80,22 @@ pub struct SourceDecl {
     #[serde(alias = "file")]
     pub path: String,
     #[serde(default)]
+    pub sheet: Option<String>,
+    #[serde(default)]
+    pub header_row: Option<i64>,
+    #[serde(default)]
+    pub preview_rows: Option<i64>,
+    #[serde(default)]
+    pub page_size: Option<i64>,
+    #[serde(default)]
+    pub max_page_size: Option<i64>,
+    #[serde(default)]
+    pub table: Option<String>,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub connection: Option<String>,
+    #[serde(default)]
     pub content: Option<String>,
 }
 
@@ -90,9 +106,17 @@ pub struct ResourceDecl {
     #[serde(default)]
     pub title: Option<String>,
     #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
     pub source: Option<SourceDecl>,
     #[serde(default)]
     pub content: Option<String>,
+    #[serde(default)]
+    pub dataset: Option<Value>,
+    #[serde(default)]
+    pub metrics: Option<BTreeMap<String, Value>>,
+    #[serde(default)]
+    pub filters: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

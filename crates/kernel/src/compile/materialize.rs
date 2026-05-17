@@ -15,7 +15,7 @@ use super::{
         schema::{infer_columns, infer_schema_from_rows},
     },
     decls::{
-        DatasetViewDecl, LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl, MetricDecl,
+        LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl,
     },
     loaders::load_legacy_xlsx_rows,
     resources::csv_record_to_json,
@@ -31,14 +31,10 @@ struct LegacyRowsSnapshot {
     truncated: bool,
 }
 
-/// `source_mei_rel`：定义该批 legacy dataset 的 `.mei` 相对路径（如 `data/dataset/foo.mei`）。
-/// 当 `ds.dataset` 未写 `id`/`key` 时，数据集会注册为 `__source_path__`，与 `ds.data_ref("...同一路径...")`
-/// 对齐需要把同一份 `DatasetView` 再挂到该路径 id 上。
 pub(super) fn materialize_legacy_datasets(
     app_root: &Path,
     resources: &[LoadedResource],
     decls: &[LegacyDatasetDecl],
-    source_mei_rel: Option<&str>,
 ) -> Result<Vec<LoadedResource>> {
     let mut datasets = BTreeMap::<String, DatasetView>::new();
     for resource in resources {
@@ -95,11 +91,6 @@ pub(super) fn materialize_legacy_datasets(
             runtime_metric_defs: BTreeMap::new(),
         };
         datasets.insert(dataset_id.clone(), dataset_stub.clone());
-        if dataset_id == "__source_path__" {
-            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
-                datasets.insert(rel.to_string(), dataset_stub);
-            }
-        }
         let metrics = materialize_legacy_metric_map(&decl.metrics, &rows, &datasets)
             .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
         let dataset = DatasetView {
@@ -120,11 +111,6 @@ pub(super) fn materialize_legacy_datasets(
             runtime_metric_defs: decl.metrics.clone(),
         };
         datasets.insert(dataset_id.clone(), dataset.clone());
-        if dataset_id == "__source_path__" {
-            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
-                datasets.insert(rel.to_string(), dataset.clone());
-            }
-        }
         compiled.push(LoadedResource {
             id: dataset_id.clone(),
             kind: "dataset".to_string(),
@@ -132,17 +118,6 @@ pub(super) fn materialize_legacy_datasets(
             document: None,
             dataset: Some(dataset.clone()),
         });
-        if dataset_id == "__source_path__" {
-            if let Some(rel) = source_mei_rel.map(str::trim).filter(|s| !s.is_empty()) {
-                compiled.push(LoadedResource {
-                    id: rel.to_string(),
-                    kind: "dataset".to_string(),
-                    title: decl.title.clone(),
-                    document: None,
-                    dataset: Some(dataset),
-                });
-            }
-        }
     }
     Ok(compiled)
 }
@@ -275,6 +250,14 @@ fn legacy_dataset_source_decl(
     SourceDecl {
         kind,
         path: source_path,
+        sheet: source.sheet.clone(),
+        header_row: source.header_row,
+        preview_rows: source.preview_rows,
+        page_size: source.page_size,
+        max_page_size: source.max_page_size,
+        table: source.table.clone(),
+        query: source.query.clone(),
+        connection: source.connection.clone(),
         content: serde_json::to_string(&meta).ok(),
     }
 }
@@ -378,6 +361,14 @@ pub(super) fn materialize_metric_packs(
             source: SourceDecl {
                 kind: "derived".to_string(),
                 path: format!("legacy.metric_pack:{}", pack.metric_pack.id),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
                 content: None,
             },
             sources: Vec::new(),
@@ -389,71 +380,6 @@ pub(super) fn materialize_metric_packs(
             id: pack.metric_pack.id.clone(),
             kind: "dataset".to_string(),
             title: pack.metric_pack.purpose.clone(),
-            document: None,
-            dataset: Some(dataset),
-        });
-    }
-    Ok(compiled)
-}
-
-pub(super) fn materialize_dataset_views(
-    resources: &[LoadedResource],
-    decls: &[DatasetViewDecl],
-) -> Result<Vec<LoadedResource>> {
-    let mut datasets = BTreeMap::<String, DatasetView>::new();
-    for resource in resources {
-        if let Some(dataset) = &resource.dataset {
-            datasets.insert(resource.id.clone(), dataset.clone());
-        }
-    }
-
-    let mut compiled = Vec::new();
-    for decl in decls {
-        if decl.kind != "dataset_view" {
-            continue;
-        }
-        let rows = match &decl.rowset {
-            Some(rowset) => eval_rowset(rowset, &datasets)
-                .with_context(|| format!("failed to materialize rowset for `{}`", decl.id))?,
-            None => datasets
-                .get(&decl.id)
-                .map(|dataset| dataset.rows.clone())
-                .unwrap_or_default(),
-        };
-        let schema = if decl.schema.is_empty() {
-            infer_schema_from_rows(&rows)
-        } else {
-            decl.schema.clone()
-        };
-        let columns = if schema.is_empty() {
-            infer_columns(&rows)
-        } else {
-            schema.iter().map(|column| column.name.clone()).collect()
-        };
-        let metrics = materialize_metrics(&decl.metrics, &rows, &datasets)
-            .with_context(|| format!("failed to compile metrics for `{}`", decl.id))?;
-        let dataset = DatasetView {
-            id: decl.id.clone(),
-            title: decl.title.clone(),
-            purpose: None,
-            schema,
-            stage_schema: Vec::new(),
-            columns,
-            rows,
-            source: SourceDecl {
-                kind: "derived".to_string(),
-                path: format!("dataset_view:{}", decl.id),
-                content: None,
-            },
-            sources: Vec::new(),
-            metrics,
-            runtime_metric_defs: metric_defs_from_decl_list(&decl.metrics),
-        };
-        datasets.insert(decl.id.clone(), dataset.clone());
-        compiled.push(LoadedResource {
-            id: decl.id.clone(),
-            kind: "dataset".to_string(),
-            title: decl.title.clone(),
             document: None,
             dataset: Some(dataset),
         });
@@ -475,116 +401,6 @@ pub(super) fn evaluate_runtime_metric_defs(
         return materialize_legacy_metric_map(&selected, base_rows, datasets);
     }
     materialize_legacy_metric_map(metric_defs, base_rows, datasets)
-}
-
-fn metric_defs_from_decl_list(decls: &[MetricDecl]) -> BTreeMap<String, Value> {
-    decls
-        .iter()
-        .filter(|decl| decl.kind == "metric")
-        .map(|decl| {
-            let mut map = serde_json::Map::new();
-            map.insert(
-                "shape".to_string(),
-                Value::String(decl.metric_type.clone()),
-            );
-            if let Some(label) = &decl.label {
-                map.insert("label".to_string(), Value::String(label.clone()));
-            }
-            if !decl.schema.is_empty() {
-                map.insert(
-                    "schema".to_string(),
-                    serde_json::to_value(&decl.schema).unwrap_or(Value::Null),
-                );
-            }
-            if !decl.values.is_empty() {
-                map.insert(
-                    "values".to_string(),
-                    Value::Object(decl.values.clone().into_iter().collect()),
-                );
-            }
-            if let Some(value) = &decl.value {
-                map.insert("value".to_string(), value.clone());
-            }
-            (decl.id.clone(), Value::Object(map))
-        })
-        .collect()
-}
-
-fn materialize_metrics(
-    decls: &[MetricDecl],
-    base_rows: &[Value],
-    datasets: &BTreeMap<String, DatasetView>,
-) -> Result<BTreeMap<String, MetricContract>> {
-    let mut metrics = BTreeMap::new();
-    for decl in decls {
-        if decl.kind != "metric" {
-            continue;
-        }
-        let (shape, schema, value) = match decl.metric_type.as_str() {
-            "scalar_map" => {
-                let mut values = serde_json::Map::new();
-                for (key, expr) in &decl.values {
-                    values.insert(
-                        key.clone(),
-                        eval_scalar_value(expr, base_rows, datasets)
-                            .with_context(|| format!("metric `{}` field `{key}`", decl.id))?,
-                    );
-                }
-                let schema = if decl.schema.is_empty() {
-                    values
-                        .keys()
-                        .map(|key| ColumnSchema {
-                            name: key.clone(),
-                            type_name: "number".to_string(),
-                            source: None,
-                            optional: false,
-                            unit: None,
-                        })
-                        .collect()
-                } else {
-                    decl.schema.clone()
-                };
-                (MetricShape::Scalar, schema, Value::Object(values))
-            }
-            "dataframe" | "series" | "table" => {
-                let rows = match &decl.value {
-                    Some(expr) => eval_rowset(expr, datasets)?,
-                    None => base_rows.to_vec(),
-                };
-                let shape = match decl.metric_type.as_str() {
-                    "series" => MetricShape::Series,
-                    "table" => MetricShape::Table,
-                    _ => MetricShape::Dataframe,
-                };
-                let schema = if decl.schema.is_empty() {
-                    infer_schema_from_rows(&rows)
-                } else {
-                    decl.schema.clone()
-                };
-                (shape, schema, Value::Array(rows))
-            }
-            other => {
-                return Err(anyhow!(
-                    "unsupported metric_type `{other}` for metric `{}`",
-                    decl.id
-                ));
-            }
-        };
-        metrics.insert(
-            decl.id.clone(),
-            MetricContract {
-                id: decl.id.clone(),
-                label: decl.label.clone(),
-                purpose: None,
-                shape,
-                schema,
-                dataset: None,
-                transforms: Vec::new(),
-                value,
-            },
-        );
-    }
-    Ok(metrics)
 }
 
 fn materialize_legacy_metric_map(

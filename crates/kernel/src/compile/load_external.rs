@@ -23,6 +23,7 @@ pub(super) fn load_world_from_file(
     let mut pending_entities = Vec::new();
     let mut pending_topology = None;
     let mut world_topology_set_count = 0usize;
+    let mut seen_world_decl = false;
     if let Some(values) = decls.as_array() {
         for value in values {
             match value.get("kind").and_then(Value::as_str) {
@@ -30,16 +31,32 @@ pub(super) fn load_world_from_file(
                     worlds.push(serde_json::from_value::<crate::model::WorldDecl>(
                         value.clone(),
                     )?);
+                    seen_world_decl = true;
                 }
                 Some("world_add_resource") => {
+                    if !seen_world_decl {
+                        return Err(anyhow!(
+                            "world_file_ref `{relative_path}`: `world.add_*` / `world.set_topology(...)` must appear after `world(...)` (_declare order)"
+                        ));
+                    }
                     let decl = serde_json::from_value::<WorldAddResourceDecl>(value.clone())?;
                     pending_resources.push(decl.resource);
                 }
                 Some("world_add_entity") => {
+                    if !seen_world_decl {
+                        return Err(anyhow!(
+                            "world_file_ref `{relative_path}`: `world.add_*` / `world.set_topology(...)` must appear after `world(...)` (_declare order)"
+                        ));
+                    }
                     let decl = serde_json::from_value::<WorldAddEntityDecl>(value.clone())?;
                     pending_entities.push(decl.entity);
                 }
                 Some("world_set_topology") => {
+                    if !seen_world_decl {
+                        return Err(anyhow!(
+                            "world_file_ref `{relative_path}`: `world.add_*` / `world.set_topology(...)` must appear after `world(...)` (_declare order)"
+                        ));
+                    }
                     let decl = serde_json::from_value::<WorldSetTopologyDecl>(value.clone())?;
                     world_topology_set_count += 1;
                     if pending_topology.is_none() {
