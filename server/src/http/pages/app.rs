@@ -19,6 +19,18 @@ use super::util::{
     push_manage_page_pipeline_diag,
 };
 
+/// 若 URL `entry` 在应用注册表中不存在（编译已回退并带 `unknown_entry` 警告），用 `compiled.active_entry` 生成管理壳链接，避免把无效 id 写进 href。
+fn manage_entry_for_render(compiled: &CompiledApp, query_entry: Option<&str>) -> Option<String> {
+    let q = query_entry?.trim();
+    if q.is_empty() {
+        return None;
+    }
+    if compiled.entries.iter().any(|e| e.entry_id == q) {
+        return Some(q.to_string());
+    }
+    compiled.active_entry.clone()
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
     pub target: Option<String>,
@@ -97,6 +109,8 @@ pub async fn app_page(
                     target.as_str(),
                     error.to_string().as_str(),
                 );
+                let manage_entry_resolved =
+                    manage_entry_for_render(&compiled, query.entry.as_deref());
                 let render = |cc: &CompiledApp| {
                     let t = Instant::now();
                     let html = render_page(
@@ -108,7 +122,7 @@ pub async fn app_page(
                         Some(target.as_str()),
                         Some(source.as_str()),
                         Some(&source_meta),
-                        query.entry.as_deref(),
+                        manage_entry_resolved.as_deref(),
                         normalized_preview_target.as_deref(),
                         query.tab.as_deref(),
                         chrome_hidden,
@@ -311,6 +325,7 @@ pub async fn app_page(
     let source_read_ms = elapsed_ms(source_started);
     let source_meta = source_panel_meta(&source_path, &source);
     let topbar_menus = load_segment_topbar_menus(&state.source_root);
+    let manage_entry_resolved = manage_entry_for_render(&compiled, query.entry.as_deref());
     let render = |cc: &CompiledApp| {
         let t = Instant::now();
         let html = render_page(
@@ -322,7 +337,7 @@ pub async fn app_page(
             Some(target.as_str()),
             Some(source.as_str()),
             Some(&source_meta),
-            query.entry.as_deref(),
+            manage_entry_resolved.as_deref(),
             normalized_preview_target.as_deref(),
             query.tab.as_deref(),
             chrome_hidden,

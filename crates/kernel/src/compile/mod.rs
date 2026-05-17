@@ -84,8 +84,15 @@ pub fn compile_app_from_root_with_options(
                 message: format!("entry `{requested_entry}` not found, fallback to default entry"),
                 source_path: Some(app_main.to_string_lossy().to_string()),
             });
+            entry_registry
+                .default_entry_id
+                .as_deref()
+                .and_then(|entry_id| find_scene_entry(&entry_registry.entries, entry_id))
+                .cloned()
+                .or_else(|| entry_registry.entries.first().cloned())
+        } else {
+            selected
         }
-        selected
     } else {
         entry_registry
             .default_entry_id
