@@ -7,16 +7,22 @@
     boot.disposeManageTabs = null;
   }
 
-  const tabs = Array.from(
-    document.querySelectorAll("a.manage-view-tab[data-manage-tab]"),
-  );
-  if (!tabs.length) return;
+  function listTabs() {
+    return Array.from(
+      document.querySelectorAll("a.manage-view-tab[data-manage-tab]"),
+    ).filter((node) => !node.hidden);
+  }
 
-  const panels = {
-    preview: document.querySelector('[data-manage-tab-panel="preview"]'),
-    source: document.querySelector('[data-manage-tab-panel="source"]'),
-    diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
-  };
+  if (!listTabs().length) return;
+
+  function getPanels() {
+    return {
+      preview: document.querySelector('[data-manage-tab-panel="preview"]'),
+      source: document.querySelector('[data-manage-tab-panel="source"]'),
+      diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
+    };
+  }
+
   const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
   let currentTab = "preview";
 
@@ -28,6 +34,11 @@
 
   function resolveRenderableTab(tab) {
     const active = normalizeTab(tab);
+    if (active === "diff") {
+      const diffTab = document.getElementById("manage-tab-diff");
+      if (diffTab && diffTab.hidden) return "preview";
+    }
+    const panels = getPanels();
     if ((active === "source" || active === "diff") && !panels.source) {
       return "preview";
     }
@@ -47,6 +58,7 @@
   }
 
   function panelVisibility(tab) {
+    const panels = getPanels();
     const active = resolveRenderableTab(tab);
     if (panels.preview) panels.preview.hidden = active !== "preview";
     if (panels.source) panels.source.hidden = !(active === "source" || active === "diff");
@@ -55,7 +67,7 @@
 
   function tabVisual(tab) {
     const active = resolveRenderableTab(tab);
-    tabs.forEach((node) => {
+    listTabs().forEach((node) => {
       const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
       const isActive = nodeTab === active;
       node.classList.toggle("is-active", isActive);
@@ -70,9 +82,10 @@
 
   function tabLink(tab) {
     const active = resolveRenderableTab(tab);
+    const visible = listTabs();
     return (
-      tabs.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
-      tabs[0]
+      visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
+      visible[0]
     );
   }
 
@@ -140,6 +153,7 @@
         ? event.target.closest("a.manage-view-tab[data-manage-tab]")
         : null;
     if (!target) return;
+    if (target.hidden) return;
     event.preventDefault();
     switchManageTab(target.getAttribute("data-manage-tab"), {
       updateUrl: true,

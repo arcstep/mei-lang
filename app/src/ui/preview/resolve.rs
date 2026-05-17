@@ -33,6 +33,18 @@ pub(super) fn resolve_value(
                         return Value::Null;
                     }
                     if let Some(resource) = resources.get(id) {
+                        // 数据集：展开为 DatasetView + __mei_runtime_ref，供 runtime-query 解析
+                        // dataset_id 并发起 /api/datasets/query（与 __ref:"data" 一致）。
+                        // 若整包返回 LoadedResource，rows 在嵌套 `dataset` 下，前端拿不到 dataset_id。
+                        if let Some(dataset) = resource.dataset.as_ref() {
+                            return with_runtime_ref(
+                                serde_json::to_value(dataset).unwrap_or(Value::Null),
+                                serde_json::json!({
+                                    "kind": "data",
+                                    "dataset_id": id,
+                                }),
+                            );
+                        }
                         return serde_json::to_value(resource).unwrap_or(Value::Null);
                     }
                 }

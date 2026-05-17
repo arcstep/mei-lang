@@ -327,6 +327,7 @@
       Array.from(next.attributes)
         .filter((attr) => attr.name.startsWith("data-"))
         .forEach((attr) => link.setAttribute(attr.name, attr.value));
+      link.innerHTML = next.innerHTML;
     });
     const currentDetails = Array.from(
       currentSidebar.querySelectorAll(".tree-li-branch > details"),

@@ -457,5 +457,27 @@ mod tests {
                 .and_then(|value| value.as_str()),
             Some("sales_total")
         );
+
+        let world_ref = json!({"__ref": "world", "id": "sales_metrics"});
+        let resolved_world = resolve_value(&world_ref, &scene_contract, &resources);
+        assert_eq!(
+            resolved_world.get("id").and_then(|value| value.as_str()),
+            Some("sales_metrics")
+        );
+        assert!(resolved_world.get("rows").is_some());
+        assert_eq!(
+            resolved_world
+                .get("__mei_runtime_ref")
+                .and_then(|value| value.get("kind"))
+                .and_then(|value| value.as_str()),
+            Some("data")
+        );
+        assert_eq!(
+            resolved_world
+                .get("__mei_runtime_ref")
+                .and_then(|value| value.get("dataset_id"))
+                .and_then(|value| value.as_str()),
+            Some("sales_metrics")
+        );
     }
 }

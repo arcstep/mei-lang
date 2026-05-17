@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn manage_defaults_to_diagnostics_when_errors_exist() {
         assert!(matches!(
-            manage_view_tab_from_query(None, true, true),
+            manage_view_tab_from_query(None, true, true, 1, "main.mei"),
             ManageViewTab::Diagnostics
         ));
     }
@@ -169,8 +169,16 @@ mod tests {
     #[test]
     fn manage_respects_explicit_preview_tab_even_when_errors_exist() {
         assert!(matches!(
-            manage_view_tab_from_query(Some("preview"), true, true),
+            manage_view_tab_from_query(Some("preview"), true, true, 1, "main.mei"),
             ManageViewTab::Preview
+        ));
+    }
+
+    #[test]
+    fn manage_asset_dual_allows_source_tab() {
+        assert!(matches!(
+            manage_view_tab_from_query(Some("source"), false, false, 0, "readme.md"),
+            ManageViewTab::Source
         ));
     }
 

@@ -12,15 +12,24 @@ enum AssetPreviewKind {
     Unsupported,
 }
 
-pub(super) fn asset_preview_view(app_path: &str, target: &str, source: &str) -> AnyView {
+pub(super) fn asset_preview_body(app_path: &str, target: &str, source: &str) -> AnyView {
     let kind = asset_preview_kind(target);
+    asset_preview_inner(app_path, target, source, kind)
+}
+
+fn asset_preview_inner(
+    app_path: &str,
+    target: &str,
+    source: &str,
+    kind: AssetPreviewKind,
+) -> AnyView {
     let asset_src = workspace_asset_href(app_path, target);
     let extension = target
         .rsplit('.')
         .next()
         .map(|value| value.to_ascii_lowercase())
         .unwrap_or_default();
-    let content = match kind {
+    match kind {
         AssetPreviewKind::Markdown => {
             let html = markdown_preview_html(source);
             view! { <article class="asset-markdown-preview min-h-0 overflow-auto rounded-xl border border-slate-700/55 bg-slate-950/40 p-4" inner_html=html></article> }
@@ -127,13 +136,7 @@ pub(super) fn asset_preview_view(app_path: &str, target: &str, source: &str) -> 
             }
             .into_any()
         }
-    };
-    view! {
-        <section class="asset-preview-pane h-full min-h-0" data-manage-tab-panel="preview">
-            {content}
-        </section>
     }
-    .into_any()
 }
 
 fn asset_preview_kind(target: &str) -> AssetPreviewKind {

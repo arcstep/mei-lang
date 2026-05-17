@@ -753,6 +753,31 @@
     initSourceEditor();
   }
 
+  function codeMirrorModeOption() {
+    const lang = sourceLanguage();
+    const target = sourceTargetKey();
+    const ext = (target.split(".").pop() || "").toLowerCase();
+    if (lang === "mei" || ext === "mei" || ext === "star") return "mei";
+    if (lang === "json" || ext === "json" || ext === "jsonc") {
+      return { name: "javascript", json: true };
+    }
+    if (lang === "typescript" || ext === "ts" || ext === "tsx") {
+      return { name: "javascript", typescript: true };
+    }
+    if (lang === "javascript" || ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") {
+      return "javascript";
+    }
+    if (lang === "css" || ext === "css" || ext === "scss" || ext === "less") return "css";
+    if (lang === "python" || ext === "py" || ext === "pyi") return "python";
+    if (lang === "xml" || ext === "xml" || ext === "svg") {
+      return { name: "xml", htmlMode: false };
+    }
+    if (lang === "html" || ext === "html" || ext === "htm") {
+      return { name: "xml", htmlMode: true };
+    }
+    return null;
+  }
+
   function initSourceEditor() {
     refreshLinkedViewRefs();
     if (!els.sourceViewSourcePanel || !window.CodeMirror) {
@@ -763,7 +788,7 @@
       value: sourceRawText(),
       lineNumbers: true,
       readOnly: true,
-      mode: sourceLanguage() === "mei" ? "mei" : null,
+      mode: codeMirrorModeOption(),
       theme: "default",
       lineWrapping: false,
       scrollbarStyle: "native",
@@ -913,6 +938,11 @@
       els.sourceViewDiffBtn.title = enabled
         ? "查看差异"
         : (historyUnavailableReason() || "暂无可查看差异");
+    }
+    const diffTab = document.getElementById("manage-tab-diff");
+    if (diffTab) {
+      const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
+      diffTab.hidden = !enabled;
     }
     if (
       state.sourceViewMode === "diff" &&

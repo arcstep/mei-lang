@@ -150,7 +150,7 @@ pub(super) fn panel_view(
                                         size="small"
                                         disabled=true
                                     >
-                                        "Diff"
+                                        "修改"
                                     </sl-button>
                                 }
                                     .into_any()

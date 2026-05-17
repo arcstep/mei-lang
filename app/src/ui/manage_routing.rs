@@ -1,3 +1,5 @@
+use super::compile_status::asset_dual_preview_source;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManageViewTab {
     Preview,
@@ -31,16 +33,28 @@ pub(super) fn manage_view_tab_from_query(
     active_tab: Option<&str>,
     script_target: bool,
     prefer_diagnostics: bool,
+    diagnostics_count: usize,
+    selected_target: &str,
 ) -> ManageViewTab {
+    let has_diagnostics_tab = script_target && diagnostics_count > 0;
+    let asset_dual = asset_dual_preview_source(selected_target);
     let next = manage_tab_from_slug(active_tab).unwrap_or_else(|| {
-        if prefer_diagnostics {
+        if prefer_diagnostics && has_diagnostics_tab {
             ManageViewTab::Diagnostics
         } else {
             ManageViewTab::Preview
         }
     });
     if script_target {
+        if matches!(next, ManageViewTab::Diagnostics) && !has_diagnostics_tab {
+            return ManageViewTab::Preview;
+        }
         next
+    } else if asset_dual {
+        match next {
+            ManageViewTab::Source => ManageViewTab::Source,
+            _ => ManageViewTab::Preview,
+        }
     } else {
         ManageViewTab::Preview
     }
@@ -62,8 +76,14 @@ pub(super) fn manage_tab_href(
     } else if let Some(entry) = selected_entry {
         query.push(format!("entry={entry}"));
     }
+    let asset_dual = asset_dual_preview_source(target);
     let route_tab = if script_target {
         tab
+    } else if asset_dual {
+        match tab {
+            ManageViewTab::Preview | ManageViewTab::Source => tab,
+            _ => ManageViewTab::Preview,
+        }
     } else {
         ManageViewTab::Preview
     };

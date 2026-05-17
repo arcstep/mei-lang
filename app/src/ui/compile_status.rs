@@ -81,3 +81,72 @@ pub(super) fn source_language(target: &str) -> &'static str {
         "plain"
     }
 }
+
+fn file_extension_lower(target: &str) -> String {
+    target
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+}
+
+/// 管理页「预览 + 源码」双栏资源：可渲染预览且需要独立源码视图。
+pub(super) fn asset_dual_preview_source(target: &str) -> bool {
+    matches!(
+        file_extension_lower(target).as_str(),
+        "md" | "markdown" | "csv" | "svg" | "html" | "htm"
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AssetShellKind {
+    /// 预览 + 源码（CodeMirror）
+    Dual,
+    /// 仅 CodeMirror（无可分栏的预览）
+    SourceCode,
+    /// 图片 / PDF 等仅预览
+    PreviewOnly,
+    /// 无合适预览的二进制等
+    Unsupported,
+}
+
+pub(super) fn classify_asset_shell(target: &str) -> AssetShellKind {
+    if asset_dual_preview_source(target) {
+        return AssetShellKind::Dual;
+    }
+    let ext = file_extension_lower(target);
+    if matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" | "pdf"
+    ) {
+        return AssetShellKind::PreviewOnly;
+    }
+    if matches!(
+        ext.as_str(),
+        "xlsx" | "xls" | "docx" | "doc" | "pptx" | "ppt" | "zip" | "gz" | "tgz" | "rar"
+            | "7z" | "wasm" | "exe" | "dll" | "dylib" | "so" | "bin" | "dmg" | "apk" | "ipa"
+    ) {
+        return AssetShellKind::Unsupported;
+    }
+    AssetShellKind::SourceCode
+}
+
+/// 供前端 `data-source-lang` 与 CodeMirror 选择模式（非 mei 脚本亦适用）。
+pub(super) fn codemirror_dataset_lang(target: &str) -> &'static str {
+    match file_extension_lower(target).as_str() {
+        "json" | "jsonc" => "json",
+        "py" | "pyi" => "python",
+        "css" | "scss" | "less" => "css",
+        "js" | "jsx" | "mjs" | "cjs" => "javascript",
+        "ts" | "tsx" => "typescript",
+        "xml" | "svg" => "xml",
+        "html" | "htm" => "html",
+        "md" | "markdown" => "markdown",
+        "yaml" | "yml" => "yaml",
+        "toml" => "toml",
+        "rs" => "rust",
+        "sh" | "zsh" | "bash" => "shell",
+        "mei" | "star" => "mei",
+        _ => "plain",
+    }
+}

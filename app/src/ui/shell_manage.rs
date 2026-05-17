@@ -2,17 +2,37 @@ use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
 use super::compile_status::{
-    compiled_has_error_diagnostics, is_mei_script_target, source_language,
+    classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
+    is_mei_script_target, source_language, AssetShellKind,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::opencode;
 use super::preview;
-use super::preview_chrome::{asset_preview_view, diagnostics_view};
+use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;
 use super::source_tree;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
 use super::{SourcePanelMeta, TopbarMenuContext};
+
+fn asset_codemirror_stack(app_path: &str, target: &str, source: &str, cm_lang: &'static str) -> impl IntoView {
+    view! {
+        <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
+            <div
+                id="asset-source-editor-host"
+                class="source-editor-host asset-source-editor-host min-h-[12rem] flex-1"
+                data-app-path=app_path.to_string()
+                data-source-target=target.to_string()
+            ></div>
+            <pre
+                id="asset-source-raw"
+                hidden
+                data-source-target=target.to_string()
+                data-source-lang=cm_lang
+            >{source.to_string()}</pre>
+        </div>
+    }
+}
 
 pub(super) fn manage_shell(
     apps: &[WorkspaceAppMeta],
@@ -31,14 +51,6 @@ pub(super) fn manage_shell(
     let source_lang = source_language(selected_target.as_str());
     let preview = preview::preview_view(compiled, app_path);
     let active_entry = compiled.active_entry.as_deref();
-    let source_entries = source_tree::entry_list_view(
-        &compiled.entries,
-        UiRouteMode::Manage,
-        app_path,
-        active_entry,
-        preview_target,
-        active_tab,
-    );
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
         UiRouteMode::Manage,
@@ -55,6 +67,8 @@ pub(super) fn manage_shell(
         active_tab,
         script_target,
         compiled_has_error_diagnostics(compiled),
+        diagnostics_total,
+        selected_target.as_str(),
     );
     let topbar = topbar_view(
         apps,
@@ -85,23 +99,36 @@ pub(super) fn manage_shell(
     } else {
         "main-pane-scroll preview-pane-scroll flex-1 min-h-0 overflow-auto p-0"
     };
-    let tabs = if script_target {
-        vec![
-            (ManageViewTab::Preview, "应用预览".to_string(), None),
-            (ManageViewTab::Source, "源代码".to_string(), None),
-            (ManageViewTab::Diff, "差异代码".to_string(), None),
-            (
+    let asset_shell = classify_asset_shell(selected_target.as_str());
+    let asset_cm_lang = codemirror_dataset_lang(selected_target.as_str());
+
+    let tab_specs: Vec<(ManageViewTab, String, Option<String>, bool)> = if script_target {
+        let mut v = vec![
+            (ManageViewTab::Preview, "预览".to_string(), None, false),
+            (ManageViewTab::Source, "源码".to_string(), None, false),
+            (ManageViewTab::Diff, "修改".to_string(), None, true),
+        ];
+        if diagnostics_total > 0 {
+            v.push((
                 ManageViewTab::Diagnostics,
-                "错误诊断".to_string(),
+                "调试".to_string(),
                 Some(diagnostics_total.to_string()),
-            ),
+                false,
+            ));
+        }
+        v
+    } else if asset_shell == AssetShellKind::Dual {
+        vec![
+            (ManageViewTab::Preview, "预览".to_string(), None, false),
+            (ManageViewTab::Source, "源码".to_string(), None, false),
         ]
     } else {
-        vec![(ManageViewTab::Preview, "预览".to_string(), None)]
+        vec![]
     };
-    let tab_links = tabs
+
+    let tab_links = tab_specs
         .into_iter()
-        .map(|(tab, label, badge)| {
+        .map(|(tab, label, badge, start_hidden)| {
             let href = manage_tab_href(
                 app_path,
                 selected_target.as_str(),
@@ -120,14 +147,17 @@ pub(super) fn manage_shell(
             } else {
                 None
             };
+            let tab_id = format!("manage-tab-{}", tab.slug());
             view! {
                 <a
+                    id=tab_id
                     class=class
                     href=href
                     role="tab"
                     aria-selected=if tab == active_manage_tab { "true" } else { "false" }
                     data-manage-tab=tab.slug()
                     aria-current=aria_current
+                    hidden=start_hidden
                 >
                     <span class="manage-view-tab-label">{label}</span>
                     {badge
@@ -139,10 +169,11 @@ pub(super) fn manage_shell(
             }
         })
         .collect_view();
+
     let diagnostics_panel = if compiled.diagnostics.is_empty() {
         view! {
             <section class="grid gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-900/45 p-4 text-xs leading-6 text-slate-400">
-                <strong class="text-slate-200">"错误诊断"</strong>
+                <strong class="text-slate-200">"调试"</strong>
                 <span>"当前编译没有 diagnostics。"</span>
                 <span class="text-slate-500">"出现错误后，此页签会自动展示 Error / Warning / Info 列表。"</span>
             </section>
@@ -160,6 +191,87 @@ pub(super) fn manage_shell(
     let source_tab_active =
         active_manage_tab == ManageViewTab::Source || active_manage_tab == ManageViewTab::Diff;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
+    let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
+
+    let non_script_main = match asset_shell {
+        AssetShellKind::Dual => view! {
+            <>
+                <section
+                    class="preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                    data-manage-tab-panel="preview"
+                    hidden=!preview_tab_active
+                >
+                    <div class="main-pane-scroll flex-1 min-h-0 overflow-auto p-0">
+                        {asset_preview_body(
+                            app_path,
+                            selected_target.as_str(),
+                            source_panel.as_str(),
+                        )}
+                    </div>
+                </section>
+                <section
+                    class="source-panel source-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                    data-manage-tab-panel="source"
+                    hidden=!asset_source_tab_active
+                >
+                    {asset_codemirror_stack(
+                        app_path,
+                        selected_target.as_str(),
+                        source_panel.as_str(),
+                        asset_cm_lang,
+                    )}
+                </section>
+            </>
+        }
+        .into_any(),
+        AssetShellKind::SourceCode => view! {
+            <section
+                class="source-panel source-pane flex min-h-0 flex-1 flex-col overflow-hidden"
+                data-asset-cm-only="1"
+            >
+                {asset_codemirror_stack(
+                    app_path,
+                    selected_target.as_str(),
+                    source_panel.as_str(),
+                    asset_cm_lang,
+                )}
+            </section>
+        }
+        .into_any(),
+        AssetShellKind::PreviewOnly | AssetShellKind::Unsupported => view! {
+            <section
+                class="asset-preview-pane flex min-h-0 flex-1 flex-col overflow-hidden"
+                data-manage-tab-panel="preview"
+            >
+                {asset_preview_body(
+                    app_path,
+                    selected_target.as_str(),
+                    source_panel.as_str(),
+                )}
+            </section>
+        }
+        .into_any(),
+    };
+
+    let main_tabs_nav = if script_target || asset_shell == AssetShellKind::Dual {
+        view! {
+            <nav
+                class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
+                role="tablist"
+                aria-label="管理主视图"
+            >
+                <div class="manage-view-tabs-cluster">
+                    <div class="manage-view-tabs-group" role="presentation">
+                        {tab_links}
+                    </div>
+                </div>
+            </nav>
+        }
+        .into_any()
+    } else {
+        view! { <></> }.into_any()
+    };
+
     view! {
         <div class=shell_class>
             {topbar}
@@ -169,11 +281,6 @@ pub(super) fn manage_shell(
             >
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
                     <div class="sidebar-header workspace-panel-header sticky top-0 z-[2] grid gap-2.5 pb-2.5">
-                        <div class="mb-3 grid gap-1">
-                            <h2 class="m-0 text-[15px] font-semibold text-slate-50">"资源树"</h2>
-                            <p class="m-0 text-xs text-slate-400">{app_path.to_string()}</p>
-                        </div>
-                        {source_entries}
                         {source_tree::controls_view()}
                     </div>
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
@@ -201,13 +308,7 @@ pub(super) fn manage_shell(
                 </div>
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
-                        <nav class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5" role="tablist" aria-label="管理主视图">
-                            <div class="manage-view-tabs-cluster">
-                                <div class="manage-view-tabs-group" role="presentation">
-                                    {tab_links}
-                                </div>
-                            </div>
-                        </nav>
+                        {main_tabs_nav}
                         {if script_target {
                             view! {
                                 <>
@@ -244,22 +345,25 @@ pub(super) fn manage_shell(
                                             </div>
                                         </div>
                                     </section>
-                                    <section
-                                        class="min-w-0 min-h-0 flex-1 overflow-auto"
-                                        data-manage-tab-panel="diagnostics"
-                                        hidden=!diagnostics_tab_active
-                                    >
-                                        {diagnostics_panel}
-                                    </section>
+                                    {if diagnostics_total > 0 {
+                                        view! {
+                                            <section
+                                                class="min-w-0 min-h-0 flex-1 overflow-auto"
+                                                data-manage-tab-panel="diagnostics"
+                                                hidden=!diagnostics_tab_active
+                                            >
+                                                {diagnostics_panel}
+                                            </section>
+                                        }
+                                            .into_any()
+                                    } else {
+                                        view! { <></> }.into_any()
+                                    }}
                                 </>
                             }
                                 .into_any()
                         } else {
-                            asset_preview_view(
-                                app_path,
-                                selected_target.as_str(),
-                                source_panel.as_str(),
-                            )
+                            non_script_main
                         }}
                     </section>
                 </main>
