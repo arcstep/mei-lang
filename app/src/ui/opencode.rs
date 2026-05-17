@@ -138,7 +138,7 @@ pub(super) fn panel_view(
                                     <pre id="author-context-preview-prompt" class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
                                 </details>
                                 <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"Delta 调试（服务端 vs 客户端）"</summary>
+                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"Delta（srv / cli_rx / cli_paint；与管理页「调试」同步）"</summary>
                                     <pre
                                         id="author-context-preview-delta-debug"
                                         class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"

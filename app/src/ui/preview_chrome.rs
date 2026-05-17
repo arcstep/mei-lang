@@ -453,7 +453,8 @@ fn escape_html(value: &str) -> String {
 }
 
 fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView {
-    let base_class = "diag mt-2 grid gap-2 rounded-xl border px-3 py-2 bg-blue-900/25 border-blue-300/35";
+    let base_class =
+        "diag mt-2 grid gap-2 rounded-xl border px-3 py-2 bg-blue-900/25 border-blue-300/35";
     match serde_json::from_str::<serde_json::Value>(&diag.message) {
         Ok(v) if v.get("kind").and_then(|k| k.as_str()) == Some("manage_page_pipeline") => {
             let summary = v
@@ -705,7 +706,9 @@ pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
                     <code class="text-slate-200">"/api/datasets/query"</code>
                     " / metrics 失败见下方 "
                     <code class="text-slate-200">"runtime_query_errors"</code>
-                    "（由组件上报）。"
+                    "（由组件上报）。内置助手 SSE 流式 delta 见 "
+                    <code class="text-slate-200">"agent_sse_delta"</code>
+                    "（由作者面板写入，与事件 JSON 字段一致）。"
                 </p>
             </div>
             {diagnostics}
@@ -744,6 +747,32 @@ pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
                     class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
                 >
                     "尚无懒加载查询记录。"
+                </div>
+            </div>
+            <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-emerald-500/25">
+                <strong class="text-xs font-semibold text-slate-50">"agent_sse_delta"</strong>
+                <span class="text-xs leading-5 text-slate-300">
+                    "内置助手 EventSource "
+                    <code class="text-slate-200">"message_part_delta"</code>
+                    "："
+                    <code class="text-slate-200">"srv"</code>
+                    " 为载荷 "
+                    <code class="text-slate-200">"server_ts_ms"</code>
+                    "；"
+                    <code class="text-slate-200">"cli_rx"</code>
+                    " / "
+                    <code class="text-slate-200">"gap_rx"</code>
+                    " 为收到 SSE 并解析时的墙钟及对 srv 的差；"
+                    <code class="text-slate-200">"cli_paint"</code>
+                    " / "
+                    <code class="text-slate-200">"gap_paint"</code>
+                    " 为连续两次 requestAnimationFrame 之后（近似排帧后）及对 srv 的差。由作者面板写入；换文件 SPA 后请再点「调试」或收新 delta 以刷新。"
+                </span>
+                <div
+                    id="mei-manage-debug-agent-sse-delta"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-300"
+                >
+                    "尚无记录。连接作者会话后发消息；或从其它页签切回「调试」以刷新。"
                 </div>
             </div>
         </section>

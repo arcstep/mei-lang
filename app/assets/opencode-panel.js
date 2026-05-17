@@ -280,6 +280,84 @@
     return "mei-lang.opencode.reverted." + currentAppKey() + "." + currentTargetKey();
   }
 
+  function deltaDebugStorageKey(sessionId) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return "";
+    return "mei-lang.opencode.delta-debug." + currentAppKey() + "." + sid;
+  }
+
+  function normalizeDeltaDebugRows(rows) {
+    const src = Array.isArray(rows) ? rows : [];
+    return src
+      .map(function (item) {
+        if (!item || typeof item !== "object") return null;
+        const serverTs = Number(item.serverTs || 0);
+        const clientRxTs =
+          Number(item.clientRxTs || 0) || Number(item.clientTs || 0);
+        const gapRxMs =
+          item.gapRxMs != null && Number.isFinite(Number(item.gapRxMs))
+            ? Number(item.gapRxMs)
+            : item.gapMs != null && Number.isFinite(Number(item.gapMs))
+              ? Number(item.gapMs)
+              : null;
+        const paintTs =
+          item.paintTs != null && Number.isFinite(Number(item.paintTs))
+            ? Number(item.paintTs)
+            : null;
+        const gapPaintMs =
+          item.gapPaintMs != null && Number.isFinite(Number(item.gapPaintMs))
+            ? Number(item.gapPaintMs)
+            : null;
+        return {
+          serverTs: Number.isFinite(serverTs) ? serverTs : 0,
+          clientRxTs: Number.isFinite(clientRxTs) ? clientRxTs : 0,
+          paintTs: paintTs,
+          partId: String(item.partId || ""),
+          messageId: String(item.messageId || ""),
+          chars: Number(item.chars || 0),
+          preview: String(item.preview || ""),
+          gapRxMs: gapRxMs,
+          gapPaintMs: gapPaintMs,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 120);
+  }
+
+  function writeDeltaDebugLogToStorage(sessionId, rows) {
+    if (!window.sessionStorage) return;
+    const key = deltaDebugStorageKey(sessionId);
+    if (!key) return;
+    try {
+      window.sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          updatedAtMs: Date.now(),
+          rows: normalizeDeltaDebugRows(rows),
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function readDeltaDebugLogFromStorage(sessionId) {
+    if (!window.sessionStorage) return [];
+    const key = deltaDebugStorageKey(sessionId);
+    if (!key) return [];
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return normalizeDeltaDebugRows(parsed && parsed.rows);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function restoreDeltaDebugLog(sessionId) {
+    state.deltaDebugLog = readDeltaDebugLogFromStorage(sessionId);
+    renderDeltaDebugLog();
+  }
+
   function normalizeAgentMode(value) {
     return String(value || "").toLowerCase() === "plan" ? "plan" : "build";
   }
@@ -892,6 +970,7 @@
   }
 
   function applyManageTabMode(tab) {
+    renderDeltaDebugLog();
     refreshLinkedViewRefs();
     const next = String(tab || "").trim().toLowerCase();
     if (next === "source") {
@@ -1159,8 +1238,12 @@
     clearGenerationSettleTimer();
   }
 
-  function clearDeltaDebugLog() {
+  function clearDeltaDebugLog(options) {
+    const opts = options || {};
     state.deltaDebugLog = [];
+    if (opts.dropPersisted === true) {
+      writeDeltaDebugLogToStorage(String(state.sessionId || ""), []);
+    }
     renderDeltaDebugLog();
   }
 
@@ -1615,45 +1698,85 @@
 
   function recordDeltaDebugEvent(event) {
     const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
-    const clientTs = Date.now();
+    const clientRxTs = Date.now();
     const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
     const preview = trimDeltaPreview(deltaRaw, 48);
-    const gapMs = Number.isFinite(serverTs) && serverTs > 0 ? clientTs - serverTs : null;
-    state.deltaDebugLog.unshift({
+    const gapRxMs =
+      Number.isFinite(serverTs) && serverTs > 0 ? clientRxTs - serverTs : null;
+    const row = {
       serverTs: Number.isFinite(serverTs) ? serverTs : 0,
-      clientTs: clientTs,
+      clientRxTs: clientRxTs,
+      paintTs: null,
       partId: String(event && event.part_id ? event.part_id : ""),
       messageId: String(event && event.message_id ? event.message_id : ""),
       chars: deltaRaw.length,
       preview: preview,
-      gapMs: gapMs,
-    });
+      gapRxMs: gapRxMs,
+      gapPaintMs: null,
+    };
+    state.deltaDebugLog.unshift(row);
     if (state.deltaDebugLog.length > 120) {
       state.deltaDebugLog.length = 120;
     }
+    writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+    renderDeltaDebugLog();
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        const paintTs = Date.now();
+        row.paintTs = paintTs;
+        row.gapPaintMs =
+          row.serverTs > 0 && Number.isFinite(row.serverTs) ? paintTs - row.serverTs : null;
+        writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+        renderDeltaDebugLog();
+      });
+    });
   }
 
   function renderDeltaDebugLog() {
-    if (!els.contextDeltaDebug) return;
     const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
+    const manageEl = document.getElementById("mei-manage-debug-agent-sse-delta");
+    const emptyManageHint =
+      "尚无助手流式 delta 记录。请在右侧「作者」连接会话并发消息；出现 srv/cli_rx/gap_rx 与 cli_paint/gap_paint（后者为连续两次 requestAnimationFrame 后的墙钟，近似「排帧后」与首绘间隔）。SPA 换文件后若曾收过 delta，请再点一次「调试」页签或发新消息以刷新本区。";
     if (!log.length) {
-      els.contextDeltaDebug.textContent = "(empty)";
+      if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = "(empty)";
+      if (manageEl) manageEl.textContent = emptyManageHint;
       return;
     }
     const lines = log.slice(0, 60).map(function (item, index) {
-      const gapLabel =
-        item && item.gapMs != null && Number.isFinite(item.gapMs)
-          ? String(item.gapMs) + "ms"
+      const rxTs =
+        item && item.clientRxTs != null
+          ? item.clientRxTs
+          : item && item.clientTs != null
+            ? item.clientTs
+            : 0;
+      const gapRxLabel =
+        item && item.gapRxMs != null && Number.isFinite(item.gapRxMs)
+          ? String(item.gapRxMs) + "ms"
+          : item && item.gapMs != null && Number.isFinite(item.gapMs)
+            ? String(item.gapMs) + "ms"
+            : "-";
+      const paintTs = item && item.paintTs != null ? item.paintTs : null;
+      const cliPaintStr =
+        paintTs != null && Number.isFinite(paintTs) && paintTs > 0
+          ? formatDeltaDebugTs(paintTs)
+          : "-";
+      const gapPaintLabel =
+        item && item.gapPaintMs != null && Number.isFinite(item.gapPaintMs)
+          ? String(item.gapPaintMs) + "ms"
           : "-";
       return (
         "#" +
         String(index + 1).padStart(2, "0") +
         " srv=" +
         formatDeltaDebugTs(item.serverTs) +
-        " cli=" +
-        formatDeltaDebugTs(item.clientTs) +
-        " gap=" +
-        gapLabel +
+        " cli_rx=" +
+        formatDeltaDebugTs(rxTs) +
+        " gap_rx=" +
+        gapRxLabel +
+        " cli_paint=" +
+        cliPaintStr +
+        " gap_paint=" +
+        gapPaintLabel +
         " chars=" +
         String(item.chars || 0) +
         " part=" +
@@ -1665,7 +1788,9 @@
         "\""
       );
     });
-    els.contextDeltaDebug.textContent = lines.join("\n");
+    const text = lines.join("\n");
+    if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = text;
+    if (manageEl) manageEl.textContent = text;
   }
 
   function readContextInventory(payload) {
@@ -2996,7 +3121,6 @@
     ) {
       if (kind === "message_part_delta") {
         recordDeltaDebugEvent(event);
-        renderDeltaDebugLog();
       }
       markGenerationActivity();
       refreshMessages().catch(function () {});
@@ -3104,6 +3228,7 @@
         state.sessionId = "";
         state.messages = [];
         state.lastMessagesFingerprint = "";
+        clearDeltaDebugLog();
         resetPendingPermissionState();
         rememberSession();
       }
@@ -3129,6 +3254,7 @@
       }
       renderSessions();
       syncSourceDiffEntry();
+      restoreDeltaDebugLog(state.sessionId);
       if (state.health && state.health.healthy && state.sessionId) {
         try {
           await refreshMessages({ forcePendingPermissions: true });
@@ -3161,7 +3287,7 @@
       body: JSON.stringify({ title: buildSessionTitle() }),
     });
     state.sessionId = session.id || "";
-    clearDeltaDebugLog();
+    clearDeltaDebugLog({ dropPersisted: true });
     resetPendingPermissionState();
     rememberSession();
     invalidateSessionCache();
@@ -3470,7 +3596,7 @@
   if (els.sessionSelect) {
     const onSessionSelectChange = function () {
       state.sessionId = String(els.sessionSelect.value || "");
-        clearDeltaDebugLog();
+      restoreDeltaDebugLog(state.sessionId);
       state.sessionTargetKey = currentTargetKey();
       resetPendingPermissionState();
       rememberSession();
@@ -3627,9 +3753,11 @@
     restoreRevertedState();
     restoreAgentMode();
     restoreSession();
+    restoreDeltaDebugLog(state.sessionId);
     refreshAll().catch(function (error) {
       setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
     }).finally(function () {
+      renderDeltaDebugLog();
       window.setTimeout(function () {
         root.classList.remove("is-soft-refresh");
       }, 80);
@@ -3640,21 +3768,27 @@
   restoreRevertedState();
   restoreAgentMode();
   restoreSession();
+  restoreDeltaDebugLog(state.sessionId);
   const initialTab = currentManageTab();
   initSourceEditor();
   renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
   renderProgressStrip();
   renderContextPreview();
   syncSourceDiffEntry();
-  refreshAll().then(function () {
-    if (initialTab !== "diff") return;
-    if (!state.latestDiffMessageId) {
-      return;
-    }
-    inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-      setInlineNote("读取差异失败：" + String(error.message || error));
+  refreshAll()
+    .then(function () {
+      if (initialTab !== "diff") return;
+      if (!state.latestDiffMessageId) {
+        return;
+      }
+      inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+        setInlineNote("读取差异失败：" + String(error.message || error));
+      });
+    })
+    .catch(function () {})
+    .finally(function () {
+      renderDeltaDebugLog();
     });
-  }).catch(function () {});
   const beforeUnloadHandler = function () {
     closeEventStream();
   };
