@@ -185,9 +185,6 @@ mod tests {
     #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
         assert_eq!(route_query(None, None, Some("source")), "");
-        assert_eq!(
-            route_query(None, Some("main.mei"), Some("diagnostics")),
-            ""
-        );
+        assert_eq!(route_query(None, Some("main.mei"), Some("diagnostics")), "");
     }
 }

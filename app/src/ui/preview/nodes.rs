@@ -1,9 +1,7 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{
-    BlockDecl, CompiledApp, LoadedResource, SceneContract, UiNodeDecl,
-};
+use mei_lang_kernel::{BlockDecl, CompiledApp, LoadedResource, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
 use super::resolve::{attach_host_meta, resolve_value};

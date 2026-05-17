@@ -15,7 +15,12 @@ use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
 use super::{SourcePanelMeta, TopbarMenuContext};
 
-fn asset_codemirror_stack(app_path: &str, target: &str, source: &str, cm_lang: &'static str) -> impl IntoView {
+fn asset_codemirror_stack(
+    app_path: &str,
+    target: &str,
+    source: &str,
+    cm_lang: &'static str,
+) -> impl IntoView {
     view! {
         <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
             <div

@@ -36,11 +36,7 @@ fn build_topbar_menu_groups(
     let mut groups: BTreeMap<String, TopbarMenuGroup> = BTreeMap::new();
     for app in apps {
         let segment = first_path_segment(&app.id);
-        let config = menus.and_then(|menu| {
-            menu.by_segment
-                .get(segment)
-                .or(menu.root.as_ref())
-        });
+        let config = menus.and_then(|menu| menu.by_segment.get(segment).or(menu.root.as_ref()));
 
         let mut group_overrides: BTreeMap<String, (Option<String>, i32)> = BTreeMap::new();
         if let Some(cfg) = config {
@@ -383,7 +379,7 @@ pub(super) fn topbar_view(
         "在新标签页打开无 Chrome 应用"
     };
     view! {
-        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
+        <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
             <div class="brand flex min-w-0 items-center gap-2">
                 <div class="brand-title-row flex min-w-0 items-center gap-2">
                     <img
@@ -397,8 +393,8 @@ pub(super) fn topbar_view(
                     <strong class="text-[13px] font-semibold text-slate-100">"MeiLang"</strong>
                 </div>
             </div>
-            <nav class="app-tabs flex min-w-0 items-center gap-2.5 overflow-hidden">
-                <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pr-1">{app_tabs}</div>
+            <nav class="app-tabs flex min-w-0 items-center gap-2.5">
+                <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pr-1">{app_tabs}</div>
                 {active_item_breadcrumb}
             </nav>
             <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1.5">

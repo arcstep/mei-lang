@@ -144,7 +144,10 @@ fn resolve_data_ref(
     if is_forbidden_legacy_resource_id(dataset_id) {
         return None;
     }
-    Some((resources.get(dataset_id)?.dataset.clone()?, dataset_id.to_string()))
+    Some((
+        resources.get(dataset_id)?.dataset.clone()?,
+        dataset_id.to_string(),
+    ))
 }
 
 fn resolve_metric_ref(
@@ -158,12 +161,12 @@ fn resolve_metric_ref(
         }
         return Some((
             resources
-            .get(dataset_id)?
-            .dataset
-            .as_ref()?
-            .metrics
-            .get(metric_id)
-            .cloned()?,
+                .get(dataset_id)?
+                .dataset
+                .as_ref()?
+                .metrics
+                .get(metric_id)
+                .cloned()?,
             dataset_id.to_string(),
         ));
     }

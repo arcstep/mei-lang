@@ -83,11 +83,7 @@ pub(super) fn source_language(target: &str) -> &'static str {
 }
 
 fn file_extension_lower(target: &str) -> String {
-    target
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase()
+    target.rsplit('.').next().unwrap_or("").to_ascii_lowercase()
 }
 
 /// 管理页「预览 + 源码」双栏资源：可渲染预览且需要独立源码视图。
@@ -123,8 +119,26 @@ pub(super) fn classify_asset_shell(target: &str) -> AssetShellKind {
     }
     if matches!(
         ext.as_str(),
-        "xlsx" | "xls" | "docx" | "doc" | "pptx" | "ppt" | "zip" | "gz" | "tgz" | "rar"
-            | "7z" | "wasm" | "exe" | "dll" | "dylib" | "so" | "bin" | "dmg" | "apk" | "ipa"
+        "xlsx"
+            | "xls"
+            | "docx"
+            | "doc"
+            | "pptx"
+            | "ppt"
+            | "zip"
+            | "gz"
+            | "tgz"
+            | "rar"
+            | "7z"
+            | "wasm"
+            | "exe"
+            | "dll"
+            | "dylib"
+            | "so"
+            | "bin"
+            | "dmg"
+            | "apk"
+            | "ipa"
     ) {
         return AssetShellKind::Unsupported;
     }

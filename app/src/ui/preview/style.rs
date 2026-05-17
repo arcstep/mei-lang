@@ -238,7 +238,10 @@ pub(super) fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> 
     }
 }
 
-pub(super) fn block_style(area: Option<&str>, layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
+pub(super) fn block_style(
+    area: Option<&str>,
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+) -> String {
     if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
         && area == Some("full")
     {

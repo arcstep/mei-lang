@@ -17,7 +17,11 @@ fn tree_icons_href(fragment: &str) -> String {
 }
 
 /// 非 .mei 树图标：彩色定义在 `TREE_ICONS_SPRITE_SVG` 的 symbol 内；此处仅 `<use href="#…"/>`。
-fn tree_sprite_icon(fragment: &'static str, title: &'static str, span_class: &'static str) -> AnyView {
+fn tree_sprite_icon(
+    fragment: &'static str,
+    title: &'static str,
+    span_class: &'static str,
+) -> AnyView {
     let href = tree_icons_href(fragment);
     view! {
         <span class=span_class title=title aria-hidden="true">
@@ -134,11 +138,7 @@ fn file_row_icon(node: &WorkspaceNode) -> AnyView {
     if path.ends_with(".mei") {
         return mei_coin_file_icon(node.mei_kind.as_deref());
     }
-    let ext = path
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let span_class = "inline-flex h-4 w-4 items-center justify-center";
     match ext.as_str() {
         "md" | "markdown" => tree_sprite_icon("i-md", "Markdown", span_class),

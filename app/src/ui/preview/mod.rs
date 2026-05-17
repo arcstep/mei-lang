@@ -28,8 +28,7 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
     if let Some(scene_contract) = &compiled.scene_contract {
         let resolved_theme = theme::resolve_theme(scene_contract);
         if let Some(frame) = &scene_contract.frame {
-            let frame_props =
-                theme::deep_merge_value(&resolved_theme.frame, &frame.props);
+            let frame_props = theme::deep_merge_value(&resolved_theme.frame, &frame.props);
             let panels = scene_contract
                 .panels
                 .iter()
