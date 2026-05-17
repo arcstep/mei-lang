@@ -50,13 +50,15 @@ pub(super) fn manage_tab_href(
     app_path: &str,
     target: &str,
     selected_entry: Option<&str>,
-    preview_target: Option<&str>,
+    _preview_target: Option<&str>,
     script_target: bool,
     tab: ManageViewTab,
 ) -> String {
     let mut query = vec![format!("target={target}")];
-    if let Some(preview_target) = preview_target {
-        query.push(format!("preview_target={preview_target}"));
+    if script_target {
+        if let Some(entry) = selected_entry {
+            query.push(format!("entry={entry}"));
+        }
     } else if let Some(entry) = selected_entry {
         query.push(format!("entry={entry}"));
     }

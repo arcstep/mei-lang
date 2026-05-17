@@ -82,7 +82,7 @@ frame.add_panel(
     let _ = fs::remove_dir_all(&root);
 }
 
-/// `data/dataset/**` 下若仍含 frame/component，则走完整 scene 契约（与纯 ds.dataset 库文件不同）。
+/// `data/dataset/**` 下带 `scene` + `frame.add_panel` 的入口应能编译并产出可加载的数据集资源。
 #[test]
 fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     let root = workspace_root();
@@ -116,6 +116,50 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     assert!(
         row_count > 0,
         "data_ref uses Mei path as resource id; expected rows from xlsx, got {row_count}"
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|d| !matches!(d.severity, crate::Severity::Error)),
+        "unexpected errors: {:?}",
+        compiled.diagnostics
+    );
+}
+
+#[test]
+fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "data/dataset/执法要素/企业白名单.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            entry: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .expect("compile spbjw enterprise whitelist preview");
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview should yield scene contract");
+    assert!(
+        !contract.panels.is_empty(),
+        "preview needs frame.add_panel blocks; got 0 panels"
+    );
+    let row_count = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == target)
+        .and_then(|r| r.dataset.as_ref())
+        .map(|d| d.rows.len())
+        .unwrap_or(0);
+    assert!(
+        row_count > 0,
+        "expected xlsx rows for whitelist dataset, got {row_count}"
     );
     assert!(
         compiled

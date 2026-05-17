@@ -1,23 +1,43 @@
-def xlsx(path, sheet = None, header_row = 1):
+def xlsx(path, sheet = None, header_row = 1, preview_rows = None, page_size = None, max_page_size = None):
     return _without_empty({
         "__source": "xlsx",
         "path": path,
         "sheet": sheet,
         "header_row": header_row,
+        "preview_rows": preview_rows,
+        "page_size": page_size,
+        "max_page_size": max_page_size,
     })
 
-def json(path):
-    return {
+def json(path, preview_rows = None, page_size = None, max_page_size = None):
+    return _without_empty({
         "__source": "json",
         "path": path,
-    }
+        "preview_rows": preview_rows,
+        "page_size": page_size,
+        "max_page_size": max_page_size,
+    })
 
-def csv(path, header_row = 1):
-    return {
+def csv(path, header_row = 1, preview_rows = None, page_size = None, max_page_size = None):
+    return _without_empty({
         "__source": "csv",
         "path": path,
         "header_row": header_row,
-    }
+        "preview_rows": preview_rows,
+        "page_size": page_size,
+        "max_page_size": max_page_size,
+    })
+
+def db(connection, table = None, query = None, preview_rows = None, page_size = None, max_page_size = None):
+    return _without_empty({
+        "__source": "db",
+        "connection": connection,
+        "table": table,
+        "query": query,
+        "preview_rows": preview_rows,
+        "page_size": page_size,
+        "max_page_size": max_page_size,
+    })
 
 def column(name, type, source = None, optional = False, unit = None):
     return _without_empty({
@@ -64,8 +84,15 @@ def dataset(id = None, key = None, title = None, desc = None, purpose = None, so
         source_node = _without_empty({
             "kind": source.get("__source", "xlsx"),
             "file": source.get("path"),
+            "path": source.get("path"),
             "sheet": source.get("sheet"),
             "header_row": source.get("header_row"),
+            "preview_rows": source.get("preview_rows"),
+            "page_size": source.get("page_size"),
+            "max_page_size": source.get("max_page_size"),
+            "table": source.get("table"),
+            "query": source.get("query"),
+            "connection": source.get("connection"),
         })
 
     return _declare(_without_empty({

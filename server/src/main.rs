@@ -17,6 +17,7 @@ use axum::{
     Router,
 };
 use clap::{Parser, Subcommand};
+use mei_lang_kernel::CompiledApp;
 use reqwest::Client as HttpClient;
 use std::time::Instant;
 
@@ -88,6 +89,13 @@ pub(crate) struct AppState {
     opencode_runtime: Arc<Mutex<opencode::ManagedOpencodeRuntime>>,
     opencode_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     opencode_http: Arc<HttpClient>,
+    compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
+}
+
+#[derive(Clone)]
+pub(crate) struct CachedCompiledApp {
+    pub app_latest_modified_ms: u128,
+    pub compiled: CompiledApp,
 }
 
 #[derive(Clone)]
@@ -156,6 +164,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
         opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
         opencode_http: Arc::new(HttpClient::new()),
+        compile_cache: Arc::new(Mutex::new(HashMap::new())),
     };
     tracing::info!(
         cwd = ?std::env::current_dir(),

@@ -151,6 +151,7 @@ mod tests {
             opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
             opencode_http: Arc::new(HttpClient::new()),
+            compile_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

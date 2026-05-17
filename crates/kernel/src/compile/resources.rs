@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 use crate::model::{DatasetView, LoadedResource, ResourceDecl, SourceDecl};
 
 use super::analysis::schema::infer_schema_from_rows;
+const DEFAULT_PREVIEW_ROWS: usize = 1000;
+const DEFAULT_PAGE_SIZE: usize = 100;
+const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
 
 pub(super) fn load_resources(
     app_root: &Path,
@@ -75,13 +78,32 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         .iter()
         .map(|value| value.to_string())
         .collect::<Vec<_>>();
-    let rows = reader
-        .records()
-        .map(|record| {
-            let record = record.context("failed to read csv row")?;
-            Ok::<_, anyhow::Error>(csv_record_to_json(&headers, &record))
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let mut rows = Vec::new();
+    let mut truncated = false;
+    for record in reader.records() {
+        let record = record.context("failed to read csv row")?;
+        if rows.len() >= DEFAULT_PREVIEW_ROWS {
+            truncated = true;
+            break;
+        }
+        rows.push(csv_record_to_json(&headers, &record));
+    }
+    let source_meta = serde_json::json!({
+        "lazy": {
+            "enabled": true,
+            "preview_rows": DEFAULT_PREVIEW_ROWS,
+            "default_page_size": DEFAULT_PAGE_SIZE,
+            "max_page_size": DEFAULT_MAX_PAGE_SIZE,
+            "truncated": truncated,
+        },
+        "header_row": 1,
+        "normalize": {},
+    });
+    let source_with_meta = SourceDecl {
+        kind: source.kind.clone(),
+        path: source.path.clone(),
+        content: serde_json::to_string(&source_meta).ok(),
+    };
     Ok(DatasetView {
         id: resource.id.clone(),
         title: resource.title.clone(),
@@ -90,7 +112,7 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         stage_schema: Vec::new(),
         columns,
         rows,
-        source: source.clone(),
+        source: source_with_meta,
         sources: Vec::new(),
         metrics: BTreeMap::new(),
     })

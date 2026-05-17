@@ -105,7 +105,9 @@ fn load_world_runtime_bundle(
             preview_target: if selected_entry.is_some() {
                 None
             } else {
-                requested_target.clone()
+                requested_target
+                    .clone()
+                    .filter(|target| target.ends_with(".mei"))
             },
         },
     )?;

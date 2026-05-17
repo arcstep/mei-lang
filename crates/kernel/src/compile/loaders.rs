@@ -56,6 +56,7 @@ fn xlsx_rows_from_reader<R, RS>(
     workbook: &mut R,
     sheet: Option<&str>,
     header_row: usize,
+    max_rows: Option<usize>,
 ) -> Result<Vec<Value>>
 where
     R: Reader<RS>,
@@ -90,21 +91,23 @@ where
         .iter()
         .map(|cell| xlsx_header(cell))
         .collect();
-    let out = rows
-        .filter_map(|row: &[Data]| {
-            let mut obj = Map::new();
-            for (index, header) in headers.iter().enumerate() {
-                if header.is_empty() {
-                    continue;
-                }
-                let cell = row.get(index).map(xlsx_cell).unwrap_or(Value::Null);
-                obj.insert(header.clone(), cell);
+    let mut out = Vec::new();
+    for row in rows {
+        if max_rows.is_some_and(|cap| out.len() >= cap) {
+            break;
+        }
+        let mut obj = Map::new();
+        for (index, header) in headers.iter().enumerate() {
+            if header.is_empty() {
+                continue;
             }
-            obj.values()
-                .any(|value| !value.is_null())
-                .then_some(Value::Object(obj))
-        })
-        .collect();
+            let cell = row.get(index).map(xlsx_cell).unwrap_or(Value::Null);
+            obj.insert(header.clone(), cell);
+        }
+        if obj.values().any(|value| !value.is_null()) {
+            out.push(Value::Object(obj));
+        }
+    }
     Ok(out)
 }
 
@@ -113,13 +116,14 @@ pub(super) fn load_legacy_xlsx_rows(
     path: &Path,
     sheet: Option<&str>,
     header_row: usize,
+    max_rows: Option<usize>,
 ) -> Result<Vec<Value>> {
     if is_ole_compound_document(path) {
         let mut workbook: Xls<_> = open_workbook(path)
             .with_context(|| format!("failed to open legacy xls {}", path.display()))?;
-        return xlsx_rows_from_reader(&mut workbook, sheet, header_row);
+        return xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows);
     }
     let mut workbook: Xlsx<_> = open_workbook(path)
         .with_context(|| format!("failed to open xlsx {}", path.display()))?;
-    xlsx_rows_from_reader(&mut workbook, sheet, header_row)
+    xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows)
 }

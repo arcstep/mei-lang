@@ -483,6 +483,18 @@ pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
                 <p class="m-0 text-xs text-slate-400">"最小内核 diagnostics"</p>
             </div>
             {diagnostics}
+            <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-slate-500/35">
+                <strong class="text-xs font-semibold text-slate-50">"runtime_perf"</strong>
+                <span class="text-xs leading-5 text-slate-300">
+                    "数据查询运行时耗时（最新 20 条）"
+                </span>
+                <div
+                    id="runtime-perf-diagnostics"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                >
+                    "waiting for runtime perf..."
+                </div>
+            </div>
         </section>
     }
     .into_any()

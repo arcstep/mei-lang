@@ -1,3 +1,5 @@
+mod compile_cache;
+mod datasets;
 mod opencode_api;
 pub mod pages;
 pub mod projection_api;
@@ -38,6 +40,7 @@ pub fn router() -> Router<AppState> {
             get(scene_api::world_runtime_api),
         )
         .route("/api/sim/step/*app_id", post(scene_api::sim_step_api))
+        .route("/api/datasets/query/*app_id", post(pages::dataset_query_api))
         .route(
             "/api/opencode/config",
             get(opencode_api::api_opencode_config),

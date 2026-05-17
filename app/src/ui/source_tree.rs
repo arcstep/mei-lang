@@ -140,23 +140,14 @@ fn source_href(
     app_path: &str,
     path: &str,
     selected_entry: Option<&str>,
-    preview_target: Option<&str>,
+    _preview_target: Option<&str>,
     _active_tab: Option<&str>,
 ) -> String {
     if is_mei_script_path(path) {
-        return format!(
-            "/apps/{}/{}?target={}&preview_target={}",
-            route_mode.slug(),
-            app_path,
-            path,
-            path
-        );
+        return format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
     }
     let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
-    if let Some(preview_target) = preview_target {
-        href.push_str("&preview_target=");
-        href.push_str(preview_target);
-    } else if let Some(entry) = selected_entry {
+    if let Some(entry) = selected_entry {
         href.push_str("&entry=");
         href.push_str(entry);
     }
@@ -164,5 +155,5 @@ fn source_href(
 }
 
 fn is_mei_script_path(path: &str) -> bool {
-    path.ends_with(".mei") || path.ends_with(".star")
+    path.ends_with(".mei")
 }

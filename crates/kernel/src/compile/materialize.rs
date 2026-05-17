@@ -21,6 +21,16 @@ use super::{
     resources::csv_record_to_json,
 };
 
+const DEFAULT_PREVIEW_ROWS: usize = 1000;
+const DEFAULT_PAGE_SIZE: usize = 100;
+const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
+
+#[derive(Debug, Clone)]
+struct LegacyRowsSnapshot {
+    rows: Vec<Value>,
+    truncated: bool,
+}
+
 /// `source_mei_rel`：定义该批 legacy dataset 的 `.mei` 相对路径（如 `data/dataset/foo.mei`）。
 /// 当 `ds.dataset` 未写 `id`/`key` 时，数据集会注册为 `__source_path__`，与 `ds.data_ref("...同一路径...")`
 /// 对齐需要把同一份 `DatasetView` 再挂到该路径 id 上。
@@ -45,8 +55,12 @@ pub(super) fn materialize_legacy_datasets(
             .and_then(|value| value.strip_prefix("dataset."))
             .map(ToString::to_string)
             .unwrap_or_else(|| decl.dataset.key.clone());
+        let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false, false);
+        let mut source_truncated = false;
         let mut rows = if decl.dataset.kind == "dataframe" {
-            load_legacy_rows_from_source(app_root, &decl.source)?
+            let snapshot = load_legacy_rows_from_source(app_root, &decl.source)?;
+            source_truncated = snapshot.truncated;
+            snapshot.rows
         } else {
             Vec::new()
         };
@@ -75,11 +89,7 @@ pub(super) fn materialize_legacy_datasets(
             stage_schema: Vec::new(),
             columns: columns.clone(),
             rows: rows.clone(),
-            source: SourceDecl {
-                kind: "derived".to_string(),
-                path: format!("legacy.dataset:{dataset_id}"),
-                content: None,
-            },
+            source: source_decl.clone(),
             sources: Vec::new(),
             metrics: BTreeMap::new(),
         };
@@ -99,11 +109,12 @@ pub(super) fn materialize_legacy_datasets(
             stage_schema: Vec::new(),
             columns,
             rows,
-            source: SourceDecl {
-                kind: "derived".to_string(),
-                path: format!("legacy.dataset:{dataset_id}"),
-                content: None,
-            },
+            source: legacy_dataset_source_decl(
+                &decl.source,
+                &decl.dataset.normalize,
+                true,
+                source_truncated,
+            ),
             sources: Vec::new(),
             metrics,
         };
@@ -135,14 +146,21 @@ pub(super) fn materialize_legacy_datasets(
     Ok(compiled)
 }
 
-fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> Result<Vec<Value>> {
+fn load_legacy_rows_from_source(
+    app_root: &Path,
+    source: &LegacySourceDecl,
+) -> Result<LegacyRowsSnapshot> {
     let source_path = source
         .file
         .as_deref()
         .or(source.path.as_deref())
         .unwrap_or("");
-    if source_path.is_empty() {
-        return Ok(Vec::new());
+    let preview_rows = source_preview_rows(source);
+    if source_path.is_empty() && source.connection.is_none() {
+        return Ok(LegacyRowsSnapshot {
+            rows: Vec::new(),
+            truncated: false,
+        });
     }
     let path_lower = source_path.to_ascii_lowercase();
     let inferred = if path_lower.ends_with(".xlsx") || path_lower.ends_with(".xls") {
@@ -160,28 +178,162 @@ fn load_legacy_rows_from_source(app_root: &Path, source: &LegacySourceDecl) -> R
                 .headers()
                 .context("failed to read csv headers")?
                 .clone();
-            reader
-                .records()
-                .map(|record| {
-                    let record = record.context("failed to read csv row")?;
-                    Ok::<_, anyhow::Error>(csv_record_to_json(&headers, &record))
-                })
-                .collect::<Result<Vec<_>>>()
+            let mut rows = Vec::new();
+            let mut truncated = false;
+            for record in reader.records() {
+                let record = record.context("failed to read csv row")?;
+                if rows.len() >= preview_rows {
+                    truncated = true;
+                    break;
+                }
+                rows.push(csv_record_to_json(&headers, &record));
+            }
+            Ok(LegacyRowsSnapshot { rows, truncated })
+        }
+        "db" => {
+            let rows = load_legacy_db_rows(app_root, source, preview_rows)?;
+            let truncated = rows.len() >= preview_rows;
+            Ok(LegacyRowsSnapshot { rows, truncated })
         }
         "json" => {
             let raw = std::fs::read_to_string(&path)
                 .with_context(|| format!("failed to read json dataset {}", path.display()))?;
             let json: Value = serde_json::from_str(&raw)
                 .with_context(|| format!("invalid json dataset {}", path.display()))?;
-            Ok(json.as_array().cloned().unwrap_or_default())
+            let mut rows = json.as_array().cloned().unwrap_or_default();
+            let truncated = rows.len() > preview_rows;
+            rows.truncate(preview_rows);
+            Ok(LegacyRowsSnapshot { rows, truncated })
         }
         "xlsx" => {
             let header_row = source.header_row.unwrap_or(1).max(1) as usize;
-            load_legacy_xlsx_rows(&path, source.sheet.as_deref(), header_row)
-                .with_context(|| format!("failed to read xlsx dataset {}", path.display()))
+            let rows = load_legacy_xlsx_rows(
+                &path,
+                source.sheet.as_deref(),
+                header_row,
+                Some(preview_rows),
+            )
+            .with_context(|| format!("failed to read xlsx dataset {}", path.display()))?;
+            let truncated = rows.len() >= preview_rows;
+            Ok(LegacyRowsSnapshot { rows, truncated })
         }
         other => Err(anyhow!("unsupported legacy dataset source kind `{other}`")),
     }
+}
+
+fn source_preview_rows(source: &LegacySourceDecl) -> usize {
+    source
+        .preview_rows
+        .unwrap_or(DEFAULT_PREVIEW_ROWS as i64)
+        .max(1) as usize
+}
+
+fn source_page_size(source: &LegacySourceDecl) -> usize {
+    source.page_size.unwrap_or(DEFAULT_PAGE_SIZE as i64).max(1) as usize
+}
+
+fn source_max_page_size(source: &LegacySourceDecl) -> usize {
+    source
+        .max_page_size
+        .unwrap_or(DEFAULT_MAX_PAGE_SIZE as i64)
+        .max(1) as usize
+}
+
+fn legacy_dataset_source_decl(
+    source: &LegacySourceDecl,
+    normalize: &BTreeMap<String, String>,
+    lazy_enabled: bool,
+    preview_truncated: bool,
+) -> SourceDecl {
+    let source_path = source
+        .file
+        .as_deref()
+        .or(source.path.as_deref())
+        .unwrap_or("")
+        .to_string();
+    let kind = source.kind.clone().unwrap_or_else(|| {
+        if source_path.ends_with(".xlsx") || source_path.ends_with(".xls") {
+            "xlsx".to_string()
+        } else {
+            "csv".to_string()
+        }
+    });
+    let meta = serde_json::json!({
+        "lazy": {
+            "enabled": lazy_enabled,
+            "preview_rows": source_preview_rows(source),
+            "default_page_size": source_page_size(source),
+            "max_page_size": source_max_page_size(source),
+            "truncated": preview_truncated,
+        },
+        "sheet": source.sheet,
+        "header_row": source.header_row.unwrap_or(1),
+        "table": source.table,
+        "query": source.query,
+        "connection": source.connection,
+        "normalize": normalize,
+    });
+    SourceDecl {
+        kind,
+        path: source_path,
+        content: serde_json::to_string(&meta).ok(),
+    }
+}
+
+fn load_legacy_db_rows(
+    app_root: &Path,
+    source: &LegacySourceDecl,
+    preview_rows: usize,
+) -> Result<Vec<Value>> {
+    use rusqlite::{types::ValueRef, Connection};
+    let dsn = source
+        .connection
+        .clone()
+        .or_else(|| source.file.clone())
+        .or_else(|| source.path.clone())
+        .ok_or_else(|| anyhow!("db source missing connection/path"))?;
+    let db_path = dsn
+        .strip_prefix("sqlite://")
+        .map(ToString::to_string)
+        .unwrap_or(dsn);
+    let db_path = if Path::new(&db_path).is_absolute() {
+        Path::new(&db_path).to_path_buf()
+    } else {
+        app_root.join(db_path)
+    };
+    let conn = Connection::open(&db_path)
+        .with_context(|| format!("failed to open sqlite db {}", db_path.display()))?;
+    let base_sql = if let Some(query) = source.query.as_deref().filter(|v| !v.trim().is_empty()) {
+        format!("SELECT * FROM ({query})")
+    } else if let Some(table) = source.table.as_deref().filter(|v| !v.trim().is_empty()) {
+        format!("SELECT * FROM \"{}\"", table.replace('"', "\"\""))
+    } else {
+        return Err(anyhow!("db source needs table or query"));
+    };
+    let sql = format!("{base_sql} LIMIT {}", preview_rows.max(1));
+    let mut stmt = conn.prepare(&sql)?;
+    let column_names = stmt
+        .column_names()
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    let rows = stmt
+        .query_map([], |row| {
+            let mut map = serde_json::Map::new();
+            for (idx, key) in column_names.iter().enumerate() {
+                let value = match row.get_ref(idx)? {
+                    ValueRef::Null => Value::Null,
+                    ValueRef::Integer(v) => serde_json::json!(v),
+                    ValueRef::Real(v) => serde_json::json!(v),
+                    ValueRef::Text(v) => Value::String(String::from_utf8_lossy(v).to_string()),
+                    ValueRef::Blob(v) => Value::String(format!("<blob:{} bytes>", v.len())),
+                };
+                map.insert(key.clone(), value);
+            }
+            Ok::<_, rusqlite::Error>(Value::Object(map))
+        })?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 fn apply_legacy_normalize(rows: Vec<Value>, normalize: &BTreeMap<String, String>) -> Vec<Value> {

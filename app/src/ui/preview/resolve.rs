@@ -12,6 +12,7 @@ pub(super) fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_pat
                 "app_path": app_path,
                 "entry_target": compiled.entry_target,
                 "step_api": format!("/api/sim/step/{}", app_path),
+                "dataset_query_api": format!("/api/datasets/query/{}", app_path),
             }),
         );
     }

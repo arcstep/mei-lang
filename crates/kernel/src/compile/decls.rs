@@ -108,6 +108,24 @@ pub(super) struct LegacySourceDecl {
     /// 表头所在行号（从 1 计数，与 Excel 行号一致）；缺省为 1。
     #[serde(default)]
     pub header_row: Option<i64>,
+    /// 编译期预览行数上限（用于惰性加载首屏快照）。
+    #[serde(default)]
+    pub preview_rows: Option<i64>,
+    /// 组件默认分页大小。
+    #[serde(default)]
+    pub page_size: Option<i64>,
+    /// 组件允许的最大分页大小。
+    #[serde(default)]
+    pub max_page_size: Option<i64>,
+    /// 数据库表名（kind=db 时可选）。
+    #[serde(default)]
+    pub table: Option<String>,
+    /// 数据库查询 SQL（kind=db 时可选；优先于 table）。
+    #[serde(default)]
+    pub query: Option<String>,
+    /// 数据库连接串（kind=db 时使用，如 sqlite:///abs/path.db）。
+    #[serde(default)]
+    pub connection: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

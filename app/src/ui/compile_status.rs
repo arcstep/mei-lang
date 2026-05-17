@@ -71,7 +71,7 @@ pub(super) fn compiled_has_error_diagnostics(compiled: &CompiledApp) -> bool {
 }
 
 pub(super) fn is_mei_script_target(target: &str) -> bool {
-    target.ends_with(".mei") || target.ends_with(".star")
+    target.ends_with(".mei")
 }
 
 pub(super) fn source_language(target: &str) -> &'static str {
