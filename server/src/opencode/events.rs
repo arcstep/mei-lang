@@ -128,7 +128,7 @@ fn as_str<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 
 pub(crate) fn looks_like_meilang_skill_path(value: &str) -> bool {
     let normalized = value.replace('\\', "/");
-    normalized.contains("/.mei/opencode/skills/meilang-author")
+    normalized.contains("/.mei/skills/meilang-author")
 }
 
 #[allow(dead_code)]

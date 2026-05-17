@@ -2480,7 +2480,7 @@
   }
 
   function looksLikeSkillPath(path) {
-    return String(path || "").replaceAll("\\", "/").includes("/.mei/opencode/skills/meilang-author");
+    return String(path || "").replaceAll("\\", "/").includes("/.mei/skills/meilang-author");
   }
 
   function blockedPermissionNoticeFromData(data) {

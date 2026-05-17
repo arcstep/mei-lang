@@ -18,9 +18,9 @@ use super::{
 use crate::{mei_agent::llm_config, AppState};
 
 const MANAGED_SKILL_SOURCE_REL: &str = "guides/claude-skills";
-const MANAGED_SKILL_INSTALL_REL: &str = ".mei/opencode/skills/meilang-author";
-const MANAGED_SKILL_ALLOW_PATH_GLOB: &str = "*/.mei/opencode/skills/meilang-author";
-const MANAGED_SKILL_ALLOW_FILE_GLOB: &str = "*/.mei/opencode/skills/meilang-author/*";
+const MANAGED_SKILL_INSTALL_REL: &str = ".mei/skills/meilang-author";
+const MANAGED_SKILL_ALLOW_PATH_GLOB: &str = "*/.mei/skills/meilang-author";
+const MANAGED_SKILL_ALLOW_FILE_GLOB: &str = "*/.mei/skills/meilang-author/*";
 
 pub(crate) fn preferred_opencode_mode() -> String {
     match std::env::var("MEI_OPENCODE_MODE")
@@ -69,10 +69,6 @@ fn opencode_project_config_path(package_root: &FsPath) -> PathBuf {
 
 fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
     package_root.join(MANAGED_SKILL_SOURCE_REL)
-}
-
-fn managed_skill_install_dir_legacy(package_root: &FsPath) -> PathBuf {
-    config_root(package_root).join(MANAGED_SKILL_INSTALL_REL)
 }
 
 fn managed_skill_install_dir(source_root: &FsPath) -> PathBuf {
@@ -203,21 +199,9 @@ fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<
     Ok(())
 }
 
-fn select_install_dir(package_root: &FsPath, source_root: &FsPath) -> PathBuf {
-    let primary = managed_skill_install_dir(source_root);
-    let legacy = managed_skill_install_dir_legacy(package_root);
-    let primary_entry = primary.join("SKILL.md");
-    let legacy_entry = legacy.join("SKILL.md");
-    if primary_entry.exists() || !legacy_entry.exists() {
-        primary
-    } else {
-        legacy
-    }
-}
-
 fn build_skill_status(package_root: &FsPath, source_root: &FsPath) -> ManagedOpencodeSkillStatus {
     let source_dir = managed_skill_source_dir(package_root);
-    let install_dir = select_install_dir(package_root, source_root);
+    let install_dir = managed_skill_install_dir(source_root);
     let entry_file = install_dir.join("SKILL.md");
     let source_present = source_dir.join("SKILL.md").exists();
     let installed = entry_file.exists();
@@ -292,8 +276,7 @@ pub(crate) fn ensure_managed_opencode_skill_synced(
 }
 
 /// 解析 meilang-author skill 根目录（已安装优先，否则源码目录）。
-/// 默认安装路径为 `{source_root}/.mei/opencode/skills/meilang-author`；
-/// 迁移期兼容回退历史根路径 `<config_root>/.mei/opencode/skills/meilang-author`。
+/// 默认安装路径为 `{source_root}/.mei/skills/meilang-author`。
 pub(crate) fn resolve_meilang_skill_home_for_source_root(
     package_root: &FsPath,
     source_root: &FsPath,

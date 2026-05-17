@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn classify_skill_directory_mentions_builtin_assistant() {
-        let patterns = vec!["/tmp/proj/.mei/opencode/skills/meilang-author/foo.md".to_string()];
+        let patterns = vec!["/tmp/proj/.mei/skills/meilang-author/foo.md".to_string()];
         let (_, _, msg) = classify_blocked_permission("external_directory", &patterns);
         assert!(msg.contains("内置助手"), "{msg}");
     }
