@@ -92,6 +92,7 @@ pub(super) fn materialize_legacy_datasets(
             source: source_decl.clone(),
             sources: Vec::new(),
             metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
         };
         datasets.insert(dataset_id.clone(), dataset_stub.clone());
         if dataset_id == "__source_path__" {
@@ -116,6 +117,7 @@ pub(super) fn materialize_legacy_datasets(
             ),
             sources: Vec::new(),
             metrics,
+            runtime_metric_defs: decl.metrics.clone(),
         };
         datasets.insert(dataset_id.clone(), dataset.clone());
         if dataset_id == "__source_path__" {
@@ -380,6 +382,7 @@ pub(super) fn materialize_metric_packs(
             },
             sources: Vec::new(),
             metrics,
+            runtime_metric_defs: pack.metrics.clone(),
         };
         datasets.insert(pack.metric_pack.id.clone(), dataset.clone());
         compiled.push(LoadedResource {
@@ -444,6 +447,7 @@ pub(super) fn materialize_dataset_views(
             },
             sources: Vec::new(),
             metrics,
+            runtime_metric_defs: metric_defs_from_decl_list(&decl.metrics),
         };
         datasets.insert(decl.id.clone(), dataset.clone());
         compiled.push(LoadedResource {
@@ -455,6 +459,55 @@ pub(super) fn materialize_dataset_views(
         });
     }
     Ok(compiled)
+}
+
+pub(super) fn evaluate_runtime_metric_defs(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    metric_ids: Option<&[String]>,
+) -> Result<BTreeMap<String, MetricContract>> {
+    if let Some(ids) = metric_ids {
+        let selected = ids
+            .iter()
+            .filter_map(|id| metric_defs.get(id).cloned().map(|value| (id.clone(), value)))
+            .collect::<BTreeMap<_, _>>();
+        return materialize_legacy_metric_map(&selected, base_rows, datasets);
+    }
+    materialize_legacy_metric_map(metric_defs, base_rows, datasets)
+}
+
+fn metric_defs_from_decl_list(decls: &[MetricDecl]) -> BTreeMap<String, Value> {
+    decls
+        .iter()
+        .filter(|decl| decl.kind == "metric")
+        .map(|decl| {
+            let mut map = serde_json::Map::new();
+            map.insert(
+                "shape".to_string(),
+                Value::String(decl.metric_type.clone()),
+            );
+            if let Some(label) = &decl.label {
+                map.insert("label".to_string(), Value::String(label.clone()));
+            }
+            if !decl.schema.is_empty() {
+                map.insert(
+                    "schema".to_string(),
+                    serde_json::to_value(&decl.schema).unwrap_or(Value::Null),
+                );
+            }
+            if !decl.values.is_empty() {
+                map.insert(
+                    "values".to_string(),
+                    Value::Object(decl.values.clone().into_iter().collect()),
+                );
+            }
+            if let Some(value) = &decl.value {
+                map.insert("value".to_string(), value.clone());
+            }
+            (decl.id.clone(), Value::Object(map))
+        })
+        .collect()
 }
 
 fn materialize_metrics(

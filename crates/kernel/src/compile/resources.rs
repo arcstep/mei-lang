@@ -114,6 +114,7 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         source: source_with_meta,
         sources: Vec::new(),
         metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
     })
 }
 

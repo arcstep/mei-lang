@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, path::Path};
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
 
 use crate::{
     eval::evaluate_mei_file,
@@ -209,6 +210,15 @@ pub fn compile_app_from_root_with_options(
         component_assets: active_payload.component_assets,
         diagnostics,
     })
+}
+
+pub fn evaluate_runtime_metric_defs(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, crate::model::DatasetView>,
+    metric_ids: Option<&[String]>,
+) -> Result<BTreeMap<String, crate::model::MetricContract>> {
+    materialize::evaluate_runtime_metric_defs(metric_defs, base_rows, datasets, metric_ids)
 }
 
 #[cfg(test)]

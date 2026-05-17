@@ -6,7 +6,7 @@ mod workspace;
 
 pub use compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
-    compile_app_with_options, CompileOptions,
+    compile_app_with_options, evaluate_runtime_metric_defs, CompileOptions,
 };
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use model::{

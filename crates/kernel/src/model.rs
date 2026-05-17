@@ -351,6 +351,8 @@ pub struct DatasetView {
     pub sources: Vec<DatasetSourceRef>,
     #[serde(default)]
     pub metrics: BTreeMap<String, MetricContract>,
+    #[serde(skip, default)]
+    pub runtime_metric_defs: BTreeMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,7 +1,10 @@
-use std::fs;
+use std::{collections::BTreeMap, fs};
 
 use super::harness::{temp_root, workspace_root, write_file};
-use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
+use super::super::{
+    compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs,
+    CompileOptions,
+};
 use crate::MetricShape;
 
 #[test]
@@ -276,6 +279,43 @@ frame.add_panel(
         .expect("dataframe metric should exist");
     assert_eq!(ranking.shape, MetricShape::Dataframe);
     assert!(ranking.value.as_array().is_some());
+    assert!(dataset.runtime_metric_defs.contains_key("overview"));
+    assert!(dataset.runtime_metric_defs.contains_key("ranking"));
+
+    let filtered_rows = dataset
+        .rows
+        .iter()
+        .filter(|row| row.get("label").and_then(|value| value.as_str()) != Some("A"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut filtered_dataset = dataset.clone();
+    filtered_dataset.rows = filtered_rows.clone();
+    let mut datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    datasets.insert(dataset.id.clone(), filtered_dataset.clone());
+    let runtime_metrics = evaluate_runtime_metric_defs(
+        &dataset.runtime_metric_defs,
+        &filtered_rows,
+        &datasets,
+        Some(&["overview".to_string(), "ranking".to_string()]),
+    )
+    .expect("evaluate runtime metric defs");
+    assert_eq!(
+        runtime_metrics.get("overview").map(|metric| metric.shape),
+        Some(MetricShape::Scalar)
+    );
+    assert_eq!(
+        runtime_metrics.get("ranking").map(|metric| metric.shape),
+        Some(MetricShape::Dataframe)
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
