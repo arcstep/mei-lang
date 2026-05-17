@@ -12,8 +12,8 @@ mod util;
 mod xlsx_dataset;
 mod xlsx_format;
 
-pub use types::DatasetQueryOptions;
 pub use query::query_dataset_rows;
+pub use types::DatasetQueryOptions;
 
 #[cfg(test)]
 mod tests {
@@ -73,11 +73,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("create temp root");
         let csv_path = root.join("rows.csv");
-        fs::write(
-            &csv_path,
-            "name,city\nalice,chongqing\nbob,beijing\n",
-        )
-        .expect("write csv");
+        fs::write(&csv_path, "name,city\nalice,chongqing\nbob,beijing\n").expect("write csv");
         let dataset = DatasetView {
             id: "rows".to_string(),
             title: Some("Rows".to_string()),

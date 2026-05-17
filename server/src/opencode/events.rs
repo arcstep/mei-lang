@@ -47,6 +47,8 @@ pub(crate) struct HostOpencodeToolSummary {
     pub error: Option<String>,
 }
 
+// 含上游 OpenCode 兼容变体与解析辅助；当前 `native` 路径未全量引用，保留供后续接线。
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum HostOpencodeEvent {
@@ -72,6 +74,8 @@ pub(crate) enum HostOpencodeEvent {
         part_id: String,
         field: String,
         delta: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        server_ts_ms: Option<i64>,
     },
     MessagePartRemoved {
         session_id: String,
@@ -106,6 +110,7 @@ pub(crate) enum HostOpencodeEvent {
     },
 }
 
+#[allow(dead_code)]
 impl HostOpencodeEvent {
     pub(crate) fn debug(event_type: impl Into<String>, payload: Value) -> Self {
         let session_id = extract_session_id_from_global_event(&payload).map(ToString::to_string);
@@ -126,6 +131,7 @@ pub(crate) fn looks_like_meilang_skill_path(value: &str) -> bool {
     normalized.contains("/.mei/opencode/skills/meilang-author")
 }
 
+#[allow(dead_code)]
 fn extract_payload_event(value: &Value) -> Option<&Value> {
     value
         .get("payload")
@@ -134,6 +140,7 @@ fn extract_payload_event(value: &Value) -> Option<&Value> {
         .or(Some(value))
 }
 
+#[allow(dead_code)]
 pub(crate) fn extract_session_id_from_global_event(value: &Value) -> Option<&str> {
     let payload = extract_payload_event(value)?;
     let properties = payload.get("properties")?;
@@ -209,6 +216,10 @@ fn normalize_part_value(part: &Value, with_raw: bool) -> Option<HostOpencodePart
     })
 }
 
+pub(crate) fn host_part_summary_from_stored(part: &Value) -> Option<HostOpencodePartSummary> {
+    normalize_part_value(part, false)
+}
+
 pub(crate) fn normalize_upstream_message_to_snapshot(
     raw: &BridgeSessionMessageRaw,
 ) -> Option<HostOpencodeMessageSnapshot> {
@@ -238,6 +249,7 @@ pub(crate) fn normalize_upstream_message_to_snapshot(
     })
 }
 
+#[allow(dead_code)]
 pub(crate) fn normalize_global_event_to_host_event(
     value: Value,
     current_session_id: &str,
@@ -299,6 +311,7 @@ pub(crate) fn normalize_global_event_to_host_event(
             part_id: as_str(&properties, "partID")?.to_string(),
             field: as_str(&properties, "field")?.to_string(),
             delta: as_str(&properties, "delta")?.to_string(),
+            server_ts_ms: properties.get("server_ts_ms").and_then(Value::as_i64),
         }),
         "message.part.removed" => Some(HostOpencodeEvent::MessagePartRemoved {
             session_id: session_id.to_string(),
@@ -349,6 +362,7 @@ pub(crate) fn normalize_global_event_to_host_event(
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn extract_sse_data(frame: &str) -> Option<String> {
     let mut lines = Vec::new();
     for line in frame.lines() {

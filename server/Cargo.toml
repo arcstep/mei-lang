@@ -19,8 +19,9 @@ csv.workspace = true
 dotenvy = "0.15"
 mei-lang-app = { path = "../app" }
 mei-lang-kernel = { path = "../crates/kernel" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

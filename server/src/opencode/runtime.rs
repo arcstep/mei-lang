@@ -1,24 +1,21 @@
 use std::{
-    collections::BTreeMap,
     fs,
     path::{Path as FsPath, PathBuf},
-    process::{Command as ProcessCommand, ExitStatus},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    process::Command as ProcessCommand,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Context;
 use serde_json::json;
-use tokio::time::{sleep, Duration};
 use walkdir::WalkDir;
 
-use super::bridge::health as bridge_health;
 use super::{
-    ManagedOpencodeConfigSummary, ManagedOpencodeExit, ManagedOpencodeProcess,
-    ManagedOpencodeRuntime, ManagedOpencodeRuntimeStatus, ManagedOpencodeSkillPrompt,
-    ManagedOpencodeSkillStatus, StartManagedOpencodeRequest, MANAGED_OPENCODE_PROVIDER_ID,
-    MANAGED_OPENCODE_PROVIDER_NAME, MANAGED_OPENCODE_READONLY_AGENT, MANAGED_OPENCODE_REQUIRED_ENV,
+    ManagedCompletionModelChoice, ManagedOpencodeConfigSummary, ManagedOpencodeRuntimeStatus,
+    ManagedOpencodeSkillMeta, ManagedOpencodeSkillStatus, StartManagedOpencodeRequest,
+    MANAGED_OPENCODE_PROVIDER_ID, MANAGED_OPENCODE_PROVIDER_NAME, MANAGED_OPENCODE_READONLY_AGENT,
+    MANAGED_OPENCODE_REQUIRED_ENV,
 };
-use crate::AppState;
+use crate::{mei_agent::llm_config, AppState};
 
 const MANAGED_SKILL_SOURCE_REL: &str = "guides/claude-skills";
 const MANAGED_SKILL_INSTALL_REL: &str = ".mei/opencode/skills/meilang-author";
@@ -276,29 +273,38 @@ pub(crate) fn ensure_managed_opencode_skill_synced(
     sync_managed_opencode_skill_for_root(&state.package_root)
 }
 
-pub(crate) fn load_managed_opencode_skill_prompt(
-    state: &AppState,
-) -> anyhow::Result<Option<ManagedOpencodeSkillPrompt>> {
-    let status = build_skill_status(&state.package_root);
-    let (home, source_kind) = if status.installed {
-        (PathBuf::from(&status.install_dir), "installed")
+/// 解析 meilang-author skill 根目录（已安装优先，否则源码目录）。
+pub(crate) fn resolve_meilang_skill_home(package_root: &FsPath) -> Option<PathBuf> {
+    let status = build_skill_status(package_root);
+    if status.installed {
+        Some(PathBuf::from(&status.install_dir))
     } else if status.source_present {
-        (PathBuf::from(&status.source_dir), "source")
+        Some(PathBuf::from(&status.source_dir))
     } else {
+        None
+    }
+}
+
+pub(crate) fn load_managed_opencode_skill_meta(
+    state: &AppState,
+) -> anyhow::Result<Option<ManagedOpencodeSkillMeta>> {
+    let Some(home) = resolve_meilang_skill_home(&state.package_root) else {
         return Ok(None);
     };
-    let entry_path = home.join("SKILL.md");
-    let entry_markdown = fs::read_to_string(&entry_path)
-        .with_context(|| format!("failed to read {}", entry_path.display()))?;
+    let status = build_skill_status(&state.package_root);
+    let source_kind = if status.installed {
+        "installed"
+    } else {
+        "source"
+    };
     let companion_files = markdown_files(&home)
         .into_iter()
         .filter(|file| file != "SKILL.md")
         .collect::<Vec<_>>();
-    Ok(Some(ManagedOpencodeSkillPrompt {
-        entry_markdown,
-        companion_files,
+    Ok(Some(ManagedOpencodeSkillMeta {
         skill_home: home.display().to_string(),
         source_kind: source_kind.to_string(),
+        companion_files,
     }))
 }
 
@@ -337,13 +343,6 @@ fn managed_external_directory_permissions() -> serde_json::Value {
             MANAGED_SKILL_ALLOW_FILE_GLOB: "allow",
         }
     })
-}
-
-fn current_unix_timestamp_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
 }
 
 fn render_managed_opencode_runtime_config_content(
@@ -387,39 +386,15 @@ fn render_managed_opencode_runtime_config_content(
     .to_string()
 }
 
-fn render_managed_opencode_launch_env(
-    base_url: &str,
-    api_key: &str,
-    completion_model: &str,
-    embedding_model: Option<&str>,
-) -> BTreeMap<String, String> {
-    let mut env = BTreeMap::from([
-        ("QWEN_BASE_URL".to_string(), base_url.to_string()),
-        ("QWEN_API_KEY".to_string(), api_key.to_string()),
-        (
-            "QWEN_COMPLETION_MODEL".to_string(),
-            completion_model.to_string(),
-        ),
-        (
-            "OPENCODE_CONFIG_CONTENT".to_string(),
-            render_managed_opencode_runtime_config_content(base_url, api_key, completion_model),
-        ),
-    ]);
-    if let Some(embedding_model) = embedding_model
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        env.insert(
-            "QWEN_EMBEDDING_MODEL".to_string(),
-            embedding_model.to_string(),
-        );
-    }
-    env
-}
-
 pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpencodeConfigSummary {
     let base_url = managed_env_value("QWEN_BASE_URL");
-    let completion_model = managed_env_value("QWEN_COMPLETION_MODEL");
+    let qwen_completion_raw = managed_env_value("QWEN_COMPLETION_MODEL");
+    let qwen_completion_first = qwen_completion_raw.as_deref().and_then(|s| {
+        s.split(',')
+            .next()
+            .map(|t| t.trim())
+            .filter(|t| !t.is_empty())
+    });
     let embedding_model = managed_env_value("QWEN_EMBEDDING_MODEL");
     let api_key_configured = managed_env_value("QWEN_API_KEY").is_some();
     let missing_env = MANAGED_OPENCODE_REQUIRED_ENV
@@ -429,7 +404,7 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         .collect::<Vec<_>>();
     let config_content_ready = api_key_configured
         && matches!(
-            (base_url.as_deref(), completion_model.as_deref()),
+            (base_url.as_deref(), qwen_completion_first),
             (Some(base_url), Some(completion_model))
                 if !render_managed_opencode_runtime_config_content(base_url, "placeholder", completion_model).is_empty()
         );
@@ -437,6 +412,19 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
     let config_root = config_root(&state.package_root);
     let dotenv_path = repo_dotenv_path(&state.package_root);
     let project_config_present = project_config_path.exists();
+    let completion_model_choices: Vec<ManagedCompletionModelChoice> =
+        llm_config::enumerate_completion_choices()
+            .into_iter()
+            .map(|c| ManagedCompletionModelChoice {
+                provider_id: c.provider_id,
+                model_id: c.model_id.clone(),
+                label: c.label,
+            })
+            .collect();
+    let completion_model = completion_model_choices
+        .first()
+        .map(|c| c.model_id.clone())
+        .or_else(|| qwen_completion_first.map(|s| s.to_string()));
     let default_model = completion_model
         .as_deref()
         .map(managed_opencode_default_model);
@@ -445,6 +433,7 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         .then(|| state.opencode_preferred_server_url.as_ref().clone());
 
     ManagedOpencodeConfigSummary {
+        agent_backend: "native",
         preferred_mode,
         preferred_server_url,
         auto_start_managed: state.opencode_auto_start,
@@ -462,239 +451,48 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         project_config_path: Some(project_config_path.display().to_string()),
         base_url,
         completion_model,
+        completion_model_choices,
         embedding_model,
         default_model,
         missing_env,
     }
 }
 
-fn managed_opencode_exit(status: ExitStatus, kind: &'static str) -> ManagedOpencodeExit {
-    ManagedOpencodeExit {
-        kind,
-        success: status.success(),
-        code: status.code(),
-    }
-}
-
-fn refresh_managed_opencode_runtime(runtime: &mut ManagedOpencodeRuntime) -> anyhow::Result<()> {
-    let Some(process) = runtime.process.as_mut() else {
-        return Ok(());
-    };
-    if let Some(status) = process.child.try_wait()? {
-        runtime.last_exit = Some(managed_opencode_exit(status, "exited"));
-        runtime.process = None;
-    }
-    Ok(())
-}
-
 pub(crate) fn managed_opencode_runtime_status(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
     let configured = managed_opencode_config_summary(state);
-    let mut runtime = state
+    let last_exit = state
         .opencode_runtime
         .lock()
-        .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?;
-    refresh_managed_opencode_runtime(&mut runtime)?;
-
-    let (managed_running, pid, host, port, managed_server_url, started_at_ms, working_directory) =
-        if let Some(process) = runtime.process.as_ref() {
-            (
-                true,
-                Some(process.child.id()),
-                Some(process.host.clone()),
-                Some(process.port),
-                Some(format!("http://{}:{}", process.host, process.port)),
-                Some(process.started_at_ms),
-                Some(process.working_directory.display().to_string()),
-            )
-        } else {
-            (false, None, None, None, None, None, None)
-        };
-    let (running, connection_source, server_url) = if managed_running {
-        (true, "managed".to_string(), managed_server_url)
-    } else if configured.preferred_mode == "external" {
-        (
-            configured.preferred_server_url.is_some(),
-            "external".to_string(),
-            configured.preferred_server_url.clone(),
-        )
-    } else {
-        (false, "none".to_string(), None)
-    };
-
+        .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?
+        .last_exit
+        .clone();
     Ok(ManagedOpencodeRuntimeStatus {
         configured,
-        running,
-        managed_running,
-        managed_by_mei: managed_running,
-        connection_source,
-        pid,
-        host,
-        port,
-        server_url,
-        started_at_ms,
-        working_directory,
-        last_exit: runtime.last_exit.clone(),
+        running: true,
+        managed_running: false,
+        managed_by_mei: false,
+        connection_source: "native".to_string(),
+        pid: None,
+        host: None,
+        port: None,
+        server_url: Some("mei://native-agent".to_string()),
+        started_at_ms: None,
+        working_directory: Some(state.source_root.display().to_string()),
+        last_exit,
     })
-}
-
-async fn wait_for_managed_opencode_ready(
-    state: &AppState,
-    host: &str,
-    port: u16,
-) -> anyhow::Result<()> {
-    let server_url = format!("http://{}:{}", host, port);
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let last_error = loop {
-        match bridge_health(&state.opencode_http, &server_url).await {
-            Ok(_) => return Ok(()),
-            Err(error) => {
-                let error_text = error.to_string();
-                if Instant::now() >= deadline {
-                    break error_text;
-                }
-
-                {
-                    let mut runtime = state
-                        .opencode_runtime
-                        .lock()
-                        .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?;
-                    refresh_managed_opencode_runtime(&mut runtime)?;
-                    if runtime.process.is_none() {
-                        let exit = runtime
-                            .last_exit
-                            .as_ref()
-                            .map(|value| format!("{value:?}"))
-                            .unwrap_or_else(|| "unknown exit state".to_string());
-                        anyhow::bail!("managed opencode exited before ready: {exit}");
-                    }
-                }
-
-                sleep(Duration::from_millis(250)).await;
-            }
-        }
-    };
-
-    anyhow::bail!(
-        "managed opencode did not become ready within 10s: {}",
-        last_error
-    )
 }
 
 pub(crate) async fn start_managed_opencode(
     state: &AppState,
-    request: StartManagedOpencodeRequest,
+    _request: StartManagedOpencodeRequest,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
-    let summary = managed_opencode_config_summary(state);
-    let base_url = summary
-        .base_url
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("missing QWEN_BASE_URL"))?;
-    let api_key =
-        managed_env_value("QWEN_API_KEY").ok_or_else(|| anyhow::anyhow!("missing QWEN_API_KEY"))?;
-    let completion_model = summary
-        .completion_model
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("missing QWEN_COMPLETION_MODEL"))?;
-    let launch_env = render_managed_opencode_launch_env(
-        base_url,
-        &api_key,
-        completion_model,
-        summary.embedding_model.as_deref(),
-    );
-    let host = request
-        .host
-        .unwrap_or_else(|| "127.0.0.1".to_string())
-        .trim()
-        .to_string();
-    if host.is_empty() {
-        anyhow::bail!("opencode host cannot be empty");
-    }
-    let port = request.port.unwrap_or(4099);
-    let working_directory = state.source_root.as_ref().to_path_buf();
-    fs::create_dir_all(&working_directory).with_context(|| {
-        format!(
-            "failed to create opencode working directory {}",
-            working_directory.display()
-        )
-    })?;
-
-    {
-        let mut runtime = state
-            .opencode_runtime
-            .lock()
-            .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?;
-        refresh_managed_opencode_runtime(&mut runtime)?;
-        if runtime.process.is_some() {
-            return managed_opencode_runtime_status(state);
-        }
-
-        let mut command = ProcessCommand::new("opencode");
-        command
-            .current_dir(&working_directory)
-            .arg("serve")
-            .arg("--hostname")
-            .arg(&host)
-            .arg("--port")
-            .arg(port.to_string());
-        for (name, value) in launch_env {
-            command.env(name, value);
-        }
-        let mut child = command.spawn()?;
-        if let Some(status) = child.try_wait()? {
-            runtime.last_exit = Some(managed_opencode_exit(status, "failed_to_start"));
-            anyhow::bail!("managed opencode exited immediately during startup");
-        }
-
-        let pid = child.id();
-        runtime.last_exit = None;
-        runtime.process = Some(ManagedOpencodeProcess {
-            child,
-            host: host.clone(),
-            port,
-            started_at_ms: current_unix_timestamp_ms(),
-            working_directory,
-        });
-        tracing::info!(pid, %host, port, "started managed opencode");
-    }
-
-    if let Err(error) = wait_for_managed_opencode_ready(state, &host, port).await {
-        let _ = stop_managed_opencode(state);
-        return Err(error);
-    }
-
     managed_opencode_runtime_status(state)
 }
 
 pub(crate) fn stop_managed_opencode(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
-    let mut runtime = state
-        .opencode_runtime
-        .lock()
-        .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?;
-    refresh_managed_opencode_runtime(&mut runtime)?;
-
-    let Some(mut process) = runtime.process.take() else {
-        drop(runtime);
-        return managed_opencode_runtime_status(state);
-    };
-    let pid = process.child.id();
-    process.child.kill()?;
-    let status = process.child.wait()?;
-    runtime.last_exit = Some(managed_opencode_exit(status, "stopped"));
-    tracing::info!(pid, "stopped managed opencode");
-    drop(runtime);
     managed_opencode_runtime_status(state)
-}
-
-pub(crate) fn managed_opencode_server_url(state: &AppState) -> anyhow::Result<String> {
-    let status = managed_opencode_runtime_status(state)?;
-    if !status.running {
-        anyhow::bail!("opencode server target is not configured");
-    }
-    status
-        .server_url
-        .ok_or_else(|| anyhow::anyhow!("opencode server URL is unavailable"))
 }

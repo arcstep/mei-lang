@@ -22,7 +22,11 @@ pub fn query_dataset_rows(
     let meta = parse_source_meta(dataset.source.content.as_deref());
     let cache_settings = resolve_external_file_cache_settings(app_root);
     let default_page_size = meta.lazy.default_page_size.unwrap_or(100).max(1);
-    let max_page_size = meta.lazy.max_page_size.unwrap_or(1000).max(default_page_size);
+    let max_page_size = meta
+        .lazy
+        .max_page_size
+        .unwrap_or(1000)
+        .max(default_page_size);
     let collect_all = options.collect_all;
     let page = if collect_all { 1 } else { options.page.max(1) };
     let requested_page_size = if collect_all {
@@ -56,9 +60,10 @@ pub fn query_dataset_rows(
             &normalized_options,
             false,
         );
-        result
-            .perf
-            .insert("query_total_ms".to_string(), elapsed_ms(query_total_started));
+        result.perf.insert(
+            "query_total_ms".to_string(),
+            elapsed_ms(query_total_started),
+        );
         return Ok(result);
     }
 
@@ -94,9 +99,10 @@ pub fn query_dataset_rows(
             false,
         )),
     }?;
-    result
-        .perf
-        .insert("query_total_ms".to_string(), elapsed_ms(query_total_started));
+    result.perf.insert(
+        "query_total_ms".to_string(),
+        elapsed_ms(query_total_started),
+    );
     Ok(result)
 }
 

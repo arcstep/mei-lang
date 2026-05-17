@@ -8,7 +8,10 @@ use axum::{
 
 use crate::AppError;
 
-pub(crate) fn serve_static_asset(asset_path: std::path::PathBuf, label: &str) -> Result<Response, AppError> {
+pub(crate) fn serve_static_asset(
+    asset_path: std::path::PathBuf,
+    label: &str,
+) -> Result<Response, AppError> {
     if !asset_path.exists() {
         return Err(AppError::status(
             StatusCode::NOT_FOUND,

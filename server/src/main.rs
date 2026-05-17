@@ -4,7 +4,6 @@ use std::{
     net::SocketAddr,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -18,11 +17,12 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use mei_lang_kernel::CompiledApp;
-use reqwest::Client as HttpClient;
 use std::time::Instant;
 
 mod http;
+mod mei_agent;
 mod opencode;
+mod resource_tool_bridge;
 
 #[derive(Parser)]
 #[command(name = "mei")]
@@ -36,6 +36,14 @@ struct Cli {
 enum Command {
     Serve(ServeArgs),
     Opencode(OpencodeArgs),
+    /// `mei agent` 为 `mei opencode` 的别名（内置 Agent 迁移期兼容）
+    Agent(AgentArgs),
+}
+
+#[derive(clap::Args)]
+struct AgentArgs {
+    #[command(subcommand)]
+    command: OpencodeCommand,
 }
 
 #[derive(clap::Args)]
@@ -88,8 +96,8 @@ pub(crate) struct AppState {
     opencode_auto_start: bool,
     opencode_runtime: Arc<Mutex<opencode::ManagedOpencodeRuntime>>,
     opencode_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
-    opencode_http: Arc<HttpClient>,
     compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
+    pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
 }
 
 #[derive(Clone)]
@@ -116,6 +124,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Serve(args) => serve(args).await,
         Command::Opencode(args) => opencode_command(args),
+        Command::Agent(args) => opencode_command(OpencodeArgs {
+            command: args.command,
+        }),
     }
 }
 
@@ -155,6 +166,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
     };
     let preferred_server_url = opencode::runtime::preferred_opencode_server_url();
     let auto_opencode = args.auto_opencode && !args.no_auto_opencode;
+    let native_agent = Arc::new(mei_agent::NativeAgent::open_with_resource_tools(
+        source_root.clone(),
+        package_root.clone(),
+        std::sync::Arc::new(resource_tool_bridge::SceneResourceToolExecutor::default()),
+    )?);
     let state = AppState {
         package_root: Arc::new(package_root.clone()),
         source_root: Arc::new(source_root.clone()),
@@ -163,8 +179,8 @@ async fn serve(args: ServeArgs) -> Result<()> {
         opencode_auto_start: auto_opencode,
         opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
         opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-        opencode_http: Arc::new(HttpClient::new()),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
     };
     tracing::info!(
         cwd = ?std::env::current_dir(),
@@ -174,6 +190,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         opencode_mode = %preferred_mode,
         opencode_server_url = %preferred_server_url,
         opencode_auto_start = auto_opencode,
+        agent_backend = "native",
         "mei serve resolved paths"
     );
     match opencode::runtime::ensure_managed_opencode_skill_synced(&state) {
@@ -195,40 +212,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
         Err(error) => tracing::warn!(%error, "failed to auto-sync MeiLang skill on startup"),
     }
-    let boot_state = state.clone();
-    tokio::spawn(async move {
-        if !boot_state.opencode_auto_start {
-            tracing::info!("skip auto-start managed opencode: auto-start is disabled");
-            return;
-        }
-        if boot_state.opencode_preferred_mode.as_str() != "managed" {
-            tracing::info!(
-                mode = %boot_state.opencode_preferred_mode,
-                "skip auto-start managed opencode: preferred mode is not managed"
-            );
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        let summary = opencode::runtime::managed_opencode_config_summary(&boot_state);
-        if !summary.runtime_env_ready || !summary.config_content_ready {
-            tracing::info!(
-                missing_env = ?summary.missing_env,
-                "skip auto-start managed opencode: runtime env or model config not ready"
-            );
-            return;
-        }
-        let request = opencode::StartManagedOpencodeRequest {
-            host: None,
-            port: Some(4099),
-        };
-        match opencode::runtime::start_managed_opencode(&boot_state, request).await {
-            Ok(_) => tracing::info!("auto-started managed OpenCode (hosted) on mei-lang boot"),
-            Err(error) => tracing::warn!(
-                %error,
-                "auto-start managed OpenCode failed; use panel 重连 or check port 4099 / API keys"
-            ),
-        }
-    });
     let app = Router::new()
         .merge(http::router())
         .with_state(state)

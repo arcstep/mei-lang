@@ -1,8 +1,3 @@
-use std::{
-    fs,
-    path::{Path as FsPath, PathBuf},
-};
-
 use crate::{opencode::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
 
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
@@ -10,20 +5,8 @@ use super::paths::{resolve_app_root, sanitize_relative_path};
 use super::request_scope::world_scope_from_request;
 use super::world_snapshot_lines::append_world_context_lines;
 
-fn current_target_path(
-    app_root: &FsPath,
-    request: &BridgePromptRequest,
-) -> Option<(String, PathBuf)> {
-    let target = sanitize_relative_path(request.target_file.as_deref()?.trim())?;
-    let path = app_root.join(&target);
-    if !path.exists() || !path.is_file() {
-        return None;
-    }
-    Some((target, path))
-}
-
 fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
-    let (app_id, app_root) = resolve_app_root(state, request)?;
+    let (app_id, _app_root) = resolve_app_root(state, request)?;
     let world_scope = world_scope_from_request(request);
     let scene_id = world_scope.scene_id.as_deref().unwrap_or("unknown");
     let entry_id = request
@@ -32,46 +15,33 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("unknown");
-    let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
-    let mei_files = mei_entries
-        .iter()
-        .map(|item| item.relative_path.clone())
-        .collect::<Vec<_>>();
-    let target_context = current_target_path(&app_root, request).and_then(|(target, path)| {
-        fs::read_to_string(&path)
-            .ok()
-            .map(|content| (target, content))
-    });
     let mut lines = vec![
         "[MeiLang Runtime Context]".to_string(),
         format!("app: {app_id}"),
         format!("scene: {scene_id}"),
         format!("entry: {entry_id}"),
     ];
-    if let Some((target, _)) = &target_context {
-        lines.push(format!("target: {target}"));
-    } else if let Some(target) = request.target_file.as_deref() {
-        lines.push(format!("target: {}", target.trim()));
-    }
-    lines.push(
-        "language: MeiLang .mei (Starlark-hosted DSL), not Music Encoding Initiative XML"
-            .to_string(),
-    );
-    lines.push(String::new());
-    lines.push("[Application Mei Files]".to_string());
-    if mei_files.is_empty() {
-        lines.push("- (none)".to_string());
-    } else {
-        lines.extend(mei_files.iter().map(|item| format!("- {item}")));
-    }
-    if let Some((target, content)) = target_context {
-        lines.push(String::new());
-        lines.push(format!("[Current File: {target}]"));
-        lines.push("```mei".to_string());
-        lines.push(content);
-        lines.push("```".to_string());
+    if let Some(target) = request
+        .target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        if sanitize_relative_path(target).is_some() {
+            lines.push(format!("target: {target}"));
+        } else {
+            lines.push(format!("target: {target} (invalid relative path)"));
+        }
     }
     append_world_context_lines(&mut lines, &state.source_root, &app_id, &world_scope);
+    lines.push(String::new());
+    lines.push(
+        concat!(
+            "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
+            "For app-owned files use `<app_id>/...` (e.g. `spbjw/data/dataset/...`); a bare `data/...` resolves next to the workspace root and is usually wrong."
+        )
+        .to_string(),
+    );
     Some(lines.join("\n"))
 }
 
@@ -90,7 +60,7 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v2|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mei_revision={revision}"
+        "v=world-context-v3|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mei_revision={revision}"
     ))
 }
 
@@ -136,22 +106,29 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use reqwest::Client as HttpClient;
-
     use super::*;
     use crate::opencode::ManagedOpencodeRuntime;
 
-    fn build_test_state(source_root: PathBuf) -> AppState {
+    fn build_test_state(package_root: PathBuf, source_root: PathBuf) -> AppState {
+        let source_root = Arc::new(source_root);
+        let native_agent = Arc::new(
+            crate::mei_agent::NativeAgent::open_with_resource_tools(
+                source_root.as_ref().clone(),
+                package_root.clone(),
+                Arc::new(crate::mei_agent::resource_tools::NoopResourceToolExecutor::default()),
+            )
+            .expect("native"),
+        );
         AppState {
-            package_root: Arc::new(source_root.clone()),
-            source_root: Arc::new(source_root),
+            package_root: Arc::new(package_root),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         }
     }
 
@@ -173,8 +150,8 @@ mod tests {
 
     #[test]
     fn context_signature_tracks_scope_fields() {
-        let (root, _) = prepare_app_root();
-        let state = build_test_state(root.clone());
+        let (root, _app_root) = prepare_app_root();
+        let state = build_test_state(root.clone(), root.clone());
         let request = BridgePromptRequest {
             text: String::new(),
             app_id: Some("demo".to_string()),
@@ -192,9 +169,32 @@ mod tests {
 
         let mut changed = request.clone();
         changed.scene_id = Some("scene-b".to_string());
-        let changed_signature = build_context_signature(&state, &changed).expect("changed signature");
+        let changed_signature =
+            build_context_signature(&state, &changed).expect("changed signature");
         assert_ne!(signature, changed_signature);
 
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dynamic_context_does_not_embed_mei_fence() {
+        let (root, _app_root) = prepare_app_root();
+        let state = build_test_state(root.clone(), root.clone());
+        let request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("demo".to_string()),
+            scene_id: Some("s1".to_string()),
+            entry_id: Some("main".to_string()),
+            target_file: Some("main.mei".to_string()),
+            system: None,
+            agent: None,
+            model: None,
+        };
+        let ctx = build_dynamic_mei_context(&state, &request).unwrap_or_default();
+        assert!(
+            !ctx.contains("```mei"),
+            "expected no inlined mei fence: {ctx}"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }

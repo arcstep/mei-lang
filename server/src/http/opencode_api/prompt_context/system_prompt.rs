@@ -1,9 +1,6 @@
-use crate::{
-    opencode::runtime::load_managed_opencode_skill_prompt,
-    AppState,
-};
+use crate::{opencode::runtime::load_managed_opencode_skill_meta, AppState};
 
-pub(super) fn build_meilang_system_prompt(
+pub(crate) fn build_meilang_system_prompt(
     state: &AppState,
     existing: Option<&str>,
     session_context: Option<&str>,
@@ -24,30 +21,50 @@ pub(super) fn build_meilang_system_prompt(
     blocks.push(
         "When presenting a plan, keep the execution-oriented content in Chinese and avoid switching to English by default.".to_string(),
     );
-    match load_managed_opencode_skill_prompt(state) {
-        Ok(Some(skill_prompt)) => {
+    blocks.push(
+            concat!(
+            "Tool-first information policy:\n",
+            "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
+            "- The session injects a **[World — catalog]** block first: treat it as the authoritative index of `world.resources` (datasets, sources, metric ids) plus query-tool contracts.\n",
+            "- For dataset resources, call **`dataset_query` once** in the first tool round when the id is known/implied; default output is bounded (`schema + filters + metric ids + first 10 rows + first 10 columns`, cell text truncated).\n",
+            "- **Do not** chain `read_file` on the entry `.mei` after successful `dataset_query` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
+            "- **Do not** call `resource_list` / `resource_get` / `resource_runtime_peek` for routine dataset Q&A after a successful `dataset_query`; only use runtime peek when user explicitly asks phase/trace.\n",
+            "- Session context is still an index, not full app source.\n",
+            "- Read workspace **text** files with `read_file` (path relative to workspace root, no `..`; app-owned `.mei` / `.md` paths almost always start with `<app_id>/`, e.g. `spbjw/data/...`).\n",
+            "- Query datasets with `dataset_query` (optional overrides: scene_id, entry_id, target_file).\n",
+            "- Read MeiLang author skill docs with `skill_list` then `skill_read` (path relative to skill root, no `..`).\n",
+            "- Only pull large sources when the user asks for edits/audits/reviews or you need evidence to answer correctly.",
+        )
+        .to_string(),
+    );
+    match load_managed_opencode_skill_meta(state) {
+        Ok(Some(meta)) => {
             let mut block = String::new();
-            block.push_str("[MeiLang Claude Skill Entry]\n");
-            block.push_str(&skill_prompt.entry_markdown);
-            block.push_str("\n\n[Skill Home]\n");
+            block.push_str("[MeiLang Author Skill — index]\n");
             block.push_str(&format!(
-                "source_kind: {}\npath: {}",
-                skill_prompt.source_kind, skill_prompt.skill_home
+                "source_kind: {}\nskill_home: {}\n",
+                meta.source_kind, meta.skill_home
             ));
             block.push_str(
-                "\n\n[Important]\nCompanion files are relative to skill_home. Resolve them as `skill_home/<file>` before reading.",
+                "Load authoring rules on demand: call `skill_list`, then `skill_read` for e.g. `syntax-rules.md` or `authoring.md`.\n",
             );
-            if !skill_prompt.companion_files.is_empty() {
-                block.push_str("\n\n[Companion Files]\n");
-                for item in skill_prompt.companion_files {
-                    block.push_str(&format!("- rel: {item}\n"));
+            if !meta.companion_files.is_empty() {
+                block.push_str("companion_md:\n");
+                for item in meta.companion_files.iter().take(24) {
+                    block.push_str(&format!("- {item}\n"));
+                }
+                if meta.companion_files.len() > 24 {
+                    block.push_str(&format!(
+                        "... and {} more (see skill_list)\n",
+                        meta.companion_files.len() - 24
+                    ));
                 }
             }
             blocks.push(block.trim().to_string());
         }
         Ok(None) => {}
         Err(error) => {
-            tracing::warn!(%error, "failed to load mei-lang skill prompt");
+            tracing::warn!(%error, "failed to load mei-lang skill meta");
         }
     }
     if let Some(context) = session_context {
@@ -57,5 +74,57 @@ pub(super) fn build_meilang_system_prompt(
         None
     } else {
         Some(blocks.join("\n\n"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+    };
+
+    use super::build_meilang_system_prompt;
+    use crate::opencode::ManagedOpencodeRuntime;
+    use crate::AppState;
+
+    #[test]
+    fn system_prompt_has_tool_policy_and_no_inlined_companion_bodies() {
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("server crate parent")
+            .to_path_buf();
+        let source_root = std::env::temp_dir().join("mei_system_prompt_test_root");
+        let _ = std::fs::create_dir_all(&source_root);
+        let native_agent = Arc::new(
+            crate::mei_agent::NativeAgent::open_with_resource_tools(
+                source_root.clone(),
+                package_root.clone(),
+                Arc::new(crate::mei_agent::resource_tools::NoopResourceToolExecutor::default()),
+            )
+            .expect("native"),
+        );
+        let state = AppState {
+            package_root: Arc::new(package_root),
+            source_root: Arc::new(source_root),
+            opencode_preferred_mode: Arc::new("external".to_string()),
+            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            opencode_auto_start: false,
+            opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
+            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
+        };
+        let sys =
+            build_meilang_system_prompt(&state, None, Some("compact-session-ctx")).expect("system");
+        assert!(sys.contains("Tool-first information policy"));
+        assert!(sys.contains("[MeiLang Session Context]"));
+        assert!(sys.contains("compact-session-ctx"));
+        assert!(
+            !sys.contains("## 阅读顺序"),
+            "companion-only headings should not be inlined: {}",
+            sys.len()
+        );
     }
 }

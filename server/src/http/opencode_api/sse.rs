@@ -7,14 +7,6 @@ use serde_json;
 
 use crate::opencode::events::HostOpencodeEvent;
 
-pub(crate) fn take_sse_frame(buffer: &mut String) -> Option<String> {
-    let idx = buffer.find("\n\n")?;
-    let frame = buffer[..idx].to_string();
-    let rest = buffer[idx + 2..].to_string();
-    *buffer = rest;
-    Some(frame)
-}
-
 /// OpenCode 未启动或上游不可用时，仍返回 **200 + event-stream**，避免浏览器 EventSource 对非 2xx 无限重连，
 /// 并由前端收到 `session_status` 后主动 `close()` 停止重连。
 pub(crate) fn sse_session_status_notice(

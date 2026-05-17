@@ -59,7 +59,10 @@ fn relative_path_has_dot_segment(relative: &str) -> bool {
         .any(|seg| !seg.is_empty() && seg.starts_with('.'))
 }
 
-pub(super) fn collect_mei_file_entries(source_root: &FsPath, app_root: &FsPath) -> Vec<MeiFileEntry> {
+pub(super) fn collect_mei_file_entries(
+    source_root: &FsPath,
+    app_root: &FsPath,
+) -> Vec<MeiFileEntry> {
     let skip_dirs = collect_skip_directory_names(source_root, app_root);
     let skip = skip_dirs.clone();
     let mut files = WalkDir::new(app_root)

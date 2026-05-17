@@ -45,7 +45,9 @@ pub async fn app_bundle(
         for style in styles {
             let style_path = assets_root.join(style);
             let content = fs::read_to_string(&style_path)
-                .with_context(|| format!("failed to read style bundle file {}", style_path.display()))
+                .with_context(|| {
+                    format!("failed to read style bundle file {}", style_path.display())
+                })
                 .map_err(AppError::from)?;
             merged.push_str("\n/* ===== ");
             merged.push_str(style);

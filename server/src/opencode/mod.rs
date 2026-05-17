@@ -2,8 +2,6 @@ pub(crate) mod bridge;
 pub(crate) mod events;
 pub(crate) mod runtime;
 
-use std::{path::PathBuf, process::Child};
-
 use serde::{Deserialize, Serialize};
 
 pub(crate) const MANAGED_OPENCODE_PROVIDER_ID: &str = "qwen-openai";
@@ -12,8 +10,16 @@ pub(crate) const MANAGED_OPENCODE_READONLY_AGENT: &str = "mei_readonly";
 pub(crate) const MANAGED_OPENCODE_REQUIRED_ENV: &[&str] =
     &["QWEN_BASE_URL", "QWEN_API_KEY", "QWEN_COMPLETION_MODEL"];
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ManagedCompletionModelChoice {
+    pub provider_id: String,
+    pub model_id: String,
+    pub label: String,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct ManagedOpencodeConfigSummary {
+    pub agent_backend: &'static str,
     pub preferred_mode: String,
     pub preferred_server_url: Option<String>,
     pub auto_start_managed: bool,
@@ -29,6 +35,8 @@ pub(crate) struct ManagedOpencodeConfigSummary {
     pub project_config_path: Option<String>,
     pub base_url: Option<String>,
     pub completion_model: Option<String>,
+    /// 与 `OPENAI_IMITATORS` 及 `*_COMPLETION_MODEL` 顺序一致，供作者面板下拉框使用。
+    pub completion_model_choices: Vec<ManagedCompletionModelChoice>,
     pub embedding_model: Option<String>,
     pub default_model: Option<String>,
     pub missing_env: Vec<&'static str>,
@@ -48,26 +56,16 @@ pub(crate) struct ManagedOpencodeSkillStatus {
     pub revision: Option<String>,
 }
 
+/// 安装态或源码态 skill 目录元信息（不读取 `SKILL.md` 正文，避免塞进 system）。
 #[derive(Debug, Clone)]
-pub(crate) struct ManagedOpencodeSkillPrompt {
-    pub entry_markdown: String,
-    pub companion_files: Vec<String>,
+pub(crate) struct ManagedOpencodeSkillMeta {
     pub skill_home: String,
     pub source_kind: String,
-}
-
-#[derive(Debug)]
-pub(crate) struct ManagedOpencodeProcess {
-    pub child: Child,
-    pub host: String,
-    pub port: u16,
-    pub started_at_ms: u128,
-    pub working_directory: PathBuf,
+    pub companion_files: Vec<String>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct ManagedOpencodeRuntime {
-    pub process: Option<ManagedOpencodeProcess>,
     pub last_exit: Option<ManagedOpencodeExit>,
 }
 
@@ -95,9 +93,4 @@ pub(crate) struct ManagedOpencodeRuntimeStatus {
 }
 
 #[derive(Debug, Deserialize, Default)]
-pub(crate) struct StartManagedOpencodeRequest {
-    #[serde(default)]
-    pub host: Option<String>,
-    #[serde(default)]
-    pub port: Option<u16>,
-}
+pub(crate) struct StartManagedOpencodeRequest {}

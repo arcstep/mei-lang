@@ -182,8 +182,14 @@ pub(crate) fn push_manage_page_pipeline_diag(
 }
 
 pub(crate) fn fill_perf_placeholders(mut html: String, render_ms: u64, total_ms: u64) -> String {
-    html = html.replace("render_ms=__RENDER_MS__", format!("render_ms={render_ms}ms").as_str());
-    html = html.replace("total_ms=__TOTAL_MS__", format!("total_ms={total_ms}ms").as_str());
+    html = html.replace(
+        "render_ms=__RENDER_MS__",
+        format!("render_ms={render_ms}ms").as_str(),
+    );
+    html = html.replace(
+        "total_ms=__TOTAL_MS__",
+        format!("total_ms={total_ms}ms").as_str(),
+    );
     html
 }
 

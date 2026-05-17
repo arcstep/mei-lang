@@ -57,7 +57,11 @@ pub(crate) fn paginate_rows(
     };
     DatasetQueryResult {
         page: if collect_all { 1 } else { options.page },
-        page_size: if collect_all { rows_page.len() } else { options.page_size },
+        page_size: if collect_all {
+            rows_page.len()
+        } else {
+            options.page_size
+        },
         total,
         has_more,
         columns,
@@ -129,7 +133,11 @@ pub(crate) fn infer_columns(rows: &[Value]) -> Vec<String> {
 pub(crate) fn empty_result(options: &DatasetQueryOptions, lazy: bool) -> DatasetQueryResult {
     DatasetQueryResult {
         page: if options.collect_all { 1 } else { options.page },
-        page_size: if options.collect_all { 0 } else { options.page_size },
+        page_size: if options.collect_all {
+            0
+        } else {
+            options.page_size
+        },
         total: 0,
         has_more: false,
         columns: Vec::new(),
@@ -198,7 +206,11 @@ impl QueryWindow {
                 self.page_size
             },
             total,
-            has_more: if self.collect_all { false } else { self.has_more },
+            has_more: if self.collect_all {
+                false
+            } else {
+                self.has_more
+            },
             columns,
             rows: self.rows,
             lazy,

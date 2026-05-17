@@ -1,0 +1,17 @@
+//! 内置 Agent：会话存储、流式对话、与 `/api/opencode/*` 分发层对接。
+
+pub(crate) mod dispatch;
+mod llm;
+pub(crate) mod llm_config;
+pub mod native;
+pub(crate) mod permission_policy;
+pub(crate) mod resource_tools;
+pub(crate) mod skill_tools;
+
+pub(crate) use dispatch::{
+    agent_abort_session, agent_create_session, agent_health, agent_list_pending_permissions,
+    agent_list_sessions, agent_project_worktree, agent_respond_permission, agent_revert_session,
+    agent_send_prompt, agent_session_diff, agent_session_messages, agent_unrevert_session,
+    agent_vcs_summary, resolve_agent_conn, AgentConn,
+};
+pub(crate) use native::NativeAgent;

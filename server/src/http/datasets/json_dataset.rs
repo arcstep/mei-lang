@@ -29,15 +29,21 @@ pub(crate) fn query_json_rows(
             if let Some(cached) = try_get_cached_external_dataset(&cache_key, revision) {
                 let lookup_ms = elapsed_ms(lookup_started);
                 let paginate_started = Instant::now();
-                let mut result =
-                    paginate_rows(cached.rows.clone(), &cached.columns, &meta.normalize, options, true);
+                let mut result = paginate_rows(
+                    cached.rows.clone(),
+                    &cached.columns,
+                    &meta.normalize,
+                    options,
+                    true,
+                );
                 result.perf.insert("file_cache_hit".to_string(), 1);
                 result
                     .perf
                     .insert("file_cache_lookup_ms".to_string(), lookup_ms);
-                result
-                    .perf
-                    .insert("file_cache_paginate_ms".to_string(), elapsed_ms(paginate_started));
+                result.perf.insert(
+                    "file_cache_paginate_ms".to_string(),
+                    elapsed_ms(paginate_started),
+                );
                 return Ok(result);
             }
             let lookup_ms = elapsed_ms(lookup_started);
@@ -65,9 +71,10 @@ pub(crate) fn query_json_rows(
             result
                 .perf
                 .insert("file_cache_load_ms".to_string(), load_ms);
-            result
-                .perf
-                .insert("file_cache_paginate_ms".to_string(), elapsed_ms(paginate_started));
+            result.perf.insert(
+                "file_cache_paginate_ms".to_string(),
+                elapsed_ms(paginate_started),
+            );
             result
                 .perf
                 .insert("file_cache_evict_count".to_string(), evicted as u64);

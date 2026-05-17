@@ -5,8 +5,8 @@ mod app_render;
 mod assets;
 mod components;
 pub mod dataset_api;
-pub mod metric_api;
 mod menus;
+pub mod metric_api;
 mod static_serve;
 mod util;
 
@@ -26,17 +26,15 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    use super::app::{app_page, index, AppQuery};
+    use super::assets::app_bundle;
+    use crate::{mei_agent, opencode, AppState};
     use axum::{
         body::to_bytes,
         extract::{Path as AxumPath, Query, State},
         http::StatusCode,
         response::IntoResponse,
     };
-    use reqwest::Client as HttpClient;
-
-    use super::app::{app_page, index, AppQuery};
-    use super::assets::app_bundle;
-    use crate::{opencode, AppState};
 
     const VALID_APP_SOURCE: &str = r#"
 app(
@@ -77,16 +75,20 @@ frame.add_panel(
 
     #[tokio::test]
     async fn app_bundle_returns_merged_javascript() {
+        let source_root = Arc::new(std::env::temp_dir());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
-            source_root: Arc::new(std::env::temp_dir()),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         };
 
         let response = app_bundle(State(state), AxumPath("manage.js".to_string()))
@@ -107,16 +109,20 @@ frame.add_panel(
 
     #[tokio::test]
     async fn app_bundle_supports_shoelace_mode() {
+        let source_root = Arc::new(std::env::temp_dir());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
-            source_root: Arc::new(std::env::temp_dir()),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         };
 
         let response = app_bundle(State(state), AxumPath("shoelace.js".to_string()))
@@ -126,24 +132,25 @@ frame.add_panel(
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("read shoelace body");
-        assert!(
-            body.len() > 256,
-            "shoelace bundle should not be empty"
-        );
+        assert!(body.len() > 256, "shoelace bundle should not be empty");
     }
 
     #[tokio::test]
     async fn app_bundle_supports_styles_mode() {
+        let source_root = Arc::new(std::env::temp_dir());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
-            source_root: Arc::new(std::env::temp_dir()),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         };
         let response = app_bundle(State(state), AxumPath("styles.css".to_string()))
             .await
@@ -170,16 +177,20 @@ frame.add_panel(
         )
         .expect("write invalid mei file");
 
+        let source_root = Arc::new(root.clone());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
-            source_root: Arc::new(root.clone()),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         };
 
         let response = app_page(
@@ -223,16 +234,20 @@ frame.add_panel(
         .expect("write invalid mei file");
         fs::write(good_root.join("main.mei"), VALID_APP_SOURCE).expect("write valid mei file");
 
+        let source_root = Arc::new(root.clone());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
-            source_root: Arc::new(root.clone()),
+            source_root,
             opencode_preferred_mode: Arc::new("external".to_string()),
             opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             opencode_auto_start: false,
             opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
             opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
-            opencode_http: Arc::new(HttpClient::new()),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
         };
 
         let response = index(State(state))

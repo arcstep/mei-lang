@@ -20,8 +20,7 @@ use super::xlsx_format::{xlsx_cell, xlsx_header};
 fn is_ole_compound_document(path: &Path) -> bool {
     fs::read(path)
         .map(|bytes| {
-            bytes.len() >= 8
-                && bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
+            bytes.len() >= 8 && bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1])
         })
         .unwrap_or(false)
 }
@@ -44,21 +43,26 @@ pub(crate) fn query_xlsx_rows(
             if let Some(cached) = try_get_cached_external_dataset(&cache_key, revision) {
                 let lookup_ms = elapsed_ms(lookup_started);
                 let paginate_started = Instant::now();
-                let mut result =
-                    paginate_rows(cached.rows.clone(), &cached.columns, &meta.normalize, options, true);
+                let mut result = paginate_rows(
+                    cached.rows.clone(),
+                    &cached.columns,
+                    &meta.normalize,
+                    options,
+                    true,
+                );
                 result.perf.insert("file_cache_hit".to_string(), 1);
                 result
                     .perf
                     .insert("file_cache_lookup_ms".to_string(), lookup_ms);
-                result
-                    .perf
-                    .insert("file_cache_paginate_ms".to_string(), elapsed_ms(paginate_started));
+                result.perf.insert(
+                    "file_cache_paginate_ms".to_string(),
+                    elapsed_ms(paginate_started),
+                );
                 return Ok(result);
             }
             let lookup_ms = elapsed_ms(lookup_started);
             let load_started = Instant::now();
-            let (columns, rows) =
-                load_xlsx_rows(&path, source.path.as_str(), sheet, header_row)?;
+            let (columns, rows) = load_xlsx_rows(&path, source.path.as_str(), sheet, header_row)?;
             let load_ms = elapsed_ms(load_started);
             let dataset = Arc::new(CachedExternalDataset {
                 columns: columns.clone(),
@@ -81,9 +85,10 @@ pub(crate) fn query_xlsx_rows(
             result
                 .perf
                 .insert("file_cache_load_ms".to_string(), load_ms);
-            result
-                .perf
-                .insert("file_cache_paginate_ms".to_string(), elapsed_ms(paginate_started));
+            result.perf.insert(
+                "file_cache_paginate_ms".to_string(),
+                elapsed_ms(paginate_started),
+            );
             result
                 .perf
                 .insert("file_cache_evict_count".to_string(), evicted as u64);
@@ -147,11 +152,7 @@ where
     let sheet_name = if let Some(name) = sheet.filter(|value| !value.trim().is_empty()) {
         name.to_string()
     } else {
-        workbook
-            .sheet_names()
-            .first()
-            .cloned()
-            .unwrap_or_default()
+        workbook.sheet_names().first().cloned().unwrap_or_default()
     };
     if sheet_name.is_empty() {
         let mut result = empty_result(options, true);
@@ -238,11 +239,7 @@ where
     let sheet_name = if let Some(name) = sheet.filter(|value| !value.trim().is_empty()) {
         name.to_string()
     } else {
-        workbook
-            .sheet_names()
-            .first()
-            .cloned()
-            .unwrap_or_default()
+        workbook.sheet_names().first().cloned().unwrap_or_default()
     };
     if sheet_name.is_empty() {
         return Ok((Vec::new(), Vec::new()));

@@ -1,18 +1,23 @@
 use std::path::Path;
-use std::{collections::BTreeMap, fs};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+};
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
     compile_app, compile_app_with_options, initial_runtime_state, project_runtime_view,
-    CompileOptions, RuntimeState, UiNodeDecl,
+    CompileOptions, DatasetView, RuntimeState, UiNodeDecl,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
+
+use crate::http::datasets::{query_dataset_rows, DatasetQueryOptions};
 
 use super::resource_query::default_resource_query_tools;
 use super::types::{
-    ResourceInventoryItem, ResourceInventorySnapshot, WorldAssetGetResponse, WorldAssetListItem,
-    WorldAssetListResponse, WorldContextSnapshot, WorldRuntimeBundle, WorldRuntimePeekResponse,
-    WorldRuntimeSummary, WorldScope, WorldSnapshotSummary,
+    ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorldAssetGetResponse,
+    WorldAssetListItem, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimeBundle,
+    WorldRuntimePeekResponse, WorldRuntimeSummary, WorldScope, WorldSnapshotSummary,
 };
 
 fn normalize_asset_kind(kind: Option<&str>) -> String {
@@ -43,6 +48,23 @@ fn normalize_world_scope(scope: Option<&WorldScope>) -> WorldScope {
     }
 }
 
+/// 将请求里的 `target_file` 规范为「相对 app 根」的 `.mei` 路径（供 preview 编译与磁盘探测）。
+/// 允许传入 workspace 相对路径 `{app_id}/data/...` 或仅用 `data/...`。
+fn app_relative_mei_for_preview(app_id: &str, target_file: &str) -> Option<String> {
+    let mut t = normalize_path(target_file);
+    if !t.ends_with(".mei") {
+        return None;
+    }
+    let prefix = format!("{}/", app_id.trim_end_matches('/'));
+    if t.starts_with(&prefix) {
+        t = t[prefix.len()..].to_string();
+    }
+    if t.is_empty() {
+        return None;
+    }
+    Some(t)
+}
+
 fn load_world_runtime_bundle(
     source_root: &Path,
     app_id: &str,
@@ -53,17 +75,18 @@ fn load_world_runtime_bundle(
     let requested_entry = scope.entry_id.as_deref();
     let requested_target = scope.target_file.clone();
 
+    let base_compiled = compile_app(source_root, app_id)?;
+    let app_root = source_root.join(app_id);
     let mut selected_entry = requested_entry.map(str::to_string);
     if let Some(scene_id) = requested_scene {
-        let base_compiled = compile_app(source_root, app_id)?;
-        let scene_entry = base_compiled
+        let by_scene = base_compiled
             .entries
             .iter()
             .find(|item| item.scene_id == scene_id || item.entry_id == scene_id)
             .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
         if let Some(entry_id) = requested_entry {
-            let matches_scene = entry_id == scene_entry.entry_id
-                || entry_id == scene_entry.target_file.as_str();
+            let matches_scene =
+                entry_id == by_scene.entry_id || entry_id == by_scene.target_file.as_str();
             if !matches_scene {
                 return Err(anyhow!(
                     "scene `{scene_id}` does not match entry `{entry_id}`"
@@ -71,17 +94,42 @@ fn load_world_runtime_bundle(
             }
         }
         if let Some(target_file) = requested_target.as_deref() {
-            let matches_target = target_file == scene_entry.target_file.as_str()
-                || target_file == scene_entry.entry_id.as_str();
-            if !matches_target {
+            let nt = normalize_path(target_file);
+            let matches_target = nt == normalize_path(by_scene.target_file.as_str())
+                || nt == by_scene.entry_id.as_str();
+            if matches_target {
+                selected_entry = Some(by_scene.entry_id.clone());
+            } else if let Some(by_target) = base_compiled
+                .entries
+                .iter()
+                .find(|e| normalize_path(e.target_file.as_str()) == nt || e.entry_id == target_file)
+            {
+                // 作者态里 scene 与 target 可能来自不同数据源；只要能命中 entry，就以 target 为准。
+                selected_entry = Some(by_target.entry_id.clone());
+            } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_file) {
+                if let Some(by_target) = base_compiled
+                    .entries
+                    .iter()
+                    .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
+                {
+                    selected_entry = Some(by_target.entry_id.clone());
+                } else if app_root.join(&rel).is_file() {
+                    // 独立 scene `.mei` 未登记在 app entries；按文件 preview 编译（忽略与主入口 scene_id 的表面不一致）。
+                    selected_entry = None;
+                } else {
+                    return Err(anyhow!(
+                        "scene `{scene_id}` is not bound to target `{target_file}`"
+                    ));
+                }
+            } else {
                 return Err(anyhow!(
                     "scene `{scene_id}` is not bound to target `{target_file}`"
                 ));
             }
+        } else {
+            selected_entry = Some(by_scene.entry_id.clone());
         }
-        selected_entry = Some(scene_entry.entry_id.clone());
     } else if let Some(ref entry_id) = selected_entry {
-        let base_compiled = compile_app(source_root, app_id)?;
         let known = base_compiled
             .entries
             .iter()
@@ -97,18 +145,23 @@ fn load_world_runtime_bundle(
         }
     }
 
+    let preview_path = if selected_entry.is_some() {
+        None
+    } else {
+        requested_target.as_deref().and_then(|target| {
+            if !target.to_lowercase().ends_with(".mei") {
+                return None;
+            }
+            app_relative_mei_for_preview(app_id, target).or_else(|| Some(normalize_path(target)))
+        })
+    };
+
     let compiled = compile_app_with_options(
         source_root,
         app_id,
         CompileOptions {
             entry: selected_entry.clone(),
-            preview_target: if selected_entry.is_some() {
-                None
-            } else {
-                requested_target
-                    .clone()
-                    .filter(|target| target.ends_with(".mei"))
-            },
+            preview_target: preview_path,
         },
     )?;
     if let Some(entry_id) = selected_entry.as_deref() {
@@ -120,14 +173,6 @@ fn load_world_runtime_bundle(
         .scene_contract
         .clone()
         .ok_or_else(|| anyhow!("app `{}` does not provide a scene contract", app_id))?;
-    if let Some(scene_id) = requested_scene {
-        if contract.scene.id != scene_id {
-            return Err(anyhow!(
-                "requested scene `{scene_id}` but active scene is `{}`",
-                contract.scene.id
-            ));
-        }
-    }
     let state = initial_runtime_state(&contract, 1);
     let scene_view = project_runtime_view(&contract, &state);
     let entry_target = compiled.entry_target.clone();
@@ -146,6 +191,432 @@ fn normalize_path(value: &str) -> String {
         .replace('\\', "/")
         .trim_start_matches("./")
         .to_string()
+}
+
+const LLM_RESOURCE_GET_BUDGET_CHARS: usize = 12_000;
+const DATASET_QUERY_DEFAULT_LIMIT: usize = 10;
+const DATASET_QUERY_MAX_LIMIT: usize = 50;
+const DATASET_QUERY_DEFAULT_COLUMNS: usize = 10;
+const DATASET_QUERY_MAX_COLUMNS: usize = 10;
+const DATASET_QUERY_MAX_CELL_CHARS: usize = 50;
+const DATASET_QUERY_TOTAL_CHAR_BUDGET: usize = 12_000;
+
+fn json_serialized_len(v: &Value) -> usize {
+    serde_json::to_string(v).map(|s| s.len()).unwrap_or(0)
+}
+
+fn normalize_dataset_limit(limit: Option<usize>) -> usize {
+    normalize_limit(limit, DATASET_QUERY_DEFAULT_LIMIT, DATASET_QUERY_MAX_LIMIT)
+}
+
+fn dataset_available_columns(dataset: &DatasetView) -> Vec<String> {
+    if !dataset.columns.is_empty() {
+        return dataset.columns.clone();
+    }
+    dataset.schema.iter().map(|c| c.name.clone()).collect()
+}
+
+fn normalize_dataset_columns(dataset: &DatasetView, requested: Option<&[String]>) -> Vec<String> {
+    let available = dataset_available_columns(dataset);
+    let available_set = available.iter().cloned().collect::<BTreeSet<_>>();
+    let mut selected = Vec::new();
+
+    if let Some(req) = requested {
+        for col in req {
+            let name = col.trim();
+            if name.is_empty() {
+                continue;
+            }
+            if available_set.contains(name) && !selected.iter().any(|v| v == name) {
+                selected.push(name.to_string());
+            }
+            if selected.len() >= DATASET_QUERY_MAX_COLUMNS {
+                break;
+            }
+        }
+    }
+
+    if selected.is_empty() {
+        selected = available
+            .into_iter()
+            .take(DATASET_QUERY_DEFAULT_COLUMNS)
+            .collect();
+    }
+    selected
+}
+
+fn truncate_text_chars(input: &str, max_chars: usize) -> (String, bool) {
+    if input.chars().count() <= max_chars {
+        return (input.to_string(), false);
+    }
+    let mut out = input.chars().take(max_chars).collect::<String>();
+    out.push('…');
+    (out, true)
+}
+
+fn bounded_cell_value(value: &Value, truncated_cells: &mut usize) -> Value {
+    match value {
+        Value::String(s) => {
+            let (text, changed) = truncate_text_chars(s, DATASET_QUERY_MAX_CELL_CHARS);
+            if changed {
+                *truncated_cells += 1;
+            }
+            Value::String(text)
+        }
+        Value::Array(_) | Value::Object(_) => {
+            let raw = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
+            let (text, changed) = truncate_text_chars(&raw, DATASET_QUERY_MAX_CELL_CHARS);
+            if changed {
+                *truncated_cells += 1;
+            }
+            Value::String(text)
+        }
+        other => other.clone(),
+    }
+}
+
+fn project_dataset_row(
+    row: &Value,
+    selected_columns: &[String],
+    truncated_cells: &mut usize,
+) -> Value {
+    let mut out = serde_json::Map::new();
+    if let Some(obj) = row.as_object() {
+        for col in selected_columns {
+            let value = obj
+                .get(col)
+                .map(|v| bounded_cell_value(v, truncated_cells))
+                .unwrap_or(Value::Null);
+            out.insert(col.clone(), value);
+        }
+        return Value::Object(out);
+    }
+    out.insert("_raw".to_string(), bounded_cell_value(row, truncated_cells));
+    Value::Object(out)
+}
+
+fn build_schema_preview(dataset: &DatasetView, selected_columns: &[String]) -> Vec<Value> {
+    let schema_map = dataset
+        .schema
+        .iter()
+        .map(|c| (c.name.as_str(), c))
+        .collect::<BTreeMap<_, _>>();
+    selected_columns
+        .iter()
+        .map(|name| {
+            if let Some(col) = schema_map.get(name.as_str()) {
+                json!({
+                    "name": col.name,
+                    "type": col.type_name,
+                    "source": col.source,
+                    "optional": col.optional,
+                })
+            } else {
+                json!({
+                    "name": name,
+                    "type": "unknown",
+                })
+            }
+        })
+        .collect()
+}
+
+/// 从已物化的 `dataset` JSON 中提取列名/类型（有界），避免模型为「有哪些字段」再去 read_file `.mei`。
+fn extract_dataset_schema_preview(dataset: &Value) -> Option<Value> {
+    let cols = dataset.get("columns")?.as_array()?;
+    const MAX_COLS: usize = 72;
+    let mut preview = Vec::new();
+    for c in cols.iter().take(MAX_COLS) {
+        let Some(co) = c.as_object() else {
+            continue;
+        };
+        let name = co.get("name").and_then(Value::as_str).unwrap_or("?");
+        let typ = co
+            .get("type")
+            .or_else(|| co.get("type_name"))
+            .and_then(Value::as_str)
+            .unwrap_or("?");
+        let mut row = serde_json::Map::new();
+        row.insert("name".to_string(), json!(name));
+        row.insert("type".to_string(), json!(typ));
+        if let Some(s) = co.get("source").and_then(Value::as_str) {
+            row.insert("source".to_string(), json!(s));
+        }
+        if let Some(o) = co.get("optional").and_then(Value::as_bool) {
+            if o {
+                row.insert("optional".to_string(), json!(true));
+            }
+        }
+        preview.push(Value::Object(row));
+    }
+    Some(json!({
+        "column_count": cols.len(),
+        "columns_preview": preview,
+        "columns_preview_truncated": cols.len() > MAX_COLS,
+    }))
+}
+
+fn summarize_dataset_decl(dataset: &Value) -> Value {
+    let len = json_serialized_len(dataset);
+    let schema = extract_dataset_schema_preview(dataset);
+    match dataset {
+        Value::Object(m) => {
+            let keys: Vec<&str> = m.keys().map(String::as_str).take(32).collect();
+            let kind = m.get("kind").and_then(Value::as_str);
+            let key = m.get("key").and_then(Value::as_str);
+            let normalize_n = m
+                .get("normalize")
+                .and_then(Value::as_object)
+                .map(|o| o.len())
+                .unwrap_or(0);
+            json!({
+                "present": true,
+                "approx_decl_chars": len,
+                "kind": kind,
+                "key": key,
+                "top_level_keys_sample": keys,
+                "top_level_key_count": m.len(),
+                "normalize_field_count": normalize_n,
+                "schema": schema,
+                "note": "full dataset body omitted; `schema.columns_preview` lists declared columns (bounded). Use read_file on the entry `.mei` only when the user needs exact DSL quotes or edits — not for routine field lists."
+            })
+        }
+        _ => json!({
+            "present": true,
+            "approx_decl_chars": len,
+            "note": "dataset value is non-object; omitted for size."
+        }),
+    }
+}
+
+fn summarize_filters_decl(filters: &Value) -> Value {
+    let len = json_serialized_len(filters);
+    if len <= 1_200 {
+        return filters.clone();
+    }
+    match filters {
+        Value::Object(m) => {
+            let keys: Vec<&str> = m.keys().map(String::as_str).collect();
+            json!({
+                "object_key_count": keys.len(),
+                "keys": keys.iter().take(40).copied().collect::<Vec<_>>(),
+                "approx_chars": len,
+                "note": "filters object truncated to keys only."
+            })
+        }
+        _ => json!({ "approx_chars": len, "note": "filters omitted (too large)." }),
+    }
+}
+
+fn summarize_metrics_decl(metrics: &BTreeMap<String, Value>) -> Value {
+    let count = metrics.len();
+    let keys: Vec<&str> = metrics.keys().map(String::as_str).take(48).collect();
+    json!({
+        "metric_ids_sample": keys,
+        "metric_id_count": count,
+        "note": "metric bodies omitted; ids are enough to reason about bindings before read_file."
+    })
+}
+
+/// 供 `resource_get` 与 HTTP API 使用：避免把 dataset / metrics 等大 JSON 原样塞进模型上下文。
+fn summarize_resource_decl(item: &mei_lang_kernel::ResourceDecl) -> Value {
+    let content_note = item.content.as_ref().map(|c| {
+        if c.len() <= 800 {
+            json!(c.as_str())
+        } else {
+            json!({
+                "prefix": c.chars().take(400).collect::<String>(),
+                "truncated_chars": c.len().saturating_sub(400),
+            })
+        }
+    });
+    json!({
+        "_payload_shape": "resource_summary_v1",
+        "id": item.id,
+        "kind": item.kind,
+        "title": item.title,
+        "purpose": item.purpose,
+        "source": item.source.as_ref().map(|s| json!({ "path": normalize_path(&s.path) })).unwrap_or(Value::Null),
+        "dataset": item.dataset.as_ref().map_or(json!({ "present": false }), summarize_dataset_decl),
+        "metrics": item.metrics.as_ref().map_or(Value::Null, summarize_metrics_decl),
+        "filters": item.filters.as_ref().map_or(Value::Null, summarize_filters_decl),
+        "content": content_note.unwrap_or(Value::Null),
+    })
+}
+
+fn shrink_json_for_llm(v: &Value, max_total: usize) -> Value {
+    let len = json_serialized_len(v);
+    if len <= max_total {
+        return v.clone();
+    }
+    match v {
+        Value::Object(m) => {
+            let mut out = serde_json::Map::new();
+            for (k, val) in m.iter().take(48) {
+                let elen = json_serialized_len(val);
+                if elen > 2_000 {
+                    out.insert(k.clone(), json!({ "_omitted": true, "approx_chars": elen }));
+                } else {
+                    out.insert(k.clone(), val.clone());
+                }
+            }
+            out.insert(
+                "_truncated".to_string(),
+                json!({
+                    "reason": "payload too large for tool output",
+                    "approx_original_chars": len,
+                }),
+            );
+            Value::Object(out)
+        }
+        Value::Array(a) => json!({
+            "type": "array",
+            "len": a.len(),
+            "head": a.iter().take(5).cloned().collect::<Vec<_>>(),
+        }),
+        Value::String(s) => {
+            let cap = 1_000usize;
+            if s.len() <= cap {
+                Value::String(s.clone())
+            } else {
+                Value::String(format!("{}…", s.chars().take(cap).collect::<String>()))
+            }
+        }
+        other => other.clone(),
+    }
+}
+
+fn build_prompt_catalog_lines(
+    bundle: &WorldRuntimeBundle,
+    query_tools: &[ResourceQueryToolSpec],
+) -> Vec<String> {
+    use std::fmt::Write as _;
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("[World — catalog (highest-priority context)]".to_string());
+    lines.push(
+        "Below lists bindable world assets for this scope. When a dataset resource id is known or implied (e.g. `typical_cases`), call `dataset_query` once in the first tool round. It returns bounded schema+filters+metric ids+sample rows, usually enough without follow-up tools."
+            .to_string(),
+    );
+    lines.push(
+        "Tool-chaining guard: do NOT read_file() `.xlsx/.xls` (binary). For dataset facts, do NOT chain `read_file` / `resource_list` / `resource_runtime_peek` after a successful `dataset_query` unless the user explicitly asks runtime trace or verbatim DSL edits."
+            .to_string(),
+    );
+    lines.push(format!(
+        "scene: id={} entry_target={}",
+        bundle.contract.scene.id, bundle.entry_target
+    ));
+    if let Some(world) = &bundle.contract.world {
+        if let Some(wid) = world.id.as_deref().filter(|s| !s.is_empty()) {
+            lines.push(format!("world.id: {wid}"));
+        }
+        lines.push(format!(
+            "world.resources (count={}):",
+            world.resources.len()
+        ));
+        const MAX_RES: usize = 96;
+        for r in world.resources.iter().take(MAX_RES) {
+            let src = r
+                .source
+                .as_ref()
+                .map(|s| normalize_path(&s.path))
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| "-".to_string());
+            let metric_ids = r
+                .metrics
+                .as_ref()
+                .map(|m| m.keys().cloned().collect::<Vec<_>>().join(","))
+                .unwrap_or_default();
+            let mstr = if metric_ids.is_empty() {
+                "-".to_string()
+            } else {
+                metric_ids
+            };
+            let ds = if r.dataset.is_some() {
+                "dataset:yes"
+            } else {
+                "dataset:no"
+            };
+            let title = r.title.as_deref().unwrap_or("");
+            let tool_hint = if matches!(r.kind.as_str(), "dataset" | "dataset_view") {
+                "tool=dataset_query"
+            } else {
+                "tool=none"
+            };
+            let mut line = String::new();
+            let _ = write!(
+                &mut line,
+                "  - resource id={} kind={} title={} source={} metrics=[{}] {} {}",
+                r.id, r.kind, title, src, mstr, ds, tool_hint
+            );
+            if line.chars().count() > 260 {
+                line = line.chars().take(257).collect::<String>();
+                line.push('…');
+            }
+            lines.push(line);
+        }
+        if world.resources.len() > MAX_RES {
+            lines.push(format!(
+                "  ... resources_omitted: {} (dataset resources remain queryable by id via dataset_query)",
+                world.resources.len() - MAX_RES
+            ));
+        }
+
+        lines.push(format!("world.entities (count={}):", world.entities.len()));
+        const MAX_ENT: usize = 48;
+        for e in world.entities.iter().take(MAX_ENT) {
+            lines.push(format!(
+                "  - entity id={} kind={} label={} status={}",
+                e.id,
+                e.kind,
+                e.label.as_deref().unwrap_or("-"),
+                e.status.as_deref().unwrap_or("-")
+            ));
+        }
+        if world.entities.len() > MAX_ENT {
+            lines.push(format!(
+                "  ... entities_omitted: {}",
+                world.entities.len() - MAX_ENT
+            ));
+        }
+
+        if let Some(top) = &world.topology {
+            lines.push(format!(
+                "world.topology: grid {}x{} cells={}",
+                top.rows,
+                top.cols,
+                top.cells.len()
+            ));
+        }
+    } else {
+        lines.push("world: (none in scene contract)".to_string());
+    }
+
+    lines.push(String::new());
+    lines.push("[World — query tools (bounded)]".to_string());
+    for t in query_tools {
+        lines.push(format!("- {} — {}", t.id, t.purpose));
+        lines.push(format!("  input: {}", t.input));
+        lines.push(format!("  output: {}", t.output));
+    }
+
+    lines.push(String::new());
+    lines.push("[World — app entries (scene routing)]".to_string());
+    const MAX_ENTRY: usize = 32;
+    for e in bundle.compiled.entries.iter().take(MAX_ENTRY) {
+        lines.push(format!(
+            "  - entry id={} scene_id={} target_file={} kind={}",
+            e.entry_id, e.scene_id, e.target_file, e.kind
+        ));
+    }
+    if bundle.compiled.entries.len() > MAX_ENTRY {
+        lines.push(format!(
+            "  ... entries_omitted: {}",
+            bundle.compiled.entries.len() - MAX_ENTRY
+        ));
+    }
+
+    lines
 }
 
 fn file_ref_from_scene_binding(value: Option<&Value>, expected_kind: &str) -> Option<String> {
@@ -655,37 +1126,159 @@ pub(crate) fn query_world_asset(
 
     if let Some(world) = &bundle.contract.world {
         if let Some(item) = world.resources.iter().find(|item| item.id == target_id) {
+            let mut payload = summarize_resource_decl(item);
+            if json_serialized_len(&payload) > LLM_RESOURCE_GET_BUDGET_CHARS {
+                payload = shrink_json_for_llm(&payload, LLM_RESOURCE_GET_BUDGET_CHARS);
+            }
             return Ok(WorldAssetGetResponse {
                 app_id: app_id.to_string(),
                 scene_id: bundle.contract.scene.id.clone(),
                 id: item.id.clone(),
                 kind: "resource".to_string(),
-                payload: serde_json::to_value(item).unwrap_or(Value::Null),
+                payload,
             });
         }
         if let Some(item) = world.entities.iter().find(|item| item.id == target_id) {
+            let raw = serde_json::to_value(item).unwrap_or(Value::Null);
+            let payload = shrink_json_for_llm(&raw, LLM_RESOURCE_GET_BUDGET_CHARS);
             return Ok(WorldAssetGetResponse {
                 app_id: app_id.to_string(),
                 scene_id: bundle.contract.scene.id.clone(),
                 id: item.id.clone(),
                 kind: "entity".to_string(),
-                payload: serde_json::to_value(item).unwrap_or(Value::Null),
+                payload,
             });
         }
         if let Some(topology) = &world.topology {
             if let Some(item) = topology.cells.iter().find(|item| item.id == target_id) {
+                let raw = serde_json::to_value(item).unwrap_or(Value::Null);
+                let payload = shrink_json_for_llm(&raw, LLM_RESOURCE_GET_BUDGET_CHARS);
                 return Ok(WorldAssetGetResponse {
                     app_id: app_id.to_string(),
                     scene_id: bundle.contract.scene.id.clone(),
                     id: item.id.clone(),
                     kind: "cell".to_string(),
-                    payload: serde_json::to_value(item).unwrap_or(Value::Null),
+                    payload,
                 });
             }
         }
     }
 
     Err(anyhow!("world asset `{target_id}` not found"))
+}
+
+pub(crate) fn query_world_dataset(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    id: &str,
+    search: Option<&str>,
+    filters: &BTreeMap<String, String>,
+    columns: Option<&[String]>,
+    limit: Option<usize>,
+) -> Result<Value> {
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let dataset_id = id.trim();
+    if dataset_id.is_empty() {
+        return Err(anyhow!("query parameter `id` is required"));
+    }
+    let loaded = bundle
+        .compiled
+        .resources
+        .iter()
+        .find(|item| item.id == dataset_id)
+        .ok_or_else(|| anyhow!("dataset resource `{dataset_id}` not found"))?;
+    let dataset = loaded
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow!("resource `{dataset_id}` is not a dataset"))?;
+
+    let row_limit = normalize_dataset_limit(limit);
+    let selected_columns = normalize_dataset_columns(dataset, columns);
+    let app_root = source_root.join(app_id);
+    let query_options = DatasetQueryOptions {
+        page: 1,
+        page_size: row_limit,
+        search: search
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        filters: filters.clone(),
+        collect_all: false,
+    };
+    let query_result = query_dataset_rows(&app_root, dataset, query_options)?;
+
+    let mut truncated_cells = 0usize;
+    let sample_rows = query_result
+        .rows
+        .iter()
+        .map(|row| project_dataset_row(row, &selected_columns, &mut truncated_cells))
+        .collect::<Vec<_>>();
+
+    let world_resource = bundle
+        .contract
+        .world
+        .as_ref()
+        .and_then(|w| w.resources.iter().find(|item| item.id == dataset_id));
+    let metric_ids = world_resource
+        .and_then(|item| item.metrics.as_ref())
+        .map(|m| m.keys().take(64).cloned().collect::<Vec<_>>())
+        .unwrap_or_else(|| dataset.metrics.keys().take(64).cloned().collect::<Vec<_>>());
+    let filters_preview = world_resource
+        .and_then(|item| item.filters.as_ref())
+        .map(summarize_filters_decl)
+        .unwrap_or(Value::Null);
+    let schema_preview = build_schema_preview(dataset, &selected_columns);
+    let schema_total_columns = if !dataset.schema.is_empty() {
+        dataset.schema.len()
+    } else {
+        dataset.columns.len()
+    };
+
+    let mut payload = json!({
+        "app_id": app_id,
+        "scene_id": bundle.contract.scene.id,
+        "id": dataset_id,
+        "dataset": {
+            "id": dataset.id.clone(),
+            "title": dataset.title.clone(),
+            "purpose": dataset.purpose.clone(),
+            "source": {
+                "kind": dataset.source.kind.clone(),
+                "path": normalize_path(&dataset.source.path),
+                "sheet": dataset.source.sheet.clone(),
+            },
+            "schema_preview": schema_preview,
+            "schema_column_count": schema_total_columns,
+            "filters": filters_preview,
+            "metric_ids": metric_ids,
+        },
+        "sample_rows": sample_rows,
+        "truncation": {
+            "row_limit": row_limit,
+            "column_limit": DATASET_QUERY_MAX_COLUMNS,
+            "cell_char_limit": DATASET_QUERY_MAX_CELL_CHARS,
+            "rows_returned": query_result.rows.len(),
+            "columns_returned": selected_columns.len(),
+            "cells_truncated": truncated_cells,
+            "total_char_budget": DATASET_QUERY_TOTAL_CHAR_BUDGET,
+            "total_chars_before_budget": 0,
+            "total_chars_after_budget": 0,
+        },
+        "usage_hint": "若需更多数据，请在 dataset_query 中追加 filters/search/columns/limit；默认仅返回前10行与前10列的有界样例。",
+    });
+    let before = json_serialized_len(&payload);
+    if let Some(v) = payload.pointer_mut("/truncation/total_chars_before_budget") {
+        *v = json!(before);
+    }
+    if before > DATASET_QUERY_TOTAL_CHAR_BUDGET {
+        payload = shrink_json_for_llm(&payload, DATASET_QUERY_TOTAL_CHAR_BUDGET);
+    }
+    let after = json_serialized_len(&payload);
+    if let Some(v) = payload.pointer_mut("/truncation/total_chars_after_budget") {
+        *v = json!(after);
+    }
+    Ok(payload)
 }
 
 pub(crate) fn query_world_runtime(
@@ -763,6 +1356,8 @@ pub(crate) fn build_world_context_snapshot(
     });
 
     let recent_trace_messages = recent_trace_messages(&bundle.state, 5);
+    let query_tools = default_resource_query_tools();
+    let prompt_catalog_lines = build_prompt_catalog_lines(&bundle, &query_tools);
 
     Ok(WorldContextSnapshot {
         app_id: app_id.to_string(),
@@ -794,7 +1389,8 @@ pub(crate) fn build_world_context_snapshot(
                 .collect(),
             recent_trace_messages,
         },
-        query_tools: default_resource_query_tools(),
+        query_tools,
+        prompt_catalog_lines,
     })
 }
 
@@ -825,5 +1421,170 @@ metric_ref("sales_growth")
             Some("apps/demo/other.mei"),
             Some("apps/demo/main.mei")
         ));
+    }
+
+    #[test]
+    fn resource_summary_includes_column_preview() {
+        use mei_lang_kernel::{ResourceDecl, SourceDecl};
+
+        let dataset = json!({
+            "key": "ds1",
+            "kind": "dataframe",
+            "columns": [
+                {"name": "a", "type": "string", "optional": false},
+                {"name": "b", "type": "number", "source": "B"},
+            ],
+            "normalize": {}
+        });
+        let item = ResourceDecl {
+            id: "ds1".into(),
+            kind: "dataset".into(),
+            title: None,
+            purpose: None,
+            source: Some(SourceDecl {
+                kind: "xlsx".into(),
+                path: "data/x.xlsx".into(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            }),
+            content: None,
+            dataset: Some(dataset),
+            metrics: None,
+            filters: None,
+        };
+        let v = summarize_resource_decl(&item);
+        let preview = v
+            .pointer("/dataset/schema/columns_preview")
+            .expect("columns_preview");
+        let arr = preview.as_array().expect("array");
+        assert_eq!(arr.len(), 2);
+    }
+
+    #[test]
+    fn app_relative_mei_strips_workspace_app_prefix() {
+        assert_eq!(
+            app_relative_mei_for_preview("spbjw", "spbjw/data/dataset/x.mei").as_deref(),
+            Some("data/dataset/x.mei")
+        );
+        assert_eq!(
+            app_relative_mei_for_preview("spbjw", "data/dataset/x.mei").as_deref(),
+            Some("data/dataset/x.mei")
+        );
+        assert_eq!(app_relative_mei_for_preview("spbjw", "data/x.txt"), None);
+    }
+
+    #[test]
+    fn resource_get_summary_omits_huge_dataset_blob() {
+        use mei_lang_kernel::{ResourceDecl, SourceDecl};
+
+        let huge_rows: Value = json!((0..4000).map(|i| json!({"id": i})).collect::<Vec<_>>());
+        let huge = json!({ "kind": "tabular", "rows": huge_rows });
+        let item = ResourceDecl {
+            id: "ds1".into(),
+            kind: "dataset".into(),
+            title: Some("Demo".into()),
+            purpose: None,
+            source: Some(SourceDecl {
+                kind: "xlsx".into(),
+                path: "data/raw/x.xlsx".into(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            }),
+            content: None,
+            dataset: Some(huge),
+            metrics: None,
+            filters: None,
+        };
+        let v = summarize_resource_decl(&item);
+        let s = serde_json::to_string(&v).expect("json");
+        assert!(
+            s.len() < 4_000,
+            "summary unexpectedly large: {} chars",
+            s.len()
+        );
+        assert!(
+            s.contains("approx_decl_chars"),
+            "expected size metadata in summary: {s}"
+        );
+        assert!(
+            !s.contains("\"id\":3999"),
+            "expected row bodies not to be inlined: {s}"
+        );
+    }
+
+    #[test]
+    fn dataset_query_default_columns_cap_to_ten() {
+        let dataset = DatasetView {
+            id: "ds".to_string(),
+            title: None,
+            purpose: None,
+            schema: (0..20)
+                .map(|i| mei_lang_kernel::ColumnSchema {
+                    name: format!("c{i}"),
+                    type_name: "string".to_string(),
+                    source: None,
+                    optional: false,
+                    unit: None,
+                })
+                .collect(),
+            stage_schema: Vec::new(),
+            columns: (0..20).map(|i| format!("c{i}")).collect(),
+            rows: Vec::new(),
+            source: mei_lang_kernel::SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:ds".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+        };
+        let cols = normalize_dataset_columns(&dataset, None);
+        assert_eq!(cols.len(), 10);
+        assert_eq!(cols.first().map(String::as_str), Some("c0"));
+        assert_eq!(cols.last().map(String::as_str), Some("c9"));
+    }
+
+    #[test]
+    fn dataset_row_projection_truncates_long_text() {
+        let row = json!({
+            "name": "alice",
+            "long_text": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+        });
+        let mut truncated = 0usize;
+        let out = project_dataset_row(
+            &row,
+            &["name".to_string(), "long_text".to_string()],
+            &mut truncated,
+        );
+        assert_eq!(out.pointer("/name").and_then(Value::as_str), Some("alice"));
+        let long = out
+            .pointer("/long_text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        assert!(long.chars().count() <= DATASET_QUERY_MAX_CELL_CHARS + 1);
+        assert!(truncated >= 1);
     }
 }

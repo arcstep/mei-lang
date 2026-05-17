@@ -1,0 +1,86 @@
+//! LLM 可调用的只读资源工具定义与执行桥接（实现放在 `resource_tool_bridge`，避免 `mei_agent` 依赖 `http`）。
+
+use std::path::Path;
+
+use serde_json::{json, Value};
+
+use super::{llm, skill_tools};
+
+/// 与 [`crate::opencode::bridge::BridgePromptRequest`](crate::opencode::bridge::BridgePromptRequest) 对齐的 scope 快照。
+#[derive(Debug, Clone, Default)]
+pub struct AgentResourceScope {
+    pub scene_id: Option<String>,
+    pub entry_id: Option<String>,
+    pub target_file: Option<String>,
+}
+
+pub trait ResourceToolExecutor: Send + Sync {
+    /// 执行资源查询工具（不含 `read_file`），当前主要用于 `dataset_query`。
+    fn run_resource_tool(
+        &self,
+        source_root: &Path,
+        app_id: Option<&str>,
+        scope: &AgentResourceScope,
+        tool_name: &str,
+        args_json: &str,
+    ) -> String;
+}
+
+/// 默认不注册场景查询（测试与无 `http` 桥接时）；由 [`crate::mei_agent::NativeAgent::open`] 构造。
+#[allow(dead_code)]
+#[derive(Debug, Default)]
+pub struct NoopResourceToolExecutor;
+
+impl ResourceToolExecutor for NoopResourceToolExecutor {
+    fn run_resource_tool(
+        &self,
+        _source_root: &Path,
+        _app_id: Option<&str>,
+        _scope: &AgentResourceScope,
+        tool_name: &str,
+        _args_json: &str,
+    ) -> String {
+        format!("error: resource tool `{tool_name}` is not available in this build (noop executor)")
+    }
+}
+
+pub(crate) fn all_tool_definitions() -> Vec<Value> {
+    vec![
+        llm::read_file_tool_definition(),
+        dataset_query_tool_definition(),
+        skill_tools::skill_list_tool_definition(),
+        skill_tools::skill_read_tool_definition(),
+    ]
+}
+
+fn dataset_query_tool_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": "dataset_query",
+            "description": "Query one dataset resource by id via host Mei dataset engine (not raw xlsx reads). Returns bounded result: dataset schema preview + filters + metric ids + sample rows. Defaults keep output small.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Dataset resource id in world, e.g. typical_cases" },
+                    "search": { "type": "string", "description": "Optional global text search" },
+                    "filters": {
+                        "type": "object",
+                        "description": "Optional field filter map, e.g. {\"涉及单位\":\"某单位\"}",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "columns": {
+                        "type": "array",
+                        "description": "Optional preferred columns. If omitted, returns first 10 columns by schema order.",
+                        "items": { "type": "string" }
+                    },
+                    "limit": { "type": "integer", "description": "Optional row count (default 10, max 50)" },
+                    "scene_id": { "type": "string", "description": "Override scene id (optional)" },
+                    "entry_id": { "type": "string", "description": "Override entry id (optional)" },
+                    "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
+                },
+                "required": ["id"]
+            }
+        }
+    })
+}

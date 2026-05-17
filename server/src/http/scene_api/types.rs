@@ -99,6 +99,9 @@ pub struct WorldContextSnapshot {
     pub resource_inventory: ResourceInventorySnapshot,
     pub runtime_summary: WorldRuntimeSummary,
     pub query_tools: Vec<ResourceQueryToolSpec>,
+    /// 仅注入 LLM 会话上下文；不参与 `/api/world/context` JSON（避免响应体膨胀）。
+    #[serde(skip)]
+    pub prompt_catalog_lines: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

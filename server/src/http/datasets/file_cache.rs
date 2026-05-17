@@ -131,7 +131,8 @@ impl ExternalFileDatasetCache {
 
     fn enforce_limits(&mut self, settings: &ExternalFileCacheSettings) -> usize {
         let mut evicted = 0usize;
-        while self.entries.len() > settings.max_entries || self.total_bytes > settings.max_total_bytes
+        while self.entries.len() > settings.max_entries
+            || self.total_bytes > settings.max_total_bytes
         {
             let Some(oldest) = self.lru.pop_back() else {
                 break;
@@ -191,7 +192,11 @@ pub(crate) fn external_file_cache_key(
 
 pub(crate) fn file_revision(path: &Path) -> Option<FileRevision> {
     let meta = fs::metadata(path).ok()?;
-    let modified_ms = meta.modified().ok().and_then(unix_timestamp_ms).unwrap_or(0);
+    let modified_ms = meta
+        .modified()
+        .ok()
+        .and_then(unix_timestamp_ms)
+        .unwrap_or(0);
     Some(FileRevision {
         size_bytes: meta.len(),
         modified_ms,
