@@ -17,12 +17,12 @@ pub use step::runtime_step;
 mod tests {
     use serde_json::json;
 
+    use crate::runtime::types::RuntimeIntent;
     use crate::{
         model::{EntityDecl, WorldCellDecl, WorldDecl, WorldGridDecl},
         FlowDecl, RuleClickDecl, RuleEffectDecl, RuleRequireDecl, RuleStartDecl,
         RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl,
     };
-    use crate::runtime::types::RuntimeIntent;
 
     use super::{project_runtime_view, runtime_step};
 

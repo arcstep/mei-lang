@@ -1,8 +1,8 @@
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
-use crate::SceneContract;
 use crate::runtime::types::{RuntimeState, RuntimeTraceItem};
+use crate::SceneContract;
 
 use super::catalog::{base_flags, base_seed, base_statuses, choose_slot};
 use super::clock::{initial_clock, timer_seconds};

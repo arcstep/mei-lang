@@ -1,10 +1,10 @@
 use std::{collections::BTreeMap, fs};
 
-use super::harness::{temp_root, workspace_root, write_file};
 use super::super::{
     compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs,
     CompileOptions,
 };
+use super::harness::{temp_root, workspace_root, write_file};
 use crate::MetricShape;
 
 #[test]
@@ -428,7 +428,10 @@ frame.add_panel(
         .iter()
         .find(|resource| resource.id == "sales_pack")
         .expect("metric pack dataset resource");
-    let pack_dataset = pack_resource.dataset.as_ref().expect("metric pack as dataset");
+    let pack_dataset = pack_resource
+        .dataset
+        .as_ref()
+        .expect("metric pack as dataset");
     assert!(
         pack_dataset.metrics.contains_key("pack_total_rows"),
         "metric pack should materialize computed metrics"

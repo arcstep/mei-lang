@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-use crate::SceneContract;
 use crate::runtime::types::{RuntimeClockState, RuntimeState};
+use crate::SceneContract;
 
 pub(in crate::runtime::engine) fn timer_seconds(contract: &SceneContract) -> i64 {
     contract

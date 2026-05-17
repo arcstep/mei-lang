@@ -2,7 +2,10 @@ use serde_json::Value;
 
 use crate::runtime::types::{RuntimeState, RuntimeTraceItem};
 
-pub(in crate::runtime::engine) fn push_timeline(state: &mut RuntimeState, message: impl Into<String>) {
+pub(in crate::runtime::engine) fn push_timeline(
+    state: &mut RuntimeState,
+    message: impl Into<String>,
+) {
     state.timeline.push(message.into());
     if state.timeline.len() > 12 {
         let overflow = state.timeline.len() - 12;

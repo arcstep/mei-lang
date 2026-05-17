@@ -66,20 +66,14 @@ where
     let sheet_name = if let Some(sheet) = sheet.filter(|value| !value.is_empty()) {
         sheet.to_string()
     } else {
-        workbook
-            .sheet_names()
-            .first()
-            .cloned()
-            .unwrap_or_default()
+        workbook.sheet_names().first().cloned().unwrap_or_default()
     };
     if sheet_name.is_empty() {
         return Ok(Vec::new());
     }
-    let range = workbook
-        .worksheet_range(&sheet_name)
-        .map_err(|error| {
-            anyhow::anyhow!("failed to read Excel worksheet `{sheet_name}`: {error}")
-        })?;
+    let range = workbook.worksheet_range(&sheet_name).map_err(|error| {
+        anyhow::anyhow!("failed to read Excel worksheet `{sheet_name}`: {error}")
+    })?;
     let mut rows = range.rows();
     for _ in 0..header_row.saturating_sub(1) {
         rows.next();

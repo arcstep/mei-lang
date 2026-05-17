@@ -1,7 +1,7 @@
 use std::fs;
 
-use super::harness::{build_regression_workspace_root, workspace_root};
 use super::super::compile_app_from_root;
+use super::harness::{build_regression_workspace_root, workspace_root};
 use crate::evaluate_mei_file;
 
 #[test]
@@ -106,10 +106,7 @@ fn compile_core_invalid_examples_report_expected_errors() {
             "10-world-mutation-before-world-decl",
             "world_mutation_before_world_decl",
         ),
-        (
-            "11-world-before-scene-decl",
-            "world_before_scene_decl",
-        ),
+        ("11-world-before-scene-decl", "world_before_scene_decl"),
     ];
 
     for (app_id, expected_code) in cases {

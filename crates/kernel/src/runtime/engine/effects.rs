@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
-use crate::{RuleEffectDecl, SceneContract};
 use crate::runtime::types::RuntimeState;
+use crate::{RuleEffectDecl, SceneContract};
 
 use super::trace::{push_timeline, push_trace};
 

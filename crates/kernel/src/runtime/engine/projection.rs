@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::SceneContract;
 
-use super::super::{
-    RuntimeCellView, RuntimeEntityView, RuntimeSceneView, RuntimeState,
-};
+use super::super::{RuntimeCellView, RuntimeEntityView, RuntimeSceneView, RuntimeState};
 
 fn entity_flags(state: &RuntimeState, entity_id: &str) -> BTreeMap<String, bool> {
     let prefix = format!("{entity_id}.");

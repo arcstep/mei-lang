@@ -56,7 +56,11 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
     {
         let child = child.context("discover_apps: read_dir entry")?;
         let name = child.file_name().to_string_lossy().to_string();
-        if !child.file_type().context("discover_apps: file_type")?.is_dir() {
+        if !child
+            .file_type()
+            .context("discover_apps: file_type")?
+            .is_dir()
+        {
             continue;
         }
         if name.starts_with('.') || name.starts_with('_') {

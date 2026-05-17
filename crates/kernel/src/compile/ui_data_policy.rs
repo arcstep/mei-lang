@@ -164,7 +164,11 @@ fn world_ref_issue(
     if map.get("__ref").and_then(Value::as_str) != Some("world") {
         return None;
     }
-    let id = map.get("id").and_then(Value::as_str).unwrap_or_default().trim();
+    let id = map
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
     if id.is_empty() {
         return Some("缺少资源 id".to_string());
     }

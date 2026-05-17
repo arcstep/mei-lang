@@ -14,9 +14,7 @@ use super::{
         scalar::eval_scalar_value,
         schema::{infer_columns, infer_schema_from_rows},
     },
-    decls::{
-        LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl,
-    },
+    decls::{LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl},
     loaders::load_legacy_xlsx_rows,
     resources::csv_record_to_json,
 };
@@ -396,7 +394,12 @@ pub(super) fn evaluate_runtime_metric_defs(
     if let Some(ids) = metric_ids {
         let selected = ids
             .iter()
-            .filter_map(|id| metric_defs.get(id).cloned().map(|value| (id.clone(), value)))
+            .filter_map(|id| {
+                metric_defs
+                    .get(id)
+                    .cloned()
+                    .map(|value| (id.clone(), value))
+            })
             .collect::<BTreeMap<_, _>>();
         return materialize_legacy_metric_map(&selected, base_rows, datasets);
     }

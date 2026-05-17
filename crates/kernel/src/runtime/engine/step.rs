@@ -1,7 +1,7 @@
 use serde_json::json;
 
-use crate::SceneContract;
 use crate::runtime::types::{RuntimeIntent, RuntimeState};
+use crate::SceneContract;
 
 use super::clock::sync_clock_projection;
 use super::effects::apply_effect;

@@ -281,9 +281,8 @@ fn compile_entry_payload(
         || !pending_world_entities.is_empty()
         || had_pending_topology
         || had_pending_frame_layout;
-    let dataset_library_only = has_dataset_library_content
-        && !has_authoring_surface
-        && target_file != "main.mei";
+    let dataset_library_only =
+        has_dataset_library_content && !has_authoring_surface && target_file != "main.mei";
 
     if top_level_legacy_dataset_count > 0
         || top_level_legacy_dataset_view_count > 0
@@ -384,8 +383,8 @@ fn compile_entry_payload(
                 None
             }
         });
-    let requires_scene_contract = (entry_meta.is_some() || target_file != "main.mei")
-        && !dataset_library_only;
+    let requires_scene_contract =
+        (entry_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -543,7 +542,8 @@ fn compile_entry_payload(
     let mut world_dataset_decls: Vec<LegacyDatasetDecl> = Vec::new();
     let mut world_metric_pack_decls: Vec<LegacyMetricPackDecl> = Vec::new();
     if let Some(world_decl) = world.as_ref() {
-        let (normal_resources, dataset_resources) = partition_world_resources(&world_decl.resources);
+        let (normal_resources, dataset_resources) =
+            partition_world_resources(&world_decl.resources);
         resources = load_resources(app_root, &normal_resources)?;
         for resource in dataset_resources {
             if resource.id == "__source_path__" || resource.id.ends_with(".mei") {
@@ -559,17 +559,15 @@ fn compile_entry_payload(
                 continue;
             }
             match resource.kind.as_str() {
-                "dataset" | "dataset_view" => {
-                    match decode_world_dataset_decl(resource.clone()) {
-                        Ok(decl) => world_dataset_decls.push(decl),
-                        Err(message) => diagnostics.push(Diagnostic {
-                            severity: Severity::Error,
-                            code: "decode_world_dataset_decl_failed".to_string(),
-                            message,
-                            source_path: Some(target_file.to_string()),
-                        }),
-                    }
-                }
+                "dataset" | "dataset_view" => match decode_world_dataset_decl(resource.clone()) {
+                    Ok(decl) => world_dataset_decls.push(decl),
+                    Err(message) => diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "decode_world_dataset_decl_failed".to_string(),
+                        message,
+                        source_path: Some(target_file.to_string()),
+                    }),
+                },
                 "metric_pack" => match decode_world_metric_pack_decl(resource.clone()) {
                     Ok(decl) => world_metric_pack_decls.push(decl),
                     Err(message) => diagnostics.push(Diagnostic {
@@ -626,7 +624,10 @@ fn compile_entry_payload(
 
 fn partition_world_resources(
     resources: &[crate::model::ResourceDecl],
-) -> (Vec<crate::model::ResourceDecl>, Vec<crate::model::ResourceDecl>) {
+) -> (
+    Vec<crate::model::ResourceDecl>,
+    Vec<crate::model::ResourceDecl>,
+) {
     let mut normal = Vec::new();
     let mut dataset_like = Vec::new();
     for resource in resources {
@@ -638,7 +639,9 @@ fn partition_world_resources(
     (normal, dataset_like)
 }
 
-fn decode_world_dataset_decl(resource: crate::model::ResourceDecl) -> std::result::Result<LegacyDatasetDecl, String> {
+fn decode_world_dataset_decl(
+    resource: crate::model::ResourceDecl,
+) -> std::result::Result<LegacyDatasetDecl, String> {
     let mut dataset_node = resource
         .dataset
         .as_ref()

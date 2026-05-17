@@ -1,7 +1,7 @@
 use std::fs;
 
-use super::harness::{temp_root, write_file};
 use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
+use super::harness::{temp_root, write_file};
 
 #[test]
 fn compile_supports_inline_default_scene_authoring() {

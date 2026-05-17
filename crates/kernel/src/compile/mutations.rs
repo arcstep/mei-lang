@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::model::{
-    Diagnostic, EntityDecl, FrameDecl, ResourceDecl, Severity, WorldGridDecl,
-};
+use crate::model::{Diagnostic, EntityDecl, FrameDecl, ResourceDecl, Severity, WorldGridDecl};
 
 pub(super) fn apply_frame_mutations(
     frames: &mut BTreeMap<String, FrameDecl>,

@@ -35,7 +35,9 @@ pub(in crate::runtime::engine) fn choose_slot(
     pool.get(index).cloned()
 }
 
-pub(in crate::runtime::engine) fn base_statuses(contract: &SceneContract) -> BTreeMap<String, String> {
+pub(in crate::runtime::engine) fn base_statuses(
+    contract: &SceneContract,
+) -> BTreeMap<String, String> {
     contract
         .world
         .as_ref()
