@@ -1,4 +1,11 @@
 (function () {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeSourceHighlight === "function") {
+    try {
+      boot.disposeSourceHighlight();
+    } catch (_) {}
+    boot.disposeSourceHighlight = null;
+  }
   const DECLARATIONS = new Set([
     "app",
     "entry",
@@ -247,9 +254,18 @@
       });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
+  const rerun = function () {
     init();
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", rerun, { once: true });
+  } else {
+    rerun();
   }
+  document.addEventListener("mei:manage-context-change", rerun);
+
+  boot.disposeSourceHighlight = function () {
+    document.removeEventListener("mei:manage-context-change", rerun);
+  };
 })();

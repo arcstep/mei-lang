@@ -5009,11 +5009,15 @@
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
+      "disposeSourceHighlight",
     ];
     names.forEach((name) => {
       if (opts.preserveAgentPanel && name === "disposeAgentPanel") return;
       if (opts.preserveStatusBar && name === "disposeStatusBar") return;
+      if (opts.preserveManageTabs && name === "disposeManageTabs") return;
       if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
+      if (opts.preserveFrameStage && name === "disposeFrameStage") return;
+      if (opts.preserveSourceHighlight && name === "disposeSourceHighlight") return;
       const hook = boot[name];
       if (typeof hook === "function") {
         try {
@@ -5063,6 +5067,12 @@
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
+      if (
+        opts.preserveManageWorkspace &&
+        path === "/app-bundles/manage.js"
+      ) {
+        continue;
+      }
       if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
         continue;
       }
@@ -5263,6 +5273,7 @@
       window.history.pushState({}, "", url);
     }
     dispatchManageContextChange(nextPanelContext);
+    window.dispatchEvent(new Event("meilang:preview-updated"));
     return true;
   }
 
@@ -5288,7 +5299,10 @@
     disposeRuntimeHooks({
       preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
+      preserveManageTabs: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
+      preserveFrameStage: preserveManageWorkspace,
+      preserveSourceHighlight: preserveManageWorkspace,
     });
     document.title = doc.title || document.title;
     if (document.body.className !== doc.body.className) {
@@ -5321,8 +5335,10 @@
       }
     }
     await syncScriptsFromDocument(doc, navigationId, {
+      preserveManageWorkspace,
       preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
+      preserveManageTabs: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
       preserveSourceTreeControls: preserveManageWorkspace,
     });

@@ -29,6 +29,26 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
     }
 }
 
+pub(super) fn encode_query_value(value: &str) -> String {
+    let mut out = String::new();
+    for b in value.as_bytes() {
+        match *b {
+            b'A'..=b'Z'
+            | b'a'..=b'z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'.'
+            | b'~' => out.push(char::from(*b)),
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
 pub(super) fn manage_view_tab_from_query(
     active_tab: Option<&str>,
     script_target: bool,
@@ -71,12 +91,12 @@ pub(super) fn manage_tab_href(
     let mut query = Vec::new();
     if let Some(scene) = selected_scene {
         if !scene.is_empty() {
-            query.push(format!("scene={scene}"));
+            query.push(format!("scene={}", encode_query_value(scene)));
         }
     }
     if let Some(f) = file_param {
         if !f.is_empty() {
-            query.push(format!("file={f}"));
+            query.push(format!("file={}", encode_query_value(f)));
         }
     }
     let asset_dual = asset_dual_preview_source(selected_target);
@@ -101,7 +121,10 @@ pub(super) fn route_query(
 ) -> String {
     let mut parts = Vec::new();
     if let Some(scene) = selected_scene {
-        parts.push(format!("scene={scene}"));
+        let scene = scene.trim();
+        if !scene.is_empty() {
+            parts.push(format!("scene={}", encode_query_value(scene)));
+        }
     }
     if parts.is_empty() {
         String::new()

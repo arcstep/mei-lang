@@ -21047,29 +21047,39 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
 /* ===== source-tree-controls.js ===== */
 (function initSourceTreeControls() {
-  const expandBtn = document.querySelector("[data-tree-expand]");
-  const collapseBtn = document.querySelector("[data-tree-collapse]");
   const sidebar = document.querySelector(".sidebar.left");
   if (!sidebar) return;
-  const detailsList = () => Array.from(sidebar.querySelectorAll(".tree-li-branch > details"));
 
-  if (expandBtn) {
-    expandBtn.addEventListener("click", function () {
-      detailsList().forEach((el) => { el.open = true; });
+  const setBranchOpenRecursively = (rootDetails, nextOpen) => {
+    rootDetails.open = nextOpen;
+    const descendants = rootDetails.querySelectorAll(".tree-li-branch > details");
+    descendants.forEach((child) => {
+      child.open = nextOpen;
     });
-  }
+  };
 
-  if (collapseBtn) {
-    collapseBtn.addEventListener("click", function () {
-      detailsList().forEach((el) => { el.open = false; });
-    });
-  }
+  sidebar.addEventListener("dblclick", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const summary = event.target.closest(".tree-folder-summary");
+    if (!summary) return;
+    const details = summary.closest("details");
+    if (!details) return;
+    const nextOpen = !details.open;
+    setBranchOpenRecursively(details, nextOpen);
+  });
 })();
 
 ;
 
 /* ===== source-highlight.js ===== */
 (function () {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeSourceHighlight === "function") {
+    try {
+      boot.disposeSourceHighlight();
+    } catch (_) {}
+    boot.disposeSourceHighlight = null;
+  }
   const DECLARATIONS = new Set([
     "app",
     "entry",
@@ -21318,11 +21328,20 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       });
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init, { once: true });
-  } else {
+  const rerun = function () {
     init();
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", rerun, { once: true });
+  } else {
+    rerun();
   }
+  document.addEventListener("mei:manage-context-change", rerun);
+
+  boot.disposeSourceHighlight = function () {
+    document.removeEventListener("mei:manage-context-change", rerun);
+  };
 })();
 
 ;
@@ -21521,11 +21540,15 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
+      "disposeSourceHighlight",
     ];
     names.forEach((name) => {
       if (opts.preserveAgentPanel && name === "disposeAgentPanel") return;
       if (opts.preserveStatusBar && name === "disposeStatusBar") return;
+      if (opts.preserveManageTabs && name === "disposeManageTabs") return;
       if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
+      if (opts.preserveFrameStage && name === "disposeFrameStage") return;
+      if (opts.preserveSourceHighlight && name === "disposeSourceHighlight") return;
       const hook = boot[name];
       if (typeof hook === "function") {
         try {
@@ -21575,6 +21598,12 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
+      if (
+        opts.preserveManageWorkspace &&
+        path === "/app-bundles/manage.js"
+      ) {
+        continue;
+      }
       if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
         continue;
       }
@@ -21775,6 +21804,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       window.history.pushState({}, "", url);
     }
     dispatchManageContextChange(nextPanelContext);
+    window.dispatchEvent(new Event("meilang:preview-updated"));
     return true;
   }
 
@@ -21800,7 +21830,10 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     disposeRuntimeHooks({
       preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
+      preserveManageTabs: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
+      preserveFrameStage: preserveManageWorkspace,
+      preserveSourceHighlight: preserveManageWorkspace,
     });
     document.title = doc.title || document.title;
     if (document.body.className !== doc.body.className) {
@@ -21833,8 +21866,10 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       }
     }
     await syncScriptsFromDocument(doc, navigationId, {
+      preserveManageWorkspace,
       preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
+      preserveManageTabs: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
       preserveSourceTreeControls: preserveManageWorkspace,
     });

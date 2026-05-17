@@ -57,6 +57,11 @@ pub(super) fn manage_shell(
     let preview = preview::preview_view(compiled, app_path);
     let active_scene = compiled.active_scene.as_deref();
     let current_scene = selected_scene.or(active_scene);
+    let scene_target_pairs = compiled
+        .scene_routes
+        .iter()
+        .map(|route| (route.target_file.clone(), route.scene_id.clone()))
+        .collect::<Vec<_>>();
     let default_file_for_scene = current_scene
         .and_then(|sid| {
             compiled
@@ -77,6 +82,7 @@ pub(super) fn manage_shell(
         app_path,
         selected_target.as_str(),
         selected_scene.or(active_scene),
+        scene_target_pairs.as_slice(),
         default_file_for_scene,
         active_tab,
     );
@@ -307,9 +313,6 @@ pub(super) fn manage_shell(
                 id="workspace-root"
             >
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
-                    <div class="sidebar-header workspace-panel-header sticky top-0 z-[2] grid gap-2.5 pb-2.5">
-                        {source_tree::controls_view()}
-                    </div>
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
                         {source_tree}
                     </div>

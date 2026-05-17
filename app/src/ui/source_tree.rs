@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
+use super::manage_routing::encode_query_value;
 use super::UiRouteMode;
 
 /// 与 `app/assets/favicon.svg` 相同的梅花铜钱外轮廓（viewBox 32×32）。
@@ -33,33 +34,13 @@ fn tree_sprite_icon(
     .into_any()
 }
 
-pub(super) fn controls_view() -> impl IntoView {
-    view! {
-        <div class="tree-toolbar mb-2.5 flex gap-2">
-            <button
-                class="tree-toolbar-btn inline-flex items-center rounded-lg border border-slate-400/20 bg-slate-800/70 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-blue-400/40 hover:text-slate-100"
-                type="button"
-                data-tree-expand="1"
-            >
-                "展开"
-            </button>
-            <button
-                class="tree-toolbar-btn inline-flex items-center rounded-lg border border-slate-400/20 bg-slate-800/70 px-2.5 py-1.5 text-xs text-slate-300 transition-colors hover:border-blue-400/40 hover:text-slate-100"
-                type="button"
-                data-tree-collapse="1"
-            >
-                "收起"
-            </button>
-        </div>
-    }
-}
-
 pub(super) fn source_tree_view(
     nodes: &[WorkspaceNode],
     route_mode: UiRouteMode,
     app_path: &str,
     selected_target: &str,
     selected_scene: Option<&str>,
+    scene_target_pairs: &[(String, String)],
     omit_file_query_when_path: &str,
     active_tab: Option<&str>,
 ) -> AnyView {
@@ -74,6 +55,7 @@ pub(super) fn source_tree_view(
                     app_path,
                     selected_target,
                     selected_scene,
+                    scene_target_pairs,
                     omit_file_query_when_path,
                     active_tab,
                 );
@@ -93,7 +75,14 @@ pub(super) fn source_tree_view(
                 }
                 .into_any()
             } else {
+                let scene_for_link = scene_target_pairs
+                    .iter()
+                    .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
+                    .map(|(_, scene_id)| scene_id.as_str())
+                    .or(selected_scene.filter(|_| route_mode == UiRouteMode::Access));
                 let file_for_link = if node.path == omit_file_query_when_path {
+                    None
+                } else if scene_for_link.is_some() {
                     None
                 } else {
                     Some(node.path.as_str())
@@ -102,7 +91,7 @@ pub(super) fn source_tree_view(
                     route_mode,
                     app_path,
                     node.path.as_str(),
-                    selected_scene,
+                    scene_for_link.or(selected_scene),
                     file_for_link,
                     active_tab,
                 );
@@ -200,7 +189,7 @@ fn source_href(
             if let Some(scene) = selected_scene {
                 let s = scene.trim();
                 if !s.is_empty() {
-                    parts.push(format!("scene={s}"));
+                    parts.push(format!("scene={}", encode_query_value(s)));
                 }
             }
             if parts.is_empty() {
@@ -214,13 +203,13 @@ fn source_href(
             if let Some(scene) = selected_scene {
                 let s = scene.trim();
                 if !s.is_empty() {
-                    parts.push(format!("scene={s}"));
+                    parts.push(format!("scene={}", encode_query_value(s)));
                 }
             }
             if let Some(f) = file_for_link {
                 let t = f.trim();
                 if !t.is_empty() {
-                    parts.push(format!("file={t}"));
+                    parts.push(format!("file={}", encode_query_value(t)));
                 }
             }
             if parts.is_empty() {
