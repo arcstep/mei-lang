@@ -274,6 +274,12 @@ pub(super) fn manage_shell(
 
     view! {
         <div class=shell_class>
+            <div
+                id="tree-icons-sprite-root"
+                class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+                aria-hidden="true"
+                inner_html=source_tree::TREE_ICONS_SPRITE_SVG
+            ></div>
             {topbar}
             <div
                 class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_8px_minmax(0,1fr)_8px_var(--workspace-right-aside)]"

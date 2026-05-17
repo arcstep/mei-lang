@@ -591,7 +591,10 @@
     );
     currentDetails.forEach((detail, index) => {
       if (index >= nextDetails.length) return;
-      detail.open = nextDetails[index].open;
+      const wasOpen = detail.open;
+      const serverWantsOpen = nextDetails[index].open;
+      // 服务端仅按「选中路径」展开祖先；合并保留用户已展开的其它分支，避免换文件整树收起。
+      detail.open = serverWantsOpen || wasOpen;
     });
   }
 
