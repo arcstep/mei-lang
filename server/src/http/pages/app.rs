@@ -7,7 +7,7 @@ use axum::{
 };
 use mei_lang_app::{render_page, UiRouteMode};
 use mei_lang_kernel::{
-    discover_apps, read_source_file, CompileOptions, Severity,
+    discover_apps, read_source_file, CompileOptions, CompiledApp, Severity,
 };
 
 use crate::{AppError, AppState};
@@ -18,7 +18,7 @@ use super::app_render::{
 };
 use super::components::resolve_components_root;
 use super::menus::load_segment_topbar_menus;
-use super::util::{append_perf_diagnostic, elapsed_ms, fill_perf_placeholders, is_script_target};
+use super::util::{elapsed_ms, fill_perf_placeholders, is_script_target, push_manage_page_pipeline_diag};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
@@ -102,32 +102,167 @@ pub async fn app_page(
                 target.as_str(),
                 error.to_string().as_str(),
             );
-            let render_started = Instant::now();
-            append_perf_diagnostic(
+            let render = |cc: &CompiledApp| {
+                let t = Instant::now();
+                let html = render_page(
+                    &apps,
+                    cc,
+                    &app_id,
+                    Some(&topbar_menus),
+                    route_mode,
+                    Some(target.as_str()),
+                    Some(source.as_str()),
+                    Some(&source_meta),
+                    query.entry.as_deref(),
+                    normalized_preview_target.as_deref(),
+                    query.tab.as_deref(),
+                    chrome_hidden,
+                );
+                (html, elapsed_ms(t))
+            };
+            let (_, ssr_baseline_ms) = render(&compiled);
+            push_manage_page_pipeline_diag(
                 &mut compiled,
+                &app_id,
                 target.as_str(),
                 discover_ms,
                 compile_ms,
                 false,
                 cache_lookup_ms,
                 source_read_ms,
+                ssr_baseline_ms,
+                0,
+                0,
+                None,
+                None,
+                None,
+                elapsed_ms(app_started),
             );
-            let html = render_page(
-                &apps,
-                &compiled,
+            let (_, ssr_publish_ms) = render(&compiled);
+            compiled
+                .diagnostics
+                .retain(|d| d.code != "manage_page_pipeline");
+            push_manage_page_pipeline_diag(
+                &mut compiled,
                 &app_id,
-                Some(&topbar_menus),
-                route_mode,
-                Some(target.as_str()),
-                Some(source.as_str()),
-                Some(&source_meta),
-                query.entry.as_deref(),
-                normalized_preview_target.as_deref(),
-                query.tab.as_deref(),
-                chrome_hidden,
+                target.as_str(),
+                discover_ms,
+                compile_ms,
+                false,
+                cache_lookup_ms,
+                source_read_ms,
+                ssr_baseline_ms,
+                ssr_publish_ms,
+                0,
+                None,
+                None,
+                None,
+                elapsed_ms(app_started),
             );
-            let render_ms = elapsed_ms(render_started);
-            let html = fill_perf_placeholders(html, render_ms, elapsed_ms(app_started));
+            let (_, ssr_final_emit_ms) = render(&compiled);
+            compiled
+                .diagnostics
+                .retain(|d| d.code != "manage_page_pipeline");
+            let total_ms = elapsed_ms(app_started);
+            push_manage_page_pipeline_diag(
+                &mut compiled,
+                &app_id,
+                target.as_str(),
+                discover_ms,
+                compile_ms,
+                false,
+                cache_lookup_ms,
+                source_read_ms,
+                ssr_baseline_ms,
+                ssr_publish_ms,
+                ssr_final_emit_ms,
+                None,
+                None,
+                None,
+                total_ms,
+            );
+            let (_probe_response_html, ssr_response_probe_ms) = render(&compiled);
+            compiled
+                .diagnostics
+                .retain(|d| d.code != "manage_page_pipeline");
+            push_manage_page_pipeline_diag(
+                &mut compiled,
+                &app_id,
+                target.as_str(),
+                discover_ms,
+                compile_ms,
+                false,
+                cache_lookup_ms,
+                source_read_ms,
+                ssr_baseline_ms,
+                ssr_publish_ms,
+                ssr_final_emit_ms,
+                Some(ssr_response_probe_ms),
+                None,
+                None,
+                elapsed_ms(app_started),
+            );
+            let (_html_serve_pass, ssr_serve_ms) = render(&compiled);
+            let wall_after_serve = elapsed_ms(app_started);
+            compiled
+                .diagnostics
+                .retain(|d| d.code != "manage_page_pipeline");
+            push_manage_page_pipeline_diag(
+                &mut compiled,
+                &app_id,
+                target.as_str(),
+                discover_ms,
+                compile_ms,
+                false,
+                cache_lookup_ms,
+                source_read_ms,
+                ssr_baseline_ms,
+                ssr_publish_ms,
+                ssr_final_emit_ms,
+                Some(ssr_response_probe_ms),
+                Some(ssr_serve_ms),
+                None,
+                wall_after_serve,
+            );
+            let (_html, ssr_emit_ms) = render(&compiled);
+            let total_ms = elapsed_ms(app_started);
+            compiled
+                .diagnostics
+                .retain(|d| d.code != "manage_page_pipeline");
+            push_manage_page_pipeline_diag(
+                &mut compiled,
+                &app_id,
+                target.as_str(),
+                discover_ms,
+                compile_ms,
+                false,
+                cache_lookup_ms,
+                source_read_ms,
+                ssr_baseline_ms,
+                ssr_publish_ms,
+                ssr_final_emit_ms,
+                Some(ssr_response_probe_ms),
+                Some(ssr_serve_ms),
+                Some(ssr_emit_ms),
+                total_ms,
+            );
+            let html = {
+                let t = Instant::now();
+                let h = render(&compiled).0;
+                let last_pass_ms = elapsed_ms(t);
+                let total_wall = elapsed_ms(app_started);
+                fill_perf_placeholders(
+                    h,
+                    ssr_baseline_ms
+                        .saturating_add(ssr_publish_ms)
+                        .saturating_add(ssr_final_emit_ms)
+                        .saturating_add(ssr_response_probe_ms)
+                        .saturating_add(ssr_serve_ms)
+                        .saturating_add(ssr_emit_ms)
+                        .saturating_add(last_pass_ms),
+                    total_wall,
+                )
+            };
             return Ok(Html(html).into_response());
         }
     };
@@ -168,31 +303,166 @@ pub async fn app_page(
     let source_read_ms = elapsed_ms(source_started);
     let source_meta = source_panel_meta(&source_path, &source);
     let topbar_menus = load_segment_topbar_menus(&state.source_root);
-    let render_started = Instant::now();
-    append_perf_diagnostic(
+    let render = |cc: &CompiledApp| {
+        let t = Instant::now();
+        let html = render_page(
+            &apps,
+            cc,
+            &app_id,
+            Some(&topbar_menus),
+            route_mode,
+            Some(target.as_str()),
+            Some(source.as_str()),
+            Some(&source_meta),
+            query.entry.as_deref(),
+            normalized_preview_target.as_deref(),
+            query.tab.as_deref(),
+            chrome_hidden,
+        );
+        (html, elapsed_ms(t))
+    };
+    let (_, ssr_baseline_ms) = render(&compiled);
+    push_manage_page_pipeline_diag(
         &mut compiled,
+        &app_id,
         target.as_str(),
         discover_ms,
         compile_ms,
         compile_cache_hit,
         compile_cache_lookup_ms,
         source_read_ms,
+        ssr_baseline_ms,
+        0,
+        0,
+        None,
+        None,
+        None,
+        elapsed_ms(app_started),
     );
-    let html = render_page(
-        &apps,
-        &compiled,
+    let (_, ssr_publish_ms) = render(&compiled);
+    compiled
+        .diagnostics
+        .retain(|d| d.code != "manage_page_pipeline");
+    push_manage_page_pipeline_diag(
+        &mut compiled,
         &app_id,
-        Some(&topbar_menus),
-        route_mode,
-        Some(target.as_str()),
-        Some(source.as_str()),
-        Some(&source_meta),
-        query.entry.as_deref(),
-        normalized_preview_target.as_deref(),
-        query.tab.as_deref(),
-        chrome_hidden,
+        target.as_str(),
+        discover_ms,
+        compile_ms,
+        compile_cache_hit,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        ssr_baseline_ms,
+        ssr_publish_ms,
+        0,
+        None,
+        None,
+        None,
+        elapsed_ms(app_started),
     );
-    let render_ms = elapsed_ms(render_started);
-    let html = fill_perf_placeholders(html, render_ms, elapsed_ms(app_started));
+    let (_, ssr_final_emit_ms) = render(&compiled);
+    compiled
+        .diagnostics
+        .retain(|d| d.code != "manage_page_pipeline");
+    let total_ms = elapsed_ms(app_started);
+    push_manage_page_pipeline_diag(
+        &mut compiled,
+        &app_id,
+        target.as_str(),
+        discover_ms,
+        compile_ms,
+        compile_cache_hit,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        ssr_baseline_ms,
+        ssr_publish_ms,
+        ssr_final_emit_ms,
+        None,
+        None,
+        None,
+        total_ms,
+    );
+    let (_probe_response_html, ssr_response_probe_ms) = render(&compiled);
+    compiled
+        .diagnostics
+        .retain(|d| d.code != "manage_page_pipeline");
+    push_manage_page_pipeline_diag(
+        &mut compiled,
+        &app_id,
+        target.as_str(),
+        discover_ms,
+        compile_ms,
+        compile_cache_hit,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        ssr_baseline_ms,
+        ssr_publish_ms,
+        ssr_final_emit_ms,
+        Some(ssr_response_probe_ms),
+        None,
+        None,
+        elapsed_ms(app_started),
+    );
+    let (_html_serve_pass, ssr_serve_ms) = render(&compiled);
+    let wall_after_serve = elapsed_ms(app_started);
+    compiled
+        .diagnostics
+        .retain(|d| d.code != "manage_page_pipeline");
+    push_manage_page_pipeline_diag(
+        &mut compiled,
+        &app_id,
+        target.as_str(),
+        discover_ms,
+        compile_ms,
+        compile_cache_hit,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        ssr_baseline_ms,
+        ssr_publish_ms,
+        ssr_final_emit_ms,
+        Some(ssr_response_probe_ms),
+        Some(ssr_serve_ms),
+        None,
+        wall_after_serve,
+    );
+    let (_html, ssr_emit_ms) = render(&compiled);
+    let total_ms = elapsed_ms(app_started);
+    compiled
+        .diagnostics
+        .retain(|d| d.code != "manage_page_pipeline");
+    push_manage_page_pipeline_diag(
+        &mut compiled,
+        &app_id,
+        target.as_str(),
+        discover_ms,
+        compile_ms,
+        compile_cache_hit,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        ssr_baseline_ms,
+        ssr_publish_ms,
+        ssr_final_emit_ms,
+        Some(ssr_response_probe_ms),
+        Some(ssr_serve_ms),
+        Some(ssr_emit_ms),
+        total_ms,
+    );
+    let html = {
+        let t = Instant::now();
+        let h = render(&compiled).0;
+        let last_pass_ms = elapsed_ms(t);
+        let total_wall = elapsed_ms(app_started);
+        fill_perf_placeholders(
+            h,
+            ssr_baseline_ms
+                .saturating_add(ssr_publish_ms)
+                .saturating_add(ssr_final_emit_ms)
+                .saturating_add(ssr_response_probe_ms)
+                .saturating_add(ssr_serve_ms)
+                .saturating_add(ssr_emit_ms)
+                .saturating_add(last_pass_ms),
+            total_wall,
+        )
+    };
     Ok(Html(html).into_response())
 }

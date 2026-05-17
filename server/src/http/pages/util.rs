@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use mei_lang_kernel::{CompiledApp, Diagnostic, Severity};
+use serde_json::json;
 
 pub(crate) fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis() as u64
@@ -10,23 +11,165 @@ pub(crate) fn is_script_target(path: &str) -> bool {
     path.ends_with(".mei")
 }
 
-pub(crate) fn append_perf_diagnostic(
+/// 管理端整页流水线：发现应用 → 编译（含缓存）→ 读源码 → SSR（多遍）→ 总耗时；
+/// 另附产物规模与「运行时数据查询」待 iframe 上报说明。消息体为 **JSON**，供客户端齐整渲染。
+///
+/// SSR 说明：`ssr_baseline_ms` 为「尚无本诊断条目」时的首遍 SSR；`ssr_publish_ms` 为插入本条目后
+/// 一遍 SSR（用于校准耗时，此时 JSON 内 publish 可能仍为占位）；`ssr_final_emit_ms` 为写入 baseline/publish/final
+/// 三段时间后的再渲染。若提供 `ssr_response_ms`，会追加「响应遍」阶段（其 ms 为**上一轮** SSR 的耗时，
+/// 再经一轮 SSR 产出与 HTTP 响应一致的 HTML）。若提供 `ssr_serve_ms`，表示再一轮 SSR（JSON 已含
+/// `ssr_response` 行之后）的耗时。若提供 `ssr_emit_ms`，表示再一遍（将含 `ssr_serve` 与对齐后的
+/// `server_total` 写入 JSON 后的渲染，**通常即下发 HTML 的那遍**）。`total_ms` 建议取 **末遍 SSR
+/// 完成之后** 的 handler 墙钟。
+pub(crate) fn push_manage_page_pipeline_diag(
     compiled: &mut CompiledApp,
+    app_id: &str,
     target: &str,
     discover_ms: u64,
     compile_ms: u64,
     compile_cache_hit: bool,
     compile_cache_lookup_ms: u64,
     source_read_ms: u64,
+    ssr_baseline_ms: u64,
+    ssr_publish_ms: u64,
+    ssr_final_emit_ms: u64,
+    ssr_response_ms: Option<u64>,
+    ssr_serve_ms: Option<u64>,
+    ssr_emit_ms: Option<u64>,
+    total_ms: u64,
 ) {
-    let text = format!(
-        "discover_apps_ms={discover_ms}ms | compile_ms={compile_ms}ms | compile_cache_hit={} | compile_cache_lookup_ms={compile_cache_lookup_ms}ms | source_read_ms={source_read_ms}ms | render_ms=__RENDER_MS__ | total_ms=__TOTAL_MS__",
-        u8::from(compile_cache_hit)
-    );
+    let resource_count = compiled.resources.len();
+    let dataset_resources = compiled
+        .resources
+        .iter()
+        .filter(|r| r.dataset.is_some())
+        .count();
+    let mut stages = vec![
+        json!({
+            "id": "discover_apps",
+            "label": "发现应用列表",
+            "status": "ok",
+            "ms": discover_ms,
+            "detail": {}
+        }),
+        json!({
+            "id": "compile_app",
+            "label": "编译（入口 / scene / 资源物化）",
+            "status": "ok",
+            "ms": compile_ms,
+            "detail": {
+                "compile_cache_hit": compile_cache_hit,
+                "compile_cache_lookup_ms": compile_cache_lookup_ms,
+                "hint": "parse / world / dataset 物化等子阶段未单独打点，均含于 compile_ms"
+            }
+        }),
+        json!({
+            "id": "source_read",
+            "label": "读取目标脚本（源码面板）",
+            "status": "ok",
+            "ms": source_read_ms,
+            "detail": {}
+        }),
+        json!({
+            "id": "ssr_baseline",
+            "label": "SSR 首遍（尚无 manage_page_pipeline 诊断）",
+            "status": "ok",
+            "ms": ssr_baseline_ms,
+            "detail": {
+                "hint": "用于对比「插入流水线 JSON 前后」的渲染成本；该遍 HTML 不对外下发"
+            }
+        }),
+        json!({
+            "id": "ssr_publish",
+            "label": "SSR 二遍（已含诊断条目；用于测量含面板树时的渲染）",
+            "status": "ok",
+            "ms": ssr_publish_ms,
+            "detail": {
+                "hint": "此时 JSON 内数值可能仍为占位，仅用于耗时校准"
+            }
+        }),
+        json!({
+            "id": "ssr_final_emit",
+            "label": "SSR 三遍（写入 baseline/publish/final 三段时间后）",
+            "status": "ok",
+            "ms": ssr_final_emit_ms,
+            "detail": {
+                "hint": "该遍 HTML 仍不含「响应遍」耗时字段；若存在 ssr_response 阶段则最终响应为再下一遍 SSR"
+            }
+        }),
+    ];
+    if let Some(ms) = ssr_response_ms {
+        stages.push(json!({
+            "id": "ssr_response",
+            "label": "SSR 响应遍（将上一轮 SSR 耗时写入 JSON 后的再渲染）",
+            "status": "ok",
+            "ms": ms,
+            "detail": {
+                "hint": "本阶段 ms 为上一轮（含完整三段时间）SSR 的耗时；当前 HTTP 响应 HTML 为紧随其后的再渲染结果"
+            }
+        }));
+    }
+    if let Some(ms) = ssr_serve_ms {
+        stages.push(json!({
+            "id": "ssr_serve",
+            "label": "SSR 定稿遍（JSON 已含 ssr_response 行；本遍结束后再对齐 server_total）",
+            "status": "ok",
+            "ms": ms,
+            "detail": {
+                "hint": "此前若将 server_total 写在定稿遍之前，会少计约一整遍 SSR"
+            }
+        }));
+    }
+    if let Some(ms) = ssr_emit_ms {
+        stages.push(json!({
+            "id": "ssr_emit",
+            "label": "SSR 末遍（与当前 HTTP 响应 HTML 对齐）",
+            "status": "ok",
+            "ms": ms,
+            "detail": {
+                "hint": "将含 ssr_serve 与更新后的 server_total 的 JSON 渲染进页面"
+            }
+        }));
+    }
+    stages.push(json!({
+        "id": "server_total",
+        "label": "服务端 manage 页处理器墙钟（至写入本 JSON 前一刻）",
+        "status": "ok",
+        "ms": total_ms,
+        "detail": {
+            "scope": "mei-lang-server app_page handler + 多遍 SSR",
+            "excludes": [
+                "浏览器网络排队、TLS、下载与解析 JS/CSS/字体",
+                "首屏后 hydration、预览 iframe 内 fetch（见 runtime_perf）",
+                "本请求 compile_ms=0 仅表示命中编译缓存；体感「前几秒」常来自浏览器侧或其它请求",
+                "若存在 ssr_emit 行：本 server_total.ms 仍不含「为输出最终 HTML」在写入本 JSON 之后再跑的那一遍 SSR（与页面 shell 上 total_ms=__TOTAL_MS__ 的差额约等于该遍）"
+            ]
+        }
+    }));
+    let payload = json!({
+        "schema_version": 1,
+        "kind": "manage_page_pipeline",
+        "app_id": app_id,
+        "target": target,
+        "summary_status": "ok",
+        "stages": stages,
+        "artifact_stats": {
+            "resources": resource_count,
+            "dataset_resources": dataset_resources
+        },
+        "runtime_pending": [
+            {
+                "id": "dataset_query",
+                "label": "数据绑定 / 外部数据源动态查询",
+                "hint": "由预览 iframe 内 mei-dataset-table 上报；见下方 runtime_perf 与 #mei-runtime-dataset-perf-json"
+            }
+        ]
+    });
+    let pretty = serde_json::to_string_pretty(&payload).unwrap_or_else(|_| payload.to_string());
     compiled.diagnostics.push(Diagnostic {
         severity: Severity::Info,
-        code: "perf_app_page".to_string(),
-        message: format!("target={target} | {text}"),
+        code: "manage_page_pipeline".to_string(),
+        message: pretty,
         source_path: Some(target.to_string()),
     });
 }
