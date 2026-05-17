@@ -137,6 +137,7 @@
     const mode = String(value || "").trim().toLowerCase();
     if (mode === "managed") return "托管";
     if (mode === "external") return "外部";
+    if (mode === "native") return "内置";
     return "--";
   }
 
@@ -157,9 +158,13 @@
     const config = state.config;
     const runtime = state.runtime;
     const health = state.health;
-    const mode = openCodeModeLabel(
+    const modeRaw = String(
       (runtime && runtime.connection_source) || (config && config.preferred_mode) || "",
-    );
+    )
+      .trim()
+      .toLowerCase();
+    const mode = openCodeModeLabel(modeRaw);
+    const backendLabel = "助手";
     let phase = "未配";
     let tone = "neutral";
     if (state.loading) {
@@ -169,20 +174,21 @@
       phase = "在线";
       tone = "good";
     } else if (runtime && runtime.running) {
-      phase = mode === "托管" ? "启动中" : "未连";
-      tone = mode === "托管" ? "warn" : "danger";
-    } else if (
-      config &&
-      config.preferred_mode === "managed" &&
-      config.managed_start_available
-    ) {
-      phase = "可启动";
-      tone = "info";
+      if (modeRaw === "native") {
+        phase = "未就绪";
+        tone = "warn";
+      } else if (mode === "托管") {
+        phase = "启动中";
+        tone = "warn";
+      } else {
+        phase = "未连";
+        tone = "danger";
+      }
     }
     const model =
       String(config && (config.completion_model || config.provider_name || config.provider_id) || "").trim() ||
       "";
-    const text = "OpenCode " + mode + "·" + phase;
+    const text = backendLabel + " " + mode + "·" + phase;
     const title = model ? text + " · " + model : text;
     return { text, tone, title };
   }
@@ -216,7 +222,7 @@
     } catch (_) {
       state.loading = false;
       setChip(nodes.skill, "Skill 未知", "warn", "Skill 状态读取失败");
-      setChip(nodes.opencode, "OpenCode 未知", "warn", "OpenCode 状态读取失败");
+      setChip(nodes.opencode, "助手 未知", "warn", "助手状态读取失败");
     }
   }
 
@@ -224,7 +230,7 @@
     refresh();
     const manageMode =
       document.body && document.body.classList.contains("manage-mode");
-    // 管理页由右侧 OpenCode 面板负责更高频状态同步，避免重复轮询。
+    // 管理页由右侧作者助手面板负责更高频状态同步，避免重复轮询。
     if (manageMode) {
       return;
     }

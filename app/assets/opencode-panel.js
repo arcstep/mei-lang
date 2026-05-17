@@ -30,10 +30,13 @@
     contextTools: document.getElementById("author-context-preview-tools"),
     contextInventory: document.getElementById("author-context-preview-inventory"),
     contextPrompt: document.getElementById("author-context-preview-prompt"),
+    contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
     input: document.getElementById("author-intent-input"),
     run: document.getElementById("author-run-btn"),
     modePlan: document.getElementById("author-mode-plan-btn"),
     modeBuild: document.getElementById("author-mode-build-btn"),
+    completionModelSelect: document.getElementById("author-completion-model-select"),
+    completionModelWrap: document.getElementById("author-completion-model-wrap"),
     undo: document.getElementById("author-undo-btn"),
     redo: document.getElementById("author-redo-btn"),
     sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
@@ -94,6 +97,7 @@
     contextPreviewBackoffUntilMs: 0,
     contextPreviewFetchedAtMs: 0,
     contextPreviewScopeKey: "",
+    deltaDebugLog: [],
     progress: {
       visible: false,
       label: "",
@@ -136,6 +140,7 @@
     blockSummary: "author-chat-block-label list-none cursor-pointer text-[11px] font-bold tracking-[0.01em]",
     blockLabel: "author-chat-block-label text-[11px] font-bold tracking-[0.01em]",
     body: "author-chat-body m-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-slate-200",
+    bodyMarkdown: "author-chat-body author-chat-md text-xs leading-relaxed text-slate-200",
     progressChip:
       "author-progress-chip inline-flex items-center gap-1.5 rounded-full border border-slate-600/60 bg-slate-950/45 px-2 py-0.5 text-[10px] font-bold text-slate-300",
     progressChipRunning: "border-teal-400/50 bg-teal-700/20 text-teal-100",
@@ -164,6 +169,7 @@
     const kind = String(type || "text").toLowerCase();
     if (kind === "reasoning") return "text-amber-200";
     if (kind === "tool") return "text-teal-200";
+    if (kind === "patch") return "text-orange-200";
     if (kind === "debug") return "text-violet-200";
     if (kind === "diff") return "text-amber-300";
     if (kind === "code") return "text-blue-200";
@@ -200,7 +206,12 @@
 
   function currentTarget() {
     const params = new URLSearchParams(window.location.search);
-    return params.get("target") || String(root.dataset.target || "");
+    const fromUrl = params.get("target");
+    if (fromUrl && String(fromUrl).trim()) return String(fromUrl).trim();
+    // 与编译态「当前 entry」的 .mei 路径对齐；裸 `main.mei` 常与 scene 绑定校验冲突
+    const entryTarget = String(root.dataset.entryTarget || "").trim();
+    if (entryTarget) return entryTarget;
+    return String(root.dataset.target || "").trim();
   }
 
   function currentManageTab() {
@@ -913,7 +924,7 @@
     const cacheKey = messageKey(sid, mid);
     const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
     state.messageDiffCache[cacheKey] = diff;
-    const hasFiles = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+    const hasFiles = sessionDiffHasMaterialChanges(diff);
     setMessageMeta(mid, { hasDiff: hasFiles });
     if (!hasFiles) {
       setInlineNote("暂无可显示的文件差异。");
@@ -1028,18 +1039,6 @@
     }
   }
 
-  function hasServerTarget() {
-    return !!(state.runtime && state.runtime.server_url);
-  }
-
-  function canStartManaged() {
-    return !!(
-      state.config &&
-      state.config.preferred_mode === "managed" &&
-      state.config.managed_start_available
-    );
-  }
-
   function buildBoundSessionTitle(targetKey) {
     const params = new URLSearchParams();
     params.set("app", String(root.dataset.app || ""));
@@ -1103,6 +1102,10 @@
     if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
     if (els.modePlan) els.modePlan.disabled = controlsDisabled;
     if (els.modeBuild) els.modeBuild.disabled = controlsDisabled;
+    if (els.completionModelSelect) {
+      els.completionModelSelect.disabled =
+        controlsDisabled || els.completionModelSelect.hidden || !els.completionModelSelect.options.length;
+    }
     if (els.contextRefresh) els.contextRefresh.disabled = controlsDisabled;
     renderRunButton(disabled);
     renderHistoryButtons();
@@ -1156,6 +1159,11 @@
     clearGenerationSettleTimer();
   }
 
+  function clearDeltaDebugLog() {
+    state.deltaDebugLog = [];
+    renderDeltaDebugLog();
+  }
+
   function activeGenerationFinished(rawMessages) {
     if (!state.sending) return false;
     const activeId = String(state.activeGenerationMessageId || "").trim();
@@ -1180,12 +1188,18 @@
     } else if (health && health.healthy) {
       label = "已连接";
       dotClass = "author-server-dot author-server-dot-on";
+    } else if (
+      runtime &&
+      String(runtime.connection_source || "").toLowerCase() === "native" &&
+      runtime.running
+    ) {
+      label = health && health.healthy ? "已连接" : "内置助手未就绪";
+      dotClass =
+        health && health.healthy ? "author-server-dot author-server-dot-on" : "author-server-dot author-server-dot-off";
     } else if (runtime && runtime.connection_source === "managed" && runtime.running) {
       label = "启动中";
     } else if (runtime && runtime.connection_source === "external" && runtime.running) {
       label = "未连接";
-    } else if (canStartManaged()) {
-      label = "可启动";
     }
     if (els.serverStatus) {
       els.serverStatus.textContent = label;
@@ -1202,18 +1216,266 @@
     }
   }
 
+  function completionModelStorageKey() {
+    try {
+      var app = String(root.dataset.app || "default");
+      return "mei.author.completionModel.v1." + app;
+    } catch (_) {
+      return "mei.author.completionModel.v1";
+    }
+  }
+
+  function encodeCompletionOptionValue(providerId, modelId) {
+    return String(providerId || "") + "\x1f" + String(modelId || "");
+  }
+
+  function decodeCompletionOptionValue(value) {
+    var v = String(value || "");
+    var i = v.indexOf("\x1f");
+    if (i < 0) return null;
+    var p = v.slice(0, i).trim();
+    var m = v.slice(i + 1).trim();
+    if (!p || !m) return null;
+    return { provider_id: p, model_id: m };
+  }
+
+  function completionChoiceDisplayName(row) {
+    if (!row) return "";
+    var mid = String(row.model_id || "").trim();
+    var lab = String(row.label || "").trim();
+    if (lab && (lab.indexOf("·") >= 0 || lab.indexOf("\u00b7") >= 0)) {
+      var sep = lab.indexOf("·") >= 0 ? "·" : "\u00b7";
+      var parts = lab.split(sep);
+      var last = String(parts[parts.length - 1] || "").trim();
+      if (last) return last;
+    }
+    if (lab) return lab;
+    return mid;
+  }
+
+  function setCompletionModelWrapVisible(show) {
+    var wrap = els.completionModelWrap;
+    if (!wrap) return;
+    if (show) wrap.classList.remove("hidden");
+    else wrap.classList.add("hidden");
+  }
+
+  var _markdownOptionsApplied = false;
+  function configureMarkdownOnce() {
+    if (_markdownOptionsApplied) return;
+    _markdownOptionsApplied = true;
+    try {
+      var mk = typeof marked !== "undefined" && marked && typeof marked.use === "function" ? marked : null;
+      if (mk) {
+        mk.use({
+          async: false,
+          breaks: true,
+          gfm: true,
+          renderer: {
+            html: function (token) {
+              var raw =
+                token && token.raw != null
+                  ? String(token.raw)
+                  : token && token.text != null
+                    ? String(token.text)
+                    : "";
+              return '<span class="author-chat-md-literal">' + escapeHtml(raw) + "</span>";
+            },
+          },
+        });
+      } else if (typeof marked !== "undefined" && marked && typeof marked.setOptions === "function") {
+        marked.setOptions({ async: false, breaks: true, gfm: true });
+      }
+    } catch (_) {}
+  }
+
+  function renderMarkdownToSafeHtml(src) {
+    var raw = String(src || "");
+    if (!raw.trim()) return "";
+    configureMarkdownOnce();
+    try {
+      var mk = typeof marked !== "undefined" && marked && typeof marked.parse === "function" ? marked : null;
+      var pur =
+        typeof DOMPurify !== "undefined" && DOMPurify && typeof DOMPurify.sanitize === "function"
+          ? DOMPurify
+          : null;
+      if (mk && pur) {
+        var html = mk.parse(raw);
+        return pur.sanitize(html, {
+          ALLOWED_URI_REGEXP:
+            /^(?:(?:https?|mailto):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+        });
+      }
+    } catch (_) {}
+    return "<pre class=\"" + CHAT_CLASS.body + "\">" + escapeHtml(raw) + "</pre>";
+  }
+
+  function sizeCompletionModelSelectWidth() {
+    var sel = els.completionModelSelect;
+    var wrap = els.completionModelWrap;
+    if (!sel || sel.hidden || !wrap || wrap.classList.contains("hidden") || !sel.options.length) {
+      if (sel) sel.style.width = "";
+      return;
+    }
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    var text = String(opt.textContent || "");
+    if (!state._completionModelMeasure) {
+      var span = document.createElement("span");
+      span.id = "author-completion-model-measure";
+      span.setAttribute("aria-hidden", "true");
+      span.style.cssText = "position:absolute;left:-9999px;top:0;white-space:nowrap;visibility:hidden;pointer-events:none;";
+      document.body.appendChild(span);
+      state._completionModelMeasure = span;
+    }
+    var measure = state._completionModelMeasure;
+    var cs = window.getComputedStyle(sel);
+    measure.style.font = cs.font;
+    measure.style.fontSize = cs.fontSize;
+    measure.style.fontFamily = cs.fontFamily;
+    measure.style.fontWeight = cs.fontWeight;
+    measure.style.letterSpacing = cs.letterSpacing;
+    measure.textContent = text || "模型";
+    var tw = measure.getBoundingClientRect().width;
+    var pad = 22;
+    var maxPx = 280;
+    sel.style.width = Math.min(Math.max(40, tw + pad), maxPx) + "px";
+  }
+
+  function normalizedCompletionChoices(config) {
+    if (!config || typeof config !== "object") return [];
+    var raw = config.completion_model_choices;
+    if (Array.isArray(raw) && raw.length) {
+      return raw.map(function (row) {
+        return {
+          provider_id: String((row && row.provider_id) || "").trim(),
+          model_id: String((row && row.model_id) || "").trim(),
+          label: String((row && row.label) || "").trim(),
+        };
+      }).filter(function (row) {
+        return row.provider_id && row.model_id;
+      });
+    }
+    var pid = String(config.provider_id || "qwen").trim();
+    var mid = String(config.completion_model || "").trim();
+    if (!mid) return [];
+    return [
+      {
+        provider_id: pid,
+        model_id: mid,
+        label: mid,
+      },
+    ];
+  }
+
+  function rememberSelectedCompletionModel(value) {
+    try {
+      localStorage.setItem(completionModelStorageKey(), String(value || ""));
+    } catch (_) {}
+  }
+
+  function syncCompletionModelSelectFromConfig() {
+    var sel = els.completionModelSelect;
+    if (!sel) return;
+    var config = state.config;
+    var choices = normalizedCompletionChoices(config);
+    var prevValue = String(sel.value || "");
+    sel.innerHTML = "";
+    for (var i = 0; i < choices.length; i++) {
+      var row = choices[i];
+      var op = document.createElement("option");
+      op.value = encodeCompletionOptionValue(row.provider_id, row.model_id);
+      op.textContent = completionChoiceDisplayName(row);
+      sel.appendChild(op);
+    }
+    var saved = "";
+    try {
+      saved = String(localStorage.getItem(completionModelStorageKey()) || "").trim();
+    } catch (_) {}
+    var pick = saved || prevValue || "";
+    var found = false;
+    if (pick) {
+      for (var j = 0; j < sel.options.length; j++) {
+        if (sel.options[j].value === pick) {
+          sel.selectedIndex = j;
+          found = true;
+          break;
+        }
+      }
+    }
+    if (!found && sel.options.length) {
+      sel.selectedIndex = 0;
+      rememberSelectedCompletionModel(sel.value);
+    }
+    var show = choices.length > 0;
+    sel.hidden = !show;
+    sel.disabled = !show;
+    setCompletionModelWrapVisible(show);
+    if (!show) {
+      sel.innerHTML = "";
+      sel.style.width = "";
+    } else {
+      sizeCompletionModelSelectWidth();
+    }
+  }
+
+  function getSelectedCompletionModelRef() {
+    var sel = els.completionModelSelect;
+    if (!sel || sel.hidden || sel.disabled || !sel.options.length) return null;
+    return decodeCompletionOptionValue(sel.value);
+  }
+
+  function syncModelLabelFromCompletionSelect() {
+    var sel = els.completionModelSelect;
+    if (sel && !sel.hidden && sel.selectedOptions && sel.selectedOptions[0]) {
+      var ref = decodeCompletionOptionValue(sel.value);
+      var t =
+        ref && ref.model_id
+          ? String(ref.model_id).trim()
+          : String(sel.selectedOptions[0].textContent || "").trim();
+      if (t) {
+        state.modelLabel = t;
+        if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+        renderStatusBarOpenCode();
+      }
+    }
+    sizeCompletionModelSelectWidth();
+  }
+
   function renderConfig() {
     const config = state.config;
     if (!config) {
       state.modelLabel = "模型";
       if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+      if (els.completionModelSelect) {
+        els.completionModelSelect.innerHTML = "";
+        els.completionModelSelect.hidden = true;
+        els.completionModelSelect.disabled = true;
+        els.completionModelSelect.style.width = "";
+      }
+      setCompletionModelWrapVisible(false);
       renderStatusBarOpenCode();
       return;
     }
-    state.modelLabel =
-      String(config.completion_model || config.provider_name || config.provider_id || "模型").trim() ||
-      "模型";
-    if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+    syncCompletionModelSelectFromConfig();
+    if (
+      els.completionModelSelect &&
+      !els.completionModelSelect.hidden &&
+      els.completionModelSelect.options.length
+    ) {
+      syncModelLabelFromCompletionSelect();
+    } else {
+      state.modelLabel =
+        String(config.completion_model || config.provider_name || config.provider_id || "模型").trim() ||
+        "模型";
+      if (state.modelLabel && (state.modelLabel.indexOf("·") >= 0 || state.modelLabel.indexOf("\u00b7") >= 0)) {
+        var sep2 = state.modelLabel.indexOf("·") >= 0 ? "·" : "\u00b7";
+        var parts2 = state.modelLabel.split(sep2);
+        var last = String(parts2[parts2.length - 1] || "").trim();
+        if (last) state.modelLabel = last;
+      }
+      if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+    }
     renderStatusBarOpenCode();
   }
 
@@ -1314,20 +1576,96 @@
   }
 
   function formatContextPromptText(payload) {
-    const lines = [];
-    const context = String((payload && payload.session_context) || "").trim();
-    if (context) {
-      lines.push("[Session Context]");
-      lines.push(context);
-    }
+    // system_prompt 已由服务端拼接 skill + [MeiLang Session Context] + 动态块；
+    // session_context 与之同源，并列展示会造成整段重复，这里只展示实际注入的 system。
     const system = String((payload && payload.system_prompt) || "").trim();
-    if (system) {
-      lines.push("");
-      lines.push("[System Prompt]");
-      lines.push(system);
+    if (system) return system;
+    const context = String((payload && payload.session_context) || "").trim();
+    if (context) return "[Session Context]\n" + context;
+    return "(empty)";
+  }
+
+  function trimDeltaPreview(text, maxChars) {
+    const raw = String(text || "");
+    if (!raw) return "";
+    const normalized = raw.replace(/\s+/g, " ").trim();
+    if (!normalized) return "";
+    if (normalized.length <= maxChars) return normalized;
+    return normalized.slice(0, Math.max(0, maxChars - 1)) + "…";
+  }
+
+  function formatDeltaDebugTs(stamp) {
+    const ms = Number(stamp || 0);
+    if (!Number.isFinite(ms) || ms <= 0) return "-";
+    const d = new Date(ms);
+    const pad = function (n, w) {
+      const s = String(Number(n) || 0);
+      return s.length >= w ? s : "0".repeat(w - s.length) + s;
+    };
+    return (
+      pad(d.getHours(), 2) +
+      ":" +
+      pad(d.getMinutes(), 2) +
+      ":" +
+      pad(d.getSeconds(), 2) +
+      "." +
+      pad(d.getMilliseconds(), 3)
+    );
+  }
+
+  function recordDeltaDebugEvent(event) {
+    const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
+    const clientTs = Date.now();
+    const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
+    const preview = trimDeltaPreview(deltaRaw, 48);
+    const gapMs = Number.isFinite(serverTs) && serverTs > 0 ? clientTs - serverTs : null;
+    state.deltaDebugLog.unshift({
+      serverTs: Number.isFinite(serverTs) ? serverTs : 0,
+      clientTs: clientTs,
+      partId: String(event && event.part_id ? event.part_id : ""),
+      messageId: String(event && event.message_id ? event.message_id : ""),
+      chars: deltaRaw.length,
+      preview: preview,
+      gapMs: gapMs,
+    });
+    if (state.deltaDebugLog.length > 120) {
+      state.deltaDebugLog.length = 120;
     }
-    if (!lines.length) return "(empty)";
-    return lines.join("\n");
+  }
+
+  function renderDeltaDebugLog() {
+    if (!els.contextDeltaDebug) return;
+    const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
+    if (!log.length) {
+      els.contextDeltaDebug.textContent = "(empty)";
+      return;
+    }
+    const lines = log.slice(0, 60).map(function (item, index) {
+      const gapLabel =
+        item && item.gapMs != null && Number.isFinite(item.gapMs)
+          ? String(item.gapMs) + "ms"
+          : "-";
+      return (
+        "#" +
+        String(index + 1).padStart(2, "0") +
+        " srv=" +
+        formatDeltaDebugTs(item.serverTs) +
+        " cli=" +
+        formatDeltaDebugTs(item.clientTs) +
+        " gap=" +
+        gapLabel +
+        " chars=" +
+        String(item.chars || 0) +
+        " part=" +
+        String(item.partId || "-") +
+        " msg=" +
+        String(item.messageId || "-") +
+        " delta=\"" +
+        String(item.preview || "") +
+        "\""
+      );
+    });
+    els.contextDeltaDebug.textContent = lines.join("\n");
   }
 
   function readContextInventory(payload) {
@@ -1436,6 +1774,7 @@
     if (els.contextPrompt) {
       els.contextPrompt.textContent = formatContextPromptText(state.contextPreview);
     }
+    renderDeltaDebugLog();
   }
 
   async function refreshContextPreview(force) {
@@ -1565,7 +1904,11 @@
     )
       .trim()
       .toLowerCase();
-    const mode = modeRaw === "managed" ? "托管" : modeRaw === "external" ? "外部" : "--";
+    let mode = "--";
+    if (modeRaw === "managed") mode = "托管";
+    else if (modeRaw === "external") mode = "外部";
+    else if (modeRaw === "native") mode = "内置";
+    const backendLabel = "助手";
     let phase = "未配";
     let tone = "neutral";
     if (state.loading) {
@@ -1578,17 +1921,15 @@
       phase = "在线";
       tone = "good";
     } else if (runtime && runtime.running) {
-      phase = mode === "托管" ? "启动中" : "未连";
-      tone = mode === "托管" ? "warn" : "danger";
-    } else if (canStartManaged()) {
-      phase = "可启动";
-      tone = "info";
+      const isNative = modeRaw === "native";
+      phase = isNative ? "未就绪" : mode === "托管" ? "启动中" : "未连";
+      tone = isNative ? "warn" : mode === "托管" ? "warn" : "danger";
     }
     const model =
       String(state.modelLabel || "").trim() && String(state.modelLabel || "").trim() !== "模型"
         ? String(state.modelLabel || "").trim().slice(0, 20)
         : "";
-    const text = "OpenCode " + mode + "·" + phase;
+    const text = backendLabel + " " + mode + "·" + phase;
     const title = model ? text + " · " + model : text;
     els.statusOpenCode.textContent = text;
     els.statusOpenCode.title = title;
@@ -1773,14 +2114,40 @@
     };
   }
 
+  /** 折叠摘要一行：工具名 + 与 OpenCode 侧一致的「主参数」提示（input 存在 filePath 字段）。 */
+  function toolBlockLabel(part) {
+    const tool = part && part.tool ? part.tool : null;
+    if (!tool) return "工具调用";
+    const name = String(tool.tool || "").trim() || "unknown";
+    const fp = String(tool.input_path || "").trim();
+    const title = String(tool.title || "").trim();
+    if (name === "read_file" && fp) return "read_file · path=" + fp;
+    if (name === "skill_read" && fp) return "skill_read · path=" + fp;
+    if (name === "resource_get" && fp) return "resource_get · id=" + fp;
+    if (name === "resource_list") return "resource_list";
+    if (name === "resource_runtime_peek") return "resource_runtime_peek";
+    if (name === "skill_list") return "skill_list";
+    if (fp) return name + " · filePath=" + fp;
+    if (title && title !== name) return name + " · " + title;
+    return name;
+  }
+
   function formatToolPart(part) {
     const tool = part && part.tool ? part.tool : null;
     if (!tool) return null;
+    const name = String(tool.tool || "unknown");
     const lines = [];
-    lines.push("工具: " + String(tool.tool || "unknown"));
+    lines.push("工具: " + name);
+    const fp = String(tool.input_path || "").trim();
+    if (name === "read_file" && fp) lines.push("参数 path: " + fp);
+    else if (name === "skill_read" && fp) lines.push("参数 path: " + fp);
+    else if (name === "resource_get" && fp) lines.push("参数 id: " + fp);
+    else if (fp) lines.push("参数 filePath: " + fp);
     lines.push("状态: " + String(tool.status || "pending"));
-    if (tool.input_path) lines.push("路径: " + String(tool.input_path));
-    if (tool.title) lines.push("标题: " + String(tool.title));
+    const cid = String(tool.call_id || "").trim();
+    if (cid) lines.push("call_id: " + cid);
+    const title = String(tool.title || "").trim();
+    if (title) lines.push("标题: " + title);
     if (tool.output) lines.push("输出:\n" + String(tool.output));
     if (tool.error) lines.push("错误:\n" + String(tool.error));
     return lines.join("\n");
@@ -1827,7 +2194,7 @@
         patterns: [path],
         requiresAdmin: true,
         message:
-          "系统尝试读取 MeiLang skill 目录但当前未获授权。请联系管理员检查 OpenCode external_directory 白名单配置。",
+          "系统尝试读取 MeiLang skill 目录但当前未获授权。请在权限提示中批准，或请管理员检查 external_directory 策略。",
       };
     }
     return {
@@ -1985,43 +2352,60 @@
   }
 
   function normalizeMessage(raw) {
-    const parts = Array.isArray(raw && raw.parts) ? raw.parts : [];
+    const partsRaw = Array.isArray(raw && raw.parts) ? raw.parts : [];
+    const parts = partsRaw.slice();
+    parts.sort(function (a, b) {
+      const ao = Number(a && a.sort_order);
+      const bo = Number(b && b.sort_order);
+      if (Number.isFinite(ao) && Number.isFinite(bo) && ao !== bo) return ao - bo;
+      return 0;
+    });
     const role = String((raw && raw.role) || "assistant");
-    const textParts = [];
-    const reasoningParts = [];
-    const toolParts = [];
-    const debugParts = [];
+    const blocks = [];
+    function pushTextBlock(text) {
+      const t = String(text || "").trim();
+      if (!t) return;
+      const tb = makeTextBlock("", t, "text");
+      if (tb) blocks.push(tb);
+    }
+    function pushReasoningBlock(text) {
+      const t = String(text || "").trim();
+      if (!t) return;
+      const rb = makeTextBlock("思考（可折叠调试）", t, "reasoning", true);
+      if (rb) blocks.push(rb);
+    }
     parts.forEach(function (part) {
       const type = String((part && part.part_type) || "");
-      if (type === "text" && part.text) {
-        textParts.push(String(part.text));
+      if (type === "text") {
+        pushTextBlock(part && part.text ? part.text : "");
         return;
       }
-      if (type === "reasoning" && part.text) {
-        reasoningParts.push(String(part.text));
+      if (type === "reasoning") {
+        pushReasoningBlock(part && part.text ? part.text : "");
         return;
       }
       if (type === "tool") {
-        const toolSummary = formatToolPart(part);
-        if (toolSummary) toolParts.push(toolSummary);
+        const toolBody = formatToolPart(part);
+        if (toolBody) {
+          const label = toolBlockLabel(part);
+          const block = makeTextBlock(label, toolBody, "tool", true);
+          if (block) blocks.push(block);
+        }
+        return;
+      }
+      if (type === "patch") {
+        const patchText = String(part && part.text ? part.text : "").trim();
+        if (patchText) {
+          const pb = makeTextBlock("代码补丁", patchText, "patch", true);
+          if (pb) blocks.push(pb);
+        }
         return;
       }
       if (part && part.raw) {
-        debugParts.push(JSON.stringify(part.raw, null, 2));
+        const debugBody = JSON.stringify(part.raw, null, 2);
+        const block = makeTextBlock("结构化片段", debugBody, "debug", true);
+        if (block) blocks.push(block);
       }
-    });
-    const blocks = [];
-    const textBlock = makeTextBlock("", textParts.join("\n\n"), "text");
-    const reasoningBlock = makeTextBlock("思考（可折叠调试）", reasoningParts.join("\n\n"), "reasoning", true);
-    if (textBlock) blocks.push(textBlock);
-    if (reasoningBlock) blocks.push(reasoningBlock);
-    toolParts.forEach(function (toolBody, idx) {
-      const block = makeTextBlock("工具调用 #" + String(idx + 1), toolBody, "tool", true);
-      if (block) blocks.push(block);
-    });
-    debugParts.forEach(function (debugBody, idx) {
-      const block = makeTextBlock("结构化片段 #" + String(idx + 1), debugBody, "debug", true);
-      if (block) blocks.push(block);
     });
     const body =
       blocks.length > 0
@@ -2087,6 +2471,34 @@
         "/diff" +
         query,
     );
+  }
+
+  /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */
+  function sessionDiffHasMaterialChanges(diff) {
+    if (!diff || typeof diff !== "object") return false;
+    const topAdd = Number(diff.additions);
+    const topDel = Number(diff.deletions);
+    if ((Number.isFinite(topAdd) && topAdd > 0) || (Number.isFinite(topDel) && topDel > 0)) {
+      return true;
+    }
+    const files = Array.isArray(diff.files) ? diff.files : [];
+    return files.some(function (f) {
+      if (!f || typeof f !== "object") return false;
+      const a = Number(f.additions);
+      const d = Number(f.deletions);
+      if ((Number.isFinite(a) && a > 0) || (Number.isFinite(d) && d > 0)) return true;
+      const after = String(f.after || "").trim();
+      if (!after) return false;
+      const low = after.toLowerCase();
+      if (low.includes("no git worktree") || low.includes("native diff snapshot:")) return false;
+      return after.split("\n").some(function (line) {
+        const t = String(line || "");
+        return (
+          (t.startsWith("+") && !t.startsWith("+++")) ||
+          (t.startsWith("-") && !t.startsWith("---"))
+        );
+      });
+    });
   }
 
   async function applyRevertForMessage(messageId) {
@@ -2175,7 +2587,7 @@
       if (typeof meta.hasDiff === "boolean") continue;
       try {
         const diff = await fetchSessionDiff(messageId);
-        const hasDiff = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+        const hasDiff = sessionDiffHasMaterialChanges(diff);
         setMessageMeta(messageId, { hasDiff: hasDiff });
         if (hasDiff) {
           state.messageDiffCache[messageKey(state.sessionId, messageId)] = diff;
@@ -2253,14 +2665,47 @@
     const roleTextClass = chatRoleTextClass(roleRaw, reverted);
     const blocks = Array.isArray(message && message.blocks) ? message.blocks : [];
     const time = escapeHtml(String(message && message.time ? message.time : ""));
+    function blockBodyHtml(block) {
+      const content = String(block.content || "");
+      const blockType = String(block.type || "text");
+      const collapsed = !!block.collapsed;
+      if (collapsed) {
+        return escapeHtml(content);
+      }
+      if (blockType !== "text") {
+        return escapeHtml(content);
+      }
+      if (roleRaw === "assistant") {
+        return renderMarkdownToSafeHtml(content);
+      }
+      return escapeHtml(content);
+    }
+    function blockBodyTag(block) {
+      const blockType = String(block.type || "text");
+      const collapsed = !!block.collapsed;
+      if (collapsed || blockType !== "text" || roleRaw !== "assistant") {
+        return "pre";
+      }
+      return "div";
+    }
+    function blockBodyClass(block) {
+      const blockType = String(block.type || "text");
+      const collapsed = !!block.collapsed;
+      if (collapsed || blockType !== "text" || roleRaw !== "assistant") {
+        return CHAT_CLASS.body;
+      }
+      return CHAT_CLASS.bodyMarkdown;
+    }
     const bodyHtml =
       blocks.length > 0
         ? blocks
             .map(function (block) {
               const label = String(block.label || "").trim();
-              const content = escapeHtml(block.content || "");
               const blockType = String(block.type || "text");
               const labelToneClass = chatBlockLabelToneClass(blockType);
+              const inner = blockBodyHtml(block);
+              const tag = blockBodyTag(block);
+              const bodyClass = blockBodyClass(block);
               if (block.collapsed) {
                 return (
                   '<details class="' +
@@ -2276,9 +2721,9 @@
                   '">' +
                   escapeHtml(label || "展开") +
                   '</summary><pre class="' +
-                  CHAT_CLASS.body +
+                  bodyClass +
                   '">' +
-                  content +
+                  inner +
                   "</pre></details>"
                 );
               }
@@ -2291,13 +2736,27 @@
                 (label
                   ? '<div class="' + CHAT_CLASS.blockLabel + " " + labelToneClass + '">' + escapeHtml(label) + "</div>"
                   : "") +
-                '<pre class="' + CHAT_CLASS.body + '">' +
-                content +
-                "</pre></section>"
+                "<" +
+                tag +
+                ' class="' +
+                bodyClass +
+                '">' +
+                inner +
+                "</" +
+                tag +
+                "></section>"
               );
             })
             .join("")
-        : '<pre class="' + CHAT_CLASS.body + '">' + escapeHtml(message && message.body ? message.body : "") + "</pre>";
+        : (function () {
+            const fallback = String(message && message.body ? message.body : "");
+            if (roleRaw === "assistant") {
+              return (
+                '<div class="' + CHAT_CLASS.bodyMarkdown + '">' + renderMarkdownToSafeHtml(fallback) + "</div>"
+              );
+            }
+            return '<pre class="' + CHAT_CLASS.body + '">' + escapeHtml(fallback) + "</pre>";
+          })();
     const actions = roleRaw === "assistant" ? renderMessageActions(message, messageId) : "";
     return (
       '<div class="' +
@@ -2313,7 +2772,9 @@
       (roleRaw === "user" ? "我" : roleRaw === "assistant" ? escapeHtml(state.modelLabel || "模型") : "系统") +
       '</div><div class="' + CHAT_CLASS.meta + '"><span class="' + CHAT_CLASS.time + '">' +
       time +
-      '</span><button type="button" class="' + CHAT_CLASS.copyButton + '" data-message-id="' +
+      '</span><button type="button" class="' +
+      CHAT_CLASS.copyButton +
+      '" title="复制对话内容（Markdown 原文）" data-message-id="' +
       escapeHtml(messageId) +
       '">⧉</button></div></div>' +
       bodyHtml +
@@ -2414,10 +2875,25 @@
           return String(item && item.id ? item.id : "") === messageId;
         });
         if (!message) return;
-        const blocks = Array.isArray(message.blocks) ? message.blocks : [];
-        const text =
-          debugCopyTextForMessage(message);
-        copyText(text).catch(function () {});
+        const text = debugCopyTextForMessage(message);
+        const prevLabel = button.textContent;
+        copyText(text)
+          .then(function () {
+            button.textContent = "已复制";
+            button.setAttribute("title", "已复制到剪贴板");
+            window.setTimeout(function () {
+              button.textContent = prevLabel;
+              button.setAttribute("title", "复制对话内容（Markdown 原文）");
+            }, 1600);
+          })
+          .catch(function () {
+            button.textContent = "失败";
+            button.setAttribute("title", "复制失败，请重试");
+            window.setTimeout(function () {
+              button.textContent = prevLabel;
+              button.setAttribute("title", "复制对话内容（Markdown 原文）");
+            }, 1600);
+          });
       });
     });
 
@@ -2518,6 +2994,10 @@
       kind === "message_part_delta" ||
       kind === "message_part_removed"
     ) {
+      if (kind === "message_part_delta") {
+        recordDeltaDebugEvent(event);
+        renderDeltaDebugLog();
+      }
       markGenerationActivity();
       refreshMessages().catch(function () {});
       return;
@@ -2526,7 +3006,9 @@
       markGenerationActivity();
       const notice = blockedPermissionNoticeFromData(event);
       rememberBlockedPermissionNotice(notice);
-      setInlineNote("已拒绝未授权权限请求：" + String(notice.path || notice.permission || "unknown"));
+      setInlineNote(
+        "内置助手请求目录访问权限：" + String(notice.path || notice.permission || "unknown") + "（请在管理页批准或拒绝）",
+      );
       return;
     }
     if (kind === "permission_blocked") {
@@ -2608,7 +3090,7 @@
       state.health = null;
       state.sessions = [];
       state.skillStatus = null;
-      setInlineNote("读取 OpenCode 状态失败：" + String(error.message || error));
+      setInlineNote("读取助手状态失败：" + String(error.message || error));
     } finally {
       state.loading = false;
       setButtonState(false);
@@ -2663,23 +3145,7 @@
   }
 
   async function startServer() {
-    if (!canStartManaged()) {
-      setInlineNote("当前默认使用 external OpenCode 服务；请先独立启动 opencode-server。");
-      await refreshAll();
-      return;
-    }
-    setButtonState(true);
-    setInlineNote("正在启动 OpenCode 服务...");
-    try {
-      await fetchJson("/api/opencode/start", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ port: 4099 }),
-      });
-    } catch (error) {
-      setInlineNote("启动失败：" + String(error.message || error));
-    }
-    invalidateSessionCache();
+    setInlineNote("");
     await refreshAll();
   }
 
@@ -2695,6 +3161,7 @@
       body: JSON.stringify({ title: buildSessionTitle() }),
     });
     state.sessionId = session.id || "";
+    clearDeltaDebugLog();
     resetPendingPermissionState();
     rememberSession();
     invalidateSessionCache();
@@ -2704,7 +3171,7 @@
   async function createSession() {
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      setInlineNote("OpenCode 服务未连接；请先独立启动服务并点击“重连”。");
+      setInlineNote("助手暂不可用；请检查服务端 QWEN_BASE_URL、QWEN_API_KEY、QWEN_COMPLETION_MODEL 等配置。");
       return;
     }
     await postNewBoundSession();
@@ -2714,6 +3181,7 @@
     const opts = options || {};
     if (!state.sessionId || !(state.health && state.health.healthy)) {
       closeEventStream();
+      clearDeltaDebugLog();
       state.lastMessagesFingerprint = "";
       resetPendingPermissionState();
       state.progress = {
@@ -2841,19 +3309,24 @@
   }
 
   async function postPromptWithCurrentSession(text, controller) {
+    const body = {
+      text: text,
+      app_id: String(root.dataset.app || ""),
+      scene_id: currentSceneId(),
+      entry_id: String(root.dataset.entry || ""),
+      target_file: currentTargetKey(),
+      agent: normalizeAgentMode(state.agentMode),
+    };
+    const mref = getSelectedCompletionModelRef();
+    if (mref) {
+      body.model = { providerID: mref.provider_id, modelID: mref.model_id };
+    }
     return fetchJson(
       "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: text,
-          app_id: String(root.dataset.app || ""),
-          scene_id: currentSceneId(),
-          entry_id: String(root.dataset.entry || ""),
-          target_file: currentTargetKey(),
-          agent: normalizeAgentMode(state.agentMode),
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       },
     );
@@ -2872,7 +3345,7 @@
     }
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      setInlineNote("OpenCode 服务未连接；请先独立启动服务并点击“重连”。");
+      setInlineNote("助手未就绪；请检查 QWEN_* 配置或点击“重连”。");
       return;
     }
     if (!state.sessionId) {
@@ -2950,13 +3423,11 @@
         }
       }
       await refreshMessages();
-      if (summary && summary.finish) {
-        finishSending();
-      }
+      finishSending();
       if (summary && summary.message_id && normalizeAgentMode(state.agentMode) === "build") {
         try {
           const diff = await fetchSessionDiff(summary.message_id);
-          const hasDiff = !!(diff && Array.isArray(diff.files) && diff.files.length > 0);
+          const hasDiff = sessionDiffHasMaterialChanges(diff);
           setMessageMeta(summary.message_id, { hasDiff: hasDiff });
           if (hasDiff) {
             state.messageDiffCache[messageKey(state.sessionId, summary.message_id)] = diff;
@@ -2982,8 +3453,7 @@
 
   if (els.reconnect) {
     els.reconnect.addEventListener("click", function () {
-      const action = canStartManaged() && !hasServerTarget() ? startServer : refreshAll;
-      action().catch(function (error) {
+      refreshAll().catch(function (error) {
         setInlineNote("重连失败：" + String(error.message || error));
       });
     });
@@ -3000,6 +3470,7 @@
   if (els.sessionSelect) {
     const onSessionSelectChange = function () {
       state.sessionId = String(els.sessionSelect.value || "");
+        clearDeltaDebugLog();
       state.sessionTargetKey = currentTargetKey();
       resetPendingPermissionState();
       rememberSession();
@@ -3046,6 +3517,7 @@
 
   const onComposerInputWindowResize = function () {
     autoResizeComposerInput();
+    sizeCompletionModelSelectWidth();
   };
   window.addEventListener("resize", onComposerInputWindowResize);
 
@@ -3058,6 +3530,14 @@
   if (els.modeBuild) {
     els.modeBuild.addEventListener("click", function () {
       switchAgentMode("build");
+    });
+  }
+
+  if (els.completionModelSelect) {
+    els.completionModelSelect.addEventListener("change", function () {
+      rememberSelectedCompletionModel(els.completionModelSelect.value);
+      syncModelLabelFromCompletionSelect();
+      sizeCompletionModelSelectWidth();
     });
   }
 
@@ -3148,7 +3628,7 @@
     restoreAgentMode();
     restoreSession();
     refreshAll().catch(function (error) {
-      setInlineNote("刷新 OpenCode 面板失败：" + String(error.message || error));
+      setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
     }).finally(function () {
       window.setTimeout(function () {
         root.classList.remove("is-soft-refresh");
@@ -3254,5 +3734,11 @@
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
     if (refreshTimerId) window.clearTimeout(refreshTimerId);
+    if (state._completionModelMeasure && state._completionModelMeasure.parentNode) {
+      try {
+        state._completionModelMeasure.parentNode.removeChild(state._completionModelMeasure);
+      } catch (_) {}
+    }
+    state._completionModelMeasure = null;
   };
 })();

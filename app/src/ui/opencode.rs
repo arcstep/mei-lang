@@ -11,15 +11,18 @@ pub(super) fn panel_view(
     source_views_enabled: bool,
     active_tab: &str,
 ) -> impl IntoView {
-    let active_entry = compiled.active_entry.clone().or_else(|| {
-        compiled
-            .entries
-            .iter()
-            .find(|item| item.target_file == compiled.entry_target)
-            .map(|item| item.entry_id.clone())
-            .or_else(|| compiled.entries.first().map(|item| item.entry_id.clone()))
-    })
-    .unwrap_or_default();
+    let active_entry = compiled
+        .active_entry
+        .clone()
+        .or_else(|| {
+            compiled
+                .entries
+                .iter()
+                .find(|item| item.target_file == compiled.entry_target)
+                .map(|item| item.entry_id.clone())
+                .or_else(|| compiled.entries.first().map(|item| item.entry_id.clone()))
+        })
+        .unwrap_or_default();
     let active_entry_target = compiled
         .entries
         .iter()
@@ -108,7 +111,7 @@ pub(super) fn panel_view(
                             <summary class="cursor-pointer text-[10px] font-bold tracking-[0.02em] text-slate-300">"上下文预期"</summary>
                             <div
                                 class="mt-1 grid min-h-0 gap-1 pr-1"
-                                style="max-height:min(50vh,12.5rem);overflow-y:auto;overscroll-behavior:contain;"
+                                style="max-height:50vh;min-height:10rem;overflow-y:auto;overscroll-behavior:contain;"
                             >
                                 <div class="flex items-center justify-end gap-2">
                                     <sl-button
@@ -132,7 +135,14 @@ pub(super) fn panel_view(
                                 </details>
                                 <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
                                     <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"提示语注入预览"</summary>
-                                    <pre id="author-context-preview-prompt" class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                    <pre id="author-context-preview-prompt" class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                </details>
+                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"Delta 调试（服务端 vs 客户端）"</summary>
+                                    <pre
+                                        id="author-context-preview-delta-debug"
+                                        class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"
+                                    ></pre>
                                 </details>
                             </div>
                         </details>
@@ -185,27 +195,46 @@ pub(super) fn panel_view(
                                 ></textarea>
                             </div>
                             <div class="author-composer-footer flex items-center justify-between gap-1.5">
-                                <sl-button-group class="author-agent-mode inline-flex items-center" id="author-agent-mode" label="OpenCode 工作模式">
-                                    <sl-button
-                                        class="author-mode-btn text-[10px] font-bold tracking-[0.01em]"
-                                        id="author-mode-plan-btn"
-                                        data-agent-mode="plan"
-                                        title="仅分析与规划"
-                                        size="small"
+                                <div class="flex min-w-0 flex-1 items-center gap-1.5">
+                                    <sl-button-group class="author-agent-mode inline-flex shrink-0 items-center" id="author-agent-mode" label="助手工作模式">
+                                        <sl-button
+                                            class="author-mode-btn text-[10px] font-bold tracking-[0.01em]"
+                                            id="author-mode-plan-btn"
+                                            data-agent-mode="plan"
+                                            title="仅分析与规划"
+                                            size="small"
+                                        >
+                                            "Plan"
+                                        </sl-button>
+                                        <sl-button
+                                            class="author-mode-btn is-active text-[10px] font-bold tracking-[0.01em]"
+                                            id="author-mode-build-btn"
+                                            data-agent-mode="build"
+                                            title="直接修改代码"
+                                            size="small"
+                                        >
+                                            "Build"
+                                        </sl-button>
+                                    </sl-button-group>
+                                    <span
+                                        id="author-completion-model-wrap"
+                                        class="author-completion-model-wrap relative hidden max-w-[min(18rem,50vw)] shrink-0"
                                     >
-                                        "Plan"
-                                    </sl-button>
-                                    <sl-button
-                                        class="author-mode-btn is-active text-[10px] font-bold tracking-[0.01em]"
-                                        id="author-mode-build-btn"
-                                        data-agent-mode="build"
-                                        title="直接修改代码"
-                                        size="small"
-                                    >
-                                        "Build"
-                                    </sl-button>
-                                </sl-button-group>
-                                <sl-button class="author-btn author-btn-primary author-btn-icon inline-flex min-w-7 items-center justify-center border-0 bg-transparent px-1.5 py-1 text-[11px] font-bold leading-none text-center" id="author-run-btn" title="发送" size="small" circle=true>
+                                        <select
+                                            id="author-completion-model-select"
+                                            class="author-completion-select box-border max-w-full min-w-0 cursor-pointer appearance-none border-0 bg-transparent py-0.5 pl-0 pr-4 text-left text-[10px] font-medium leading-tight text-slate-100 outline-none ring-0 focus:outline-none focus:ring-0"
+                                            title="点击展开可切换补全模型（与 .env 中 OPENAI_IMITATORS 及 *_COMPLETION_MODEL 顺序一致）"
+                                            hidden=true
+                                        ></select>
+                                        <span
+                                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-0.5 text-[9px] leading-none text-slate-500 select-none"
+                                            aria-hidden="true"
+                                        >
+                                            "▾"
+                                        </span>
+                                    </span>
+                                </div>
+                                <sl-button class="author-btn author-btn-primary author-btn-icon inline-flex min-w-7 shrink-0 items-center justify-center border-0 bg-transparent px-1.5 py-1 text-[11px] font-bold leading-none text-center" id="author-run-btn" title="发送" size="small" circle=true>
                                     "➤"
                                 </sl-button>
                             </div>
