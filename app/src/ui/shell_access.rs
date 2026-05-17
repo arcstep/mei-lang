@@ -62,6 +62,53 @@ pub(super) fn access_shell(
     } else {
         "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto"
     };
+    let floating_entry = || {
+        view! {
+            <div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false">
+                <button
+                    id="access-chat-fab"
+                    class="access-chat-fab"
+                    type="button"
+                    aria-label="打开助手对话框"
+                    title="打开助手对话框"
+                >
+                    <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
+                </button>
+                <aside
+                    id="access-chat-overlay-panel"
+                    class="access-chat-overlay-panel"
+                    hidden=true
+                >
+                    <div class="access-chat-overlay-head">
+                        <span class="access-chat-overlay-title">"Mei Assistant"</span>
+                        <button
+                            id="access-chat-close"
+                            class="access-chat-overlay-close"
+                            type="button"
+                            aria-label="关闭助手对话框"
+                            title="关闭助手对话框"
+                        >
+                            "×"
+                        </button>
+                    </div>
+                    <div class="access-chat-overlay-body">
+                        {agent_panel::panel_view(
+                            compiled,
+                            app_path,
+                            UiRouteMode::Access,
+                            current_target,
+                            false,
+                            panel_tab,
+                            true,
+                            false,
+                            "ask",
+                            false,
+                        )}
+                    </div>
+                </aside>
+            </div>
+        }
+    };
     view! {
         <div class=shell_class>
             {if chrome_hidden {
@@ -72,9 +119,12 @@ pub(super) fn access_shell(
             <main class=main_class>
                 {if chrome_hidden {
                     view! {
-                        <section class=preview_panel_class>
-                            {preview}
-                        </section>
+                        <>
+                            <section class=preview_panel_class>
+                                {preview}
+                            </section>
+                            {floating_entry()}
+                        </>
                     }
                         .into_any()
                 } else {
@@ -83,49 +133,7 @@ pub(super) fn access_shell(
                             <section class=preview_panel_class>
                                 {preview}
                             </section>
-                            <div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false">
-                                <button
-                                    id="access-chat-fab"
-                                    class="access-chat-fab"
-                                    type="button"
-                                    aria-label="打开助手对话框"
-                                    title="打开助手对话框"
-                                >
-                                    <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
-                                </button>
-                                <aside
-                                    id="access-chat-overlay-panel"
-                                    class="access-chat-overlay-panel"
-                                    hidden=true
-                                >
-                                    <div class="access-chat-overlay-head">
-                                        <span class="access-chat-overlay-title">"Mei Assistant"</span>
-                                        <button
-                                            id="access-chat-close"
-                                            class="access-chat-overlay-close"
-                                            type="button"
-                                            aria-label="关闭助手对话框"
-                                            title="关闭助手对话框"
-                                        >
-                                            "×"
-                                        </button>
-                                    </div>
-                                    <div class="access-chat-overlay-body">
-                                        {agent_panel::panel_view(
-                                            compiled,
-                                            app_path,
-                                            UiRouteMode::Access,
-                                            current_target,
-                                            false,
-                                            panel_tab,
-                                            true,
-                                            false,
-                                            "ask",
-                                            false,
-                                        )}
-                                    </div>
-                                </aside>
-                            </div>
+                            {floating_entry()}
                         </>
                     }
                         .into_any()

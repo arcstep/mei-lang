@@ -105,6 +105,12 @@
   boot.statusBarMounted = true;
 
   let refreshTimer = null;
+  let probeFailureStreak = 0;
+  let probeLastSuccessAtMs = 0;
+  let probeHasResult = false;
+  const PROBE_RED_AFTER_STREAK = 3;
+  const PROBE_RED_AFTER_MS = 20000;
+  const PROBE_COLD_START_RED_AFTER_STREAK = 5;
 
   function els() {
     return {
@@ -133,10 +139,14 @@
   }
 
   function modelServiceSummary(payload, fallbackError) {
+    const nowMs = Date.now();
     if (!payload || typeof payload !== "object") {
+      probeFailureStreak += 1;
+      probeHasResult = true;
+      const shouldAlertCold = probeFailureStreak >= PROBE_COLD_START_RED_AFTER_STREAK;
       return {
-        text: "模型服务 未知",
-        tone: "warn",
+        text: shouldAlertCold ? "模型服务 异常" : "模型服务 连接中",
+        tone: shouldAlertCold ? "danger" : "info",
         title: fallbackError || "模型服务状态读取失败",
       };
     }
@@ -149,13 +159,30 @@
     const statusText = statusCode > 0 ? " · HTTP " + String(statusCode) : "";
     const titleBase = "provider=" + provider + " · model=" + model + latencyText + statusText;
     if (reachable) {
+      probeFailureStreak = 0;
+      probeLastSuccessAtMs = nowMs;
+      probeHasResult = true;
       return {
         text: "模型服务 在线",
         tone: "good",
         title: "探测成功 · " + titleBase,
       };
     }
+    probeFailureStreak += 1;
+    probeHasResult = true;
     const error = String(payload.error || "").trim();
+    const withinGrace =
+      probeLastSuccessAtMs > 0 && nowMs - probeLastSuccessAtMs < PROBE_RED_AFTER_MS;
+    const transientFailure = probeLastSuccessAtMs > 0
+      ? probeFailureStreak < PROBE_RED_AFTER_STREAK || withinGrace
+      : probeFailureStreak < PROBE_COLD_START_RED_AFTER_STREAK;
+    if (transientFailure) {
+      return {
+        text: "模型服务 连接中",
+        tone: "info",
+        title: (error ? error + " · " : "") + "正在尝试连接 · " + titleBase,
+      };
+    }
     return {
       text: "模型服务 异常",
       tone: "danger",
@@ -166,7 +193,9 @@
   async function refresh() {
     if (!hasTargets()) return;
     const nodes = els();
-    setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
+    if (!probeHasResult) {
+      setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
+    }
     try {
       const probe = await fetchJson("/api/agent/model/probe");
       const summary = modelServiceSummary(probe, "");
@@ -309,7 +338,10 @@
     contextPreviewScopeKey: "",
     modelProbe: null,
     modelProbeFetchedAtMs: 0,
+    modelProbeFailureStreak: 0,
+    modelProbeLastSuccessAtMs: 0,
     accessFloatingOpen: false,
+    accessFloatingDragMoved: false,
     deltaDebugLog: [],
     progress: {
       visible: false,
@@ -321,6 +353,12 @@
 
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
+  const MODEL_PROBE_RED_AFTER_STREAK = 3;
+  const MODEL_PROBE_RED_AFTER_MS = 20000;
+  const MODEL_PROBE_COLD_START_RED_AFTER_STREAK = 5;
+  const ACCESS_FLOATING_MARGIN_PX = 10;
+  const ACCESS_FLOATING_DRAG_THRESHOLD_PX = 4;
+  let accessFloatingDragState = null;
   const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
   const COMPOSER_MIN_ROWS = 2;
   const COMPOSER_MAX_ROWS = 12;
@@ -493,6 +531,10 @@
     return "mei-lang.agent.access-floating." + currentAppKey();
   }
 
+  function accessFloatingPositionStorageKey() {
+    return "mei-lang.agent.access-floating-position." + currentAppKey();
+  }
+
   function revertedStorageKey() {
     return "mei-lang.agent.reverted." + currentAppKey() + "." + currentTargetKey();
   }
@@ -617,6 +659,77 @@
     );
   }
 
+  function clampAccessFloatingPosition(left, top) {
+    if (!isAccessFloatingMode()) return null;
+    const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
+    const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
+    const minLeft = ACCESS_FLOATING_MARGIN_PX;
+    const minTop = ACCESS_FLOATING_MARGIN_PX;
+    const maxLeft = Math.max(
+      minLeft,
+      Number(window.innerWidth || 0) - width - ACCESS_FLOATING_MARGIN_PX,
+    );
+    const maxTop = Math.max(
+      minTop,
+      Number(window.innerHeight || 0) - height - ACCESS_FLOATING_MARGIN_PX,
+    );
+    const nextLeft = Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0)));
+    const nextTop = Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0)));
+    return { left: nextLeft, top: nextTop };
+  }
+
+  function applyAccessFloatingPosition(left, top) {
+    if (!isAccessFloatingMode()) return null;
+    const pos = clampAccessFloatingPosition(left, top);
+    if (!pos) return null;
+    els.accessFloatingRoot.style.left = String(pos.left) + "px";
+    els.accessFloatingRoot.style.top = String(pos.top) + "px";
+    els.accessFloatingRoot.style.right = "auto";
+    els.accessFloatingRoot.style.bottom = "auto";
+    els.accessFloatingRoot.dataset.positioned = "true";
+    return pos;
+  }
+
+  function clearAccessFloatingPosition() {
+    if (!isAccessFloatingMode()) return;
+    els.accessFloatingRoot.style.left = "";
+    els.accessFloatingRoot.style.top = "";
+    els.accessFloatingRoot.style.right = "";
+    els.accessFloatingRoot.style.bottom = "";
+    delete els.accessFloatingRoot.dataset.positioned;
+  }
+
+  function rememberAccessFloatingPosition(left, top) {
+    if (!isAccessFloatingMode()) return;
+    const pos = clampAccessFloatingPosition(left, top);
+    if (!pos) return;
+    try {
+      localStorage.setItem(accessFloatingPositionStorageKey(), JSON.stringify(pos));
+    } catch (_) {}
+  }
+
+  function restoreAccessFloatingPosition() {
+    if (!isAccessFloatingMode()) return;
+    try {
+      const raw = localStorage.getItem(accessFloatingPositionStorageKey());
+      if (!raw) {
+        clearAccessFloatingPosition();
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const left = Number(parsed && parsed.left);
+      const top = Number(parsed && parsed.top);
+      if (!Number.isFinite(left) || !Number.isFinite(top)) {
+        clearAccessFloatingPosition();
+        return;
+      }
+      const pos = applyAccessFloatingPosition(left, top);
+      if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
+    } catch (_) {
+      clearAccessFloatingPosition();
+    }
+  }
+
   function renderAccessFloatingPanel() {
     if (!isAccessFloatingMode()) return;
     const open = !!state.accessFloatingOpen;
@@ -635,6 +748,7 @@
 
   function restoreAccessFloatingPanel() {
     if (!isAccessFloatingMode()) return;
+    restoreAccessFloatingPosition();
     try {
       const saved = localStorage.getItem(accessFloatingStorageKey());
       state.accessFloatingOpen = saved === "1";
@@ -658,6 +772,97 @@
         try {
           els.input.focus();
         } catch (_) {}
+      }, 0);
+    }
+  }
+
+  function beginAccessFloatingDrag(event) {
+    if (!isAccessFloatingMode()) return;
+    if (event && event.button != null && event.button !== 0) return;
+    const rect = els.accessFloatingRoot.getBoundingClientRect();
+    accessFloatingDragState = {
+      pointerId: event ? event.pointerId : null,
+      startX: Number(event && event.clientX),
+      startY: Number(event && event.clientY),
+      baseLeft: Number(rect.left || 0),
+      baseTop: Number(rect.top || 0),
+      moved: false,
+      lastLeft: Number(rect.left || 0),
+      lastTop: Number(rect.top || 0),
+    };
+    state.accessFloatingDragMoved = false;
+    els.accessFloatingRoot.dataset.dragging = "true";
+    try {
+      if (els.accessFab && event && event.pointerId != null) {
+        els.accessFab.setPointerCapture(event.pointerId);
+      }
+    } catch (_) {}
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
+    }
+  }
+
+  function continueAccessFloatingDrag(event) {
+    if (!accessFloatingDragState || !isAccessFloatingMode()) return;
+    if (
+      accessFloatingDragState.pointerId != null &&
+      event &&
+      event.pointerId != null &&
+      event.pointerId !== accessFloatingDragState.pointerId
+    ) {
+      return;
+    }
+    const nextX = Number(event && event.clientX);
+    const nextY = Number(event && event.clientY);
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+    const dx = nextX - accessFloatingDragState.startX;
+    const dy = nextY - accessFloatingDragState.startY;
+    if (
+      !accessFloatingDragState.moved &&
+      Math.hypot(dx, dy) < ACCESS_FLOATING_DRAG_THRESHOLD_PX
+    ) {
+      return;
+    }
+    accessFloatingDragState.moved = true;
+    state.accessFloatingDragMoved = true;
+    const pos = applyAccessFloatingPosition(
+      accessFloatingDragState.baseLeft + dx,
+      accessFloatingDragState.baseTop + dy,
+    );
+    if (!pos) return;
+    accessFloatingDragState.lastLeft = pos.left;
+    accessFloatingDragState.lastTop = pos.top;
+    if (event && typeof event.preventDefault === "function") {
+      event.preventDefault();
+    }
+  }
+
+  function endAccessFloatingDrag(event) {
+    if (!accessFloatingDragState) return;
+    if (
+      accessFloatingDragState.pointerId != null &&
+      event &&
+      event.pointerId != null &&
+      event.pointerId !== accessFloatingDragState.pointerId
+    ) {
+      return;
+    }
+    const moved = !!accessFloatingDragState.moved;
+    const left = accessFloatingDragState.lastLeft;
+    const top = accessFloatingDragState.lastTop;
+    accessFloatingDragState = null;
+    if (els.accessFloatingRoot) {
+      delete els.accessFloatingRoot.dataset.dragging;
+    }
+    try {
+      if (els.accessFab && event && event.pointerId != null) {
+        els.accessFab.releasePointerCapture(event.pointerId);
+      }
+    } catch (_) {}
+    if (moved) {
+      rememberAccessFloatingPosition(left, top);
+      window.setTimeout(function () {
+        state.accessFloatingDragMoved = false;
       }, 0);
     }
   }
@@ -2383,6 +2588,16 @@
     return params.toString();
   }
 
+  function noteModelProbeResult(probe, atMs) {
+    const ts = Number(atMs || Date.now());
+    if (probe && probe.reachable) {
+      state.modelProbeFailureStreak = 0;
+      state.modelProbeLastSuccessAtMs = ts;
+      return;
+    }
+    state.modelProbeFailureStreak = Number(state.modelProbeFailureStreak || 0) + 1;
+  }
+
   async function refreshModelProbe(force) {
     if (!els.statusModelService) return;
     const forceRefresh = Boolean(force);
@@ -2396,6 +2611,7 @@
         "/api/agent/model/probe" + (query ? "?" + query : ""),
       );
       state.modelProbeFetchedAtMs = nowMs;
+      noteModelProbeResult(state.modelProbe, nowMs);
     } catch (error) {
       state.modelProbe = {
         reachable: false,
@@ -2405,6 +2621,7 @@
         error: String(error && error.message ? error.message : error || ""),
       };
       state.modelProbeFetchedAtMs = nowMs;
+      noteModelProbeResult(state.modelProbe, nowMs);
     }
     renderStatusBarOpenCode();
   }
@@ -2450,6 +2667,12 @@
       return;
     }
     const probe = state.modelProbe;
+    if (!probe || typeof probe !== "object") {
+      els.statusModelService.textContent = "模型服务 探测中";
+      els.statusModelService.title = "正在探测当前模型服务连接状态";
+      els.statusModelService.dataset.tone = "info";
+      return;
+    }
     const provider = String(probe && probe.provider_id ? probe.provider_id : "").trim() || "--";
     const model = String(probe && probe.model_id ? probe.model_id : "").trim() || "--";
     const latency = Number(probe && probe.latency_ms ? probe.latency_ms : 0);
@@ -2460,8 +2683,22 @@
       els.statusModelService.dataset.tone = "good";
       return;
     }
+    const nowMs = Date.now();
+    const streak = Number(state.modelProbeFailureStreak || 0);
+    const lastSuccessAt = Number(state.modelProbeLastSuccessAtMs || 0);
+    const hasSuccess = Number.isFinite(lastSuccessAt) && lastSuccessAt > 0;
+    const withinGrace = hasSuccess && nowMs - lastSuccessAt < MODEL_PROBE_RED_AFTER_MS;
+    const transientFailure = hasSuccess
+      ? streak < MODEL_PROBE_RED_AFTER_STREAK || withinGrace
+      : streak < MODEL_PROBE_COLD_START_RED_AFTER_STREAK;
     const error = String(probe && probe.error ? probe.error : "").trim();
     const title = (error ? error + " · " : "") + "provider=" + provider + " · model=" + model + latencyText;
+    if (transientFailure) {
+      els.statusModelService.textContent = "模型服务 连接中";
+      els.statusModelService.title = "正在尝试连接 · " + title;
+      els.statusModelService.dataset.tone = "info";
+      return;
+    }
     els.statusModelService.textContent = "模型服务 异常";
     els.statusModelService.title = title;
     els.statusModelService.dataset.tone = "danger";
@@ -4036,6 +4273,15 @@
   const onComposerInputWindowResize = function () {
     autoResizeComposerInput();
     sizeCompletionModelSelectWidth();
+    if (
+      isAccessFloatingMode() &&
+      els.accessFloatingRoot &&
+      els.accessFloatingRoot.dataset.positioned === "true"
+    ) {
+      const rect = els.accessFloatingRoot.getBoundingClientRect();
+      const pos = applyAccessFloatingPosition(rect.left, rect.top);
+      if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
+    }
   };
   window.addEventListener("resize", onComposerInputWindowResize);
 
@@ -4062,8 +4308,13 @@
 
   if (els.accessFab) {
     els.accessFab.addEventListener("click", function () {
+      if (state.accessFloatingDragMoved) {
+        state.accessFloatingDragMoved = false;
+        return;
+      }
       toggleAccessFloatingPanel();
     });
+    els.accessFab.addEventListener("pointerdown", beginAccessFloatingDrag);
   }
 
   if (els.accessClose) {
@@ -4079,6 +4330,9 @@
     }
   };
   document.addEventListener("keydown", onAccessFloatingEscape);
+  document.addEventListener("pointermove", continueAccessFloatingDrag);
+  document.addEventListener("pointerup", endAccessFloatingDrag);
+  document.addEventListener("pointercancel", endAccessFloatingDrag);
 
   if (els.sourceViewDiffBtn) {
     els.sourceViewDiffBtn.addEventListener("click", function () {
@@ -4284,8 +4538,14 @@
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
+    document.removeEventListener("pointermove", continueAccessFloatingDrag);
+    document.removeEventListener("pointerup", endAccessFloatingDrag);
+    document.removeEventListener("pointercancel", endAccessFloatingDrag);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
+    if (els.accessFab) {
+      els.accessFab.removeEventListener("pointerdown", beginAccessFloatingDrag);
+    }
     if (refreshTimerId) window.clearTimeout(refreshTimerId);
     if (state._completionModelMeasure && state._completionModelMeasure.parentNode) {
       try {

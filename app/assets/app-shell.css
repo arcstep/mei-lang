@@ -546,7 +546,9 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
 }
 .access-chat-fab:hover,
 .access-chat-fab:focus-visible {
@@ -558,6 +560,10 @@ a { color: inherit; text-decoration: none; }
 .access-chat-fab-icon {
   width: 66%;
   height: 66%;
+  pointer-events: none;
+}
+.access-chat-floating-root[data-dragging="true"] .access-chat-fab {
+  cursor: grabbing;
 }
 .access-chat-overlay-panel {
   position: fixed;
