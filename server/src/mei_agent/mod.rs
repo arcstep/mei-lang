@@ -7,6 +7,7 @@ pub mod native;
 pub(crate) mod permission_policy;
 pub(crate) mod resource_tools;
 pub(crate) mod skill_tools;
+mod workspace_snapshot_git;
 
 pub(crate) use dispatch::{
     agent_abort_session, agent_create_session, agent_health, agent_list_pending_permissions,
@@ -14,4 +15,5 @@ pub(crate) use dispatch::{
     agent_send_prompt, agent_session_diff, agent_session_messages, agent_unrevert_session,
     agent_vcs_summary, resolve_agent_conn, AgentConn,
 };
+pub(crate) use llm::sanitize_relative_path;
 pub(crate) use native::NativeAgent;

@@ -32,6 +32,7 @@ use super::{
     llm, llm_config, permission_policy,
     resource_tools::{self, AgentResourceScope, NoopResourceToolExecutor, ResourceToolExecutor},
     skill_tools,
+    workspace_snapshot_git::{WorkspaceSnapshotGit, SESSION_BASELINE_ANCHOR},
 };
 
 const SCHEMA: &str = r#"
@@ -91,6 +92,15 @@ CREATE TABLE IF NOT EXISTS session_diff_snapshots (
   captured_ms INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_session_diff_anchor ON session_diff_snapshots(session_id, anchor_message_id, id);
+CREATE TABLE IF NOT EXISTS workspace_tree_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  anchor_message_id TEXT NOT NULL,
+  tree_hash TEXT NOT NULL,
+  captured_ms INTEGER NOT NULL,
+  UNIQUE(session_id, anchor_message_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workspace_tree_session ON workspace_tree_snapshots(session_id, captured_ms);
 "#;
 
 fn now_ms() -> i64 {
@@ -290,6 +300,22 @@ impl NativeAgent {
             ],
         )
         .context("insert session")?;
+        drop(db);
+        let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
+        if let Ok(hash) = snap_git.track() {
+            if let Ok(db) = self.inner.db.lock() {
+                if let Err(e) = Self::persist_workspace_tree_hash(
+                    &db,
+                    &id,
+                    SESSION_BASELINE_ANCHOR,
+                    &hash,
+                ) {
+                    tracing::warn!(%e, "session baseline tree snapshot persist failed");
+                }
+            }
+        } else {
+            tracing::warn!("session baseline tree track skipped (git unavailable or worktree not ready)");
+        }
         Ok(BridgeSessionSummary {
             id,
             title,
@@ -752,21 +778,11 @@ impl NativeAgent {
         &self,
         session_id: &str,
         anchor_message_id: &str,
+        diff_rel: Option<&str>,
     ) -> Result<()> {
         let (vcs, _) = self.vcs_summary_blocking();
-        let root_s = self.inner.source_root.as_os_str().to_str().unwrap_or("");
         let (diff_text, additions, deletions) = if vcs {
-            let output = Command::new("git")
-                .args(["-C", root_s, "diff", "--no-color"])
-                .output();
-            match output {
-                Ok(o) if o.status.success() => {
-                    let diff = String::from_utf8_lossy(&o.stdout).to_string();
-                    let (a, d) = count_diff_lines(&diff);
-                    (diff, a, d)
-                }
-                _ => (String::new(), 0, 0),
-            }
+            git_worktree_diff(&self.inner.source_root, diff_rel)
         } else {
             (
                 "(native diff snapshot: no git worktree at capture time)\n".to_string(),
@@ -915,8 +931,31 @@ impl NativeAgent {
                     role: "assistant".to_string(),
                     finish: Some("stop".to_string()),
                 });
-                if let Err(e) = self.capture_session_diff_snapshot(&sid, &assistant_msg_id) {
+                let diff_rel = request
+                    .target_file
+                    .as_deref()
+                    .and_then(llm::sanitize_relative_path);
+                if let Err(e) = self.capture_session_diff_snapshot(
+                    &sid,
+                    &assistant_msg_id,
+                    diff_rel.as_deref(),
+                ) {
                     tracing::warn!(%e, "session diff snapshot failed");
+                }
+                let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
+                if let Ok(hash) = snap_git.track() {
+                    if let Ok(db) = self.inner.db.lock() {
+                        if let Err(e) = Self::persist_workspace_tree_hash(
+                            &db,
+                            &sid,
+                            &assistant_msg_id,
+                            &hash,
+                        ) {
+                            tracing::warn!(%e, "workspace tree snapshot persist failed");
+                        }
+                    }
+                } else {
+                    tracing::warn!("workspace tree track skipped after assistant (git unavailable)");
                 }
             }
             Err(e) => {
@@ -1241,6 +1280,7 @@ impl NativeAgent {
         &self,
         session_id: &str,
         message_id: Option<&str>,
+        diff_rel: Option<&str>,
     ) -> Result<BridgeDiffSummary> {
         let root = &self.inner.source_root;
         if let Some(mid) = message_id {
@@ -1260,19 +1300,29 @@ impl NativeAgent {
             );
             drop(db);
             match row {
-                Ok((diff_text, add_i, del_i, cap_ms)) => {
-                    let additions = add_i.max(0) as u64;
-                    let deletions = del_i.max(0) as u64;
-                    let anchor = format!(
-                        "(diff snapshot for assistant message {mid}; captured_ms={cap_ms})"
-                    );
+                Ok((mut diff_text, _add_i, _del_i, cap_ms)) => {
+                    if let Some(rel) = diff_rel {
+                        diff_text = filter_unified_diff_for_rel_path(&diff_text, rel);
+                    }
+                    let (additions, deletions) = count_diff_lines(&diff_text);
+                    let anchor = match diff_rel {
+                        Some(rel) => format!(
+                            "(diff snapshot for assistant message {mid}; captured_ms={cap_ms}; path={rel})"
+                        ),
+                        None => format!(
+                            "(diff snapshot for assistant message {mid}; captured_ms={cap_ms})"
+                        ),
+                    };
+                    let file_label = diff_rel
+                        .map(str::to_string)
+                        .unwrap_or_else(|| anchor.clone());
                     return Ok(BridgeDiffSummary {
                         session_id: session_id.to_string(),
                         message_id: message_id.map(ToString::to_string),
                         additions,
                         deletions,
                         files: vec![BridgeFileDiffSummary {
-                            file: anchor,
+                            file: file_label,
                             additions,
                             deletions,
                             before: String::new(),
@@ -1285,32 +1335,19 @@ impl NativeAgent {
             }
         }
 
-        let output = Command::new("git")
-            .args([
-                "-C",
-                root.as_os_str().to_str().unwrap_or(""),
-                "diff",
-                "--no-color",
-            ])
-            .output();
-        let (before, after, additions, deletions) = match output {
-            Ok(o) if o.status.success() => {
-                let diff = String::from_utf8_lossy(&o.stdout).to_string();
-                let (a, d) = count_diff_lines(&diff);
-                (String::new(), diff, a, d)
-            }
-            _ => (String::new(), String::new(), 0, 0),
-        };
+        let (after, additions, deletions) = git_worktree_diff(root, diff_rel);
+        let before = String::new();
         let anchor = message_id
             .map(|m| format!("(live git diff; session anchor {session_id} @ {m}; no snapshot row)"))
             .unwrap_or_else(|| format!("(live git diff; session {session_id})"));
+        let file_label = diff_rel.map(str::to_string).unwrap_or_else(|| anchor.clone());
         Ok(BridgeDiffSummary {
             session_id: session_id.to_string(),
             message_id: message_id.map(ToString::to_string),
             additions,
             deletions,
             files: vec![BridgeFileDiffSummary {
-                file: anchor,
+                file: file_label,
                 additions,
                 deletions,
                 before: before.clone(),
@@ -1319,31 +1356,154 @@ impl NativeAgent {
         })
     }
 
+    fn persist_workspace_tree_hash(
+        conn: &Connection,
+        session_id: &str,
+        anchor_message_id: &str,
+        tree_hash: &str,
+    ) -> Result<()> {
+        let t = now_ms();
+        conn.execute(
+            "INSERT INTO workspace_tree_snapshots (session_id, anchor_message_id, tree_hash, captured_ms) \
+             VALUES (?1, ?2, ?3, ?4) \
+             ON CONFLICT(session_id, anchor_message_id) DO UPDATE SET \
+               tree_hash = excluded.tree_hash, captured_ms = excluded.captured_ms",
+            params![session_id, anchor_message_id, tree_hash, t],
+        )?;
+        Ok(())
+    }
+
+    fn query_last_assistant_tree_before_sort(
+        conn: &Connection,
+        session_id: &str,
+        before_sort: i64,
+    ) -> Result<Option<String>> {
+        let mut stmt = conn
+            .prepare(
+                "SELECT w.tree_hash FROM workspace_tree_snapshots w \
+                 INNER JOIN messages m ON m.id = w.anchor_message_id AND m.session_id = w.session_id \
+                 WHERE w.session_id = ?1 AND m.role = 'assistant' AND m.sort_order < ?2 \
+                 ORDER BY m.sort_order DESC LIMIT 1",
+            )
+            .context("prepare last assistant tree")?;
+        let mut rows = stmt.query_map(params![session_id, before_sort], |r| {
+            r.get::<_, String>(0)
+        })?;
+        match rows.next() {
+            Some(Ok(s)) => Ok(Some(s)),
+            Some(Err(e)) => Err(e.into()),
+            None => Ok(None),
+        }
+    }
+
+    fn query_session_baseline_tree(
+        conn: &Connection,
+        session_id: &str,
+    ) -> Result<Option<String>> {
+        match conn.query_row(
+            "SELECT tree_hash FROM workspace_tree_snapshots \
+             WHERE session_id = ?1 AND anchor_message_id = ?2",
+            params![session_id, SESSION_BASELINE_ANCHOR],
+            |r| r.get::<_, String>(0),
+        ) {
+            Ok(s) => Ok(Some(s)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     pub fn revert_blocking(
         &self,
         session_id: &str,
         request: &BridgeRevertRequest,
     ) -> Result<BridgeRevertSummary> {
+        let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
+
+        let (mids, snap_val, target_opt) = {
+            let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
+            let sort_order: i64 = db.query_row(
+                "SELECT sort_order FROM messages WHERE id = ?1 AND session_id = ?2",
+                params![request.message_id, session_id],
+                |r| r.get(0),
+            )?;
+            let mids: Vec<String> = db
+                .prepare(
+                    "SELECT id FROM messages WHERE session_id = ?1 AND sort_order >= ?2 ORDER BY sort_order",
+                )?
+                .query_map(params![session_id, sort_order], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            if mids.is_empty() {
+                let t = now_ms();
+                db.execute(
+                    "UPDATE sessions SET updated_ms = ?1 WHERE id = ?2",
+                    params![t, session_id],
+                )?;
+                return Ok(BridgeRevertSummary {
+                    session_id: session_id.to_string(),
+                    message_id: request.message_id.clone(),
+                    part_id: request.part_id.clone(),
+                    reverted: true,
+                });
+            }
+
+            let first_so: i64 = db.query_row(
+                "SELECT sort_order FROM messages WHERE id = ?1 AND session_id = ?2",
+                params![&mids[0], session_id],
+                |r| r.get(0),
+            )?;
+
+            let mut target_opt =
+                Self::query_last_assistant_tree_before_sort(&db, session_id, first_so)?;
+            if target_opt.is_none() {
+                target_opt = Self::query_session_baseline_tree(&db, session_id)?;
+            }
+
+            let snap_val = Self::collect_revert_snapshot(&db, session_id, &mids)?;
+            drop(db);
+            (mids, snap_val, target_opt)
+        };
+
+        let mut snap_val = snap_val;
+        if let Some(ref tgt) = target_opt {
+            match snap_git.track() {
+                Ok(baseline) => match snap_git.restore_worktree(tgt) {
+                    Ok(()) => {
+                        if let Value::Object(ref mut o) = snap_val {
+                            o.insert(
+                                "workspace_baseline_tree".to_string(),
+                                json!(baseline),
+                            );
+                            o.insert("workspace_target_tree".to_string(), json!(tgt));
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            %e,
+                            "revert: workspace restore failed; continuing message-only revert"
+                        );
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!(%e, "revert: baseline track failed; skipping file restore");
+                }
+            }
+        }
+
         let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let sort_order: i64 = db.query_row(
-            "SELECT sort_order FROM messages WHERE id = ?1 AND session_id = ?2",
-            params![request.message_id, session_id],
-            |r| r.get(0),
-        )?;
-        let mids: Vec<String> = db
-            .prepare(
-                "SELECT id FROM messages WHERE session_id = ?1 AND sort_order >= ?2 ORDER BY sort_order",
-            )?
-            .query_map(params![session_id, sort_order], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
         if !mids.is_empty() {
-            let snap = Self::collect_revert_snapshot(&db, session_id, &mids)?;
-            let snap_s = snap.to_string();
+            let snap_s = snap_val.to_string();
             db.execute(
                 "INSERT INTO revert_journal (session_id, snapshot_json, created_ms) VALUES (?1, ?2, ?3)",
                 params![session_id, snap_s, now_ms()],
             )
             .context("insert revert journal")?;
+        }
+        for mid in &mids {
+            db.execute(
+                "DELETE FROM workspace_tree_snapshots WHERE session_id = ?1 AND anchor_message_id = ?2",
+                params![session_id, mid],
+            )
+            .ok();
         }
         for mid in &mids {
             db.execute("DELETE FROM parts WHERE message_id = ?1", params![mid])?;
@@ -1419,6 +1579,10 @@ impl NativeAgent {
             Err(e) => return Err(e.into()),
         };
         let snap: Value = serde_json::from_str(&snap_s).context("parse revert snapshot")?;
+        let workspace_baseline = snap
+            .get("workspace_baseline_tree")
+            .and_then(Value::as_str)
+            .map(str::to_string);
         let Some(arr) = snap.get("messages").and_then(Value::as_array) else {
             anyhow::bail!("invalid revert snapshot");
         };
@@ -1459,6 +1623,13 @@ impl NativeAgent {
                 }
             }
             order += 1;
+        }
+        if let Some(ref h) = workspace_baseline {
+            if let Err(e) =
+                WorkspaceSnapshotGit::new(self.inner.source_root.clone()).restore_worktree(h)
+            {
+                tracing::warn!(%e, "unrevert: workspace baseline restore failed");
+            }
         }
         db.execute("DELETE FROM revert_journal WHERE id = ?1", params![jid])
             .context("delete revert journal")?;
@@ -1804,6 +1975,85 @@ fn model_from_env() -> String {
     llm_config::resolve_llm(None)
         .map(|c| c.model)
         .unwrap_or_default()
+}
+
+fn normalize_diff_rel_path(rel: &str) -> String {
+    rel.replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string()
+}
+
+fn paths_match_for_diff_filter(git_path: &str, rel: &str) -> bool {
+    let g = normalize_diff_rel_path(git_path);
+    let r = normalize_diff_rel_path(rel);
+    if g.is_empty() || r.is_empty() {
+        return false;
+    }
+    g == r || g.ends_with(&format!("/{r}")) || r.ends_with(&format!("/{g}"))
+}
+
+fn unified_diff_git_line_matches_path(git_line: &str, rel: &str) -> bool {
+    let parts: Vec<&str> = git_line.split_whitespace().collect();
+    if parts.len() < 4 || parts[0] != "diff" || parts[1] != "--git" {
+        return false;
+    }
+    for token in parts.iter().skip(2) {
+        let p = token
+            .strip_prefix("a/")
+            .or_else(|| token.strip_prefix("b/"))
+            .unwrap_or(token);
+        if paths_match_for_diff_filter(p, rel) {
+            return true;
+        }
+    }
+    false
+}
+
+/// 从整工作区 unified diff 中只保留与 `rel` 对应文件的 hunk（兼容旧版「全仓快照」）。
+fn filter_unified_diff_for_rel_path(diff: &str, rel: &str) -> String {
+    let r = normalize_diff_rel_path(rel);
+    if r.is_empty() {
+        return diff.to_string();
+    }
+    let mut blocks: Vec<String> = Vec::new();
+    let mut current: Vec<&str> = Vec::new();
+    let mut keep = false;
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            if !current.is_empty() && keep {
+                blocks.push(current.join("\n"));
+            }
+            current.clear();
+            keep = unified_diff_git_line_matches_path(line, &r);
+            current.push(line);
+        } else if !current.is_empty() {
+            current.push(line);
+        }
+    }
+    if !current.is_empty() && keep {
+        blocks.push(current.join("\n"));
+    }
+    blocks.join("\n")
+}
+
+fn git_worktree_diff(root: &std::path::Path, rel: Option<&str>) -> (String, u64, u64) {
+    let root_s = root.as_os_str().to_str().unwrap_or("");
+    let mut cmd = Command::new("git");
+    cmd.args(["-C", root_s, "diff", "--no-color"]);
+    if let Some(p) = rel {
+        if !p.is_empty() {
+            cmd.arg("--");
+            cmd.arg(p);
+        }
+    }
+    match cmd.output() {
+        Ok(o) if o.status.success() => {
+            let diff = String::from_utf8_lossy(&o.stdout).to_string();
+            let (a, d) = count_diff_lines(&diff);
+            (diff, a, d)
+        }
+        _ => (String::new(), 0, 0),
+    }
 }
 
 fn count_diff_lines(diff: &str) -> (u64, u64) {

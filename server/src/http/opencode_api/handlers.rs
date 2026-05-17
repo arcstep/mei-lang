@@ -14,6 +14,7 @@ use crate::{
         agent_project_worktree, agent_respond_permission, agent_revert_session, agent_send_prompt,
         agent_session_diff, agent_session_messages, agent_unrevert_session, agent_vcs_summary,
         native::{encode_host_event_line, filter_session_event},
+        sanitize_relative_path,
         resolve_agent_conn,
     },
     opencode::{
@@ -455,7 +456,16 @@ pub async fn api_opencode_session_diff(
         Ok(c) => c,
         Err(error) => return error_response(error),
     };
-    match agent_session_diff(&state, &conn, &session_id, query.message_id.as_deref()).await {
+    let diff_path = query.path.as_deref().and_then(sanitize_relative_path);
+    match agent_session_diff(
+        &state,
+        &conn,
+        &session_id,
+        query.message_id.as_deref(),
+        diff_path,
+    )
+    .await
+    {
         Ok(summary) => Json::<BridgeDiffSummary>(summary).into_response(),
         Err(error) => error_response(error),
     }

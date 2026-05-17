@@ -101,6 +101,9 @@ pub(crate) struct BridgePendingPermission {
 pub(crate) struct BridgeSessionDiffQuery {
     #[serde(default, alias = "messageID")]
     pub message_id: Option<String>,
+    /// 相对工作区根的路径；与 `send_prompt` 的 `target_file` 一致时，diff 仅包含该文件（及旧快照在内存中过滤）。
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
