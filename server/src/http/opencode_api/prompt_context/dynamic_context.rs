@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::{opencode::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
+use crate::{agent_runtime::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
 
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
 use super::paths::{resolve_app_root, sanitize_relative_path};
@@ -146,8 +146,8 @@ pub(crate) fn load_or_refresh_session_context(
 ) -> Option<String> {
     let signature = build_context_signature(state, request)?;
     {
-        let Ok(cache) = state.opencode_session_context.lock() else {
-            tracing::warn!("opencode session context cache lock poisoned; fallback to rebuild");
+        let Ok(cache) = state.agent_session_context.lock() else {
+            tracing::warn!("agent session context cache lock poisoned; fallback to rebuild");
             return build_dynamic_mei_context(state, request);
         };
         if let Some(snapshot) = cache.get(session_id) {
@@ -157,8 +157,8 @@ pub(crate) fn load_or_refresh_session_context(
         }
     }
     let context = build_dynamic_mei_context(state, request)?;
-    let Ok(mut cache) = state.opencode_session_context.lock() else {
-        tracing::warn!("opencode session context cache lock poisoned; skip cache write");
+    let Ok(mut cache) = state.agent_session_context.lock() else {
+        tracing::warn!("agent session context cache lock poisoned; skip cache write");
         return Some(context);
     };
     cache.insert(
@@ -182,7 +182,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::opencode::ManagedOpencodeRuntime;
+    use crate::agent_runtime::ManagedOpencodeRuntime;
 
     fn build_test_state(package_root: PathBuf, source_root: PathBuf) -> AppState {
         let source_root = Arc::new(source_root);
@@ -197,11 +197,11 @@ mod tests {
         AppState {
             package_root: Arc::new(package_root),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         }

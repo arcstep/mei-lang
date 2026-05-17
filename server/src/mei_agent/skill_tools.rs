@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::mei_agent::llm::sanitize_relative_path;
-use crate::opencode::runtime::resolve_meilang_skill_home_for_source_root;
+use crate::agent_runtime::runtime::resolve_meilang_skill_home_for_source_root;
 
 const MAX_SKILL_READ_BYTES: usize = 200_000;
 

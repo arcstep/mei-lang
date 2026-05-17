@@ -21,7 +21,8 @@ use std::time::Instant;
 
 mod http;
 mod mei_agent;
-mod opencode;
+#[path = "opencode/mod.rs"]
+mod agent_runtime;
 mod resource_tool_bridge;
 
 #[derive(Parser)]
@@ -35,15 +36,13 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     Serve(ServeArgs),
-    Opencode(OpencodeArgs),
-    /// `mei agent` 为 `mei opencode` 的别名（内置 Agent 迁移期兼容）
     Agent(AgentArgs),
 }
 
 #[derive(clap::Args)]
 struct AgentArgs {
     #[command(subcommand)]
-    command: OpencodeCommand,
+    command: AgentCommand,
 }
 
 #[derive(clap::Args)]
@@ -54,50 +53,47 @@ struct ServeArgs {
     host: String,
     #[arg(long, default_value_t = 3000)]
     port: u16,
-    /// 显式允许在 mei 启动时自动拉起托管的 OpenCode（默认关闭，优先使用外部服务）
+    /// 显式允许在 mei 启动时自动拉起托管的内置 Agent 运行时（默认关闭）
     #[arg(long)]
-    auto_opencode: bool,
-    /// 兼容旧参数；当前默认已不自动拉起托管 OpenCode
-    #[arg(long, hide = true)]
-    no_auto_opencode: bool,
+    auto_agent: bool,
 }
 
 #[derive(clap::Args)]
-struct OpencodeArgs {
+struct AgentRuntimeArgs {
     #[command(subcommand)]
-    command: OpencodeCommand,
-}
-
-#[derive(Subcommand)]
-enum OpencodeCommand {
-    Skill(OpencodeSkillArgs),
+    command: AgentCommand,
 }
 
 #[derive(clap::Args)]
-struct OpencodeSkillArgs {
+struct AgentSkillArgs {
     #[arg(long, default_value = "../workspaces")]
     source_root: PathBuf,
     #[command(subcommand)]
-    command: OpencodeSkillCommand,
+    command: AgentSkillCommand,
 }
 
 #[derive(Subcommand)]
-enum OpencodeSkillCommand {
+enum AgentSkillCommand {
     /// 查看当前 MeiLang skill 安装与同步状态
     Status,
     /// 手动同步 MeiLang skill 到运行时目录
     Sync,
 }
 
+#[derive(Subcommand)]
+enum AgentCommand {
+    Skill(AgentSkillArgs),
+}
+
 #[derive(Clone)]
 pub(crate) struct AppState {
     package_root: Arc<PathBuf>,
     source_root: Arc<PathBuf>,
-    opencode_preferred_mode: Arc<String>,
-    opencode_preferred_server_url: Arc<String>,
-    opencode_auto_start: bool,
-    opencode_runtime: Arc<Mutex<opencode::ManagedOpencodeRuntime>>,
-    opencode_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
+    agent_preferred_mode: Arc<String>,
+    agent_preferred_server_url: Arc<String>,
+    agent_auto_start: bool,
+    agent_runtime: Arc<Mutex<agent_runtime::ManagedOpencodeRuntime>>,
+    agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
     pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
 }
@@ -125,10 +121,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args).await,
-        Command::Opencode(args) => opencode_command(args),
-        Command::Agent(args) => opencode_command(OpencodeArgs {
-            command: args.command,
-        }),
+        Command::Agent(args) => agent_command(AgentRuntimeArgs { command: args.command }),
     }
 }
 
@@ -143,7 +136,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     // 二进制可能在任意 cwd 下启动；不要用 current_dir 推导源码与静态资源路径。
     // `mei-lang-server` 位于 `mei-lang/server/`，仓库根为上一级 `mei-lang/`。
     let package_root = resolve_package_root()?;
-    opencode::runtime::load_repo_dotenv(&package_root);
+    agent_runtime::runtime::load_repo_dotenv(&package_root);
     let source_root = if args.source_root.is_absolute() {
         args.source_root
     } else {
@@ -161,13 +154,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
             source_root.display()
         )
     })?;
-    let preferred_mode = if args.auto_opencode {
+    let preferred_mode = if args.auto_agent {
         "managed".to_string()
     } else {
-        opencode::runtime::preferred_opencode_mode()
+        agent_runtime::runtime::preferred_agent_mode()
     };
-    let preferred_server_url = opencode::runtime::preferred_opencode_server_url();
-    let auto_opencode = args.auto_opencode && !args.no_auto_opencode;
+    let preferred_server_url = agent_runtime::runtime::preferred_agent_server_url();
+    let auto_agent = args.auto_agent;
     let native_agent = Arc::new(mei_agent::NativeAgent::open_with_resource_tools(
         source_root.clone(),
         package_root.clone(),
@@ -176,11 +169,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
     let state = AppState {
         package_root: Arc::new(package_root.clone()),
         source_root: Arc::new(source_root.clone()),
-        opencode_preferred_mode: Arc::new(preferred_mode.clone()),
-        opencode_preferred_server_url: Arc::new(preferred_server_url.clone()),
-        opencode_auto_start: auto_opencode,
-        opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-        opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+        agent_preferred_mode: Arc::new(preferred_mode.clone()),
+        agent_preferred_server_url: Arc::new(preferred_server_url.clone()),
+        agent_auto_start: auto_agent,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
     };
@@ -189,13 +182,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
         package_root = %package_root.display(),
         source_root = %source_root.display(),
-        opencode_mode = %preferred_mode,
-        opencode_server_url = %preferred_server_url,
-        opencode_auto_start = auto_opencode,
+        agent_mode = %preferred_mode,
+        agent_server_url = %preferred_server_url,
+        agent_auto_start = auto_agent,
         agent_backend = "native",
         "mei serve resolved paths"
     );
-    match opencode::runtime::ensure_managed_opencode_skill_synced(&state) {
+    match agent_runtime::runtime::ensure_managed_agent_skill_synced(&state) {
         Ok(status) => {
             if status.source_present {
                 tracing::info!(
@@ -225,12 +218,12 @@ async fn serve(args: ServeArgs) -> Result<()> {
     Ok(())
 }
 
-fn opencode_command(args: OpencodeArgs) -> Result<()> {
+fn agent_command(args: AgentRuntimeArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
-    opencode::runtime::load_repo_dotenv(&package_root);
+    agent_runtime::runtime::load_repo_dotenv(&package_root);
     match args.command {
-        OpencodeCommand::Skill(skill_args) => {
-            let OpencodeSkillArgs {
+        AgentCommand::Skill(skill_args) => {
+            let AgentSkillArgs {
                 source_root,
                 command,
             } = skill_args;
@@ -240,15 +233,15 @@ fn opencode_command(args: OpencodeArgs) -> Result<()> {
                 package_root.join(source_root)
             };
             match command {
-            OpencodeSkillCommand::Status => {
-                let status = opencode::runtime::managed_opencode_skill_status_for_root(
+            AgentSkillCommand::Status => {
+                let status = agent_runtime::runtime::managed_agent_skill_status_for_root(
                     &package_root,
                     &source_root,
                 );
                 println!("{}", serde_json::to_string_pretty(&status)?);
             }
-            OpencodeSkillCommand::Sync => {
-                let status = opencode::runtime::sync_managed_opencode_skill_for_root(
+            AgentSkillCommand::Sync => {
+                let status = agent_runtime::runtime::sync_managed_agent_skill_for_root(
                     &package_root,
                     &source_root,
                 )?;
@@ -267,11 +260,11 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
     let path = uri.path();
     matches!(
         path,
-        "/api/opencode/config"
-            | "/api/opencode/runtime"
-            | "/api/opencode/skill"
-            | "/api/opencode/health"
-            | "/api/opencode/session"
+        "/api/agent/config"
+            | "/api/agent/runtime"
+            | "/api/agent/skill"
+            | "/api/agent/health"
+            | "/api/agent/session"
             | "/favicon.ico"
     ) || path.starts_with("/app-assets/")
         || path.starts_with("/workspace-components/")

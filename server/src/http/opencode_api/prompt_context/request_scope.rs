@@ -1,4 +1,4 @@
-use crate::opencode::bridge::BridgePromptRequest;
+use crate::agent_runtime::bridge::BridgePromptRequest;
 
 use super::super::super::scene_api::WorldScope;
 

@@ -28,7 +28,7 @@ mod tests {
 
     use super::app::{app_page, index, AppQuery};
     use super::assets::app_bundle;
-    use crate::{mei_agent, opencode, AppState};
+    use crate::{agent_runtime, mei_agent, AppState};
     use axum::{
         body::to_bytes,
         extract::{Path as AxumPath, Query, State},
@@ -82,11 +82,11 @@ frame.add_panel(
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };
@@ -116,11 +116,11 @@ frame.add_panel(
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };
@@ -144,11 +144,11 @@ frame.add_panel(
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };
@@ -184,11 +184,11 @@ frame.add_panel(
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };
@@ -241,11 +241,11 @@ frame.add_panel(
         let state = AppState {
             package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
             source_root,
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(opencode::ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };

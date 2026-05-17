@@ -1,7 +1,7 @@
 use axum::http::StatusCode;
 
 use crate::{
-    opencode::bridge::BridgePromptRequest,
+    agent_runtime::bridge::BridgePromptRequest,
     AppError, AppState,
 };
 

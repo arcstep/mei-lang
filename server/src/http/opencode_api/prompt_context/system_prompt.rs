@@ -1,4 +1,4 @@
-use crate::{opencode::runtime::load_managed_opencode_skill_meta, AppState};
+use crate::{agent_runtime::runtime::load_managed_agent_skill_meta, AppState};
 
 pub(crate) fn build_meilang_system_prompt(
     state: &AppState,
@@ -62,7 +62,7 @@ pub(crate) fn build_meilang_system_prompt(
             )
             .to_string(),
         );
-        match load_managed_opencode_skill_meta(state) {
+        match load_managed_agent_skill_meta(state) {
             Ok(Some(meta)) => {
                 let mut block = String::new();
                 block.push_str("[MeiLang Author Skill — index]\n");
@@ -112,7 +112,7 @@ mod tests {
     };
 
     use super::build_meilang_system_prompt;
-    use crate::opencode::ManagedOpencodeRuntime;
+    use crate::agent_runtime::ManagedOpencodeRuntime;
     use crate::AppState;
 
     #[test]
@@ -134,11 +134,11 @@ mod tests {
         let state = AppState {
             package_root: Arc::new(package_root),
             source_root: Arc::new(source_root),
-            opencode_preferred_mode: Arc::new("external".to_string()),
-            opencode_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
-            opencode_auto_start: false,
-            opencode_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
-            opencode_session_context: Arc::new(Mutex::new(HashMap::new())),
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
         };

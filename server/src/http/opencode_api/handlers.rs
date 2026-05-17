@@ -20,7 +20,7 @@ use crate::{
         sanitize_relative_path,
         resolve_agent_conn,
     },
-    opencode::{
+    agent_runtime::{
         bridge::{
             BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary, BridgeModelRef,
             BridgeHealthResponse, BridgePermissionResponseRequest, BridgePermissionResponseSummary,
@@ -32,9 +32,8 @@ use crate::{
             normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
         },
         runtime::{
-            managed_opencode_config_summary, managed_opencode_runtime_status,
-            managed_opencode_skill_status, start_managed_opencode, stop_managed_opencode,
-            sync_managed_opencode_skill,
+            managed_agent_config_summary, managed_agent_runtime_status, managed_agent_skill_status,
+            start_managed_agent, stop_managed_agent, sync_managed_agent_skill,
         },
         StartManagedOpencodeRequest,
     },
@@ -77,32 +76,32 @@ pub struct OpencodeModelProbeResponse {
     pub error: Option<String>,
 }
 
-pub async fn api_opencode_config(State(state): State<AppState>) -> Response {
-    Json(managed_opencode_config_summary(&state)).into_response()
+pub async fn api_agent_config(State(state): State<AppState>) -> Response {
+    Json(managed_agent_config_summary(&state)).into_response()
 }
 
-pub async fn api_opencode_runtime(State(state): State<AppState>) -> Response {
-    match managed_opencode_runtime_status(&state) {
+pub async fn api_agent_runtime(State(state): State<AppState>) -> Response {
+    match managed_agent_runtime_status(&state) {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(error),
     }
 }
 
-pub async fn api_opencode_skill(State(state): State<AppState>) -> Response {
-    match managed_opencode_skill_status(&state) {
+pub async fn api_agent_skill(State(state): State<AppState>) -> Response {
+    match managed_agent_skill_status(&state) {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(error),
     }
 }
 
-pub async fn api_opencode_sync_skill(State(state): State<AppState>) -> Response {
-    match sync_managed_opencode_skill(&state) {
+pub async fn api_agent_sync_skill(State(state): State<AppState>) -> Response {
+    match sync_managed_agent_skill(&state) {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(error),
     }
 }
 
-pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
+pub async fn api_agent_health(State(state): State<AppState>) -> Response {
     fn normalize_path(value: &str) -> String {
         value.trim().trim_end_matches('/').to_string()
     }
@@ -201,7 +200,7 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
     }
 }
 
-pub async fn api_opencode_model_probe(
+pub async fn api_agent_model_probe(
     Query(query): Query<OpencodeModelProbeQuery>,
 ) -> Response {
     let provider_id = query
@@ -291,24 +290,24 @@ pub async fn api_opencode_model_probe(
     }
 }
 
-pub async fn api_opencode_start(
+pub async fn api_agent_start(
     State(state): State<AppState>,
     Json(request): Json<StartManagedOpencodeRequest>,
 ) -> Response {
-    match start_managed_opencode(&state, request).await {
+    match start_managed_agent(&state, request).await {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(error),
     }
 }
 
-pub async fn api_opencode_stop(State(state): State<AppState>) -> Response {
-    match stop_managed_opencode(&state) {
+pub async fn api_agent_stop(State(state): State<AppState>) -> Response {
+    match stop_managed_agent(&state) {
         Ok(status) => Json(status).into_response(),
         Err(error) => error_response(error),
     }
 }
 
-pub async fn api_opencode_create_session(
+pub async fn api_agent_create_session(
     State(state): State<AppState>,
     Json(request): Json<BridgeCreateSessionRequest>,
 ) -> Response {
@@ -322,7 +321,7 @@ pub async fn api_opencode_create_session(
     }
 }
 
-pub async fn api_opencode_list_sessions(State(state): State<AppState>) -> Response {
+pub async fn api_agent_list_sessions(State(state): State<AppState>) -> Response {
     let conn = match resolve_agent_conn(&state) {
         Ok(c) => c,
         Err(_) => return Json(Vec::<BridgeSessionSummary>::new()).into_response(),
@@ -333,7 +332,7 @@ pub async fn api_opencode_list_sessions(State(state): State<AppState>) -> Respon
     }
 }
 
-pub async fn api_opencode_pending_permissions(
+pub async fn api_agent_pending_permissions(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response {
@@ -387,7 +386,7 @@ pub struct OpencodeContextPreviewResponse {
     pub skill_status: Option<Value>,
 }
 
-pub async fn api_opencode_context_preview(
+pub async fn api_agent_context_preview(
     State(state): State<AppState>,
     Query(query): Query<OpencodeContextPreviewQuery>,
 ) -> Response {
@@ -455,7 +454,7 @@ pub async fn api_opencode_context_preview(
         .into_iter()
         .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
         .collect::<Vec<_>>();
-    let skill_status = crate::opencode::runtime::managed_opencode_skill_status(&state)
+    let skill_status = crate::agent_runtime::runtime::managed_agent_skill_status(&state)
         .ok()
         .and_then(|item| serde_json::to_value(item).ok());
     Json(OpencodeContextPreviewResponse {
@@ -474,7 +473,7 @@ pub async fn api_opencode_context_preview(
     .into_response()
 }
 
-pub async fn api_opencode_send_message(
+pub async fn api_agent_send_message(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
     Json(mut request): Json<BridgePromptRequest>,
@@ -496,7 +495,7 @@ pub async fn api_opencode_send_message(
     }
 }
 
-pub async fn api_opencode_session_events(
+pub async fn api_agent_session_events(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response {
@@ -508,7 +507,7 @@ pub async fn api_opencode_session_events(
         Err(_) => {
             return sse_session_status_notice(
                 session_id,
-                "opencode_unavailable",
+                "agent_unavailable",
                 "内置助手未初始化；请确认服务启动成功且工作区 `.mei` 可写。",
             );
         }
@@ -547,7 +546,7 @@ pub async fn api_opencode_session_events(
     response
 }
 
-pub async fn api_opencode_session_messages(
+pub async fn api_agent_session_messages(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
     Query(query): Query<SessionMessagesQuery>,
@@ -578,7 +577,7 @@ pub async fn api_opencode_session_messages(
     }
 }
 
-pub async fn api_opencode_session_diff(
+pub async fn api_agent_session_diff(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
     Query(query): Query<BridgeSessionDiffQuery>,
@@ -602,7 +601,7 @@ pub async fn api_opencode_session_diff(
     }
 }
 
-pub async fn api_opencode_abort_session(
+pub async fn api_agent_abort_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response {
@@ -616,7 +615,7 @@ pub async fn api_opencode_abort_session(
     }
 }
 
-pub async fn api_opencode_revert_session(
+pub async fn api_agent_revert_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
     Json(request): Json<BridgeRevertRequest>,
@@ -631,7 +630,7 @@ pub async fn api_opencode_revert_session(
     }
 }
 
-pub async fn api_opencode_unrevert_session(
+pub async fn api_agent_unrevert_session(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Response {
@@ -645,7 +644,7 @@ pub async fn api_opencode_unrevert_session(
     }
 }
 
-pub async fn api_opencode_respond_permission(
+pub async fn api_agent_respond_permission(
     State(state): State<AppState>,
     Path((session_id, permission_id)): Path<(String, String)>,
     Json(request): Json<BridgePermissionResponseRequest>,

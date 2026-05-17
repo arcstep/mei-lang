@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json;
 
-use crate::opencode::events::HostOpencodeEvent;
+use crate::agent_runtime::events::HostOpencodeEvent;
 
 /// OpenCode 未启动或上游不可用时，仍返回 **200 + event-stream**，避免浏览器 EventSource 对非 2xx 无限重连，
 /// 并由前端收到 `session_status` 后主动 `close()` 停止重连。

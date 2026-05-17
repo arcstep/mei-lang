@@ -1,11 +1,11 @@
-//! `/api/opencode/*` 仅对接内置 Native Agent（不再使用上游 OpenCode HTTP）。
+//! `/api/agent/*` 仅对接内置 Native Agent（不再使用上游 OpenCode HTTP）。
 
 use std::sync::Arc;
 
 use anyhow::Result;
 
 use crate::{
-    opencode::bridge::{
+    agent_runtime::bridge::{
         BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary, BridgeHealthResponse,
         BridgePendingPermission, BridgePermissionResponseRequest, BridgePermissionResponseSummary,
         BridgePromptRequest, BridgePromptSummary, BridgeRevertRequest, BridgeRevertSummary,

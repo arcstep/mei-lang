@@ -1,6 +1,7 @@
 mod compile_cache;
 mod datasets;
-mod opencode_api;
+#[path = "http/opencode_api/mod.rs"]
+mod agent_api;
 pub mod pages;
 pub mod projection_api;
 pub mod scene_api;
@@ -48,76 +49,64 @@ pub fn router() -> Router<AppState> {
             "/api/datasets/metrics/*app_id",
             post(pages::dataset_metric_api),
         )
+        .route("/api/agent/config", get(agent_api::api_agent_config))
+        .route("/api/agent/runtime", get(agent_api::api_agent_runtime))
+        .route("/api/agent/skill", get(agent_api::api_agent_skill))
         .route(
-            "/api/opencode/config",
-            get(opencode_api::api_opencode_config),
+            "/api/agent/skill/sync",
+            post(agent_api::api_agent_sync_skill),
         )
         .route(
-            "/api/opencode/runtime",
-            get(opencode_api::api_opencode_runtime),
+            "/api/agent/context/preview",
+            get(agent_api::api_agent_context_preview),
         )
-        .route("/api/opencode/skill", get(opencode_api::api_opencode_skill))
+        .route("/api/agent/health", get(agent_api::api_agent_health))
         .route(
-            "/api/opencode/skill/sync",
-            post(opencode_api::api_opencode_sync_skill),
+            "/api/agent/model/probe",
+            get(agent_api::api_agent_model_probe),
         )
+        .route("/api/agent/start", post(agent_api::api_agent_start))
+        .route("/api/agent/stop", post(agent_api::api_agent_stop))
         .route(
-            "/api/opencode/context/preview",
-            get(opencode_api::api_opencode_context_preview),
-        )
-        .route(
-            "/api/opencode/health",
-            get(opencode_api::api_opencode_health),
-        )
-        .route(
-            "/api/opencode/model/probe",
-            get(opencode_api::api_opencode_model_probe),
+            "/api/agent/session",
+            get(agent_api::api_agent_list_sessions)
+                .post(agent_api::api_agent_create_session),
         )
         .route(
-            "/api/opencode/start",
-            post(opencode_api::api_opencode_start),
-        )
-        .route("/api/opencode/stop", post(opencode_api::api_opencode_stop))
-        .route(
-            "/api/opencode/session",
-            get(opencode_api::api_opencode_list_sessions)
-                .post(opencode_api::api_opencode_create_session),
+            "/api/agent/session/:session_id/message",
+            post(agent_api::api_agent_send_message),
         )
         .route(
-            "/api/opencode/session/:session_id/message",
-            post(opencode_api::api_opencode_send_message),
+            "/api/agent/session/:session_id/permissions/pending",
+            get(agent_api::api_agent_pending_permissions),
         )
         .route(
-            "/api/opencode/session/:session_id/permissions/pending",
-            get(opencode_api::api_opencode_pending_permissions),
+            "/api/agent/session/:session_id/events",
+            get(agent_api::api_agent_session_events),
         )
         .route(
-            "/api/opencode/session/:session_id/events",
-            get(opencode_api::api_opencode_session_events),
+            "/api/agent/session/:session_id/messages",
+            get(agent_api::api_agent_session_messages),
         )
         .route(
-            "/api/opencode/session/:session_id/messages",
-            get(opencode_api::api_opencode_session_messages),
+            "/api/agent/session/:session_id/diff",
+            get(agent_api::api_agent_session_diff),
         )
         .route(
-            "/api/opencode/session/:session_id/diff",
-            get(opencode_api::api_opencode_session_diff),
+            "/api/agent/session/:session_id/revert",
+            post(agent_api::api_agent_revert_session),
         )
         .route(
-            "/api/opencode/session/:session_id/revert",
-            post(opencode_api::api_opencode_revert_session),
+            "/api/agent/session/:session_id/unrevert",
+            post(agent_api::api_agent_unrevert_session),
         )
         .route(
-            "/api/opencode/session/:session_id/unrevert",
-            post(opencode_api::api_opencode_unrevert_session),
+            "/api/agent/session/:session_id/abort",
+            post(agent_api::api_agent_abort_session),
         )
         .route(
-            "/api/opencode/session/:session_id/abort",
-            post(opencode_api::api_opencode_abort_session),
-        )
-        .route(
-            "/api/opencode/session/:session_id/permissions/:permission_id",
-            post(opencode_api::api_opencode_respond_permission),
+            "/api/agent/session/:session_id/permissions/:permission_id",
+            post(agent_api::api_agent_respond_permission),
         )
         .route("/app-bundles/:mode", get(pages::app_bundle))
         .route("/app-assets/*path", get(pages::app_asset))

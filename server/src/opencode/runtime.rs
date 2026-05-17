@@ -22,7 +22,7 @@ const MANAGED_SKILL_INSTALL_REL: &str = ".mei/skills/meilang-author";
 const MANAGED_SKILL_ALLOW_PATH_GLOB: &str = "*/.mei/skills/meilang-author";
 const MANAGED_SKILL_ALLOW_FILE_GLOB: &str = "*/.mei/skills/meilang-author/*";
 
-pub(crate) fn preferred_opencode_mode() -> String {
+pub(crate) fn preferred_agent_mode() -> String {
     match std::env::var("MEI_OPENCODE_MODE")
         .ok()
         .map(|value| value.trim().to_ascii_lowercase())
@@ -33,7 +33,7 @@ pub(crate) fn preferred_opencode_mode() -> String {
     }
 }
 
-pub(crate) fn preferred_opencode_server_url() -> String {
+pub(crate) fn preferred_agent_server_url() -> String {
     std::env::var("MEI_OPENCODE_URL")
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())
@@ -55,7 +55,7 @@ fn candidate_config_roots(package_root: &FsPath) -> Vec<PathBuf> {
 fn config_root(package_root: &FsPath) -> PathBuf {
     candidate_config_roots(package_root)
         .into_iter()
-        .find(|root| root.join(".env").exists() || root.join("opencode.json").exists())
+        .find(|root| root.join(".env").exists() || root.join("agent.json").exists())
         .unwrap_or_else(|| package_root.to_path_buf())
 }
 
@@ -63,8 +63,8 @@ fn repo_dotenv_path(package_root: &FsPath) -> PathBuf {
     config_root(package_root).join(".env")
 }
 
-fn opencode_project_config_path(package_root: &FsPath) -> PathBuf {
-    config_root(package_root).join("opencode.json")
+fn agent_project_config_path(package_root: &FsPath) -> PathBuf {
+    config_root(package_root).join("agent.json")
 }
 
 fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
@@ -226,20 +226,20 @@ fn build_skill_status(package_root: &FsPath, source_root: &FsPath) -> ManagedOpe
     }
 }
 
-pub(crate) fn managed_opencode_skill_status_for_root(
+pub(crate) fn managed_agent_skill_status_for_root(
     package_root: &FsPath,
     source_root: &FsPath,
 ) -> ManagedOpencodeSkillStatus {
     build_skill_status(package_root, source_root)
 }
 
-pub(crate) fn managed_opencode_skill_status(
+pub(crate) fn managed_agent_skill_status(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     Ok(build_skill_status(&state.package_root, &state.source_root))
 }
 
-pub(crate) fn sync_managed_opencode_skill_for_root(
+pub(crate) fn sync_managed_agent_skill_for_root(
     package_root: &FsPath,
     source_root: &FsPath,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
@@ -256,13 +256,13 @@ pub(crate) fn sync_managed_opencode_skill_for_root(
     Ok(build_skill_status(package_root, source_root))
 }
 
-pub(crate) fn sync_managed_opencode_skill(
+pub(crate) fn sync_managed_agent_skill(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    sync_managed_opencode_skill_for_root(&state.package_root, &state.source_root)
+    sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
 }
 
-pub(crate) fn ensure_managed_opencode_skill_synced(
+pub(crate) fn ensure_managed_agent_skill_synced(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     let status = build_skill_status(&state.package_root, &state.source_root);
@@ -272,7 +272,7 @@ pub(crate) fn ensure_managed_opencode_skill_synced(
     if status.installed && !status.stale {
         return Ok(status);
     }
-    sync_managed_opencode_skill_for_root(&state.package_root, &state.source_root)
+    sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
 }
 
 /// 解析 meilang-author skill 根目录（已安装优先，否则源码目录）。
@@ -291,7 +291,7 @@ pub(crate) fn resolve_meilang_skill_home_for_source_root(
     }
 }
 
-pub(crate) fn load_managed_opencode_skill_meta(
+pub(crate) fn load_managed_agent_skill_meta(
     state: &AppState,
 ) -> anyhow::Result<Option<ManagedOpencodeSkillMeta>> {
     let Some(home) =
@@ -340,7 +340,7 @@ fn managed_env_value(name: &'static str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn managed_opencode_default_model(completion_model: &str) -> String {
+fn managed_agent_default_model(completion_model: &str) -> String {
     format!("{MANAGED_OPENCODE_PROVIDER_ID}/{completion_model}")
 }
 
@@ -353,14 +353,14 @@ fn managed_external_directory_permissions() -> serde_json::Value {
     })
 }
 
-fn render_managed_opencode_runtime_config_content(
+fn render_managed_agent_runtime_config_content(
     base_url: &str,
     api_key: &str,
     completion_model: &str,
 ) -> String {
-    let default_model = managed_opencode_default_model(completion_model);
+    let default_model = managed_agent_default_model(completion_model);
     json!({
-        "$schema": "https://opencode.ai/config.json",
+        "$schema": "https://mei-lang.dev/agent-config.json",
         "provider": {
             MANAGED_OPENCODE_PROVIDER_ID: {
                 "npm": "@ai-sdk/openai-compatible",
@@ -394,7 +394,7 @@ fn render_managed_opencode_runtime_config_content(
     .to_string()
 }
 
-pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpencodeConfigSummary {
+pub(crate) fn managed_agent_config_summary(state: &AppState) -> ManagedOpencodeConfigSummary {
     let base_url = managed_env_value("QWEN_BASE_URL");
     let qwen_completion_raw = managed_env_value("QWEN_COMPLETION_MODEL");
     let qwen_completion_first = qwen_completion_raw.as_deref().and_then(|s| {
@@ -414,9 +414,9 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         && matches!(
             (base_url.as_deref(), qwen_completion_first),
             (Some(base_url), Some(completion_model))
-                if !render_managed_opencode_runtime_config_content(base_url, "placeholder", completion_model).is_empty()
+                if !render_managed_agent_runtime_config_content(base_url, "placeholder", completion_model).is_empty()
         );
-    let project_config_path = opencode_project_config_path(&state.package_root);
+    let project_config_path = agent_project_config_path(&state.package_root);
     let config_root = config_root(&state.package_root);
     let dotenv_path = repo_dotenv_path(&state.package_root);
     let project_config_present = project_config_path.exists();
@@ -435,16 +435,16 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
         .or_else(|| qwen_completion_first.map(|s| s.to_string()));
     let default_model = completion_model
         .as_deref()
-        .map(managed_opencode_default_model);
-    let preferred_mode = state.opencode_preferred_mode.as_ref().clone();
+        .map(managed_agent_default_model);
+    let preferred_mode = state.agent_preferred_mode.as_ref().clone();
     let preferred_server_url = (preferred_mode == "external")
-        .then(|| state.opencode_preferred_server_url.as_ref().clone());
+        .then(|| state.agent_preferred_server_url.as_ref().clone());
 
     ManagedOpencodeConfigSummary {
         agent_backend: "native",
         preferred_mode,
         preferred_server_url,
-        auto_start_managed: state.opencode_auto_start,
+        auto_start_managed: state.agent_auto_start,
         managed_start_available: missing_env.is_empty() && config_content_ready,
         runtime_env_ready: missing_env.is_empty(),
         api_key_configured,
@@ -466,14 +466,14 @@ pub(crate) fn managed_opencode_config_summary(state: &AppState) -> ManagedOpenco
     }
 }
 
-pub(crate) fn managed_opencode_runtime_status(
+pub(crate) fn managed_agent_runtime_status(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
-    let configured = managed_opencode_config_summary(state);
+    let configured = managed_agent_config_summary(state);
     let last_exit = state
-        .opencode_runtime
+        .agent_runtime
         .lock()
-        .map_err(|_| anyhow::anyhow!("opencode runtime lock poisoned"))?
+        .map_err(|_| anyhow::anyhow!("agent runtime lock poisoned"))?
         .last_exit
         .clone();
     Ok(ManagedOpencodeRuntimeStatus {
@@ -492,15 +492,15 @@ pub(crate) fn managed_opencode_runtime_status(
     })
 }
 
-pub(crate) async fn start_managed_opencode(
+pub(crate) async fn start_managed_agent(
     state: &AppState,
     _request: StartManagedOpencodeRequest,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
-    managed_opencode_runtime_status(state)
+    managed_agent_runtime_status(state)
 }
 
-pub(crate) fn stop_managed_opencode(
+pub(crate) fn stop_managed_agent(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
-    managed_opencode_runtime_status(state)
+    managed_agent_runtime_status(state)
 }

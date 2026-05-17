@@ -1,4 +1,4 @@
-//! 内置 Agent：会话存储、流式对话、与 `/api/opencode/*` 分发层对接。
+//! 内置 Agent：会话存储、流式对话、与 `/api/agent/*` 分发层对接。
 
 pub(crate) mod dispatch;
 mod llm;

@@ -5,7 +5,7 @@
 //! `{PREFIX}_EMBEDDING_MODEL`、`{PREFIX}_IMAGE_MODEL`）。`PREFIX` 在读取 env 时统一为大写。
 //! 未设置 `OPENAI_IMITATORS` 时，仍支持历史上的 `QWEN_*` 与 `MEI_LLM_OPENAI_*` 分支。
 
-use crate::opencode::bridge::BridgeModelRef;
+use crate::agent_runtime::bridge::BridgeModelRef;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LlmConnection {

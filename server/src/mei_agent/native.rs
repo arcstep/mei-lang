@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use crate::opencode::{
+use crate::agent_runtime::{
     bridge::{
         BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary, BridgeFileDiffSummary,
         BridgeHealthResponse, BridgePendingPermission, BridgePermissionResponseRequest,
@@ -1138,7 +1138,7 @@ impl NativeAgent {
         self.emit(HostOpencodeEvent::MessagePartUpsert {
             session_id: session_id.to_string(),
             message_id: user_msg_id.clone(),
-            part: crate::opencode::events::HostOpencodePartSummary {
+            part: crate::agent_runtime::events::HostOpencodePartSummary {
                 part_id: user_part_id.clone(),
                 message_id: user_msg_id.clone(),
                 part_type: "text".to_string(),
@@ -1156,7 +1156,7 @@ impl NativeAgent {
         self.emit(HostOpencodeEvent::MessagePartUpsert {
             session_id: session_id.to_string(),
             message_id: assistant_msg_id.clone(),
-            part: crate::opencode::events::HostOpencodePartSummary {
+            part: crate::agent_runtime::events::HostOpencodePartSummary {
                 part_id: part_id.clone(),
                 message_id: assistant_msg_id.clone(),
                 part_type: "text".to_string(),

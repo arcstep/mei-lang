@@ -1,4 +1,4 @@
-use crate::opencode::bridge::BridgePromptRequest;
+use crate::agent_runtime::bridge::BridgePromptRequest;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentMode {
@@ -87,7 +87,7 @@ impl AgentModePolicy {
 #[cfg(test)]
 mod tests {
     use super::{AgentMode, AgentModePolicy, RouteMode};
-    use crate::opencode::bridge::BridgePromptRequest;
+    use crate::agent_runtime::bridge::BridgePromptRequest;
 
     fn request(mode: Option<&str>, route_mode: Option<&str>, agent: Option<&str>) -> BridgePromptRequest {
         BridgePromptRequest {

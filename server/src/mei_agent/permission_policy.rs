@@ -1,6 +1,6 @@
 //! 与作者面板权限提示一致的策略（供 native agent 与 HTTP 层共用）。
 
-use crate::opencode::events::looks_like_meilang_skill_path;
+use crate::agent_runtime::events::looks_like_meilang_skill_path;
 
 pub(crate) fn classify_blocked_permission(
     permission: &str,

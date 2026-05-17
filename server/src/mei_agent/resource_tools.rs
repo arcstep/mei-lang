@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use super::{llm, skill_tools};
 
-/// 与 [`crate::opencode::bridge::BridgePromptRequest`](crate::opencode::bridge::BridgePromptRequest) 对齐的 scope 快照。
+/// 与 [`crate::agent_runtime::bridge::BridgePromptRequest`](crate::agent_runtime::bridge::BridgePromptRequest) 对齐的 scope 快照。
 #[derive(Debug, Clone, Default)]
 pub struct AgentResourceScope {
     pub scene_id: Option<String>,

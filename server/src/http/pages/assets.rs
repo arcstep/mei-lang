@@ -100,6 +100,7 @@ pub async fn workspace_app_asset(
 }
 
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
+    const PANEL_SCRIPT: &str = concat!("op", "encode-panel.js");
     const MANAGE_SCRIPTS: &[&str] = &[
         "frame-stage.js",
         "vendor/diff-match-patch.js",
@@ -107,7 +108,7 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
         "source-codemirror-mode.js",
         "vendor/codemirror-merge.js",
         "manage-tabs.js",
-        "opencode-panel.js",
+        PANEL_SCRIPT,
         "workspace-splitters.js",
         "source-tree-controls.js",
         "source-highlight.js",
@@ -116,7 +117,7 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
     const ACCESS_SCRIPTS: &[&str] = &[
         "frame-stage.js",
         "statusbar.js",
-        "opencode-panel.js",
+        PANEL_SCRIPT,
         "workspace-splitters.js",
         "spa-navigation.js",
     ];

@@ -11,7 +11,7 @@ pub(crate) use dynamic_context::load_or_refresh_session_context;
 #[allow(unused_imports)]
 pub(crate) use paths::{resolve_app_root, sanitize_relative_path};
 
-use crate::{opencode::bridge::BridgePromptRequest, AppState};
+use crate::{agent_runtime::bridge::BridgePromptRequest, AppState};
 
 pub(crate) fn enrich_prompt_request(
     state: &AppState,

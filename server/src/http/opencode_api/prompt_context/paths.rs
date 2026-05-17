@@ -1,6 +1,6 @@
 use std::path::{Component, Path as FsPath, PathBuf};
 
-use crate::{opencode::bridge::BridgePromptRequest, AppState};
+use crate::{agent_runtime::bridge::BridgePromptRequest, AppState};
 
 pub(crate) fn sanitize_relative_path(value: &str) -> Option<String> {
     let mut parts = Vec::new();

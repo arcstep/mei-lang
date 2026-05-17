@@ -4,7 +4,7 @@ use crate::{
     mei_agent::{
         agent_list_pending_permissions, agent_respond_permission, permission_policy, AgentConn,
     },
-    opencode::bridge::{BridgePendingPermission, BridgePermissionResponseRequest},
+    agent_runtime::bridge::{BridgePendingPermission, BridgePermissionResponseRequest},
     AppState,
 };
 
@@ -81,7 +81,7 @@ pub(crate) async fn collect_and_reject_blocked_permissions(
                         session_id = %session_id,
                         permission_id = %permission_id,
                         %error,
-                        "failed to auto-reject pending opencode permission"
+                        "failed to auto-reject pending agent permission"
                     );
                     notice.message = format!("{}（自动拒绝失败：{}）", notice.message, error);
                 }
