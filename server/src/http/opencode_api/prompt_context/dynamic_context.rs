@@ -178,8 +178,8 @@ mod tests {
         fs,
         path::PathBuf,
         sync::{Arc, Mutex},
-        time::{SystemTime, UNIX_EPOCH},
     };
+    use uuid::Uuid;
 
     use super::*;
     use crate::opencode::ManagedOpencodeRuntime;
@@ -208,11 +208,7 @@ mod tests {
     }
 
     fn prepare_app_root() -> (PathBuf, PathBuf) {
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("mei_dynamic_context_test_{stamp}"));
+        let root = std::env::temp_dir().join(format!("mei_dynamic_context_test_{}", Uuid::new_v4()));
         let app_root = root.join("demo");
         fs::create_dir_all(&app_root).expect("create app root");
         fs::write(
