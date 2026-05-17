@@ -16974,6 +16974,13 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     return String(sessionId || "") + "::" + String(messageId || "");
   }
 
+  /** diff 结果随当前管理页目标路径变化，缓存键需包含 path。 */
+  function diffCacheKey(sessionId, messageId) {
+    const base = messageKey(sessionId, messageId);
+    const p = sourceTargetKey();
+    return p ? base + "::diffPath::" + p : base;
+  }
+
   function setMessageMeta(messageId, patch) {
     const key = messageKey(state.sessionId, messageId);
     if (!key || key === "::") return;
@@ -17464,7 +17471,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       setInlineNote("仅支持查看最后一轮 Build 的差异。");
       return false;
     }
-    const cacheKey = messageKey(sid, mid);
+    const cacheKey = diffCacheKey(sid, mid);
     const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
     state.messageDiffCache[cacheKey] = diff;
     const hasFiles = sessionDiffHasMaterialChanges(diff);
@@ -17472,15 +17479,108 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     if (!hasFiles) {
       setInlineNote("暂无可显示的文件差异。");
       leaveDiffView();
+      setDiffTabBadge(0, 0);
       return false;
     }
     const fileDiff = pickDiffFileForTarget(diff);
     if (!fileDiff) {
       setInlineNote("当前目标文件没有可显示差异。");
       leaveDiffView();
+      setDiffTabBadge(0, 0);
       return false;
     }
+    const st = diffLineStatsFromSummary(diff);
+    setDiffTabBadge(st.additions, st.deletions);
     return renderSourceDiff(fileDiff, mid);
+  }
+
+  function ensureManageDiffTabBadge() {
+    const tab = document.getElementById("manage-tab-diff");
+    if (!tab) return null;
+    let badge = document.getElementById("manage-tab-diff-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.id = "manage-tab-diff-badge";
+      badge.className = "manage-view-tab-badge";
+      badge.hidden = true;
+      tab.appendChild(badge);
+    }
+    return badge;
+  }
+
+  function setDiffTabBadge(additions, deletions) {
+    const a = Math.max(0, Number(additions) || 0);
+    const d = Math.max(0, Number(deletions) || 0);
+    const total = a + d;
+    const badge = ensureManageDiffTabBadge();
+    if (!badge) return;
+    if (!total) {
+      badge.textContent = "";
+      badge.hidden = true;
+      badge.removeAttribute("title");
+      return;
+    }
+    badge.textContent = String(total);
+    badge.hidden = false;
+    badge.title = "相对上一轮 Build：新增 +" + String(a) + " 行，删除 -" + String(d) + " 行";
+  }
+
+  /** 与 GET /diff 返回结构一致：优先用 additions/deletions，否则从 patch 文本粗算 +/- 行。 */
+  function diffLineStatsFromSummary(diff) {
+    if (!diff || typeof diff !== "object") return { additions: 0, deletions: 0 };
+    let a = Number(diff.additions);
+    let d = Number(diff.deletions);
+    if (Number.isFinite(a) && Number.isFinite(d) && (a > 0 || d > 0)) {
+      return { additions: Math.max(0, a), deletions: Math.max(0, d) };
+    }
+    let hitA = 0;
+    let hitD = 0;
+    const files = Array.isArray(diff.files) ? diff.files : [];
+    files.forEach(function (f) {
+      if (!f || typeof f !== "object") return;
+      const fa = Number(f.additions);
+      const fd = Number(f.deletions);
+      if (Number.isFinite(fa) && Number.isFinite(fd) && (fa > 0 || fd > 0)) {
+        hitA += Math.max(0, fa);
+        hitD += Math.max(0, fd);
+        return;
+      }
+      const after = String(f.after || "");
+      after.split("\n").forEach(function (line) {
+        const t = String(line || "");
+        if (t.startsWith("+") && !t.startsWith("+++")) hitA += 1;
+        else if (t.startsWith("-") && !t.startsWith("---")) hitD += 1;
+      });
+    });
+    return { additions: hitA, deletions: hitD };
+  }
+
+  async function refreshDiffTabBadge() {
+    if (!state.sessionId || !state.health || !state.health.healthy || historyUnavailableReason()) {
+      setDiffTabBadge(0, 0);
+      return;
+    }
+    const mid = String(state.latestDiffMessageId || "").trim();
+    if (!mid) {
+      setDiffTabBadge(0, 0);
+      return;
+    }
+    try {
+      const cacheKey = diffCacheKey(state.sessionId, mid);
+      const diff =
+        state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
+      if (diff && typeof diff === "object") {
+        state.messageDiffCache[cacheKey] = diff;
+      }
+      if (!sessionDiffHasMaterialChanges(diff)) {
+        setDiffTabBadge(0, 0);
+        return;
+      }
+      const stats = diffLineStatsFromSummary(diff);
+      setDiffTabBadge(stats.additions, stats.deletions);
+    } catch (_) {
+      setDiffTabBadge(0, 0);
+    }
   }
 
   function syncSourceDiffEntry() {
@@ -17490,7 +17590,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
       els.sourceViewDiffBtn.disabled = !enabled;
       els.sourceViewDiffBtn.title = enabled
-        ? "查看差异"
+        ? "查看最后一轮 Build 差异（行数见管理页「修改」角标）"
         : (historyUnavailableReason() || "暂无可查看差异");
     }
     const diffTab = document.getElementById("manage-tab-diff");
@@ -17507,6 +17607,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     } else if (!state.latestDiffMessageId && state.sourceViewMode === "diff") {
       leaveDiffView();
     }
+    void refreshDiffTabBadge();
   }
 
   function scheduleHostReload(reason) {
@@ -19051,14 +19152,17 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
   async function fetchSessionDiff(messageId) {
     if (!state.sessionId) return null;
-    const query = messageId
-      ? "?message_id=" + encodeURIComponent(String(messageId))
-      : "";
+    const params = new URLSearchParams();
+    const mid = String(messageId || "").trim();
+    if (mid) params.set("message_id", mid);
+    const pathKey = sourceTargetKey();
+    if (pathKey) params.set("path", pathKey);
+    const qs = params.toString();
     return fetchJson(
       "/api/opencode/session/" +
         encodeURIComponent(state.sessionId) +
         "/diff" +
-        query,
+        (qs ? "?" + qs : ""),
     );
   }
 
@@ -19130,40 +19234,15 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     scheduleHostReload("已恢复撤回修改，正在刷新预览与源码…");
   }
 
-  async function showDiffForMessage(messageId) {
-    if (!(await inspectDiffForMessage(messageId))) {
-      return;
-    }
-    setInlineNote("差异已加载到左侧源码区。");
-  }
-
-  function actionsForAssistantMessage(message) {
-    if (historyUnavailableReason()) return [];
-    const messageId = String(message && message.id ? message.id : "");
-    if (!messageId || String(message.role || "") !== "assistant") return [];
-    if (messageId !== String(state.latestRoundAssistantId || "")) {
-      return [];
-    }
-    const meta = getMessageMeta(state.sessionId, messageId);
-    if (!meta || meta.hasDiff !== true) {
-      return [];
-    }
-    return [
-      {
-        label: "最近差异",
-        onClick: function () {
-          showDiffForMessage(messageId).catch(function (error) {
-            setInlineNote("读取差异失败：" + String(error.message || error));
-          });
-        },
-      },
-    ];
+  function actionsForAssistantMessage(_message) {
+    return [];
   }
 
   async function hydrateBuildDiffMeta(messages) {
     if (!Array.isArray(messages) || !state.sessionId) return;
     if (historyUnavailableReason()) {
       renderHistoryButtons();
+      setDiffTabBadge(0, 0);
       return;
     }
     let changed = false;
@@ -19179,7 +19258,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         const hasDiff = sessionDiffHasMaterialChanges(diff);
         setMessageMeta(messageId, { hasDiff: hasDiff });
         if (hasDiff) {
-          state.messageDiffCache[messageKey(state.sessionId, messageId)] = diff;
+          state.messageDiffCache[diffCacheKey(state.sessionId, messageId)] = diff;
           if (
             state.pendingReloadMessageId &&
             String(state.pendingReloadMessageId) === messageId
@@ -19191,13 +19270,14 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       } catch (_) {}
     }
     if (changed) {
-      syncSourceDiffEntry();
       state.messages = state.messages.map(function (row) {
         return Object.assign({}, row, { actions: actionsForAssistantMessage(row) });
       });
       renderMessages();
     }
     renderHistoryButtons();
+    syncSourceDiffEntry();
+    void refreshDiffTabBadge();
     if (shouldReloadForPendingBuild) {
       scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
     }
@@ -20020,7 +20100,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
           const hasDiff = sessionDiffHasMaterialChanges(diff);
           setMessageMeta(summary.message_id, { hasDiff: hasDiff });
           if (hasDiff) {
-            state.messageDiffCache[messageKey(state.sessionId, summary.message_id)] = diff;
+            state.messageDiffCache[diffCacheKey(state.sessionId, summary.message_id)] = diff;
             decorateMessageActions();
             renderMessages();
             scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
