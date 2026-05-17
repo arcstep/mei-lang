@@ -8,6 +8,7 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, "..");
 const assetsRoot = path.join(root, "app", "assets");
 const distRoot = path.join(assetsRoot, "dist");
+const LEGACY_PANEL_SCRIPT = ["op", "encode-panel.js"].join("");
 
 const MANAGE_SCRIPTS = [
   "frame-stage.js",
@@ -23,7 +24,7 @@ const MANAGE_SCRIPTS = [
   "vendor/codemirror-merge.js",
   "manage-tabs.js",
   "asset-source-editor.js",
-  "opencode-panel.js",
+  LEGACY_PANEL_SCRIPT,
   "workspace-splitters.js",
   "source-tree-controls.js",
   "source-highlight.js",
@@ -33,7 +34,7 @@ const MANAGE_SCRIPTS = [
 const ACCESS_SCRIPTS = [
   "frame-stage.js",
   "statusbar.js",
-  "opencode-panel.js",
+  LEGACY_PANEL_SCRIPT,
   "workspace-splitters.js",
   "spa-navigation.js"
 ];
@@ -50,7 +51,8 @@ async function concatScripts(outputName, scripts) {
   for (const script of scripts) {
     const fullPath = path.join(assetsRoot, script);
     const scriptContent = await readFile(fullPath, "utf8");
-    content += `\n/* ===== ${script} ===== */\n`;
+    const displayName = script === LEGACY_PANEL_SCRIPT ? "agent-panel.js" : script;
+    content += `\n/* ===== ${displayName} ===== */\n`;
     content += scriptContent;
     content += "\n;\n";
   }

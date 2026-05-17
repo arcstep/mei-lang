@@ -168,7 +168,7 @@
     const nodes = els();
     setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
     try {
-      const probe = await fetchJson("/api/opencode/model/probe");
+      const probe = await fetchJson("/api/agent/model/probe");
       const summary = modelServiceSummary(probe, "");
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     } catch (error) {
@@ -202,14 +202,14 @@
 
 ;
 
-/* ===== opencode-panel.js ===== */
+/* ===== agent-panel.js ===== */
 (function () {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  if (typeof boot.disposeOpencodePanel === "function") {
+  if (typeof boot.disposeAgentPanel === "function") {
     try {
-      boot.disposeOpencodePanel();
+      boot.disposeAgentPanel();
     } catch (_) {}
-    boot.disposeOpencodePanel = null;
+    boot.disposeAgentPanel = null;
   }
 
   const root = document.getElementById("meilang-author-panel");
@@ -341,10 +341,10 @@
       "author-chat-meta inline-flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity group-hover:opacity-100 group-hover:pointer-events-auto",
     time: "author-chat-time whitespace-nowrap text-[10px] text-slate-400",
     copyButton:
-      "author-chat-copy-btn opencode-copy-btn rounded-full border border-blue-400/30 bg-slate-950/40 px-2 py-0.5 text-[10px] font-bold text-blue-300 transition-colors hover:border-blue-300/70 hover:bg-blue-600/20",
+      "author-chat-copy-btn agent-copy-btn rounded-full border border-blue-400/30 bg-slate-950/40 px-2 py-0.5 text-[10px] font-bold text-blue-300 transition-colors hover:border-blue-300/70 hover:bg-blue-600/20",
     inlineActions: "author-chat-inline-actions flex flex-wrap gap-2",
     actionButton:
-      "author-chat-action-btn opencode-action-btn rounded-full border border-blue-300/45 bg-blue-900/30 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition-colors hover:border-blue-200/80 hover:bg-blue-600/40",
+      "author-chat-action-btn agent-action-btn rounded-full border border-blue-300/45 bg-blue-900/30 px-2.5 py-1.5 text-[11px] font-bold text-slate-200 transition-colors hover:border-blue-200/80 hover:bg-blue-600/40",
     round: "author-chat-round grid gap-2",
     empty:
       "author-chat-empty rounded-xl border border-dashed border-slate-600/55 px-4 py-4 text-center text-xs leading-6 text-slate-400",
@@ -482,25 +482,25 @@
   }
 
   function sessionStorageKey() {
-    return "mei-lang.opencode.session." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.session." + currentAppKey() + "." + currentTargetKey();
   }
 
   function modeStorageKey() {
-    return "mei-lang.opencode.mode." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.mode." + currentAppKey() + "." + currentTargetKey();
   }
 
   function accessFloatingStorageKey() {
-    return "mei-lang.opencode.access-floating." + currentAppKey();
+    return "mei-lang.agent.access-floating." + currentAppKey();
   }
 
   function revertedStorageKey() {
-    return "mei-lang.opencode.reverted." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.reverted." + currentAppKey() + "." + currentTargetKey();
   }
 
   function deltaDebugStorageKey(sessionId) {
     const sid = String(sessionId || "").trim();
     if (!sid) return "";
-    return "mei-lang.opencode.delta-debug." + currentAppKey() + "." + sid;
+    return "mei-lang.agent.delta-debug." + currentAppKey() + "." + sid;
   }
 
   function normalizeDeltaDebugRows(rows) {
@@ -2336,7 +2336,7 @@
       ) {
         return;
       }
-      const payload = await fetchJson("/api/opencode/context/preview?" + params.toString());
+      const payload = await fetchJson("/api/agent/context/preview?" + params.toString());
       state.contextPreview = payload;
       state.contextPreviewScopeKey = scopeKey;
       state.contextPreviewFetchedAtMs = nowMs;
@@ -2393,7 +2393,7 @@
     const query = selectedModelProbeQueryString();
     try {
       state.modelProbe = await fetchJson(
-        "/api/opencode/model/probe" + (query ? "?" + query : ""),
+        "/api/agent/model/probe" + (query ? "?" + query : ""),
       );
       state.modelProbeFetchedAtMs = nowMs;
     } catch (error) {
@@ -2518,7 +2518,7 @@
   }
 
   async function fetchAllSessionsFromServer() {
-    const payload = await fetchJson("/api/opencode/session");
+    const payload = await fetchJson("/api/agent/session");
     return Array.isArray(payload) ? payload : [];
   }
 
@@ -3000,7 +3000,7 @@
     if (pathKey) params.set("path", pathKey);
     const qs = params.toString();
     return fetchJson(
-      "/api/opencode/session/" +
+      "/api/agent/session/" +
         encodeURIComponent(state.sessionId) +
         "/diff" +
         (qs ? "?" + qs : ""),
@@ -3039,7 +3039,7 @@
     const sid = String(state.sessionId || "").trim();
     const mid = String(messageId || "").trim();
     if (!sid || !mid) return;
-    await fetchJson("/api/opencode/session/" + encodeURIComponent(sid) + "/revert", {
+    await fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/revert", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message_id: mid }),
@@ -3057,7 +3057,7 @@
   async function applyUnrevertForSession() {
     const sid = String(state.sessionId || "").trim();
     if (!sid) return;
-    await fetchJson("/api/opencode/session/" + encodeURIComponent(sid) + "/unrevert", {
+    await fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/unrevert", {
       method: "POST",
       headers: { "content-type": "application/json" },
     });
@@ -3363,7 +3363,7 @@
       .join("");
     els.chatLog.innerHTML = html;
 
-    Array.from(els.chatLog.querySelectorAll(".opencode-action-btn")).forEach(function (button) {
+    Array.from(els.chatLog.querySelectorAll(".agent-action-btn")).forEach(function (button) {
       button.addEventListener("click", function () {
         const messageId = String(button.getAttribute("data-message-id") || "");
         const actionIndex = Number(button.getAttribute("data-action-index") || "-1");
@@ -3378,7 +3378,7 @@
       });
     });
 
-    Array.from(els.chatLog.querySelectorAll(".opencode-copy-btn")).forEach(function (button) {
+    Array.from(els.chatLog.querySelectorAll(".agent-copy-btn")).forEach(function (button) {
       button.addEventListener("click", function () {
         const messageId = String(button.getAttribute("data-message-id") || "");
         const message = state.messages.find(function (item) {
@@ -3434,7 +3434,7 @@
     closeEventStream();
     try {
       const source = new EventSource(
-        "/api/opencode/session/" + encodeURIComponent(sessionId) + "/events",
+        "/api/agent/session/" + encodeURIComponent(sessionId) + "/events",
       );
       source.onopen = function () {
         state.streamConnected = true;
@@ -3463,7 +3463,7 @@
     const reply = String(responseKind || "").trim();
     if (!sid || !pid || !reply) return;
     await fetchJson(
-      "/api/opencode/session/" +
+      "/api/agent/session/" +
         encodeURIComponent(sid) +
         "/permissions/" +
         encodeURIComponent(pid),
@@ -3488,7 +3488,7 @@
       if (state.sending && (st === "connected" || st === "heartbeat")) {
         markGenerationActivity();
       }
-      if (st === "opencode_unavailable" || st === "upstream_unavailable") {
+      if (st === "agent_unavailable" || st === "upstream_unavailable") {
         state.streamConnected = false;
         closeEventStream();
         if (state.sending) {
@@ -3564,9 +3564,9 @@
     renderStatus();
     try {
       const [config, runtime, skillStatus] = await Promise.all([
-        fetchJson("/api/opencode/config"),
-        fetchJson("/api/opencode/runtime"),
-        fetchJson("/api/opencode/skill"),
+        fetchJson("/api/agent/config"),
+        fetchJson("/api/agent/runtime"),
+        fetchJson("/api/agent/skill"),
       ]);
       state.config = config;
       state.runtime = runtime;
@@ -3578,7 +3578,7 @@
       let runtimeRef = runtime;
       if (runtimeRef && runtimeRef.running) {
         try {
-          state.health = await fetchJson("/api/opencode/health");
+          state.health = await fetchJson("/api/agent/health");
         } catch (_) {
           state.health = null;
         }
@@ -3671,7 +3671,7 @@
 
   async function postNewBoundSession() {
     state.sessionTargetKey = currentTargetKey();
-    const session = await fetchJson("/api/opencode/session", {
+    const session = await fetchJson("/api/agent/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: buildSessionTitle() }),
@@ -3711,7 +3711,7 @@
       return;
     }
     const payload = await fetchJson(
-      "/api/opencode/session/" +
+      "/api/agent/session/" +
         encodeURIComponent(state.sessionId) +
         "/messages?limit=80",
     );
@@ -3740,7 +3740,7 @@
     if (shouldRefreshPendingPermissions) {
       try {
         const pendingPayload = await fetchJson(
-          "/api/opencode/session/" +
+          "/api/agent/session/" +
             encodeURIComponent(state.sessionId) +
             "/permissions/pending",
         );
@@ -3808,7 +3808,7 @@
       }
       if (state.sessionId) {
         await fetchJson(
-          "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/abort",
+          "/api/agent/session/" + encodeURIComponent(state.sessionId) + "/abort",
           {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -3840,7 +3840,7 @@
       body.model = { providerID: mref.provider_id, modelID: mref.model_id };
     }
     return fetchJson(
-      "/api/opencode/session/" + encodeURIComponent(state.sessionId) + "/message",
+      "/api/agent/session/" + encodeURIComponent(state.sessionId) + "/message",
       {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -4279,7 +4279,7 @@
     }
   }
   scheduleRefreshPoll(currentBasePollDelayMs());
-  boot.disposeOpencodePanel = function () {
+  boot.disposeAgentPanel = function () {
     closeEventStream();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
@@ -4572,7 +4572,7 @@
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
-    "/app-assets/opencode-panel.js",
+    "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([
     "/app-bundles/manage.js",
@@ -4748,14 +4748,14 @@
   function disposeRuntimeHooks(options) {
     const opts = options || {};
     const names = [
-      "disposeOpencodePanel",
+      "disposeAgentPanel",
       "disposeStatusBar",
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
     ];
     names.forEach((name) => {
-      if (opts.preserveOpencodePanel && name === "disposeOpencodePanel") return;
+      if (opts.preserveAgentPanel && name === "disposeAgentPanel") return;
       if (opts.preserveStatusBar && name === "disposeStatusBar") return;
       if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
       const hook = boot[name];
@@ -4807,7 +4807,7 @@
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
-      if (opts.preserveOpencodePanel && path === "/app-assets/opencode-panel.js") {
+      if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
         continue;
       }
       if (opts.preserveStatusBar && path === "/app-assets/statusbar.js") {
@@ -5031,7 +5031,7 @@
     const nextUrl = new URL(url, window.location.href);
     const preserveManageWorkspace = shouldPreserveManageWorkspace(currentUrl, nextUrl);
     disposeRuntimeHooks({
-      preserveOpencodePanel: preserveManageWorkspace,
+      preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
     });
@@ -5066,7 +5066,7 @@
       }
     }
     await syncScriptsFromDocument(doc, navigationId, {
-      preserveOpencodePanel: preserveManageWorkspace,
+      preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
       preserveSourceTreeControls: preserveManageWorkspace,

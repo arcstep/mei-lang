@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
-use super::opencode;
+use super::agent_panel;
 use super::preview;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
@@ -111,7 +111,7 @@ pub(super) fn access_shell(
                                         </button>
                                     </div>
                                     <div class="access-chat-overlay-body">
-                                        {opencode::panel_view(
+                                        {agent_panel::panel_view(
                                             compiled,
                                             app_path,
                                             UiRouteMode::Access,

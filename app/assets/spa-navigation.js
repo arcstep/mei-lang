@@ -10,7 +10,7 @@
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
-    "/app-assets/opencode-panel.js",
+    "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([
     "/app-bundles/manage.js",
@@ -186,14 +186,14 @@
   function disposeRuntimeHooks(options) {
     const opts = options || {};
     const names = [
-      "disposeOpencodePanel",
+      "disposeAgentPanel",
       "disposeStatusBar",
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
     ];
     names.forEach((name) => {
-      if (opts.preserveOpencodePanel && name === "disposeOpencodePanel") return;
+      if (opts.preserveAgentPanel && name === "disposeAgentPanel") return;
       if (opts.preserveStatusBar && name === "disposeStatusBar") return;
       if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
       const hook = boot[name];
@@ -245,7 +245,7 @@
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
-      if (opts.preserveOpencodePanel && path === "/app-assets/opencode-panel.js") {
+      if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
         continue;
       }
       if (opts.preserveStatusBar && path === "/app-assets/statusbar.js") {
@@ -469,7 +469,7 @@
     const nextUrl = new URL(url, window.location.href);
     const preserveManageWorkspace = shouldPreserveManageWorkspace(currentUrl, nextUrl);
     disposeRuntimeHooks({
-      preserveOpencodePanel: preserveManageWorkspace,
+      preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
     });
@@ -504,7 +504,7 @@
       }
     }
     await syncScriptsFromDocument(doc, navigationId, {
-      preserveOpencodePanel: preserveManageWorkspace,
+      preserveAgentPanel: preserveManageWorkspace,
       preserveStatusBar: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
       preserveSourceTreeControls: preserveManageWorkspace,

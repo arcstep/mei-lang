@@ -6,7 +6,7 @@ use super::compile_status::{
     is_mei_script_target, source_language, AssetShellKind,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
-use super::opencode;
+use super::agent_panel;
 use super::preview;
 use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;
@@ -400,7 +400,7 @@ pub(super) fn manage_shell(
                 </div>
                 <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-0 py-2.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
-                        {opencode::panel_view(
+                        {agent_panel::panel_view(
                             compiled,
                             app_path,
                             UiRouteMode::Manage,

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 mod compile_status;
 mod manage_routing;
-mod opencode;
+mod agent_panel;
 mod preview;
 mod preview_chrome;
 mod route;

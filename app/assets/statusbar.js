@@ -67,7 +67,7 @@
     const nodes = els();
     setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
     try {
-      const probe = await fetchJson("/api/opencode/model/probe");
+      const probe = await fetchJson("/api/agent/model/probe");
       const summary = modelServiceSummary(probe, "");
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     } catch (error) {
