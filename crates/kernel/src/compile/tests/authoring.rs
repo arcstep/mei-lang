@@ -41,7 +41,7 @@ frame.add_panel(
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile inline scene app");
-    assert_eq!(compiled.entry_target, "main.mei");
+    assert_eq!(compiled.active_target_file, "main.mei");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "home");
     assert_eq!(contract.world.expect("world").resources.len(), 1);
@@ -219,7 +219,7 @@ frame.add_panel(
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile external scene app");
-    assert_eq!(compiled.entry_target, "home.mei");
+    assert_eq!(compiled.active_target_file, "home.mei");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "room_fire_click");
     assert_eq!(contract.panels.len(), 1);
@@ -268,8 +268,8 @@ frame.add_panel(
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile app.scene app");
-    assert_eq!(compiled.entry_target, "home.mei");
-    assert_eq!(compiled.active_entry.as_deref(), Some("home"));
+    assert_eq!(compiled.active_target_file, "home.mei");
+    assert_eq!(compiled.active_scene.as_deref(), Some("home"));
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "home");
     assert_eq!(contract.panels.len(), 1);
@@ -363,9 +363,6 @@ fn compile_supports_declarative_scene_frame_binding() {
 app(
     id = "demo",
     default_scene = "home",
-    entries = [
-        entry(id = "home", scene = "home", frame = "home_frame"),
-    ],
 )
 
 scene(
@@ -474,9 +471,9 @@ scene.set_frame(
     );
     assert!(
         compiled.scene_contract.is_some(),
-        "previewing main.mei should fallback to default entry payload when main is index-only"
+        "previewing main.mei should fallback to default scene payload when main is index-only"
     );
-    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+    assert_eq!(compiled.active_scene.as_deref(), Some("room_fire_click"));
 
     let _ = fs::remove_dir_all(&root);
 }

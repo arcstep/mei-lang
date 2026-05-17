@@ -19,16 +19,6 @@ pub struct Diagnostic {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EntryDecl {
-    pub id: Option<String>,
-    #[serde(default)]
-    pub scene: Option<String>,
-    #[serde(default)]
-    pub frame: Option<String>,
-    pub title: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppDecl {
     pub kind: String,
     pub id: String,
@@ -37,8 +27,6 @@ pub struct AppDecl {
     pub default_scene: Option<String>,
     #[serde(default)]
     pub scene: Option<Value>,
-    #[serde(default)]
-    pub entries: Vec<EntryDecl>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -501,8 +489,7 @@ pub struct WorkspaceNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CompiledEntryMeta {
-    pub entry_id: String,
+pub struct CompiledSceneRoute {
     pub scene_id: String,
     #[serde(default)]
     pub frame_id: Option<String>,
@@ -520,10 +507,10 @@ pub struct CompiledApp {
     pub title: String,
     pub app_root: String,
     #[serde(default)]
-    pub entries: Vec<CompiledEntryMeta>,
+    pub scene_routes: Vec<CompiledSceneRoute>,
     #[serde(default)]
-    pub active_entry: Option<String>,
-    pub entry_target: String,
+    pub active_scene: Option<String>,
+    pub active_target_file: String,
     pub file_tree: Vec<WorkspaceNode>,
     #[serde(default)]
     pub scene_contract: Option<SceneContract>,

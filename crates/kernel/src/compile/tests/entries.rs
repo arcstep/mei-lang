@@ -4,7 +4,7 @@ use super::super::{compile_app_from_root, compile_app_from_root_with_options, Co
 use super::harness::{temp_root, write_file};
 
 #[test]
-fn compile_declarative_main_preview_target_falls_back_to_default_entry_payload() {
+fn compile_declarative_main_preview_target_falls_back_to_default_scene_payload() {
     let root = temp_root("declarative-main-preview-fallback");
     let app_root = root.join("declarative-preview");
     write_file(
@@ -13,10 +13,8 @@ fn compile_declarative_main_preview_target_falls_back_to_default_entry_payload()
 app(
     id = "declarative-preview",
     default_scene = "room_fire_click",
-    entries = [
-        entry(id = "room_fire_click", scene = "home.mei"),
-    ],
 )
+app_add_scene(scene_file_ref("home.mei", id = "room_fire_click"))
 "#,
     );
     write_file(
@@ -51,8 +49,8 @@ frame.add_panel(
         },
     )
     .expect("compile declarative main target");
-    assert_eq!(compiled.entry_target, "main.mei");
-    assert_eq!(compiled.active_entry.as_deref(), Some("room_fire_click"));
+    assert_eq!(compiled.active_target_file, "main.mei");
+    assert_eq!(compiled.active_scene.as_deref(), Some("room_fire_click"));
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "room_fire_click");
     assert_eq!(contract.panels.len(), 1);
@@ -61,7 +59,7 @@ frame.add_panel(
 }
 
 #[test]
-fn compile_reports_missing_scene_for_declarative_entry_without_scene_decl() {
+fn compile_reports_missing_scene_for_declarative_route_without_scene_decl() {
     let root = temp_root("declarative-missing-scene");
     let app_root = root.join("missing-scene");
     write_file(
@@ -70,9 +68,7 @@ fn compile_reports_missing_scene_for_declarative_entry_without_scene_decl() {
 app(
     id = "missing-scene",
     default_scene = "home",
-    entries = [
-        entry(id = "home", scene = "home", frame = "home_frame"),
-    ],
+    scene = "home",
 )
 
 frame(
@@ -169,8 +165,8 @@ frame.add_panel(
 }
 
 #[test]
-fn compile_collects_scene_entry_registry() {
-    let root = temp_root("entry-registry");
+fn compile_collects_scene_route_registry() {
+    let root = temp_root("scene-route-registry");
     let app_root = root.join("registry");
     write_file(
         &app_root.join("main.mei"),
@@ -234,34 +230,29 @@ frame.add_panel(
     );
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile registry app");
-    assert_eq!(compiled.active_entry.as_deref(), Some("home"));
-    assert_eq!(compiled.entry_target, "main.mei");
-    assert_eq!(compiled.entries.len(), 2);
-    assert!(compiled.entries.iter().any(|entry| entry.entry_id == "home"
-        && entry.scene_id == "home"
-        && entry.target_file == "main.mei"
-        && entry.kind == "inline"
-        && entry.is_default));
-    assert!(compiled
-        .entries
-        .iter()
-        .any(|entry| entry.entry_id == "home_default"
-            && entry.scene_id == "home_default"
-            && entry.target_file == "default.mei"
-            && entry.kind == "file_ref"));
+    assert_eq!(compiled.active_scene.as_deref(), Some("home"));
+    assert_eq!(compiled.active_target_file, "main.mei");
+    assert_eq!(compiled.scene_routes.len(), 2);
+    assert!(compiled.scene_routes.iter().any(|route| route.scene_id == "home"
+        && route.target_file == "main.mei"
+        && route.kind == "inline"
+        && route.is_default));
+    assert!(compiled.scene_routes.iter().any(|route| route.scene_id == "home_default"
+        && route.target_file == "default.mei"
+        && route.kind == "file_ref"));
 
     let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
-fn compile_selects_requested_entry_from_registry() {
-    let root = temp_root("entry-select");
-    let app_root = root.join("entry-select");
+fn compile_selects_requested_scene_from_registry() {
+    let root = temp_root("scene-select");
+    let app_root = root.join("scene-select");
     write_file(
         &app_root.join("main.mei"),
         r#"
 app(
-    id = "entry-select",
+    id = "scene-select",
     default_scene = "home",
 )
 
@@ -322,13 +313,13 @@ frame.add_panel(
         &root,
         &app_root,
         CompileOptions {
-            entry: Some("home_default".to_string()),
+            scene: Some("home_default".to_string()),
             preview_target: None,
         },
     )
-    .expect("compile requested entry");
-    assert_eq!(compiled.active_entry.as_deref(), Some("home_default"));
-    assert_eq!(compiled.entry_target, "default.mei");
+    .expect("compile requested scene");
+    assert_eq!(compiled.active_scene.as_deref(), Some("home_default"));
+    assert_eq!(compiled.active_target_file, "default.mei");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "home_default");
 

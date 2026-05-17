@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::eval::evaluate_mei_file;
 use crate::model::{
-    CompiledEntryMeta, ComponentAsset, Diagnostic, FlowDecl, FrameDecl, PanelDecl, SceneContract,
+    CompiledSceneRoute, ComponentAsset, Diagnostic, FlowDecl, FrameDecl, PanelDecl, SceneContract,
     SceneDecl, Severity, ThemeDecl, UiNodeDecl,
 };
 
@@ -24,44 +24,44 @@ use super::scene_binding::{
 };
 use super::ui_data_policy::validate_scene_ui_data_bindings;
 #[derive(Debug, Clone, Default)]
-pub(super) struct CompiledEntryPayload {
+pub(super) struct CompiledScenePayload {
     pub(super) scene_contract: Option<SceneContract>,
     pub(super) resources: Vec<crate::model::LoadedResource>,
     pub(super) component_assets: Vec<ComponentAsset>,
     pub(super) diagnostics: Vec<Diagnostic>,
 }
 
-pub(super) fn compile_entry_payload_for_target(
+pub(super) fn compile_scene_payload_for_target(
     app_root: &Path,
     app_decls: &Value,
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
     target_file: &str,
-    entry_meta: Option<&CompiledEntryMeta>,
-) -> CompiledEntryPayload {
+    route_meta: Option<&CompiledSceneRoute>,
+) -> CompiledScenePayload {
     match load_entry_decls(app_root, app_decls, target_file) {
         Ok(entry_decls) => {
-            match compile_entry_payload(app_root, asset_map, target_file, &entry_decls, entry_meta)
+            match compile_scene_payload(app_root, asset_map, target_file, &entry_decls, route_meta)
             {
                 Ok(payload) => payload,
-                Err(error) => CompiledEntryPayload {
+                Err(error) => CompiledScenePayload {
                     diagnostics: vec![Diagnostic {
                         severity: Severity::Error,
-                        code: "compile_entry_failed".to_string(),
+                        code: "compile_scene_failed".to_string(),
                         message: error.to_string(),
                         source_path: Some(target_file.to_string()),
                     }],
-                    ..CompiledEntryPayload::default()
+                    ..CompiledScenePayload::default()
                 },
             }
         }
-        Err(error) => CompiledEntryPayload {
+        Err(error) => CompiledScenePayload {
             diagnostics: vec![Diagnostic {
                 severity: Severity::Error,
-                code: "load_entry_failed".to_string(),
+                code: "load_scene_file_failed".to_string(),
                 message: error.to_string(),
                 source_path: Some(target_file.to_string()),
             }],
-            ..CompiledEntryPayload::default()
+            ..CompiledScenePayload::default()
         },
     }
 }
@@ -75,13 +75,13 @@ fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Re
     }
 }
 
-fn compile_entry_payload(
+fn compile_scene_payload(
     app_root: &Path,
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
     target_file: &str,
     entry_decls: &Value,
-    entry_meta: Option<&CompiledEntryMeta>,
-) -> Result<CompiledEntryPayload> {
+    route_meta: Option<&CompiledSceneRoute>,
+) -> Result<CompiledScenePayload> {
     let mut diagnostics = Vec::new();
     let mut scenes: BTreeMap<String, SceneDecl> = BTreeMap::new();
     let mut frames: BTreeMap<String, FrameDecl> = BTreeMap::new();
@@ -374,7 +374,7 @@ fn compile_entry_payload(
         .filter_map(|key| asset_map.get(&key).cloned())
         .collect::<Vec<ComponentAsset>>();
 
-    let selected_scene = entry_meta
+    let selected_scene = route_meta
         .and_then(|meta| scenes.get(meta.scene_id.as_str()).cloned())
         .or_else(|| {
             if scenes.len() == 1 {
@@ -384,17 +384,17 @@ fn compile_entry_payload(
             }
         });
     let requires_scene_contract =
-        (entry_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
+        (route_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_scene".to_string(),
-            message: "entry file must declare scene(...) for scene-first authoring".to_string(),
+            message: "scene file must declare scene(...) for scene-first authoring".to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
 
-    let frame = if let Some(frame_id) = entry_meta
+    let frame = if let Some(frame_id) = route_meta
         .and_then(|meta| meta.frame_id.as_deref())
         .map(str::trim)
         .filter(|id| !id.is_empty())
@@ -461,7 +461,7 @@ fn compile_entry_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_frame".to_string(),
-            message: "scene entry requires a frame(...) declaration or frame_file_ref(...)"
+            message: "scene route requires a frame(...) declaration or frame_file_ref(...)"
                 .to_string(),
             source_path: Some(target_file.to_string()),
         });
@@ -614,7 +614,7 @@ fn compile_entry_payload(
         validate_scene_ui_data_bindings(contract, &resources, target_file, &mut diagnostics);
     }
 
-    Ok(CompiledEntryPayload {
+    Ok(CompiledScenePayload {
         scene_contract,
         resources,
         component_assets,

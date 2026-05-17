@@ -72,13 +72,13 @@ frame.add_panel(
         &root,
         &app_root,
         CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some("scratch.mei".to_string()),
         },
     )
     .expect("compile preview target");
-    assert_eq!(compiled.active_entry, None);
-    assert_eq!(compiled.entry_target, "scratch.mei");
+    assert_eq!(compiled.active_scene, None);
+    assert_eq!(compiled.active_target_file, "scratch.mei");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "scratch");
 
@@ -95,7 +95,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         &source_root,
         &app_root,
         CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some("data/dataset/典型案例/监督典型案例.mei".to_string()),
         },
     )
@@ -142,7 +142,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
         &source_root,
         &app_root,
         CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some(target.to_string()),
         },
     )
@@ -222,7 +222,7 @@ frame.add_panel(
         &root,
         &app_root,
         CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some("legacy.mei".to_string()),
         },
     )
@@ -280,7 +280,7 @@ frame.add_panel(
         &root,
         &app_root,
         CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some("invalid.mei".to_string()),
         },
     )

@@ -10,12 +10,12 @@ pub use compile::{
 };
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use model::{
-    BlockDecl, ColumnSchema, CompiledApp, CompiledEntryMeta, ComponentAsset, DataRef,
-    DataTransform, DatasetSourceRef, DatasetView, Diagnostic, EntryDecl, FlowDecl, FrameDecl,
-    LayoutDecl, LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape,
-    PanelDecl, ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl,
-    RuleStartDecl, RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, Severity,
-    SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode, WorldCellDecl,
+    BlockDecl, ColumnSchema, CompiledApp, CompiledSceneRoute, ComponentAsset, DataRef,
+    DataTransform, DatasetSourceRef, DatasetView, Diagnostic, FlowDecl, FrameDecl, LayoutDecl,
+    LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl,
+    ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
+    RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, Severity, SourceDecl, ThemeDecl,
+    UiNodeDecl, WorkspaceAppMeta, WorkspaceNode, WorldCellDecl,
 };
 pub use runtime::{
     initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step, RuntimeIntent,
