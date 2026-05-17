@@ -47,7 +47,7 @@
       if (!button) return;
       const isCollapsed = !!collapsed[side];
       button.dataset.collapsed = isCollapsed ? "true" : "false";
-      const noun = side === "left" ? "左侧资源栏" : "右侧 OpenCode 栏";
+      const noun = side === "left" ? "左侧资源栏" : "右侧助手栏";
       const action = isCollapsed ? "展开" : "折叠";
       button.setAttribute("aria-label", action + noun);
       button.setAttribute("title", action + noun);

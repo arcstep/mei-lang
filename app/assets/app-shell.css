@@ -136,7 +136,8 @@ a { color: inherit; text-decoration: none; }
   isolation: isolate;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  overflow: hidden;
+  /* 勿用 overflow:hidden：会裁剪 sl-dropdown 的 fixed 面板，看起来像被主区遮盖 */
+  overflow: visible;
 }
 .topbar-shell {
   border-bottom: 1px solid rgba(96, 165, 250, 0.12);
@@ -164,7 +165,7 @@ a { color: inherit; text-decoration: none; }
   min-width: 0;
   align-items: center;
   gap: 10px;
-  overflow: hidden;
+  overflow: visible;
 }
 .app-tabs-groups {
   display: flex;
@@ -174,7 +175,8 @@ a { color: inherit; text-decoration: none; }
   gap: 6px;
   flex-wrap: nowrap;
   overflow-x: auto;
-  overflow-y: hidden;
+  /* 与 overflow-x 非 visible 并存时，部分引擎会把 y 算成 auto 从而裁切 fixed 下拉；强制纵向可见 */
+  overflow-y: visible !important;
   scrollbar-width: none;
 }
 .app-tabs-groups::-webkit-scrollbar {
@@ -963,22 +965,23 @@ a { color: inherit; text-decoration: none; }
   list-style: none;
 }
 .tree-folder-summary::-webkit-details-marker { display: none; }
+/* 收起：向右 V 形折线；展开：向下 V 形折线（两套图，不靠旋转，避免难辨认） */
 .tree-folder-summary::before {
   content: "";
   display: inline-block;
-  width: 0.7rem;
-  height: 0.7rem;
+  width: 0.75rem;
+  height: 0.75rem;
   flex-shrink: 0;
   margin-right: 0.1rem;
   vertical-align: middle;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 2.25 V 9.75 H 9.75' fill='none' stroke='%2393c5fd' stroke-width='1.85' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 3.25 2.25 L 8.75 6 L 3.25 9.75' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
-  transition: transform 0.15s ease;
-  transform-origin: 50% 50%;
 }
-.tree-li-branch > details[open] > .tree-folder-summary::before { transform: rotate(90deg); }
+.tree-li-branch > details[open] > .tree-folder-summary::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 4 L 6 8.75 L 9.75 4' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 .tree-folder-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 嵌套清单：左侧竖线标示同一组层级，长列表时便于对齐到上级文件夹 */
@@ -1425,6 +1428,124 @@ a.tree-link {
   cursor: default;
 }
 .author-chat-block-details > summary::-webkit-details-marker { display: none; }
+.author-chat-md {
+  font-family: inherit;
+  color: #cbd5e1;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+.author-chat-md > :first-child {
+  margin-top: 0;
+}
+.author-chat-md > :last-child {
+  margin-bottom: 0;
+}
+.author-chat-md h1,
+.author-chat-md h2,
+.author-chat-md h3,
+.author-chat-md h4 {
+  margin: 0.6em 0 0.35em;
+  color: #f1f5f9;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.author-chat-md h1 { font-size: 1.05rem; }
+.author-chat-md h2 { font-size: 1rem; }
+.author-chat-md h3,
+.author-chat-md h4 { font-size: 0.95rem; }
+.author-chat-md p {
+  margin: 0 0 0.5em;
+}
+.author-chat-md ul,
+.author-chat-md ol {
+  margin: 0 0 0.55em;
+  padding-left: 1.15rem;
+}
+.author-chat-md li {
+  margin: 0 0 0.2em;
+}
+.author-chat-md blockquote {
+  margin: 0.4em 0;
+  padding: 0.2em 0 0.2em 0.65em;
+  border-left: 3px solid rgba(100, 116, 139, 0.65);
+  color: #94a3b8;
+}
+.author-chat-md pre {
+  margin: 0.45em 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid rgba(71, 85, 105, 0.65);
+  background: rgba(2, 6, 23, 0.75);
+  overflow: auto;
+  font-family:
+    "JetBrains Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "Cascadia Code",
+    "Source Code Pro",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #e2e8f0;
+}
+.author-chat-md code {
+  font-family:
+    "JetBrains Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "Cascadia Code",
+    "Source Code Pro",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 0.92em;
+  padding: 0.05em 0.35em;
+  border-radius: 4px;
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  background: rgba(15, 23, 42, 0.75);
+  color: #e2e8f0;
+}
+.author-chat-md pre code {
+  display: block;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: inherit;
+}
+.author-chat-md table {
+  border-collapse: collapse;
+  margin: 0.45em 0;
+  font-size: 0.92em;
+}
+.author-chat-md th,
+.author-chat-md td {
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  padding: 0.25em 0.45em;
+}
+.author-chat-md a {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.author-chat-md a:hover,
+.author-chat-md a:focus-visible {
+  color: #bae6fd;
+}
+.author-chat-md-literal {
+  font-family:
+    "JetBrains Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "Cascadia Code",
+    "Source Code Pro",
+    Menlo,
+    Consolas,
+    monospace;
+  font-size: 0.92em;
+  color: #cbd5e1;
+}
 @media (max-width: 1200px) {
   body { overflow: auto; }
   .shell { height: auto; min-height: 100vh; overflow: visible; }
