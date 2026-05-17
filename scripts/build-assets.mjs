@@ -11,6 +11,8 @@ const distRoot = path.join(assetsRoot, "dist");
 
 const MANAGE_SCRIPTS = [
   "frame-stage.js",
+  "vendor/marked.umd.js",
+  "vendor/dompurify.min.js",
   "vendor/diff-match-patch.js",
   "vendor/codemirror.js",
   "vendor/codemirror-mode-javascript.js",
