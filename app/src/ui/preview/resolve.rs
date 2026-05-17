@@ -13,6 +13,7 @@ pub(super) fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_pat
                 "entry_target": compiled.entry_target,
                 "step_api": format!("/api/sim/step/{}", app_path),
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
+                "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
             }),
         );
     }
@@ -37,14 +38,27 @@ pub(super) fn resolve_value(
                 return serde_json::to_value(scene_contract).unwrap_or(Value::Null);
             }
             if map.get("__ref").and_then(Value::as_str) == Some("data") {
-                if let Some(dataset) = resolve_data_ref(map, resources) {
-                    return serde_json::to_value(dataset).unwrap_or(Value::Null);
+                if let Some((dataset, dataset_id)) = resolve_data_ref(map, resources) {
+                    return with_runtime_ref(
+                        serde_json::to_value(dataset).unwrap_or(Value::Null),
+                        serde_json::json!({
+                            "kind": "data",
+                            "dataset_id": dataset_id,
+                        }),
+                    );
                 }
                 return Value::Null;
             }
             if map.get("__ref").and_then(Value::as_str) == Some("metric") {
-                if let Some(metric) = resolve_metric_ref(map, resources) {
-                    return serde_json::to_value(metric).unwrap_or(Value::Null);
+                if let Some((metric, dataset_id)) = resolve_metric_ref(map, resources) {
+                    return with_runtime_ref(
+                        serde_json::to_value(metric).unwrap_or(Value::Null),
+                        serde_json::json!({
+                            "kind": "metric",
+                            "dataset_id": dataset_id,
+                            "metric_id": map.get("id").and_then(Value::as_str).unwrap_or(""),
+                        }),
+                    );
                 }
                 return Value::Null;
             }
@@ -61,15 +75,28 @@ pub(super) fn resolve_value(
                 {
                     compat.insert("from_dataset".to_string(), from);
                 }
-                if let Some(metric) = resolve_metric_ref(&compat, resources) {
-                    return serde_json::to_value(metric).unwrap_or(Value::Null);
+                if let Some((metric, dataset_id)) = resolve_metric_ref(&compat, resources) {
+                    return with_runtime_ref(
+                        serde_json::to_value(metric).unwrap_or(Value::Null),
+                        serde_json::json!({
+                            "kind": "metric",
+                            "dataset_id": dataset_id,
+                            "metric_id": compat.get("id").and_then(Value::as_str).unwrap_or(""),
+                        }),
+                    );
                 }
             }
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
                 && map.get("type").and_then(Value::as_str) == Some("rows")
             {
-                if let Some(dataset) = resolve_rows_expr(map, resources) {
-                    return serde_json::to_value(dataset).unwrap_or(Value::Null);
+                if let Some((dataset, dataset_id)) = resolve_rows_expr(map, resources) {
+                    return with_runtime_ref(
+                        serde_json::to_value(dataset).unwrap_or(Value::Null),
+                        serde_json::json!({
+                            "kind": "data",
+                            "dataset_id": dataset_id,
+                        }),
+                    );
                 }
                 return Value::Null;
             }
@@ -92,40 +119,56 @@ pub(super) fn resolve_value(
 fn resolve_data_ref(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
-) -> Option<mei_lang_kernel::DatasetView> {
+) -> Option<(mei_lang_kernel::DatasetView, String)> {
     let id = map.get("id").and_then(Value::as_str)?;
     let from_dataset = map.get("from_dataset").and_then(Value::as_str);
     let dataset_id = from_dataset.unwrap_or(id);
-    resources.get(dataset_id)?.dataset.clone()
+    Some((resources.get(dataset_id)?.dataset.clone()?, dataset_id.to_string()))
 }
 
 fn resolve_metric_ref(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
-) -> Option<mei_lang_kernel::MetricContract> {
+) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
     if let Some(dataset_id) = map.get("from_dataset").and_then(Value::as_str) {
-        return resources
+        return Some((
+            resources
             .get(dataset_id)?
             .dataset
             .as_ref()?
             .metrics
             .get(metric_id)
-            .cloned();
+            .cloned()?,
+            dataset_id.to_string(),
+        ));
     }
     resources
-        .values()
-        .filter_map(|resource| resource.dataset.as_ref())
-        .find_map(|dataset| dataset.metrics.get(metric_id).cloned())
+        .iter()
+        .filter_map(|(dataset_id, resource)| {
+            resource
+                .dataset
+                .as_ref()
+                .and_then(|dataset| dataset.metrics.get(metric_id).cloned())
+                .map(|metric| (metric, dataset_id.clone()))
+        })
+        .next()
 }
 
 fn resolve_rows_expr(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
-) -> Option<mei_lang_kernel::DatasetView> {
+) -> Option<(mei_lang_kernel::DatasetView, String)> {
     let dataset = map
         .get("dataset")
         .and_then(Value::as_str)
         .map(|value| value.strip_prefix("dataset.").unwrap_or(value).to_string())?;
-    resources.get(&dataset)?.dataset.clone()
+    Some((resources.get(&dataset)?.dataset.clone()?, dataset))
+}
+
+fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
+    if let Some(map) = value.as_object_mut() {
+        map.insert("__mei_runtime_ref".to_string(), runtime_ref);
+    }
+    value
 }

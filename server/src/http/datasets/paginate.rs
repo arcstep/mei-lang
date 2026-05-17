@@ -12,7 +12,12 @@ pub(crate) fn paginate_rows(
     options: &DatasetQueryOptions,
     lazy: bool,
 ) -> DatasetQueryResult {
-    let offset = options.page.saturating_sub(1) * options.page_size;
+    let collect_all = options.collect_all;
+    let offset = if collect_all {
+        0
+    } else {
+        options.page.saturating_sub(1) * options.page_size
+    };
     let search = options
         .search
         .as_deref()
@@ -32,7 +37,7 @@ pub(crate) fn paginate_rows(
             continue;
         }
         total += 1;
-        if total <= offset || rows_page.len() >= options.page_size {
+        if !collect_all && (total <= offset || rows_page.len() >= options.page_size) {
             continue;
         }
         if columns.is_empty() {
@@ -45,10 +50,14 @@ pub(crate) fn paginate_rows(
     if columns.is_empty() {
         columns = infer_columns(&rows_page);
     }
-    let has_more = total > offset + rows_page.len();
+    let has_more = if collect_all {
+        false
+    } else {
+        total > offset + rows_page.len()
+    };
     DatasetQueryResult {
-        page: options.page,
-        page_size: options.page_size,
+        page: if collect_all { 1 } else { options.page },
+        page_size: if collect_all { rows_page.len() } else { options.page_size },
         total,
         has_more,
         columns,
@@ -119,8 +128,8 @@ pub(crate) fn infer_columns(rows: &[Value]) -> Vec<String> {
 
 pub(crate) fn empty_result(options: &DatasetQueryOptions, lazy: bool) -> DatasetQueryResult {
     DatasetQueryResult {
-        page: options.page,
-        page_size: options.page_size,
+        page: if options.collect_all { 1 } else { options.page },
+        page_size: if options.collect_all { 0 } else { options.page_size },
         total: 0,
         has_more: false,
         columns: Vec::new(),
@@ -137,26 +146,32 @@ pub(crate) struct QueryWindow {
     matched: usize,
     rows: Vec<Value>,
     has_more: bool,
+    collect_all: bool,
 }
 
 impl QueryWindow {
     pub(crate) fn new(options: &DatasetQueryOptions) -> Self {
         Self {
-            page: options.page,
+            page: if options.collect_all { 1 } else { options.page },
             page_size: options.page_size,
-            offset: options.page.saturating_sub(1) * options.page_size,
+            offset: if options.collect_all {
+                0
+            } else {
+                options.page.saturating_sub(1) * options.page_size
+            },
             matched: 0,
             rows: Vec::new(),
             has_more: false,
+            collect_all: options.collect_all,
         }
     }
 
     pub(crate) fn push(&mut self, row: Value) {
         self.matched += 1;
-        if self.matched <= self.offset {
+        if !self.collect_all && self.matched <= self.offset {
             return;
         }
-        if self.rows.len() < self.page_size {
+        if self.collect_all || self.rows.len() < self.page_size {
             self.rows.push(row);
             return;
         }
@@ -164,20 +179,26 @@ impl QueryWindow {
     }
 
     pub(crate) fn should_stop(&self) -> bool {
-        self.has_more
+        !self.collect_all && self.has_more
     }
 
     pub(crate) fn finish(self, columns: Vec<String>, lazy: bool) -> DatasetQueryResult {
-        let total = if self.has_more {
+        let total = if self.collect_all {
+            self.rows.len()
+        } else if self.has_more {
             self.offset + self.rows.len() + 1
         } else {
             self.matched
         };
         DatasetQueryResult {
             page: self.page,
-            page_size: self.page_size,
+            page_size: if self.collect_all {
+                self.rows.len()
+            } else {
+                self.page_size
+            },
             total,
-            has_more: self.has_more,
+            has_more: if self.collect_all { false } else { self.has_more },
             columns,
             rows: self.rows,
             lazy,

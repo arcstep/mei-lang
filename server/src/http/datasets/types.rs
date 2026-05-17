@@ -9,6 +9,7 @@ pub struct DatasetQueryOptions {
     pub page_size: usize,
     pub search: Option<String>,
     pub filters: BTreeMap<String, String>,
+    pub collect_all: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

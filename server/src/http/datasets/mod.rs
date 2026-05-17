@@ -39,6 +39,7 @@ mod tests {
             },
             sources: Vec::new(),
             metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
         };
         let result = query_dataset_rows(
             PathBuf::from(".").as_path(),
@@ -48,6 +49,7 @@ mod tests {
                 page_size: 1,
                 search: None,
                 filters: BTreeMap::new(),
+                collect_all: false,
             },
         )
         .expect("query in-memory dataset");
@@ -83,6 +85,7 @@ mod tests {
             },
             sources: Vec::new(),
             metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
         };
         let result = query_dataset_rows(
             &root,
@@ -92,6 +95,7 @@ mod tests {
                 page_size: 10,
                 search: None,
                 filters: BTreeMap::new(),
+                collect_all: false,
             },
         )
         .expect("query csv default lazy");
@@ -132,6 +136,7 @@ mod tests {
             },
             sources: Vec::new(),
             metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
         };
         let mut filters = BTreeMap::new();
         filters.insert("city".to_string(), "chongqing".to_string());
@@ -143,11 +148,55 @@ mod tests {
                 page_size: 10,
                 search: None,
                 filters,
+                collect_all: false,
             },
         )
         .expect("query lazy csv");
         assert!(result.lazy);
         assert_eq!(result.total, 2);
         assert_eq!(result.rows.len(), 2);
+    }
+
+    #[test]
+    fn query_in_memory_dataset_collect_all_returns_full_filtered_rows() {
+        let dataset = DatasetView {
+            id: "sample".to_string(),
+            title: Some("Sample".to_string()),
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["name".to_string(), "city".to_string()],
+            rows: vec![
+                json!({"name": "alice", "city": "chongqing"}),
+                json!({"name": "bob", "city": "beijing"}),
+                json!({"name": "carol", "city": "chongqing"}),
+            ],
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:sample".to_string(),
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+        };
+        let mut filters = BTreeMap::new();
+        filters.insert("city".to_string(), "chongqing".to_string());
+        let result = query_dataset_rows(
+            PathBuf::from(".").as_path(),
+            &dataset,
+            DatasetQueryOptions {
+                page: 1,
+                page_size: 1,
+                search: None,
+                filters,
+                collect_all: true,
+            },
+        )
+        .expect("query full filtered rows");
+        assert_eq!(result.total, 2);
+        assert_eq!(result.rows.len(), 2);
+        assert!(!result.has_more);
+        assert_eq!(result.page, 1);
     }
 }

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 use axum::{
@@ -5,9 +6,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::CompileOptions;
+use mei_lang_kernel::{evaluate_runtime_metric_defs, CompileOptions, MetricContract};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 
@@ -17,40 +17,31 @@ use super::components::resolve_components_root;
 use super::util::{elapsed_ms, is_script_target};
 
 #[derive(Debug, Deserialize)]
-pub struct DatasetQueryRequest {
+pub struct MetricQueryRequest {
     #[serde(default)]
     pub target: Option<String>,
     pub dataset_id: String,
     #[serde(default)]
-    pub page: Option<usize>,
-    #[serde(default)]
-    pub page_size: Option<usize>,
+    pub metric_ids: Vec<String>,
     #[serde(default)]
     pub search: Option<String>,
     #[serde(default)]
     pub filters: BTreeMap<String, String>,
-    #[serde(default)]
-    pub full: bool,
 }
 
 #[derive(Debug, Serialize)]
-pub struct DatasetQueryResponse {
+pub struct MetricQueryResponse {
     pub dataset_id: String,
-    pub page: usize,
-    pub page_size: usize,
-    pub total: usize,
-    pub has_more: bool,
-    pub columns: Vec<String>,
-    pub rows: Vec<serde_json::Value>,
-    pub lazy: bool,
+    pub total_rows: usize,
+    pub metrics: Vec<MetricContract>,
     pub perf: BTreeMap<String, u64>,
 }
 
-pub async fn dataset_query_api(
+pub async fn dataset_metric_api(
     State(state): State<AppState>,
     AxumPath(app_id_raw): AxumPath<String>,
-    Json(request): Json<DatasetQueryRequest>,
-) -> Result<Json<DatasetQueryResponse>, AppError> {
+    Json(request): Json<MetricQueryRequest>,
+) -> Result<Json<MetricQueryResponse>, AppError> {
     let request_started = Instant::now();
     let app_id = app_id_raw.trim_start_matches('/').to_string();
     if app_id.is_empty() {
@@ -82,7 +73,7 @@ pub async fn dataset_query_api(
                     error = %failure.error,
                     cache_lookup_ms = failure.cache_lookup_ms,
                     compile_ms = failure.compile_ms,
-                    "dataset query compile failed"
+                    "metric query compile failed"
                 );
                 AppError::from(failure.error)
             })?;
@@ -120,18 +111,63 @@ pub async fn dataset_query_api(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
+    if dataset.runtime_metric_defs.is_empty() {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!("dataset `{}` has no runtime metric defs", resource.id),
+        ));
+    }
     let app_root = state.source_root.join(&app_id);
     let query = DatasetQueryOptions {
-        page: request.page.unwrap_or(1),
-        page_size: request.page_size.unwrap_or(0),
+        page: 1,
+        page_size: 0,
         search: request.search.clone(),
         filters: request.filters.clone(),
-        collect_all: request.full,
+        collect_all: true,
     };
     let query_started = Instant::now();
-    let result = query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?;
+    let filtered_rows = query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?;
     let query_ms = elapsed_ms(query_started);
-    let mut perf = result.perf.clone();
+    let mut runtime_dataset = dataset.clone();
+    runtime_dataset.rows = filtered_rows.rows.clone();
+    if !filtered_rows.columns.is_empty() {
+        runtime_dataset.columns = filtered_rows.columns.clone();
+    }
+    let mut datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    datasets.insert(resource.id.clone(), runtime_dataset.clone());
+    let metric_ids = if request.metric_ids.is_empty() {
+        None
+    } else {
+        Some(request.metric_ids.as_slice())
+    };
+    let metric_started = Instant::now();
+    let metrics_map = evaluate_runtime_metric_defs(
+        &dataset.runtime_metric_defs,
+        &runtime_dataset.rows,
+        &datasets,
+        metric_ids,
+    )
+    .map_err(AppError::from)?;
+    let metric_eval_ms = elapsed_ms(metric_started);
+    let metrics = if request.metric_ids.is_empty() {
+        metrics_map.into_values().collect::<Vec<_>>()
+    } else {
+        request
+            .metric_ids
+            .iter()
+            .filter_map(|metric_id| metrics_map.get(metric_id).cloned())
+            .collect::<Vec<_>>()
+    };
+    let mut perf = filtered_rows.perf.clone();
     perf.insert("compile_ms".to_string(), compile_ms);
     perf.insert(
         "compile_cache_hit".to_string(),
@@ -143,16 +179,12 @@ pub async fn dataset_query_api(
     );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
+    perf.insert("metric_eval_ms".to_string(), metric_eval_ms);
     perf.insert("total_ms".to_string(), elapsed_ms(request_started));
-    Ok(Json(DatasetQueryResponse {
+    Ok(Json(MetricQueryResponse {
         dataset_id: resource.id.clone(),
-        page: result.page,
-        page_size: result.page_size,
-        total: result.total,
-        has_more: result.has_more,
-        columns: result.columns,
-        rows: result.rows,
-        lazy: result.lazy,
+        total_rows: runtime_dataset.rows.len(),
+        metrics,
         perf,
     }))
 }

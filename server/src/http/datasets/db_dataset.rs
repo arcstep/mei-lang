@@ -47,11 +47,15 @@ pub(crate) fn query_db_rows(
             .map(|value| value.is_empty())
             .unwrap_or(true);
     if no_filters {
-        let sql = format!(
-            "{base_sql} LIMIT {} OFFSET {}",
-            options.page_size.saturating_add(1),
-            offset
-        );
+        let sql = if options.collect_all {
+            base_sql.clone()
+        } else {
+            format!(
+                "{base_sql} LIMIT {} OFFSET {}",
+                options.page_size.saturating_add(1),
+                offset
+            )
+        };
         let mut stmt = conn.prepare(&sql)?;
         let columns = stmt
             .column_names()
@@ -64,14 +68,22 @@ pub(crate) fn query_db_rows(
         for row in &mut rows {
             *row = apply_normalize(std::mem::take(row), &meta.normalize);
         }
-        let has_more = rows.len() > options.page_size;
+        let has_more = !options.collect_all && rows.len() > options.page_size;
         if has_more {
             rows.truncate(options.page_size);
         }
-        let total = offset + rows.len() + usize::from(has_more);
+        let total = if options.collect_all {
+            rows.len()
+        } else {
+            offset + rows.len() + usize::from(has_more)
+        };
         let mut result = DatasetQueryResult {
-            page: options.page,
-            page_size: options.page_size,
+            page: if options.collect_all { 1 } else { options.page },
+            page_size: if options.collect_all {
+                rows.len()
+            } else {
+                options.page_size
+            },
             total,
             has_more,
             columns,

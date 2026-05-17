@@ -5,6 +5,7 @@ mod app_render;
 mod assets;
 mod components;
 pub mod dataset_api;
+pub mod metric_api;
 mod menus;
 mod static_serve;
 mod util;
@@ -13,6 +14,7 @@ pub use app::{app_page, index};
 pub use assets::{app_asset, app_bundle, workspace_app_asset};
 pub use components::component_asset;
 pub use dataset_api::dataset_query_api;
+pub use metric_api::dataset_metric_api;
 
 #[cfg(test)]
 mod tests {

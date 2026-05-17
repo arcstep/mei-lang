@@ -416,6 +416,7 @@ mod tests {
                             value: json!({"total_value": 100}),
                         },
                     )]),
+                    runtime_metric_defs: BTreeMap::new(),
                 }),
             },
         );
@@ -426,12 +427,26 @@ mod tests {
             resolved_data.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")
         );
+        assert_eq!(
+            resolved_data
+                .get("__mei_runtime_ref")
+                .and_then(|value| value.get("dataset_id"))
+                .and_then(|value| value.as_str()),
+            Some("sales_metrics")
+        );
 
         let metric_ref =
             json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
         let resolved_metric = resolve_value(&metric_ref, &scene_contract, &resources);
         assert_eq!(
             resolved_metric.get("id").and_then(|value| value.as_str()),
+            Some("sales_total")
+        );
+        assert_eq!(
+            resolved_metric
+                .get("__mei_runtime_ref")
+                .and_then(|value| value.get("metric_id"))
+                .and_then(|value| value.as_str()),
             Some("sales_total")
         );
     }

@@ -23,18 +23,26 @@ pub fn query_dataset_rows(
     let cache_settings = resolve_external_file_cache_settings(app_root);
     let default_page_size = meta.lazy.default_page_size.unwrap_or(100).max(1);
     let max_page_size = meta.lazy.max_page_size.unwrap_or(1000).max(default_page_size);
-    let page = options.page.max(1);
-    let requested_page_size = if options.page_size == 0 {
+    let collect_all = options.collect_all;
+    let page = if collect_all { 1 } else { options.page.max(1) };
+    let requested_page_size = if collect_all {
+        0
+    } else if options.page_size == 0 {
         default_page_size
     } else {
         options.page_size
     };
-    let page_size = requested_page_size.clamp(1, max_page_size);
+    let page_size = if collect_all {
+        0
+    } else {
+        requested_page_size.clamp(1, max_page_size)
+    };
     let normalized_options = DatasetQueryOptions {
         page,
         page_size,
         search: options.search,
         filters: options.filters,
+        collect_all,
     };
 
     let file_backed = file_backed_for_lazy_query(dataset, &meta);
