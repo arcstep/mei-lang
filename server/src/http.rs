@@ -1,6 +1,5 @@
 mod compile_cache;
 mod datasets;
-#[path = "http/opencode_api/mod.rs"]
 mod agent_api;
 pub mod pages;
 pub mod projection_api;

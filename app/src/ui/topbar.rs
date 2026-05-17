@@ -374,7 +374,7 @@ pub(super) fn topbar_view(
         </div>
     };
     let launch_title = if stage_enabled {
-        "在新标签页打开大屏"
+        "在新标签页打开"
     } else {
         "在新标签页打开无 Chrome 应用"
     };

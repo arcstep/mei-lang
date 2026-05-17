@@ -21,7 +21,6 @@ use std::time::Instant;
 
 mod http;
 mod mei_agent;
-#[path = "opencode/mod.rs"]
 mod agent_runtime;
 mod resource_tool_bridge;
 
