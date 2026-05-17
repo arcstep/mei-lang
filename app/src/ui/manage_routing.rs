@@ -62,21 +62,24 @@ pub(super) fn manage_view_tab_from_query(
 
 pub(super) fn manage_tab_href(
     app_path: &str,
-    target: &str,
-    selected_entry: Option<&str>,
-    _preview_target: Option<&str>,
+    selected_scene: Option<&str>,
+    file_param: Option<&str>,
+    selected_target: &str,
     script_target: bool,
     tab: ManageViewTab,
 ) -> String {
-    let mut query = vec![format!("target={target}")];
-    if script_target {
-        if let Some(entry) = selected_entry {
-            query.push(format!("entry={entry}"));
+    let mut query = Vec::new();
+    if let Some(scene) = selected_scene {
+        if !scene.is_empty() {
+            query.push(format!("scene={scene}"));
         }
-    } else if let Some(entry) = selected_entry {
-        query.push(format!("entry={entry}"));
     }
-    let asset_dual = asset_dual_preview_source(target);
+    if let Some(f) = file_param {
+        if !f.is_empty() {
+            query.push(format!("file={f}"));
+        }
+    }
+    let asset_dual = asset_dual_preview_source(selected_target);
     let route_tab = if script_target {
         tab
     } else if asset_dual {
@@ -92,13 +95,13 @@ pub(super) fn manage_tab_href(
 }
 
 pub(super) fn route_query(
-    selected_entry: Option<&str>,
+    selected_scene: Option<&str>,
     _preview_target: Option<&str>,
     _active_tab: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
-    if let Some(entry) = selected_entry {
-        parts.push(format!("entry={entry}"));
+    if let Some(scene) = selected_scene {
+        parts.push(format!("scene={scene}"));
     }
     if parts.is_empty() {
         String::new()

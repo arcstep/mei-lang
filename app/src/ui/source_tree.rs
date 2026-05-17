@@ -59,8 +59,8 @@ pub(super) fn source_tree_view(
     route_mode: UiRouteMode,
     app_path: &str,
     selected_target: &str,
-    selected_entry: Option<&str>,
-    preview_target: Option<&str>,
+    selected_scene: Option<&str>,
+    omit_file_query_when_path: &str,
     active_tab: Option<&str>,
 ) -> AnyView {
     let items = nodes
@@ -73,8 +73,8 @@ pub(super) fn source_tree_view(
                     route_mode,
                     app_path,
                     selected_target,
-                    selected_entry,
-                    preview_target,
+                    selected_scene,
+                    omit_file_query_when_path,
                     active_tab,
                 );
                 let folder_path = node.path.clone();
@@ -93,12 +93,17 @@ pub(super) fn source_tree_view(
                 }
                 .into_any()
             } else {
+                let file_for_link = if node.path == omit_file_query_when_path {
+                    None
+                } else {
+                    Some(node.path.as_str())
+                };
                 let href = source_href(
                     route_mode,
                     app_path,
                     node.path.as_str(),
-                    selected_entry,
-                    preview_target,
+                    selected_scene,
+                    file_for_link,
                     active_tab,
                 );
                 let class = if node.path == selected_target {
@@ -184,20 +189,47 @@ fn mei_coin_file_icon(mei_kind: Option<&str>) -> AnyView {
 fn source_href(
     route_mode: UiRouteMode,
     app_path: &str,
-    path: &str,
-    selected_entry: Option<&str>,
-    _preview_target: Option<&str>,
+    _path: &str,
+    selected_scene: Option<&str>,
+    file_for_link: Option<&str>,
     _active_tab: Option<&str>,
 ) -> String {
-    if is_mei_script_path(path) {
-        return format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
+    match route_mode {
+        UiRouteMode::Access => {
+            let mut parts = Vec::new();
+            if let Some(scene) = selected_scene {
+                let s = scene.trim();
+                if !s.is_empty() {
+                    parts.push(format!("scene={s}"));
+                }
+            }
+            if parts.is_empty() {
+                format!("/apps/access/{app_path}")
+            } else {
+                format!("/apps/access/{app_path}?{}", parts.join("&"))
+            }
+        }
+        UiRouteMode::Manage => {
+            let mut parts = Vec::new();
+            if let Some(scene) = selected_scene {
+                let s = scene.trim();
+                if !s.is_empty() {
+                    parts.push(format!("scene={s}"));
+                }
+            }
+            if let Some(f) = file_for_link {
+                let t = f.trim();
+                if !t.is_empty() {
+                    parts.push(format!("file={t}"));
+                }
+            }
+            if parts.is_empty() {
+                format!("/apps/manage/{app_path}")
+            } else {
+                format!("/apps/manage/{app_path}?{}", parts.join("&"))
+            }
+        }
     }
-    let mut href = format!("/apps/{}/{}?target={}", route_mode.slug(), app_path, path);
-    if let Some(entry) = selected_entry {
-        href.push_str("&entry=");
-        href.push_str(entry);
-    }
-    href
 }
 
 fn is_mei_script_path(path: &str) -> bool {

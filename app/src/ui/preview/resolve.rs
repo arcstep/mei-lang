@@ -10,7 +10,7 @@ pub(super) fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_pat
             serde_json::json!({
                 "app_id": compiled.app_id,
                 "app_path": app_path,
-                "entry_target": compiled.entry_target,
+                "active_target_file": compiled.active_target_file,
                 "step_api": format!("/api/sim/step/{}", app_path),
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
                 "metric_query_api": format!("/api/datasets/metrics/{}", app_path),

@@ -297,9 +297,8 @@
     return {
       app: String(root.dataset.app || ""),
       scene: String(root.dataset.scene || ""),
-      target: String(root.dataset.target || ""),
-      entry: String(root.dataset.entry || ""),
-      entryTarget: String(root.dataset.entryTarget || ""),
+      file: String(root.dataset.file || root.dataset.target || ""),
+      sceneTarget: String(root.dataset.sceneTarget || ""),
       mode: String(root.dataset.mode || ""),
       sourceViews: String(root.dataset.sourceViews || ""),
       viewTab: String(root.dataset.viewTab || ""),

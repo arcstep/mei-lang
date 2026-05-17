@@ -457,12 +457,12 @@
 
   function currentTarget() {
     const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get("target");
+    const fromUrl = params.get("file") || params.get("target");
     if (fromUrl && String(fromUrl).trim()) return String(fromUrl).trim();
-    // 与编译态「当前 entry」的 .mei 路径对齐；裸 `main.mei` 常与 scene 绑定校验冲突
-    const entryTarget = String(root.dataset.entryTarget || "").trim();
-    if (entryTarget) return entryTarget;
-    return String(root.dataset.target || "").trim();
+    // 与编译态「当前 scene 路由」的 .mei 路径对齐；裸 `main.mei` 常与 scene 绑定校验冲突
+    const sceneRouteTarget = String(root.dataset.sceneTarget || "").trim();
+    if (sceneRouteTarget) return sceneRouteTarget;
+    return String(root.dataset.file || root.dataset.target || "").trim();
   }
 
   function currentManageTab() {
@@ -1730,12 +1730,9 @@
   function buildBoundSessionTitle(targetKey) {
     const params = new URLSearchParams();
     params.set("app", String(root.dataset.app || ""));
-    params.set("target", String(targetKey || ""));
+    params.set("file", String(targetKey || ""));
     if (root.dataset.scene) {
       params.set("scene", String(root.dataset.scene || ""));
-    }
-    if (root.dataset.entry) {
-      params.set("entry", String(root.dataset.entry || ""));
     }
     return "MEI|" + params.toString();
   }
@@ -1746,11 +1743,10 @@
     try {
       const params = new URLSearchParams(value.slice(4));
       const app = String(params.get("app") || "").trim();
-      const target = normalizeTargetKey(params.get("target") || "");
+      const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
       const scene = String(params.get("scene") || "").trim();
-      const entry = String(params.get("entry") || "").trim();
       if (!app || !target) return null;
-      return { app: app, target: target, scene: scene, entry: entry };
+      return { app: app, target: target, scene: scene };
     } catch (_) {
       return null;
     }
@@ -2225,19 +2221,17 @@
     const sceneId = currentSceneId();
     const routeMode = normalizeRouteMode(root.dataset.mode);
     const mode = normalizeAgentMode(state.agentMode);
-    const entryId = String(root.dataset.entry || "").trim();
-    const entryTarget = normalizeTargetKey(String(root.dataset.entryTarget || ""));
+    const sceneRouteTarget = normalizeTargetKey(String(root.dataset.sceneTarget || ""));
     const target = currentTargetKey();
     if (app) params.set("app_id", app);
     if (target) params.set("target_file", target);
     params.set("route_mode", routeMode);
     params.set("mode", mode);
-    // 非入口文件预览（如 data/dataset/**）不应携带 scene/entry 约束，
+    // 非路由目标文件预览（如 data/dataset/**）不应携带 scene 约束，
     // 否则会触发 scope 校验失败并导致无意义重试。
-    const scopedToEntry = !target || (entryTarget && target === entryTarget);
-    if (scopedToEntry) {
+    const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
+    if (scopedToSceneRoute) {
       if (sceneId) params.set("scene_id", sceneId);
-      if (entryId) params.set("entry_id", entryId);
     }
     return params;
   }
@@ -2245,9 +2239,8 @@
   function formatContextScopeText(payload) {
     const app = String((payload && payload.app_id) || currentAppKey() || "-");
     const scene = String((payload && payload.scene_id) || currentSceneId() || "-");
-    const entry = String((payload && payload.entry_id) || root.dataset.entry || "-");
     const target = String((payload && payload.target_file) || currentTargetKey() || "-");
-    return "scope: app=" + app + " | scene=" + scene + " | entry=" + entry + " | target=" + target;
+    return "scope: app=" + app + " | scene=" + scene + " | file=" + target;
   }
 
   function formatContextSkillText(payload) {
@@ -2819,7 +2812,6 @@
   function listBoundSessionsForTarget(sessions, targetKey) {
     const app = String(root.dataset.app || "");
     const scene = currentSceneId();
-    const entry = String(root.dataset.entry || "");
     const target = normalizeTargetKey(targetKey);
     return (Array.isArray(sessions) ? sessions : [])
       .filter(function (session) {
@@ -2829,7 +2821,6 @@
         if (meta.app !== app) return false;
         if (meta.target !== target) return false;
         if (scene && meta.scene && meta.scene !== scene) return false;
-        if (entry && meta.entry && meta.entry !== entry) return false;
         return true;
       })
       .sort(function (a, b) {
@@ -4066,7 +4057,6 @@
       text: text,
       app_id: String(root.dataset.app || ""),
       scene_id: currentSceneId(),
-      entry_id: String(root.dataset.entry || ""),
       target_file: currentTargetKey(),
       mode: normalizeAgentMode(state.agentMode),
       route_mode: normalizeRouteMode(root.dataset.mode),
@@ -4388,14 +4378,20 @@
     if (detail && typeof detail.scene === "string") {
       root.dataset.scene = detail.scene;
     }
-    if (detail && typeof detail.target === "string") {
-      root.dataset.target = detail.target;
+    const nextFile =
+      detail && typeof detail.file === "string"
+        ? detail.file
+        : detail && typeof detail.target === "string"
+          ? detail.target
+          : "";
+    if (nextFile) {
+      root.dataset.file = nextFile;
     }
-    if (detail && typeof detail.entry === "string") {
-      root.dataset.entry = detail.entry;
+    if (detail && typeof detail.sceneTarget === "string") {
+      root.dataset.sceneTarget = detail.sceneTarget;
     }
     if (detail && typeof detail.entryTarget === "string") {
-      root.dataset.entryTarget = detail.entryTarget;
+      root.dataset.sceneTarget = detail.entryTarget;
     }
     if (detail && typeof detail.mode === "string") {
       root.dataset.mode = detail.mode;
@@ -5119,9 +5115,8 @@
     return {
       app: String(root.dataset.app || ""),
       scene: String(root.dataset.scene || ""),
-      target: String(root.dataset.target || ""),
-      entry: String(root.dataset.entry || ""),
-      entryTarget: String(root.dataset.entryTarget || ""),
+      file: String(root.dataset.file || root.dataset.target || ""),
+      sceneTarget: String(root.dataset.sceneTarget || ""),
       mode: String(root.dataset.mode || ""),
       sourceViews: String(root.dataset.sourceViews || ""),
       viewTab: String(root.dataset.viewTab || ""),

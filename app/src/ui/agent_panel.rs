@@ -30,35 +30,33 @@ pub(super) fn panel_view(
     } else {
         "build".to_string()
     };
-    let active_entry = compiled
-        .active_entry
+    let active_scene = compiled
+        .active_scene
         .clone()
         .or_else(|| {
             compiled
-                .entries
+                .scene_routes
                 .iter()
-                .find(|item| item.target_file == compiled.entry_target)
-                .map(|item| item.entry_id.clone())
-                .or_else(|| compiled.entries.first().map(|item| item.entry_id.clone()))
+                .find(|item| item.target_file == compiled.active_target_file)
+                .map(|item| item.scene_id.clone())
+                .or_else(|| {
+                    compiled
+                        .scene_routes
+                        .first()
+                        .map(|item| item.scene_id.clone())
+                })
         })
         .unwrap_or_default();
-    let active_entry_target = compiled
-        .entries
+    let active_scene_target = compiled
+        .scene_routes
         .iter()
-        .find(|item| item.entry_id == active_entry)
+        .find(|item| item.scene_id == active_scene)
         .map(|item| item.target_file.clone())
-        .unwrap_or_else(|| compiled.entry_target.clone());
-    let active_scene = compiled
-        .entries
-        .iter()
-        .find(|item| item.entry_id == active_entry)
-        .map(|item| item.scene_id.clone())
-        .or_else(|| {
-            compiled
-                .scene_contract
-                .as_ref()
-                .map(|item| item.scene.id.clone())
-        })
+        .unwrap_or_else(|| compiled.active_target_file.clone());
+    let contract_scene_id = compiled
+        .scene_contract
+        .as_ref()
+        .map(|item| item.scene.id.clone())
         .unwrap_or_default();
     view! {
         <section class="author-panel-section h-full min-h-0">
@@ -66,10 +64,10 @@ pub(super) fn panel_view(
                 id="meilang-author-panel"
                 class="author-panel flex h-full min-h-0 flex-col gap-1.5 overflow-hidden"
                 data-app=app_path.to_string()
-                data-target=selected_target.to_string()
-                data-entry=active_entry
-                data-entry-target=active_entry_target
+                data-file=selected_target.to_string()
                 data-scene=active_scene
+                data-scene-target=active_scene_target
+                data-contract-scene=contract_scene_id
                 data-mode=route_mode.slug()
                 data-allowed-modes=allowed_modes
                 data-default-agent-mode=default_agent_mode

@@ -202,12 +202,12 @@ pub(super) fn topbar_view(
     active_app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     route_mode: UiRouteMode,
-    selected_entry: Option<&str>,
+    selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let route_query = route_query(selected_entry, preview_target, active_tab);
+    let route_query = route_query(selected_scene, preview_target, active_tab);
     let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
     let active_menu_context = menu_groups.iter().find_map(|group| {
         group

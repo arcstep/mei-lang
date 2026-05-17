@@ -13,13 +13,13 @@ pub(super) fn access_shell(
     compiled: &CompiledApp,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
-    selected_entry: Option<&str>,
+    selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
     chrome_hidden: bool,
 ) -> AnyView {
     let preview = preview::preview_view(compiled, app_path);
-    let current_target = preview_target.unwrap_or(&compiled.entry_target);
+    let current_target = preview_target.unwrap_or(&compiled.active_target_file);
     let panel_tab = active_tab.unwrap_or("preview");
     let topbar = topbar_view(
         apps,
@@ -27,7 +27,7 @@ pub(super) fn access_shell(
         app_path,
         topbar_menu,
         UiRouteMode::Access,
-        selected_entry,
+        selected_scene,
         preview_target,
         active_tab,
     );

@@ -47,22 +47,37 @@ pub(super) fn manage_shell(
     target: Option<&str>,
     source: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
-    selected_entry: Option<&str>,
+    selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
 ) -> AnyView {
-    let selected_target = target.unwrap_or(&compiled.entry_target).to_string();
+    let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
     let preview = preview::preview_view(compiled, app_path);
-    let active_entry = compiled.active_entry.as_deref();
+    let active_scene = compiled.active_scene.as_deref();
+    let current_scene = selected_scene.or(active_scene);
+    let default_file_for_scene = current_scene
+        .and_then(|sid| {
+            compiled
+                .scene_routes
+                .iter()
+                .find(|r| r.scene_id == sid)
+                .map(|r| r.target_file.as_str())
+        })
+        .unwrap_or(compiled.active_target_file.as_str());
+    let file_for_url = if selected_target.as_str() == default_file_for_scene {
+        None
+    } else {
+        Some(selected_target.as_str())
+    };
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
         UiRouteMode::Manage,
         app_path,
         selected_target.as_str(),
-        selected_entry.or(active_entry),
-        preview_target,
+        selected_scene.or(active_scene),
+        default_file_for_scene,
         active_tab,
     );
     let diagnostics = diagnostics_view(compiled);
@@ -81,7 +96,7 @@ pub(super) fn manage_shell(
         app_path,
         topbar_menu,
         UiRouteMode::Manage,
-        selected_entry.or(active_entry),
+        selected_scene.or(active_scene),
         preview_target,
         active_tab,
     );
@@ -137,9 +152,9 @@ pub(super) fn manage_shell(
         .map(|(tab, label, badge, start_hidden)| {
             let href = manage_tab_href(
                 app_path,
+                selected_scene.or(active_scene),
+                file_for_url,
                 selected_target.as_str(),
-                selected_entry.or(active_entry),
-                preview_target,
                 script_target,
                 tab,
             );
