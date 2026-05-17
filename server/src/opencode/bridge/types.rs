@@ -30,6 +30,12 @@ pub(crate) struct BridgePromptRequest {
     pub target_file: Option<String>,
     #[serde(default)]
     pub system: Option<String>,
+    /// 新模式字段：`ask` / `build`。迁移期可与 `agent` 并存。
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// 页面路由模式：`manage` / `access`（由前端显式传入，后端做强约束）。
+    #[serde(default, alias = "routeMode")]
+    pub route_mode: Option<String>,
     #[serde(default)]
     pub agent: Option<String>,
     #[serde(default)]

@@ -3,6 +3,7 @@
 pub(crate) mod dispatch;
 mod llm;
 pub(crate) mod llm_config;
+pub(crate) mod mode_policy;
 pub mod native;
 pub(crate) mod permission_policy;
 pub(crate) mod resource_tools;

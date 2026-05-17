@@ -23,6 +23,7 @@ pub(crate) fn enrich_prompt_request(
     request.system = system_prompt::build_meilang_system_prompt(
         state,
         request.system.as_deref(),
+        request.mode.as_deref(),
         session_context,
     );
     request

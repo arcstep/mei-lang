@@ -53,6 +53,8 @@ mod tests {
             entry_id: None,
             target_file: None,
             system: Some("system prompt".to_string()),
+            mode: Some("build".to_string()),
+            route_mode: Some("manage".to_string()),
             agent: Some("build".to_string()),
             model: Some(BridgeModelRef {
                 provider_id: "qwen".to_string(),

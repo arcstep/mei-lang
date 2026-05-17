@@ -418,6 +418,13 @@ impl NativeAgent {
                 let id = args.get("id").and_then(Value::as_str).unwrap_or("");
                 (Some(format!("dataset_query `{id}`")), Some(id.to_string()))
             }
+            "rewrite_current_mei" => {
+                let path = args
+                    .get("target_file")
+                    .and_then(Value::as_str)
+                    .unwrap_or("<current-target>");
+                (Some("rewrite_current_mei".into()), Some(path.to_string()))
+            }
             "skill_list" => (Some("skill_list".into()), None),
             "skill_read" => {
                 let p = args.get("path").and_then(Value::as_str).unwrap_or("");
@@ -602,6 +609,7 @@ impl NativeAgent {
         call_id: &str,
         name: &str,
         args: &str,
+        agent_mode: &str,
         app_id: Option<&str>,
         resource_scope: &AgentResourceScope,
     ) -> String {
@@ -619,8 +627,15 @@ impl NativeAgent {
             Err(e) => return format!("error: failed to record tool part: {e}"),
         };
 
-        let output_raw =
-            self.execute_tool_body(session_id, call_id, name, args, app_id, resource_scope);
+        let output_raw = self.execute_tool_body(
+            session_id,
+            call_id,
+            name,
+            args,
+            agent_mode,
+            app_id,
+            resource_scope,
+        );
 
         let err_mode = output_raw.starts_with("error:");
         let stored = Self::truncate_tool_output_for_store(&output_raw, Self::MAX_TOOL_PART_OUTPUT);
@@ -650,6 +665,7 @@ impl NativeAgent {
         session_id: &str,
         assistant_message_id: &str,
         batch: &[(String, String, String)],
+        agent_mode: &str,
         app_id: Option<&str>,
         resource_scope: &AgentResourceScope,
     ) -> Vec<String> {
@@ -664,6 +680,7 @@ impl NativeAgent {
                 id,
                 n,
                 a,
+                agent_mode,
                 app_id,
                 resource_scope,
             )];
@@ -692,6 +709,7 @@ impl NativeAgent {
         let sid = session_id.to_string();
         let app_owned = app_id.map(|s| s.to_string());
         let scope_owned = resource_scope.clone();
+        let mode_owned = agent_mode.to_string();
 
         let outputs: Vec<String> = thread::scope(|s| {
             let mut handles = Vec::new();
@@ -703,12 +721,14 @@ impl NativeAgent {
                 let a = args.clone();
                 let app_i = app_owned.clone();
                 let sc = scope_owned.clone();
+                let mode_i = mode_owned.clone();
                 handles.push(s.spawn(move || {
                     agent.execute_tool_body(
                         &sid_i,
                         &cid,
                         n.as_str(),
                         a.as_str(),
+                        mode_i.as_str(),
                         app_i.as_deref(),
                         &sc,
                     )
@@ -756,9 +776,11 @@ impl NativeAgent {
         call_id: &str,
         name: &str,
         args: &str,
+        agent_mode: &str,
         app_id: Option<&str>,
         resource_scope: &AgentResourceScope,
     ) -> String {
+        let build_mode = agent_mode.trim().eq_ignore_ascii_case("build");
         match name {
             "read_file" => self.run_read_file_tool(session_id, call_id, name, args, app_id),
             "dataset_query" => self.inner.resource_tools.run_resource_tool(
@@ -768,8 +790,20 @@ impl NativeAgent {
                 name,
                 args,
             ),
-            "skill_list" => skill_tools::execute_skill_list(&self.inner.skill_package_root),
-            "skill_read" => skill_tools::execute_skill_read(&self.inner.skill_package_root, args),
+            "rewrite_current_mei" if build_mode => {
+                self.run_rewrite_current_mei_tool(args, resource_scope)
+            }
+            "skill_list" if build_mode => {
+                skill_tools::execute_skill_list(&self.inner.skill_package_root, &self.inner.source_root)
+            }
+            "skill_read" if build_mode => skill_tools::execute_skill_read(
+                &self.inner.skill_package_root,
+                &self.inner.source_root,
+                args,
+            ),
+            "skill_list" | "skill_read" | "rewrite_current_mei" => {
+                format!("error: tool `{name}` is disabled in `{}` mode", agent_mode.trim())
+            }
             other => format!("error: tool `{other}` is not allowed"),
         }
     }
@@ -852,13 +886,22 @@ impl NativeAgent {
         let sid = session_id.to_string();
         let sid_tool = sid.clone();
         let abort_flag = self.take_abort_flag(session_id);
-        let tools = resource_tools::all_tool_definitions();
+        let agent_mode = request
+            .mode
+            .as_deref()
+            .or(request.agent.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("build")
+            .to_string();
+        let tools = resource_tools::tool_definitions_for_mode(&agent_mode);
         let resource_scope = AgentResourceScope {
             scene_id: request.scene_id.clone(),
             entry_id: request.entry_id.clone(),
             target_file: request.target_file.clone(),
         };
         let app_id = request.app_id.clone();
+        let agent_mode_tool = agent_mode.clone();
         let assistant_for_tools = assistant_msg_id.clone();
         let active_text_part_id = Arc::new(Mutex::new(part_id.clone()));
         let active_for_delta = active_text_part_id.clone();
@@ -883,6 +926,7 @@ impl NativeAgent {
                     &sid_tool,
                     &assistant_for_tools,
                     batch,
+                    &agent_mode_tool,
                     app_id.as_deref(),
                     &resource_scope,
                 )
@@ -995,12 +1039,32 @@ impl NativeAgent {
         let t = now_ms();
         let u_order = Self::next_sort_order(&db, session_id)?;
         let user_text = request.text.trim().to_string();
+        let normalized_mode = request
+            .mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("build");
+        let normalized_route_mode = request
+            .route_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("manage");
+        let normalized_agent = request
+            .agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(normalized_mode);
         let user_info = json!({
             "id": user_msg_id,
             "sessionID": session_id,
             "role": "user",
             "time": { "created": t, "updated": t },
-            "agent": request.agent.clone().unwrap_or_else(|| "build".to_string()),
+            "agent": normalized_agent,
+            "mode": normalized_mode,
+            "routeMode": normalized_route_mode,
         });
         db.execute(
             "INSERT INTO messages (id, session_id, role, sort_order, info_json) VALUES (?1, ?2, 'user', ?3, ?4)",
@@ -1682,6 +1746,67 @@ impl NativeAgent {
             };
         }
         self.try_read_file_with_app_prefix(args_json, app_id, &rel)
+    }
+
+    fn run_rewrite_current_mei_tool(
+        &self,
+        args_json: &str,
+        resource_scope: &AgentResourceScope,
+    ) -> String {
+        let args: Value = match serde_json::from_str(args_json) {
+            Ok(v) => v,
+            Err(e) => return format!("error: invalid tool arguments JSON: {e}"),
+        };
+        let content = args.get("content").and_then(Value::as_str).unwrap_or("");
+        if content.trim().is_empty() {
+            return "error: content is required".to_string();
+        }
+        let Some(scope_target) = resource_scope
+            .target_file
+            .as_deref()
+            .and_then(llm::sanitize_relative_path)
+        else {
+            return "error: current request has no valid target_file; rewrite_current_mei requires a scoped `.mei` target".to_string();
+        };
+        if !scope_target.to_ascii_lowercase().ends_with(".mei") {
+            return format!(
+                "error: target_file `{scope_target}` is not a `.mei` file; rewrite_current_mei only supports `.mei`"
+            );
+        }
+        if let Some(raw_target) = args.get("target_file").and_then(Value::as_str) {
+            let Some(arg_target) = llm::sanitize_relative_path(raw_target) else {
+                return "error: target_file must be a relative path without `..`".to_string();
+            };
+            if arg_target != scope_target {
+                return format!(
+                    "error: target_file mismatch; expected `{scope_target}`, got `{arg_target}`"
+                );
+            }
+        }
+        let full = self.inner.source_root.join(&scope_target);
+        let Some(parent) = full.parent() else {
+            return format!("error: invalid target path `{}`", full.display());
+        };
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            return format!("error: failed to create target parent directory: {e}");
+        }
+        let Ok(canonical_root) = self.inner.source_root.canonicalize() else {
+            return "error: cannot canonicalize workspace root".to_string();
+        };
+        let Ok(canonical_parent) = parent.canonicalize() else {
+            return "error: cannot canonicalize target parent directory".to_string();
+        };
+        if !canonical_parent.starts_with(&canonical_root) {
+            return "error: target path escapes workspace root".to_string();
+        }
+        if let Err(e) = std::fs::write(&full, content.as_bytes()) {
+            return format!("error: failed to write target file `{}`: {e}", full.display());
+        }
+        format!(
+            "ok: rewrote `{}` ({} bytes)",
+            scope_target.replace('\\', "/"),
+            content.len()
+        )
     }
 
     /// 若路径未包含 `app_id/` 且首次读失败，则自动重试 `{app_id}/{path}`（workspace 根相对）。

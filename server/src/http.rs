@@ -70,6 +70,10 @@ pub fn router() -> Router<AppState> {
             get(opencode_api::api_opencode_health),
         )
         .route(
+            "/api/opencode/model/probe",
+            get(opencode_api::api_opencode_model_probe),
+        )
+        .route(
             "/api/opencode/start",
             post(opencode_api::api_opencode_start),
         )

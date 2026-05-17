@@ -71,8 +71,12 @@ fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
     package_root.join(MANAGED_SKILL_SOURCE_REL)
 }
 
-fn managed_skill_install_dir(package_root: &FsPath) -> PathBuf {
+fn managed_skill_install_dir_legacy(package_root: &FsPath) -> PathBuf {
     config_root(package_root).join(MANAGED_SKILL_INSTALL_REL)
+}
+
+fn managed_skill_install_dir(source_root: &FsPath) -> PathBuf {
+    source_root.join(MANAGED_SKILL_INSTALL_REL)
 }
 
 fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
@@ -199,9 +203,21 @@ fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<
     Ok(())
 }
 
-fn build_skill_status(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
+fn select_install_dir(package_root: &FsPath, source_root: &FsPath) -> PathBuf {
+    let primary = managed_skill_install_dir(source_root);
+    let legacy = managed_skill_install_dir_legacy(package_root);
+    let primary_entry = primary.join("SKILL.md");
+    let legacy_entry = legacy.join("SKILL.md");
+    if primary_entry.exists() || !legacy_entry.exists() {
+        primary
+    } else {
+        legacy
+    }
+}
+
+fn build_skill_status(package_root: &FsPath, source_root: &FsPath) -> ManagedOpencodeSkillStatus {
     let source_dir = managed_skill_source_dir(package_root);
-    let install_dir = managed_skill_install_dir(package_root);
+    let install_dir = select_install_dir(package_root, source_root);
     let entry_file = install_dir.join("SKILL.md");
     let source_present = source_dir.join("SKILL.md").exists();
     let installed = entry_file.exists();
@@ -228,18 +244,20 @@ fn build_skill_status(package_root: &FsPath) -> ManagedOpencodeSkillStatus {
 
 pub(crate) fn managed_opencode_skill_status_for_root(
     package_root: &FsPath,
+    source_root: &FsPath,
 ) -> ManagedOpencodeSkillStatus {
-    build_skill_status(package_root)
+    build_skill_status(package_root, source_root)
 }
 
 pub(crate) fn managed_opencode_skill_status(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    Ok(build_skill_status(&state.package_root))
+    Ok(build_skill_status(&state.package_root, &state.source_root))
 }
 
 pub(crate) fn sync_managed_opencode_skill_for_root(
     package_root: &FsPath,
+    source_root: &FsPath,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     let source_dir = managed_skill_source_dir(package_root);
     let source_entry = source_dir.join("SKILL.md");
@@ -249,33 +267,38 @@ pub(crate) fn sync_managed_opencode_skill_for_root(
             source_entry.display()
         );
     }
-    let install_dir = managed_skill_install_dir(package_root);
+    let install_dir = managed_skill_install_dir(source_root);
     copy_skill_tree(&source_dir, &install_dir)?;
-    Ok(build_skill_status(package_root))
+    Ok(build_skill_status(package_root, source_root))
 }
 
 pub(crate) fn sync_managed_opencode_skill(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    sync_managed_opencode_skill_for_root(&state.package_root)
+    sync_managed_opencode_skill_for_root(&state.package_root, &state.source_root)
 }
 
 pub(crate) fn ensure_managed_opencode_skill_synced(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    let status = build_skill_status(&state.package_root);
+    let status = build_skill_status(&state.package_root, &state.source_root);
     if !status.source_present {
         return Ok(status);
     }
     if status.installed && !status.stale {
         return Ok(status);
     }
-    sync_managed_opencode_skill_for_root(&state.package_root)
+    sync_managed_opencode_skill_for_root(&state.package_root, &state.source_root)
 }
 
 /// 解析 meilang-author skill 根目录（已安装优先，否则源码目录）。
-pub(crate) fn resolve_meilang_skill_home(package_root: &FsPath) -> Option<PathBuf> {
-    let status = build_skill_status(package_root);
+/// 默认安装路径为 `{source_root}/.mei/opencode/skills/meilang-author`；
+/// 迁移期兼容回退历史根路径 `<config_root>/.mei/opencode/skills/meilang-author`。
+pub(crate) fn resolve_meilang_skill_home_for_source_root(
+    package_root: &FsPath,
+    source_root: &FsPath,
+) -> Option<PathBuf> {
+    let status = build_skill_status(package_root, source_root);
     if status.installed {
         Some(PathBuf::from(&status.install_dir))
     } else if status.source_present {
@@ -288,10 +311,12 @@ pub(crate) fn resolve_meilang_skill_home(package_root: &FsPath) -> Option<PathBu
 pub(crate) fn load_managed_opencode_skill_meta(
     state: &AppState,
 ) -> anyhow::Result<Option<ManagedOpencodeSkillMeta>> {
-    let Some(home) = resolve_meilang_skill_home(&state.package_root) else {
+    let Some(home) =
+        resolve_meilang_skill_home_for_source_root(&state.package_root, &state.source_root)
+    else {
         return Ok(None);
     };
-    let status = build_skill_status(&state.package_root);
+    let status = build_skill_status(&state.package_root, &state.source_root);
     let source_kind = if status.installed {
         "installed"
     } else {

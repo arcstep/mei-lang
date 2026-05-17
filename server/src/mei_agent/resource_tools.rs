@@ -44,13 +44,15 @@ impl ResourceToolExecutor for NoopResourceToolExecutor {
     }
 }
 
-pub(crate) fn all_tool_definitions() -> Vec<Value> {
-    vec![
-        llm::read_file_tool_definition(),
-        dataset_query_tool_definition(),
-        skill_tools::skill_list_tool_definition(),
-        skill_tools::skill_read_tool_definition(),
-    ]
+pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
+    let normalized = mode.trim().to_ascii_lowercase();
+    let mut tools = vec![llm::read_file_tool_definition(), dataset_query_tool_definition()];
+    if normalized == "build" {
+        tools.push(rewrite_current_mei_tool_definition());
+        tools.push(skill_tools::skill_list_tool_definition());
+        tools.push(skill_tools::skill_read_tool_definition());
+    }
+    tools
 }
 
 fn dataset_query_tool_definition() -> Value {
@@ -83,4 +85,60 @@ fn dataset_query_tool_definition() -> Value {
             }
         }
     })
+}
+
+fn rewrite_current_mei_tool_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": "rewrite_current_mei",
+            "description": "Rewrite current target `.mei` file with full new content. Build mode only. This tool is restricted to the active target file from the current request scope.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": { "type": "string", "description": "Full file content to write into current target `.mei`." },
+                    "target_file": { "type": "string", "description": "Optional; must equal current target_file if provided." },
+                    "reason": { "type": "string", "description": "Short reason for the rewrite." }
+                },
+                "required": ["content"]
+            }
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_definitions_for_mode;
+
+    fn tool_names(mode: &str) -> Vec<String> {
+        tool_definitions_for_mode(mode)
+            .into_iter()
+            .filter_map(|item| {
+                item.get("function")
+                    .and_then(|func| func.get("name"))
+                    .and_then(|name| name.as_str())
+                    .map(str::to_string)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ask_mode_hides_authoring_tools() {
+        let names = tool_names("ask");
+        assert!(names.contains(&"read_file".to_string()));
+        assert!(names.contains(&"dataset_query".to_string()));
+        assert!(!names.contains(&"skill_list".to_string()));
+        assert!(!names.contains(&"skill_read".to_string()));
+        assert!(!names.contains(&"rewrite_current_mei".to_string()));
+    }
+
+    #[test]
+    fn build_mode_includes_authoring_tools() {
+        let names = tool_names("build");
+        assert!(names.contains(&"read_file".to_string()));
+        assert!(names.contains(&"dataset_query".to_string()));
+        assert!(names.contains(&"skill_list".to_string()));
+        assert!(names.contains(&"skill_read".to_string()));
+        assert!(names.contains(&"rewrite_current_mei".to_string()));
+    }
 }

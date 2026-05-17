@@ -5,7 +5,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::mei_agent::llm::sanitize_relative_path;
-use crate::opencode::runtime::resolve_meilang_skill_home;
+use crate::opencode::runtime::resolve_meilang_skill_home_for_source_root;
 
 const MAX_SKILL_READ_BYTES: usize = 200_000;
 
@@ -32,8 +32,8 @@ fn list_markdown_under_skill_home(home: &Path) -> Vec<String> {
 }
 
 /// JSON：`skill_home`, `files`（相对 skill 根的 `.md` 路径，含 `SKILL.md`）。
-pub(crate) fn execute_skill_list(package_root: &Path) -> String {
-    let Some(home) = resolve_meilang_skill_home(package_root) else {
+pub(crate) fn execute_skill_list(package_root: &Path, source_root: &Path) -> String {
+    let Some(home) = resolve_meilang_skill_home_for_source_root(package_root, source_root) else {
         return "error: mei-lang author skill not found (sync skill or ensure guides/claude-skills exists)"
             .to_string();
     };
@@ -46,7 +46,11 @@ pub(crate) fn execute_skill_list(package_root: &Path) -> String {
 }
 
 /// 读取 skill 根下的 UTF-8 文本（`rel` 为相对路径，禁止 `..`）。
-pub(crate) fn execute_skill_read(package_root: &Path, arguments_json: &str) -> String {
+pub(crate) fn execute_skill_read(
+    package_root: &Path,
+    source_root: &Path,
+    arguments_json: &str,
+) -> String {
     let args: Value = match serde_json::from_str(arguments_json) {
         Ok(v) => v,
         Err(e) => return format!("error: invalid tool arguments JSON: {e}"),
@@ -55,7 +59,7 @@ pub(crate) fn execute_skill_read(package_root: &Path, arguments_json: &str) -> S
     let Some(rel) = sanitize_relative_path(raw) else {
         return "error: path must be a relative path without '..'".to_string();
     };
-    let Some(home) = resolve_meilang_skill_home(package_root) else {
+    let Some(home) = resolve_meilang_skill_home_for_source_root(package_root, source_root) else {
         return "error: mei-lang author skill not found".to_string();
     };
     let full = home.join(&rel);
@@ -116,14 +120,16 @@ mod tests {
     #[test]
     fn skill_read_rejects_escape_from_skill_home() {
         let pkg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let out = execute_skill_read(&pkg, r#"{"path":"../Cargo.toml"}"#);
+        let source_root = pkg.join("../workspaces");
+        let out = execute_skill_read(&pkg, &source_root, r#"{"path":"../Cargo.toml"}"#);
         assert!(out.starts_with("error:"), "{out}");
     }
 
     #[test]
     fn skill_list_finds_skill_md_when_repo_present() {
         let pkg = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-        let json = execute_skill_list(&pkg);
+        let source_root = pkg.join("../workspaces");
+        let json = execute_skill_list(&pkg, &source_root);
         assert!(
             json.contains("SKILL.md"),
             "expected SKILL.md in listing: {json}"

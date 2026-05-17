@@ -75,6 +75,8 @@ enum OpencodeCommand {
 
 #[derive(clap::Args)]
 struct OpencodeSkillArgs {
+    #[arg(long, default_value = "../workspaces")]
+    source_root: PathBuf,
     #[command(subcommand)]
     command: OpencodeSkillCommand,
 }
@@ -227,18 +229,33 @@ fn opencode_command(args: OpencodeArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     opencode::runtime::load_repo_dotenv(&package_root);
     match args.command {
-        OpencodeCommand::Skill(skill_args) => match skill_args.command {
+        OpencodeCommand::Skill(skill_args) => {
+            let OpencodeSkillArgs {
+                source_root,
+                command,
+            } = skill_args;
+            let source_root = if source_root.is_absolute() {
+                source_root
+            } else {
+                package_root.join(source_root)
+            };
+            match command {
             OpencodeSkillCommand::Status => {
-                let status =
-                    opencode::runtime::managed_opencode_skill_status_for_root(&package_root);
+                let status = opencode::runtime::managed_opencode_skill_status_for_root(
+                    &package_root,
+                    &source_root,
+                );
                 println!("{}", serde_json::to_string_pretty(&status)?);
             }
             OpencodeSkillCommand::Sync => {
-                let status =
-                    opencode::runtime::sync_managed_opencode_skill_for_root(&package_root)?;
+                let status = opencode::runtime::sync_managed_opencode_skill_for_root(
+                    &package_root,
+                    &source_root,
+                )?;
                 println!("{}", serde_json::to_string_pretty(&status)?);
             }
-        },
+            }
+        }
     }
     Ok(())
 }

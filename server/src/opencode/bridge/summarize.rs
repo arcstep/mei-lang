@@ -15,6 +15,12 @@ pub(crate) fn prompt_body(request: BridgePromptRequest) -> Value {
     if let Some(system) = request.system {
         body["system"] = Value::String(system);
     }
+    if let Some(mode) = request.mode {
+        body["mode"] = Value::String(mode);
+    }
+    if let Some(route_mode) = request.route_mode {
+        body["route_mode"] = Value::String(route_mode);
+    }
     if let Some(agent) = request.agent {
         body["agent"] = Value::String(agent);
     }

@@ -113,7 +113,13 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
         "source-highlight.js",
         "spa-navigation.js",
     ];
-    const ACCESS_SCRIPTS: &[&str] = &["frame-stage.js", "statusbar.js", "spa-navigation.js"];
+    const ACCESS_SCRIPTS: &[&str] = &[
+        "frame-stage.js",
+        "statusbar.js",
+        "opencode-panel.js",
+        "workspace-splitters.js",
+        "spa-navigation.js",
+    ];
     match mode {
         "manage.js" | "manage" => Some(MANAGE_SCRIPTS),
         "access.js" | "access" => Some(ACCESS_SCRIPTS),

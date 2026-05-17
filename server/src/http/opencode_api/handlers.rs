@@ -1,4 +1,5 @@
 use std::path::Path as FsPath;
+use std::time::Instant;
 
 use axum::{
     extract::{Path, Query, State},
@@ -13,13 +14,15 @@ use crate::{
         agent_abort_session, agent_create_session, agent_health, agent_list_sessions,
         agent_project_worktree, agent_respond_permission, agent_revert_session, agent_send_prompt,
         agent_session_diff, agent_session_messages, agent_unrevert_session, agent_vcs_summary,
+        llm_config,
+        mode_policy::AgentModePolicy,
         native::{encode_host_event_line, filter_session_event},
         sanitize_relative_path,
         resolve_agent_conn,
     },
     opencode::{
         bridge::{
-            BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary,
+            BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary, BridgeModelRef,
             BridgeHealthResponse, BridgePermissionResponseRequest, BridgePermissionResponseSummary,
             BridgePromptRequest, BridgePromptSummary, BridgeRevertRequest, BridgeRevertSummary,
             BridgeSessionDiffQuery, BridgeSessionMessageRaw, BridgeSessionSummary,
@@ -51,6 +54,28 @@ use super::prompt_context::{
     build_dynamic_session_context_preview, enrich_prompt_request, load_or_refresh_session_context,
 };
 use super::sse::sse_session_status_notice;
+
+#[derive(Debug, Deserialize)]
+pub struct OpencodeModelProbeQuery {
+    #[serde(default, alias = "providerID")]
+    pub provider_id: Option<String>,
+    #[serde(default, alias = "modelID")]
+    pub model_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpencodeModelProbeResponse {
+    pub reachable: bool,
+    pub provider_id: String,
+    pub model_id: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub latency_ms: Option<u128>,
+    #[serde(default)]
+    pub status_code: Option<u16>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
 
 pub async fn api_opencode_config(State(state): State<AppState>) -> Response {
     Json(managed_opencode_config_summary(&state)).into_response()
@@ -176,6 +201,96 @@ pub async fn api_opencode_health(State(state): State<AppState>) -> Response {
     }
 }
 
+pub async fn api_opencode_model_probe(
+    Query(query): Query<OpencodeModelProbeQuery>,
+) -> Response {
+    let provider_id = query
+        .provider_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let model_id = query
+        .model_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let model_ref = if provider_id.is_some() || model_id.is_some() {
+        Some(BridgeModelRef {
+            provider_id: provider_id.clone().unwrap_or_default(),
+            model_id: model_id.clone().unwrap_or_default(),
+        })
+    } else {
+        None
+    };
+    let conn = match llm_config::resolve_llm(model_ref.as_ref()) {
+        Ok(value) => value,
+        Err(error) => {
+            return Json(OpencodeModelProbeResponse {
+                reachable: false,
+                provider_id: provider_id.unwrap_or_else(llm_config::default_provider_id_for_ui),
+                model_id: model_id.unwrap_or_default(),
+                base_url: String::new(),
+                latency_ms: None,
+                status_code: None,
+                error: Some(error.to_string()),
+            })
+            .into_response();
+        }
+    };
+
+    let models_url = format!("{}/models", conn.base_url.trim_end_matches('/'));
+    let start = Instant::now();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(8))
+        .build();
+    let Ok(client) = client else {
+        return Json(OpencodeModelProbeResponse {
+            reachable: false,
+            provider_id: provider_id.unwrap_or_else(llm_config::default_provider_id_for_ui),
+            model_id: conn.model.clone(),
+            base_url: conn.base_url.clone(),
+            latency_ms: None,
+            status_code: None,
+            error: Some("failed to initialize probe client".to_string()),
+        })
+        .into_response();
+    };
+
+    let result = client
+        .get(&models_url)
+        .header("Authorization", format!("Bearer {}", conn.api_key))
+        .header("Content-Type", "application/json")
+        .send()
+        .await;
+    match result {
+        Ok(response) => {
+            let status = response.status();
+            Json(OpencodeModelProbeResponse {
+                reachable: status.is_success(),
+                provider_id: provider_id.unwrap_or_else(llm_config::default_provider_id_for_ui),
+                model_id: conn.model.clone(),
+                base_url: conn.base_url.clone(),
+                latency_ms: Some(start.elapsed().as_millis()),
+                status_code: Some(status.as_u16()),
+                error: (!status.is_success()).then(|| format!("probe status {}", status.as_u16())),
+            })
+            .into_response()
+        }
+        Err(error) => Json(OpencodeModelProbeResponse {
+            reachable: false,
+            provider_id: provider_id.unwrap_or_else(llm_config::default_provider_id_for_ui),
+            model_id: conn.model.clone(),
+            base_url: conn.base_url.clone(),
+            latency_ms: Some(start.elapsed().as_millis()),
+            status_code: None,
+            error: Some(error.to_string()),
+        })
+        .into_response(),
+    }
+}
+
 pub async fn api_opencode_start(
     State(state): State<AppState>,
     Json(request): Json<StartManagedOpencodeRequest>,
@@ -245,6 +360,10 @@ pub struct OpencodeContextPreviewQuery {
     pub entry_id: Option<String>,
     #[serde(default)]
     pub target_file: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default, alias = "routeMode")]
+    pub route_mode: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -283,9 +402,16 @@ pub async fn api_opencode_context_preview(
         entry_id: query.entry_id.clone(),
         target_file: query.target_file.clone(),
         system: None,
+        mode: query.mode.clone(),
+        route_mode: query.route_mode.clone(),
         agent: None,
         model: None,
     };
+    let policy = AgentModePolicy::from_request(&request);
+    if let Err(error) = policy.validate() {
+        return error_response(error);
+    }
+    policy.apply_to_request(&mut request);
     let session_context =
         build_dynamic_session_context_preview(&state, &request).unwrap_or_else(|| String::new());
     request = enrich_prompt_request(&state, Some(&session_context), request);
@@ -351,12 +477,17 @@ pub async fn api_opencode_context_preview(
 pub async fn api_opencode_send_message(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
-    Json(request): Json<BridgePromptRequest>,
+    Json(mut request): Json<BridgePromptRequest>,
 ) -> Response {
     let conn = match resolve_agent_conn(&state) {
         Ok(c) => c,
         Err(error) => return error_response(error),
     };
+    let policy = AgentModePolicy::from_request(&request);
+    if let Err(error) = policy.validate() {
+        return error_response(error);
+    }
+    policy.apply_to_request(&mut request);
     let session_context = load_or_refresh_session_context(&state, &session_id, &request);
     let request = enrich_prompt_request(&state, session_context.as_deref(), request);
     match agent_send_prompt(&state, &conn, &session_id, request).await {

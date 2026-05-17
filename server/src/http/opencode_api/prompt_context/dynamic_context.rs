@@ -1,3 +1,5 @@
+use std::fs;
+
 use crate::{opencode::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
 
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
@@ -5,8 +7,43 @@ use super::paths::{resolve_app_root, sanitize_relative_path};
 use super::request_scope::world_scope_from_request;
 use super::world_snapshot_lines::append_world_context_lines;
 
+const ASK_INLINE_TARGET_MAX_BYTES: usize = 24 * 1024;
+
+fn request_mode_slug(request: &BridgePromptRequest) -> &'static str {
+    let mode = request
+        .mode
+        .as_deref()
+        .or(request.agent.as_deref())
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_else(|| "build".to_string());
+    if mode == "ask" || mode == "plan" {
+        "ask"
+    } else {
+        "build"
+    }
+}
+
+fn resolve_target_path_for_request(
+    state: &AppState,
+    app_id: &str,
+    request: &BridgePromptRequest,
+) -> Option<(String, std::path::PathBuf)> {
+    let raw_target = request.target_file.as_deref().map(str::trim).filter(|v| !v.is_empty())?;
+    let target_rel = sanitize_relative_path(raw_target)?;
+    let mut candidates = vec![(target_rel.clone(), state.source_root.join(&target_rel))];
+    let app_prefixed = format!("{app_id}/{target_rel}");
+    if app_prefixed != target_rel {
+        candidates.push((app_prefixed.clone(), state.source_root.join(&app_prefixed)));
+    }
+    candidates
+        .into_iter()
+        .find(|(_, full)| full.exists() && full.is_file())
+}
+
 fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
     let (app_id, _app_root) = resolve_app_root(state, request)?;
+    let ask_mode = request_mode_slug(request) == "ask";
     let world_scope = world_scope_from_request(request);
     let scene_id = world_scope.scene_id.as_deref().unwrap_or("unknown");
     let entry_id = request
@@ -35,13 +72,50 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
     }
     append_world_context_lines(&mut lines, &state.source_root, &app_id, &world_scope);
     lines.push(String::new());
-    lines.push(
-        concat!(
-            "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
-            "For app-owned files use `<app_id>/...` (e.g. `spbjw/data/dataset/...`); a bare `data/...` resolves next to the workspace root and is usually wrong."
-        )
-        .to_string(),
-    );
+    if ask_mode {
+        if let Some((target_rel, full_path)) = resolve_target_path_for_request(state, &app_id, request) {
+            match fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    let bytes = content.as_bytes();
+                    let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
+                        (
+                            String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES]).to_string(),
+                            true,
+                        )
+                    } else {
+                        (content, false)
+                    };
+                    lines.push("[Current Target .mei Snapshot]".to_string());
+                    lines.push(format!("path: {target_rel}"));
+                    lines.push(format!(
+                        "truncated: {} (max {} bytes)",
+                        if truncated { "yes" } else { "no" },
+                        ASK_INLINE_TARGET_MAX_BYTES
+                    ));
+                    lines.push("---".to_string());
+                    lines.push(inlined);
+                }
+                Err(error) => {
+                    lines.push(format!(
+                        "[Current Target .mei Snapshot]\npath: {target_rel}\nerror: failed to read target file ({error})"
+                    ));
+                }
+            }
+        } else {
+            lines.push(
+                "[Current Target .mei Snapshot]\nunavailable: no valid target `.mei` in current request scope"
+                    .to_string(),
+            );
+        }
+    } else {
+        lines.push(
+            concat!(
+                "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
+                "For app-owned files use `<app_id>/...` (e.g. `spbjw/data/dataset/...`); a bare `data/...` resolves next to the workspace root and is usually wrong."
+            )
+            .to_string(),
+        );
+    }
     Some(lines.join("\n"))
 }
 
@@ -57,10 +131,11 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let scene_id = request.scene_id.as_deref().map(str::trim).unwrap_or("");
     let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
+    let mode = request_mode_slug(request);
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v3|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mei_revision={revision}"
+        "v=world-context-v4|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mode={mode}|mei_revision={revision}"
     ))
 }
 
@@ -159,6 +234,8 @@ mod tests {
             entry_id: Some("entry-a".to_string()),
             target_file: Some("main.mei".to_string()),
             system: None,
+            mode: None,
+            route_mode: None,
             agent: None,
             model: None,
         };
@@ -187,6 +264,8 @@ mod tests {
             entry_id: Some("main".to_string()),
             target_file: Some("main.mei".to_string()),
             system: None,
+            mode: None,
+            route_mode: None,
             agent: None,
             model: None,
         };
@@ -195,6 +274,28 @@ mod tests {
             !ctx.contains("```mei"),
             "expected no inlined mei fence: {ctx}"
         );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ask_mode_inlines_current_target_snapshot() {
+        let (root, _app_root) = prepare_app_root();
+        let state = build_test_state(root.clone(), root.clone());
+        let request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("demo".to_string()),
+            scene_id: Some("s1".to_string()),
+            entry_id: Some("main".to_string()),
+            target_file: Some("main.mei".to_string()),
+            system: None,
+            mode: Some("ask".to_string()),
+            route_mode: Some("access".to_string()),
+            agent: None,
+            model: None,
+        };
+        let ctx = build_dynamic_mei_context(&state, &request).unwrap_or_default();
+        assert!(ctx.contains("[Current Target .mei Snapshot]"));
+        assert!(ctx.contains("app(kind=\"app\""));
         let _ = fs::remove_dir_all(&root);
     }
 }
