@@ -7,14 +7,13 @@
 
   function els() {
     return {
-      skill: document.getElementById("mei-status-skill"),
-      opencode: document.getElementById("mei-status-opencode"),
+      modelService: document.getElementById("mei-status-model-service"),
     };
   }
 
   function hasTargets() {
     const nodes = els();
-    return !!(nodes.skill || nodes.opencode);
+    return !!nodes.modelService;
   }
 
   async function fetchJson(url, options) {
@@ -32,107 +31,53 @@
     node.dataset.tone = tone || "neutral";
   }
 
-  function openCodeModeLabel(value) {
-    const mode = String(value || "").trim().toLowerCase();
-    if (mode === "managed") return "托管";
-    if (mode === "external") return "外部";
-    if (mode === "native") return "内置";
-    return "--";
-  }
-
-  function skillSummary(skill) {
-    if (!skill || !skill.source_present) {
-      return { text: "Skill 缺失", tone: "danger", title: "Skill 源目录不存在" };
+  function modelServiceSummary(payload, fallbackError) {
+    if (!payload || typeof payload !== "object") {
+      return {
+        text: "模型服务 未知",
+        tone: "warn",
+        title: fallbackError || "模型服务状态读取失败",
+      };
     }
-    if (skill.installed && skill.stale) {
-      return { text: "Skill 待同步", tone: "warn", title: "Skill 已安装，但版本落后于源目录" };
+    const provider = String(payload.provider_id || "").trim() || "--";
+    const model = String(payload.model_id || "").trim() || "--";
+    const reachable = !!payload.reachable;
+    const latency = Number(payload.latency_ms || 0);
+    const latencyText = Number.isFinite(latency) && latency > 0 ? " · " + String(latency) + "ms" : "";
+    const statusCode = Number(payload.status_code || 0);
+    const statusText = statusCode > 0 ? " · HTTP " + String(statusCode) : "";
+    const titleBase = "provider=" + provider + " · model=" + model + latencyText + statusText;
+    if (reachable) {
+      return {
+        text: "模型服务 在线",
+        tone: "good",
+        title: "探测成功 · " + titleBase,
+      };
     }
-    if (skill.installed) {
-      return { text: "Skill 已装", tone: "good", title: "Skill 已安装并可用" };
-    }
-    return { text: "Skill 源目录", tone: "info", title: "Skill 源目录存在，但尚未安装" };
-  }
-
-  function openCodeSummary(state) {
-    const config = state.config;
-    const runtime = state.runtime;
-    const health = state.health;
-    const modeRaw = String(
-      (runtime && runtime.connection_source) || (config && config.preferred_mode) || "",
-    )
-      .trim()
-      .toLowerCase();
-    const mode = openCodeModeLabel(modeRaw);
-    const backendLabel = "助手";
-    let phase = "未配";
-    let tone = "neutral";
-    if (state.loading) {
-      phase = "刷新中";
-      tone = "info";
-    } else if (health && health.healthy) {
-      phase = "在线";
-      tone = "good";
-    } else if (runtime && runtime.running) {
-      if (modeRaw === "native") {
-        phase = "未就绪";
-        tone = "warn";
-      } else if (mode === "托管") {
-        phase = "启动中";
-        tone = "warn";
-      } else {
-        phase = "未连";
-        tone = "danger";
-      }
-    }
-    const model =
-      String(config && (config.completion_model || config.provider_name || config.provider_id) || "").trim() ||
-      "";
-    const text = backendLabel + " " + mode + "·" + phase;
-    const title = model ? text + " · " + model : text;
-    return { text, tone, title };
+    const error = String(payload.error || "").trim();
+    return {
+      text: "模型服务 异常",
+      tone: "danger",
+      title: (error ? error + " · " : "") + titleBase,
+    };
   }
 
   async function refresh() {
     if (!hasTargets()) return;
     const nodes = els();
-    const state = { loading: true, config: null, runtime: null, health: null };
-    const loadingSummary = openCodeSummary(state);
-    setChip(nodes.opencode, loadingSummary.text, loadingSummary.tone, loadingSummary.title);
+    setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
     try {
-      const [config, runtime, skill] = await Promise.all([
-        fetchJson("/api/opencode/config"),
-        fetchJson("/api/opencode/runtime"),
-        fetchJson("/api/opencode/skill"),
-      ]);
-      state.loading = false;
-      state.config = config;
-      state.runtime = runtime;
-      if (runtime && runtime.running) {
-        try {
-          state.health = await fetchJson("/api/opencode/health");
-        } catch (_) {
-          state.health = null;
-        }
-      }
-      const skillView = skillSummary(skill);
-      const openCodeView = openCodeSummary(state);
-      setChip(nodes.skill, skillView.text, skillView.tone, skillView.title);
-      setChip(nodes.opencode, openCodeView.text, openCodeView.tone, openCodeView.title);
-    } catch (_) {
-      state.loading = false;
-      setChip(nodes.skill, "Skill 未知", "warn", "Skill 状态读取失败");
-      setChip(nodes.opencode, "助手 未知", "warn", "助手状态读取失败");
+      const probe = await fetchJson("/api/opencode/model/probe");
+      const summary = modelServiceSummary(probe, "");
+      setChip(nodes.modelService, summary.text, summary.tone, summary.title);
+    } catch (error) {
+      const summary = modelServiceSummary(null, String(error && error.message ? error.message : error || ""));
+      setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     }
   }
 
   function start() {
     refresh();
-    const manageMode =
-      document.body && document.body.classList.contains("manage-mode");
-    // 管理页由右侧作者助手面板负责更高频状态同步，避免重复轮询。
-    if (manageMode) {
-      return;
-    }
     if (refreshTimer) {
       clearInterval(refreshTimer);
     }

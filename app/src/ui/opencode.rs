@@ -10,7 +10,26 @@ pub(super) fn panel_view(
     selected_target: &str,
     source_views_enabled: bool,
     active_tab: &str,
+    allow_ask_mode: bool,
+    allow_build_mode: bool,
+    default_agent_mode: &str,
+    history_actions_enabled: bool,
 ) -> impl IntoView {
+    let allowed_modes = match (allow_ask_mode, allow_build_mode) {
+        (true, true) => "ask,build",
+        (true, false) => "ask",
+        (false, true) => "build",
+        (false, false) => "build",
+    };
+    let default_agent_mode = if allow_ask_mode && !allow_build_mode {
+        "ask".to_string()
+    } else if !allow_ask_mode && allow_build_mode {
+        "build".to_string()
+    } else if matches!(default_agent_mode, "ask" | "build") {
+        default_agent_mode.to_string()
+    } else {
+        "build".to_string()
+    };
     let active_entry = compiled
         .active_entry
         .clone()
@@ -52,6 +71,9 @@ pub(super) fn panel_view(
                 data-entry-target=active_entry_target
                 data-scene=active_scene
                 data-mode=route_mode.slug()
+                data-allowed-modes=allowed_modes
+                data-default-agent-mode=default_agent_mode
+                data-history-actions=if history_actions_enabled { "true" } else { "false" }
                 data-source-views=if source_views_enabled { "true" } else { "false" }
                 data-view-tab=active_tab.to_string()
             >
@@ -167,24 +189,33 @@ pub(super) fn panel_view(
                             } else {
                                 view! { <></> }.into_any()
                             }}
-                            <sl-button
-                                class="author-history-btn author-history-btn-icon text-[10px] font-bold tracking-[0.02em]"
-                                id="author-undo-btn"
-                                title="撤回本轮代码修改"
-                                size="small"
-                                disabled=true
-                            >
-                                "Undo"
-                            </sl-button>
-                            <sl-button
-                                class="author-history-btn author-history-btn-icon text-[10px] font-bold tracking-[0.02em]"
-                                id="author-redo-btn"
-                                title="恢复最近撤回的代码修改"
-                                size="small"
-                                disabled=true
-                            >
-                                "Redo"
-                            </sl-button>
+                            {if history_actions_enabled {
+                                view! {
+                                    <>
+                                        <sl-button
+                                            class="author-history-btn author-history-btn-icon text-[10px] font-bold tracking-[0.02em]"
+                                            id="author-undo-btn"
+                                            title="撤回本轮代码修改"
+                                            size="small"
+                                            disabled=true
+                                        >
+                                            "Undo"
+                                        </sl-button>
+                                        <sl-button
+                                            class="author-history-btn author-history-btn-icon text-[10px] font-bold tracking-[0.02em]"
+                                            id="author-redo-btn"
+                                            title="恢复最近撤回的代码修改"
+                                            size="small"
+                                            disabled=true
+                                        >
+                                            "Redo"
+                                        </sl-button>
+                                    </>
+                                }
+                                    .into_any()
+                            } else {
+                                view! { <></> }.into_any()
+                            }}
                         </div>
                         <div class="author-composer-shell author-surface-composer flex flex-col gap-1.5 p-2">
                             <div class="author-composer-body min-h-0">
@@ -197,24 +228,38 @@ pub(super) fn panel_view(
                             <div class="author-composer-footer flex items-center justify-between gap-1.5">
                                 <div class="flex min-w-0 flex-1 items-center gap-1.5">
                                     <sl-button-group class="author-agent-mode inline-flex shrink-0 items-center" id="author-agent-mode" label="助手工作模式">
-                                        <sl-button
-                                            class="author-mode-btn text-[10px] font-bold tracking-[0.01em]"
-                                            id="author-mode-plan-btn"
-                                            data-agent-mode="plan"
-                                            title="仅分析与规划"
-                                            size="small"
-                                        >
-                                            "Plan"
-                                        </sl-button>
-                                        <sl-button
-                                            class="author-mode-btn is-active text-[10px] font-bold tracking-[0.01em]"
-                                            id="author-mode-build-btn"
-                                            data-agent-mode="build"
-                                            title="直接修改代码"
-                                            size="small"
-                                        >
-                                            "Build"
-                                        </sl-button>
+                                        {if allow_ask_mode {
+                                            view! {
+                                                <sl-button
+                                                    class="author-mode-btn text-[10px] font-bold tracking-[0.01em]"
+                                                    id="author-mode-ask-btn"
+                                                    data-agent-mode="ask"
+                                                    title="问答模式（只读）"
+                                                    size="small"
+                                                >
+                                                    "Ask"
+                                                </sl-button>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! { <></> }.into_any()
+                                        }}
+                                        {if allow_build_mode {
+                                            view! {
+                                                <sl-button
+                                                    class="author-mode-btn text-[10px] font-bold tracking-[0.01em]"
+                                                    id="author-mode-build-btn"
+                                                    data-agent-mode="build"
+                                                    title="生成并改写当前脚本"
+                                                    size="small"
+                                                >
+                                                    "Build"
+                                                </sl-button>
+                                            }
+                                                .into_any()
+                                        } else {
+                                            view! { <></> }.into_any()
+                                        }}
                                     </sl-button-group>
                                     <span
                                         id="author-completion-model-wrap"

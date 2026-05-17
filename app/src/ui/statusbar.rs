@@ -45,15 +45,10 @@ pub(super) fn statusbar_view(
     let compile_summary = compile_status_summary(compiled);
     let compile_summary_title = compile_status_title(compiled);
     let compile_tone = compile_status_tone(compiled);
-    let runtime_skill = if runtime_enabled {
-        "Skill 检测中"
+    let model_service_summary = if runtime_enabled {
+        "模型服务检测中"
     } else {
-        "Skill --"
-    };
-    let runtime_opencode = if runtime_enabled {
-        "OpenCode 检测中"
-    } else {
-        "OpenCode --"
+        "模型服务 --"
     };
     view! {
         <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
@@ -70,8 +65,7 @@ pub(super) fn statusbar_view(
                     <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
                 </div>
                 <div class="statusbar-track statusbar-track-right min-w-0">
-                    <span class="status-chip status-chip-runtime max-w-[200px]" id="mei-status-skill" data-tone="neutral">{runtime_skill}</span>
-                    <span class="status-chip status-chip-runtime max-w-[240px]" id="mei-status-opencode" data-tone="neutral">{runtime_opencode}</span>
+                    <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
                 </div>
             </div>
         </footer>

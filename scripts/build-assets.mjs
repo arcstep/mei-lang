@@ -30,7 +30,13 @@ const MANAGE_SCRIPTS = [
   "spa-navigation.js"
 ];
 
-const ACCESS_SCRIPTS = ["frame-stage.js", "statusbar.js", "spa-navigation.js"];
+const ACCESS_SCRIPTS = [
+  "frame-stage.js",
+  "statusbar.js",
+  "opencode-panel.js",
+  "workspace-splitters.js",
+  "spa-navigation.js"
+];
 const STYLES = [
   "app-shell.css",
   "tailwind.css",

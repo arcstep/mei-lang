@@ -33,7 +33,9 @@
     contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
     input: document.getElementById("author-intent-input"),
     run: document.getElementById("author-run-btn"),
-    modePlan: document.getElementById("author-mode-plan-btn"),
+    modeAsk:
+      document.getElementById("author-mode-ask-btn") ||
+      document.getElementById("author-mode-plan-btn"),
     modeBuild: document.getElementById("author-mode-build-btn"),
     completionModelSelect: document.getElementById("author-completion-model-select"),
     completionModelWrap: document.getElementById("author-completion-model-wrap"),
@@ -44,8 +46,7 @@
     sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
     sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
     sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
-    statusSkill: document.getElementById("mei-status-skill"),
-    statusOpenCode: document.getElementById("mei-status-opencode"),
+    statusModelService: document.getElementById("mei-status-model-service"),
   };
 
   const state = {
@@ -97,6 +98,8 @@
     contextPreviewBackoffUntilMs: 0,
     contextPreviewFetchedAtMs: 0,
     contextPreviewScopeKey: "",
+    modelProbe: null,
+    modelProbeFetchedAtMs: 0,
     deltaDebugLog: [],
     progress: {
       visible: false,
@@ -359,7 +362,36 @@
   }
 
   function normalizeAgentMode(value) {
-    return String(value || "").toLowerCase() === "plan" ? "plan" : "build";
+    const normalizedRoute = normalizeRouteMode(root.dataset.mode);
+    const allowed = String(root.dataset.allowedModes || "")
+      .split(",")
+      .map(function (item) {
+        const raw = String(item || "").trim().toLowerCase();
+        if (raw === "plan") return "ask";
+        if (raw === "ask" || raw === "build") return raw;
+        return "";
+      })
+      .filter(Boolean);
+    if (!allowed.length) {
+      if (normalizedRoute === "access") {
+        allowed.push("ask");
+      } else {
+        allowed.push("build");
+      }
+    }
+    const defaultFromDataset = String(root.dataset.defaultAgentMode || "").trim().toLowerCase();
+    const fallback =
+      allowed.indexOf(defaultFromDataset) >= 0
+        ? defaultFromDataset
+        : allowed[0];
+    const raw = String(value || "").trim().toLowerCase();
+    const mapped = raw === "plan" ? "ask" : raw === "ask" ? "ask" : "build";
+    return allowed.indexOf(mapped) >= 0 ? mapped : fallback;
+  }
+
+  function normalizeRouteMode(value) {
+    const mode = String(value || "").toLowerCase();
+    return mode === "access" ? "access" : "manage";
   }
 
   function composerDraftText() {
@@ -371,8 +403,7 @@
     els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
     els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
     els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
-    els.statusSkill = document.getElementById("mei-status-skill");
-    els.statusOpenCode = document.getElementById("mei-status-opencode");
+    els.statusModelService = document.getElementById("mei-status-model-service");
   }
 
   function parsePx(value) {
@@ -682,13 +713,13 @@
       return String(tool && tool.status || "").trim().toLowerCase() === "error";
     });
 
-    let label = agent === "plan" ? "正在规划" : "正在执行";
+    let label = agent === "ask" ? "问答处理中" : "脚本生成中";
     if (runningTools.length > 0) {
-      label = (agent === "plan" ? "正在规划" : "正在执行") + " · 工具运行中";
+      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 工具运行中";
     } else if (stepStarts > stepFinishes) {
-      label = (agent === "plan" ? "正在规划" : "正在执行") + " · 步骤处理中";
+      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 步骤处理中";
     } else if (parts.length > 0) {
-      label = agent === "plan" ? "正在生成计划" : "正在生成结果";
+      label = agent === "ask" ? "正在生成回答" : "正在生成结果";
     }
 
     const totalSteps = Math.max(stepStarts, stepFinishes);
@@ -721,7 +752,7 @@
     }
     if (!items.length) {
       items.push({
-        label: agent === "plan" ? "等待规划输出" : "等待执行输出",
+        label: agent === "ask" ? "等待回答输出" : "等待执行输出",
         status: "running",
       });
     }
@@ -1280,7 +1311,7 @@
     if (els.reconnect) els.reconnect.disabled = controlsDisabled;
     if (els.newSession) els.newSession.disabled = controlsDisabled;
     if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
-    if (els.modePlan) els.modePlan.disabled = controlsDisabled;
+    if (els.modeAsk) els.modeAsk.disabled = controlsDisabled;
     if (els.modeBuild) els.modeBuild.disabled = controlsDisabled;
     if (els.completionModelSelect) {
       els.completionModelSelect.disabled =
@@ -1666,10 +1697,10 @@
   function renderAgentMode() {
     const mode = normalizeAgentMode(state.agentMode);
     state.agentMode = mode;
-    if (els.modePlan) {
-      const active = mode === "plan";
-      els.modePlan.classList.toggle("is-active", active);
-      els.modePlan.setAttribute("aria-pressed", active ? "true" : "false");
+    if (els.modeAsk) {
+      const active = mode === "ask";
+      els.modeAsk.classList.toggle("is-active", active);
+      els.modeAsk.setAttribute("aria-pressed", active ? "true" : "false");
     }
     if (els.modeBuild) {
       const active = mode === "build";
@@ -1699,9 +1730,9 @@
     rememberAgentMode();
     renderAgentMode();
     setInlineNote(
-      state.agentMode === "plan"
-        ? "已切换到 Plan（分析为主，不主动生成代码改动）"
-        : "已切换到 Build（可直接改代码）",
+      state.agentMode === "ask"
+        ? "已切换到 Ask（访问侧问答，只读）"
+        : "已切换到 Build（可生成并改写当前脚本）",
     );
   }
 
@@ -1715,11 +1746,15 @@
     const params = new URLSearchParams();
     const app = currentAppKey();
     const sceneId = currentSceneId();
+    const routeMode = normalizeRouteMode(root.dataset.mode);
+    const mode = normalizeAgentMode(state.agentMode);
     const entryId = String(root.dataset.entry || "").trim();
     const entryTarget = normalizeTargetKey(String(root.dataset.entryTarget || ""));
     const target = currentTargetKey();
     if (app) params.set("app_id", app);
     if (target) params.set("target_file", target);
+    params.set("route_mode", routeMode);
+    params.set("mode", mode);
     // 非入口文件预览（如 data/dataset/**）不应携带 scene/entry 约束，
     // 否则会触发 scope 校验失败并导致无意义重试。
     const scopedToEntry = !target || (entryTarget && target === entryTarget);
@@ -2064,13 +2099,51 @@
     });
   }
 
+  function selectedModelProbeQueryString() {
+    const params = new URLSearchParams();
+    const mref = getSelectedCompletionModelRef();
+    if (mref && mref.provider_id) {
+      params.set("provider_id", String(mref.provider_id));
+    }
+    if (mref && mref.model_id) {
+      params.set("model_id", String(mref.model_id));
+    }
+    return params.toString();
+  }
+
+  async function refreshModelProbe(force) {
+    if (!els.statusModelService) return;
+    const forceRefresh = Boolean(force);
+    const nowMs = Date.now();
+    if (!forceRefresh && state.modelProbeFetchedAtMs > 0 && nowMs - state.modelProbeFetchedAtMs < 30000) {
+      return;
+    }
+    const query = selectedModelProbeQueryString();
+    try {
+      state.modelProbe = await fetchJson(
+        "/api/opencode/model/probe" + (query ? "?" + query : ""),
+      );
+      state.modelProbeFetchedAtMs = nowMs;
+    } catch (error) {
+      state.modelProbe = {
+        reachable: false,
+        provider_id: "",
+        model_id: "",
+        base_url: "",
+        error: String(error && error.message ? error.message : error || ""),
+      };
+      state.modelProbeFetchedAtMs = nowMs;
+    }
+    renderStatusBarOpenCode();
+  }
+
   function renderSkillStatus() {
     const skill = state.skillStatus;
     if (!skill || !skill.source_present) {
       if (els.skillLine) {
         els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
       }
-      renderStatusBarSkill();
+      renderStatusBarOpenCode();
       return;
     }
     const summary = [];
@@ -2089,77 +2162,37 @@
     if (els.skillLine) {
       els.skillLine.textContent = summary.join(" · ");
     }
-    renderStatusBarSkill();
+    renderStatusBarOpenCode();
   }
 
   function renderStatusBarSkill() {
-    if (!els.statusSkill) return;
-    const skill = state.skillStatus;
-    let text = "Skill 缺失";
-    let tone = "danger";
-    let title = "Skill 源目录不存在";
-    if (skill && skill.source_present) {
-      if (skill.installed && skill.stale) {
-        text = "Skill 待同步";
-        tone = "warn";
-        title = "Skill 已安装，但版本落后于源目录";
-      } else if (skill.installed) {
-        text = "Skill 已装";
-        tone = "good";
-        title = "Skill 已安装并可用";
-      } else {
-        text = "Skill 源目录";
-        tone = "info";
-        title = "Skill 源目录存在，但尚未安装";
-      }
-    }
-    els.statusSkill.textContent = text;
-    els.statusSkill.title = title;
-    els.statusSkill.dataset.tone = tone;
+    renderStatusBarOpenCode();
   }
 
   function renderStatusBarOpenCode() {
-    if (!els.statusOpenCode) return;
-    const config = state.config;
-    const runtime = state.runtime;
-    const health = state.health;
-    const modeRaw = String(
-      (runtime && runtime.connection_source) ||
-        (config && config.preferred_mode) ||
-        "",
-    )
-      .trim()
-      .toLowerCase();
-    let mode = "--";
-    if (modeRaw === "managed") mode = "托管";
-    else if (modeRaw === "external") mode = "外部";
-    else if (modeRaw === "native") mode = "内置";
-    const backendLabel = "助手";
-    let phase = "未配";
-    let tone = "neutral";
+    if (!els.statusModelService) return;
     if (state.loading) {
-      phase = "刷新中";
-      tone = "info";
-    } else if (health && health.healthy && state.streamConnected) {
-      phase = "会话";
-      tone = "good";
-    } else if (health && health.healthy) {
-      phase = "在线";
-      tone = "good";
-    } else if (runtime && runtime.running) {
-      const isNative = modeRaw === "native";
-      phase = isNative ? "未就绪" : mode === "托管" ? "启动中" : "未连";
-      tone = isNative ? "warn" : mode === "托管" ? "warn" : "danger";
+      els.statusModelService.textContent = "模型服务 刷新中";
+      els.statusModelService.title = "正在刷新模型服务状态";
+      els.statusModelService.dataset.tone = "info";
+      return;
     }
-    const model =
-      String(state.modelLabel || "").trim() && String(state.modelLabel || "").trim() !== "模型"
-        ? String(state.modelLabel || "").trim().slice(0, 20)
-        : "";
-    const text = backendLabel + " " + mode + "·" + phase;
-    const title = model ? text + " · " + model : text;
-    els.statusOpenCode.textContent = text;
-    els.statusOpenCode.title = title;
-    els.statusOpenCode.dataset.tone = tone;
+    const probe = state.modelProbe;
+    const provider = String(probe && probe.provider_id ? probe.provider_id : "").trim() || "--";
+    const model = String(probe && probe.model_id ? probe.model_id : "").trim() || "--";
+    const latency = Number(probe && probe.latency_ms ? probe.latency_ms : 0);
+    const latencyText = Number.isFinite(latency) && latency > 0 ? " · " + String(latency) + "ms" : "";
+    if (probe && probe.reachable) {
+      els.statusModelService.textContent = "模型服务 在线";
+      els.statusModelService.title = "provider=" + provider + " · model=" + model + latencyText;
+      els.statusModelService.dataset.tone = "good";
+      return;
+    }
+    const error = String(probe && probe.error ? probe.error : "").trim();
+    const title = (error ? error + " · " : "") + "provider=" + provider + " · model=" + model + latencyText;
+    els.statusModelService.textContent = "模型服务 异常";
+    els.statusModelService.title = title;
+    els.statusModelService.dataset.tone = "danger";
   }
 
   function readSessionCache() {
@@ -3253,6 +3286,7 @@
 
   async function refreshAll() {
     let refreshFailed = false;
+    const previousTargetKey = String(state.sessionTargetKey || "");
     state.loading = true;
     setButtonState(true);
     renderStatus();
@@ -3266,6 +3300,9 @@
       state.runtime = runtime;
       state.skillStatus = skillStatus;
       state.sessionTargetKey = currentTargetKey();
+      if (state.sessionTargetKey !== previousTargetKey) {
+        state._meiAutoSessionOnce = false;
+      }
       let runtimeRef = runtime;
       if (runtimeRef && runtimeRef.running) {
         try {
@@ -3302,6 +3339,7 @@
       renderConfig();
       renderRuntime();
       renderSkillStatus();
+      await refreshModelProbe(true).catch(function () {});
       await refreshContextPreview().catch(function () {});
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
@@ -3521,6 +3559,8 @@
       scene_id: currentSceneId(),
       entry_id: String(root.dataset.entry || ""),
       target_file: currentTargetKey(),
+      mode: normalizeAgentMode(state.agentMode),
+      route_mode: normalizeRouteMode(root.dataset.mode),
       agent: normalizeAgentMode(state.agentMode),
     };
     const mref = getSelectedCompletionModelRef();
@@ -3566,11 +3606,11 @@
     state.pendingPromptDraft = draftText;
     state.progress = {
       visible: true,
-      label: normalizeAgentMode(state.agentMode) === "plan" ? "正在规划" : "正在执行",
-      detail: normalizeAgentMode(state.agentMode) === "plan" ? "等待规划输出" : "等待执行输出",
+      label: normalizeAgentMode(state.agentMode) === "ask" ? "问答处理中" : "脚本生成中",
+      detail: normalizeAgentMode(state.agentMode) === "ask" ? "等待回答输出" : "等待执行输出",
       items: [
         {
-          label: normalizeAgentMode(state.agentMode) === "plan" ? "规划中" : "执行中",
+          label: normalizeAgentMode(state.agentMode) === "ask" ? "问答中" : "生成中",
           status: "running",
         },
       ],
@@ -3621,7 +3661,7 @@
         state.activeGenerationMessageId = String(summary.message_id);
         setMessageMeta(summary.message_id, {
           agent: normalizeAgentMode(state.agentMode),
-          hasDiff: state.agentMode === "build" ? null : false,
+          hasDiff: normalizeAgentMode(state.agentMode) === "build" ? null : false,
           reverted: false,
         });
         if (normalizeAgentMode(state.agentMode) === "build") {
@@ -3727,9 +3767,9 @@
   };
   window.addEventListener("resize", onComposerInputWindowResize);
 
-  if (els.modePlan) {
-    els.modePlan.addEventListener("click", function () {
-      switchAgentMode("plan");
+  if (els.modeAsk) {
+    els.modeAsk.addEventListener("click", function () {
+      switchAgentMode("ask");
     });
   }
 
@@ -3744,6 +3784,7 @@
       rememberSelectedCompletionModel(els.completionModelSelect.value);
       syncModelLabelFromCompletionSelect();
       sizeCompletionModelSelectWidth();
+      refreshModelProbe(true).catch(function () {});
     });
   }
 
@@ -3823,6 +3864,9 @@
     state.contextPreviewBackoffUntilMs = 0;
     state.contextPreviewScopeKey = "";
     state.contextPreviewFetchedAtMs = 0;
+    state.modelProbe = null;
+    state.modelProbeFetchedAtMs = 0;
+    state._meiAutoSessionOnce = false;
     renderContextPreview();
     destroySourceDiffView();
     destroySourceEditor();

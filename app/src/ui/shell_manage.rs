@@ -406,6 +406,10 @@ pub(super) fn manage_shell(
                             selected_target.as_str(),
                             script_target,
                             active_manage_tab.slug(),
+                            true,
+                            true,
+                            "build",
+                            true,
                         )}
                     </div>
                 </aside>

@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
+use super::opencode;
 use super::preview;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
@@ -19,6 +20,7 @@ pub(super) fn access_shell(
 ) -> AnyView {
     let preview = preview::preview_view(compiled, app_path);
     let current_target = preview_target.unwrap_or(&compiled.entry_target);
+    let panel_tab = active_tab.unwrap_or("preview");
     let topbar = topbar_view(
         apps,
         compiled,
@@ -35,7 +37,7 @@ pub(super) fn access_shell(
         current_target,
         None,
         compiled,
-        false,
+        true,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if chrome_hidden {
@@ -67,9 +69,61 @@ pub(super) fn access_shell(
                 topbar
             }}
             <main class=main_class>
-                <section class=preview_panel_class>
-                    {preview}
-                </section>
+                {if chrome_hidden {
+                    view! {
+                        <section class=preview_panel_class>
+                            {preview}
+                        </section>
+                    }
+                        .into_any()
+                } else {
+                    view! {
+                        <div
+                            class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:minmax(0,1fr)_8px_var(--workspace-right-aside)]"
+                            id="workspace-root"
+                        >
+                            <section class=preview_panel_class>
+                                {preview}
+                            </section>
+                            <div
+                                class="splitter splitter-right"
+                                data-workspace-splitter="right"
+                                title="拖拽调整右侧助手栏宽度"
+                            >
+                                <button
+                                    class="splitter-toggle"
+                                    type="button"
+                                    data-workspace-toggle="right"
+                                    aria-label="折叠右侧助手栏"
+                                    title="折叠右侧助手栏"
+                                >
+                                    <span class="splitter-toggle-icon" aria-hidden="true">
+                                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M5.5 3.5 10 8l-4.5 4.5"/>
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
+                            <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-0 py-2.5">
+                                <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
+                                    {opencode::panel_view(
+                                        compiled,
+                                        app_path,
+                                        UiRouteMode::Access,
+                                        current_target,
+                                        false,
+                                        panel_tab,
+                                        true,
+                                        false,
+                                        "ask",
+                                        false,
+                                    )}
+                                </div>
+                            </aside>
+                        </div>
+                    }
+                        .into_any()
+                }}
             </main>
             {if chrome_hidden {
                 view! { <></> }.into_any()
