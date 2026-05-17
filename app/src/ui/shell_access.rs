@@ -38,6 +38,7 @@ pub(super) fn access_shell(
         None,
         compiled,
         true,
+        false,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if chrome_hidden {
@@ -78,49 +79,54 @@ pub(super) fn access_shell(
                         .into_any()
                 } else {
                     view! {
-                        <div
-                            class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:minmax(0,1fr)_8px_var(--workspace-right-aside)]"
-                            id="workspace-root"
-                        >
+                        <>
                             <section class=preview_panel_class>
                                 {preview}
                             </section>
-                            <div
-                                class="splitter splitter-right"
-                                data-workspace-splitter="right"
-                                title="拖拽调整右侧助手栏宽度"
-                            >
+                            <div id="access-chat-floating-root" class="access-chat-floating-root" data-open="false">
                                 <button
-                                    class="splitter-toggle"
+                                    id="access-chat-fab"
+                                    class="access-chat-fab"
                                     type="button"
-                                    data-workspace-toggle="right"
-                                    aria-label="折叠右侧助手栏"
-                                    title="折叠右侧助手栏"
+                                    aria-label="打开助手对话框"
+                                    title="打开助手对话框"
                                 >
-                                    <span class="splitter-toggle-icon" aria-hidden="true">
-                                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                            <path d="M5.5 3.5 10 8l-4.5 4.5"/>
-                                        </svg>
-                                    </span>
+                                    <img class="access-chat-fab-icon" src="/app-assets/favicon.svg" alt="" />
                                 </button>
+                                <aside
+                                    id="access-chat-overlay-panel"
+                                    class="access-chat-overlay-panel"
+                                    hidden=true
+                                >
+                                    <div class="access-chat-overlay-head">
+                                        <span class="access-chat-overlay-title">"Mei Assistant"</span>
+                                        <button
+                                            id="access-chat-close"
+                                            class="access-chat-overlay-close"
+                                            type="button"
+                                            aria-label="关闭助手对话框"
+                                            title="关闭助手对话框"
+                                        >
+                                            "×"
+                                        </button>
+                                    </div>
+                                    <div class="access-chat-overlay-body">
+                                        {opencode::panel_view(
+                                            compiled,
+                                            app_path,
+                                            UiRouteMode::Access,
+                                            current_target,
+                                            false,
+                                            panel_tab,
+                                            true,
+                                            false,
+                                            "ask",
+                                            false,
+                                        )}
+                                    </div>
+                                </aside>
                             </div>
-                            <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-0 py-2.5">
-                                <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
-                                    {opencode::panel_view(
-                                        compiled,
-                                        app_path,
-                                        UiRouteMode::Access,
-                                        current_target,
-                                        false,
-                                        panel_tab,
-                                        true,
-                                        false,
-                                        "ask",
-                                        false,
-                                    )}
-                                </div>
-                            </aside>
-                        </div>
+                        </>
                     }
                         .into_any()
                 }}

@@ -12,6 +12,7 @@ pub(super) fn statusbar_view(
     source_meta: Option<&SourcePanelMeta>,
     compiled: &CompiledApp,
     runtime_enabled: bool,
+    show_compile_center: bool,
 ) -> AnyView {
     let app_summary = format!("应用 {}", compiled.title);
     let app_summary_title = format!("应用：{app_path}");
@@ -58,11 +59,20 @@ pub(super) fn statusbar_view(
                     <span class="status-chip status-chip-file max-w-[26vw]" title=file_summary_title>{file_summary}</span>
                     <span class="status-chip status-chip-mode" data-tone="info">{route_mode_label}</span>
                 </div>
-                <div class="statusbar-track statusbar-track-center min-w-0">
-                    <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title>{compile_summary}</span>
-                    <span class="status-chip status-chip-diagnostic" data-tone=error_tone>{format!("Error {}", errors)}</span>
-                    <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
-                    <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
+                <div class="statusbar-track statusbar-track-center min-w-0" aria-hidden=(!show_compile_center).then_some("true")>
+                    {if show_compile_center {
+                        view! {
+                            <>
+                                <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title>{compile_summary}</span>
+                                <span class="status-chip status-chip-diagnostic" data-tone=error_tone>{format!("Error {}", errors)}</span>
+                                <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
+                                <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
+                            </>
+                        }
+                            .into_any()
+                    } else {
+                        view! { <></> }.into_any()
+                    }}
                 </div>
                 <div class="statusbar-track statusbar-track-right min-w-0">
                     <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>

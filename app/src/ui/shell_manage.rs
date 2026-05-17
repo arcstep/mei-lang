@@ -92,6 +92,7 @@ pub(super) fn manage_shell(
         source_meta,
         compiled,
         true,
+        true,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {

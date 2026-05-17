@@ -9,7 +9,7 @@
   const root = document.getElementById("workspace-root");
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
   const toggleButtons = Array.from(document.querySelectorAll("[data-workspace-toggle]"));
-  if (!root || !handles.length || window.matchMedia("(max-width: 1200px)").matches) return;
+  if (!root || !handles.length) return;
   const splitterPx = 8;
   const activateDragDeltaPx = 3;
   const minMain = 320;

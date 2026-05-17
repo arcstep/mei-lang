@@ -12,6 +12,10 @@
     "/app-assets/source-highlight.js",
     "/app-assets/opencode-panel.js",
   ]);
+  const RELOAD_BUNDLE_SCRIPTS = new Set([
+    "/app-bundles/manage.js",
+    "/app-bundles/access.js",
+  ]);
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
   const LOADING_DELAY_MS = 140;
   const LOADING_MIN_VISIBLE_MS = 180;
@@ -161,11 +165,20 @@
         script.setAttribute("data-mei-persistent-script", path);
         return;
       }
-      if (!path.startsWith("/app-assets/")) return;
-      if (RELOAD_APP_SCRIPTS.has(path)) {
-        script.setAttribute("data-mei-reload-script", path);
-      } else {
-        script.setAttribute("data-mei-persistent-script", path);
+      if (path.startsWith("/app-assets/")) {
+        if (RELOAD_APP_SCRIPTS.has(path)) {
+          script.setAttribute("data-mei-reload-script", path);
+        } else {
+          script.setAttribute("data-mei-persistent-script", path);
+        }
+        return;
+      }
+      if (path.startsWith("/app-bundles/")) {
+        if (RELOAD_BUNDLE_SCRIPTS.has(path)) {
+          script.setAttribute("data-mei-reload-script", path);
+        } else {
+          script.setAttribute("data-mei-persistent-script", path);
+        }
       }
     });
   }
@@ -254,13 +267,24 @@
         await loadScript(src, { module: true, persistentKey: path });
         continue;
       }
-      if (!path.startsWith("/app-assets/")) continue;
-      if (RELOAD_APP_SCRIPTS.has(path)) {
-        const withBuster = path + "?spa=" + Date.now();
-        await loadScript(withBuster, { reloadKey: path });
+      if (path.startsWith("/app-assets/")) {
+        if (RELOAD_APP_SCRIPTS.has(path)) {
+          const withBuster = path + "?spa=" + Date.now();
+          await loadScript(withBuster, { reloadKey: path });
+          continue;
+        }
+        await loadScript(src, { persistentKey: path });
         continue;
       }
-      await loadScript(src, { persistentKey: path });
+      if (path.startsWith("/app-bundles/")) {
+        if (RELOAD_BUNDLE_SCRIPTS.has(path)) {
+          const withBuster = path + "?spa=" + Date.now();
+          await loadScript(withBuster, { reloadKey: path });
+          continue;
+        }
+        await loadScript(src, { persistentKey: path });
+        continue;
+      }
     }
   }
 

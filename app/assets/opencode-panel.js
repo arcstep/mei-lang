@@ -46,6 +46,10 @@
     sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
     sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
     sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
+    accessFloatingRoot: document.getElementById("access-chat-floating-root"),
+    accessFab: document.getElementById("access-chat-fab"),
+    accessClose: document.getElementById("access-chat-close"),
+    accessPanel: document.getElementById("access-chat-overlay-panel"),
     statusModelService: document.getElementById("mei-status-model-service"),
   };
 
@@ -100,6 +104,7 @@
     contextPreviewScopeKey: "",
     modelProbe: null,
     modelProbeFetchedAtMs: 0,
+    accessFloatingOpen: false,
     deltaDebugLog: [],
     progress: {
       visible: false,
@@ -279,6 +284,10 @@
     return "mei-lang.opencode.mode." + currentAppKey() + "." + currentTargetKey();
   }
 
+  function accessFloatingStorageKey() {
+    return "mei-lang.opencode.access-floating." + currentAppKey();
+  }
+
   function revertedStorageKey() {
     return "mei-lang.opencode.reverted." + currentAppKey() + "." + currentTargetKey();
   }
@@ -394,6 +403,60 @@
     return mode === "access" ? "access" : "manage";
   }
 
+  function isAccessFloatingMode() {
+    return (
+      normalizeRouteMode(root.dataset.mode) === "access" &&
+      !!els.accessFloatingRoot &&
+      !!els.accessFab &&
+      !!els.accessPanel
+    );
+  }
+
+  function renderAccessFloatingPanel() {
+    if (!isAccessFloatingMode()) return;
+    const open = !!state.accessFloatingOpen;
+    els.accessFloatingRoot.dataset.open = open ? "true" : "false";
+    els.accessPanel.hidden = !open;
+    els.accessFab.title = open ? "关闭助手对话框" : "打开助手对话框";
+    els.accessFab.setAttribute("aria-label", open ? "关闭助手对话框" : "打开助手对话框");
+  }
+
+  function rememberAccessFloatingPanel() {
+    if (!isAccessFloatingMode()) return;
+    try {
+      localStorage.setItem(accessFloatingStorageKey(), state.accessFloatingOpen ? "1" : "0");
+    } catch (_) {}
+  }
+
+  function restoreAccessFloatingPanel() {
+    if (!isAccessFloatingMode()) return;
+    try {
+      const saved = localStorage.getItem(accessFloatingStorageKey());
+      state.accessFloatingOpen = saved === "1";
+    } catch (_) {
+      state.accessFloatingOpen = false;
+    }
+    renderAccessFloatingPanel();
+  }
+
+  function toggleAccessFloatingPanel(next) {
+    if (!isAccessFloatingMode()) return;
+    if (typeof next === "boolean") {
+      state.accessFloatingOpen = next;
+    } else {
+      state.accessFloatingOpen = !state.accessFloatingOpen;
+    }
+    rememberAccessFloatingPanel();
+    renderAccessFloatingPanel();
+    if (state.accessFloatingOpen && els.input) {
+      window.setTimeout(function () {
+        try {
+          els.input.focus();
+        } catch (_) {}
+      }, 0);
+    }
+  }
+
   function composerDraftText() {
     return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
   }
@@ -403,6 +466,10 @@
     els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
     els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
     els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
+    els.accessFloatingRoot = document.getElementById("access-chat-floating-root");
+    els.accessFab = document.getElementById("access-chat-fab");
+    els.accessClose = document.getElementById("access-chat-close");
+    els.accessPanel = document.getElementById("access-chat-overlay-panel");
     els.statusModelService = document.getElementById("mei-status-model-service");
   }
 
@@ -3788,6 +3855,26 @@
     });
   }
 
+  if (els.accessFab) {
+    els.accessFab.addEventListener("click", function () {
+      toggleAccessFloatingPanel();
+    });
+  }
+
+  if (els.accessClose) {
+    els.accessClose.addEventListener("click", function () {
+      toggleAccessFloatingPanel(false);
+    });
+  }
+
+  const onAccessFloatingEscape = function (event) {
+    if (!isAccessFloatingMode()) return;
+    if (event && event.key === "Escape" && state.accessFloatingOpen) {
+      toggleAccessFloatingPanel(false);
+    }
+  };
+  document.addEventListener("keydown", onAccessFloatingEscape);
+
   if (els.sourceViewDiffBtn) {
     els.sourceViewDiffBtn.addEventListener("click", function () {
       if (currentManageTab() !== "diff") {
@@ -3871,6 +3958,7 @@
     destroySourceDiffView();
     destroySourceEditor();
     refreshLinkedViewRefs();
+    restoreAccessFloatingPanel();
     ensureSourceEditor();
     applyManageTabMode(currentManageTab());
     root.classList.add("is-soft-refresh");
@@ -3891,6 +3979,7 @@
 
   restoreRevertedState();
   restoreAgentMode();
+  restoreAccessFloatingPanel();
   restoreSession();
   restoreDeltaDebugLog(state.sessionId);
   const initialTab = currentManageTab();
@@ -3989,6 +4078,7 @@
     closeEventStream();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
+    document.removeEventListener("keydown", onAccessFloatingEscape);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
     if (refreshTimerId) window.clearTimeout(refreshTimerId);
