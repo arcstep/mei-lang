@@ -40,9 +40,6 @@ mod tests {
 app(
     id = "good-app",
     default_scene = "home",
-    entries = [
-        entry(id = "home", scene = "home", frame = "home_frame"),
-    ],
 )
 
 scene(
@@ -197,8 +194,8 @@ frame.add_panel(
             State(state),
             AxumPath(("manage".to_string(), "bad-app".to_string())),
             Query(AppQuery {
-                target: None,
-                entry: None,
+                file: None,
+                scene: None,
                 tab: None,
                 chrome: None,
             }),

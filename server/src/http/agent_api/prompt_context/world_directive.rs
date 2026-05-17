@@ -31,7 +31,7 @@ fn world_directive_usage() -> &'static str {
 \n/world assets [entity|resource|cell] [limit]\
 \n/world asset <id>\
 \n/world runtime [trace_limit]\
-\n（默认按当前会话 scene_id / entry_id / target_file 收敛）"
+\n（默认按当前会话 scene_id / target_file 收敛）"
 }
 
 fn parse_world_directive(text: &str) -> Result<Option<(WorldDirective, String)>, String> {

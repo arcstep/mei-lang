@@ -356,8 +356,6 @@ pub struct OpencodeContextPreviewQuery {
     #[serde(default)]
     pub scene_id: Option<String>,
     #[serde(default)]
-    pub entry_id: Option<String>,
-    #[serde(default)]
     pub target_file: Option<String>,
     #[serde(default)]
     pub mode: Option<String>,
@@ -370,8 +368,6 @@ pub struct OpencodeContextPreviewResponse {
     pub app_id: String,
     #[serde(default)]
     pub scene_id: Option<String>,
-    #[serde(default)]
-    pub entry_id: Option<String>,
     #[serde(default)]
     pub target_file: Option<String>,
     pub session_context: String,
@@ -398,7 +394,6 @@ pub async fn api_agent_context_preview(
         text: String::new(),
         app_id: Some(app_id.to_string()),
         scene_id: query.scene_id.clone(),
-        entry_id: query.entry_id.clone(),
         target_file: query.target_file.clone(),
         system: None,
         mode: query.mode.clone(),
@@ -416,7 +411,6 @@ pub async fn api_agent_context_preview(
     request = enrich_prompt_request(&state, Some(&session_context), request);
     let scope = WorldScope {
         scene_id: query.scene_id.clone(),
-        entry_id: query.entry_id.clone(),
         target_file: query.target_file.clone(),
     };
     let (tools, resource_inventory, preview_error) =
@@ -438,7 +432,6 @@ pub async fn api_agent_context_preview(
                 tracing::debug!(
                     app_id = %app_id,
                     scene_id = ?query.scene_id,
-                    entry_id = ?query.entry_id,
                     target_file = ?query.target_file,
                     %error,
                     "degraded context preview snapshot"
@@ -460,7 +453,6 @@ pub async fn api_agent_context_preview(
     Json(OpencodeContextPreviewResponse {
         app_id: app_id.to_string(),
         scene_id: query.scene_id,
-        entry_id: query.entry_id,
         target_file: query.target_file,
         session_context,
         system_prompt: request.system.unwrap_or_default(),

@@ -43,7 +43,6 @@ fn normalize_scope_field(value: Option<&str>) -> Option<String> {
 fn normalize_world_scope(scope: Option<&WorldScope>) -> WorldScope {
     WorldScope {
         scene_id: normalize_scope_field(scope.and_then(|item| item.scene_id.as_deref())),
-        entry_id: normalize_scope_field(scope.and_then(|item| item.entry_id.as_deref())),
         target_file: normalize_scope_field(scope.and_then(|item| item.target_file.as_deref())),
     }
 }
@@ -72,50 +71,44 @@ fn load_world_runtime_bundle(
 ) -> Result<WorldRuntimeBundle> {
     let scope = normalize_world_scope(scope);
     let requested_scene = scope.scene_id.as_deref();
-    let requested_entry = scope.entry_id.as_deref();
     let requested_target = scope.target_file.clone();
 
     let base_compiled = compile_app(source_root, app_id)?;
     let app_root = source_root.join(app_id);
-    let mut selected_entry = requested_entry.map(str::to_string);
+    let mut selected_scene: Option<String> = None;
+
     if let Some(scene_id) = requested_scene {
         let by_scene = base_compiled
-            .entries
+            .scene_routes
             .iter()
-            .find(|item| item.scene_id == scene_id || item.entry_id == scene_id)
+            .find(|item| item.scene_id == scene_id)
             .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
-        if let Some(entry_id) = requested_entry {
-            let matches_scene =
-                entry_id == by_scene.entry_id || entry_id == by_scene.target_file.as_str();
-            if !matches_scene {
-                return Err(anyhow!(
-                    "scene `{scene_id}` does not match entry `{entry_id}`"
-                ));
-            }
-        }
         if let Some(target_file) = requested_target.as_deref() {
             let nt = normalize_path(target_file);
-            let matches_target = nt == normalize_path(by_scene.target_file.as_str())
-                || nt == by_scene.entry_id.as_str();
+            let matches_target = nt == normalize_path(by_scene.target_file.as_str());
             if matches_target {
-                selected_entry = Some(by_scene.entry_id.clone());
-            } else if let Some(by_target) = base_compiled
-                .entries
-                .iter()
-                .find(|e| normalize_path(e.target_file.as_str()) == nt || e.entry_id == target_file)
-            {
-                // 作者态里 scene 与 target 可能来自不同数据源；只要能命中 entry，就以 target 为准。
-                selected_entry = Some(by_target.entry_id.clone());
+                selected_scene = Some(by_scene.scene_id.clone());
+            } else if let Some(by_target) = base_compiled.scene_routes.iter().find(|e| {
+                normalize_path(e.target_file.as_str()) == nt
+            }) {
+                if by_target.scene_id != by_scene.scene_id {
+                    return Err(anyhow!(
+                        "scene `{scene_id}` is not bound to target `{target_file}`"
+                    ));
+                }
+                selected_scene = Some(by_target.scene_id.clone());
             } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_file) {
-                if let Some(by_target) = base_compiled
-                    .entries
-                    .iter()
-                    .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
-                {
-                    selected_entry = Some(by_target.entry_id.clone());
+                if let Some(by_target) = base_compiled.scene_routes.iter().find(|e| {
+                    normalize_path(e.target_file.as_str()) == normalize_path(&rel)
+                }) {
+                    if by_target.scene_id != by_scene.scene_id {
+                        return Err(anyhow!(
+                            "scene `{scene_id}` is not bound to target `{target_file}`"
+                        ));
+                    }
+                    selected_scene = Some(by_target.scene_id.clone());
                 } else if app_root.join(&rel).is_file() {
-                    // 独立 scene `.mei` 未登记在 app entries；按文件 preview 编译（忽略与主入口 scene_id 的表面不一致）。
-                    selected_entry = None;
+                    selected_scene = None;
                 } else {
                     return Err(anyhow!(
                         "scene `{scene_id}` is not bound to target `{target_file}`"
@@ -127,25 +120,26 @@ fn load_world_runtime_bundle(
                 ));
             }
         } else {
-            selected_entry = Some(by_scene.entry_id.clone());
+            selected_scene = Some(by_scene.scene_id.clone());
         }
-    } else if let Some(ref entry_id) = selected_entry {
-        let known = base_compiled
-            .entries
+    } else if let Some(target_only) = requested_target.as_deref() {
+        let nt = normalize_path(target_only);
+        if let Some(found) = base_compiled
+            .scene_routes
             .iter()
-            .any(|item| item.entry_id == *entry_id);
-        if !known {
-            if let Some(found) = base_compiled
-                .entries
-                .iter()
-                .find(|item| item.target_file == *entry_id)
-            {
-                selected_entry = Some(found.entry_id.clone());
+            .find(|item| normalize_path(item.target_file.as_str()) == nt)
+        {
+            selected_scene = Some(found.scene_id.clone());
+        } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_only) {
+            if let Some(found) = base_compiled.scene_routes.iter().find(|e| {
+                normalize_path(e.target_file.as_str()) == normalize_path(&rel)
+            }) {
+                selected_scene = Some(found.scene_id.clone());
             }
         }
     }
 
-    let preview_path = if selected_entry.is_some() {
+    let preview_path = if selected_scene.is_some() {
         None
     } else {
         requested_target.as_deref().and_then(|target| {
@@ -160,13 +154,13 @@ fn load_world_runtime_bundle(
         source_root,
         app_id,
         CompileOptions {
-            entry: selected_entry.clone(),
+            scene: selected_scene.clone(),
             preview_target: preview_path,
         },
     )?;
-    if let Some(entry_id) = selected_entry.as_deref() {
-        if compiled.active_entry.as_deref() != Some(entry_id) {
-            return Err(anyhow!("entry `{entry_id}` not found in app `{app_id}`"));
+    if let Some(sid) = selected_scene.as_deref() {
+        if compiled.active_scene.as_deref() != Some(sid) {
+            return Err(anyhow!("scene `{sid}` not found in app `{app_id}`"));
         }
     }
     let contract = compiled
@@ -175,10 +169,10 @@ fn load_world_runtime_bundle(
         .ok_or_else(|| anyhow!("app `{}` does not provide a scene contract", app_id))?;
     let state = initial_runtime_state(&contract, 1);
     let scene_view = project_runtime_view(&contract, &state);
-    let entry_target = compiled.entry_target.clone();
+    let active_target_file = compiled.active_target_file.clone();
     Ok(WorldRuntimeBundle {
         compiled,
-        entry_target,
+        active_target_file,
         contract,
         state,
         scene_view,
@@ -503,8 +497,8 @@ fn build_prompt_catalog_lines(
             .to_string(),
     );
     lines.push(format!(
-        "scene: id={} entry_target={}",
-        bundle.contract.scene.id, bundle.entry_target
+        "scene: id={} target_file={}",
+        bundle.contract.scene.id, bundle.active_target_file
     ));
     if let Some(world) = &bundle.contract.world {
         if let Some(wid) = world.id.as_deref().filter(|s| !s.is_empty()) {
@@ -601,18 +595,18 @@ fn build_prompt_catalog_lines(
     }
 
     lines.push(String::new());
-    lines.push("[World — app entries (scene routing)]".to_string());
+    lines.push("[World — scene routes]".to_string());
     const MAX_ENTRY: usize = 32;
-    for e in bundle.compiled.entries.iter().take(MAX_ENTRY) {
+    for e in bundle.compiled.scene_routes.iter().take(MAX_ENTRY) {
         lines.push(format!(
-            "  - entry id={} scene_id={} target_file={} kind={}",
-            e.entry_id, e.scene_id, e.target_file, e.kind
+            "  - scene_id={} target_file={} kind={}",
+            e.scene_id, e.target_file, e.kind
         ));
     }
-    if bundle.compiled.entries.len() > MAX_ENTRY {
+    if bundle.compiled.scene_routes.len() > MAX_ENTRY {
         lines.push(format!(
-            "  ... entries_omitted: {}",
-            bundle.compiled.entries.len() - MAX_ENTRY
+            "  ... routes_omitted: {}",
+            bundle.compiled.scene_routes.len() - MAX_ENTRY
         ));
     }
 
@@ -765,7 +759,7 @@ fn build_resource_inventory(
     let target_file = scope
         .and_then(|item| item.target_file.as_deref())
         .map(normalize_path)
-        .or_else(|| Some(bundle.entry_target.clone()));
+        .or_else(|| Some(bundle.active_target_file.clone()));
     let target_ref = target_file.as_deref();
     let scene_world_file_ref =
         file_ref_from_scene_binding(bundle.contract.scene.world.as_ref(), "world_file_ref");
@@ -779,7 +773,7 @@ fn build_resource_inventory(
         "scene",
         Some(bundle.contract.scene.id.clone()),
         bundle.contract.scene.summary.clone(),
-        Some(bundle.entry_target.clone()),
+        Some(bundle.active_target_file.clone()),
         Vec::new(),
         target_ref,
     );
@@ -826,7 +820,7 @@ fn build_resource_inventory(
             )),
             scene_world_file_ref
                 .clone()
-                .or_else(|| Some(bundle.entry_target.clone())),
+                .or_else(|| Some(bundle.active_target_file.clone())),
             Vec::new(),
             target_ref,
         );
@@ -847,7 +841,7 @@ fn build_resource_inventory(
                     .as_ref()
                     .map(|source| normalize_path(&source.path))
                     .or_else(|| scene_world_file_ref.clone())
-                    .or_else(|| Some(bundle.entry_target.clone())),
+                    .or_else(|| Some(bundle.active_target_file.clone())),
                 references,
                 target_ref,
             );
@@ -865,7 +859,7 @@ fn build_resource_inventory(
                 )),
                 scene_world_file_ref
                     .clone()
-                    .or_else(|| Some(bundle.entry_target.clone())),
+                    .or_else(|| Some(bundle.active_target_file.clone())),
                 item.spawns.clone(),
                 target_ref,
             );
@@ -885,7 +879,7 @@ fn build_resource_inventory(
                     )),
                     scene_world_file_ref
                         .clone()
-                        .or_else(|| Some(bundle.entry_target.clone())),
+                        .or_else(|| Some(bundle.active_target_file.clone())),
                     cell.tags.clone(),
                     target_ref,
                 );
@@ -902,7 +896,7 @@ fn build_resource_inventory(
             Some("scene 主 frame".to_string()),
             scene_frame_file_ref
                 .clone()
-                .or_else(|| Some(bundle.entry_target.clone())),
+                .or_else(|| Some(bundle.active_target_file.clone())),
             Vec::new(),
             target_ref,
         );
@@ -918,7 +912,7 @@ fn build_resource_inventory(
                 flow.interactions.len(),
                 flow.subject_timers.len()
             )),
-            Some(bundle.entry_target.clone()),
+            Some(bundle.active_target_file.clone()),
             Vec::new(),
             target_ref,
         );
@@ -932,21 +926,21 @@ fn build_resource_inventory(
             Some(format!("blocks={}", panel.blocks.len())),
             scene_frame_file_ref
                 .clone()
-                .or_else(|| Some(bundle.entry_target.clone())),
+                .or_else(|| Some(bundle.active_target_file.clone())),
             collect_panel_references(panel),
             target_ref,
         );
     }
 
-    for entry in &bundle.compiled.entries {
+    for route in &bundle.compiled.scene_routes {
         push_inventory_item(
             &mut items,
-            entry.entry_id.clone(),
-            "entry",
-            entry.title.clone(),
-            Some(format!("scene_id={} kind={}", entry.scene_id, entry.kind)),
-            Some(normalize_path(&entry.target_file)),
-            vec![format!("scene:{}", entry.scene_id)],
+            route.scene_id.clone(),
+            "scene_route",
+            route.title.clone(),
+            Some(format!("kind={}", route.kind)),
+            Some(normalize_path(&route.target_file)),
+            vec![format!("scene:{}", route.scene_id)],
             target_ref,
         );
     }
@@ -1361,7 +1355,7 @@ pub(crate) fn build_world_context_snapshot(
 
     Ok(WorldContextSnapshot {
         app_id: app_id.to_string(),
-        entry_target: bundle.entry_target,
+        active_target_file: bundle.active_target_file,
         world_snapshot: WorldSnapshotSummary {
             scene_id: bundle.contract.scene.id.clone(),
             world_id: world.as_ref().and_then(|item| item.id.clone()),

@@ -57,7 +57,7 @@ pub async fn dataset_metric_api(
         ));
     }
     let compile_options = CompileOptions {
-        entry: None,
+        scene: None,
         preview_target: request
             .target
             .as_deref()

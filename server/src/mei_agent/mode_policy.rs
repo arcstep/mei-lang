@@ -94,7 +94,6 @@ mod tests {
             text: String::new(),
             app_id: None,
             scene_id: None,
-            entry_id: None,
             target_file: None,
             system: None,
             mode: mode.map(str::to_string),

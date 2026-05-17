@@ -25,7 +25,6 @@ impl SceneResourceToolExecutor {
         }
         WorldScope {
             scene_id: pick(args, "scene_id", base.scene_id.as_ref()),
-            entry_id: pick(args, "entry_id", base.entry_id.as_ref()),
             target_file: pick(args, "target_file", base.target_file.as_ref()),
         }
     }

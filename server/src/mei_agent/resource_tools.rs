@@ -10,7 +10,6 @@ use super::{llm, skill_tools};
 #[derive(Debug, Clone, Default)]
 pub struct AgentResourceScope {
     pub scene_id: Option<String>,
-    pub entry_id: Option<String>,
     pub target_file: Option<String>,
 }
 
@@ -78,7 +77,6 @@ fn dataset_query_tool_definition() -> Value {
                     },
                     "limit": { "type": "integer", "description": "Optional row count (default 10, max 50)" },
                     "scene_id": { "type": "string", "description": "Override scene id (optional)" },
-                    "entry_id": { "type": "string", "description": "Override entry id (optional)" },
                     "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
                 },
                 "required": ["id"]

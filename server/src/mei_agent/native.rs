@@ -897,7 +897,6 @@ impl NativeAgent {
         let tools = resource_tools::tool_definitions_for_mode(&agent_mode);
         let resource_scope = AgentResourceScope {
             scene_id: request.scene_id.clone(),
-            entry_id: request.entry_id.clone(),
             target_file: request.target_file.clone(),
         };
         let app_id = request.app_id.clone();

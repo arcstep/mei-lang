@@ -52,8 +52,6 @@ pub(super) fn append_world_context_lines(
         Err(error) => {
             let message = error.to_string();
             let is_scope_mismatch = message.contains("is not bound to target")
-                || message.contains("does not match entry")
-                || message.contains("entry `")
                 || message.contains("scene `")
                 || message.contains("does not provide a scene contract");
             if is_scope_mismatch {
@@ -79,9 +77,9 @@ pub(super) fn append_world_context_lines(
     lines.push(String::new());
     lines.push("[World Index — compact]".to_string());
     lines.push(format!(
-        "scene={} entry_target={} world={} resources={} entities={}",
+        "scene={} target_file={} world={} resources={} entities={}",
         snapshot.world_snapshot.scene_id,
-        snapshot.entry_target,
+        snapshot.active_target_file,
         snapshot
             .world_snapshot
             .world_id

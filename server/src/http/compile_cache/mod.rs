@@ -85,8 +85,8 @@ pub(crate) fn compile_app_with_cache(
 
 fn compile_cache_key(app_id: &str, options: &CompileOptions) -> String {
     format!(
-        "{app_id}|entry={}|preview={}",
-        options.entry.as_deref().unwrap_or(""),
+        "{app_id}|v2|scene={}|preview={}",
+        options.scene.as_deref().unwrap_or(""),
         options.preview_target.as_deref().unwrap_or("")
     )
 }

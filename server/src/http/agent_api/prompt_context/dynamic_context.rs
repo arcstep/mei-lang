@@ -46,17 +46,10 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
     let ask_mode = request_mode_slug(request) == "ask";
     let world_scope = world_scope_from_request(request);
     let scene_id = world_scope.scene_id.as_deref().unwrap_or("unknown");
-    let entry_id = request
-        .entry_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("unknown");
     let mut lines = vec![
         "[MeiLang Runtime Context]".to_string(),
         format!("app: {app_id}"),
         format!("scene: {scene_id}"),
-        format!("entry: {entry_id}"),
     ];
     if let Some(target) = request
         .target_file
@@ -129,13 +122,12 @@ pub(crate) fn build_dynamic_session_context_preview(
 fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
     let (app_id, app_root) = resolve_app_root(state, request)?;
     let scene_id = request.scene_id.as_deref().map(str::trim).unwrap_or("");
-    let entry_id = request.entry_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
     let mode = request_mode_slug(request);
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v4|app={app_id}|scene={scene_id}|entry={entry_id}|target={target_file}|mode={mode}|mei_revision={revision}"
+        "v=world-context-v5|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|mei_revision={revision}"
     ))
 }
 
@@ -213,7 +205,7 @@ mod tests {
         fs::create_dir_all(&app_root).expect("create app root");
         fs::write(
             app_root.join("main.mei"),
-            "app(kind=\"app\", id=\"demo\", entries=[entry(id=\"main\", scene=\"s1\")])\n",
+            "app(kind=\"app\", id=\"demo\", default_scene=\"s1\", scene=\"s1\")\nscene(id=\"s1\")\n",
         )
         .expect("write main.mei");
         (root, app_root)
@@ -227,7 +219,6 @@ mod tests {
             text: String::new(),
             app_id: Some("demo".to_string()),
             scene_id: Some("scene-a".to_string()),
-            entry_id: Some("entry-a".to_string()),
             target_file: Some("main.mei".to_string()),
             system: None,
             mode: None,
@@ -237,7 +228,6 @@ mod tests {
         };
         let signature = build_context_signature(&state, &request).expect("signature");
         assert!(signature.contains("scene=scene-a"));
-        assert!(signature.contains("entry=entry-a"));
         assert!(signature.contains("target=main.mei"));
 
         let mut changed = request.clone();
@@ -257,7 +247,6 @@ mod tests {
             text: String::new(),
             app_id: Some("demo".to_string()),
             scene_id: Some("s1".to_string()),
-            entry_id: Some("main".to_string()),
             target_file: Some("main.mei".to_string()),
             system: None,
             mode: None,
@@ -281,7 +270,6 @@ mod tests {
             text: String::new(),
             app_id: Some("demo".to_string()),
             scene_id: Some("s1".to_string()),
-            entry_id: Some("main".to_string()),
             target_file: Some("main.mei".to_string()),
             system: None,
             mode: Some("ask".to_string()),

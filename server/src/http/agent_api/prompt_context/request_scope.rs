@@ -10,12 +10,6 @@ pub(super) fn world_scope_from_request(request: &BridgePromptRequest) -> WorldSc
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string),
-        entry_id: request
-            .entry_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
         target_file: request
             .target_file
             .as_deref()

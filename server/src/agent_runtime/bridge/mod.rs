@@ -50,7 +50,6 @@ mod tests {
             text: "hello".to_string(),
             app_id: None,
             scene_id: None,
-            entry_id: None,
             target_file: None,
             system: Some("system prompt".to_string()),
             mode: Some("build".to_string()),

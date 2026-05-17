@@ -19,22 +19,42 @@ use super::util::{
     push_manage_page_pipeline_diag,
 };
 
-/// 若 URL `entry` 在应用注册表中不存在（编译已回退并带 `unknown_entry` 警告），用 `compiled.active_entry` 生成管理壳链接，避免把无效 id 写进 href。
-fn manage_entry_for_render(compiled: &CompiledApp, query_entry: Option<&str>) -> Option<String> {
-    let q = query_entry?.trim();
+/// 若 URL `scene` 在应用路由表中不存在（编译已回退并带 `unknown_scene` 警告），用 `compiled.active_scene` 生成管理壳链接，避免把无效 id 写进 href。
+fn manage_scene_for_render(compiled: &CompiledApp, query_scene: Option<&str>) -> Option<String> {
+    let q = query_scene?.trim();
     if q.is_empty() {
         return None;
     }
-    if compiled.entries.iter().any(|e| e.entry_id == q) {
+    if compiled
+        .scene_routes
+        .iter()
+        .any(|r| r.scene_id == q)
+    {
         return Some(q.to_string());
     }
-    compiled.active_entry.clone()
+    compiled.active_scene.clone()
+}
+
+/// 给定已解析的 scene id（或 `None`），返回该场景路由对应的主文件路径；无匹配时回退 `active_target_file`。
+fn default_file_for_scene(compiled: &CompiledApp, scene_id: Option<&str>) -> String {
+    let sid = scene_id.unwrap_or("").trim();
+    if sid.is_empty() {
+        return compiled.active_target_file.clone();
+    }
+    compiled
+        .scene_routes
+        .iter()
+        .find(|r| r.scene_id == sid)
+        .map(|r| r.target_file.clone())
+        .unwrap_or_else(|| compiled.active_target_file.clone())
 }
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
-    pub target: Option<String>,
-    pub entry: Option<String>,
+    /// 管理页当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
+    #[serde(default, alias = "target")]
+    pub file: Option<String>,
+    pub scene: Option<String>,
     pub tab: Option<String>,
     pub chrome: Option<String>,
 }
@@ -73,14 +93,18 @@ pub async fn app_page(
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(false);
-    let normalized_preview_target = query
-        .target
+    let file_query_manage = if route_mode == UiRouteMode::Manage {
+        query.file.clone()
+    } else {
+        None
+    };
+    let normalized_preview_target = file_query_manage
         .as_deref()
-        .filter(|target| is_script_target(target))
+        .filter(|t| is_script_target(t))
         .map(ToString::to_string);
     let components_root = resolve_components_root(&state.source_root);
     let compile_options = CompileOptions {
-        entry: query.entry.clone(),
+        scene: query.scene.clone(),
         preview_target: normalized_preview_target.clone(),
     };
     let compile_outcome =
@@ -93,10 +117,16 @@ pub async fn app_page(
                     compile_ms,
                 } = failure;
                 tracing::warn!(app_id = %app_id, %error, "failed to compile app page");
-                let target = query
-                    .target
-                    .clone()
-                    .unwrap_or_else(|| "main.mei".to_string());
+                let target = if route_mode == UiRouteMode::Manage {
+                    query
+                        .file
+                        .as_ref()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "main.mei".to_string())
+                } else {
+                    "main.mei".to_string()
+                };
                 let source_path = state.source_root.join(&app_id).join(&target);
                 let source_started = Instant::now();
                 let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
@@ -109,8 +139,8 @@ pub async fn app_page(
                     target.as_str(),
                     error.to_string().as_str(),
                 );
-                let manage_entry_resolved =
-                    manage_entry_for_render(&compiled, query.entry.as_deref());
+                let manage_scene_resolved =
+                    manage_scene_for_render(&compiled, query.scene.as_deref());
                 let render = |cc: &CompiledApp| {
                     let t = Instant::now();
                     let html = render_page(
@@ -122,7 +152,7 @@ pub async fn app_page(
                         Some(target.as_str()),
                         Some(source.as_str()),
                         Some(&source_meta),
-                        manage_entry_resolved.as_deref(),
+                        manage_scene_resolved.as_deref(),
                         normalized_preview_target.as_deref(),
                         query.tab.as_deref(),
                         chrome_hidden,
@@ -295,9 +325,21 @@ pub async fn app_page(
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_hit = compile_outcome.cache_hit;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
-    let target = query
-        .target
-        .unwrap_or_else(|| compiled.entry_target.clone());
+    let manage_scene_resolved = manage_scene_for_render(&compiled, query.scene.as_deref());
+    let scene_for_default = manage_scene_resolved
+        .as_deref()
+        .or(compiled.active_scene.as_deref());
+    let manage_default_file = default_file_for_scene(&compiled, scene_for_default);
+    let target = if route_mode == UiRouteMode::Manage {
+        query
+            .file
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(manage_default_file)
+    } else {
+        compiled.active_target_file.clone()
+    };
     if compiled
         .diagnostics
         .iter()
@@ -325,7 +367,6 @@ pub async fn app_page(
     let source_read_ms = elapsed_ms(source_started);
     let source_meta = source_panel_meta(&source_path, &source);
     let topbar_menus = load_segment_topbar_menus(&state.source_root);
-    let manage_entry_resolved = manage_entry_for_render(&compiled, query.entry.as_deref());
     let render = |cc: &CompiledApp| {
         let t = Instant::now();
         let html = render_page(
@@ -337,7 +378,7 @@ pub async fn app_page(
             Some(target.as_str()),
             Some(source.as_str()),
             Some(&source_meta),
-            manage_entry_resolved.as_deref(),
+            manage_scene_resolved.as_deref(),
             normalized_preview_target.as_deref(),
             query.tab.as_deref(),
             chrome_hidden,

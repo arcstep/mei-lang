@@ -22,7 +22,7 @@ pub struct SimStepResponse {
 #[derive(Debug, Clone)]
 pub(crate) struct WorldRuntimeBundle {
     pub(crate) compiled: mei_lang_kernel::CompiledApp,
-    pub(crate) entry_target: String,
+    pub(crate) active_target_file: String,
     pub(crate) contract: mei_lang_kernel::SceneContract,
     pub(crate) state: RuntimeState,
     pub(crate) scene_view: RuntimeSceneView,
@@ -31,7 +31,6 @@ pub(crate) struct WorldRuntimeBundle {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct WorldScope {
     pub scene_id: Option<String>,
-    pub entry_id: Option<String>,
     pub target_file: Option<String>,
 }
 
@@ -94,7 +93,7 @@ pub struct WorldSnapshotSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct WorldContextSnapshot {
     pub app_id: String,
-    pub entry_target: String,
+    pub active_target_file: String,
     pub world_snapshot: WorldSnapshotSummary,
     pub resource_inventory: ResourceInventorySnapshot,
     pub runtime_summary: WorldRuntimeSummary,
@@ -177,8 +176,6 @@ pub struct WorldScopeQuery {
     #[serde(default)]
     pub scene_id: Option<String>,
     #[serde(default)]
-    pub entry_id: Option<String>,
-    #[serde(default)]
     pub target_file: Option<String>,
 }
 
@@ -186,7 +183,6 @@ impl WorldScopeQuery {
     pub(crate) fn to_scope(&self) -> WorldScope {
         WorldScope {
             scene_id: self.scene_id.clone(),
-            entry_id: self.entry_id.clone(),
             target_file: self.target_file.clone(),
         }
     }

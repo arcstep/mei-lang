@@ -12,15 +12,13 @@ use super::world::{
     query_world_asset, query_world_assets, query_world_dataset, query_world_runtime,
 };
 
-pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v2";
+pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v3";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[allow(dead_code)]
 pub struct ResourceToolScope {
     #[serde(default)]
     pub scene_id: Option<String>,
-    #[serde(default)]
-    pub entry_id: Option<String>,
     #[serde(default)]
     pub target_file: Option<String>,
 }
@@ -30,7 +28,6 @@ impl ResourceToolScope {
     pub fn to_world_scope(&self) -> WorldScope {
         WorldScope {
             scene_id: self.scene_id.clone(),
-            entry_id: self.entry_id.clone(),
             target_file: self.target_file.clone(),
         }
     }
@@ -84,7 +81,7 @@ pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
             purpose:
                 "按 dataset 资源 id 查询有界结果（schema+filters+metric ids+sample rows）；对应 LLM 工具名 dataset_query"
                     .to_string(),
-            input: "{id: string, search?: string, filters?: object, columns?: string[], limit?: number, scene_id?, entry_id?, target_file?}"
+            input: "{id: string, search?: string, filters?: object, columns?: string[], limit?: number, scene_id?, target_file?}"
                 .to_string(),
             output:
                 "bounded: {dataset{schema_preview,filters,metric_ids}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."

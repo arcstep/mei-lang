@@ -25,7 +25,7 @@ pub(crate) fn build_meilang_system_prompt(
         );
     }
     blocks.push(
-        "Prefer declarative bindings: app(entries=[entry(...)]), scene(world/flow/frame=...), world(id=...), flow(id=...), frame(id=...), frame.add_panel(...).".to_string(),
+        "Prefer declarative bindings: app(scene=... / app.add_scene(scene_file_ref(...))), inline scene(...), world(id=...), flow(id=...), frame(id=...), frame.add_panel(...).".to_string(),
     );
     blocks.push(
         "Default to Chinese (Simplified Chinese) for all responses, plans, progress updates, and explanations unless the user explicitly requests another language.".to_string(),
@@ -52,11 +52,11 @@ pub(crate) fn build_meilang_system_prompt(
                 "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
                 "- The session injects a **[World — catalog]** block first: treat it as the authoritative index of `world.resources` (datasets, sources, metric ids) plus query-tool contracts.\n",
                 "- For dataset resources, call **`dataset_query` once** in the first tool round when the id is known/implied; default output is bounded (`schema + filters + metric ids + first 10 rows + first 10 columns`, cell text truncated).\n",
-                "- **Do not** chain `read_file` on the entry `.mei` after successful `dataset_query` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
+                "- **Do not** chain `read_file` on the active `.mei` after successful `dataset_query` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
                 "- **Do not** call `resource_list` / `resource_get` / `resource_runtime_peek` for routine dataset Q&A after a successful `dataset_query`; only use runtime peek when user explicitly asks phase/trace.\n",
                 "- Session context is still an index, not full app source.\n",
                 "- Read workspace **text** files with `read_file` (path relative to workspace root, no `..`; app-owned `.mei` / `.md` paths almost always start with `<app_id>/`, e.g. `spbjw/data/...`).\n",
-                "- Query datasets with `dataset_query` (optional overrides: scene_id, entry_id, target_file).\n",
+                "- Query datasets with `dataset_query` (optional overrides: scene_id, target_file).\n",
                 "- Read MeiLang author skill docs with `skill_list` then `skill_read` (path relative to skill root, no `..`).\n",
                 "- Only pull large sources when the user asks for edits/audits/reviews or you need evidence to answer correctly.",
             )

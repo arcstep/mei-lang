@@ -69,7 +69,7 @@ impl Backend {
         let source_root = resolve_source_root_for_assets(&app_root);
         let target = to_preview_target(&app_root, &path).unwrap_or_else(|| "main.mei".to_string());
         let options = CompileOptions {
-            entry: None,
+            scene: None,
             preview_target: Some(target),
         };
 
