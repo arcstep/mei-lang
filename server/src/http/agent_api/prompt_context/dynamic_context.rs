@@ -6,6 +6,7 @@ use crate::{agent_runtime::bridge::BridgePromptRequest, AppState, SessionContext
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
 use super::paths::{resolve_app_root, sanitize_relative_path};
 use super::request_scope::world_scope_from_request;
+use super::scope_bundle::AgentScopeBundle;
 use super::world_snapshot_lines::{
     append_world_context_error_lines, append_world_context_lines,
     append_world_context_snapshot_lines,
@@ -161,26 +162,13 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
     let mode = request_mode_slug(request);
     let route = request.route_mode.as_deref().map(str::trim).unwrap_or("");
-    let policy = crate::mei_agent::mode_policy::AgentModePolicy::from_request(request);
-    let vis = crate::mei_agent::agent_scope_profile::resolve_resource_visibility(request, policy);
-    let rv = vis.as_slug();
-    let reach = crate::http::scene_api::build_world_context_snapshot_cached(
-        state,
-        app_id.as_str(),
-        Some(&super::request_scope::world_scope_from_request(request)),
-    )
-    .map(|snap| {
-        crate::mei_agent::agent_scope_profile::ScopeReachabilitySets::from_world_snapshot(
-            &snap,
-            app_id.as_str(),
-        )
-        .digest_short()
-    })
-    .unwrap_or_else(|_| "na".to_string());
+    let bundle = AgentScopeBundle::resolve(state, request)?;
+    let rv = bundle.profile.resource_visibility.as_slug();
+    let reach = bundle.reach_digest.clone();
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v7|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|mei_revision={revision}"
+        "v=world-context-v8|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|mei_revision={revision}"
     ))
 }
 
@@ -193,7 +181,13 @@ pub(crate) fn load_or_refresh_session_context(
     {
         let Ok(cache) = state.agent_session_context.lock() else {
             tracing::warn!("agent session context cache lock poisoned; fallback to rebuild");
-            return build_dynamic_mei_context(state, request, None, None);
+            let b = AgentScopeBundle::resolve(state, request)?;
+            return build_dynamic_mei_context(
+                state,
+                request,
+                b.snapshot.as_ref(),
+                b.snapshot_error.as_deref(),
+            );
         };
         if let Some(snapshot) = cache.get(session_id) {
             if snapshot.signature == signature {
@@ -201,7 +195,13 @@ pub(crate) fn load_or_refresh_session_context(
             }
         }
     }
-    let context = build_dynamic_mei_context(state, request, None, None)?;
+    let b = AgentScopeBundle::resolve(state, request)?;
+    let context = build_dynamic_mei_context(
+        state,
+        request,
+        b.snapshot.as_ref(),
+        b.snapshot_error.as_deref(),
+    )?;
     let Ok(mut cache) = state.agent_session_context.lock() else {
         tracing::warn!("agent session context cache lock poisoned; skip cache write");
         return Some(context);
@@ -284,7 +284,7 @@ mod tests {
         let signature = build_context_signature(&state, &request).expect("signature");
         assert!(signature.contains("scene=scene-a"));
         assert!(signature.contains("target=main.mei"));
-        assert!(signature.contains("v=world-context-v7"));
+        assert!(signature.contains("v=world-context-v8"));
 
         let mut changed = request.clone();
         changed.resource_visibility = Some("local_only".into());

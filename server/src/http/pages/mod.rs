@@ -167,6 +167,10 @@ frame.add_panel(
         let script = String::from_utf8(body.to_vec()).expect("bundle body utf8");
         assert!(script.contains("meiLangBoot"));
         assert!(
+            script.contains("MeiAgentScopeParams"),
+            "bundle should include scope-params.js"
+        );
+        assert!(
             script.contains("spaNavigationMounted") || script.contains("spa-navigation"),
             "bundle should include spa navigation code"
         );

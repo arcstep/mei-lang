@@ -13,7 +13,7 @@ use super::world::{
     query_world_runtime,
 };
 
-pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v4";
+pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v5";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[allow(dead_code)]
@@ -113,6 +113,27 @@ pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
                 "bounded: {dataset_id, total_rows, metrics}; when metric_ids omitted returns all runtime metrics for the dataset."
                     .to_string(),
         },
+        ResourceQueryToolSpec {
+            id: "resource_list".to_string(),
+            status: "phase3_native_ready".to_string(),
+            purpose: "列出当前 world 下的 assets（与 LLM 工具 resource_list 一致）".to_string(),
+            input: "{kind?: string, limit?: number, scene_id?, target_file?}".to_string(),
+            output: "bounded: WorldAssetListResponse JSON".to_string(),
+        },
+        ResourceQueryToolSpec {
+            id: "resource_get".to_string(),
+            status: "phase3_native_ready".to_string(),
+            purpose: "按 id 获取单个 world asset/entity（与 LLM 工具 resource_get 一致）".to_string(),
+            input: "{id: string, scene_id?, target_file?}".to_string(),
+            output: "bounded: WorldAssetGetResponse JSON".to_string(),
+        },
+        ResourceQueryToolSpec {
+            id: "resource_runtime_peek".to_string(),
+            status: "phase3_native_ready".to_string(),
+            purpose: "窥视 world runtime 状态（与 LLM 工具 resource_runtime_peek 一致）".to_string(),
+            input: "{trace_limit?: number, scene_id?, target_file?}".to_string(),
+            output: "bounded: WorldRuntimePeekResponse JSON".to_string(),
+        },
     ]
 }
 
@@ -190,7 +211,13 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             ids,
-            vec!["dataset_query".to_string(), "dataset_metric".to_string()]
+            vec![
+                "dataset_query".to_string(),
+                "dataset_metric".to_string(),
+                "resource_list".to_string(),
+                "resource_get".to_string(),
+                "resource_runtime_peek".to_string(),
+            ]
         );
     }
 }

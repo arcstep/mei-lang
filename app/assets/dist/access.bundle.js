@@ -98,6 +98,64 @@
 
 ;
 
+/* ===== scope-params.js ===== */
+/**
+ * 与后端 `agent_scope_profile::default_resource_visibility` 对齐的纯函数，
+ * 供 `agent-panel.js` 与 Node 单测共用（通过 globalThis.MeiAgentScopeParams）。
+ */
+(function (g) {
+  const api = {
+    defaultResourceVisibilityFromRoute: function (route, mode) {
+      const r = String(route || "")
+        .trim()
+        .toLowerCase();
+      const m = String(mode || "")
+        .trim()
+        .toLowerCase();
+      const normMode = m || "build";
+      if (r === "access" && normMode === "ask") return "allow_scene_reachable";
+      if (r === "manage" && normMode === "ask") return "allow_direct_refs";
+      if (r === "manage" && normMode === "build") return "allow_direct_refs";
+      return "local_only";
+    },
+    /** 与 `agent-panel.js` 的 `normalizeTargetKey` 对齐，用于 scene_id 是否随 preview 请求发送。 */
+    normTargetKeyForScope: function (raw) {
+      return String(raw || "")
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/^\.\/+/, "");
+    },
+    /**
+     * 当预览目标与「scene 路由锚点」不一致时（例如 data/dataset/**），不附带 scene_id，
+     * 避免触发无意义的 scope 校验失败。
+     */
+    shouldAttachSceneIdToScopeQuery: function (targetKey, sceneRouteTarget) {
+      const tgt = api.normTargetKeyForScope(targetKey);
+      const sceneT = api.normTargetKeyForScope(sceneRouteTarget);
+      return !tgt || (sceneT && tgt === sceneT);
+    },
+    /** 显式 UI 选择优先，否则走 route+mode 默认。 */
+    effectiveResourceVisibility: function (selectValue, route, mode) {
+      const s = String(selectValue || "").trim();
+      if (s) return s;
+      return api.defaultResourceVisibilityFromRoute(route, mode);
+    },
+    /** 模拟 agent-panel 的 URLSearchParams 构造（不含 scene 省略逻辑，单测只验 mode/route/visibility）。 */
+    scopeQueryCore: function (app, target, route, mode, resourceVisibility) {
+      const params = new URLSearchParams();
+      if (app) params.set("app_id", app);
+      if (target) params.set("target_file", target);
+      params.set("route_mode", route);
+      params.set("mode", mode);
+      params.set("resource_visibility", resourceVisibility);
+      return params;
+    },
+  };
+  g.MeiAgentScopeParams = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
+;
+
 /* ===== statusbar.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
@@ -231,137 +289,14 @@
 
 ;
 
-/* ===== agent-panel.js ===== */
+/* ===== agent-panel-utils.js ===== */
+/**
+ * 作者面板共用纯逻辑：在拼接 bundle 中先于 `agent-panel.js` 执行。
+ * 挂载 `window.MeiAgentPanelUtils`（escapeHtml / fetchJson / CHAT_CLASS / 路径归一化 / delta 调试行归一化 / 对话轮次归并 / 角色与进度 chip 样式）。
+ */
 (function () {
-  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  if (typeof boot.disposeAgentPanel === "function") {
-    try {
-      boot.disposeAgentPanel();
-    } catch (_) {}
-    boot.disposeAgentPanel = null;
-  }
+  if (window.MeiAgentPanelUtils) return;
 
-  const root = document.getElementById("meilang-author-panel");
-  if (!root) return;
-
-  const els = {
-    serverDot: document.getElementById("author-server-dot"),
-    serverStatus: document.getElementById("author-server-status"),
-    config: document.getElementById("author-config-line"),
-    modelLabel: document.getElementById("author-model-label"),
-    reconnect: document.getElementById("author-reconnect-btn"),
-    newSession: document.getElementById("author-session-btn"),
-    skillLine: document.getElementById("author-skill-line"),
-    sessionSelect: document.getElementById("author-session-select"),
-    chatLog: document.getElementById("author-chat-log"),
-    progressStrip: document.getElementById("author-progress-strip"),
-    progressLabel: document.getElementById("author-progress-label"),
-    progressDetail: document.getElementById("author-progress-detail"),
-    progressItems: document.getElementById("author-progress-items"),
-    contextRefresh: document.getElementById("author-context-refresh-btn"),
-    contextScope: document.getElementById("author-context-preview-scope"),
-    contextSkill: document.getElementById("author-context-preview-skill"),
-    contextTools: document.getElementById("author-context-preview-tools"),
-    contextInventory: document.getElementById("author-context-preview-inventory"),
-    contextPrompt: document.getElementById("author-context-preview-prompt"),
-    contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
-    input: document.getElementById("author-intent-input"),
-    run: document.getElementById("author-run-btn"),
-    modeAsk:
-      document.getElementById("author-mode-ask-btn") ||
-      document.getElementById("author-mode-plan-btn"),
-    modeBuild: document.getElementById("author-mode-build-btn"),
-    completionModelSelect: document.getElementById("author-completion-model-select"),
-    completionModelWrap: document.getElementById("author-completion-model-wrap"),
-    undo: document.getElementById("author-undo-btn"),
-    redo: document.getElementById("author-redo-btn"),
-    sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
-    sourceViewHost: document.getElementById("source-view-host"),
-    sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
-    sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
-    sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
-    accessFloatingRoot: document.getElementById("access-chat-floating-root"),
-    accessFab: document.getElementById("access-chat-fab"),
-    accessClose: document.getElementById("access-chat-close"),
-    accessPanel: document.getElementById("access-chat-overlay-panel"),
-    statusModelService: document.getElementById("mei-status-model-service"),
-  };
-
-  const state = {
-    config: null,
-    runtime: null,
-    skillStatus: null,
-    health: null,
-    sessions: [],
-    sessionId: "",
-    sessionTargetKey: "",
-    messages: [],
-    loading: false,
-    sending: false,
-    aborting: false,
-    eventSource: null,
-    eventSourceSessionId: "",
-    streamConnected: false,
-    modelLabel: "模型",
-    sessionsCacheAtMs: 0,
-    sessionsFetchInFlight: null,
-    sendAbortController: null,
-    pendingPromptDraft: "",
-    generationSettleTimer: null,
-    _meiAutoSessionOnce: false,
-    _meiClientAutoOpencodeOnce: false,
-    lastMessagesFingerprint: "",
-    inlineNote: "",
-    agentMode: "build",
-    sessionHasRevertedChanges: {},
-    revertedMessageIds: {},
-    messageMeta: {},
-    messageDiffCache: {},
-    pendingReloadMessageId: "",
-    pendingPermissionsFingerprint: "",
-    pendingPermissionsFetchedAt: 0,
-    pendingPermissionNotices: [],
-    pendingPermissionsBootstrappedSessionId: "",
-    activeGenerationMessageId: "",
-    latestRoundAssistantId: "",
-    latestDiffMessageId: "",
-    sourceViewMode: "source",
-    sourceDiffMessageId: "",
-    sourceDiffMergeView: null,
-    sourceCodeMirror: null,
-    sourceEditorContainer: null,
-    sourceDiffResizeObserver: null,
-    sourceViewResizeObserver: null,
-    contextPreview: null,
-    contextPreviewBackoffUntilMs: 0,
-    contextPreviewFetchedAtMs: 0,
-    contextPreviewScopeKey: "",
-    modelProbe: null,
-    modelProbeFetchedAtMs: 0,
-    modelProbeFailureStreak: 0,
-    modelProbeLastSuccessAtMs: 0,
-    accessFloatingOpen: false,
-    accessFloatingDragMoved: false,
-    deltaDebugLog: [],
-    progress: {
-      visible: false,
-      label: "",
-      detail: "",
-      items: [],
-    },
-  };
-
-  const SESSION_CACHE_KEY = "mei.author.sessions.v1";
-  const SESSION_CACHE_TTL_MS = 30000;
-  const MODEL_PROBE_RED_AFTER_STREAK = 3;
-  const MODEL_PROBE_RED_AFTER_MS = 20000;
-  const MODEL_PROBE_COLD_START_RED_AFTER_STREAK = 5;
-  const ACCESS_FLOATING_MARGIN_PX = 10;
-  const ACCESS_FLOATING_DRAG_THRESHOLD_PX = 4;
-  let accessFloatingDragState = null;
-  const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
-  const COMPOSER_MIN_ROWS = 2;
-  const COMPOSER_MAX_ROWS = 12;
   const CHAT_CLASS = {
     messageBase:
       "author-chat-message group grid gap-1 bg-transparent px-0 py-0.5 pl-2 border-l-2 border-l-transparent",
@@ -388,7 +323,8 @@
       "author-chat-empty rounded-xl border border-dashed border-slate-600/55 px-4 py-4 text-center text-xs leading-6 text-slate-400",
     block: "author-chat-block grid gap-1 border-none bg-transparent p-0",
     blockDetails: "author-chat-block-details grid gap-1.5",
-    blockSummary: "author-chat-block-label list-none cursor-pointer text-[11px] font-bold tracking-[0.01em]",
+    blockSummary:
+      "author-chat-block-label list-none cursor-pointer text-[11px] font-bold tracking-[0.01em]",
     blockLabel: "author-chat-block-label text-[11px] font-bold tracking-[0.01em]",
     body: "author-chat-body m-0 whitespace-pre-wrap break-words font-mono text-xs leading-6 text-slate-200",
     bodyMarkdown: "author-chat-body author-chat-md text-xs leading-relaxed text-slate-200",
@@ -400,1481 +336,1863 @@
     progressChipPending: "border-amber-400/45 bg-amber-900/25 text-amber-100",
   };
 
-  function chatMessageRoleClass(roleRaw, reverted) {
-    if (roleRaw === "user") return CHAT_CLASS.messageUser;
-    if (roleRaw === "assistant") {
-      return reverted ? CHAT_CLASS.messageAssistantReverted : CHAT_CLASS.messageAssistant;
-    }
-    return CHAT_CLASS.messageSystem;
-  }
-
-  function chatRoleTextClass(roleRaw, reverted) {
-    if (roleRaw === "user") return CHAT_CLASS.roleUser;
-    if (roleRaw === "assistant") {
-      return reverted ? CHAT_CLASS.roleAssistantReverted : CHAT_CLASS.roleAssistant;
-    }
-    return CHAT_CLASS.roleSystem;
-  }
-
-  function chatBlockLabelToneClass(type) {
-    const kind = String(type || "text").toLowerCase();
-    if (kind === "reasoning") return "text-amber-200";
-    if (kind === "tool") return "text-teal-200";
-    if (kind === "patch") return "text-orange-200";
-    if (kind === "debug") return "text-violet-200";
-    if (kind === "diff") return "text-amber-300";
-    if (kind === "code") return "text-blue-200";
-    return "text-blue-300";
-  }
-
-  function progressChipClass(status) {
-    const kind = String(status || "pending").toLowerCase();
-    if (kind === "running") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipRunning;
-    if (kind === "done") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipDone;
-    if (kind === "error") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipError;
-    return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipPending;
-  }
-
-  function escapeHtml(value) {
-    return String(value)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;");
-  }
-
-  async function fetchJson(url, init) {
-    const response = await fetch(url, init);
-    if (!response.ok) {
-      let detail = "";
-      try {
-        detail = (await response.text()).trim();
-      } catch (_) {}
-      throw new Error(detail || (url + " -> " + response.status));
-    }
-    return response.json();
-  }
-
-  function currentTarget() {
-    const params = new URLSearchParams(window.location.search);
-    const fromUrl = params.get("file") || params.get("target");
-    if (fromUrl && String(fromUrl).trim()) return String(fromUrl).trim();
-    // 与编译态「当前 scene 路由」的 .mei 路径对齐；裸 `main.mei` 常与 scene 绑定校验冲突
-    const sceneRouteTarget = String(root.dataset.sceneTarget || "").trim();
-    if (sceneRouteTarget) return sceneRouteTarget;
-    return String(root.dataset.file || root.dataset.target || "").trim();
-  }
-
-  function currentManageTab() {
-    const params = new URLSearchParams(window.location.search);
-    const raw = String(params.get("tab") || root.dataset.viewTab || "preview")
-      .trim()
-      .toLowerCase();
-    if (raw === "source" || raw === "diff" || raw === "diagnostics") return raw;
-    return "preview";
-  }
-
-  function setManageTab(tab) {
-    const next = String(tab || "").trim().toLowerCase();
-    if (!next) return currentManageTab();
-    if (typeof boot.switchManageTab === "function") {
-      return boot.switchManageTab(next);
-    }
-    const url = new URL(window.location.href);
-    url.searchParams.set("tab", next);
-    window.location.assign(url.toString());
-    return next;
-  }
-
-  function normalizeTargetKey(target) {
-    return String(target || "")
-      .trim()
-      .replace(/\\/g, "/")
-      .replace(/^\.\/+/, "");
-  }
-
-  function currentTargetKey() {
-    return normalizeTargetKey(currentTarget());
-  }
-
-  function currentAppKey() {
-    const fromDataset = String(root.dataset.app || "").trim();
-    try {
-      const path = window.location.pathname || "";
-      const prefixes = ["/apps/manage/", "/apps/access/"];
-      for (const prefix of prefixes) {
-        if (!path.startsWith(prefix)) continue;
-        let rest = path.slice(prefix.length);
-        const slashQ = rest.indexOf("/?");
-        if (slashQ >= 0) rest = rest.slice(0, slashQ);
-        rest = rest.replace(/\/+$/, "");
-        if (rest) return rest;
-        break;
-      }
-    } catch (_) {}
-    return fromDataset;
-  }
-
-  function currentSceneId() {
-    return String(root.dataset.scene || "").trim();
-  }
-
-  function sessionBindingKind() {
-    return normalizeRouteMode(root.dataset.mode) === "access" ? "scene" : "file";
-  }
-
-  /** 与 `sessionBindingStorageKey` 对应，用于检测「绑定键」是否变化以重置自动会话等。 */
-  function currentSessionBindingFingerprint() {
-    return sessionBindingKind() === "scene"
-      ? "scene:" + currentSceneId()
-      : currentTargetKey();
-  }
-
-  function sessionBindingStorageKey() {
-    if (sessionBindingKind() === "scene") {
-      const sid = currentSceneId() || "__no_scene__";
-      return "scene:" + sid;
-    }
-    return "file:" + (currentTargetKey() || "__no_file__");
-  }
-
-  function sessionStorageKey() {
-    return "mei-lang.agent.session." + currentAppKey() + "." + sessionBindingStorageKey();
-  }
-
-  function modeStorageKey() {
-    return "mei-lang.agent.mode." + currentAppKey() + "." + sessionBindingStorageKey();
-  }
-
-  function accessFloatingStorageKey() {
-    return "mei-lang.agent.access-floating." + currentAppKey();
-  }
-
-  function accessFloatingPositionStorageKey() {
-    return "mei-lang.agent.access-floating-position." + currentAppKey();
-  }
-
-  function revertedStorageKey() {
-    return "mei-lang.agent.reverted." + currentAppKey() + "." + sessionBindingStorageKey();
-  }
-
-  function deltaDebugStorageKey(sessionId) {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return "";
-    return "mei-lang.agent.delta-debug." + currentAppKey() + "." + sid;
-  }
-
-  function normalizeDeltaDebugRows(rows) {
-    const src = Array.isArray(rows) ? rows : [];
-    return src
-      .map(function (item) {
-        if (!item || typeof item !== "object") return null;
-        const serverTs = Number(item.serverTs || 0);
-        const clientRxTs =
-          Number(item.clientRxTs || 0) || Number(item.clientTs || 0);
-        const gapRxMs =
-          item.gapRxMs != null && Number.isFinite(Number(item.gapRxMs))
-            ? Number(item.gapRxMs)
-            : item.gapMs != null && Number.isFinite(Number(item.gapMs))
-              ? Number(item.gapMs)
-              : null;
-        const paintTs =
-          item.paintTs != null && Number.isFinite(Number(item.paintTs))
-            ? Number(item.paintTs)
-            : null;
-        const gapPaintMs =
-          item.gapPaintMs != null && Number.isFinite(Number(item.gapPaintMs))
-            ? Number(item.gapPaintMs)
-            : null;
-        return {
-          serverTs: Number.isFinite(serverTs) ? serverTs : 0,
-          clientRxTs: Number.isFinite(clientRxTs) ? clientRxTs : 0,
-          paintTs: paintTs,
-          partId: String(item.partId || ""),
-          messageId: String(item.messageId || ""),
-          chars: Number(item.chars || 0),
-          preview: String(item.preview || ""),
-          gapRxMs: gapRxMs,
-          gapPaintMs: gapPaintMs,
-        };
-      })
-      .filter(Boolean)
-      .slice(0, 120);
-  }
-
-  function writeDeltaDebugLogToStorage(sessionId, rows) {
-    if (!window.sessionStorage) return;
-    const key = deltaDebugStorageKey(sessionId);
-    if (!key) return;
-    try {
-      window.sessionStorage.setItem(
-        key,
-        JSON.stringify({
-          updatedAtMs: Date.now(),
-          rows: normalizeDeltaDebugRows(rows),
-        }),
-      );
-    } catch (_) {}
-  }
-
-  function readDeltaDebugLogFromStorage(sessionId) {
-    if (!window.sessionStorage) return [];
-    const key = deltaDebugStorageKey(sessionId);
-    if (!key) return [];
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return normalizeDeltaDebugRows(parsed && parsed.rows);
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function restoreDeltaDebugLog(sessionId) {
-    state.deltaDebugLog = readDeltaDebugLogFromStorage(sessionId);
-    renderDeltaDebugLog();
-  }
-
-  function normalizeAgentMode(value) {
-    const normalizedRoute = normalizeRouteMode(root.dataset.mode);
-    const allowed = String(root.dataset.allowedModes || "")
-      .split(",")
-      .map(function (item) {
-        const raw = String(item || "").trim().toLowerCase();
-        if (raw === "plan") return "ask";
-        if (raw === "ask" || raw === "build") return raw;
-        return "";
-      })
-      .filter(Boolean);
-    if (!allowed.length) {
-      if (normalizedRoute === "access") {
-        allowed.push("ask");
-      } else {
-        allowed.push("build");
-      }
-    }
-    const defaultFromDataset = String(root.dataset.defaultAgentMode || "").trim().toLowerCase();
-    const fallback =
-      allowed.indexOf(defaultFromDataset) >= 0
-        ? defaultFromDataset
-        : allowed[0];
-    const raw = String(value || "").trim().toLowerCase();
-    const mapped = raw === "plan" ? "ask" : raw === "ask" ? "ask" : "build";
-    return allowed.indexOf(mapped) >= 0 ? mapped : fallback;
-  }
-
-  function normalizeRouteMode(value) {
-    const mode = String(value || "").toLowerCase();
-    return mode === "access" ? "access" : "manage";
-  }
-
-  function isAccessFloatingMode() {
-    return (
-      normalizeRouteMode(root.dataset.mode) === "access" &&
-      !!els.accessFloatingRoot &&
-      !!els.accessFab &&
-      !!els.accessPanel
-    );
-  }
-
-  function clampAccessFloatingPosition(left, top) {
-    if (!isAccessFloatingMode()) return null;
-    const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
-    const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
-    const minLeft = ACCESS_FLOATING_MARGIN_PX;
-    const minTop = ACCESS_FLOATING_MARGIN_PX;
-    const maxLeft = Math.max(
-      minLeft,
-      Number(window.innerWidth || 0) - width - ACCESS_FLOATING_MARGIN_PX,
-    );
-    const maxTop = Math.max(
-      minTop,
-      Number(window.innerHeight || 0) - height - ACCESS_FLOATING_MARGIN_PX,
-    );
-    const nextLeft = Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0)));
-    const nextTop = Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0)));
-    return { left: nextLeft, top: nextTop };
-  }
-
-  function applyAccessFloatingPosition(left, top) {
-    if (!isAccessFloatingMode()) return null;
-    const pos = clampAccessFloatingPosition(left, top);
-    if (!pos) return null;
-    els.accessFloatingRoot.style.left = String(pos.left) + "px";
-    els.accessFloatingRoot.style.top = String(pos.top) + "px";
-    els.accessFloatingRoot.style.right = "auto";
-    els.accessFloatingRoot.style.bottom = "auto";
-    els.accessFloatingRoot.dataset.positioned = "true";
-    return pos;
-  }
-
-  function clearAccessFloatingPosition() {
-    if (!isAccessFloatingMode()) return;
-    els.accessFloatingRoot.style.left = "";
-    els.accessFloatingRoot.style.top = "";
-    els.accessFloatingRoot.style.right = "";
-    els.accessFloatingRoot.style.bottom = "";
-    delete els.accessFloatingRoot.dataset.positioned;
-  }
-
-  function rememberAccessFloatingPosition(left, top) {
-    if (!isAccessFloatingMode()) return;
-    const pos = clampAccessFloatingPosition(left, top);
-    if (!pos) return;
-    try {
-      localStorage.setItem(accessFloatingPositionStorageKey(), JSON.stringify(pos));
-    } catch (_) {}
-  }
-
-  function restoreAccessFloatingPosition() {
-    if (!isAccessFloatingMode()) return;
-    try {
-      const raw = localStorage.getItem(accessFloatingPositionStorageKey());
-      if (!raw) {
-        clearAccessFloatingPosition();
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      const left = Number(parsed && parsed.left);
-      const top = Number(parsed && parsed.top);
-      if (!Number.isFinite(left) || !Number.isFinite(top)) {
-        clearAccessFloatingPosition();
-        return;
-      }
-      const pos = applyAccessFloatingPosition(left, top);
-      if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
-    } catch (_) {
-      clearAccessFloatingPosition();
-    }
-  }
-
-  function renderAccessFloatingPanel() {
-    if (!isAccessFloatingMode()) return;
-    const open = !!state.accessFloatingOpen;
-    els.accessFloatingRoot.dataset.open = open ? "true" : "false";
-    els.accessPanel.hidden = !open;
-    els.accessFab.title = open ? "关闭助手对话框" : "打开助手对话框";
-    els.accessFab.setAttribute("aria-label", open ? "关闭助手对话框" : "打开助手对话框");
-  }
-
-  function rememberAccessFloatingPanel() {
-    if (!isAccessFloatingMode()) return;
-    try {
-      localStorage.setItem(accessFloatingStorageKey(), state.accessFloatingOpen ? "1" : "0");
-    } catch (_) {}
-  }
-
-  function restoreAccessFloatingPanel() {
-    if (!isAccessFloatingMode()) return;
-    restoreAccessFloatingPosition();
-    try {
-      const saved = localStorage.getItem(accessFloatingStorageKey());
-      state.accessFloatingOpen = saved === "1";
-    } catch (_) {
-      state.accessFloatingOpen = false;
-    }
-    renderAccessFloatingPanel();
-  }
-
-  function toggleAccessFloatingPanel(next) {
-    if (!isAccessFloatingMode()) return;
-    if (typeof next === "boolean") {
-      state.accessFloatingOpen = next;
-    } else {
-      state.accessFloatingOpen = !state.accessFloatingOpen;
-    }
-    rememberAccessFloatingPanel();
-    renderAccessFloatingPanel();
-    if (state.accessFloatingOpen && els.input) {
-      window.setTimeout(function () {
+  window.MeiAgentPanelUtils = {
+    CHAT_CLASS,
+    escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    },
+    async fetchJson(url, init) {
+      const response = await fetch(url, init);
+      if (!response.ok) {
+        let detail = "";
         try {
-          els.input.focus();
+          detail = (await response.text()).trim();
         } catch (_) {}
-      }, 0);
-    }
-  }
-
-  function beginAccessFloatingDrag(event) {
-    if (!isAccessFloatingMode()) return;
-    if (event && event.button != null && event.button !== 0) return;
-    const rect = els.accessFloatingRoot.getBoundingClientRect();
-    accessFloatingDragState = {
-      pointerId: event ? event.pointerId : null,
-      startX: Number(event && event.clientX),
-      startY: Number(event && event.clientY),
-      baseLeft: Number(rect.left || 0),
-      baseTop: Number(rect.top || 0),
-      moved: false,
-      lastLeft: Number(rect.left || 0),
-      lastTop: Number(rect.top || 0),
-    };
-    state.accessFloatingDragMoved = false;
-    els.accessFloatingRoot.dataset.dragging = "true";
-    try {
-      if (els.accessFab && event && event.pointerId != null) {
-        els.accessFab.setPointerCapture(event.pointerId);
+        throw new Error(detail || url + " -> " + response.status);
       }
-    } catch (_) {}
-    if (event && typeof event.preventDefault === "function") {
-      event.preventDefault();
-    }
-  }
-
-  function continueAccessFloatingDrag(event) {
-    if (!accessFloatingDragState || !isAccessFloatingMode()) return;
-    if (
-      accessFloatingDragState.pointerId != null &&
-      event &&
-      event.pointerId != null &&
-      event.pointerId !== accessFloatingDragState.pointerId
-    ) {
-      return;
-    }
-    const nextX = Number(event && event.clientX);
-    const nextY = Number(event && event.clientY);
-    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
-    const dx = nextX - accessFloatingDragState.startX;
-    const dy = nextY - accessFloatingDragState.startY;
-    if (
-      !accessFloatingDragState.moved &&
-      Math.hypot(dx, dy) < ACCESS_FLOATING_DRAG_THRESHOLD_PX
-    ) {
-      return;
-    }
-    accessFloatingDragState.moved = true;
-    state.accessFloatingDragMoved = true;
-    const pos = applyAccessFloatingPosition(
-      accessFloatingDragState.baseLeft + dx,
-      accessFloatingDragState.baseTop + dy,
-    );
-    if (!pos) return;
-    accessFloatingDragState.lastLeft = pos.left;
-    accessFloatingDragState.lastTop = pos.top;
-    if (event && typeof event.preventDefault === "function") {
-      event.preventDefault();
-    }
-  }
-
-  function endAccessFloatingDrag(event) {
-    if (!accessFloatingDragState) return;
-    if (
-      accessFloatingDragState.pointerId != null &&
-      event &&
-      event.pointerId != null &&
-      event.pointerId !== accessFloatingDragState.pointerId
-    ) {
-      return;
-    }
-    const moved = !!accessFloatingDragState.moved;
-    const left = accessFloatingDragState.lastLeft;
-    const top = accessFloatingDragState.lastTop;
-    accessFloatingDragState = null;
-    if (els.accessFloatingRoot) {
-      delete els.accessFloatingRoot.dataset.dragging;
-    }
-    try {
-      if (els.accessFab && event && event.pointerId != null) {
-        els.accessFab.releasePointerCapture(event.pointerId);
+      return response.json();
+    },
+    chatMessageRoleClass(roleRaw, reverted) {
+      if (roleRaw === "user") return CHAT_CLASS.messageUser;
+      if (roleRaw === "assistant") {
+        return reverted ? CHAT_CLASS.messageAssistantReverted : CHAT_CLASS.messageAssistant;
       }
-    } catch (_) {}
-    if (moved) {
-      rememberAccessFloatingPosition(left, top);
-      window.setTimeout(function () {
-        state.accessFloatingDragMoved = false;
-      }, 0);
-    }
-  }
-
-  function composerDraftText() {
-    return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
-  }
-
-  function refreshLinkedViewRefs() {
-    els.sourceViewHost = document.getElementById("source-view-host");
-    els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
-    els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
-    els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
-    els.accessFloatingRoot = document.getElementById("access-chat-floating-root");
-    els.accessFab = document.getElementById("access-chat-fab");
-    els.accessClose = document.getElementById("access-chat-close");
-    els.accessPanel = document.getElementById("access-chat-overlay-panel");
-    els.statusModelService = document.getElementById("mei-status-model-service");
-  }
-
-  function parsePx(value) {
-    const n = Number.parseFloat(String(value || "0"));
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  function resolveComposerLineHeightPx(inputEl, style) {
-    const explicit = parsePx(style && style.lineHeight ? style.lineHeight : "");
-    if (explicit > 0) return explicit;
-    const fontSize = parsePx(style && style.fontSize ? style.fontSize : "");
-    return fontSize > 0 ? fontSize * 1.4 : 18;
-  }
-
-  function autoResizeComposerInput() {
-    if (!els.input) return;
-    const inputEl = els.input;
-    const style = window.getComputedStyle(inputEl);
-    const lineHeight = resolveComposerLineHeightPx(inputEl, style);
-    const verticalPadding =
-      parsePx(style.paddingTop) +
-      parsePx(style.paddingBottom) +
-      parsePx(style.borderTopWidth) +
-      parsePx(style.borderBottomWidth);
-    const minHeight = Math.round(lineHeight * COMPOSER_MIN_ROWS + verticalPadding);
-    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_ROWS + verticalPadding);
-    inputEl.style.height = "auto";
-    const scrollHeight = Math.max(inputEl.scrollHeight, minHeight);
-    const nextHeight = Math.min(scrollHeight, maxHeight);
-    inputEl.style.height = String(nextHeight) + "px";
-    inputEl.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
-  }
-
-  function canSubmitPrompt() {
-    return composerDraftText().trim().length > 0;
-  }
-
-  function normalizeFilePath(value) {
-    return String(value || "")
-      .trim()
-      .replace(/\\/g, "/")
-      .replace(/^\.\/+/, "");
-  }
-
-  function sourceTargetKey() {
-    refreshLinkedViewRefs();
-    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
-    if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
-      return normalizeFilePath(targetNode.dataset.sourceTarget);
-    }
-    return currentTargetKey();
-  }
-
-  function sourceLanguage() {
-    refreshLinkedViewRefs();
-    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
-    if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
-      return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
-    }
-    return "plain";
-  }
-
-  function sourceRawText() {
-    refreshLinkedViewRefs();
-    return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
-  }
-
-  function conversationRounds(messages) {
-    const rounds = [];
-    let current = null;
-    let orphan = 0;
-    (Array.isArray(messages) ? messages : []).forEach(function (message) {
-      if (!message || typeof message !== "object") return;
-      const role = String(message.role || "");
-      if (role === "user") {
-        current = {
-          id: "round-user-" + String(message.id || String(rounds.length)),
-          user: message,
-          assistants: [],
-          system: [],
-        };
-        rounds.push(current);
-        return;
+      return CHAT_CLASS.messageSystem;
+    },
+    chatRoleTextClass(roleRaw, reverted) {
+      if (roleRaw === "user") return CHAT_CLASS.roleUser;
+      if (roleRaw === "assistant") {
+        return reverted ? CHAT_CLASS.roleAssistantReverted : CHAT_CLASS.roleAssistant;
       }
-      if (role === "assistant") {
+      return CHAT_CLASS.roleSystem;
+    },
+    chatBlockLabelToneClass(type) {
+      const kind = String(type || "text").toLowerCase();
+      if (kind === "reasoning") return "text-amber-200";
+      if (kind === "tool") return "text-teal-200";
+      if (kind === "patch") return "text-orange-200";
+      if (kind === "debug") return "text-violet-200";
+      if (kind === "diff") return "text-amber-300";
+      if (kind === "code") return "text-blue-200";
+      return "text-blue-300";
+    },
+    progressChipClass(status) {
+      const kind = String(status || "pending").toLowerCase();
+      if (kind === "running") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipRunning;
+      if (kind === "done") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipDone;
+      if (kind === "error") return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipError;
+      return CHAT_CLASS.progressChip + " " + CHAT_CLASS.progressChipPending;
+    },
+    /** 与作者面板路由/路径归一化一致：trim、反斜杠转正斜杠、去 `./` 前缀。 */
+    normalizeFilePath(value) {
+      return String(value || "")
+        .trim()
+        .replace(/\\/g, "/")
+        .replace(/^\.\/+/, "");
+    },
+    /** 将扁平 messages 列表按 user/assistant/system 归并为对话轮次（纯函数）。 */
+    conversationRounds(messages) {
+      const rounds = [];
+      let current = null;
+      let orphan = 0;
+      (Array.isArray(messages) ? messages : []).forEach(function (message) {
+        if (!message || typeof message !== "object") return;
+        const role = String(message.role || "");
+        if (role === "user") {
+          current = {
+            id: "round-user-" + String(message.id || String(rounds.length)),
+            user: message,
+            assistants: [],
+            system: [],
+          };
+          rounds.push(current);
+          return;
+        }
+        if (role === "assistant") {
+          if (!current) {
+            orphan += 1;
+            current = {
+              id: "round-orphan-" + String(orphan),
+              user: null,
+              assistants: [],
+              system: [],
+            };
+            rounds.push(current);
+          }
+          current.assistants.push(message);
+          return;
+        }
         if (!current) {
           orphan += 1;
           current = {
-            id: "round-orphan-" + String(orphan),
+            id: "round-system-" + String(orphan),
             user: null,
             assistants: [],
             system: [],
           };
           rounds.push(current);
         }
-        current.assistants.push(message);
-        return;
+        current.system.push(message);
+      });
+      return rounds;
+    },
+    normalizeDeltaDebugRows(rows) {
+      const src = Array.isArray(rows) ? rows : [];
+      return src
+        .map(function (item) {
+          if (!item || typeof item !== "object") return null;
+          const serverTs = Number(item.serverTs || 0);
+          const clientRxTs =
+            Number(item.clientRxTs || 0) || Number(item.clientTs || 0);
+          const gapRxMs =
+            item.gapRxMs != null && Number.isFinite(Number(item.gapRxMs))
+              ? Number(item.gapRxMs)
+              : item.gapMs != null && Number.isFinite(Number(item.gapMs))
+                ? Number(item.gapMs)
+                : null;
+          const paintTs =
+            item.paintTs != null && Number.isFinite(Number(item.paintTs))
+              ? Number(item.paintTs)
+              : null;
+          const gapPaintMs =
+            item.gapPaintMs != null && Number.isFinite(Number(item.gapPaintMs))
+              ? Number(item.gapPaintMs)
+              : null;
+          return {
+            serverTs: Number.isFinite(serverTs) ? serverTs : 0,
+            clientRxTs: Number.isFinite(clientRxTs) ? clientRxTs : 0,
+            paintTs: paintTs,
+            partId: String(item.partId || ""),
+            messageId: String(item.messageId || ""),
+            chars: Number(item.chars || 0),
+            preview: String(item.preview || ""),
+            gapRxMs: gapRxMs,
+            gapPaintMs: gapPaintMs,
+          };
+        })
+        .filter(Boolean)
+        .slice(0, 120);
+    },
+  };
+})();
+
+;
+
+/* ===== agent-panel-routing.js ===== */
+/**
+ * 路由解析、管理页 tab、会话绑定与 localStorage/sessionStorage 键工厂。由 agent-panel 主文件装配 `RT`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallRouting = function (api) {
+    const root = api.root;
+    const boot = api.boot;
+    const $U = api.$U;
+
+    function currentTarget() {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get("file") || params.get("target");
+      if (fromUrl && String(fromUrl).trim()) return String(fromUrl).trim();
+      const sceneRouteTarget = String(root.dataset.sceneTarget || "").trim();
+      if (sceneRouteTarget) return sceneRouteTarget;
+      return String(root.dataset.file || root.dataset.target || "").trim();
+    }
+
+    function currentManageTab() {
+      const params = new URLSearchParams(window.location.search);
+      const raw = String(params.get("tab") || root.dataset.viewTab || "preview")
+        .trim()
+        .toLowerCase();
+      if (raw === "source" || raw === "diff" || raw === "diagnostics") return raw;
+      return "preview";
+    }
+
+    function setManageTab(tab) {
+      const next = String(tab || "").trim().toLowerCase();
+      if (!next) return currentManageTab();
+      if (typeof boot.switchManageTab === "function") {
+        return boot.switchManageTab(next);
       }
-      if (!current) {
-        orphan += 1;
-        current = {
-          id: "round-system-" + String(orphan),
-          user: null,
-          assistants: [],
-          system: [],
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", next);
+      window.location.assign(url.toString());
+      return next;
+    }
+
+    function normalizeTargetKey(target) {
+      return $U.normalizeFilePath(target);
+    }
+
+    function currentTargetKey() {
+      return normalizeTargetKey(currentTarget());
+    }
+
+    function currentAppKey() {
+      const fromDataset = String(root.dataset.app || "").trim();
+      try {
+        const path = window.location.pathname || "";
+        const prefixes = ["/apps/manage/", "/apps/access/"];
+        for (const prefix of prefixes) {
+          if (!path.startsWith(prefix)) continue;
+          let rest = path.slice(prefix.length);
+          const slashQ = rest.indexOf("/?");
+          if (slashQ >= 0) rest = rest.slice(0, slashQ);
+          rest = rest.replace(/\/+$/, "");
+          if (rest) return rest;
+          break;
+        }
+      } catch (_) {}
+      return fromDataset;
+    }
+
+    function currentSceneId() {
+      return String(root.dataset.scene || "").trim();
+    }
+
+    function normalizeRouteMode(value) {
+      const mode = String(value || "").toLowerCase();
+      return mode === "access" ? "access" : "manage";
+    }
+
+    function sessionBindingKind() {
+      return normalizeRouteMode(root.dataset.mode) === "access" ? "scene" : "file";
+    }
+
+    function currentSessionBindingFingerprint() {
+      return sessionBindingKind() === "scene"
+        ? "scene:" + currentSceneId()
+        : currentTargetKey();
+    }
+
+    function sessionBindingStorageKey() {
+      if (sessionBindingKind() === "scene") {
+        const sid = currentSceneId() || "__no_scene__";
+        return "scene:" + sid;
+      }
+      return "file:" + (currentTargetKey() || "__no_file__");
+    }
+
+    function sessionStorageKey() {
+      return "mei-lang.agent.session." + currentAppKey() + "." + sessionBindingStorageKey();
+    }
+
+    function modeStorageKey() {
+      return "mei-lang.agent.mode." + currentAppKey() + "." + sessionBindingStorageKey();
+    }
+
+    function accessFloatingStorageKey() {
+      return "mei-lang.agent.access-floating." + currentAppKey();
+    }
+
+    function accessFloatingPositionStorageKey() {
+      return "mei-lang.agent.access-floating-position." + currentAppKey();
+    }
+
+    function revertedStorageKey() {
+      return "mei-lang.agent.reverted." + currentAppKey() + "." + sessionBindingStorageKey();
+    }
+
+    function deltaDebugStorageKey(sessionId) {
+      const sid = String(sessionId || "").trim();
+      if (!sid) return "";
+      return "mei-lang.agent.delta-debug." + currentAppKey() + "." + sid;
+    }
+
+    function normalizeAgentMode(value) {
+      const normalizedRoute = normalizeRouteMode(root.dataset.mode);
+      const allowed = String(root.dataset.allowedModes || "")
+        .split(",")
+        .map(function (item) {
+          const raw = String(item || "").trim().toLowerCase();
+          if (raw === "plan") return "ask";
+          if (raw === "ask" || raw === "build") return raw;
+          return "";
+        })
+        .filter(Boolean);
+      if (!allowed.length) {
+        if (normalizedRoute === "access") {
+          allowed.push("ask");
+        } else {
+          allowed.push("build");
+        }
+      }
+      const defaultFromDataset = String(root.dataset.defaultAgentMode || "").trim().toLowerCase();
+      const fallback =
+        allowed.indexOf(defaultFromDataset) >= 0
+          ? defaultFromDataset
+          : allowed[0];
+      const raw = String(value || "").trim().toLowerCase();
+      const mapped = raw === "plan" ? "ask" : raw === "ask" ? "ask" : "build";
+      return allowed.indexOf(mapped) >= 0 ? mapped : fallback;
+    }
+
+    function buildBoundSessionTitle(targetKey) {
+      const params = new URLSearchParams();
+      params.set("app", String(root.dataset.app || ""));
+      const kind = sessionBindingKind();
+      params.set("bind", kind);
+      if (kind === "scene") {
+        params.set("scene", currentSceneId() || "");
+        params.set("anchor", String(targetKey || "").trim());
+      } else {
+        params.set("file", String(targetKey || "").trim());
+        if (root.dataset.scene) {
+          params.set("scene", String(root.dataset.scene || ""));
+        }
+      }
+      return "MEI|" + params.toString();
+    }
+
+    function parseBoundSessionTitle(title) {
+      const value = String(title || "");
+      if (!value.startsWith("MEI|")) return null;
+      try {
+        const params = new URLSearchParams(value.slice(4));
+        const app = String(params.get("app") || "").trim();
+        if (!app) return null;
+        const bindRaw = String(params.get("bind") || "").trim().toLowerCase();
+        if (bindRaw === "scene") {
+          const scene = String(params.get("scene") || "").trim();
+          const anchor = normalizeTargetKey(params.get("anchor") || "");
+          if (!scene) return null;
+          return {
+            app: app,
+            bind: "scene",
+            scene: scene,
+            anchor: anchor,
+            target: anchor,
+          };
+        }
+        const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
+        const scene = String(params.get("scene") || "").trim();
+        if (!target) return null;
+        return {
+          app: app,
+          bind: "file",
+          scene: scene,
+          anchor: target,
+          target: target,
         };
-        rounds.push(current);
+      } catch (_) {
+        return null;
       }
-      current.system.push(message);
-    });
-    return rounds;
-  }
-
-  function latestRoundAssistantMessageId() {
-    const rounds = conversationRounds(state.messages);
-    for (let index = rounds.length - 1; index >= 0; index -= 1) {
-      const round = rounds[index];
-      const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
-      const assistant = assistants.length ? assistants[assistants.length - 1] : null;
-      const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
-      if (messageId) return messageId;
-    }
-    return "";
-  }
-
-  function latestDiffEligibleMessageId() {
-    const latestAssistantId = latestRoundAssistantMessageId();
-    if (!latestAssistantId) return "";
-    const meta = getMessageMeta(state.sessionId, latestAssistantId);
-    if (!meta || meta.hasDiff !== true) return "";
-    return latestAssistantId;
-  }
-
-  function messageKey(sessionId, messageId) {
-    return String(sessionId || "") + "::" + String(messageId || "");
-  }
-
-  /** diff 结果随当前管理页目标路径变化，缓存键需包含 path。 */
-  function diffCacheKey(sessionId, messageId) {
-    const base = messageKey(sessionId, messageId);
-    const p = sourceTargetKey();
-    return p ? base + "::diffPath::" + p : base;
-  }
-
-  function setMessageMeta(messageId, patch) {
-    const key = messageKey(state.sessionId, messageId);
-    if (!key || key === "::") return;
-    const prev = state.messageMeta[key] || {};
-    state.messageMeta[key] = Object.assign({}, prev, patch || {});
-  }
-
-  function getMessageMeta(sessionId, messageId) {
-    return state.messageMeta[messageKey(sessionId, messageId)] || null;
-  }
-
-  function setSessionRevertedFlag(sessionId, hasReverted) {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return;
-    state.sessionHasRevertedChanges[sid] = !!hasReverted;
-  }
-
-  function hasSessionRevertedChanges(sessionId) {
-    return !!state.sessionHasRevertedChanges[String(sessionId || "").trim()];
-  }
-
-  function persistRevertedState() {
-    try {
-      localStorage.setItem(revertedStorageKey(), JSON.stringify(state.revertedMessageIds));
-    } catch (_) {}
-  }
-
-  function restoreRevertedState() {
-    state.revertedMessageIds = {};
-    state.sessionHasRevertedChanges = {};
-    try {
-      const raw = localStorage.getItem(revertedStorageKey());
-      const parsed = raw ? JSON.parse(raw) : {};
-      if (!parsed || typeof parsed !== "object") return;
-      state.revertedMessageIds = parsed;
-      Object.keys(parsed).forEach(function (sid) {
-        setSessionRevertedFlag(sid, Array.isArray(parsed[sid]) && parsed[sid].length > 0);
-      });
-    } catch (_) {}
-  }
-
-  function revertedIdsForSession(sessionId) {
-    const sid = String(sessionId || "").trim();
-    const list = sid ? state.revertedMessageIds[sid] : null;
-    return Array.isArray(list) ? list.slice() : [];
-  }
-
-  function setRevertedIdsForSession(sessionId, nextIds) {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return;
-    const deduped = Array.from(
-      new Set(
-        (Array.isArray(nextIds) ? nextIds : [])
-          .map(function (item) { return String(item || "").trim(); })
-          .filter(Boolean),
-      ),
-    );
-    state.revertedMessageIds[sid] = deduped;
-    setSessionRevertedFlag(sid, deduped.length > 0);
-    persistRevertedState();
-  }
-
-  function isMessageReverted(sessionId, messageId) {
-    return revertedIdsForSession(sessionId).includes(String(messageId || "").trim());
-  }
-
-  function latestUndoMessageId() {
-    if (!state.sessionId) return "";
-    const rounds = conversationRounds(state.messages);
-    for (let index = rounds.length - 1; index >= 0; index -= 1) {
-      const message = rounds[index] && rounds[index].assistant;
-      const messageId = String(message && message.id ? message.id : "").trim();
-      if (!messageId) continue;
-      const meta = getMessageMeta(state.sessionId, messageId);
-      if (!meta || meta.hasDiff !== true) continue;
-      if (isMessageReverted(state.sessionId, messageId)) continue;
-      return messageId;
-    }
-    return "";
-  }
-
-  function canUndo() {
-    return !!latestUndoMessageId();
-  }
-
-  function canRedo() {
-    return hasSessionRevertedChanges(state.sessionId);
-  }
-
-  function progressStatusClass(status) {
-    const value = String(status || "").trim().toLowerCase();
-    if (value === "completed" || value === "done" || value === "finished") return "done";
-    if (value === "error" || value === "failed") return "error";
-    if (value === "running") return "running";
-    return "pending";
-  }
-
-  function progressLabelForTool(tool) {
-    const title = String(tool && tool.title ? tool.title : "").trim();
-    const name = String(tool && tool.tool ? tool.tool : "").trim();
-    return title || (name ? "工具：" + name : "工具步骤");
-  }
-
-  function activeAssistantRawMessage(rawMessages) {
-    const rows = Array.isArray(rawMessages) ? rawMessages : [];
-    const activeId = String(state.activeGenerationMessageId || "").trim();
-    if (activeId) {
-      const match = rows.find(function (row) {
-        return (
-          row &&
-          String(row.role || "") === "assistant" &&
-          String(row.message_id || "").trim() === activeId
-        );
-      });
-      if (match) return match;
-    }
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const row = rows[index];
-      if (row && String(row.role || "") === "assistant") {
-        return row;
-      }
-    }
-    return null;
-  }
-
-  function deriveProgressFromMessages(rawMessages) {
-    const active = activeAssistantRawMessage(rawMessages);
-    if (!state.sending || !active) {
-      return {
-        visible: false,
-        label: "",
-        detail: "",
-        items: [],
-      };
-    }
-    const messageId = String(active.message_id || "").trim();
-    const meta = getMessageMeta(state.sessionId, messageId) || {};
-    const agent = normalizeAgentMode(meta.agent || state.agentMode);
-    const parts = Array.isArray(active.parts) ? active.parts : [];
-    const stepStarts = parts.filter(function (part) {
-      return String(part && part.part_type || "") === "step-start";
-    }).length;
-    const stepFinishes = parts.filter(function (part) {
-      return String(part && part.part_type || "") === "step-finish";
-    }).length;
-    const tools = parts
-      .filter(function (part) {
-        return String(part && part.part_type || "") === "tool" && part.tool;
-      })
-      .map(function (part) {
-        return part.tool;
-      });
-    const runningTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "running";
-    });
-    const pendingTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "pending";
-    });
-    const doneTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "completed";
-    });
-    const errorTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "error";
-    });
-
-    let label = agent === "ask" ? "问答处理中" : "脚本生成中";
-    if (runningTools.length > 0) {
-      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 工具运行中";
-    } else if (stepStarts > stepFinishes) {
-      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 步骤处理中";
-    } else if (parts.length > 0) {
-      label = agent === "ask" ? "正在生成回答" : "正在生成结果";
-    }
-
-    const totalSteps = Math.max(stepStarts, stepFinishes);
-    const detailParts = [];
-    if (totalSteps > 0) {
-      detailParts.push("步骤 " + String(stepFinishes) + "/" + String(totalSteps));
-    }
-    if (runningTools.length > 0) {
-      detailParts.push("运行中工具 " + String(runningTools.length));
-    } else if (pendingTools.length > 0) {
-      detailParts.push("待处理工具 " + String(pendingTools.length));
-    } else if (doneTools.length > 0) {
-      detailParts.push("已完成工具 " + String(doneTools.length));
-    }
-
-    const items = [];
-    tools.slice(-4).forEach(function (tool) {
-      items.push({
-        label: progressLabelForTool(tool),
-        status: progressStatusClass(tool && tool.status),
-      });
-    });
-    if (!items.length && totalSteps > 0) {
-      for (let index = 0; index < totalSteps; index += 1) {
-        items.push({
-          label: "步骤 " + String(index + 1),
-          status: index < stepFinishes ? "done" : (index < stepStarts ? "running" : "pending"),
-        });
-      }
-    }
-    if (!items.length) {
-      items.push({
-        label: agent === "ask" ? "等待回答输出" : "等待执行输出",
-        status: "running",
-      });
     }
 
     return {
-      visible: true,
-      label: label,
-      detail: detailParts.join(" · "),
-      items: items,
+      currentTarget: currentTarget,
+      currentManageTab: currentManageTab,
+      setManageTab: setManageTab,
+      normalizeTargetKey: normalizeTargetKey,
+      currentTargetKey: currentTargetKey,
+      currentAppKey: currentAppKey,
+      currentSceneId: currentSceneId,
+      sessionBindingKind: sessionBindingKind,
+      currentSessionBindingFingerprint: currentSessionBindingFingerprint,
+      sessionBindingStorageKey: sessionBindingStorageKey,
+      sessionStorageKey: sessionStorageKey,
+      modeStorageKey: modeStorageKey,
+      accessFloatingStorageKey: accessFloatingStorageKey,
+      accessFloatingPositionStorageKey: accessFloatingPositionStorageKey,
+      revertedStorageKey: revertedStorageKey,
+      deltaDebugStorageKey: deltaDebugStorageKey,
+      normalizeAgentMode: normalizeAgentMode,
+      normalizeRouteMode: normalizeRouteMode,
+      buildBoundSessionTitle: buildBoundSessionTitle,
+      parseBoundSessionTitle: parseBoundSessionTitle,
     };
-  }
+  };
+})(window);
 
-  function destroySourceEditor() {
-    if (state.sourceViewResizeObserver) {
+;
+
+/* ===== agent-panel-access-float.js ===== */
+/**
+ * 访问态浮动助手：由 `agent-panel.js` 在装配 `RT`（路由与 storage key）后调用。
+ * `window.__meiAgentPanelInstallAccessFloat(api)` 注入，返回一组稳定引用供事件绑定/卸载。
+ */
+(function (w) {
+  w.__meiAgentPanelInstallAccessFloat = function (api) {
+    const {
+      root,
+      els,
+      state,
+      normalizeRouteMode,
+      accessFloatingStorageKey,
+      accessFloatingPositionStorageKey,
+    } = api;
+    const ACCESS_FLOATING_MARGIN_PX = 10;
+    const ACCESS_FLOATING_DRAG_THRESHOLD_PX = 4;
+    let accessFloatingDragState = null;
+
+    function isAccessFloatingMode() {
+      return (
+        normalizeRouteMode(root.dataset.mode) === "access" &&
+        !!els.accessFloatingRoot &&
+        !!els.accessFab &&
+        !!els.accessPanel
+      );
+    }
+
+    function clampAccessFloatingPosition(left, top) {
+      if (!isAccessFloatingMode()) return null;
+      const width = Math.max(48, Number(els.accessFloatingRoot.offsetWidth || 68));
+      const height = Math.max(48, Number(els.accessFloatingRoot.offsetHeight || 68));
+      const minLeft = ACCESS_FLOATING_MARGIN_PX;
+      const minTop = ACCESS_FLOATING_MARGIN_PX;
+      const maxLeft = Math.max(
+        minLeft,
+        Number(window.innerWidth || 0) - width - ACCESS_FLOATING_MARGIN_PX,
+      );
+      const maxTop = Math.max(
+        minTop,
+        Number(window.innerHeight || 0) - height - ACCESS_FLOATING_MARGIN_PX,
+      );
+      const nextLeft = Math.min(maxLeft, Math.max(minLeft, Math.round(Number(left) || 0)));
+      const nextTop = Math.min(maxTop, Math.max(minTop, Math.round(Number(top) || 0)));
+      return { left: nextLeft, top: nextTop };
+    }
+
+    function applyAccessFloatingPosition(left, top) {
+      if (!isAccessFloatingMode()) return null;
+      const pos = clampAccessFloatingPosition(left, top);
+      if (!pos) return null;
+      els.accessFloatingRoot.style.left = String(pos.left) + "px";
+      els.accessFloatingRoot.style.top = String(pos.top) + "px";
+      els.accessFloatingRoot.style.right = "auto";
+      els.accessFloatingRoot.style.bottom = "auto";
+      els.accessFloatingRoot.dataset.positioned = "true";
+      return pos;
+    }
+
+    function clearAccessFloatingPosition() {
+      if (!isAccessFloatingMode()) return;
+      els.accessFloatingRoot.style.left = "";
+      els.accessFloatingRoot.style.top = "";
+      els.accessFloatingRoot.style.right = "";
+      els.accessFloatingRoot.style.bottom = "";
+      delete els.accessFloatingRoot.dataset.positioned;
+    }
+
+    function rememberAccessFloatingPosition(left, top) {
+      if (!isAccessFloatingMode()) return;
+      const pos = clampAccessFloatingPosition(left, top);
+      if (!pos) return;
       try {
-        state.sourceViewResizeObserver.disconnect();
+        localStorage.setItem(accessFloatingPositionStorageKey(), JSON.stringify(pos));
       } catch (_) {}
-      state.sourceViewResizeObserver = null;
     }
-    state.sourceCodeMirror = null;
-    state.sourceEditorContainer = null;
-    if (els.sourceViewSourcePanel) {
-      els.sourceViewSourcePanel.innerHTML = "";
-    }
-  }
 
-  function destroySourceDiffView() {
-    refreshLinkedViewRefs();
-    if (state.sourceDiffResizeObserver) {
+    function restoreAccessFloatingPosition() {
+      if (!isAccessFloatingMode()) return;
       try {
-        state.sourceDiffResizeObserver.disconnect();
-      } catch (_) {}
-      state.sourceDiffResizeObserver = null;
-    }
-    state.sourceDiffMergeView = null;
-    if (els.sourceViewDiffPanel) {
-      els.sourceViewDiffPanel.innerHTML = "";
-    }
-  }
-
-  function refreshSourceEditors() {
-    const views = [
-      state.sourceCodeMirror,
-      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.editor === "function"
-        ? state.sourceDiffMergeView.editor()
-        : null,
-      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.leftOriginal === "function"
-        ? state.sourceDiffMergeView.leftOriginal()
-        : null,
-      state.sourceDiffMergeView && typeof state.sourceDiffMergeView.rightOriginal === "function"
-        ? state.sourceDiffMergeView.rightOriginal()
-        : null,
-    ].filter(Boolean);
-    views.forEach(function (view) {
-      if (view && typeof view.refresh === "function") {
-        view.refresh();
+        const raw = localStorage.getItem(accessFloatingPositionStorageKey());
+        if (!raw) {
+          clearAccessFloatingPosition();
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        const left = Number(parsed && parsed.left);
+        const top = Number(parsed && parsed.top);
+        if (!Number.isFinite(left) || !Number.isFinite(top)) {
+          clearAccessFloatingPosition();
+          return;
+        }
+        const pos = applyAccessFloatingPosition(left, top);
+        if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
+      } catch (_) {
+        clearAccessFloatingPosition();
       }
-    });
-  }
-
-  function refreshSourceDiffView() {
-    refreshSourceEditors();
-  }
-
-  function scheduleSourceDiffRefresh() {
-    if (!state.sourceDiffMergeView || typeof window.requestAnimationFrame !== "function") {
-      refreshSourceDiffView();
-      return;
     }
-    window.requestAnimationFrame(function () {
-      refreshSourceDiffView();
-      window.requestAnimationFrame(function () {
-        refreshSourceDiffView();
-      });
-    });
-  }
 
-  function bindSourceDiffResizeRefresh() {
-    refreshLinkedViewRefs();
-    if (!els.sourceViewDiffPanel || typeof ResizeObserver !== "function") {
-      return;
+    function renderAccessFloatingPanel() {
+      if (!isAccessFloatingMode()) return;
+      const open = !!state.accessFloatingOpen;
+      els.accessFloatingRoot.dataset.open = open ? "true" : "false";
+      els.accessPanel.hidden = !open;
+      els.accessFab.title = open ? "关闭助手对话框" : "打开助手对话框";
+      els.accessFab.setAttribute("aria-label", open ? "关闭助手对话框" : "打开助手对话框");
     }
-    if (state.sourceDiffResizeObserver) {
+
+    function rememberAccessFloatingPanel() {
+      if (!isAccessFloatingMode()) return;
       try {
-        state.sourceDiffResizeObserver.disconnect();
+        localStorage.setItem(accessFloatingStorageKey(), state.accessFloatingOpen ? "1" : "0");
       } catch (_) {}
     }
-    state.sourceDiffResizeObserver = new ResizeObserver(function () {
-      scheduleSourceDiffRefresh();
-    });
-    state.sourceDiffResizeObserver.observe(els.sourceViewDiffPanel);
-  }
 
-  function bindSourceViewResizeRefresh() {
-    refreshLinkedViewRefs();
-    if (!els.sourceViewHost || typeof ResizeObserver !== "function") {
-      return;
-    }
-    if (state.sourceViewResizeObserver) {
+    function restoreAccessFloatingPanel() {
+      if (!isAccessFloatingMode()) return;
+      restoreAccessFloatingPosition();
       try {
-        state.sourceViewResizeObserver.disconnect();
-      } catch (_) {}
-    }
-    state.sourceViewResizeObserver = new ResizeObserver(function () {
-      scheduleSourceDiffRefresh();
-    });
-    state.sourceViewResizeObserver.observe(els.sourceViewHost);
-    if (els.sourceViewSourcePanel) {
-      state.sourceViewResizeObserver.observe(els.sourceViewSourcePanel);
-    }
-  }
-
-  function ensureSourceEditor() {
-    refreshLinkedViewRefs();
-    if (!els.sourceViewSourcePanel || !window.CodeMirror) {
-      return;
-    }
-    if (
-      state.sourceCodeMirror &&
-      state.sourceEditorContainer === els.sourceViewSourcePanel
-    ) {
-      refreshSourceEditors();
-      return;
-    }
-    initSourceEditor();
-  }
-
-  function codeMirrorModeOption() {
-    const lang = sourceLanguage();
-    const target = sourceTargetKey();
-    const ext = (target.split(".").pop() || "").toLowerCase();
-    if (lang === "mei" || ext === "mei" || ext === "star") return "mei";
-    if (lang === "json" || ext === "json" || ext === "jsonc") {
-      return { name: "javascript", json: true };
-    }
-    if (lang === "typescript" || ext === "ts" || ext === "tsx") {
-      return { name: "javascript", typescript: true };
-    }
-    if (lang === "javascript" || ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") {
-      return "javascript";
-    }
-    if (lang === "css" || ext === "css" || ext === "scss" || ext === "less") return "css";
-    if (lang === "python" || ext === "py" || ext === "pyi") return "python";
-    if (lang === "xml" || ext === "xml" || ext === "svg") {
-      return { name: "xml", htmlMode: false };
-    }
-    if (lang === "html" || ext === "html" || ext === "htm") {
-      return { name: "xml", htmlMode: true };
-    }
-    return null;
-  }
-
-  function initSourceEditor() {
-    refreshLinkedViewRefs();
-    if (!els.sourceViewSourcePanel || !window.CodeMirror) {
-      return;
-    }
-    destroySourceEditor();
-    state.sourceCodeMirror = window.CodeMirror(els.sourceViewSourcePanel, {
-      value: sourceRawText(),
-      lineNumbers: true,
-      readOnly: true,
-      mode: codeMirrorModeOption(),
-      theme: "default",
-      lineWrapping: false,
-      scrollbarStyle: "native",
-    });
-    state.sourceEditorContainer = els.sourceViewSourcePanel;
-    bindSourceViewResizeRefresh();
-    scheduleSourceDiffRefresh();
-  }
-
-  function renderSourceViewMode(mode) {
-    refreshLinkedViewRefs();
-    const nextMode = mode === "diff" ? "diff" : "source";
-    state.sourceViewMode = nextMode;
-    if (els.sourceViewSourcePanel) {
-      els.sourceViewSourcePanel.hidden = nextMode !== "source";
-    }
-    if (els.sourceViewDiffPanel) {
-      els.sourceViewDiffPanel.hidden = nextMode !== "diff";
-    }
-    if (els.sourceViewDiffBtn) {
-      const active = nextMode === "diff";
-      els.sourceViewDiffBtn.classList.toggle("is-active", active);
-      els.sourceViewDiffBtn.setAttribute("aria-pressed", active ? "true" : "false");
-    }
-    if (nextMode === "source") {
-      ensureSourceEditor();
-    }
-    scheduleSourceDiffRefresh();
-  }
-
-  function pickDiffFileForTarget(diff) {
-    const files = Array.isArray(diff && diff.files) ? diff.files : [];
-    if (!files.length) return null;
-    const target = sourceTargetKey();
-    const exact = files.find(function (file) {
-      return normalizeFilePath(file && file.file) === target;
-    });
-    if (exact) return exact;
-    const targetName = target.split("/").pop() || target;
-    const fuzzy = files.find(function (file) {
-      const filePath = normalizeFilePath(file && file.file);
-      return filePath === targetName || filePath.endsWith("/" + targetName);
-    });
-    return fuzzy || files[0];
-  }
-
-  function renderSourceDiff(fileDiff, messageId) {
-    refreshLinkedViewRefs();
-    if (!els.sourceViewDiffPanel) return false;
-    if (!window.CodeMirror || typeof window.CodeMirror.MergeView !== "function") {
-      setInlineNote("差异视图不可用：CodeMirror 未加载。");
-      return false;
-    }
-    if (typeof window.diff_match_patch !== "function") {
-      setInlineNote("差异视图不可用：diff 引擎未加载。");
-      return false;
-    }
-    const beforeText = String(fileDiff && fileDiff.before ? fileDiff.before : "");
-    const afterText = String(fileDiff && fileDiff.after ? fileDiff.after : "");
-    destroySourceDiffView();
-    renderSourceViewMode("diff");
-    state.sourceDiffMergeView = window.CodeMirror.MergeView(els.sourceViewDiffPanel, {
-      value: afterText,
-      orig: beforeText,
-      lineNumbers: true,
-      readOnly: true,
-      mode: "mei",
-      theme: "default",
-      highlightDifferences: true,
-      connect: "align",
-      collapseIdentical: false,
-      revertButtons: false,
-    });
-    state.sourceDiffMessageId = String(messageId || "");
-    bindSourceDiffResizeRefresh();
-    scheduleSourceDiffRefresh();
-    return true;
-  }
-
-  function leaveDiffView() {
-    refreshLinkedViewRefs();
-    state.sourceDiffMessageId = "";
-    destroySourceDiffView();
-    const keepDiffMode = currentManageTab() === "diff";
-    renderSourceViewMode(keepDiffMode ? "diff" : "source");
-    if (keepDiffMode && els.sourceViewDiffPanel) {
-      els.sourceViewDiffPanel.innerHTML =
-        '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可显示差异</div>';
-    }
-  }
-
-  function applyManageTabMode(tab) {
-    renderDeltaDebugLog();
-    refreshLinkedViewRefs();
-    const next = String(tab || "").trim().toLowerCase();
-    if (next === "source") {
-      ensureSourceEditor();
-      leaveDiffView();
-      return;
-    }
-    if (next !== "diff") return;
-    renderSourceViewMode("diff");
-    if (!state.latestDiffMessageId) {
-      if (els.sourceViewDiffPanel) {
-        els.sourceViewDiffPanel.innerHTML =
-          '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可查看差异</div>';
+        const saved = localStorage.getItem(accessFloatingStorageKey());
+        state.accessFloatingOpen = saved === "1";
+      } catch (_) {
+        state.accessFloatingOpen = false;
       }
-      return;
+      renderAccessFloatingPanel();
     }
-    inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-      setInlineNote("读取差异失败：" + String(error.message || error));
-    });
-  }
 
-  async function inspectDiffForMessage(messageId) {
-    const sid = String(state.sessionId || "").trim();
-    const mid = String(messageId || "").trim();
-    if (!sid || !mid) return false;
-    if (mid !== String(state.latestDiffMessageId || "")) {
-      setInlineNote("仅支持查看最后一轮 Build 的差异。");
-      return false;
+    function toggleAccessFloatingPanel(next) {
+      if (!isAccessFloatingMode()) return;
+      if (typeof next === "boolean") {
+        state.accessFloatingOpen = next;
+      } else {
+        state.accessFloatingOpen = !state.accessFloatingOpen;
+      }
+      rememberAccessFloatingPanel();
+      renderAccessFloatingPanel();
+      if (state.accessFloatingOpen && els.input) {
+        window.setTimeout(function () {
+          try {
+            els.input.focus();
+          } catch (_) {}
+        }, 0);
+      }
     }
-    const cacheKey = diffCacheKey(sid, mid);
-    const diff = state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
-    state.messageDiffCache[cacheKey] = diff;
-    const hasFiles = sessionDiffHasMaterialChanges(diff);
-    setMessageMeta(mid, { hasDiff: hasFiles });
-    if (!hasFiles) {
-      setInlineNote("暂无可显示的文件差异。");
-      leaveDiffView();
-      setDiffTabBadge(0, 0);
-      return false;
-    }
-    const fileDiff = pickDiffFileForTarget(diff);
-    if (!fileDiff) {
-      setInlineNote("当前目标文件没有可显示差异。");
-      leaveDiffView();
-      setDiffTabBadge(0, 0);
-      return false;
-    }
-    const st = diffLineStatsFromSummary(diff);
-    setDiffTabBadge(st.additions, st.deletions);
-    return renderSourceDiff(fileDiff, mid);
-  }
 
-  function ensureManageDiffTabBadge() {
-    const tab = document.getElementById("manage-tab-diff");
-    if (!tab) return null;
-    let badge = document.getElementById("manage-tab-diff-badge");
-    if (!badge) {
-      badge = document.createElement("span");
-      badge.id = "manage-tab-diff-badge";
-      badge.className = "manage-view-tab-badge";
-      badge.hidden = true;
-      tab.appendChild(badge);
+    function beginAccessFloatingDrag(event) {
+      if (!isAccessFloatingMode()) return;
+      if (event && event.button != null && event.button !== 0) return;
+      const rect = els.accessFloatingRoot.getBoundingClientRect();
+      accessFloatingDragState = {
+        pointerId: event ? event.pointerId : null,
+        startX: Number(event && event.clientX),
+        startY: Number(event && event.clientY),
+        baseLeft: Number(rect.left || 0),
+        baseTop: Number(rect.top || 0),
+        moved: false,
+        lastLeft: Number(rect.left || 0),
+        lastTop: Number(rect.top || 0),
+      };
+      state.accessFloatingDragMoved = false;
+      els.accessFloatingRoot.dataset.dragging = "true";
+      try {
+        if (els.accessFab && event && event.pointerId != null) {
+          els.accessFab.setPointerCapture(event.pointerId);
+        }
+      } catch (_) {}
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
     }
-    return badge;
-  }
 
-  function setDiffTabBadge(additions, deletions) {
-    const a = Math.max(0, Number(additions) || 0);
-    const d = Math.max(0, Number(deletions) || 0);
-    const total = a + d;
-    const badge = ensureManageDiffTabBadge();
-    if (!badge) return;
-    if (!total) {
-      badge.textContent = "";
-      badge.hidden = true;
-      badge.removeAttribute("title");
-      return;
-    }
-    badge.textContent = String(total);
-    badge.hidden = false;
-    badge.title = "相对上一轮 Build：新增 +" + String(a) + " 行，删除 -" + String(d) + " 行";
-  }
-
-  /** 与 GET /diff 返回结构一致：优先用 additions/deletions，否则从 patch 文本粗算 +/- 行。 */
-  function diffLineStatsFromSummary(diff) {
-    if (!diff || typeof diff !== "object") return { additions: 0, deletions: 0 };
-    let a = Number(diff.additions);
-    let d = Number(diff.deletions);
-    if (Number.isFinite(a) && Number.isFinite(d) && (a > 0 || d > 0)) {
-      return { additions: Math.max(0, a), deletions: Math.max(0, d) };
-    }
-    let hitA = 0;
-    let hitD = 0;
-    const files = Array.isArray(diff.files) ? diff.files : [];
-    files.forEach(function (f) {
-      if (!f || typeof f !== "object") return;
-      const fa = Number(f.additions);
-      const fd = Number(f.deletions);
-      if (Number.isFinite(fa) && Number.isFinite(fd) && (fa > 0 || fd > 0)) {
-        hitA += Math.max(0, fa);
-        hitD += Math.max(0, fd);
+    function continueAccessFloatingDrag(event) {
+      if (!accessFloatingDragState || !isAccessFloatingMode()) return;
+      if (
+        accessFloatingDragState.pointerId != null &&
+        event &&
+        event.pointerId != null &&
+        event.pointerId !== accessFloatingDragState.pointerId
+      ) {
         return;
       }
-      const after = String(f.after || "");
-      after.split("\n").forEach(function (line) {
-        const t = String(line || "");
-        if (t.startsWith("+") && !t.startsWith("+++")) hitA += 1;
-        else if (t.startsWith("-") && !t.startsWith("---")) hitD += 1;
-      });
-    });
-    return { additions: hitA, deletions: hitD };
-  }
-
-  async function refreshDiffTabBadge() {
-    if (!state.sessionId || !state.health || !state.health.healthy || historyUnavailableReason()) {
-      setDiffTabBadge(0, 0);
-      return;
-    }
-    const mid = String(state.latestDiffMessageId || "").trim();
-    if (!mid) {
-      setDiffTabBadge(0, 0);
-      return;
-    }
-    try {
-      const cacheKey = diffCacheKey(state.sessionId, mid);
-      const diff =
-        state.messageDiffCache[cacheKey] || (await fetchSessionDiff(mid));
-      if (diff && typeof diff === "object") {
-        state.messageDiffCache[cacheKey] = diff;
+      const nextX = Number(event && event.clientX);
+      const nextY = Number(event && event.clientY);
+      if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) return;
+      const dx = nextX - accessFloatingDragState.startX;
+      const dy = nextY - accessFloatingDragState.startY;
+      if (
+        !accessFloatingDragState.moved &&
+        Math.hypot(dx, dy) < ACCESS_FLOATING_DRAG_THRESHOLD_PX
+      ) {
+        return;
       }
-      if (!sessionDiffHasMaterialChanges(diff)) {
+      accessFloatingDragState.moved = true;
+      state.accessFloatingDragMoved = true;
+      const pos = applyAccessFloatingPosition(
+        accessFloatingDragState.baseLeft + dx,
+        accessFloatingDragState.baseTop + dy,
+      );
+      if (!pos) return;
+      accessFloatingDragState.lastLeft = pos.left;
+      accessFloatingDragState.lastTop = pos.top;
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+    }
+
+    function endAccessFloatingDrag(event) {
+      if (!accessFloatingDragState) return;
+      if (
+        accessFloatingDragState.pointerId != null &&
+        event &&
+        event.pointerId != null &&
+        event.pointerId !== accessFloatingDragState.pointerId
+      ) {
+        return;
+      }
+      const moved = !!accessFloatingDragState.moved;
+      const left = accessFloatingDragState.lastLeft;
+      const top = accessFloatingDragState.lastTop;
+      accessFloatingDragState = null;
+      if (els.accessFloatingRoot) {
+        delete els.accessFloatingRoot.dataset.dragging;
+      }
+      try {
+        if (els.accessFab && event && event.pointerId != null) {
+          els.accessFab.releasePointerCapture(event.pointerId);
+        }
+      } catch (_) {}
+      if (moved) {
+        rememberAccessFloatingPosition(left, top);
+        window.setTimeout(function () {
+          state.accessFloatingDragMoved = false;
+        }, 0);
+      }
+    }
+
+    return {
+      isAccessFloatingMode,
+      clampAccessFloatingPosition,
+      applyAccessFloatingPosition,
+      clearAccessFloatingPosition,
+      rememberAccessFloatingPosition,
+      restoreAccessFloatingPosition,
+      renderAccessFloatingPanel,
+      rememberAccessFloatingPanel,
+      restoreAccessFloatingPanel,
+      toggleAccessFloatingPanel,
+      beginAccessFloatingDrag,
+      continueAccessFloatingDrag,
+      endAccessFloatingDrag,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel-source.js ===== */
+/**
+ * 源码 / CodeMirror / merge diff / 管理页 diff 角标：由 agent-panel 主文件装配。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallSourceView = function (api) {
+    function refreshLinkedViewRefs() {
+      api.refreshLinkedViewRefs();
+    }
+
+    function destroySourceEditor() {
+      if (api.state.sourceViewResizeObserver) {
+        try {
+          api.state.sourceViewResizeObserver.disconnect();
+        } catch (_) {}
+        api.state.sourceViewResizeObserver = null;
+      }
+      api.state.sourceCodeMirror = null;
+      api.state.sourceEditorContainer = null;
+      if (api.els.sourceViewSourcePanel) {
+        api.els.sourceViewSourcePanel.innerHTML = "";
+      }
+    }
+
+    function destroySourceDiffView() {
+      refreshLinkedViewRefs();
+      if (api.state.sourceDiffResizeObserver) {
+        try {
+          api.state.sourceDiffResizeObserver.disconnect();
+        } catch (_) {}
+        api.state.sourceDiffResizeObserver = null;
+      }
+      api.state.sourceDiffMergeView = null;
+      if (api.els.sourceViewDiffPanel) {
+        api.els.sourceViewDiffPanel.innerHTML = "";
+      }
+    }
+
+    function refreshSourceEditors() {
+      const views = [
+        api.state.sourceCodeMirror,
+        api.state.sourceDiffMergeView && typeof api.state.sourceDiffMergeView.editor === "function"
+          ? api.state.sourceDiffMergeView.editor()
+          : null,
+        api.state.sourceDiffMergeView &&
+        typeof api.state.sourceDiffMergeView.leftOriginal === "function"
+          ? api.state.sourceDiffMergeView.leftOriginal()
+          : null,
+        api.state.sourceDiffMergeView &&
+        typeof api.state.sourceDiffMergeView.rightOriginal === "function"
+          ? api.state.sourceDiffMergeView.rightOriginal()
+          : null,
+      ].filter(Boolean);
+      views.forEach(function (view) {
+        if (view && typeof view.refresh === "function") {
+          view.refresh();
+        }
+      });
+    }
+
+    function refreshSourceDiffView() {
+      refreshSourceEditors();
+    }
+
+    function scheduleSourceDiffRefresh() {
+      if (!api.state.sourceDiffMergeView || typeof global.requestAnimationFrame !== "function") {
+        refreshSourceDiffView();
+        return;
+      }
+      global.requestAnimationFrame(function () {
+        refreshSourceDiffView();
+        global.requestAnimationFrame(function () {
+          refreshSourceDiffView();
+        });
+      });
+    }
+
+    function bindSourceDiffResizeRefresh() {
+      refreshLinkedViewRefs();
+      if (!api.els.sourceViewDiffPanel || typeof ResizeObserver !== "function") {
+        return;
+      }
+      if (api.state.sourceDiffResizeObserver) {
+        try {
+          api.state.sourceDiffResizeObserver.disconnect();
+        } catch (_) {}
+      }
+      api.state.sourceDiffResizeObserver = new ResizeObserver(function () {
+        scheduleSourceDiffRefresh();
+      });
+      api.state.sourceDiffResizeObserver.observe(api.els.sourceViewDiffPanel);
+    }
+
+    function bindSourceViewResizeRefresh() {
+      refreshLinkedViewRefs();
+      if (!api.els.sourceViewHost || typeof ResizeObserver !== "function") {
+        return;
+      }
+      if (api.state.sourceViewResizeObserver) {
+        try {
+          api.state.sourceViewResizeObserver.disconnect();
+        } catch (_) {}
+      }
+      api.state.sourceViewResizeObserver = new ResizeObserver(function () {
+        scheduleSourceDiffRefresh();
+      });
+      api.state.sourceViewResizeObserver.observe(api.els.sourceViewHost);
+      if (api.els.sourceViewSourcePanel) {
+        api.state.sourceViewResizeObserver.observe(api.els.sourceViewSourcePanel);
+      }
+    }
+
+    function ensureSourceEditor() {
+      refreshLinkedViewRefs();
+      if (!api.els.sourceViewSourcePanel || !global.CodeMirror) {
+        return;
+      }
+      if (
+        api.state.sourceCodeMirror &&
+        api.state.sourceEditorContainer === api.els.sourceViewSourcePanel
+      ) {
+        refreshSourceEditors();
+        return;
+      }
+      initSourceEditor();
+    }
+
+    function codeMirrorModeOption() {
+      const lang = api.sourceLanguage();
+      const target = api.sourceTargetKey();
+      const ext = (target.split(".").pop() || "").toLowerCase();
+      if (lang === "mei" || ext === "mei" || ext === "star") return "mei";
+      if (lang === "json" || ext === "json" || ext === "jsonc") {
+        return { name: "javascript", json: true };
+      }
+      if (lang === "typescript" || ext === "ts" || ext === "tsx") {
+        return { name: "javascript", typescript: true };
+      }
+      if (lang === "javascript" || ext === "js" || ext === "jsx" || ext === "mjs" || ext === "cjs") {
+        return "javascript";
+      }
+      if (lang === "css" || ext === "css" || ext === "scss" || ext === "less") return "css";
+      if (lang === "python" || ext === "py" || ext === "pyi") return "python";
+      if (lang === "xml" || ext === "xml" || ext === "svg") {
+        return { name: "xml", htmlMode: false };
+      }
+      if (lang === "html" || ext === "html" || ext === "htm") {
+        return { name: "xml", htmlMode: true };
+      }
+      return null;
+    }
+
+    function initSourceEditor() {
+      refreshLinkedViewRefs();
+      if (!api.els.sourceViewSourcePanel || !global.CodeMirror) {
+        return;
+      }
+      destroySourceEditor();
+      api.state.sourceCodeMirror = global.CodeMirror(api.els.sourceViewSourcePanel, {
+        value: api.sourceRawText(),
+        lineNumbers: true,
+        readOnly: true,
+        mode: codeMirrorModeOption(),
+        theme: "default",
+        lineWrapping: false,
+        scrollbarStyle: "native",
+      });
+      api.state.sourceEditorContainer = api.els.sourceViewSourcePanel;
+      bindSourceViewResizeRefresh();
+      scheduleSourceDiffRefresh();
+    }
+
+    function renderSourceViewMode(mode) {
+      refreshLinkedViewRefs();
+      const nextMode = mode === "diff" ? "diff" : "source";
+      api.state.sourceViewMode = nextMode;
+      if (api.els.sourceViewSourcePanel) {
+        api.els.sourceViewSourcePanel.hidden = nextMode !== "source";
+      }
+      if (api.els.sourceViewDiffPanel) {
+        api.els.sourceViewDiffPanel.hidden = nextMode !== "diff";
+      }
+      if (api.els.sourceViewDiffBtn) {
+        const active = nextMode === "diff";
+        api.els.sourceViewDiffBtn.classList.toggle("is-active", active);
+        api.els.sourceViewDiffBtn.setAttribute("aria-pressed", active ? "true" : "false");
+      }
+      if (nextMode === "source") {
+        ensureSourceEditor();
+      }
+      scheduleSourceDiffRefresh();
+    }
+
+    function pickDiffFileForTarget(diff) {
+      const files = Array.isArray(diff && diff.files) ? diff.files : [];
+      if (!files.length) return null;
+      const target = api.sourceTargetKey();
+      const exact = files.find(function (file) {
+        return api.normalizeFilePath(file && file.file) === target;
+      });
+      if (exact) return exact;
+      const targetName = target.split("/").pop() || target;
+      const fuzzy = files.find(function (file) {
+        const filePath = api.normalizeFilePath(file && file.file);
+        return filePath === targetName || filePath.endsWith("/" + targetName);
+      });
+      return fuzzy || files[0];
+    }
+
+    function renderSourceDiff(fileDiff, messageId) {
+      refreshLinkedViewRefs();
+      if (!api.els.sourceViewDiffPanel) return false;
+      if (!global.CodeMirror || typeof global.CodeMirror.MergeView !== "function") {
+        api.setInlineNote("差异视图不可用：CodeMirror 未加载。");
+        return false;
+      }
+      if (typeof global.diff_match_patch !== "function") {
+        api.setInlineNote("差异视图不可用：diff 引擎未加载。");
+        return false;
+      }
+      const beforeText = String(fileDiff && fileDiff.before ? fileDiff.before : "");
+      const afterText = String(fileDiff && fileDiff.after ? fileDiff.after : "");
+      destroySourceDiffView();
+      renderSourceViewMode("diff");
+      api.state.sourceDiffMergeView = global.CodeMirror.MergeView(api.els.sourceViewDiffPanel, {
+        value: afterText,
+        orig: beforeText,
+        lineNumbers: true,
+        readOnly: true,
+        mode: "mei",
+        theme: "default",
+        highlightDifferences: true,
+        connect: "align",
+        collapseIdentical: false,
+        revertButtons: false,
+      });
+      api.state.sourceDiffMessageId = String(messageId || "");
+      bindSourceDiffResizeRefresh();
+      scheduleSourceDiffRefresh();
+      return true;
+    }
+
+    function leaveDiffView() {
+      refreshLinkedViewRefs();
+      api.state.sourceDiffMessageId = "";
+      destroySourceDiffView();
+      const keepDiffMode = api.currentManageTab() === "diff";
+      renderSourceViewMode(keepDiffMode ? "diff" : "source");
+      if (keepDiffMode && api.els.sourceViewDiffPanel) {
+        api.els.sourceViewDiffPanel.innerHTML =
+          '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可显示差异</div>';
+      }
+    }
+
+    function applyManageTabMode(tab) {
+      api.renderDeltaDebugLog();
+      refreshLinkedViewRefs();
+      const next = String(tab || "").trim().toLowerCase();
+      if (next === "source") {
+        ensureSourceEditor();
+        leaveDiffView();
+        return;
+      }
+      if (next !== "diff") return;
+      renderSourceViewMode("diff");
+      if (!api.state.latestDiffMessageId) {
+        if (api.els.sourceViewDiffPanel) {
+          api.els.sourceViewDiffPanel.innerHTML =
+            '<div class="grid place-content-center gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-950/35 p-6 text-center text-xs text-slate-400">暂无可查看差异</div>';
+        }
+        return;
+      }
+      inspectDiffForMessage(api.state.latestDiffMessageId).catch(function (error) {
+        api.setInlineNote("读取差异失败：" + String(error.message || error));
+      });
+    }
+
+    async function inspectDiffForMessage(messageId) {
+      const sid = String(api.state.sessionId || "").trim();
+      const mid = String(messageId || "").trim();
+      if (!sid || !mid) return false;
+      if (mid !== String(api.state.latestDiffMessageId || "")) {
+        api.setInlineNote("仅支持查看最后一轮 Build 的差异。");
+        return false;
+      }
+      const cacheKey = api.diffCacheKey(sid, mid);
+      const diff =
+        api.state.messageDiffCache[cacheKey] || (await api.fetchSessionDiff(mid));
+      api.state.messageDiffCache[cacheKey] = diff;
+      const hasFiles = api.sessionDiffHasMaterialChanges(diff);
+      api.setMessageMeta(mid, { hasDiff: hasFiles });
+      if (!hasFiles) {
+        api.setInlineNote("暂无可显示的文件差异。");
+        leaveDiffView();
+        setDiffTabBadge(0, 0);
+        return false;
+      }
+      const fileDiff = pickDiffFileForTarget(diff);
+      if (!fileDiff) {
+        api.setInlineNote("当前目标文件没有可显示差异。");
+        leaveDiffView();
+        setDiffTabBadge(0, 0);
+        return false;
+      }
+      const st = diffLineStatsFromSummary(diff);
+      setDiffTabBadge(st.additions, st.deletions);
+      return renderSourceDiff(fileDiff, mid);
+    }
+
+    function ensureManageDiffTabBadge() {
+      const tab = document.getElementById("manage-tab-diff");
+      if (!tab) return null;
+      let badge = document.getElementById("manage-tab-diff-badge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.id = "manage-tab-diff-badge";
+        badge.className = "manage-view-tab-badge";
+        badge.hidden = true;
+        tab.appendChild(badge);
+      }
+      return badge;
+    }
+
+    function setDiffTabBadge(additions, deletions) {
+      const a = Math.max(0, Number(additions) || 0);
+      const d = Math.max(0, Number(deletions) || 0);
+      const total = a + d;
+      const badge = ensureManageDiffTabBadge();
+      if (!badge) return;
+      if (!total) {
+        badge.textContent = "";
+        badge.hidden = true;
+        badge.removeAttribute("title");
+        return;
+      }
+      badge.textContent = String(total);
+      badge.hidden = false;
+      badge.title = "相对上一轮 Build：新增 +" + String(a) + " 行，删除 -" + String(d) + " 行";
+    }
+
+    function diffLineStatsFromSummary(diff) {
+      if (!diff || typeof diff !== "object") return { additions: 0, deletions: 0 };
+      let a = Number(diff.additions);
+      let d = Number(diff.deletions);
+      if (Number.isFinite(a) && Number.isFinite(d) && (a > 0 || d > 0)) {
+        return { additions: Math.max(0, a), deletions: Math.max(0, d) };
+      }
+      let hitA = 0;
+      let hitD = 0;
+      const files = Array.isArray(diff.files) ? diff.files : [];
+      files.forEach(function (f) {
+        if (!f || typeof f !== "object") return;
+        const fa = Number(f.additions);
+        const fd = Number(f.deletions);
+        if (Number.isFinite(fa) && Number.isFinite(fd) && (fa > 0 || fd > 0)) {
+          hitA += Math.max(0, fa);
+          hitD += Math.max(0, fd);
+          return;
+        }
+        const after = String(f.after || "");
+        after.split("\n").forEach(function (line) {
+          const t = String(line || "");
+          if (t.startsWith("+") && !t.startsWith("+++")) hitA += 1;
+          else if (t.startsWith("-") && !t.startsWith("---")) hitD += 1;
+        });
+      });
+      return { additions: hitA, deletions: hitD };
+    }
+
+    async function refreshDiffTabBadge() {
+      if (
+        !api.state.sessionId ||
+        !api.state.health ||
+        !api.state.health.healthy ||
+        api.historyUnavailableReason()
+      ) {
         setDiffTabBadge(0, 0);
         return;
       }
-      const stats = diffLineStatsFromSummary(diff);
-      setDiffTabBadge(stats.additions, stats.deletions);
-    } catch (_) {
-      setDiffTabBadge(0, 0);
+      const mid = String(api.state.latestDiffMessageId || "").trim();
+      if (!mid) {
+        setDiffTabBadge(0, 0);
+        return;
+      }
+      try {
+        const cacheKey = api.diffCacheKey(api.state.sessionId, mid);
+        const diff =
+          api.state.messageDiffCache[cacheKey] || (await api.fetchSessionDiff(mid));
+        if (diff && typeof diff === "object") {
+          api.state.messageDiffCache[cacheKey] = diff;
+        }
+        if (!api.sessionDiffHasMaterialChanges(diff)) {
+          setDiffTabBadge(0, 0);
+          return;
+        }
+        const stats = diffLineStatsFromSummary(diff);
+        setDiffTabBadge(stats.additions, stats.deletions);
+      } catch (_) {
+        setDiffTabBadge(0, 0);
+      }
     }
-  }
 
-  function syncSourceDiffEntry() {
-    state.latestRoundAssistantId = latestRoundAssistantMessageId();
-    state.latestDiffMessageId = latestDiffEligibleMessageId();
-    if (els.sourceViewDiffBtn) {
-      const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
-      els.sourceViewDiffBtn.disabled = !enabled;
-      els.sourceViewDiffBtn.title = enabled
-        ? "查看最后一轮 Build 差异（行数见管理页「修改」角标）"
-        : (historyUnavailableReason() || "暂无可查看差异");
+    function syncSourceDiffEntry() {
+      api.state.latestRoundAssistantId = api.latestRoundAssistantMessageId();
+      api.state.latestDiffMessageId = api.latestDiffEligibleMessageId();
+      if (api.els.sourceViewDiffBtn) {
+        const enabled = !!api.state.latestDiffMessageId && !api.historyUnavailableReason();
+        api.els.sourceViewDiffBtn.disabled = !enabled;
+        api.els.sourceViewDiffBtn.title = enabled
+          ? "查看最后一轮 Build 差异（行数见管理页「修改」角标）"
+          : api.historyUnavailableReason() || "暂无可查看差异";
+      }
+      const diffTab = document.getElementById("manage-tab-diff");
+      if (diffTab) {
+        const enabled = !!api.state.latestDiffMessageId && !api.historyUnavailableReason();
+        diffTab.hidden = !enabled;
+      }
+      if (
+        api.state.sourceViewMode === "diff" &&
+        api.state.sourceDiffMessageId &&
+        api.state.sourceDiffMessageId !== api.state.latestDiffMessageId
+      ) {
+        leaveDiffView();
+      } else if (!api.state.latestDiffMessageId && api.state.sourceViewMode === "diff") {
+        leaveDiffView();
+      }
+      void refreshDiffTabBadge();
     }
-    const diffTab = document.getElementById("manage-tab-diff");
-    if (diffTab) {
-      const enabled = !!state.latestDiffMessageId && !historyUnavailableReason();
-      diffTab.hidden = !enabled;
+
+    return {
+      destroySourceEditor: destroySourceEditor,
+      destroySourceDiffView: destroySourceDiffView,
+      refreshSourceEditors: refreshSourceEditors,
+      refreshSourceDiffView: refreshSourceDiffView,
+      scheduleSourceDiffRefresh: scheduleSourceDiffRefresh,
+      bindSourceDiffResizeRefresh: bindSourceDiffResizeRefresh,
+      bindSourceViewResizeRefresh: bindSourceViewResizeRefresh,
+      ensureSourceEditor: ensureSourceEditor,
+      codeMirrorModeOption: codeMirrorModeOption,
+      initSourceEditor: initSourceEditor,
+      renderSourceViewMode: renderSourceViewMode,
+      pickDiffFileForTarget: pickDiffFileForTarget,
+      renderSourceDiff: renderSourceDiff,
+      leaveDiffView: leaveDiffView,
+      applyManageTabMode: applyManageTabMode,
+      inspectDiffForMessage: inspectDiffForMessage,
+      ensureManageDiffTabBadge: ensureManageDiffTabBadge,
+      setDiffTabBadge: setDiffTabBadge,
+      diffLineStatsFromSummary: diffLineStatsFromSummary,
+      refreshDiffTabBadge: refreshDiffTabBadge,
+      syncSourceDiffEntry: syncSourceDiffEntry,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel-session.js ===== */
+/**
+ * 会话传输层：EventSource、SSE 事件分发、后台刷新轮询。由 agent-panel 主文件装配 `SES`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallSession = function (api) {
+    const POLL_ACTIVE_MS = 30000;
+    const POLL_IDLE_MS = 120000;
+    const POLL_STREAM_HEALTHY_MS = 180000;
+    const POLL_MAX_MS = 300000;
+
+    let refreshTimerId = 0;
+    let refreshPollFailureCount = 0;
+    let refreshPollInFlight = false;
+
+    function closeEventStream() {
+      api.clearGenerationSettleTimer();
+      if (api.state.eventSource) {
+        try {
+          api.state.eventSource.close();
+        } catch (_) {}
+      }
+      api.state.eventSource = null;
+      api.state.eventSourceSessionId = "";
+      api.state.streamConnected = false;
     }
-    if (
-      state.sourceViewMode === "diff" &&
-      state.sourceDiffMessageId &&
-      state.sourceDiffMessageId !== state.latestDiffMessageId
-    ) {
-      leaveDiffView();
-    } else if (!state.latestDiffMessageId && state.sourceViewMode === "diff") {
-      leaveDiffView();
+
+    function connectEvents(forceReconnect) {
+      const sessionId = String(api.state.sessionId || "").trim();
+      if (!(api.state.health && api.state.health.healthy) || !sessionId) {
+        closeEventStream();
+        return;
+      }
+      if (
+        api.state.eventSource &&
+        api.state.eventSourceSessionId === sessionId &&
+        !forceReconnect
+      ) {
+        return;
+      }
+      closeEventStream();
+      try {
+        const source = new EventSource(
+          "/api/agent/session/" + encodeURIComponent(sessionId) + "/events",
+        );
+        source.onopen = function () {
+          api.state.streamConnected = true;
+          api.renderStatus();
+        };
+        source.onerror = function () {
+          api.state.streamConnected = false;
+          api.renderStatus();
+        };
+        source.onmessage = function (event) {
+          try {
+            applyHostEvent(JSON.parse(String(event.data || "{}")));
+          } catch (_) {}
+        };
+        api.state.eventSource = source;
+        api.state.eventSourceSessionId = sessionId;
+      } catch (_) {
+        api.state.streamConnected = false;
+        api.renderStatus();
+      }
     }
-    void refreshDiffTabBadge();
-  }
 
-  function scheduleHostReload(reason) {
-    const text = String(reason || "").trim();
-    if (text) setInlineNote(text);
-    state.pendingReloadMessageId = "";
-    window.setTimeout(function () {
-      window.location.reload();
-    }, 120);
-  }
+    function applyHostEvent(event) {
+      if (!event || typeof event !== "object") return;
+      const kind = String(event.kind || "");
+      if (!kind) return;
+      if (kind === "session_status") {
+        const st = String(event.status || "");
+        if (st === "connected") {
+          api.state.streamConnected = true;
+        }
+        if (api.state.sending && (st === "connected" || st === "heartbeat")) {
+          api.markGenerationActivity();
+        }
+        if (st === "agent_unavailable" || st === "upstream_unavailable") {
+          api.state.streamConnected = false;
+          closeEventStream();
+          if (api.state.sending) {
+            api.finishSending({ restoreDraft: true });
+          }
+        }
+        api.renderStatus();
+        return;
+      }
+      if (
+        kind === "message_info" ||
+        kind === "message_part_upsert" ||
+        kind === "message_part_delta" ||
+        kind === "message_part_removed"
+      ) {
+        if (kind === "message_part_delta") {
+          api.recordDeltaDebugEvent(event);
+        }
+        api.markGenerationActivity();
+        api.refreshMessages().catch(function () {});
+        return;
+      }
+      if (kind === "permission_requested") {
+        api.markGenerationActivity();
+        const notice = api.blockedPermissionNoticeFromData(event);
+        api.rememberBlockedPermissionNotice(notice);
+        api.setInlineNote(
+          "内置助手请求目录访问权限：" +
+            String(notice.path || notice.permission || "unknown") +
+            "（请在管理页批准或拒绝）",
+        );
+        return;
+      }
+      if (kind === "permission_blocked") {
+        api.markGenerationActivity();
+        const notice = api.blockedPermissionNoticeFromData(event);
+        api.rememberBlockedPermissionNotice(notice);
+        api.setInlineNote(String(notice.message || "会话触发了未授权访问，已自动拒绝。"));
+        return;
+      }
+      if (kind === "permission_resolved") {
+        api.markGenerationActivity();
+        api.setInlineNote(
+          "权限请求已自动处理：permission_id=" +
+            String(event.permission_id || "") +
+            "，response=" +
+            String(event.response || ""),
+        );
+      }
+    }
 
-  function continueEditing() {
-    if (!els.input) return;
-    els.input.focus();
-  }
+    function currentBasePollDelayMs() {
+      const hasActiveGeneration = Boolean(
+        api.state.sending ||
+          api.state.loading ||
+          api.state.streamConnected ||
+          api.state.activeGenerationMessageId,
+      );
+      return hasActiveGeneration ? POLL_ACTIVE_MS : POLL_IDLE_MS;
+    }
 
-  function isNotFoundError(error) {
-    const text = String((error && error.message) || error || "");
-    return text.includes("404") || text.includes("Not Found");
-  }
+    function nextRefreshPollDelayMs() {
+      const base = currentBasePollDelayMs();
+      return Math.min(POLL_MAX_MS, base * Math.pow(2, refreshPollFailureCount));
+    }
 
-  function historyUnavailableReason() {
-    if (!state.health || state.health.history_available !== false) return "";
-    return String(state.health.history_reason || "").trim();
-  }
+    function rightSidebarCollapsed() {
+      const workspaceRoot = document.getElementById("workspace-root");
+      return !!(workspaceRoot && workspaceRoot.dataset.rightCollapsed === "true");
+    }
 
+    function shouldPausePolling() {
+      if (document.visibilityState === "hidden") return true;
+      if (rightSidebarCollapsed()) return true;
+      return false;
+    }
+
+    function scheduleRefreshPoll(delayMs) {
+      if (refreshTimerId) {
+        global.clearTimeout(refreshTimerId);
+      }
+      refreshTimerId = global.setTimeout(
+        runRefreshPoll,
+        Math.max(1000, Number(delayMs) || currentBasePollDelayMs()),
+      );
+    }
+
+    async function runRefreshPoll() {
+      if (refreshPollInFlight) {
+        scheduleRefreshPoll(nextRefreshPollDelayMs());
+        return;
+      }
+      if (shouldPausePolling()) {
+        scheduleRefreshPoll(Math.max(currentBasePollDelayMs(), nextRefreshPollDelayMs()));
+        return;
+      }
+      if (
+        api.state.streamConnected &&
+        api.state.health &&
+        api.state.health.healthy &&
+        !api.state.sending &&
+        !api.state.loading
+      ) {
+        scheduleRefreshPoll(POLL_STREAM_HEALTHY_MS);
+        return;
+      }
+      refreshPollInFlight = true;
+      try {
+        const ok = await api.refreshAll().catch(function () {
+          return false;
+        });
+        if (ok) {
+          refreshPollFailureCount = 0;
+        } else {
+          refreshPollFailureCount = Math.min(refreshPollFailureCount + 1, 4);
+        }
+      } finally {
+        refreshPollInFlight = false;
+        scheduleRefreshPoll(nextRefreshPollDelayMs());
+      }
+    }
+
+    function startPolling() {
+      scheduleRefreshPoll(currentBasePollDelayMs());
+    }
+
+    function dispose() {
+      if (refreshTimerId) {
+        global.clearTimeout(refreshTimerId);
+        refreshTimerId = 0;
+      }
+      closeEventStream();
+    }
+
+    return {
+      closeEventStream: closeEventStream,
+      connectEvents: connectEvents,
+      applyHostEvent: applyHostEvent,
+      startPolling: startPolling,
+      dispose: dispose,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel-context.js ===== */
+/**
+ * 上下文预览 API 查询、资源 inventory 展示、模型探测。由 agent-panel 主文件装配 `CTX`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallContextPreview = function (api) {
+    function currentScopeParams() {
+      const params = new URLSearchParams();
+      const app = api.currentAppKey();
+      const sceneId = api.currentSceneId();
+      const routeMode = api.normalizeRouteMode(api.root.dataset.mode);
+      const mode = api.normalizeAgentMode(api.state.agentMode);
+      const sceneRouteTarget = api.normalizeTargetKey(String(api.root.dataset.sceneTarget || ""));
+      const target = api.currentTargetKey();
+      if (app) params.set("app_id", app);
+      if (target) params.set("target_file", target);
+      params.set("route_mode", routeMode);
+      params.set("mode", mode);
+      params.set("resource_visibility", currentResourceVisibility());
+      const ext =
+        typeof globalThis !== "undefined" && globalThis.MeiAgentScopeParams;
+      if (ext && typeof ext.shouldAttachSceneIdToScopeQuery === "function") {
+        if (ext.shouldAttachSceneIdToScopeQuery(target, sceneRouteTarget)) {
+          if (sceneId) params.set("scene_id", sceneId);
+        }
+      } else {
+        const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
+        if (scopedToSceneRoute) {
+          if (sceneId) params.set("scene_id", sceneId);
+        }
+      }
+      return params;
+    }
+
+    function defaultResourceVisibilityFromRoute() {
+      const route = api.normalizeRouteMode(api.root.dataset.mode);
+      const mode = api.normalizeAgentMode(api.state.agentMode);
+      const ext =
+        typeof globalThis !== "undefined" && globalThis.MeiAgentScopeParams;
+      if (ext && typeof ext.defaultResourceVisibilityFromRoute === "function") {
+        return ext.defaultResourceVisibilityFromRoute(route, mode);
+      }
+      if (route === "access" && mode === "ask") return "allow_scene_reachable";
+      if (route === "manage" && mode === "ask") return "allow_direct_refs";
+      if (route === "manage" && mode === "build") return "allow_direct_refs";
+      return "local_only";
+    }
+
+    function currentResourceVisibility() {
+      const sel = document.getElementById("author-resource-visibility-select");
+      const route = api.normalizeRouteMode(api.root.dataset.mode);
+      const mode = api.normalizeAgentMode(api.state.agentMode);
+      const rawSel = sel && "value" in sel ? String(sel.value || "").trim() : "";
+      const ext =
+        typeof globalThis !== "undefined" && globalThis.MeiAgentScopeParams;
+      if (ext && typeof ext.effectiveResourceVisibility === "function") {
+        return ext.effectiveResourceVisibility(rawSel, route, mode);
+      }
+      if (rawSel) return rawSel;
+      return defaultResourceVisibilityFromRoute();
+    }
+
+    function formatContextScopeText(payload) {
+      const app = String((payload && payload.app_id) || api.currentAppKey() || "-");
+      const scene = String((payload && payload.scene_id) || api.currentSceneId() || "-");
+      const target = String((payload && payload.target_file) || api.currentTargetKey() || "-");
+      let line =
+        "scope: app=" + app + " | scene=" + scene + " | file=" + target;
+      const prof = payload && payload.profile_summary ? String(payload.profile_summary).trim() : "";
+      if (prof) line += "\n" + prof;
+      const sb = payload && payload.scope_boundary;
+      if (sb && typeof sb === "object") {
+        line +=
+          "\n边界: binding=" +
+          String(sb.binding_scope || "-") +
+          " | resource_visibility=" +
+          String(sb.resource_visibility || "-") +
+          " | edit=" +
+          String(sb.edit_scope || "-");
+      }
+      const digest =
+        payload && payload.scope_digest ? String(payload.scope_digest).trim() : "";
+      if (digest) line += "\ndigest: " + digest;
+      return line;
+    }
+
+    function formatContextSkillText(payload) {
+      const skill = payload && payload.skill_status ? payload.skill_status : null;
+      if (!skill || typeof skill !== "object") {
+        return "skill: (none)";
+      }
+      const mode = skill.installed ? (skill.stale ? "已安装(待同步)" : "已安装") : "仅源目录";
+      const rev = String(skill.revision || "").trim();
+      return "skill: " + mode + (rev ? " | rev=" + rev : "");
+    }
+
+    function formatContextToolsText(payload) {
+      const native = Array.isArray(payload && payload.native_tool_names)
+        ? payload.native_tool_names
+        : [];
+      const tools = Array.isArray(payload && payload.query_tools) ? payload.query_tools : [];
+      const parts = [];
+      if (native.length) {
+        parts.push(
+          "Native LLM tools:\n" +
+            native.map(function (n) {
+              return "- " + String(n || "");
+            }).join("\n"),
+        );
+      }
+      if (!tools.length) {
+        return parts.length ? parts.join("\n\n") : "(none)";
+      }
+      const catalog = tools
+        .map(function (tool) {
+          const id = String(tool && tool.id ? tool.id : "unknown");
+          const purpose = String(tool && tool.purpose ? tool.purpose : "");
+          const input = String(tool && tool.input ? tool.input : "");
+          return "- " + id + (purpose ? " | " + purpose : "") + (input ? "\n  input: " + input : "");
+        })
+        .join("\n");
+      parts.push("Resource query tools:\n" + catalog);
+      return parts.join("\n\n");
+    }
+
+    function formatContextPromptText(payload) {
+      const system = String((payload && payload.system_prompt) || "").trim();
+      if (system) return system;
+      const context = String((payload && payload.session_context) || "").trim();
+      if (context) return "[Session Context]\n" + context;
+      return "(empty)";
+    }
+
+    function readContextInventory(payload) {
+      const inventory = payload && payload.resource_inventory ? payload.resource_inventory : null;
+      if (!inventory || typeof inventory !== "object") {
+        return { target: "", total: 0, items: [] };
+      }
+      return {
+        target: String(inventory.target_file || "").trim(),
+        total: Number.isFinite(Number(inventory.total_items)) ? Number(inventory.total_items) : 0,
+        items: Array.isArray(inventory.items) ? inventory.items : [],
+      };
+    }
+
+    function groupInventoryItemsByReachTier(items) {
+      const tiers = { direct: [], scene: [], other: [] };
+      (Array.isArray(items) ? items : []).forEach(function (item) {
+        if (!item || typeof item !== "object") return;
+        const t = String(item.reach_tier || "other").trim().toLowerCase();
+        if (t === "direct") tiers.direct.push(item);
+        else if (t === "scene") tiers.scene.push(item);
+        else tiers.other.push(item);
+      });
+      return tiers;
+    }
+
+    function renderContextInventory(payload) {
+      if (!api.els.contextInventory) return;
+      const inventory = readContextInventory(payload);
+      const tiers = groupInventoryItemsByReachTier(inventory.items);
+      const tierOrder = [
+        { key: "direct", label: "直接相关（direct）" },
+        { key: "scene", label: "场景可达（scene）" },
+        { key: "other", label: "其它（other；/world 会按可见性裁剪）" },
+      ];
+      api.els.contextInventory.innerHTML = "";
+      let anyTier = false;
+      const head = document.createElement("div");
+      head.className = "text-[10px] text-slate-400";
+      head.textContent =
+        "target=" + (inventory.target || "-") + " | total=" + String(inventory.total || 0);
+      api.els.contextInventory.appendChild(head);
+
+      tierOrder.forEach(function (tierDef, tierIndex) {
+        const items = tiers[tierDef.key] || [];
+        if (!items.length) return;
+        anyTier = true;
+        const details = document.createElement("details");
+        details.className = "rounded border border-slate-700/60 bg-slate-950/40 px-2 py-1";
+        details.open = tierIndex === 0;
+
+        const summary = document.createElement("summary");
+        summary.className = "cursor-pointer text-[10px] font-bold text-slate-200";
+        summary.textContent = tierDef.label + " (" + String(items.length) + ")";
+        details.appendChild(summary);
+
+        const byType = {};
+        items.forEach(function (item) {
+          const type = String(item.resource_type || "unknown").trim() || "unknown";
+          if (!byType[type]) byType[type] = [];
+          byType[type].push(item);
+        });
+        const typeKeys = Object.keys(byType).sort();
+        typeKeys.forEach(function (type, typeIndex) {
+          const typeItems = byType[type] || [];
+          const subDetails = document.createElement("details");
+          subDetails.className = "mt-1 rounded border border-slate-700/50 bg-slate-900/35 px-2 py-1";
+          subDetails.open = tierIndex === 0 && typeIndex < 2;
+          const subSum = document.createElement("summary");
+          subSum.className = "cursor-pointer text-[10px] font-bold text-slate-300";
+          subSum.textContent = type + " (" + String(typeItems.length) + ")";
+          subDetails.appendChild(subSum);
+          const list = document.createElement("div");
+          list.className = "mt-1 grid gap-1";
+          typeItems.forEach(function (item) {
+            const row = document.createElement("div");
+            row.className = "rounded border border-slate-700/50 bg-slate-900/45 px-1.5 py-1";
+            const id = String(item.id || "").trim() || "(no-id)";
+            const title = String(item.title || "").trim();
+            const summaryText = String(item.summary || "").trim();
+            const sourcePath = String(item.source_path || "").trim();
+            const refs = Array.isArray(item.references) ? item.references : [];
+            const related = item.related_to_target ? " [target]" : "";
+            const firstLine = document.createElement("div");
+            firstLine.className = "font-mono text-[10px] text-slate-100";
+            firstLine.textContent = id + (title ? " · " + title : "") + related;
+            row.appendChild(firstLine);
+            if (summaryText) {
+              const sub = document.createElement("div");
+              sub.className = "text-[10px] text-slate-300";
+              sub.textContent = summaryText;
+              row.appendChild(sub);
+            }
+            if (sourcePath) {
+              const sub = document.createElement("div");
+              sub.className = "font-mono text-[10px] text-blue-300";
+              sub.textContent = "source: " + sourcePath;
+              row.appendChild(sub);
+            }
+            if (refs.length) {
+              const sub = document.createElement("div");
+              sub.className = "text-[10px] text-slate-400";
+              sub.textContent = "refs: " + refs.slice(0, 8).join(", ");
+              row.appendChild(sub);
+            }
+            list.appendChild(row);
+          });
+          subDetails.appendChild(list);
+          details.appendChild(subDetails);
+        });
+        api.els.contextInventory.appendChild(details);
+      });
+
+      if (!anyTier) {
+        api.els.contextInventory.textContent = "(none)";
+      }
+    }
+
+    function renderContextPreview() {
+      if (api.els.contextScope) {
+        api.els.contextScope.textContent = formatContextScopeText(api.state.contextPreview);
+      }
+      if (api.els.contextSkill) {
+        api.els.contextSkill.textContent = formatContextSkillText(api.state.contextPreview);
+      }
+      if (api.els.contextTools) {
+        api.els.contextTools.textContent = formatContextToolsText(api.state.contextPreview);
+      }
+      if (api.els.contextInventory) {
+        renderContextInventory(api.state.contextPreview);
+      }
+      if (api.els.contextPrompt) {
+        api.els.contextPrompt.textContent = formatContextPromptText(api.state.contextPreview);
+      }
+      api.renderDeltaDebugLog();
+    }
+
+    async function refreshContextPreview(force) {
+      const forceRefresh = Boolean(force);
+      if (!forceRefresh && api.state.contextPreviewBackoffUntilMs > Date.now()) {
+        return;
+      }
+      const app = api.currentAppKey();
+      if (!app) {
+        api.state.contextPreview = null;
+        renderContextPreview();
+        return;
+      }
+      try {
+        const params = currentScopeParams();
+        const scopeKey = params.toString();
+        const nowMs = Date.now();
+        const sameScope =
+          api.state.contextPreviewScopeKey &&
+          api.state.contextPreviewScopeKey === scopeKey;
+        if (
+          !forceRefresh &&
+          sameScope &&
+          api.state.contextPreviewFetchedAtMs > 0 &&
+          nowMs - api.state.contextPreviewFetchedAtMs < 60000
+        ) {
+          return;
+        }
+        const payload = await api.$U.fetchJson("/api/agent/context/preview?" + params.toString());
+        api.state.contextPreview = payload;
+        api.state.contextPreviewScopeKey = scopeKey;
+        api.state.contextPreviewFetchedAtMs = nowMs;
+        const previewError = String(payload && payload.preview_error ? payload.preview_error : "").trim();
+        if (previewError && !forceRefresh) {
+          api.state.contextPreviewBackoffUntilMs = Date.now() + 60000;
+        } else {
+          api.state.contextPreviewBackoffUntilMs = 0;
+        }
+        renderContextPreview();
+      } catch (error) {
+        api.state.contextPreview = null;
+        api.state.contextPreviewScopeKey = "";
+        api.state.contextPreviewFetchedAtMs = 0;
+        if (!forceRefresh) {
+          api.state.contextPreviewBackoffUntilMs = Date.now() + 60000;
+        }
+        renderContextPreview();
+        api.setInlineNote("读取上下文预览失败：" + String(error.message || error));
+      }
+    }
+
+    function formatMsTime(value) {
+      const stamp = Number(value || 0);
+      if (!Number.isFinite(stamp) || stamp <= 0) return "";
+      return new Date(stamp).toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+
+    function selectedModelProbeQueryString() {
+      const params = new URLSearchParams();
+      const mref = api.getSelectedCompletionModelRef();
+      if (mref && mref.provider_id) {
+        params.set("provider_id", String(mref.provider_id));
+      }
+      if (mref && mref.model_id) {
+        params.set("model_id", String(mref.model_id));
+      }
+      return params.toString();
+    }
+
+    function noteModelProbeResult(probe, atMs) {
+      const ts = Number(atMs || Date.now());
+      if (probe && probe.reachable) {
+        api.state.modelProbeFailureStreak = 0;
+        api.state.modelProbeLastSuccessAtMs = ts;
+        return;
+      }
+      api.state.modelProbeFailureStreak = Number(api.state.modelProbeFailureStreak || 0) + 1;
+    }
+
+    async function refreshModelProbe(force) {
+      if (!api.els.statusModelService) return;
+      const forceRefresh = Boolean(force);
+      const nowMs = Date.now();
+      if (
+        !forceRefresh &&
+        api.state.modelProbeFetchedAtMs > 0 &&
+        nowMs - api.state.modelProbeFetchedAtMs < 30000
+      ) {
+        return;
+      }
+      const query = selectedModelProbeQueryString();
+      try {
+        api.state.modelProbe = await api.$U.fetchJson(
+          "/api/agent/model/probe" + (query ? "?" + query : ""),
+        );
+        api.state.modelProbeFetchedAtMs = nowMs;
+        noteModelProbeResult(api.state.modelProbe, nowMs);
+      } catch (error) {
+        api.state.modelProbe = {
+          reachable: false,
+          provider_id: "",
+          model_id: "",
+          base_url: "",
+          error: String(error && error.message ? error.message : error || ""),
+        };
+        api.state.modelProbeFetchedAtMs = nowMs;
+        noteModelProbeResult(api.state.modelProbe, nowMs);
+      }
+      api.renderStatusBarOpenCode();
+    }
+
+    return {
+      currentScopeParams: currentScopeParams,
+      defaultResourceVisibilityFromRoute: defaultResourceVisibilityFromRoute,
+      currentResourceVisibility: currentResourceVisibility,
+      formatContextScopeText: formatContextScopeText,
+      formatContextSkillText: formatContextSkillText,
+      formatContextToolsText: formatContextToolsText,
+      formatContextPromptText: formatContextPromptText,
+      readContextInventory: readContextInventory,
+      groupInventoryItemsByReachTier: groupInventoryItemsByReachTier,
+      renderContextInventory: renderContextInventory,
+      renderContextPreview: renderContextPreview,
+      refreshContextPreview: refreshContextPreview,
+      formatMsTime: formatMsTime,
+      selectedModelProbeQueryString: selectedModelProbeQueryString,
+      noteModelProbeResult: noteModelProbeResult,
+      refreshModelProbe: refreshModelProbe,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel-chrome.js ===== */
+/**
+ * 状态栏、配置行、进度、模型选择、Markdown 与发送态。由 agent-panel 主文件装配 `CHR`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallChrome = function (api) {
+    var _markdownOptionsApplied = false;
   function renderInlineNote() {
-    if (!els.config) return;
-    const text = String(state.inlineNote || "").trim() || historyUnavailableReason();
-    els.config.hidden = !text;
-    els.config.textContent = text;
+    if (!api.els.config) return;
+    const text = String(api.state.inlineNote || "").trim() || api.historyUnavailableReason();
+    api.els.config.hidden = !text;
+    api.els.config.textContent = text;
   }
 
   function renderProgressStrip() {
-    if (!els.progressStrip || !els.progressLabel || !els.progressDetail || !els.progressItems) {
+    if (!api.els.progressStrip || !api.els.progressLabel || !api.els.progressDetail || !api.els.progressItems) {
       return;
     }
-    const progress = state.progress || {};
+    const progress = api.state.progress || {};
     const visible = !!progress.visible;
-    els.progressStrip.hidden = !visible;
+    api.els.progressStrip.hidden = !visible;
     if (!visible) {
-      els.progressLabel.textContent = "";
-      els.progressDetail.textContent = "";
-      els.progressItems.innerHTML = "";
+      api.els.progressLabel.textContent = "";
+      api.els.progressDetail.textContent = "";
+      api.els.progressItems.innerHTML = "";
       return;
     }
-    els.progressLabel.textContent = String(progress.label || "").trim();
-    els.progressDetail.textContent = String(progress.detail || "").trim();
-    els.progressItems.innerHTML = (Array.isArray(progress.items) ? progress.items : [])
+    api.els.progressLabel.textContent = String(progress.label || "").trim();
+    api.els.progressDetail.textContent = String(progress.detail || "").trim();
+    api.els.progressItems.innerHTML = (Array.isArray(progress.items) ? progress.items : [])
       .map(function (item) {
-        const label = escapeHtml(String(item && item.label ? item.label : "").trim());
+        const label = api.$U.escapeHtml(String(item && item.label ? item.label : "").trim());
         const status = String(item && item.status ? item.status : "pending").trim();
-        return '<span class="' + progressChipClass(status) + '">' + label + "</span>";
+        return '<span class="' + api.$U.progressChipClass(status) + '">' + label + "</span>";
       })
       .join("");
   }
 
   function renderHistoryButtons() {
-    const unavailableReason = historyUnavailableReason();
+    const unavailableReason = api.historyUnavailableReason();
     const undoEnabled =
-      !unavailableReason && !state.loading && !state.sending && !state.aborting && canUndo();
+      !unavailableReason && !api.state.loading && !api.state.sending && !api.state.aborting && api.canUndo();
     const redoEnabled =
-      !unavailableReason && !state.loading && !state.sending && !state.aborting && canRedo();
-    if (els.undo) {
-      els.undo.disabled = !undoEnabled;
-      els.undo.classList.toggle("is-active", undoEnabled);
-      els.undo.title = unavailableReason || "撤回本轮代码修改";
+      !unavailableReason && !api.state.loading && !api.state.sending && !api.state.aborting && api.canRedo();
+    if (api.els.undo) {
+      api.els.undo.disabled = !undoEnabled;
+      api.els.undo.classList.toggle("is-active", undoEnabled);
+      api.els.undo.title = unavailableReason || "撤回本轮代码修改";
     }
-    if (els.redo) {
-      els.redo.disabled = !redoEnabled;
-      els.redo.classList.toggle("is-active", redoEnabled);
-      els.redo.title = unavailableReason || "恢复最近撤回的代码修改";
-    }
-  }
-
-  function buildBoundSessionTitle(targetKey) {
-    const params = new URLSearchParams();
-    params.set("app", String(root.dataset.app || ""));
-    const kind = sessionBindingKind();
-    params.set("bind", kind);
-    if (kind === "scene") {
-      params.set("scene", currentSceneId() || "");
-      params.set("anchor", String(targetKey || "").trim());
-    } else {
-      params.set("file", String(targetKey || "").trim());
-      if (root.dataset.scene) {
-        params.set("scene", String(root.dataset.scene || ""));
-      }
-    }
-    return "MEI|" + params.toString();
-  }
-
-  function parseBoundSessionTitle(title) {
-    const value = String(title || "");
-    if (!value.startsWith("MEI|")) return null;
-    try {
-      const params = new URLSearchParams(value.slice(4));
-      const app = String(params.get("app") || "").trim();
-      if (!app) return null;
-      const bindRaw = String(params.get("bind") || "").trim().toLowerCase();
-      if (bindRaw === "scene") {
-        const scene = String(params.get("scene") || "").trim();
-        const anchor = normalizeTargetKey(params.get("anchor") || "");
-        if (!scene) return null;
-        return {
-          app: app,
-          bind: "scene",
-          scene: scene,
-          anchor: anchor,
-          target: anchor,
-        };
-      }
-      const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
-      const scene = String(params.get("scene") || "").trim();
-      if (!target) return null;
-      return {
-        app: app,
-        bind: "file",
-        scene: scene,
-        anchor: target,
-        target: target,
-      };
-    } catch (_) {
-      return null;
+    if (api.els.redo) {
+      api.els.redo.disabled = !redoEnabled;
+      api.els.redo.classList.toggle("is-active", redoEnabled);
+      api.els.redo.title = unavailableReason || "恢复最近撤回的代码修改";
     }
   }
-
   function renderRunButton(disabled) {
-    if (!els.run) return;
-    const isSending = state.sending;
-    const isStopping = state.aborting;
-    const canSubmit = canSubmitPrompt();
+    if (!api.els.run) return;
+    const isSending = api.state.sending;
+    const isStopping = api.state.aborting;
+    const canSubmit = api.canSubmitPrompt();
     const isPassive = !isSending && !canSubmit;
-    els.run.disabled = isSending ? isStopping : (disabled || !canSubmit);
-    els.run.textContent = isSending ? "■" : "➤";
-    els.run.title = isSending
+    api.els.run.disabled = isSending ? isStopping : (disabled || !canSubmit);
+    api.els.run.textContent = isSending ? "■" : "➤";
+    api.els.run.title = isSending
       ? (isStopping ? "停止中" : "停止发送")
       : canSubmit
         ? "发送"
         : "输入内容后可发送";
-    els.run.setAttribute(
+    api.els.run.setAttribute(
       "aria-label",
       isSending ? (isStopping ? "停止中" : "停止发送") : canSubmit ? "发送" : "等待输入",
     );
-    els.run.classList.toggle("author-btn-danger", isSending);
-    els.run.classList.toggle("author-btn-primary", !isSending && canSubmit);
-    els.run.classList.toggle("author-btn-passive", isPassive);
+    api.els.run.classList.toggle("author-btn-danger", isSending);
+    api.els.run.classList.toggle("author-btn-primary", !isSending && canSubmit);
+    api.els.run.classList.toggle("author-btn-passive", isPassive);
   }
 
   function setInlineNote(message) {
-    state.inlineNote = String(message || "").trim();
+    api.state.inlineNote = String(message || "").trim();
     renderInlineNote();
   }
 
   function setButtonState(disabled) {
-    const controlsDisabled = disabled || state.sending || state.aborting;
-    if (els.reconnect) els.reconnect.disabled = controlsDisabled;
-    if (els.newSession) els.newSession.disabled = controlsDisabled;
-    if (els.sessionSelect) els.sessionSelect.disabled = controlsDisabled;
-    if (els.modeAsk) els.modeAsk.disabled = controlsDisabled;
-    if (els.modeBuild) els.modeBuild.disabled = controlsDisabled;
-    if (els.completionModelSelect) {
-      els.completionModelSelect.disabled =
-        controlsDisabled || els.completionModelSelect.hidden || !els.completionModelSelect.options.length;
+    const controlsDisabled = disabled || api.state.sending || api.state.aborting;
+    if (api.els.reconnect) api.els.reconnect.disabled = controlsDisabled;
+    if (api.els.newSession) api.els.newSession.disabled = controlsDisabled;
+    if (api.els.sessionSelect) api.els.sessionSelect.disabled = controlsDisabled;
+    if (api.els.modeAsk) api.els.modeAsk.disabled = controlsDisabled;
+    if (api.els.modeBuild) api.els.modeBuild.disabled = controlsDisabled;
+    if (api.els.completionModelSelect) {
+      api.els.completionModelSelect.disabled =
+        controlsDisabled || api.els.completionModelSelect.hidden || !api.els.completionModelSelect.options.length;
     }
-    if (els.contextRefresh) els.contextRefresh.disabled = controlsDisabled;
+    if (api.els.contextRefresh) api.els.contextRefresh.disabled = controlsDisabled;
     renderRunButton(disabled);
     renderHistoryButtons();
   }
 
   function clearGenerationSettleTimer() {
-    if (state.generationSettleTimer) {
-      window.clearTimeout(state.generationSettleTimer);
+    if (api.state.generationSettleTimer) {
+      window.clearTimeout(api.state.generationSettleTimer);
     }
-    state.generationSettleTimer = null;
+    api.state.generationSettleTimer = null;
   }
 
   function mergeDraftBackIntoInput() {
-    const draft = String(state.pendingPromptDraft || "");
-    if (!draft || !els.input) return;
-    const current = String(els.input.value || "");
-    els.input.value = current.trim() ? draft + "\n\n" + current : draft;
-    autoResizeComposerInput();
+    const draft = String(api.state.pendingPromptDraft || "");
+    if (!draft || !api.els.input) return;
+    const current = String(api.els.input.value || "");
+    api.els.input.value = current.trim() ? draft + "\n\n" + current : draft;
+    api.autoResizeComposerInput();
     const cursor = draft.length;
     try {
-      els.input.focus();
-      els.input.setSelectionRange(cursor, cursor);
+      api.els.input.focus();
+      api.els.input.setSelectionRange(cursor, cursor);
     } catch (_) {}
-    state.pendingPromptDraft = "";
+    api.state.pendingPromptDraft = "";
   }
 
   function finishSending(options) {
     const opts = options || {};
     clearGenerationSettleTimer();
-    state.sending = false;
-    state.aborting = false;
-    state.sendAbortController = null;
-    state.activeGenerationMessageId = "";
+    api.state.sending = false;
+    api.state.aborting = false;
+    api.state.sendAbortController = null;
+    api.state.activeGenerationMessageId = "";
     if (opts.restoreDraft) {
       mergeDraftBackIntoInput();
     } else {
-      state.pendingPromptDraft = "";
+      api.state.pendingPromptDraft = "";
     }
-    state.progress = {
+    api.state.progress = {
       visible: false,
       label: "",
       detail: "",
@@ -1885,22 +2203,22 @@
   }
 
   function markGenerationActivity() {
-    if (!state.sending) return;
+    if (!api.state.sending) return;
     clearGenerationSettleTimer();
   }
 
   function clearDeltaDebugLog(options) {
     const opts = options || {};
-    state.deltaDebugLog = [];
+    api.state.deltaDebugLog = [];
     if (opts.dropPersisted === true) {
-      writeDeltaDebugLogToStorage(String(state.sessionId || ""), []);
+      api.writeDeltaDebugLogToStorage(String(api.state.sessionId || ""), []);
     }
-    renderDeltaDebugLog();
+    api.renderDeltaDebugLog();
   }
 
   function activeGenerationFinished(rawMessages) {
-    if (!state.sending) return false;
-    const activeId = String(state.activeGenerationMessageId || "").trim();
+    if (!api.state.sending) return false;
+    const activeId = String(api.state.activeGenerationMessageId || "").trim();
     if (!activeId) return false;
     const message = (Array.isArray(rawMessages) ? rawMessages : []).find(function (item) {
       return String(item && item.message_id ? item.message_id : "") === activeId;
@@ -1910,13 +2228,13 @@
   }
 
   function renderStatus() {
-    const runtime = state.runtime;
-    const health = state.health;
+    const runtime = api.state.runtime;
+    const health = api.state.health;
     let label = "未配置";
     let dotClass = "author-server-dot author-server-dot-off";
-    if (state.loading) {
+    if (api.state.loading) {
       label = "刷新中";
-    } else if (health && health.healthy && state.streamConnected) {
+    } else if (health && health.healthy && api.state.streamConnected) {
       label = "会话中";
       dotClass = "author-server-dot author-server-dot-on";
     } else if (health && health.healthy) {
@@ -1935,24 +2253,24 @@
     } else if (runtime && runtime.connection_source === "external" && runtime.running) {
       label = "未连接";
     }
-    if (els.serverStatus) {
-      els.serverStatus.textContent = label;
+    if (api.els.serverStatus) {
+      api.els.serverStatus.textContent = label;
     }
-    if (els.serverDot) {
-      els.serverDot.className = dotClass;
+    if (api.els.serverDot) {
+      api.els.serverDot.className = dotClass;
     }
-    if (els.reconnect) {
+    if (api.els.reconnect) {
       const shouldShowReconnect =
-        !state.loading &&
+        !api.state.loading &&
         !!(runtime && runtime.running) &&
         !(health && health.healthy);
-      els.reconnect.hidden = !shouldShowReconnect;
+      api.els.reconnect.hidden = !shouldShowReconnect;
     }
   }
 
   function completionModelStorageKey() {
     try {
-      var app = String(root.dataset.app || "default");
+      var app = String(api.root.dataset.app || "default");
       return "mei.author.completionModel.v1." + app;
     } catch (_) {
       return "mei.author.completionModel.v1";
@@ -1988,13 +2306,12 @@
   }
 
   function setCompletionModelWrapVisible(show) {
-    var wrap = els.completionModelWrap;
+    var wrap = api.els.completionModelWrap;
     if (!wrap) return;
     if (show) wrap.classList.remove("hidden");
     else wrap.classList.add("hidden");
   }
 
-  var _markdownOptionsApplied = false;
   function configureMarkdownOnce() {
     if (_markdownOptionsApplied) return;
     _markdownOptionsApplied = true;
@@ -2013,7 +2330,7 @@
                   : token && token.text != null
                     ? String(token.text)
                     : "";
-              return '<span class="author-chat-md-literal">' + escapeHtml(raw) + "</span>";
+              return '<span class="author-chat-md-literal">' + api.$U.escapeHtml(raw) + "</span>";
             },
           },
         });
@@ -2041,12 +2358,12 @@
         });
       }
     } catch (_) {}
-    return "<pre class=\"" + CHAT_CLASS.body + "\">" + escapeHtml(raw) + "</pre>";
+    return "<pre class=\"" + api.$U.CHAT_CLASS.body + "\">" + api.$U.escapeHtml(raw) + "</pre>";
   }
 
   function sizeCompletionModelSelectWidth() {
-    var sel = els.completionModelSelect;
-    var wrap = els.completionModelWrap;
+    var sel = api.els.completionModelSelect;
+    var wrap = api.els.completionModelWrap;
     if (!sel || sel.hidden || !wrap || wrap.classList.contains("hidden") || !sel.options.length) {
       if (sel) sel.style.width = "";
       return;
@@ -2054,15 +2371,15 @@
     var opt = sel.options[sel.selectedIndex];
     if (!opt) return;
     var text = String(opt.textContent || "");
-    if (!state._completionModelMeasure) {
+    if (!api.state._completionModelMeasure) {
       var span = document.createElement("span");
       span.id = "author-completion-model-measure";
       span.setAttribute("aria-hidden", "true");
       span.style.cssText = "position:absolute;left:-9999px;top:0;white-space:nowrap;visibility:hidden;pointer-events:none;";
       document.body.appendChild(span);
-      state._completionModelMeasure = span;
+      api.state._completionModelMeasure = span;
     }
-    var measure = state._completionModelMeasure;
+    var measure = api.state._completionModelMeasure;
     var cs = window.getComputedStyle(sel);
     measure.style.font = cs.font;
     measure.style.fontSize = cs.fontSize;
@@ -2109,9 +2426,9 @@
   }
 
   function syncCompletionModelSelectFromConfig() {
-    var sel = els.completionModelSelect;
+    var sel = api.els.completionModelSelect;
     if (!sel) return;
-    var config = state.config;
+    var config = api.state.config;
     var choices = normalizedCompletionChoices(config);
     var prevValue = String(sel.value || "");
     sel.innerHTML = "";
@@ -2154,13 +2471,13 @@
   }
 
   function getSelectedCompletionModelRef() {
-    var sel = els.completionModelSelect;
+    var sel = api.els.completionModelSelect;
     if (!sel || sel.hidden || sel.disabled || !sel.options.length) return null;
     return decodeCompletionOptionValue(sel.value);
   }
 
   function syncModelLabelFromCompletionSelect() {
-    var sel = els.completionModelSelect;
+    var sel = api.els.completionModelSelect;
     if (sel && !sel.hidden && sel.selectedOptions && sel.selectedOptions[0]) {
       var ref = decodeCompletionOptionValue(sel.value);
       var t =
@@ -2168,24 +2485,23 @@
           ? String(ref.model_id).trim()
           : String(sel.selectedOptions[0].textContent || "").trim();
       if (t) {
-        state.modelLabel = t;
-        if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+        api.state.modelLabel = t;
+        if (api.els.modelLabel) api.els.modelLabel.textContent = api.state.modelLabel;
         renderStatusBarOpenCode();
       }
     }
     sizeCompletionModelSelectWidth();
   }
-
   function renderConfig() {
-    const config = state.config;
+    const config = api.state.config;
     if (!config) {
-      state.modelLabel = "模型";
-      if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
-      if (els.completionModelSelect) {
-        els.completionModelSelect.innerHTML = "";
-        els.completionModelSelect.hidden = true;
-        els.completionModelSelect.disabled = true;
-        els.completionModelSelect.style.width = "";
+      api.state.modelLabel = "模型";
+      if (api.els.modelLabel) api.els.modelLabel.textContent = api.state.modelLabel;
+      if (api.els.completionModelSelect) {
+        api.els.completionModelSelect.innerHTML = "";
+        api.els.completionModelSelect.hidden = true;
+        api.els.completionModelSelect.disabled = true;
+        api.els.completionModelSelect.style.width = "";
       }
       setCompletionModelWrapVisible(false);
       renderStatusBarOpenCode();
@@ -2193,65 +2509,65 @@
     }
     syncCompletionModelSelectFromConfig();
     if (
-      els.completionModelSelect &&
-      !els.completionModelSelect.hidden &&
-      els.completionModelSelect.options.length
+      api.els.completionModelSelect &&
+      !api.els.completionModelSelect.hidden &&
+      api.els.completionModelSelect.options.length
     ) {
       syncModelLabelFromCompletionSelect();
     } else {
-      state.modelLabel =
+      api.state.modelLabel =
         String(config.completion_model || config.provider_name || config.provider_id || "模型").trim() ||
         "模型";
-      if (state.modelLabel && (state.modelLabel.indexOf("·") >= 0 || state.modelLabel.indexOf("\u00b7") >= 0)) {
-        var sep2 = state.modelLabel.indexOf("·") >= 0 ? "·" : "\u00b7";
-        var parts2 = state.modelLabel.split(sep2);
+      if (api.state.modelLabel && (api.state.modelLabel.indexOf("·") >= 0 || api.state.modelLabel.indexOf("\u00b7") >= 0)) {
+        var sep2 = api.state.modelLabel.indexOf("·") >= 0 ? "·" : "\u00b7";
+        var parts2 = api.state.modelLabel.split(sep2);
         var last = String(parts2[parts2.length - 1] || "").trim();
-        if (last) state.modelLabel = last;
+        if (last) api.state.modelLabel = last;
       }
-      if (els.modelLabel) els.modelLabel.textContent = state.modelLabel;
+      if (api.els.modelLabel) api.els.modelLabel.textContent = api.state.modelLabel;
     }
     renderStatusBarOpenCode();
   }
 
   function renderAgentMode() {
-    const mode = normalizeAgentMode(state.agentMode);
-    state.agentMode = mode;
-    if (els.modeAsk) {
+    const mode = api.normalizeAgentMode(api.state.agentMode);
+    api.state.agentMode = mode;
+    if (api.els.modeAsk) {
       const active = mode === "ask";
-      els.modeAsk.classList.toggle("is-active", active);
-      els.modeAsk.setAttribute("aria-pressed", active ? "true" : "false");
+      api.els.modeAsk.classList.toggle("is-active", active);
+      api.els.modeAsk.setAttribute("aria-pressed", active ? "true" : "false");
     }
-    if (els.modeBuild) {
+    if (api.els.modeBuild) {
       const active = mode === "build";
-      els.modeBuild.classList.toggle("is-active", active);
-      els.modeBuild.setAttribute("aria-pressed", active ? "true" : "false");
+      api.els.modeBuild.classList.toggle("is-active", active);
+      api.els.modeBuild.setAttribute("aria-pressed", active ? "true" : "false");
     }
   }
 
   function rememberAgentMode() {
     try {
-      localStorage.setItem(modeStorageKey(), normalizeAgentMode(state.agentMode));
+      localStorage.setItem(api.modeStorageKey(), api.normalizeAgentMode(api.state.agentMode));
     } catch (_) {}
   }
 
   function restoreAgentMode() {
     try {
-      const saved = localStorage.getItem(modeStorageKey());
+      const saved = localStorage.getItem(api.modeStorageKey());
       if (saved) {
-        state.agentMode = normalizeAgentMode(saved);
+        api.state.agentMode = api.normalizeAgentMode(saved);
       }
     } catch (_) {}
     renderAgentMode();
   }
 
   function switchAgentMode(nextMode) {
-    state.agentMode = normalizeAgentMode(nextMode);
+    api.state.agentMode = api.normalizeAgentMode(nextMode);
     rememberAgentMode();
     renderAgentMode();
-    state.contextPreviewFetchedAtMs = 0;
-    state.contextPreviewScopeKey = "";
+    api.state.contextPreviewFetchedAtMs = 0;
+    api.state.contextPreviewScopeKey = "";
     setInlineNote(
-      state.agentMode === "ask"
+      api.state.agentMode === "ask"
         ? "已切换到 Ask（访问侧问答，只读）"
         : "已切换到 Build（可生成并改写当前脚本）",
     );
@@ -2263,457 +2579,11 @@
     renderStatusBarOpenCode();
   }
 
-  function currentScopeParams() {
-    const params = new URLSearchParams();
-    const app = currentAppKey();
-    const sceneId = currentSceneId();
-    const routeMode = normalizeRouteMode(root.dataset.mode);
-    const mode = normalizeAgentMode(state.agentMode);
-    const sceneRouteTarget = normalizeTargetKey(String(root.dataset.sceneTarget || ""));
-    const target = currentTargetKey();
-    if (app) params.set("app_id", app);
-    if (target) params.set("target_file", target);
-    params.set("route_mode", routeMode);
-    params.set("mode", mode);
-    params.set("resource_visibility", currentResourceVisibility());
-    // 非路由目标文件预览（如 data/dataset/**）不应携带 scene 约束，
-    // 否则会触发 scope 校验失败并导致无意义重试。
-    const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
-    if (scopedToSceneRoute) {
-      if (sceneId) params.set("scene_id", sceneId);
-    }
-    return params;
-  }
-
-  /** 与后端 `agent_scope_profile::default_resource_visibility` 对齐的客户端默认值。 */
-  function defaultResourceVisibilityFromRoute() {
-    const route = normalizeRouteMode(root.dataset.mode);
-    const mode = normalizeAgentMode(state.agentMode);
-    if (route === "access" && mode === "ask") return "allow_scene_reachable";
-    if (route === "manage" && mode === "ask") return "allow_direct_refs";
-    if (route === "manage" && mode === "build") return "allow_direct_refs";
-    return "local_only";
-  }
-
-  /** 显式 UI 优先，否则走 route+mode 默认。 */
-  function currentResourceVisibility() {
-    const sel = document.getElementById("author-resource-visibility-select");
-    if (sel && "value" in sel && String(sel.value || "").trim()) {
-      return String(sel.value).trim();
-    }
-    return defaultResourceVisibilityFromRoute();
-  }
-
-  function formatContextScopeText(payload) {
-    const app = String((payload && payload.app_id) || currentAppKey() || "-");
-    const scene = String((payload && payload.scene_id) || currentSceneId() || "-");
-    const target = String((payload && payload.target_file) || currentTargetKey() || "-");
-    let line =
-      "scope: app=" + app + " | scene=" + scene + " | file=" + target;
-    const prof = payload && payload.profile_summary ? String(payload.profile_summary).trim() : "";
-    if (prof) line += "\n" + prof;
-    return line;
-  }
-
-  function formatContextSkillText(payload) {
-    const skill = payload && payload.skill_status ? payload.skill_status : null;
-    if (!skill || typeof skill !== "object") {
-      return "skill: (none)";
-    }
-    const mode = skill.installed ? (skill.stale ? "已安装(待同步)" : "已安装") : "仅源目录";
-    const rev = String(skill.revision || "").trim();
-    return "skill: " + mode + (rev ? " | rev=" + rev : "");
-  }
-
-  function formatContextToolsText(payload) {
-    const native = Array.isArray(payload && payload.native_tool_names)
-      ? payload.native_tool_names
-      : [];
-    const tools = Array.isArray(payload && payload.query_tools) ? payload.query_tools : [];
-    const parts = [];
-    if (native.length) {
-      parts.push(
-        "Native LLM tools:\n" +
-          native.map(function (n) {
-            return "- " + String(n || "");
-          }).join("\n"),
-      );
-    }
-    if (!tools.length) {
-      return parts.length ? parts.join("\n\n") : "(none)";
-    }
-    const catalog = tools
-      .map(function (tool) {
-        const id = String(tool && tool.id ? tool.id : "unknown");
-        const purpose = String(tool && tool.purpose ? tool.purpose : "");
-        const input = String(tool && tool.input ? tool.input : "");
-        return "- " + id + (purpose ? " | " + purpose : "") + (input ? "\n  input: " + input : "");
-      })
-      .join("\n");
-    parts.push("Resource query tools:\n" + catalog);
-    return parts.join("\n\n");
-  }
-
-  function formatContextPromptText(payload) {
-    // system_prompt 已由服务端拼接 skill + [MeiLang Session Context] + 动态块；
-    // session_context 与之同源，并列展示会造成整段重复，这里只展示实际注入的 system。
-    const system = String((payload && payload.system_prompt) || "").trim();
-    if (system) return system;
-    const context = String((payload && payload.session_context) || "").trim();
-    if (context) return "[Session Context]\n" + context;
-    return "(empty)";
-  }
-
-  function trimDeltaPreview(text, maxChars) {
-    const raw = String(text || "");
-    if (!raw) return "";
-    const normalized = raw.replace(/\s+/g, " ").trim();
-    if (!normalized) return "";
-    if (normalized.length <= maxChars) return normalized;
-    return normalized.slice(0, Math.max(0, maxChars - 1)) + "…";
-  }
-
-  function formatDeltaDebugTs(stamp) {
-    const ms = Number(stamp || 0);
-    if (!Number.isFinite(ms) || ms <= 0) return "-";
-    const d = new Date(ms);
-    const pad = function (n, w) {
-      const s = String(Number(n) || 0);
-      return s.length >= w ? s : "0".repeat(w - s.length) + s;
-    };
-    return (
-      pad(d.getHours(), 2) +
-      ":" +
-      pad(d.getMinutes(), 2) +
-      ":" +
-      pad(d.getSeconds(), 2) +
-      "." +
-      pad(d.getMilliseconds(), 3)
-    );
-  }
-
-  function recordDeltaDebugEvent(event) {
-    const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
-    const clientRxTs = Date.now();
-    const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
-    const preview = trimDeltaPreview(deltaRaw, 48);
-    const gapRxMs =
-      Number.isFinite(serverTs) && serverTs > 0 ? clientRxTs - serverTs : null;
-    const row = {
-      serverTs: Number.isFinite(serverTs) ? serverTs : 0,
-      clientRxTs: clientRxTs,
-      paintTs: null,
-      partId: String(event && event.part_id ? event.part_id : ""),
-      messageId: String(event && event.message_id ? event.message_id : ""),
-      chars: deltaRaw.length,
-      preview: preview,
-      gapRxMs: gapRxMs,
-      gapPaintMs: null,
-    };
-    state.deltaDebugLog.unshift(row);
-    if (state.deltaDebugLog.length > 120) {
-      state.deltaDebugLog.length = 120;
-    }
-    writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
-    renderDeltaDebugLog();
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        const paintTs = Date.now();
-        row.paintTs = paintTs;
-        row.gapPaintMs =
-          row.serverTs > 0 && Number.isFinite(row.serverTs) ? paintTs - row.serverTs : null;
-        writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
-        renderDeltaDebugLog();
-      });
-    });
-  }
-
-  function renderDeltaDebugLog() {
-    const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
-    const manageEl = document.getElementById("mei-manage-debug-agent-sse-delta");
-    const emptyManageHint =
-      "尚无助手流式 delta 记录。请在右侧「作者」连接会话并发消息；出现 srv/cli_rx/gap_rx 与 cli_paint/gap_paint（后者为连续两次 requestAnimationFrame 后的墙钟，近似「排帧后」与首绘间隔）。SPA 换文件后若曾收过 delta，请再点一次「调试」页签或发新消息以刷新本区。";
-    if (!log.length) {
-      if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = "(empty)";
-      if (manageEl) manageEl.textContent = emptyManageHint;
-      return;
-    }
-    const lines = log.slice(0, 60).map(function (item, index) {
-      const rxTs =
-        item && item.clientRxTs != null
-          ? item.clientRxTs
-          : item && item.clientTs != null
-            ? item.clientTs
-            : 0;
-      const gapRxLabel =
-        item && item.gapRxMs != null && Number.isFinite(item.gapRxMs)
-          ? String(item.gapRxMs) + "ms"
-          : item && item.gapMs != null && Number.isFinite(item.gapMs)
-            ? String(item.gapMs) + "ms"
-            : "-";
-      const paintTs = item && item.paintTs != null ? item.paintTs : null;
-      const cliPaintStr =
-        paintTs != null && Number.isFinite(paintTs) && paintTs > 0
-          ? formatDeltaDebugTs(paintTs)
-          : "-";
-      const gapPaintLabel =
-        item && item.gapPaintMs != null && Number.isFinite(item.gapPaintMs)
-          ? String(item.gapPaintMs) + "ms"
-          : "-";
-      return (
-        "#" +
-        String(index + 1).padStart(2, "0") +
-        " srv=" +
-        formatDeltaDebugTs(item.serverTs) +
-        " cli_rx=" +
-        formatDeltaDebugTs(rxTs) +
-        " gap_rx=" +
-        gapRxLabel +
-        " cli_paint=" +
-        cliPaintStr +
-        " gap_paint=" +
-        gapPaintLabel +
-        " chars=" +
-        String(item.chars || 0) +
-        " part=" +
-        String(item.partId || "-") +
-        " msg=" +
-        String(item.messageId || "-") +
-        " delta=\"" +
-        String(item.preview || "") +
-        "\""
-      );
-    });
-    const text = lines.join("\n");
-    if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = text;
-    if (manageEl) manageEl.textContent = text;
-  }
-
-  function readContextInventory(payload) {
-    const inventory = payload && payload.resource_inventory ? payload.resource_inventory : null;
-    if (!inventory || typeof inventory !== "object") {
-      return { target: "", total: 0, items: [] };
-    }
-    return {
-      target: String(inventory.target_file || "").trim(),
-      total: Number.isFinite(Number(inventory.total_items)) ? Number(inventory.total_items) : 0,
-      items: Array.isArray(inventory.items) ? inventory.items : [],
-    };
-  }
-
-  function groupInventoryItemsByType(items) {
-    const grouped = {};
-    (Array.isArray(items) ? items : []).forEach(function (item) {
-      if (!item || typeof item !== "object") return;
-      const type = String(item.resource_type || "unknown").trim() || "unknown";
-      if (!grouped[type]) grouped[type] = [];
-      grouped[type].push(item);
-    });
-    return grouped;
-  }
-
-  function renderContextInventory(payload) {
-    if (!els.contextInventory) return;
-    const inventory = readContextInventory(payload);
-    const groups = groupInventoryItemsByType(inventory.items);
-    const types = Object.keys(groups).sort();
-    els.contextInventory.innerHTML = "";
-    if (!types.length) {
-      els.contextInventory.textContent = "(none)";
-      return;
-    }
-    const head = document.createElement("div");
-    head.className = "text-[10px] text-slate-400";
-    head.textContent =
-      "target=" + (inventory.target || "-") + " | total=" + String(inventory.total || 0);
-    els.contextInventory.appendChild(head);
-
-    types.forEach(function (type, index) {
-      const items = groups[type] || [];
-      const details = document.createElement("details");
-      details.className = "rounded border border-slate-700/60 bg-slate-950/40 px-2 py-1";
-      details.open = index < 2;
-
-      const summary = document.createElement("summary");
-      summary.className = "cursor-pointer text-[10px] font-bold text-slate-200";
-      summary.textContent = type + " (" + String(items.length) + ")";
-      details.appendChild(summary);
-
-      const list = document.createElement("div");
-      list.className = "mt-1 grid gap-1";
-      items.forEach(function (item) {
-        const row = document.createElement("div");
-        row.className = "rounded border border-slate-700/50 bg-slate-900/45 px-1.5 py-1";
-        const id = String(item.id || "").trim() || "(no-id)";
-        const title = String(item.title || "").trim();
-        const summaryText = String(item.summary || "").trim();
-        const sourcePath = String(item.source_path || "").trim();
-        const refs = Array.isArray(item.references) ? item.references : [];
-        const related = item.related_to_target ? " [target]" : "";
-        const firstLine = document.createElement("div");
-        firstLine.className = "font-mono text-[10px] text-slate-100";
-        firstLine.textContent = id + (title ? " · " + title : "") + related;
-        row.appendChild(firstLine);
-        if (summaryText) {
-          const sub = document.createElement("div");
-          sub.className = "text-[10px] text-slate-300";
-          sub.textContent = summaryText;
-          row.appendChild(sub);
-        }
-        if (sourcePath) {
-          const sub = document.createElement("div");
-          sub.className = "font-mono text-[10px] text-blue-300";
-          sub.textContent = "source: " + sourcePath;
-          row.appendChild(sub);
-        }
-        if (refs.length) {
-          const sub = document.createElement("div");
-          sub.className = "text-[10px] text-slate-400";
-          sub.textContent = "refs: " + refs.slice(0, 8).join(", ");
-          row.appendChild(sub);
-        }
-        list.appendChild(row);
-      });
-      details.appendChild(list);
-      els.contextInventory.appendChild(details);
-    });
-  }
-
-  function renderContextPreview() {
-    if (els.contextScope) {
-      els.contextScope.textContent = formatContextScopeText(state.contextPreview);
-    }
-    if (els.contextSkill) {
-      els.contextSkill.textContent = formatContextSkillText(state.contextPreview);
-    }
-    if (els.contextTools) {
-      els.contextTools.textContent = formatContextToolsText(state.contextPreview);
-    }
-    if (els.contextInventory) {
-      renderContextInventory(state.contextPreview);
-    }
-    if (els.contextPrompt) {
-      els.contextPrompt.textContent = formatContextPromptText(state.contextPreview);
-    }
-    renderDeltaDebugLog();
-  }
-
-  async function refreshContextPreview(force) {
-    const forceRefresh = Boolean(force);
-    if (!forceRefresh && state.contextPreviewBackoffUntilMs > Date.now()) {
-      return;
-    }
-    const app = currentAppKey();
-    if (!app) {
-      state.contextPreview = null;
-      renderContextPreview();
-      return;
-    }
-    try {
-      const params = currentScopeParams();
-      const scopeKey = params.toString();
-      const nowMs = Date.now();
-      const sameScope =
-        state.contextPreviewScopeKey &&
-        state.contextPreviewScopeKey === scopeKey;
-      if (
-        !forceRefresh &&
-        sameScope &&
-        state.contextPreviewFetchedAtMs > 0 &&
-        nowMs - state.contextPreviewFetchedAtMs < 60000
-      ) {
-        return;
-      }
-      const payload = await fetchJson("/api/agent/context/preview?" + params.toString());
-      state.contextPreview = payload;
-      state.contextPreviewScopeKey = scopeKey;
-      state.contextPreviewFetchedAtMs = nowMs;
-      const previewError = String(payload && payload.preview_error ? payload.preview_error : "").trim();
-      if (previewError && !forceRefresh) {
-        // 对确定性失败做退避，避免持续无意义轮询刷日志。
-        state.contextPreviewBackoffUntilMs = Date.now() + 60000;
-      } else {
-        state.contextPreviewBackoffUntilMs = 0;
-      }
-      renderContextPreview();
-    } catch (error) {
-      state.contextPreview = null;
-      state.contextPreviewScopeKey = "";
-      state.contextPreviewFetchedAtMs = 0;
-      if (!forceRefresh) {
-        state.contextPreviewBackoffUntilMs = Date.now() + 60000;
-      }
-      renderContextPreview();
-      setInlineNote("读取上下文预览失败：" + String(error.message || error));
-    }
-  }
-
-  function formatMsTime(value) {
-    const stamp = Number(value || 0);
-    if (!Number.isFinite(stamp) || stamp <= 0) return "";
-    return new Date(stamp).toLocaleString("zh-CN", {
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  function selectedModelProbeQueryString() {
-    const params = new URLSearchParams();
-    const mref = getSelectedCompletionModelRef();
-    if (mref && mref.provider_id) {
-      params.set("provider_id", String(mref.provider_id));
-    }
-    if (mref && mref.model_id) {
-      params.set("model_id", String(mref.model_id));
-    }
-    return params.toString();
-  }
-
-  function noteModelProbeResult(probe, atMs) {
-    const ts = Number(atMs || Date.now());
-    if (probe && probe.reachable) {
-      state.modelProbeFailureStreak = 0;
-      state.modelProbeLastSuccessAtMs = ts;
-      return;
-    }
-    state.modelProbeFailureStreak = Number(state.modelProbeFailureStreak || 0) + 1;
-  }
-
-  async function refreshModelProbe(force) {
-    if (!els.statusModelService) return;
-    const forceRefresh = Boolean(force);
-    const nowMs = Date.now();
-    if (!forceRefresh && state.modelProbeFetchedAtMs > 0 && nowMs - state.modelProbeFetchedAtMs < 30000) {
-      return;
-    }
-    const query = selectedModelProbeQueryString();
-    try {
-      state.modelProbe = await fetchJson(
-        "/api/agent/model/probe" + (query ? "?" + query : ""),
-      );
-      state.modelProbeFetchedAtMs = nowMs;
-      noteModelProbeResult(state.modelProbe, nowMs);
-    } catch (error) {
-      state.modelProbe = {
-        reachable: false,
-        provider_id: "",
-        model_id: "",
-        base_url: "",
-        error: String(error && error.message ? error.message : error || ""),
-      };
-      state.modelProbeFetchedAtMs = nowMs;
-      noteModelProbeResult(state.modelProbe, nowMs);
-    }
-    renderStatusBarOpenCode();
-  }
-
   function renderSkillStatus() {
-    const skill = state.skillStatus;
+    const skill = api.state.skillStatus;
     if (!skill || !skill.source_present) {
-      if (els.skillLine) {
-        els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
+      if (api.els.skillLine) {
+        api.els.skillLine.textContent = "Skill: 未发现 MeiLang skill 源目录";
       }
       renderStatusBarOpenCode();
       return;
@@ -2724,15 +2594,15 @@
     if (Number.isFinite(Number(skill.file_count))) {
       summary.push("文件 " + String(skill.file_count));
     }
-    const updated = formatMsTime(skill.install_updated_at_ms || skill.source_updated_at_ms);
+    const updated = api.formatMsTimeForSkill(skill.install_updated_at_ms || skill.source_updated_at_ms);
     if (updated) {
       summary.push(updated);
     }
     if (skill.revision) {
       summary.push("rev " + String(skill.revision));
     }
-    if (els.skillLine) {
-      els.skillLine.textContent = summary.join(" · ");
+    if (api.els.skillLine) {
+      api.els.skillLine.textContent = summary.join(" · ");
     }
     renderStatusBarOpenCode();
   }
@@ -2742,18 +2612,18 @@
   }
 
   function renderStatusBarOpenCode() {
-    if (!els.statusModelService) return;
-    if (state.loading) {
-      els.statusModelService.textContent = "模型服务 刷新中";
-      els.statusModelService.title = "正在刷新模型服务状态";
-      els.statusModelService.dataset.tone = "info";
+    if (!api.els.statusModelService) return;
+    if (api.state.loading) {
+      api.els.statusModelService.textContent = "模型服务 刷新中";
+      api.els.statusModelService.title = "正在刷新模型服务状态";
+      api.els.statusModelService.dataset.tone = "info";
       return;
     }
-    const probe = state.modelProbe;
+    const probe = api.state.modelProbe;
     if (!probe || typeof probe !== "object") {
-      els.statusModelService.textContent = "模型服务 探测中";
-      els.statusModelService.title = "正在探测当前模型服务连接状态";
-      els.statusModelService.dataset.tone = "info";
+      api.els.statusModelService.textContent = "模型服务 探测中";
+      api.els.statusModelService.title = "正在探测当前模型服务连接状态";
+      api.els.statusModelService.dataset.tone = "info";
       return;
     }
     const provider = String(probe && probe.provider_id ? probe.provider_id : "").trim() || "--";
@@ -2761,31 +2631,104 @@
     const latency = Number(probe && probe.latency_ms ? probe.latency_ms : 0);
     const latencyText = Number.isFinite(latency) && latency > 0 ? " · " + String(latency) + "ms" : "";
     if (probe && probe.reachable) {
-      els.statusModelService.textContent = "模型服务 在线";
-      els.statusModelService.title = "provider=" + provider + " · model=" + model + latencyText;
-      els.statusModelService.dataset.tone = "good";
+      api.els.statusModelService.textContent = "模型服务 在线";
+      api.els.statusModelService.title = "provider=" + provider + " · model=" + model + latencyText;
+      api.els.statusModelService.dataset.tone = "good";
       return;
     }
     const nowMs = Date.now();
-    const streak = Number(state.modelProbeFailureStreak || 0);
-    const lastSuccessAt = Number(state.modelProbeLastSuccessAtMs || 0);
+    const streak = Number(api.state.modelProbeFailureStreak || 0);
+    const lastSuccessAt = Number(api.state.modelProbeLastSuccessAtMs || 0);
     const hasSuccess = Number.isFinite(lastSuccessAt) && lastSuccessAt > 0;
-    const withinGrace = hasSuccess && nowMs - lastSuccessAt < MODEL_PROBE_RED_AFTER_MS;
+    const withinGrace = hasSuccess && nowMs - lastSuccessAt < api.MODEL_PROBE_RED_AFTER_MS;
     const transientFailure = hasSuccess
-      ? streak < MODEL_PROBE_RED_AFTER_STREAK || withinGrace
-      : streak < MODEL_PROBE_COLD_START_RED_AFTER_STREAK;
+      ? streak < api.MODEL_PROBE_RED_AFTER_STREAK || withinGrace
+      : streak < api.MODEL_PROBE_COLD_START_RED_AFTER_STREAK;
     const error = String(probe && probe.error ? probe.error : "").trim();
     const title = (error ? error + " · " : "") + "provider=" + provider + " · model=" + model + latencyText;
     if (transientFailure) {
-      els.statusModelService.textContent = "模型服务 连接中";
-      els.statusModelService.title = "正在尝试连接 · " + title;
-      els.statusModelService.dataset.tone = "info";
+      api.els.statusModelService.textContent = "模型服务 连接中";
+      api.els.statusModelService.title = "正在尝试连接 · " + title;
+      api.els.statusModelService.dataset.tone = "info";
       return;
     }
-    els.statusModelService.textContent = "模型服务 异常";
-    els.statusModelService.title = title;
-    els.statusModelService.dataset.tone = "danger";
+    api.els.statusModelService.textContent = "模型服务 异常";
+    api.els.statusModelService.title = title;
+    api.els.statusModelService.dataset.tone = "danger";
   }
+
+    return {
+      renderInlineNote: renderInlineNote,
+      renderProgressStrip: renderProgressStrip,
+      renderHistoryButtons: renderHistoryButtons,
+      renderRunButton: renderRunButton,
+      setInlineNote: setInlineNote,
+      setButtonState: setButtonState,
+      clearGenerationSettleTimer: clearGenerationSettleTimer,
+      mergeDraftBackIntoInput: mergeDraftBackIntoInput,
+      finishSending: finishSending,
+      markGenerationActivity: markGenerationActivity,
+      clearDeltaDebugLog: clearDeltaDebugLog,
+      activeGenerationFinished: activeGenerationFinished,
+      renderStatus: renderStatus,
+      completionModelStorageKey: completionModelStorageKey,
+      encodeCompletionOptionValue: encodeCompletionOptionValue,
+      decodeCompletionOptionValue: decodeCompletionOptionValue,
+      completionChoiceDisplayName: completionChoiceDisplayName,
+      setCompletionModelWrapVisible: setCompletionModelWrapVisible,
+      configureMarkdownOnce: configureMarkdownOnce,
+      renderMarkdownToSafeHtml: renderMarkdownToSafeHtml,
+      sizeCompletionModelSelectWidth: sizeCompletionModelSelectWidth,
+      normalizedCompletionChoices: normalizedCompletionChoices,
+      rememberSelectedCompletionModel: rememberSelectedCompletionModel,
+      syncCompletionModelSelectFromConfig: syncCompletionModelSelectFromConfig,
+      getSelectedCompletionModelRef: getSelectedCompletionModelRef,
+      syncModelLabelFromCompletionSelect: syncModelLabelFromCompletionSelect,
+      renderConfig: renderConfig,
+      renderAgentMode: renderAgentMode,
+      rememberAgentMode: rememberAgentMode,
+      restoreAgentMode: restoreAgentMode,
+      switchAgentMode: switchAgentMode,
+      renderRuntime: renderRuntime,
+      renderSkillStatus: renderSkillStatus,
+      renderStatusBarSkill: renderStatusBarSkill,
+      renderStatusBarOpenCode: renderStatusBarOpenCode,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel-messages.js ===== */
+/**
+ * 会话列表缓存、消息渲染、权限提示与 Prompt 发送链。由 agent-panel 主文件装配 `MSG`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallMessages = function (api) {
+    const root = api.root;
+    const els = api.els;
+    const state = api.state;
+    const $U = api.$U;
+    const CHR = api.CHR;
+    const CTX = api.CTX;
+    const SRC = api.SRC;
+    const SESSION_CACHE_KEY = api.SESSION_CACHE_KEY;
+    const SESSION_CACHE_TTL_MS = api.SESSION_CACHE_TTL_MS;
+    const CHAT_BOTTOM_STICKY_THRESHOLD_PX = api.CHAT_BOTTOM_STICKY_THRESHOLD_PX;
+
+    function __meiSes() {
+      return api.transport.ses;
+    }
+
+    async function fetchSessionDiff(messageId) {
+      return api.fetchSessionDiff(messageId);
+    }
+
+    function sessionDiffHasMaterialChanges(diff) {
+      return api.sessionDiffHasMaterialChanges(diff);
+    }
 
   function readSessionCache() {
     if (!window.sessionStorage) return null;
@@ -2838,7 +2781,7 @@
   }
 
   async function fetchAllSessionsFromServer() {
-    const payload = await fetchJson("/api/agent/session");
+    const payload = await $U.fetchJson("/api/agent/session");
     return Array.isArray(payload) ? payload : [];
   }
 
@@ -2901,13 +2844,13 @@
 
   function listBoundSessionsForTarget(sessions, targetKey) {
     const app = String(root.dataset.app || "");
-    const kind = sessionBindingKind();
-    const scene = currentSceneId();
-    const target = normalizeTargetKey(targetKey);
+    const kind = api.sessionBindingKind();
+    const scene = api.currentSceneId();
+    const target = api.normalizeTargetKey(targetKey);
     return (Array.isArray(sessions) ? sessions : [])
       .filter(function (session) {
         if (!session || typeof session !== "object") return false;
-        const meta = parseBoundSessionTitle(session.title);
+        const meta = api.parseBoundSessionTitle(session.title);
         if (!meta) return false;
         if (meta.app !== app) return false;
         if (kind === "scene") {
@@ -2928,7 +2871,7 @@
 
   async function refreshSessionPicker(selectedId, targetKey) {
     if (!els.sessionSelect) return;
-    const desiredTarget = normalizeTargetKey(targetKey || currentTargetKey());
+    const desiredTarget = api.normalizeTargetKey(targetKey || api.currentTargetKey());
     const sessions = listBoundSessionsForTarget(
       await fetchAllSessions({ preferCache: true }),
       desiredTarget,
@@ -2938,7 +2881,7 @@
     const placeholder = document.createElement("sl-option");
     placeholder.value = "";
     placeholder.textContent =
-      normalizeRouteMode(root.dataset.mode) === "access"
+      api.normalizeRouteMode(root.dataset.mode) === "access"
         ? "历史（当前场景）"
         : "历史（当前文件）";
     els.sessionSelect.appendChild(placeholder);
@@ -2958,7 +2901,7 @@
   }
 
   function renderSessions() {
-    refreshSessionPicker(state.sessionId, currentTargetKey()).catch(function () {});
+    refreshSessionPicker(state.sessionId, api.currentTargetKey()).catch(function () {});
   }
 
   function makeTextBlock(label, content, type, collapsed) {
@@ -3136,9 +3079,9 @@
     state.latestDiffMessageId = "";
     state.sourceDiffMessageId = "";
     if (state.sourceViewMode === "diff") {
-      leaveDiffView();
+      SRC.leaveDiffView();
     } else {
-      destroySourceDiffView();
+      SRC.destroySourceDiffView();
     }
     state.progress = {
       visible: false,
@@ -3146,7 +3089,7 @@
       detail: "",
       items: [],
     };
-    renderProgressStrip();
+    CHR.renderProgressStrip();
   }
 
   function applyBlockedPermissionNotices(notices) {
@@ -3161,7 +3104,7 @@
       .filter(Boolean)
       .join("；");
     if (summary) {
-      setInlineNote(summary);
+      CHR.setInlineNote(summary);
     }
   }
 
@@ -3300,16 +3243,16 @@
     const actions = Array.isArray(message && message.actions) ? message.actions : [];
     if (!actions.length) return "";
     return (
-      '<div class="' + CHAT_CLASS.inlineActions + '">' +
+      '<div class="' + $U.CHAT_CLASS.inlineActions + '">' +
       actions
         .map(function (action, index) {
           return (
-            '<button type="button" class="' + CHAT_CLASS.actionButton + '" data-message-id="' +
-            escapeHtml(messageId) +
+            '<button type="button" class="' + $U.CHAT_CLASS.actionButton + '" data-message-id="' +
+            $U.escapeHtml(messageId) +
             '" data-action-index="' +
             String(index) +
             '">' +
-            escapeHtml(action && action.label ? action.label : "执行") +
+            $U.escapeHtml(action && action.label ? action.label : "执行") +
             "</button>"
           );
         })
@@ -3317,79 +3260,34 @@
       "</div>"
     );
   }
-
-  async function fetchSessionDiff(messageId) {
-    if (!state.sessionId) return null;
-    const params = new URLSearchParams();
-    const mid = String(messageId || "").trim();
-    if (mid) params.set("message_id", mid);
-    const pathKey = sourceTargetKey();
-    if (pathKey) params.set("path", pathKey);
-    const qs = params.toString();
-    return fetchJson(
-      "/api/agent/session/" +
-        encodeURIComponent(state.sessionId) +
-        "/diff" +
-        (qs ? "?" + qs : ""),
-    );
-  }
-
-  /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */
-  function sessionDiffHasMaterialChanges(diff) {
-    if (!diff || typeof diff !== "object") return false;
-    const topAdd = Number(diff.additions);
-    const topDel = Number(diff.deletions);
-    if ((Number.isFinite(topAdd) && topAdd > 0) || (Number.isFinite(topDel) && topDel > 0)) {
-      return true;
-    }
-    const files = Array.isArray(diff.files) ? diff.files : [];
-    return files.some(function (f) {
-      if (!f || typeof f !== "object") return false;
-      const a = Number(f.additions);
-      const d = Number(f.deletions);
-      if ((Number.isFinite(a) && a > 0) || (Number.isFinite(d) && d > 0)) return true;
-      const after = String(f.after || "").trim();
-      if (!after) return false;
-      const low = after.toLowerCase();
-      if (low.includes("no git worktree") || low.includes("native diff snapshot:")) return false;
-      return after.split("\n").some(function (line) {
-        const t = String(line || "");
-        return (
-          (t.startsWith("+") && !t.startsWith("+++")) ||
-          (t.startsWith("-") && !t.startsWith("---"))
-        );
-      });
-    });
-  }
-
   async function applyRevertForMessage(messageId) {
     const sid = String(state.sessionId || "").trim();
     const mid = String(messageId || "").trim();
     if (!sid || !mid) return;
-    await fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/revert", {
+    await $U.fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/revert", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ message_id: mid }),
     });
-    setSessionRevertedFlag(sid, true);
-    setMessageMeta(mid, { reverted: true });
-    const revertedIds = revertedIdsForSession(sid);
+    api.setSessionRevertedFlag(sid, true);
+    api.setMessageMeta(mid, { reverted: true });
+    const revertedIds = api.revertedIdsForSession(sid);
     revertedIds.push(mid);
-    setRevertedIdsForSession(sid, revertedIds);
-    setInlineNote("已撤回上一轮代码修改。");
+    api.setRevertedIdsForSession(sid, revertedIds);
+    CHR.setInlineNote("已撤回上一轮代码修改。");
     await refreshMessages();
-    scheduleHostReload("已撤回修改，正在刷新预览与源码…");
+    api.scheduleHostReload("已撤回修改，正在刷新预览与源码…");
   }
 
   async function applyUnrevertForSession() {
     const sid = String(state.sessionId || "").trim();
     if (!sid) return;
-    await fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/unrevert", {
+    await $U.fetchJson("/api/agent/session/" + encodeURIComponent(sid) + "/unrevert", {
       method: "POST",
       headers: { "content-type": "application/json" },
     });
-    setSessionRevertedFlag(sid, false);
-    setRevertedIdsForSession(sid, []);
+    api.setSessionRevertedFlag(sid, false);
+    api.setRevertedIdsForSession(sid, []);
     Object.keys(state.messageMeta).forEach(function (key) {
       if (key.startsWith(sid + "::")) {
         state.messageMeta[key] = Object.assign({}, state.messageMeta[key], {
@@ -3397,9 +3295,9 @@
         });
       }
     });
-    setInlineNote("已恢复最近撤回的代码修改。");
+    CHR.setInlineNote("已恢复最近撤回的代码修改。");
     await refreshMessages();
-    scheduleHostReload("已恢复撤回修改，正在刷新预览与源码…");
+    api.scheduleHostReload("已恢复撤回修改，正在刷新预览与源码…");
   }
 
   function actionsForAssistantMessage(_message) {
@@ -3408,9 +3306,9 @@
 
   async function hydrateBuildDiffMeta(messages) {
     if (!Array.isArray(messages) || !state.sessionId) return;
-    if (historyUnavailableReason()) {
-      renderHistoryButtons();
-      setDiffTabBadge(0, 0);
+    if (api.historyUnavailableReason()) {
+      CHR.renderHistoryButtons();
+      SRC.setDiffTabBadge(0, 0);
       return;
     }
     let changed = false;
@@ -3419,14 +3317,14 @@
       if (!message || String(message.role || "") !== "assistant") continue;
       const messageId = String(message.id || "");
       if (!messageId) continue;
-      const meta = getMessageMeta(state.sessionId, messageId) || {};
+      const meta = api.getMessageMeta(state.sessionId, messageId) || {};
       if (typeof meta.hasDiff === "boolean") continue;
       try {
         const diff = await fetchSessionDiff(messageId);
-        const hasDiff = sessionDiffHasMaterialChanges(diff);
-        setMessageMeta(messageId, { hasDiff: hasDiff });
+        const hasDiff = api.sessionDiffHasMaterialChanges(diff);
+        api.setMessageMeta(messageId, { hasDiff: hasDiff });
         if (hasDiff) {
-          state.messageDiffCache[diffCacheKey(state.sessionId, messageId)] = diff;
+          state.messageDiffCache[api.diffCacheKey(state.sessionId, messageId)] = diff;
           if (
             state.pendingReloadMessageId &&
             String(state.pendingReloadMessageId) === messageId
@@ -3443,16 +3341,16 @@
       });
       renderMessages();
     }
-    renderHistoryButtons();
-    syncSourceDiffEntry();
-    void refreshDiffTabBadge();
+    CHR.renderHistoryButtons();
+    SRC.syncSourceDiffEntry();
+    void SRC.refreshDiffTabBadge();
     if (shouldReloadForPendingBuild) {
-      scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
+      api.scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
     }
   }
 
   function decorateMessageActions() {
-    syncSourceDiffEntry();
+    SRC.syncSourceDiffEntry();
     state.messages = state.messages.map(function (message) {
       return Object.assign({}, message, {
         actions:
@@ -3463,7 +3361,7 @@
               : [],
       });
     });
-    renderHistoryButtons();
+    CHR.renderHistoryButtons();
   }
 
   function chatScrollSnapshot() {
@@ -3490,32 +3388,32 @@
 
   function renderChatMessageCard(message, forcedRole, extraClass) {
     const roleRaw = String(forcedRole || message && message.role || "assistant").toLowerCase();
-    const role = escapeHtml(roleRaw);
+    const role = $U.escapeHtml(roleRaw);
     const messageId = String(message && message.id ? message.id : "");
-    const reverted = roleRaw === "assistant" && isMessageReverted(state.sessionId, messageId);
+    const reverted = roleRaw === "assistant" && api.isMessageReverted(state.sessionId, messageId);
     const classList = [
-      CHAT_CLASS.messageBase,
-      chatMessageRoleClass(roleRaw, reverted),
+      $U.CHAT_CLASS.messageBase,
+      $U.chatMessageRoleClass(roleRaw, reverted),
     ];
     if (extraClass) classList.push(extraClass);
     const cls = classList.join(" ");
-    const roleTextClass = chatRoleTextClass(roleRaw, reverted);
+    const roleTextClass = $U.chatRoleTextClass(roleRaw, reverted);
     const blocks = Array.isArray(message && message.blocks) ? message.blocks : [];
-    const time = escapeHtml(String(message && message.time ? message.time : ""));
+    const time = $U.escapeHtml(String(message && message.time ? message.time : ""));
     function blockBodyHtml(block) {
       const content = String(block.content || "");
       const blockType = String(block.type || "text");
       const collapsed = !!block.collapsed;
       if (collapsed) {
-        return escapeHtml(content);
+        return $U.escapeHtml(content);
       }
       if (blockType !== "text") {
-        return escapeHtml(content);
+        return $U.escapeHtml(content);
       }
       if (roleRaw === "assistant") {
-        return renderMarkdownToSafeHtml(content);
+        return CHR.renderMarkdownToSafeHtml(content);
       }
-      return escapeHtml(content);
+      return $U.escapeHtml(content);
     }
     function blockBodyTag(block) {
       const blockType = String(block.type || "text");
@@ -3529,9 +3427,9 @@
       const blockType = String(block.type || "text");
       const collapsed = !!block.collapsed;
       if (collapsed || blockType !== "text" || roleRaw !== "assistant") {
-        return CHAT_CLASS.body;
+        return $U.CHAT_CLASS.body;
       }
-      return CHAT_CLASS.bodyMarkdown;
+      return $U.CHAT_CLASS.bodyMarkdown;
     }
     const bodyHtml =
       blocks.length > 0
@@ -3539,24 +3437,24 @@
             .map(function (block) {
               const label = String(block.label || "").trim();
               const blockType = String(block.type || "text");
-              const labelToneClass = chatBlockLabelToneClass(blockType);
+              const labelToneClass = $U.chatBlockLabelToneClass(blockType);
               const inner = blockBodyHtml(block);
               const tag = blockBodyTag(block);
               const bodyClass = blockBodyClass(block);
               if (block.collapsed) {
                 return (
                   '<details class="' +
-                  CHAT_CLASS.block +
+                  $U.CHAT_CLASS.block +
                   " " +
-                  CHAT_CLASS.blockDetails +
+                  $U.CHAT_CLASS.blockDetails +
                   " author-chat-block-" +
-                  escapeHtml(blockType) +
+                  $U.escapeHtml(blockType) +
                   '"><summary class="' +
-                  CHAT_CLASS.blockSummary +
+                  $U.CHAT_CLASS.blockSummary +
                   " " +
                   labelToneClass +
                   '">' +
-                  escapeHtml(label || "展开") +
+                  $U.escapeHtml(label || "展开") +
                   '</summary><pre class="' +
                   bodyClass +
                   '">' +
@@ -3566,12 +3464,12 @@
               }
               return (
                 '<section class="' +
-                CHAT_CLASS.block +
+                $U.CHAT_CLASS.block +
                 " author-chat-block-" +
-                escapeHtml(blockType) +
+                $U.escapeHtml(blockType) +
                 '">' +
                 (label
-                  ? '<div class="' + CHAT_CLASS.blockLabel + " " + labelToneClass + '">' + escapeHtml(label) + "</div>"
+                  ? '<div class="' + $U.CHAT_CLASS.blockLabel + " " + labelToneClass + '">' + $U.escapeHtml(label) + "</div>"
                   : "") +
                 "<" +
                 tag +
@@ -3589,30 +3487,30 @@
             const fallback = String(message && message.body ? message.body : "");
             if (roleRaw === "assistant") {
               return (
-                '<div class="' + CHAT_CLASS.bodyMarkdown + '">' + renderMarkdownToSafeHtml(fallback) + "</div>"
+                '<div class="' + $U.CHAT_CLASS.bodyMarkdown + '">' + CHR.renderMarkdownToSafeHtml(fallback) + "</div>"
               );
             }
-            return '<pre class="' + CHAT_CLASS.body + '">' + escapeHtml(fallback) + "</pre>";
+            return '<pre class="' + $U.CHAT_CLASS.body + '">' + $U.escapeHtml(fallback) + "</pre>";
           })();
     const actions = roleRaw === "assistant" ? renderMessageActions(message, messageId) : "";
     return (
       '<div class="' +
       cls +
       '" data-message-id="' +
-      escapeHtml(messageId) +
+      $U.escapeHtml(messageId) +
       '">' +
-      '<div class="' + CHAT_CLASS.head + '"><div class="' + CHAT_CLASS.roleBase + " author-chat-role-" +
+      '<div class="' + $U.CHAT_CLASS.head + '"><div class="' + $U.CHAT_CLASS.roleBase + " author-chat-role-" +
       role +
       " " +
       roleTextClass +
       '">' +
-      (roleRaw === "user" ? "我" : roleRaw === "assistant" ? escapeHtml(state.modelLabel || "模型") : "系统") +
-      '</div><div class="' + CHAT_CLASS.meta + '"><span class="' + CHAT_CLASS.time + '">' +
+      (roleRaw === "user" ? "我" : roleRaw === "assistant" ? $U.escapeHtml(state.modelLabel || "模型") : "系统") +
+      '</div><div class="' + $U.CHAT_CLASS.meta + '"><span class="' + $U.CHAT_CLASS.time + '">' +
       time +
       '</span><button type="button" class="' +
-      CHAT_CLASS.copyButton +
+      $U.CHAT_CLASS.copyButton +
       '" title="复制对话内容（Markdown 原文）" data-message-id="' +
-      escapeHtml(messageId) +
+      $U.escapeHtml(messageId) +
       '">⧉</button></div></div>' +
       bodyHtml +
       actions +
@@ -3646,17 +3544,17 @@
     const shouldStickBottom = !scrollSnapshot || scrollSnapshot.nearBottom;
     if (!state.sessionId) {
       els.chatLog.innerHTML =
-        '<div class="' + CHAT_CLASS.empty + '">未选择会话。可先点击“新建对话”，或等待宿主自动创建/恢复会话。</div>';
+        '<div class="' + $U.CHAT_CLASS.empty + '">未选择会话。可先点击“新建对话”，或等待宿主自动创建/恢复会话。</div>';
       restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
     if (!state.messages.length) {
       els.chatLog.innerHTML =
-        '<div class="' + CHAT_CLASS.empty + '">发送任务后，这里会连续显示输入、参考信息和模型回复。</div>';
+        '<div class="' + $U.CHAT_CLASS.empty + '">发送任务后，这里会连续显示输入、参考信息和模型回复。</div>';
       restoreChatScroll(scrollSnapshot, shouldStickBottom);
       return;
     }
-    const rounds = conversationRounds(state.messages);
+    const rounds = api.conversationRounds(state.messages);
     const html = rounds
       .map(function (round) {
         const user = round && round.user ? round.user : null;
@@ -3672,7 +3570,7 @@
             .join("");
         }
         return (
-          '<section class="' + CHAT_CLASS.round + '">' +
+          '<section class="' + $U.CHAT_CLASS.round + '">' +
           (user ? renderChatMessageCard(user, "user", "author-chat-row-user") : "") +
           assistants
             .map(function (assistant, assistantIndex) {
@@ -3737,59 +3635,12 @@
     restoreChatScroll(scrollSnapshot, shouldStickBottom);
   }
 
-  function closeEventStream() {
-    clearGenerationSettleTimer();
-    if (state.eventSource) {
-      try {
-        state.eventSource.close();
-      } catch (_) {}
-    }
-    state.eventSource = null;
-    state.eventSourceSessionId = "";
-    state.streamConnected = false;
-  }
-
-  function connectEvents(forceReconnect) {
-    const sessionId = String(state.sessionId || "").trim();
-    if (!(state.health && state.health.healthy) || !sessionId) {
-      closeEventStream();
-      return;
-    }
-    if (state.eventSource && state.eventSourceSessionId === sessionId && !forceReconnect) {
-      return;
-    }
-    closeEventStream();
-    try {
-      const source = new EventSource(
-        "/api/agent/session/" + encodeURIComponent(sessionId) + "/events",
-      );
-      source.onopen = function () {
-        state.streamConnected = true;
-        renderStatus();
-      };
-      source.onerror = function () {
-        state.streamConnected = false;
-        renderStatus();
-      };
-      source.onmessage = function (event) {
-        try {
-          applyHostEvent(JSON.parse(String(event.data || "{}")));
-        } catch (_) {}
-      };
-      state.eventSource = source;
-      state.eventSourceSessionId = sessionId;
-    } catch (_) {
-      state.streamConnected = false;
-      renderStatus();
-    }
-  }
-
   async function respondPermissionRequest(permissionId, responseKind) {
     const sid = String(state.sessionId || "").trim();
     const pid = String(permissionId || "").trim();
     const reply = String(responseKind || "").trim();
     if (!sid || !pid || !reply) return;
-    await fetchJson(
+    await $U.fetchJson(
       "/api/agent/session/" +
         encodeURIComponent(sid) +
         "/permissions/" +
@@ -3800,77 +3651,15 @@
         body: JSON.stringify({ response: reply }),
       },
     );
-    setInlineNote("权限请求已处理：permission_id=" + pid + "，response=" + reply);
-  }
-
-  function applyHostEvent(event) {
-    if (!event || typeof event !== "object") return;
-    const kind = String(event.kind || "");
-    if (!kind) return;
-    if (kind === "session_status") {
-      const st = String(event.status || "");
-      if (st === "connected") {
-        state.streamConnected = true;
-      }
-      if (state.sending && (st === "connected" || st === "heartbeat")) {
-        markGenerationActivity();
-      }
-      if (st === "agent_unavailable" || st === "upstream_unavailable") {
-        state.streamConnected = false;
-        closeEventStream();
-        if (state.sending) {
-          finishSending({ restoreDraft: true });
-        }
-      }
-      renderStatus();
-      return;
-    }
-    if (
-      kind === "message_info" ||
-      kind === "message_part_upsert" ||
-      kind === "message_part_delta" ||
-      kind === "message_part_removed"
-    ) {
-      if (kind === "message_part_delta") {
-        recordDeltaDebugEvent(event);
-      }
-      markGenerationActivity();
-      refreshMessages().catch(function () {});
-      return;
-    }
-    if (kind === "permission_requested") {
-      markGenerationActivity();
-      const notice = blockedPermissionNoticeFromData(event);
-      rememberBlockedPermissionNotice(notice);
-      setInlineNote(
-        "内置助手请求目录访问权限：" + String(notice.path || notice.permission || "unknown") + "（请在管理页批准或拒绝）",
-      );
-      return;
-    }
-    if (kind === "permission_blocked") {
-      markGenerationActivity();
-      const notice = blockedPermissionNoticeFromData(event);
-      rememberBlockedPermissionNotice(notice);
-      setInlineNote(String(notice.message || "会话触发了未授权访问，已自动拒绝。"));
-      return;
-    }
-    if (kind === "permission_resolved") {
-      markGenerationActivity();
-      setInlineNote(
-        "权限请求已自动处理：permission_id=" +
-          String(event.permission_id || "") +
-          "，response=" +
-          String(event.response || ""),
-      );
-    }
+    CHR.setInlineNote("权限请求已处理：permission_id=" + pid + "，response=" + reply);
   }
 
   function rememberSession() {
     try {
       if (state.sessionId) {
-        localStorage.setItem(sessionStorageKey(), state.sessionId);
+        localStorage.setItem(api.sessionStorageKey(), state.sessionId);
       } else {
-        localStorage.removeItem(sessionStorageKey());
+        localStorage.removeItem(api.sessionStorageKey());
       }
     } catch (_) {}
   }
@@ -3878,7 +3667,7 @@
   function restoreSession() {
     state.sessionId = "";
     try {
-      const saved = localStorage.getItem(sessionStorageKey());
+      const saved = localStorage.getItem(api.sessionStorageKey());
       if (saved) state.sessionId = saved;
     } catch (_) {}
   }
@@ -3887,25 +3676,25 @@
     let refreshFailed = false;
     const previousTargetKey = String(state.sessionTargetKey || "");
     state.loading = true;
-    setButtonState(true);
-    renderStatus();
+    CHR.setButtonState(true);
+    CHR.renderStatus();
     try {
       const [config, runtime, skillStatus] = await Promise.all([
-        fetchJson("/api/agent/config"),
-        fetchJson("/api/agent/runtime"),
-        fetchJson("/api/agent/skill"),
+        $U.fetchJson("/api/agent/config"),
+        $U.fetchJson("/api/agent/runtime"),
+        $U.fetchJson("/api/agent/skill"),
       ]);
       state.config = config;
       state.runtime = runtime;
       state.skillStatus = skillStatus;
-      state.sessionTargetKey = currentSessionBindingFingerprint();
+      state.sessionTargetKey = api.currentSessionBindingFingerprint();
       if (state.sessionTargetKey !== previousTargetKey) {
         state._meiAutoSessionOnce = false;
       }
       let runtimeRef = runtime;
       if (runtimeRef && runtimeRef.running) {
         try {
-          state.health = await fetchJson("/api/agent/health");
+          state.health = await $U.fetchJson("/api/agent/health");
         } catch (_) {
           state.health = null;
         }
@@ -3930,27 +3719,27 @@
       state.health = null;
       state.sessions = [];
       state.skillStatus = null;
-      setInlineNote("读取助手状态失败：" + String(error.message || error));
+      CHR.setInlineNote("读取助手状态失败：" + String(error.message || error));
     } finally {
       state.loading = false;
-      setButtonState(false);
-      renderStatus();
-      renderConfig();
-      renderRuntime();
-      renderSkillStatus();
-      await refreshModelProbe(true).catch(function () {});
-      await refreshContextPreview().catch(function () {});
+      CHR.setButtonState(false);
+      CHR.renderStatus();
+      CHR.renderConfig();
+      CHR.renderRuntime();
+      CHR.renderSkillStatus();
+      await CTX.refreshModelProbe(true).catch(function () {});
+      await CTX.refreshContextPreview().catch(function () {});
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
         state.messages = [];
         state.lastMessagesFingerprint = "";
-        clearDeltaDebugLog();
+        CHR.clearDeltaDebugLog();
         resetPendingPermissionState();
         rememberSession();
       }
       if (!state.sessionId && boundSessions.length > 0) {
-        const savedId = String(localStorage.getItem(sessionStorageKey()) || "").trim();
+        const savedId = String(localStorage.getItem(api.sessionStorageKey()) || "").trim();
         const saved = savedId ? boundSessions.find(function (item) { return item.id === savedId; }) : null;
         const preferred = saved || boundSessions[0];
         state.sessionId = preferred ? preferred.id : "";
@@ -3970,17 +3759,17 @@
         }
       }
       renderSessions();
-      syncSourceDiffEntry();
-      restoreDeltaDebugLog(state.sessionId);
+      SRC.syncSourceDiffEntry();
+      api.restoreDeltaDebugLog(state.sessionId);
       if (state.health && state.health.healthy && state.sessionId) {
         try {
           await refreshMessages({ forcePendingPermissions: true });
         } catch (_) {
           refreshFailed = true;
         }
-        connectEvents(false);
+        __meiSes().connectEvents(false);
       } else {
-        closeEventStream();
+        __meiSes().closeEventStream();
         renderMessages();
       }
     }
@@ -3988,23 +3777,23 @@
   }
 
   async function startServer() {
-    setInlineNote("");
+    CHR.setInlineNote("");
     await refreshAll();
   }
 
   function buildSessionTitle() {
-    return buildBoundSessionTitle(currentTargetKey());
+    return api.buildBoundSessionTitle(api.currentTargetKey());
   }
 
   async function postNewBoundSession() {
-    state.sessionTargetKey = currentSessionBindingFingerprint();
-    const session = await fetchJson("/api/agent/session", {
+    state.sessionTargetKey = api.currentSessionBindingFingerprint();
+    const session = await $U.fetchJson("/api/agent/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: buildSessionTitle() }),
     });
     state.sessionId = session.id || "";
-    clearDeltaDebugLog({ dropPersisted: true });
+    CHR.clearDeltaDebugLog({ dropPersisted: true });
     resetPendingPermissionState();
     rememberSession();
     invalidateSessionCache();
@@ -4014,7 +3803,7 @@
   async function createSession() {
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      setInlineNote("助手暂不可用；请检查服务端 QWEN_BASE_URL、QWEN_API_KEY、QWEN_COMPLETION_MODEL 等配置。");
+      CHR.setInlineNote("助手暂不可用；请检查服务端 QWEN_BASE_URL、QWEN_API_KEY、QWEN_COMPLETION_MODEL 等配置。");
       return;
     }
     await postNewBoundSession();
@@ -4023,8 +3812,8 @@
   async function refreshMessages(options) {
     const opts = options || {};
     if (!state.sessionId || !(state.health && state.health.healthy)) {
-      closeEventStream();
-      clearDeltaDebugLog();
+      __meiSes().closeEventStream();
+      CHR.clearDeltaDebugLog();
       state.lastMessagesFingerprint = "";
       resetPendingPermissionState();
       state.progress = {
@@ -4033,19 +3822,19 @@
         detail: "",
         items: [],
       };
-      renderProgressStrip();
+      CHR.renderProgressStrip();
       renderMessages();
       return;
     }
-    const payload = await fetchJson(
+    const payload = await $U.fetchJson(
       "/api/agent/session/" +
         encodeURIComponent(state.sessionId) +
         "/messages?limit=80",
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
-    state.progress = deriveProgressFromMessages(list);
-    renderProgressStrip();
+    state.progress = api.deriveProgressFromMessages(list);
+    CHR.renderProgressStrip();
     const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
     const runningBlockedFingerprint = blockedPermissionFingerprint(runningBlocked);
     const shouldBootstrapPendingPermissions =
@@ -4066,7 +3855,7 @@
       : [];
     if (shouldRefreshPendingPermissions) {
       try {
-        const pendingPayload = await fetchJson(
+        const pendingPayload = await $U.fetchJson(
           "/api/agent/session/" +
             encodeURIComponent(state.sessionId) +
             "/permissions/pending",
@@ -4090,20 +3879,20 @@
       const inferred = inferAgentModeFromRawMessage(raw);
       const messageId = String(raw && raw.message_id ? raw.message_id : "");
       if (!inferred || !messageId) return;
-      const meta = getMessageMeta(state.sessionId, messageId);
+      const meta = api.getMessageMeta(state.sessionId, messageId);
       if (!meta || !meta.agent) {
-        setMessageMeta(messageId, { agent: inferred, hasDiff: null, reverted: false });
+        api.setMessageMeta(messageId, { agent: inferred, hasDiff: null, reverted: false });
       }
     });
     state.messages = list.map(normalizeMessage);
-    syncSourceDiffEntry();
+    SRC.syncSourceDiffEntry();
     const mergedBlocked = mergeBlockedPermissionNotices(pendingBlocked, runningBlocked);
     applyBlockedPermissionNotices(mergedBlocked);
     decorateMessageActions();
     renderMessages();
     await hydrateBuildDiffMeta(state.messages);
-    if (activeGenerationFinished(list)) {
-      finishSending();
+    if (CHR.activeGenerationFinished(list)) {
+      CHR.finishSending();
     }
   }
 
@@ -4128,13 +3917,13 @@
   async function stopSending() {
     if (!state.sending || state.aborting) return;
     state.aborting = true;
-    setButtonState(false);
+    CHR.setButtonState(false);
     try {
       if (state.sendAbortController) {
         state.sendAbortController.abort();
       }
       if (state.sessionId) {
-        await fetchJson(
+        await $U.fetchJson(
           "/api/agent/session/" + encodeURIComponent(state.sessionId) + "/abort",
           {
             method: "POST",
@@ -4143,11 +3932,11 @@
         );
       }
       await refreshMessages().catch(function () {});
-      finishSending({ restoreDraft: true });
+      CHR.finishSending({ restoreDraft: true });
     } catch (error) {
-      setInlineNote("停止失败：" + String(error.message || error));
+      CHR.setInlineNote("停止失败：" + String(error.message || error));
       state.aborting = false;
-      setButtonState(false);
+      CHR.setButtonState(false);
     }
   }
 
@@ -4155,18 +3944,18 @@
     const body = {
       text: text,
       app_id: String(root.dataset.app || ""),
-      scene_id: currentSceneId(),
-      target_file: currentTargetKey(),
-      mode: normalizeAgentMode(state.agentMode),
-      route_mode: normalizeRouteMode(root.dataset.mode),
-      agent: normalizeAgentMode(state.agentMode),
-      resource_visibility: currentResourceVisibility(),
+      scene_id: api.currentSceneId(),
+      target_file: api.currentTargetKey(),
+      mode: api.normalizeAgentMode(state.agentMode),
+      route_mode: api.normalizeRouteMode(root.dataset.mode),
+      agent: api.normalizeAgentMode(state.agentMode),
+      resource_visibility: CTX.currentResourceVisibility(),
     };
-    const mref = getSelectedCompletionModelRef();
+    const mref = CHR.getSelectedCompletionModelRef();
     if (mref) {
       body.model = { providerID: mref.provider_id, modelID: mref.model_id };
     }
-    return fetchJson(
+    return $U.fetchJson(
       "/api/agent/session/" + encodeURIComponent(state.sessionId) + "/message",
       {
         method: "POST",
@@ -4190,7 +3979,7 @@
     }
     const healthy = !!(state.health && state.health.healthy);
     if (!healthy) {
-      setInlineNote("助手未就绪；请检查 QWEN_* 配置或点击“重连”。");
+      CHR.setInlineNote("助手未就绪；请检查 QWEN_* 配置或点击“重连”。");
       return;
     }
     if (!state.sessionId) {
@@ -4199,29 +3988,29 @@
         return;
       }
     }
-    state.sessionTargetKey = currentSessionBindingFingerprint();
+    state.sessionTargetKey = api.currentSessionBindingFingerprint();
     state.sending = true;
     state.aborting = false;
     state.pendingPromptDraft = draftText;
     state.progress = {
       visible: true,
-      label: normalizeAgentMode(state.agentMode) === "ask" ? "问答处理中" : "脚本生成中",
-      detail: normalizeAgentMode(state.agentMode) === "ask" ? "等待回答输出" : "等待执行输出",
+      label: api.normalizeAgentMode(state.agentMode) === "ask" ? "问答处理中" : "脚本生成中",
+      detail: api.normalizeAgentMode(state.agentMode) === "ask" ? "等待回答输出" : "等待执行输出",
       items: [
         {
-          label: normalizeAgentMode(state.agentMode) === "ask" ? "问答中" : "生成中",
+          label: api.normalizeAgentMode(state.agentMode) === "ask" ? "问答中" : "生成中",
           status: "running",
         },
       ],
     };
-    renderProgressStrip();
-    clearGenerationSettleTimer();
+    CHR.renderProgressStrip();
+    CHR.clearGenerationSettleTimer();
     if (els.input) {
       els.input.value = "";
-      autoResizeComposerInput();
+      api.autoResizeComposerInput();
       els.input.focus();
     }
-    setButtonState(false);
+    CHR.setButtonState(false);
     try {
       const controller = new AbortController();
       state.sendAbortController = controller;
@@ -4229,7 +4018,7 @@
       try {
         summary = await postPromptWithCurrentSession(text, controller);
       } catch (error) {
-        if (!isNotFoundError(error)) {
+        if (!api.isNotFoundError(error)) {
           throw error;
         }
         state.sendAbortController = null;
@@ -4239,7 +4028,7 @@
         resetPendingPermissionState();
         rememberSession();
         invalidateSessionCache();
-        setInlineNote("检测到旧会话已失效，正在自动重建会话后重试…");
+        CHR.setInlineNote("检测到旧会话已失效，正在自动重建会话后重试…");
         await createSession();
         if (!state.sessionId) {
           throw error;
@@ -4251,63 +4040,1011 @@
       state.sendAbortController = null;
       if (summary && summary.error) {
         const detail = summarizePromptError(summary.error);
-        setInlineNote("发送失败：" + (detail || "上游模型返回错误"));
+        CHR.setInlineNote("发送失败：" + (detail || "上游模型返回错误"));
         await refreshMessages().catch(function () {});
-        finishSending({ restoreDraft: true });
+        CHR.finishSending({ restoreDraft: true });
         return;
       }
       if (summary && summary.message_id) {
         state.activeGenerationMessageId = String(summary.message_id);
-        setMessageMeta(summary.message_id, {
-          agent: normalizeAgentMode(state.agentMode),
-          hasDiff: normalizeAgentMode(state.agentMode) === "build" ? null : false,
+        api.setMessageMeta(summary.message_id, {
+          agent: api.normalizeAgentMode(state.agentMode),
+          hasDiff: api.normalizeAgentMode(state.agentMode) === "build" ? null : false,
           reverted: false,
         });
-        if (normalizeAgentMode(state.agentMode) === "build") {
+        if (api.normalizeAgentMode(state.agentMode) === "build") {
           state.pendingReloadMessageId = String(summary.message_id);
         }
       }
       await refreshMessages();
-      finishSending();
-      if (summary && summary.message_id && normalizeAgentMode(state.agentMode) === "build") {
+      CHR.finishSending();
+      if (summary && (summary.scope_digest || summary.profile_summary)) {
+        var bits = [];
+        if (summary.scope_digest) {
+          bits.push("scope_digest=" + String(summary.scope_digest));
+        }
+        if (summary.profile_summary) {
+          bits.push(String(summary.profile_summary));
+        }
+        CHR.setInlineNote("发送完成 · " + bits.join(" | "));
+      }
+      if (summary && summary.message_id && api.normalizeAgentMode(state.agentMode) === "build") {
         try {
           const diff = await fetchSessionDiff(summary.message_id);
-          const hasDiff = sessionDiffHasMaterialChanges(diff);
-          setMessageMeta(summary.message_id, { hasDiff: hasDiff });
+          const hasDiff = api.sessionDiffHasMaterialChanges(diff);
+          api.setMessageMeta(summary.message_id, { hasDiff: hasDiff });
           if (hasDiff) {
-            state.messageDiffCache[diffCacheKey(state.sessionId, summary.message_id)] = diff;
+            state.messageDiffCache[api.diffCacheKey(state.sessionId, summary.message_id)] = diff;
             decorateMessageActions();
             renderMessages();
-            scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
+            api.scheduleHostReload("Build 已修改文件，正在刷新预览与源码…");
           }
         } catch (_) {}
       }
-      renderHistoryButtons();
-      connectEvents(false);
-      markGenerationActivity();
+      CHR.renderHistoryButtons();
+      __meiSes().connectEvents(false);
+      CHR.markGenerationActivity();
     } catch (error) {
       const aborted = state.aborting || (error && error.name === "AbortError");
       state.sendAbortController = null;
       if (aborted) {
         return;
       }
-      setInlineNote("发送失败：" + String(error.message || error));
-      finishSending({ restoreDraft: true });
+      CHR.setInlineNote("发送失败：" + String(error.message || error));
+      CHR.finishSending({ restoreDraft: true });
     }
   }
 
+    return {
+      readSessionCache: readSessionCache,
+      writeSessionCache: writeSessionCache,
+      invalidateSessionCache: invalidateSessionCache,
+      fetchAllSessions: fetchAllSessions,
+      renderSessions: renderSessions,
+      resetPendingPermissionState: resetPendingPermissionState,
+      normalizeMessage: normalizeMessage,
+      respondPermissionRequest: respondPermissionRequest,
+      rememberSession: rememberSession,
+      restoreSession: restoreSession,
+      refreshAll: refreshAll,
+      startServer: startServer,
+      buildSessionTitle: buildSessionTitle,
+      postNewBoundSession: postNewBoundSession,
+      createSession: createSession,
+      refreshMessages: refreshMessages,
+      summarizePromptError: summarizePromptError,
+      stopSending: stopSending,
+      postPromptWithCurrentSession: postPromptWithCurrentSession,
+      sendPrompt: sendPrompt,
+      applyRevertForMessage: applyRevertForMessage,
+      applyUnrevertForSession: applyUnrevertForSession,
+      blockedPermissionNoticeFromData: blockedPermissionNoticeFromData,
+      rememberBlockedPermissionNotice: rememberBlockedPermissionNotice,
+    };
+  };
+})(window);
+
+;
+
+/* ===== agent-panel.js ===== */
+(function () {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeAgentPanel === "function") {
+    try {
+      boot.disposeAgentPanel();
+    } catch (_) {}
+    boot.disposeAgentPanel = null;
+  }
+
+  const root = document.getElementById("meilang-author-panel");
+  if (!root) return;
+
+  const els = {
+    serverDot: document.getElementById("author-server-dot"),
+    serverStatus: document.getElementById("author-server-status"),
+    config: document.getElementById("author-config-line"),
+    modelLabel: document.getElementById("author-model-label"),
+    reconnect: document.getElementById("author-reconnect-btn"),
+    newSession: document.getElementById("author-session-btn"),
+    skillLine: document.getElementById("author-skill-line"),
+    sessionSelect: document.getElementById("author-session-select"),
+    chatLog: document.getElementById("author-chat-log"),
+    progressStrip: document.getElementById("author-progress-strip"),
+    progressLabel: document.getElementById("author-progress-label"),
+    progressDetail: document.getElementById("author-progress-detail"),
+    progressItems: document.getElementById("author-progress-items"),
+    contextRefresh: document.getElementById("author-context-refresh-btn"),
+    contextScope: document.getElementById("author-context-preview-scope"),
+    contextSkill: document.getElementById("author-context-preview-skill"),
+    contextTools: document.getElementById("author-context-preview-tools"),
+    contextInventory: document.getElementById("author-context-preview-inventory"),
+    contextPrompt: document.getElementById("author-context-preview-prompt"),
+    contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
+    input: document.getElementById("author-intent-input"),
+    run: document.getElementById("author-run-btn"),
+    modeAsk:
+      document.getElementById("author-mode-ask-btn") ||
+      document.getElementById("author-mode-plan-btn"),
+    modeBuild: document.getElementById("author-mode-build-btn"),
+    completionModelSelect: document.getElementById("author-completion-model-select"),
+    completionModelWrap: document.getElementById("author-completion-model-wrap"),
+    undo: document.getElementById("author-undo-btn"),
+    redo: document.getElementById("author-redo-btn"),
+    sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
+    sourceViewHost: document.getElementById("source-view-host"),
+    sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
+    sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
+    sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
+    accessFloatingRoot: document.getElementById("access-chat-floating-root"),
+    accessFab: document.getElementById("access-chat-fab"),
+    accessClose: document.getElementById("access-chat-close"),
+    accessPanel: document.getElementById("access-chat-overlay-panel"),
+    statusModelService: document.getElementById("mei-status-model-service"),
+  };
+
+  const state = {
+    config: null,
+    runtime: null,
+    skillStatus: null,
+    health: null,
+    sessions: [],
+    sessionId: "",
+    sessionTargetKey: "",
+    messages: [],
+    loading: false,
+    sending: false,
+    aborting: false,
+    eventSource: null,
+    eventSourceSessionId: "",
+    streamConnected: false,
+    modelLabel: "模型",
+    sessionsCacheAtMs: 0,
+    sessionsFetchInFlight: null,
+    sendAbortController: null,
+    pendingPromptDraft: "",
+    generationSettleTimer: null,
+    _meiAutoSessionOnce: false,
+    _meiClientAutoOpencodeOnce: false,
+    lastMessagesFingerprint: "",
+    inlineNote: "",
+    agentMode: "build",
+    sessionHasRevertedChanges: {},
+    revertedMessageIds: {},
+    messageMeta: {},
+    messageDiffCache: {},
+    pendingReloadMessageId: "",
+    pendingPermissionsFingerprint: "",
+    pendingPermissionsFetchedAt: 0,
+    pendingPermissionNotices: [],
+    pendingPermissionsBootstrappedSessionId: "",
+    activeGenerationMessageId: "",
+    latestRoundAssistantId: "",
+    latestDiffMessageId: "",
+    sourceViewMode: "source",
+    sourceDiffMessageId: "",
+    sourceDiffMergeView: null,
+    sourceCodeMirror: null,
+    sourceEditorContainer: null,
+    sourceDiffResizeObserver: null,
+    sourceViewResizeObserver: null,
+    contextPreview: null,
+    contextPreviewBackoffUntilMs: 0,
+    contextPreviewFetchedAtMs: 0,
+    contextPreviewScopeKey: "",
+    modelProbe: null,
+    modelProbeFetchedAtMs: 0,
+    modelProbeFailureStreak: 0,
+    modelProbeLastSuccessAtMs: 0,
+    accessFloatingOpen: false,
+    accessFloatingDragMoved: false,
+    deltaDebugLog: [],
+    progress: {
+      visible: false,
+      label: "",
+      detail: "",
+      items: [],
+    },
+  };
+
+  const SESSION_CACHE_KEY = "mei.author.sessions.v1";
+  const SESSION_CACHE_TTL_MS = 30000;
+  const MODEL_PROBE_RED_AFTER_STREAK = 3;
+  const MODEL_PROBE_RED_AFTER_MS = 20000;
+  const MODEL_PROBE_COLD_START_RED_AFTER_STREAK = 5;
+  const CHAT_BOTTOM_STICKY_THRESHOLD_PX = 28;
+  const COMPOSER_MIN_ROWS = 2;
+  const COMPOSER_MAX_ROWS = 12;
+
+  const $U = window.MeiAgentPanelUtils;
+  if (
+    !$U ||
+    typeof $U.escapeHtml !== "function" ||
+    typeof $U.fetchJson !== "function" ||
+    typeof $U.CHAT_CLASS !== "object" ||
+    typeof $U.chatMessageRoleClass !== "function"
+  ) {
+    console.error(
+      "MeiAgentPanelUtils missing: ensure agent-panel-utils.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  const RT =
+    typeof window.__meiAgentPanelInstallRouting === "function"
+      ? window.__meiAgentPanelInstallRouting({ root: root, boot: boot, $U: $U })
+      : null;
+  if (!RT || typeof RT.currentTargetKey !== "function") {
+    console.error(
+      "MeiAgentPanelRouting missing: ensure agent-panel-routing.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  function normalizeDeltaDebugRows(rows) {
+    return $U.normalizeDeltaDebugRows(rows);
+  }
+
+  function writeDeltaDebugLogToStorage(sessionId, rows) {
+    if (!window.sessionStorage) return;
+    const key = RT.deltaDebugStorageKey(sessionId);
+    if (!key) return;
+    try {
+      window.sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          updatedAtMs: Date.now(),
+          rows: normalizeDeltaDebugRows(rows),
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function readDeltaDebugLogFromStorage(sessionId) {
+    if (!window.sessionStorage) return [];
+    const key = RT.deltaDebugStorageKey(sessionId);
+    if (!key) return [];
+    try {
+      const raw = window.sessionStorage.getItem(key);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return normalizeDeltaDebugRows(parsed && parsed.rows);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function restoreDeltaDebugLog(sessionId) {
+    state.deltaDebugLog = readDeltaDebugLogFromStorage(sessionId);
+    renderDeltaDebugLog();
+  }
+
+  const AF =
+    typeof window.__meiAgentPanelInstallAccessFloat === "function"
+      ? window.__meiAgentPanelInstallAccessFloat({
+          root,
+          els,
+          state,
+          normalizeRouteMode: RT.normalizeRouteMode,
+          accessFloatingStorageKey: RT.accessFloatingStorageKey,
+          accessFloatingPositionStorageKey: RT.accessFloatingPositionStorageKey,
+        })
+      : null;
+  if (!AF || typeof AF.beginAccessFloatingDrag !== "function") {
+    console.error(
+      "MeiAgentPanelAccessFloat missing: ensure agent-panel-access-float.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  function composerDraftText() {
+    return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
+  }
+
+  function refreshLinkedViewRefs() {
+    els.sourceViewHost = document.getElementById("source-view-host");
+    els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
+    els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
+    els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
+    els.accessFloatingRoot = document.getElementById("access-chat-floating-root");
+    els.accessFab = document.getElementById("access-chat-fab");
+    els.accessClose = document.getElementById("access-chat-close");
+    els.accessPanel = document.getElementById("access-chat-overlay-panel");
+    els.statusModelService = document.getElementById("mei-status-model-service");
+  }
+
+  function parsePx(value) {
+    const n = Number.parseFloat(String(value || "0"));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function resolveComposerLineHeightPx(inputEl, style) {
+    const explicit = parsePx(style && style.lineHeight ? style.lineHeight : "");
+    if (explicit > 0) return explicit;
+    const fontSize = parsePx(style && style.fontSize ? style.fontSize : "");
+    return fontSize > 0 ? fontSize * 1.4 : 18;
+  }
+
+  function autoResizeComposerInput() {
+    if (!els.input) return;
+    const inputEl = els.input;
+    const style = window.getComputedStyle(inputEl);
+    const lineHeight = resolveComposerLineHeightPx(inputEl, style);
+    const verticalPadding =
+      parsePx(style.paddingTop) +
+      parsePx(style.paddingBottom) +
+      parsePx(style.borderTopWidth) +
+      parsePx(style.borderBottomWidth);
+    const minHeight = Math.round(lineHeight * COMPOSER_MIN_ROWS + verticalPadding);
+    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_ROWS + verticalPadding);
+    inputEl.style.height = "auto";
+    const scrollHeight = Math.max(inputEl.scrollHeight, minHeight);
+    const nextHeight = Math.min(scrollHeight, maxHeight);
+    inputEl.style.height = String(nextHeight) + "px";
+    inputEl.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+  }
+
+  function canSubmitPrompt() {
+    return composerDraftText().trim().length > 0;
+  }
+
+  function normalizeFilePath(value) {
+    return $U.normalizeFilePath(value);
+  }
+
+  function sourceTargetKey() {
+    refreshLinkedViewRefs();
+    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+    if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
+      return normalizeFilePath(targetNode.dataset.sourceTarget);
+    }
+    return RT.currentTargetKey();
+  }
+
+  function sourceLanguage() {
+    refreshLinkedViewRefs();
+    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+    if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
+      return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
+    }
+    return "plain";
+  }
+
+  function sourceRawText() {
+    refreshLinkedViewRefs();
+    return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
+  }
+
+  function latestRoundAssistantMessageId() {
+    const rounds = $U.conversationRounds(state.messages);
+    for (let index = rounds.length - 1; index >= 0; index -= 1) {
+      const round = rounds[index];
+      const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
+      const assistant = assistants.length ? assistants[assistants.length - 1] : null;
+      const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
+      if (messageId) return messageId;
+    }
+    return "";
+  }
+
+  function latestDiffEligibleMessageId() {
+    const latestAssistantId = latestRoundAssistantMessageId();
+    if (!latestAssistantId) return "";
+    const meta = getMessageMeta(state.sessionId, latestAssistantId);
+    if (!meta || meta.hasDiff !== true) return "";
+    return latestAssistantId;
+  }
+
+  function messageKey(sessionId, messageId) {
+    return String(sessionId || "") + "::" + String(messageId || "");
+  }
+
+  /** diff 结果随当前管理页目标路径变化，缓存键需包含 path。 */
+  function diffCacheKey(sessionId, messageId) {
+    const base = messageKey(sessionId, messageId);
+    const p = sourceTargetKey();
+    return p ? base + "::diffPath::" + p : base;
+  }
+
+  function setMessageMeta(messageId, patch) {
+    const key = messageKey(state.sessionId, messageId);
+    if (!key || key === "::") return;
+    const prev = state.messageMeta[key] || {};
+    state.messageMeta[key] = Object.assign({}, prev, patch || {});
+  }
+
+  function getMessageMeta(sessionId, messageId) {
+    return state.messageMeta[messageKey(sessionId, messageId)] || null;
+  }
+
+  function setSessionRevertedFlag(sessionId, hasReverted) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return;
+    state.sessionHasRevertedChanges[sid] = !!hasReverted;
+  }
+
+  function hasSessionRevertedChanges(sessionId) {
+    return !!state.sessionHasRevertedChanges[String(sessionId || "").trim()];
+  }
+
+  function persistRevertedState() {
+    try {
+      localStorage.setItem(RT.revertedStorageKey(), JSON.stringify(state.revertedMessageIds));
+    } catch (_) {}
+  }
+
+  function restoreRevertedState() {
+    state.revertedMessageIds = {};
+    state.sessionHasRevertedChanges = {};
+    try {
+      const raw = localStorage.getItem(RT.revertedStorageKey());
+      const parsed = raw ? JSON.parse(raw) : {};
+      if (!parsed || typeof parsed !== "object") return;
+      state.revertedMessageIds = parsed;
+      Object.keys(parsed).forEach(function (sid) {
+        setSessionRevertedFlag(sid, Array.isArray(parsed[sid]) && parsed[sid].length > 0);
+      });
+    } catch (_) {}
+  }
+
+  function revertedIdsForSession(sessionId) {
+    const sid = String(sessionId || "").trim();
+    const list = sid ? state.revertedMessageIds[sid] : null;
+    return Array.isArray(list) ? list.slice() : [];
+  }
+
+  function setRevertedIdsForSession(sessionId, nextIds) {
+    const sid = String(sessionId || "").trim();
+    if (!sid) return;
+    const deduped = Array.from(
+      new Set(
+        (Array.isArray(nextIds) ? nextIds : [])
+          .map(function (item) { return String(item || "").trim(); })
+          .filter(Boolean),
+      ),
+    );
+    state.revertedMessageIds[sid] = deduped;
+    setSessionRevertedFlag(sid, deduped.length > 0);
+    persistRevertedState();
+  }
+
+  function isMessageReverted(sessionId, messageId) {
+    return revertedIdsForSession(sessionId).includes(String(messageId || "").trim());
+  }
+
+  function latestUndoMessageId() {
+    if (!state.sessionId) return "";
+    const rounds = $U.conversationRounds(state.messages);
+    for (let index = rounds.length - 1; index >= 0; index -= 1) {
+      const message = rounds[index] && rounds[index].assistant;
+      const messageId = String(message && message.id ? message.id : "").trim();
+      if (!messageId) continue;
+      const meta = getMessageMeta(state.sessionId, messageId);
+      if (!meta || meta.hasDiff !== true) continue;
+      if (isMessageReverted(state.sessionId, messageId)) continue;
+      return messageId;
+    }
+    return "";
+  }
+
+  function canUndo() {
+    return !!latestUndoMessageId();
+  }
+
+  function canRedo() {
+    return hasSessionRevertedChanges(state.sessionId);
+  }
+
+  function progressStatusClass(status) {
+    const value = String(status || "").trim().toLowerCase();
+    if (value === "completed" || value === "done" || value === "finished") return "done";
+    if (value === "error" || value === "failed") return "error";
+    if (value === "running") return "running";
+    return "pending";
+  }
+
+  function progressLabelForTool(tool) {
+    const title = String(tool && tool.title ? tool.title : "").trim();
+    const name = String(tool && tool.tool ? tool.tool : "").trim();
+    return title || (name ? "工具：" + name : "工具步骤");
+  }
+
+  function activeAssistantRawMessage(rawMessages) {
+    const rows = Array.isArray(rawMessages) ? rawMessages : [];
+    const activeId = String(state.activeGenerationMessageId || "").trim();
+    if (activeId) {
+      const match = rows.find(function (row) {
+        return (
+          row &&
+          String(row.role || "") === "assistant" &&
+          String(row.message_id || "").trim() === activeId
+        );
+      });
+      if (match) return match;
+    }
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const row = rows[index];
+      if (row && String(row.role || "") === "assistant") {
+        return row;
+      }
+    }
+    return null;
+  }
+
+  function deriveProgressFromMessages(rawMessages) {
+    const active = activeAssistantRawMessage(rawMessages);
+    if (!state.sending || !active) {
+      return {
+        visible: false,
+        label: "",
+        detail: "",
+        items: [],
+      };
+    }
+    const messageId = String(active.message_id || "").trim();
+    const meta = getMessageMeta(state.sessionId, messageId) || {};
+    const agent = RT.normalizeAgentMode(meta.agent || state.agentMode);
+    const parts = Array.isArray(active.parts) ? active.parts : [];
+    const stepStarts = parts.filter(function (part) {
+      return String(part && part.part_type || "") === "step-start";
+    }).length;
+    const stepFinishes = parts.filter(function (part) {
+      return String(part && part.part_type || "") === "step-finish";
+    }).length;
+    const tools = parts
+      .filter(function (part) {
+        return String(part && part.part_type || "") === "tool" && part.tool;
+      })
+      .map(function (part) {
+        return part.tool;
+      });
+    const runningTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "running";
+    });
+    const pendingTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "pending";
+    });
+    const doneTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "completed";
+    });
+    const errorTools = tools.filter(function (tool) {
+      return String(tool && tool.status || "").trim().toLowerCase() === "error";
+    });
+
+    let label = agent === "ask" ? "问答处理中" : "脚本生成中";
+    if (runningTools.length > 0) {
+      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 工具运行中";
+    } else if (stepStarts > stepFinishes) {
+      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 步骤处理中";
+    } else if (parts.length > 0) {
+      label = agent === "ask" ? "正在生成回答" : "正在生成结果";
+    }
+
+    const totalSteps = Math.max(stepStarts, stepFinishes);
+    const detailParts = [];
+    if (totalSteps > 0) {
+      detailParts.push("步骤 " + String(stepFinishes) + "/" + String(totalSteps));
+    }
+    if (runningTools.length > 0) {
+      detailParts.push("运行中工具 " + String(runningTools.length));
+    } else if (pendingTools.length > 0) {
+      detailParts.push("待处理工具 " + String(pendingTools.length));
+    } else if (doneTools.length > 0) {
+      detailParts.push("已完成工具 " + String(doneTools.length));
+    }
+
+    const items = [];
+    tools.slice(-4).forEach(function (tool) {
+      items.push({
+        label: progressLabelForTool(tool),
+        status: progressStatusClass(tool && tool.status),
+      });
+    });
+    if (!items.length && totalSteps > 0) {
+      for (let index = 0; index < totalSteps; index += 1) {
+        items.push({
+          label: "步骤 " + String(index + 1),
+          status: index < stepFinishes ? "done" : (index < stepStarts ? "running" : "pending"),
+        });
+      }
+    }
+    if (!items.length) {
+      items.push({
+        label: agent === "ask" ? "等待回答输出" : "等待执行输出",
+        status: "running",
+      });
+    }
+
+    return {
+      visible: true,
+      label: label,
+      detail: detailParts.join(" · "),
+      items: items,
+    };
+  }
+
+  let SES = null;
+
+  const chromeApi = {
+    root: root,
+    els: els,
+    state: state,
+    $U: $U,
+    historyUnavailableReason: historyUnavailableReason,
+    canUndo: canUndo,
+    canRedo: canRedo,
+    canSubmitPrompt: canSubmitPrompt,
+    autoResizeComposerInput: autoResizeComposerInput,
+    normalizeAgentMode: RT.normalizeAgentMode,
+    modeStorageKey: RT.modeStorageKey,
+    writeDeltaDebugLogToStorage: writeDeltaDebugLogToStorage,
+    renderDeltaDebugLog: renderDeltaDebugLog,
+    MODEL_PROBE_RED_AFTER_MS: MODEL_PROBE_RED_AFTER_MS,
+    MODEL_PROBE_RED_AFTER_STREAK: MODEL_PROBE_RED_AFTER_STREAK,
+    MODEL_PROBE_COLD_START_RED_AFTER_STREAK: MODEL_PROBE_COLD_START_RED_AFTER_STREAK,
+    formatMsTimeForSkill: function (v) {
+      return chromeApi._fmtSkillMs(v);
+    },
+    _fmtSkillMs: function () {
+      return "";
+    },
+  };
+
+  const CHR =
+    typeof window.__meiAgentPanelInstallChrome === "function"
+      ? window.__meiAgentPanelInstallChrome(chromeApi)
+      : null;
+  if (!CHR || typeof CHR.renderStatus !== "function") {
+    console.error(
+      "MeiAgentPanelChrome missing: ensure agent-panel-chrome.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+
+  const SRC =
+    typeof window.__meiAgentPanelInstallSourceView === "function"
+      ? window.__meiAgentPanelInstallSourceView({
+          root,
+          els,
+          state,
+          refreshLinkedViewRefs,
+          setInlineNote: CHR.setInlineNote,
+          currentManageTab: RT.currentManageTab,
+          renderDeltaDebugLog,
+          fetchSessionDiff,
+          sessionDiffHasMaterialChanges,
+          setMessageMeta,
+          diffCacheKey,
+          latestRoundAssistantMessageId,
+          latestDiffEligibleMessageId,
+          historyUnavailableReason,
+          normalizeFilePath,
+          sourceTargetKey,
+          sourceLanguage,
+          sourceRawText,
+        })
+      : null;
+  if (!SRC || typeof SRC.ensureSourceEditor !== "function") {
+    console.error(
+      "MeiAgentPanelSourceView missing: ensure agent-panel-source.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  function scheduleHostReload(reason) {
+    const text = String(reason || "").trim();
+    if (text) CHR.setInlineNote(text);
+    state.pendingReloadMessageId = "";
+    window.setTimeout(function () {
+      window.location.reload();
+    }, 120);
+  }
+
+  function continueEditing() {
+    if (!els.input) return;
+    els.input.focus();
+  }
+
+  function isNotFoundError(error) {
+    const text = String((error && error.message) || error || "");
+    return text.includes("404") || text.includes("Not Found");
+  }
+
+  function historyUnavailableReason() {
+    if (!state.health || state.health.history_available !== false) return "";
+    return String(state.health.history_reason || "").trim();
+  }
+  const CTX =
+    typeof window.__meiAgentPanelInstallContextPreview === "function"
+      ? window.__meiAgentPanelInstallContextPreview({
+          root: root,
+          els: els,
+          state: state,
+          $U: $U,
+          setInlineNote: CHR.setInlineNote,
+          currentAppKey: RT.currentAppKey,
+          currentSceneId: RT.currentSceneId,
+          currentTargetKey: RT.currentTargetKey,
+          normalizeTargetKey: RT.normalizeTargetKey,
+          normalizeRouteMode: RT.normalizeRouteMode,
+          normalizeAgentMode: RT.normalizeAgentMode,
+          getSelectedCompletionModelRef: CHR.getSelectedCompletionModelRef,
+          renderDeltaDebugLog: renderDeltaDebugLog,
+          renderStatusBarOpenCode: CHR.renderStatusBarOpenCode,
+        })
+      : null;
+  if (!CTX || typeof CTX.renderContextPreview !== "function") {
+    console.error(
+      "MeiAgentPanelContextPreview missing: ensure agent-panel-context.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  chromeApi._fmtSkillMs = function (v) {
+    return CTX.formatMsTime(v);
+  };
+
+  function trimDeltaPreview(text, maxChars) {
+    const raw = String(text || "");
+    if (!raw) return "";
+    const normalized = raw.replace(/\s+/g, " ").trim();
+    if (!normalized) return "";
+    if (normalized.length <= maxChars) return normalized;
+    return normalized.slice(0, Math.max(0, maxChars - 1)) + "…";
+  }
+
+  function formatDeltaDebugTs(stamp) {
+    const ms = Number(stamp || 0);
+    if (!Number.isFinite(ms) || ms <= 0) return "-";
+    const d = new Date(ms);
+    const pad = function (n, w) {
+      const s = String(Number(n) || 0);
+      return s.length >= w ? s : "0".repeat(w - s.length) + s;
+    };
+    return (
+      pad(d.getHours(), 2) +
+      ":" +
+      pad(d.getMinutes(), 2) +
+      ":" +
+      pad(d.getSeconds(), 2) +
+      "." +
+      pad(d.getMilliseconds(), 3)
+    );
+  }
+
+  function recordDeltaDebugEvent(event) {
+    const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
+    const clientRxTs = Date.now();
+    const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
+    const preview = trimDeltaPreview(deltaRaw, 48);
+    const gapRxMs =
+      Number.isFinite(serverTs) && serverTs > 0 ? clientRxTs - serverTs : null;
+    const row = {
+      serverTs: Number.isFinite(serverTs) ? serverTs : 0,
+      clientRxTs: clientRxTs,
+      paintTs: null,
+      partId: String(event && event.part_id ? event.part_id : ""),
+      messageId: String(event && event.message_id ? event.message_id : ""),
+      chars: deltaRaw.length,
+      preview: preview,
+      gapRxMs: gapRxMs,
+      gapPaintMs: null,
+    };
+    state.deltaDebugLog.unshift(row);
+    if (state.deltaDebugLog.length > 120) {
+      state.deltaDebugLog.length = 120;
+    }
+    writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+    renderDeltaDebugLog();
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        const paintTs = Date.now();
+        row.paintTs = paintTs;
+        row.gapPaintMs =
+          row.serverTs > 0 && Number.isFinite(row.serverTs) ? paintTs - row.serverTs : null;
+        writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+        renderDeltaDebugLog();
+      });
+    });
+  }
+
+  function renderDeltaDebugLog() {
+    const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
+    const manageEl = document.getElementById("mei-manage-debug-agent-sse-delta");
+    const emptyManageHint =
+      "尚无助手流式 delta 记录。请在右侧「作者」连接会话并发消息；出现 srv/cli_rx/gap_rx 与 cli_paint/gap_paint（后者为连续两次 requestAnimationFrame 后的墙钟，近似「排帧后」与首绘间隔）。SPA 换文件后若曾收过 delta，请再点一次「调试」页签或发新消息以刷新本区。";
+    if (!log.length) {
+      if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = "(empty)";
+      if (manageEl) manageEl.textContent = emptyManageHint;
+      return;
+    }
+    const lines = log.slice(0, 60).map(function (item, index) {
+      const rxTs =
+        item && item.clientRxTs != null
+          ? item.clientRxTs
+          : item && item.clientTs != null
+            ? item.clientTs
+            : 0;
+      const gapRxLabel =
+        item && item.gapRxMs != null && Number.isFinite(item.gapRxMs)
+          ? String(item.gapRxMs) + "ms"
+          : item && item.gapMs != null && Number.isFinite(item.gapMs)
+            ? String(item.gapMs) + "ms"
+            : "-";
+      const paintTs = item && item.paintTs != null ? item.paintTs : null;
+      const cliPaintStr =
+        paintTs != null && Number.isFinite(paintTs) && paintTs > 0
+          ? formatDeltaDebugTs(paintTs)
+          : "-";
+      const gapPaintLabel =
+        item && item.gapPaintMs != null && Number.isFinite(item.gapPaintMs)
+          ? String(item.gapPaintMs) + "ms"
+          : "-";
+      return (
+        "#" +
+        String(index + 1).padStart(2, "0") +
+        " srv=" +
+        formatDeltaDebugTs(item.serverTs) +
+        " cli_rx=" +
+        formatDeltaDebugTs(rxTs) +
+        " gap_rx=" +
+        gapRxLabel +
+        " cli_paint=" +
+        cliPaintStr +
+        " gap_paint=" +
+        gapPaintLabel +
+        " chars=" +
+        String(item.chars || 0) +
+        " part=" +
+        String(item.partId || "-") +
+        " msg=" +
+        String(item.messageId || "-") +
+        " delta=\"" +
+        String(item.preview || "") +
+        "\""
+      );
+    });
+    const text = lines.join("\n");
+    if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = text;
+    if (manageEl) manageEl.textContent = text;
+  }
+
+
+  async function fetchSessionDiff(messageId) {
+    if (!state.sessionId) return null;
+    const params = new URLSearchParams();
+    const mid = String(messageId || "").trim();
+    if (mid) params.set("message_id", mid);
+    const pathKey = sourceTargetKey();
+    if (pathKey) params.set("path", pathKey);
+    const qs = params.toString();
+    return $U.fetchJson(
+      "/api/agent/session/" +
+        encodeURIComponent(state.sessionId) +
+        "/diff" +
+        (qs ? "?" + qs : ""),
+    );
+  }
+
+  /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */
+  function sessionDiffHasMaterialChanges(diff) {
+    if (!diff || typeof diff !== "object") return false;
+    const topAdd = Number(diff.additions);
+    const topDel = Number(diff.deletions);
+    if ((Number.isFinite(topAdd) && topAdd > 0) || (Number.isFinite(topDel) && topDel > 0)) {
+      return true;
+    }
+    const files = Array.isArray(diff.files) ? diff.files : [];
+    return files.some(function (f) {
+      if (!f || typeof f !== "object") return false;
+      const a = Number(f.additions);
+      const d = Number(f.deletions);
+      if ((Number.isFinite(a) && a > 0) || (Number.isFinite(d) && d > 0)) return true;
+      const after = String(f.after || "").trim();
+      if (!after) return false;
+      const low = after.toLowerCase();
+      if (low.includes("no git worktree") || low.includes("native diff snapshot:")) return false;
+      return after.split("\n").some(function (line) {
+        const t = String(line || "");
+        return (
+          (t.startsWith("+") && !t.startsWith("+++")) ||
+          (t.startsWith("-") && !t.startsWith("---"))
+        );
+      });
+    });
+  }
+
+
+  const transport = { ses: null };
+  const msgApi = {
+    transport: transport,
+    root: root,
+    els: els,
+    state: state,
+    $U: $U,
+    CHR: CHR,
+    CTX: CTX,
+    SRC: SRC,
+    SESSION_CACHE_KEY: SESSION_CACHE_KEY,
+    SESSION_CACHE_TTL_MS: SESSION_CACHE_TTL_MS,
+    CHAT_BOTTOM_STICKY_THRESHOLD_PX: CHAT_BOTTOM_STICKY_THRESHOLD_PX,
+    fetchSessionDiff: fetchSessionDiff,
+    sessionDiffHasMaterialChanges: sessionDiffHasMaterialChanges,
+    deriveProgressFromMessages: deriveProgressFromMessages,
+    conversationRounds: $U.conversationRounds,
+    sessionStorageKey: RT.sessionStorageKey,
+    currentSessionBindingFingerprint: RT.currentSessionBindingFingerprint,
+    normalizeRouteMode: RT.normalizeRouteMode,
+    normalizeAgentMode: RT.normalizeAgentMode,
+    buildBoundSessionTitle: RT.buildBoundSessionTitle,
+    parseBoundSessionTitle: RT.parseBoundSessionTitle,
+    historyUnavailableReason: historyUnavailableReason,
+    scheduleHostReload: scheduleHostReload,
+    autoResizeComposerInput: autoResizeComposerInput,
+    isNotFoundError: isNotFoundError,
+    restoreDeltaDebugLog: restoreDeltaDebugLog,
+    revertedIdsForSession: revertedIdsForSession,
+    setRevertedIdsForSession: setRevertedIdsForSession,
+    setSessionRevertedFlag: setSessionRevertedFlag,
+    isMessageReverted: isMessageReverted,
+    getMessageMeta: getMessageMeta,
+    setMessageMeta: setMessageMeta,
+    diffCacheKey: diffCacheKey,
+    normalizeTargetKey: RT.normalizeTargetKey,
+    sessionBindingKind: RT.sessionBindingKind,
+    currentSceneId: RT.currentSceneId,
+    currentTargetKey: RT.currentTargetKey,
+  };
+  const MSG =
+    typeof window.__meiAgentPanelInstallMessages === "function"
+      ? window.__meiAgentPanelInstallMessages(msgApi)
+      : null;
+  if (!MSG || typeof MSG.refreshMessages !== "function") {
+    console.error(
+      "MeiAgentPanelMessages missing: ensure agent-panel-messages.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+  SES =
+    typeof window.__meiAgentPanelInstallSession === "function"
+      ? window.__meiAgentPanelInstallSession({
+          state: state,
+          renderStatus: CHR.renderStatus,
+          clearGenerationSettleTimer: CHR.clearGenerationSettleTimer,
+          markGenerationActivity: CHR.markGenerationActivity,
+          finishSending: CHR.finishSending,
+          recordDeltaDebugEvent: recordDeltaDebugEvent,
+          refreshMessages: MSG.refreshMessages,
+          blockedPermissionNoticeFromData: MSG.blockedPermissionNoticeFromData,
+          rememberBlockedPermissionNotice: MSG.rememberBlockedPermissionNotice,
+          setInlineNote: CHR.setInlineNote,
+          refreshAll: MSG.refreshAll,
+        })
+      : null;
+  if (!SES || typeof SES.closeEventStream !== "function") {
+    console.error(
+      "MeiAgentPanelSession missing: ensure agent-panel-session.js is bundled before agent-panel.js",
+    );
+    return;
+  }
+
+
+  transport.ses = SES;
+
+
   if (els.reconnect) {
     els.reconnect.addEventListener("click", function () {
-      refreshAll().catch(function (error) {
-        setInlineNote("重连失败：" + String(error.message || error));
+      MSG.refreshAll().catch(function (error) {
+        CHR.setInlineNote("重连失败：" + String(error.message || error));
       });
     });
   }
 
   if (els.newSession) {
     els.newSession.addEventListener("click", function () {
-      createSession().catch(function (error) {
-        setInlineNote("创建会话失败：" + String(error.message || error));
+      MSG.createSession().catch(function (error) {
+        CHR.setInlineNote("创建会话失败：" + String(error.message || error));
       });
     });
   }
@@ -4316,13 +5053,13 @@
     const onSessionSelectChange = function () {
       state.sessionId = String(els.sessionSelect.value || "");
       restoreDeltaDebugLog(state.sessionId);
-      state.sessionTargetKey = currentSessionBindingFingerprint();
-      resetPendingPermissionState();
-      rememberSession();
-      refreshMessages().catch(function (error) {
-        setInlineNote("读取会话失败：" + String(error.message || error));
+      state.sessionTargetKey = RT.currentSessionBindingFingerprint();
+      MSG.resetPendingPermissionState();
+      MSG.rememberSession();
+      MSG.refreshMessages().catch(function (error) {
+        CHR.setInlineNote("读取会话失败：" + String(error.message || error));
       });
-      connectEvents(true);
+      SES.connectEvents(true);
     };
     els.sessionSelect.addEventListener("sl-change", onSessionSelectChange);
     els.sessionSelect.addEventListener("change", onSessionSelectChange);
@@ -4330,16 +5067,16 @@
 
   if (els.run) {
     els.run.addEventListener("click", function () {
-      sendPrompt().catch(function (error) {
-        setInlineNote("发送失败：" + String(error.message || error));
+      MSG.sendPrompt().catch(function (error) {
+        CHR.setInlineNote("发送失败：" + String(error.message || error));
       });
     });
   }
 
   if (els.contextRefresh) {
     els.contextRefresh.addEventListener("click", function () {
-      refreshContextPreview(true).catch(function (error) {
-        setInlineNote("刷新上下文预览失败：" + String(error.message || error));
+      CTX.refreshContextPreview(true).catch(function (error) {
+        CHR.setInlineNote("刷新上下文预览失败：" + String(error.message || error));
       });
     });
   }
@@ -4349,8 +5086,8 @@
     resourceVisibilitySelect.addEventListener("sl-change", function () {
       state.contextPreviewFetchedAtMs = 0;
       state.contextPreviewScopeKey = "";
-      refreshContextPreview(true).catch(function (error) {
-        setInlineNote("刷新上下文预览失败：" + String(error.message || error));
+      CTX.refreshContextPreview(true).catch(function (error) {
+        CHR.setInlineNote("刷新上下文预览失败：" + String(error.message || error));
       });
     });
   }
@@ -4358,13 +5095,13 @@
   if (els.input) {
     els.input.addEventListener("input", function () {
       autoResizeComposerInput();
-      renderRunButton(state.loading);
+      CHR.renderRunButton(state.loading);
     });
     els.input.addEventListener("keydown", function (event) {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
-        sendPrompt().catch(function (error) {
-          setInlineNote("发送失败：" + String(error.message || error));
+        MSG.sendPrompt().catch(function (error) {
+          CHR.setInlineNote("发送失败：" + String(error.message || error));
         });
       }
     });
@@ -4373,37 +5110,37 @@
 
   const onComposerInputWindowResize = function () {
     autoResizeComposerInput();
-    sizeCompletionModelSelectWidth();
+    CHR.sizeCompletionModelSelectWidth();
     if (
-      isAccessFloatingMode() &&
+      AF.isAccessFloatingMode() &&
       els.accessFloatingRoot &&
       els.accessFloatingRoot.dataset.positioned === "true"
     ) {
       const rect = els.accessFloatingRoot.getBoundingClientRect();
-      const pos = applyAccessFloatingPosition(rect.left, rect.top);
-      if (pos) rememberAccessFloatingPosition(pos.left, pos.top);
+      const pos = AF.applyAccessFloatingPosition(rect.left, rect.top);
+      if (pos) AF.rememberAccessFloatingPosition(pos.left, pos.top);
     }
   };
   window.addEventListener("resize", onComposerInputWindowResize);
 
   if (els.modeAsk) {
     els.modeAsk.addEventListener("click", function () {
-      switchAgentMode("ask");
+      CHR.switchAgentMode("ask");
     });
   }
 
   if (els.modeBuild) {
     els.modeBuild.addEventListener("click", function () {
-      switchAgentMode("build");
+      CHR.switchAgentMode("build");
     });
   }
 
   if (els.completionModelSelect) {
     els.completionModelSelect.addEventListener("change", function () {
-      rememberSelectedCompletionModel(els.completionModelSelect.value);
-      syncModelLabelFromCompletionSelect();
-      sizeCompletionModelSelectWidth();
-      refreshModelProbe(true).catch(function () {});
+      CHR.rememberSelectedCompletionModel(els.completionModelSelect.value);
+      CHR.syncModelLabelFromCompletionSelect();
+      CHR.sizeCompletionModelSelectWidth();
+      CTX.refreshModelProbe(true).catch(function () {});
     });
   }
 
@@ -4413,40 +5150,40 @@
         state.accessFloatingDragMoved = false;
         return;
       }
-      toggleAccessFloatingPanel();
+      AF.toggleAccessFloatingPanel();
     });
-    els.accessFab.addEventListener("pointerdown", beginAccessFloatingDrag);
+    els.accessFab.addEventListener("pointerdown", AF.beginAccessFloatingDrag);
   }
 
   if (els.accessClose) {
     els.accessClose.addEventListener("click", function () {
-      toggleAccessFloatingPanel(false);
+      AF.toggleAccessFloatingPanel(false);
     });
   }
 
   const onAccessFloatingEscape = function (event) {
-    if (!isAccessFloatingMode()) return;
+    if (!AF.isAccessFloatingMode()) return;
     if (event && event.key === "Escape" && state.accessFloatingOpen) {
-      toggleAccessFloatingPanel(false);
+      AF.toggleAccessFloatingPanel(false);
     }
   };
   document.addEventListener("keydown", onAccessFloatingEscape);
-  document.addEventListener("pointermove", continueAccessFloatingDrag);
-  document.addEventListener("pointerup", endAccessFloatingDrag);
-  document.addEventListener("pointercancel", endAccessFloatingDrag);
+  document.addEventListener("pointermove", AF.continueAccessFloatingDrag);
+  document.addEventListener("pointerup", AF.endAccessFloatingDrag);
+  document.addEventListener("pointercancel", AF.endAccessFloatingDrag);
 
   if (els.sourceViewDiffBtn) {
     els.sourceViewDiffBtn.addEventListener("click", function () {
-      if (currentManageTab() !== "diff") {
-        setManageTab("diff");
+      if (RT.currentManageTab() !== "diff") {
+        RT.setManageTab("diff");
         return;
       }
       if (!state.latestDiffMessageId) {
-        setInlineNote("最后一轮 Build 生成改动后才可查看差异。");
+        CHR.setInlineNote("最后一轮 Build 生成改动后才可查看差异。");
         return;
       }
-      inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-        setInlineNote("读取差异失败：" + String(error.message || error));
+      SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+        CHR.setInlineNote("读取差异失败：" + String(error.message || error));
       });
     });
   }
@@ -4455,8 +5192,8 @@
     els.undo.addEventListener("click", function () {
       const messageId = latestUndoMessageId();
       if (!messageId) return;
-      applyRevertForMessage(messageId).catch(function (error) {
-        setInlineNote("撤回失败：" + String(error.message || error));
+      MSG.applyRevertForMessage(messageId).catch(function (error) {
+        CHR.setInlineNote("撤回失败：" + String(error.message || error));
       });
     });
   }
@@ -4464,8 +5201,8 @@
   if (els.redo) {
     els.redo.addEventListener("click", function () {
       if (!canRedo()) return;
-      applyUnrevertForSession().catch(function (error) {
-        setInlineNote("恢复失败：" + String(error.message || error));
+      MSG.applyUnrevertForSession().catch(function (error) {
+        CHR.setInlineNote("恢复失败：" + String(error.message || error));
       });
     });
   }
@@ -4474,8 +5211,8 @@
     const nextTab =
       event && event.detail && typeof event.detail.tab === "string"
         ? event.detail.tab
-        : currentManageTab();
-    applyManageTabMode(nextTab);
+        : RT.currentManageTab();
+    SRC.applyManageTabMode(nextTab);
   };
   document.addEventListener("mei:manage-tab-change", onManageTabChange);
 
@@ -4520,20 +5257,20 @@
     state.modelProbe = null;
     state.modelProbeFetchedAtMs = 0;
     state._meiAutoSessionOnce = false;
-    renderContextPreview();
-    destroySourceDiffView();
-    destroySourceEditor();
+    CTX.renderContextPreview();
+    SRC.destroySourceDiffView();
+    SRC.destroySourceEditor();
     refreshLinkedViewRefs();
-    restoreAccessFloatingPanel();
-    ensureSourceEditor();
-    applyManageTabMode(currentManageTab());
+    AF.restoreAccessFloatingPanel();
+    SRC.ensureSourceEditor();
+    SRC.applyManageTabMode(RT.currentManageTab());
     root.classList.add("is-soft-refresh");
     restoreRevertedState();
-    restoreAgentMode();
-    restoreSession();
+    CHR.restoreAgentMode();
+    MSG.restoreSession();
     restoreDeltaDebugLog(state.sessionId);
-    refreshAll().catch(function (error) {
-      setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
+    MSG.refreshAll().catch(function (error) {
+      CHR.setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
     }).finally(function () {
       renderDeltaDebugLog();
       window.setTimeout(function () {
@@ -4544,24 +5281,24 @@
   document.addEventListener("mei:manage-context-change", onManageContextChange);
 
   restoreRevertedState();
-  restoreAgentMode();
-  restoreAccessFloatingPanel();
-  restoreSession();
+  CHR.restoreAgentMode();
+  AF.restoreAccessFloatingPanel();
+  MSG.restoreSession();
   restoreDeltaDebugLog(state.sessionId);
-  const initialTab = currentManageTab();
-  initSourceEditor();
-  renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
-  renderProgressStrip();
-  renderContextPreview();
-  syncSourceDiffEntry();
-  refreshAll()
+  const initialTab = RT.currentManageTab();
+  SRC.initSourceEditor();
+  SRC.renderSourceViewMode(initialTab === "diff" ? "diff" : "source");
+  CHR.renderProgressStrip();
+  CTX.renderContextPreview();
+  SRC.syncSourceDiffEntry();
+  MSG.refreshAll()
     .then(function () {
       if (initialTab !== "diff") return;
       if (!state.latestDiffMessageId) {
         return;
       }
-      inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-        setInlineNote("读取差异失败：" + String(error.message || error));
+      SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+        CHR.setInlineNote("读取差异失败：" + String(error.message || error));
       });
     })
     .catch(function () {})
@@ -4569,91 +5306,23 @@
       renderDeltaDebugLog();
     });
   const beforeUnloadHandler = function () {
-    closeEventStream();
+    SES.closeEventStream();
   };
   window.addEventListener("beforeunload", beforeUnloadHandler);
-  const POLL_ACTIVE_MS = 30000;
-  const POLL_IDLE_MS = 120000;
-  const POLL_STREAM_HEALTHY_MS = 180000;
-  const POLL_MAX_MS = 300000;
-  let refreshTimerId = 0;
-  let refreshPollFailureCount = 0;
-  let refreshPollInFlight = false;
-  function currentBasePollDelayMs() {
-    const hasActiveGeneration = Boolean(
-      state.sending || state.loading || state.streamConnected || state.activeGenerationMessageId,
-    );
-    return hasActiveGeneration ? POLL_ACTIVE_MS : POLL_IDLE_MS;
-  }
-  function nextRefreshPollDelayMs() {
-    const base = currentBasePollDelayMs();
-    return Math.min(POLL_MAX_MS, base * Math.pow(2, refreshPollFailureCount));
-  }
-  function rightSidebarCollapsed() {
-    const workspaceRoot = document.getElementById("workspace-root");
-    return !!(workspaceRoot && workspaceRoot.dataset.rightCollapsed === "true");
-  }
-  function shouldPausePolling() {
-    if (document.visibilityState === "hidden") return true;
-    if (rightSidebarCollapsed()) return true;
-    return false;
-  }
-  function scheduleRefreshPoll(delayMs) {
-    if (refreshTimerId) {
-      window.clearTimeout(refreshTimerId);
-    }
-    refreshTimerId = window.setTimeout(
-      runRefreshPoll,
-      Math.max(1000, Number(delayMs) || currentBasePollDelayMs()),
-    );
-  }
-  async function runRefreshPoll() {
-    if (refreshPollInFlight) {
-      scheduleRefreshPoll(nextRefreshPollDelayMs());
-      return;
-    }
-    if (shouldPausePolling()) {
-      scheduleRefreshPoll(Math.max(currentBasePollDelayMs(), nextRefreshPollDelayMs()));
-      return;
-    }
-    if (
-      state.streamConnected &&
-      state.health &&
-      state.health.healthy &&
-      !state.sending &&
-      !state.loading
-    ) {
-      scheduleRefreshPoll(POLL_STREAM_HEALTHY_MS);
-      return;
-    }
-    refreshPollInFlight = true;
-    try {
-      const ok = await refreshAll().catch(function () { return false; });
-      if (ok) {
-        refreshPollFailureCount = 0;
-      } else {
-        refreshPollFailureCount = Math.min(refreshPollFailureCount + 1, 4);
-      }
-    } finally {
-      refreshPollInFlight = false;
-      scheduleRefreshPoll(nextRefreshPollDelayMs());
-    }
-  }
-  scheduleRefreshPoll(currentBasePollDelayMs());
+  SES.startPolling();
   boot.disposeAgentPanel = function () {
-    closeEventStream();
+    SES.dispose();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
-    document.removeEventListener("pointermove", continueAccessFloatingDrag);
-    document.removeEventListener("pointerup", endAccessFloatingDrag);
-    document.removeEventListener("pointercancel", endAccessFloatingDrag);
+    document.removeEventListener("pointermove", AF.continueAccessFloatingDrag);
+    document.removeEventListener("pointerup", AF.endAccessFloatingDrag);
+    document.removeEventListener("pointercancel", AF.endAccessFloatingDrag);
     window.removeEventListener("beforeunload", beforeUnloadHandler);
     window.removeEventListener("resize", onComposerInputWindowResize);
     if (els.accessFab) {
-      els.accessFab.removeEventListener("pointerdown", beginAccessFloatingDrag);
+      els.accessFab.removeEventListener("pointerdown", AF.beginAccessFloatingDrag);
     }
-    if (refreshTimerId) window.clearTimeout(refreshTimerId);
     if (state._completionModelMeasure && state._completionModelMeasure.parentNode) {
       try {
         state._completionModelMeasure.parentNode.removeChild(state._completionModelMeasure);
@@ -4939,6 +5608,14 @@
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
+    "/app-assets/agent-panel-utils.js",
+    "/app-assets/agent-panel-routing.js",
+    "/app-assets/agent-panel-access-float.js",
+    "/app-assets/agent-panel-source.js",
+    "/app-assets/agent-panel-session.js",
+    "/app-assets/agent-panel-context.js",
+    "/app-assets/agent-panel-chrome.js",
+    "/app-assets/agent-panel-messages.js",
     "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([
@@ -5184,7 +5861,11 @@
       ) {
         continue;
       }
-      if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
+      if (
+        opts.preserveAgentPanel &&
+        path.startsWith("/app-assets/") &&
+        path.includes("agent-panel")
+      ) {
         continue;
       }
       if (opts.preserveStatusBar && path === "/app-assets/statusbar.js") {

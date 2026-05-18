@@ -11,6 +11,7 @@ const distRoot = path.join(assetsRoot, "dist");
 
 const MANAGE_SCRIPTS = [
   "frame-stage.js",
+  "scope-params.js",
   "vendor/marked.umd.js",
   "vendor/dompurify.min.js",
   "vendor/diff-match-patch.js",
@@ -23,6 +24,14 @@ const MANAGE_SCRIPTS = [
   "vendor/codemirror-merge.js",
   "manage-tabs.js",
   "asset-source-editor.js",
+  "agent-panel-utils.js",
+  "agent-panel-routing.js",
+  "agent-panel-access-float.js",
+  "agent-panel-source.js",
+  "agent-panel-session.js",
+  "agent-panel-context.js",
+  "agent-panel-chrome.js",
+  "agent-panel-messages.js",
   "agent-panel.js",
   "workspace-splitters.js",
   "source-tree-controls.js",
@@ -32,7 +41,16 @@ const MANAGE_SCRIPTS = [
 
 const ACCESS_SCRIPTS = [
   "frame-stage.js",
+  "scope-params.js",
   "statusbar.js",
+  "agent-panel-utils.js",
+  "agent-panel-routing.js",
+  "agent-panel-access-float.js",
+  "agent-panel-source.js",
+  "agent-panel-session.js",
+  "agent-panel-context.js",
+  "agent-panel-chrome.js",
+  "agent-panel-messages.js",
   "agent-panel.js",
   "workspace-splitters.js",
   "spa-navigation.js"

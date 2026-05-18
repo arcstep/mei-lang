@@ -78,6 +78,11 @@ pub(crate) struct BridgePromptSummary {
     pub texts: Vec<String>,
     pub part_types: Vec<String>,
     pub error: Option<Value>,
+    /// 与 context preview 同源的 scope digest（发送链可观测）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

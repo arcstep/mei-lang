@@ -12,5 +12,11 @@ pub(crate) use resource_query::{
     query_resource_get, query_resource_list, query_resource_runtime_peek,
     RESOURCE_QUERY_SCHEMA_VERSION,
 };
-pub(crate) use types::{ResourceInventoryItem, WorldContextSnapshot, WorldScope};
-pub(crate) use world::{build_world_context_snapshot, build_world_context_snapshot_cached};
+pub(crate) use types::{
+    ResourceInventoryItem, ResourceInventorySnapshot, WorldAssetListResponse, WorldContextSnapshot,
+    WorldScope,
+};
+pub(crate) use world::{
+    build_world_context_snapshot, build_world_context_snapshot_cached, query_world_asset,
+    query_world_assets, query_world_runtime,
+};

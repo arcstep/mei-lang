@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "assets:build": "node ./scripts/build-assets.mjs"
+    "assets:build": "node ./scripts/build-assets.mjs",
+    "test:scope": "node ./scripts/test-scope-params.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.0"

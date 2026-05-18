@@ -52,6 +52,9 @@ pub struct AgentResourceScope {
     pub direct_ref_paths: Arc<HashSet<String>>,
     /// 由 world inventory 解析出的「当前 scene 上下文可达」可读路径集合（workspace 相对、已规范化）。
     pub scene_reachable_paths: Arc<HashSet<String>>,
+    /// 当 world 快照可用时，与 `/world` 注入一致的「可达 inventory id」集合，用于 `resource_list` / `resource_get` / `resource_runtime_peek`。
+    /// `None` 表示无快照（无法按 inventory 校验），非 `local_only` 下应对上述工具拒绝执行。
+    pub world_injection_allowed_ids: Option<Arc<HashSet<String>>>,
 }
 
 impl Default for AgentResourceScope {
@@ -62,6 +65,7 @@ impl Default for AgentResourceScope {
             resource_visibility: ResourceVisibility::LocalOnly,
             direct_ref_paths: Arc::new(HashSet::new()),
             scene_reachable_paths: Arc::new(HashSet::new()),
+            world_injection_allowed_ids: None,
         }
     }
 }
@@ -108,6 +112,9 @@ pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) 
         llm::read_file_tool_definition(),
         dataset_query_tool_definition(allow_ds_scope_override),
         dataset_metric_tool_definition(allow_ds_scope_override),
+        resource_list_tool_definition(allow_ds_scope_override),
+        resource_get_tool_definition(allow_ds_scope_override),
+        resource_runtime_peek_tool_definition(allow_ds_scope_override),
     ];
     if normalized == "build" {
         tools.push(rewrite_current_mei_tool_definition());
@@ -115,6 +122,98 @@ pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) 
         tools.push(skill_tools::skill_read_tool_definition());
     }
     tools
+}
+
+fn resource_list_tool_definition(allow_scope_override: bool) -> Value {
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "kind".to_string(),
+        json!({ "type": "string", "description": "Optional filter: entity | resource | cell" }),
+    );
+    props.insert(
+        "limit".to_string(),
+        json!({ "type": "integer", "description": "Optional max items (bounded by server)" }),
+    );
+    if allow_scope_override {
+        props.insert(
+            "scene_id".to_string(),
+            json!({ "type": "string", "description": "Override scene id (optional)" }),
+        );
+        props.insert(
+            "target_file".to_string(),
+            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
+        );
+    }
+    json!({
+        "type": "function",
+        "function": {
+            "name": "resource_list",
+            "description": "List world assets (entities/resources/cells) for the current app with bounded JSON output. Uses the same scope rules as dataset tools.",
+            "parameters": {
+                "type": "object",
+                "properties": props
+            }
+        }
+    })
+}
+
+fn resource_get_tool_definition(allow_scope_override: bool) -> Value {
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "id".to_string(),
+        json!({ "type": "string", "description": "World asset or entity id" }),
+    );
+    if allow_scope_override {
+        props.insert(
+            "scene_id".to_string(),
+            json!({ "type": "string", "description": "Override scene id (optional)" }),
+        );
+        props.insert(
+            "target_file".to_string(),
+            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
+        );
+    }
+    json!({
+        "type": "function",
+        "function": {
+            "name": "resource_get",
+            "description": "Fetch one world asset/entity by id with bounded JSON payload.",
+            "parameters": {
+                "type": "object",
+                "properties": props,
+                "required": ["id"]
+            }
+        }
+    })
+}
+
+fn resource_runtime_peek_tool_definition(allow_scope_override: bool) -> Value {
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "trace_limit".to_string(),
+        json!({ "type": "integer", "description": "Optional trace/event limit" }),
+    );
+    if allow_scope_override {
+        props.insert(
+            "scene_id".to_string(),
+            json!({ "type": "string", "description": "Override scene id (optional)" }),
+        );
+        props.insert(
+            "target_file".to_string(),
+            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
+        );
+    }
+    json!({
+        "type": "function",
+        "function": {
+            "name": "resource_runtime_peek",
+            "description": "Peek bounded world runtime state (sim traces, etc.) for the current scope.",
+            "parameters": {
+                "type": "object",
+                "properties": props
+            }
+        }
+    })
 }
 
 fn dataset_query_tool_definition(allow_scope_override: bool) -> Value {
@@ -257,23 +356,31 @@ mod tests {
     }
 
     #[test]
-    fn local_only_dataset_tools_hide_scope_overrides() {
+    fn local_only_hides_scope_overrides_on_resource_tools() {
         let defs = tool_definitions_for_profile("ask", ResourceVisibility::LocalOnly);
-        let dq = defs
-            .iter()
-            .find(|d| {
-                d.get("function")
-                    .and_then(|f| f.get("name"))
-                    .and_then(|n| n.as_str())
-                    == Some("dataset_query")
-            })
-            .expect("dataset_query");
-        let props = dq
-            .pointer("/function/parameters/properties")
-            .and_then(|v| v.as_object())
-            .expect("props");
-        assert!(!props.contains_key("scene_id"));
-        assert!(!props.contains_key("target_file"));
+        for name in ["dataset_query", "dataset_metric", "resource_list", "resource_get", "resource_runtime_peek"] {
+            let dq = defs
+                .iter()
+                .find(|d| {
+                    d.get("function")
+                        .and_then(|f| f.get("name"))
+                        .and_then(|n| n.as_str())
+                        == Some(name)
+                })
+                .unwrap_or_else(|| panic!("missing {name}"));
+            let props = dq
+                .pointer("/function/parameters/properties")
+                .and_then(|v| v.as_object())
+                .expect("props");
+            assert!(
+                !props.contains_key("scene_id"),
+                "{name} should hide scene_id in local_only"
+            );
+            assert!(
+                !props.contains_key("target_file"),
+                "{name} should hide target_file in local_only"
+            );
+        }
     }
 
     #[test]
@@ -282,6 +389,9 @@ mod tests {
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"dataset_query".to_string()));
         assert!(names.contains(&"dataset_metric".to_string()));
+        assert!(names.contains(&"resource_list".to_string()));
+        assert!(names.contains(&"resource_get".to_string()));
+        assert!(names.contains(&"resource_runtime_peek".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
         assert!(!names.contains(&"rewrite_current_mei".to_string()));
@@ -293,6 +403,9 @@ mod tests {
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"dataset_query".to_string()));
         assert!(names.contains(&"dataset_metric".to_string()));
+        assert!(names.contains(&"resource_list".to_string()));
+        assert!(names.contains(&"resource_get".to_string()));
+        assert!(names.contains(&"resource_runtime_peek".to_string()));
         assert!(names.contains(&"skill_list".to_string()));
         assert!(names.contains(&"skill_read".to_string()));
         assert!(names.contains(&"rewrite_current_mei".to_string()));

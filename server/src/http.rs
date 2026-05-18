@@ -1,4 +1,4 @@
-mod agent_api;
+pub(crate) mod agent_api;
 mod compile_cache;
 mod datasets;
 pub mod pages;

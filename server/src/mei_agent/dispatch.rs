@@ -11,11 +11,9 @@ use crate::{
         BridgePromptRequest, BridgePromptSummary, BridgeRevertRequest, BridgeRevertSummary,
         BridgeSessionMessageRaw, BridgeSessionSummary, BridgeUnrevertSummary,
     },
-    http::scene_api::{build_world_context_snapshot_cached, WorldScope},
+    http::agent_api::prompt_context::scope_bundle::AgentScopeBundle,
     mei_agent::{
-        agent_scope_profile::{
-            agent_resource_scope_from_request, agent_resource_scope_from_request_with_snapshot,
-        },
+        agent_scope_profile::agent_resource_scope_from_request,
         mode_policy::AgentModePolicy,
     },
     AppState,
@@ -80,35 +78,16 @@ pub(crate) async fn agent_list_sessions(
     )
 }
 
-fn world_scope_from_bridge_prompt(request: &BridgePromptRequest) -> WorldScope {
-    WorldScope {
-        scene_id: request
-            .scene_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-        target_file: request
-            .target_file
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-    }
-}
-
 fn build_execution_resource_scope(
     state: &AppState,
     request: &BridgePromptRequest,
 ) -> crate::mei_agent::resource_tools::AgentResourceScope {
-    let policy = AgentModePolicy::from_request(request);
-    let app_id = request.app_id.as_deref().unwrap_or("").trim();
-    if app_id.is_empty() {
-        return agent_resource_scope_from_request(request, policy);
-    }
-    let ws = world_scope_from_bridge_prompt(request);
-    let snapshot = build_world_context_snapshot_cached(state, app_id, Some(&ws)).ok();
-    agent_resource_scope_from_request_with_snapshot(request, policy, snapshot.as_ref(), app_id)
+    AgentScopeBundle::resolve(state, request)
+        .map(|b| b.resource_scope)
+        .unwrap_or_else(|| {
+            let policy = AgentModePolicy::from_request(request);
+            agent_resource_scope_from_request(request, policy)
+        })
 }
 
 pub(crate) async fn agent_send_prompt(
@@ -117,8 +96,15 @@ pub(crate) async fn agent_send_prompt(
     session_id: &str,
     request: BridgePromptRequest,
 ) -> Result<BridgePromptSummary> {
+    let scope_meta = AgentScopeBundle::resolve(state, &request).map(|b| {
+        (
+            b.scope_digest_token(),
+            b.profile.summary_line(),
+        )
+    });
     let resource_scope = build_execution_resource_scope(state, &request);
-    conn.send_prompt(session_id, request, resource_scope).await
+    conn.send_prompt(session_id, request, resource_scope, scope_meta)
+        .await
 }
 
 pub(crate) async fn agent_session_messages(

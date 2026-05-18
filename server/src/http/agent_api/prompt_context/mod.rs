@@ -3,12 +3,14 @@ mod dynamic_context;
 mod mei_scan;
 mod paths;
 mod request_scope;
+pub(crate) mod scope_bundle;
 mod system_prompt;
+pub(crate) mod world_directive;
 mod world_snapshot_lines;
 
-pub(crate) use agent_scope::AgentScopeProfile;
 pub(crate) use dynamic_context::build_dynamic_session_context_preview;
 pub(crate) use dynamic_context::load_or_refresh_session_context;
+pub(crate) use scope_bundle::AgentScopeBundle;
 // 供 crate 内其它模块复用；mod.rs 自身不引用。
 #[allow(unused_imports)]
 pub(crate) use paths::{resolve_app_root, sanitize_relative_path};

@@ -10,126 +10,16 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 
 use crate::{AppError, AppState};
 
-use super::super::compile_cache::{compile_app_with_cache, CompileWithCacheFailure};
-use super::app_render::{choose_default_app, compile_error_fallback_app, source_panel_meta};
-use super::components::resolve_components_root;
-use super::menus::load_segment_topbar_menus;
-use super::util::{
+use super::query::{access_sanitized_redirect_location, AppQuery};
+use super::scene::{canonical_scene_for_target, default_file_for_scene, manage_scene_for_render};
+use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
+use super::super::components::resolve_components_root;
+use super::super::menus::load_segment_topbar_menus;
+use super::super::super::compile_cache::{compile_app_with_cache, CompileWithCacheFailure};
+use super::super::util::{
     elapsed_ms, fill_manage_wall_clock_placeholders, fill_perf_placeholders, is_script_target,
     push_manage_page_pipeline_diag,
 };
-
-/// 若 URL `scene` 在应用路由表中不存在（编译已回退并带 `unknown_scene` 警告），用 `compiled.active_scene` 生成管理壳链接，避免把无效 id 写进 href。
-fn manage_scene_for_render(compiled: &CompiledApp, query_scene: Option<&str>) -> Option<String> {
-    let q = query_scene?.trim();
-    if q.is_empty() {
-        return None;
-    }
-    if compiled.scene_routes.iter().any(|r| r.scene_id == q) {
-        return Some(q.to_string());
-    }
-    compiled.active_scene.clone()
-}
-
-/// 给定已解析的 scene id（或 `None`），返回该场景路由对应的主文件路径；无匹配时回退 `active_target_file`。
-fn default_file_for_scene(compiled: &CompiledApp, scene_id: Option<&str>) -> String {
-    let sid = scene_id.unwrap_or("").trim();
-    if sid.is_empty() {
-        return compiled.active_target_file.clone();
-    }
-    compiled
-        .scene_routes
-        .iter()
-        .find(|r| r.scene_id == sid)
-        .map(|r| r.target_file.clone())
-        .unwrap_or_else(|| compiled.active_target_file.clone())
-}
-
-/// 若目标文件本身就是某条 scene route 的主文件，则返回该 route 的 scene id。
-fn canonical_scene_for_target(compiled: &CompiledApp, target_file: Option<&str>) -> Option<String> {
-    let target_file = target_file?.trim();
-    if target_file.is_empty() {
-        return None;
-    }
-    compiled
-        .scene_routes
-        .iter()
-        .find(|r| r.target_file == target_file)
-        .map(|r| r.scene_id.clone())
-}
-
-#[derive(Debug, serde::Deserialize)]
-pub struct AppQuery {
-    /// 仅管理态：当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
-    /// 访问态禁止携带：若出现则 307 重定向到剥离 `file`/`target` 后的 URL（发布面不得深链内部路径）。
-    #[serde(default, alias = "target")]
-    pub file: Option<String>,
-    pub scene: Option<String>,
-    pub tab: Option<String>,
-    pub chrome: Option<String>,
-}
-
-fn percent_encode_query_component(value: &str) -> String {
-    let mut out = String::new();
-    for b in value.as_bytes() {
-        match *b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(char::from(*b));
-            }
-            _ => {
-                out.push('%');
-                out.push_str(&format!("{:02X}", b));
-            }
-        }
-    }
-    out
-}
-
-/// 访问态允许的 query：`scene`、`tab`、`chrome`（不含 `file`/`target`）。
-fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
-    let mut parts = Vec::new();
-    if let Some(scene) = query
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        parts.push(format!("scene={}", percent_encode_query_component(scene)));
-    }
-    if let Some(tab) = query
-        .tab
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        parts.push(format!("tab={}", percent_encode_query_component(tab)));
-    }
-    if let Some(chrome) = query
-        .chrome
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        parts.push(format!("chrome={}", percent_encode_query_component(chrome)));
-    }
-    if parts.is_empty() {
-        format!("/apps/access/{app_id}")
-    } else {
-        format!("/apps/access/{app_id}?{}", parts.join("&"))
-    }
-}
-
-pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> {
-    let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
-    let first = choose_default_app(&state.source_root, &apps).or_else(|| apps.first());
-    let first = first.ok_or_else(|| {
-        AppError::msg(format!(
-            "source root has no discoverable apps (need at least one first-level subdirectory under `{}` containing `main.mei`; root-level `main.mei` is ignored)",
-            state.source_root.display()
-        ))
-    })?;
-    Ok(Redirect::to(&format!("/apps/manage/{}", first.id)))
-}
 
 pub async fn app_page(
     State(state): State<AppState>,

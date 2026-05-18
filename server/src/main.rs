@@ -336,3 +336,48 @@ impl IntoResponse for AppError {
         (self.status, self.message).into_response()
     }
 }
+
+/// 集成测试与 HTTP 级用例构造 `AppState`（依赖仓库内 `mei-lang/../workspaces`）。
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::{
+        collections::HashMap,
+        path::PathBuf,
+        sync::{Arc, Mutex},
+    };
+
+    use anyhow::Context;
+
+    pub(crate) fn package_root() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("server crate parent (mei-lang/)")
+            .to_path_buf()
+    }
+
+    pub(crate) fn test_app_state() -> anyhow::Result<super::AppState> {
+        let package_root = package_root();
+        let source_root = package_root
+            .join("../workspaces")
+            .canonicalize()
+            .context("workspaces root (mei-lang/../workspaces)")?;
+        let native_agent = Arc::new(crate::mei_agent::NativeAgent::open_with_resource_tools(
+            source_root.clone(),
+            package_root.clone(),
+            Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),
+        )?);
+        Ok(super::AppState {
+            package_root: Arc::new(package_root),
+            source_root: Arc::new(source_root),
+            agent_preferred_mode: Arc::new("native".into()),
+            agent_preferred_server_url: Arc::new(String::new()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(
+                crate::agent_runtime::ManagedOpencodeRuntime::default(),
+            )),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+            compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
+        })
+    }
+}

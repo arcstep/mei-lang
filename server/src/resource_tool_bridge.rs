@@ -7,9 +7,11 @@ use std::collections::BTreeMap;
 
 use crate::http::scene_api::{
     query_resource_dataset, query_resource_dataset_metric, query_resource_get, query_resource_list,
-    query_resource_runtime_peek, WorldScope,
+    query_resource_runtime_peek, WorldAssetListResponse, WorldScope,
 };
-use crate::mei_agent::agent_scope_profile::validate_dataset_world_scope_merge;
+use crate::mei_agent::agent_scope_profile::{
+    resource_world_tools_precheck, validate_dataset_world_scope_merge,
+};
 use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceToolExecutor};
 
 #[derive(Debug, Default)]
@@ -194,6 +196,13 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                 ))
             }
             "resource_list" => {
+                if let Err(e) = resource_world_tools_precheck(scope) {
+                    return format!("error: {e}");
+                }
+                let allowed = scope
+                    .world_injection_allowed_ids
+                    .as_ref()
+                    .expect("precheck ensures Some");
                 let kind = args
                     .get("kind")
                     .and_then(Value::as_str)
@@ -203,15 +212,23 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .get("limit")
                     .and_then(Value::as_u64)
                     .map(|u| u as usize);
-                Self::json_result(query_resource_list(
-                    source_root,
-                    app,
-                    scope_ref,
-                    kind,
-                    limit,
-                ))
+                let mut response = match query_resource_list(source_root, app, scope_ref, kind, limit)
+                {
+                    Ok(r) => r,
+                    Err(e) => return Self::json_result::<WorldAssetListResponse>(Err(e)),
+                };
+                response.items.retain(|it| allowed.contains(&it.id));
+                response.total = response.items.len();
+                Self::json_result(Ok(response))
             }
             "resource_get" => {
+                if let Err(e) = resource_world_tools_precheck(scope) {
+                    return format!("error: {e}");
+                }
+                let allowed = scope
+                    .world_injection_allowed_ids
+                    .as_ref()
+                    .expect("precheck ensures Some");
                 let id = args
                     .get("id")
                     .and_then(Value::as_str)
@@ -220,9 +237,18 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                 if id.is_empty() {
                     return "error: resource_get requires non-empty id".to_string();
                 }
+                if !allowed.contains(id) {
+                    return format!(
+                        "error: scope_denied: resource_get id `{id}` is not in the current `{}` reachable inventory (aligned with /world asset)",
+                        scope.resource_visibility.as_slug()
+                    );
+                }
                 Self::json_result(query_resource_get(source_root, app, scope_ref, id))
             }
             "resource_runtime_peek" => {
+                if let Err(e) = resource_world_tools_precheck(scope) {
+                    return format!("error: {e}");
+                }
                 let trace_limit = args
                     .get("trace_limit")
                     .and_then(Value::as_u64)
@@ -236,5 +262,177 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
             }
             other => format!("error: unknown resource tool `{other}`"),
         }
+    }
+}
+
+#[cfg(test)]
+mod resource_tool_bridge_tests {
+    use super::SceneResourceToolExecutor;
+    use crate::agent_runtime::bridge::BridgePromptRequest;
+    use crate::http::agent_api::prompt_context::scope_bundle::AgentScopeBundle;
+    use crate::mei_agent::mode_policy::AgentModePolicy;
+    use crate::mei_agent::resource_tools::ResourceToolExecutor;
+    use crate::test_support;
+
+    #[test]
+    fn resource_list_smoke_under_workspace_app() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_list",
+            "{}",
+        );
+        assert!(
+            out.starts_with('{') || out.starts_with("error:"),
+            "unexpected output: {}",
+            &out[..out.len().min(120)]
+        );
+    }
+
+    #[test]
+    fn resource_get_scope_denied_for_unknown_id() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_get",
+            r#"{"id":"__definitely_not_in_inventory__"}"#,
+        );
+        assert!(
+            out.contains("scope_denied"),
+            "expected scope_denied, got {}",
+            &out[..out.len().min(200)]
+        );
+    }
+
+    #[test]
+    fn resource_list_denied_when_world_snapshot_missing() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/_invalid/07-app-missing-scene".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/_invalid/07-app-missing-scene"),
+            &bundle.resource_scope,
+            "resource_list",
+            "{}",
+        );
+        assert!(out.contains("missing world snapshot"), "{}", &out[..out.len().min(200)]);
+    }
+
+    #[test]
+    fn resource_world_tools_rejected_under_local_only() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("local_only".into()),
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_runtime_peek",
+            "{}",
+        );
+        assert!(out.contains("local_only"), "{}", &out[..out.len().min(200)]);
+    }
+
+    #[test]
+    fn resource_runtime_peek_ok_with_valid_snapshot_scope() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_runtime_peek",
+            "{}",
+        );
+        assert!(
+            out.starts_with('{'),
+            "expected JSON runtime peek, got {}",
+            &out[..out.len().min(160)]
+        );
     }
 }

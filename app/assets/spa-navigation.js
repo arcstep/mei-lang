@@ -10,6 +10,14 @@
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
+    "/app-assets/agent-panel-utils.js",
+    "/app-assets/agent-panel-routing.js",
+    "/app-assets/agent-panel-access-float.js",
+    "/app-assets/agent-panel-source.js",
+    "/app-assets/agent-panel-session.js",
+    "/app-assets/agent-panel-context.js",
+    "/app-assets/agent-panel-chrome.js",
+    "/app-assets/agent-panel-messages.js",
     "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([
@@ -255,7 +263,11 @@
       ) {
         continue;
       }
-      if (opts.preserveAgentPanel && path === "/app-assets/agent-panel.js") {
+      if (
+        opts.preserveAgentPanel &&
+        path.startsWith("/app-assets/") &&
+        path.includes("agent-panel")
+      ) {
         continue;
       }
       if (opts.preserveStatusBar && path === "/app-assets/statusbar.js") {

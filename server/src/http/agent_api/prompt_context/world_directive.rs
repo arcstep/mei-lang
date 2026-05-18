@@ -2,13 +2,19 @@ use axum::http::StatusCode;
 
 use crate::{
     agent_runtime::bridge::BridgePromptRequest,
+    mei_agent::agent_scope_profile::{
+        allowed_world_injection_inventory_ids, world_injection_inventory_item_allowed,
+    },
     AppError, AppState,
 };
 
-use super::request_scope::world_scope_from_request;
-use super::super::super::scene_api::{
-    build_world_context_snapshot, query_world_asset, query_world_assets, query_world_runtime,
+use super::scope_bundle::AgentScopeBundle;
+use crate::http::scene_api::{
+    query_world_asset, query_world_assets, query_world_runtime, WorldContextSnapshot,
 };
+
+/// `/world` 注入 JSON 的最大字符数，避免冲掉用户主提示。
+const WORLD_DIRECTIVE_MAX_JSON_CHARS: usize = 64_000;
 
 #[derive(Debug, Clone)]
 enum WorldDirective {
@@ -31,7 +37,7 @@ fn world_directive_usage() -> &'static str {
 \n/world assets [entity|resource|cell] [limit]\
 \n/world asset <id>\
 \n/world runtime [trace_limit]\
-\n（默认按当前会话 scene_id / target_file 收敛）"
+\n（默认按当前会话 scene_id / target_file 收敛；受 resource_visibility 约束）"
 }
 
 fn parse_world_directive(text: &str) -> Result<Option<(WorldDirective, String)>, String> {
@@ -119,6 +125,44 @@ fn parse_world_directive(text: &str) -> Result<Option<(WorldDirective, String)>,
     Ok(Some((directive, followup)))
 }
 
+fn filter_world_context_snapshot_for_injection(
+    snap: &WorldContextSnapshot,
+    vis: crate::mei_agent::resource_tools::ResourceVisibility,
+    rs: &crate::mei_agent::resource_tools::AgentResourceScope,
+    app_id: &str,
+) -> WorldContextSnapshot {
+    let allowed = allowed_world_injection_inventory_ids(snap, vis, rs, app_id);
+    let mut out = snap.clone();
+    out.resource_inventory.items = snap
+        .resource_inventory
+        .items
+        .iter()
+        .filter(|it| world_injection_inventory_item_allowed(it, vis, rs, app_id))
+        .cloned()
+        .collect();
+    out.resource_inventory.total_items = out.resource_inventory.items.len();
+    out.world_snapshot
+        .world_key_resource_ids
+        .retain(|id| allowed.contains(id));
+    out.world_snapshot
+        .world_key_entity_ids
+        .retain(|id| allowed.contains(id));
+    out
+}
+
+pub(crate) fn truncate_world_json(rendered: String) -> String {
+    if rendered.len() <= WORLD_DIRECTIVE_MAX_JSON_CHARS {
+        return rendered;
+    }
+    let preview: String = rendered.chars().take(WORLD_DIRECTIVE_MAX_JSON_CHARS).collect();
+    format!(
+        "{{\"truncated\":true,\"original_chars\":{},\"preview\":{}}}",
+        rendered.len(),
+        serde_json::to_string(&preview).unwrap_or_else(|_| "\"\"".into())
+    )
+}
+
+/// 将 `/world ...` 首行展开为内联 JSON 提示；与工具链共用 canonical `AgentScopeBundle`。
 pub(crate) fn apply_world_directive_to_prompt(
     state: &AppState,
     request: &mut BridgePromptRequest,
@@ -133,36 +177,51 @@ pub(crate) fn apply_world_directive_to_prompt(
         return Ok(());
     };
 
-    let app_id = request
-        .app_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            AppError::status(
-                StatusCode::BAD_REQUEST,
-                "使用 /world 指令时必须提供 app_id 上下文",
-            )
-        })?;
-    let world_scope = world_scope_from_request(request);
+    let bundle = AgentScopeBundle::resolve(state, request).ok_or_else(|| {
+        AppError::status(
+            StatusCode::BAD_REQUEST,
+            "使用 /world 指令时需要有效的 app_id 且工作区存在对应应用目录",
+        )
+    })?;
+
+    if bundle.profile.resource_visibility == crate::mei_agent::resource_tools::ResourceVisibility::LocalOnly {
+        return Err(AppError::status(
+            StatusCode::FORBIDDEN,
+            "当前 resource_visibility=local_only，不允许使用 /world 注入大块 world 数据（与 read_file/dataset 的收敛策略一致）。\
+请切换到「直接引用」或「场景可达」，或改用 dataset_query / dataset_metric / read_file。",
+        ));
+    }
+
+    let app_id = bundle.app_id.as_str();
+    let scope_ref = Some(&bundle.world_scope);
+
+    let vis = bundle.profile.resource_visibility;
+    let rs = &bundle.resource_scope;
 
     let rendered = match directive {
         WorldDirective::Context => {
-            let snapshot =
-                build_world_context_snapshot(&state.source_root, app_id, Some(&world_scope))
-                    .map_err(|error| {
-                        AppError::status(
-                            StatusCode::BAD_REQUEST,
-                            format!("world context 查询失败：{}", error),
-                        )
-                    })?;
-            serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string())
+            let snap = bundle.snapshot.as_ref().ok_or_else(|| {
+                let msg = bundle
+                    .snapshot_error
+                    .clone()
+                    .unwrap_or_else(|| "world 上下文不可用".to_string());
+                AppError::status(StatusCode::BAD_REQUEST, format!("world context 不可用：{msg}"))
+            })?;
+            let filtered = filter_world_context_snapshot_for_injection(snap, vis, rs, app_id);
+            serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "{}".to_string())
         }
         WorldDirective::Assets { kind, limit } => {
-            let response = query_world_assets(
+            let snap = bundle.snapshot.as_ref().ok_or_else(|| {
+                AppError::status(
+                    StatusCode::FORBIDDEN,
+                    "scope_denied: 缺少 world snapshot，无法按 resource_visibility 过滤 world assets 列表",
+                )
+            })?;
+            let allowed = allowed_world_injection_inventory_ids(snap, vis, rs, app_id);
+            let mut response = query_world_assets(
                 &state.source_root,
                 app_id,
-                Some(&world_scope),
+                scope_ref,
                 kind.as_deref(),
                 limit,
             )
@@ -172,38 +231,67 @@ pub(crate) fn apply_world_directive_to_prompt(
                     format!("world assets 查询失败：{}", error),
                 )
             })?;
+            response.items.retain(|it| allowed.contains(&it.id));
+            response.total = response.items.len();
             serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string())
         }
         WorldDirective::Asset { id } => {
-            let response = query_world_asset(&state.source_root, app_id, Some(&world_scope), &id)
-                .map_err(|error| {
-                let text = error.to_string();
-                if text.contains("not found") {
-                    AppError::status(
-                        StatusCode::NOT_FOUND,
-                        format!("world asset 查询失败：{}", text),
-                    )
-                } else {
-                    AppError::status(
-                        StatusCode::BAD_REQUEST,
-                        format!("world asset 查询失败：{}", text),
-                    )
-                }
+            let snap = bundle.snapshot.as_ref().ok_or_else(|| {
+                AppError::status(
+                    StatusCode::FORBIDDEN,
+                    "scope_denied: 缺少 world snapshot，无法按 resource_visibility 校验 world asset",
+                )
             })?;
+            let allowed = allowed_world_injection_inventory_ids(snap, vis, rs, app_id);
+            let tid = id.trim();
+            if !allowed.contains(tid) {
+                return Err(AppError::status(
+                    StatusCode::FORBIDDEN,
+                    format!(
+                        "scope_denied: world asset `{tid}` 不在当前 `{}` 可达 inventory 中；请使用 dataset_query / dataset_metric / read_file",
+                        vis.as_slug()
+                    ),
+                ));
+            }
+            let response = query_world_asset(&state.source_root, app_id, scope_ref, &id).map_err(
+                |e: anyhow::Error| {
+                    let text = e.to_string();
+                    if text.contains("not found") {
+                        AppError::status(
+                            StatusCode::NOT_FOUND,
+                            format!("world asset 查询失败：{}", text),
+                        )
+                    } else {
+                        AppError::status(
+                            StatusCode::BAD_REQUEST,
+                            format!("world asset 查询失败：{}", text),
+                        )
+                    }
+                },
+            )?;
             serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string())
         }
         WorldDirective::Runtime { trace_limit } => {
+            bundle.snapshot.as_ref().ok_or_else(|| {
+                AppError::status(
+                    StatusCode::FORBIDDEN,
+                    "scope_denied: 缺少 world snapshot，无法按 resource_visibility 验证 world runtime 摘要",
+                )
+            })?;
             let response =
-                query_world_runtime(&state.source_root, app_id, Some(&world_scope), trace_limit)
-                    .map_err(|error| {
+                query_world_runtime(&state.source_root, app_id, scope_ref, trace_limit).map_err(
+                    |error| {
                         AppError::status(
                             StatusCode::BAD_REQUEST,
                             format!("world runtime 查询失败：{}", error),
                         )
-                    })?;
+                    },
+                )?;
             serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string())
         }
     };
+
+    let rendered = truncate_world_json(rendered);
 
     let mut merged = String::new();
     if !followup.is_empty() {
@@ -217,4 +305,138 @@ pub(crate) fn apply_world_directive_to_prompt(
     merged.push_str("\n```");
     request.text = merged;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn parse_world_none_for_normal_chat() {
+        assert!(parse_world_directive("hello").unwrap().is_none());
+    }
+
+    #[test]
+    fn world_directive_blocked_for_local_only() {
+        let state = crate::test_support::test_app_state().expect("app state");
+        let mut request = BridgePromptRequest {
+            text: "/world context\n".into(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("local_only".into()),
+        };
+        let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn world_runtime_scope_denied_without_snapshot() {
+        let state = crate::test_support::test_app_state().expect("app state");
+        let mut request = BridgePromptRequest {
+            text: "/world runtime\n".into(),
+            app_id: Some("examples/core/_invalid/07-app-missing-scene".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn world_runtime_inlines_bounded_json_for_valid_app() {
+        let state = crate::test_support::test_app_state().expect("app state");
+        let mut request = BridgePromptRequest {
+            text: "/world runtime\n".into(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        apply_world_directive_to_prompt(&state, &mut request).expect("runtime directive");
+        assert!(request.text.contains("[World Query Result]"));
+        assert!(request.text.contains("app_id"));
+    }
+
+    #[test]
+    fn world_assets_list_respects_inventory_filter() {
+        let state = crate::test_support::test_app_state().expect("app state");
+        let mut request = BridgePromptRequest {
+            text: "/world assets all 200\n".into(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        apply_world_directive_to_prompt(&state, &mut request).expect("assets directive");
+        let marker = "[World Query Result]";
+        let idx = request.text.find(marker).expect("marker");
+        let json_block = &request.text[idx + marker.len()..];
+        assert!(
+            json_block.contains("\"total\":") && json_block.contains("\"items\""),
+            "expected JSON list shape"
+        );
+    }
+
+    #[test]
+    fn truncate_world_json_inserts_truncation_marker() {
+        let huge = "x".repeat(WORLD_DIRECTIVE_MAX_JSON_CHARS + 500);
+        let out = truncate_world_json(huge.clone());
+        assert!(out.contains("\"truncated\":true"));
+        assert!(out.len() < huge.len());
+    }
+
+    #[test]
+    fn world_asset_scope_denied_when_id_not_in_allowed_inventory() {
+        let state = crate::test_support::test_app_state().expect("app state");
+        let mut request = BridgePromptRequest {
+            text: "/world asset __definitely_not_allowed_id__\n".into(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+        };
+        let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
+        let resp = err.into_response();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn parse_world_context() {
+        let (d, follow) = parse_world_directive("/world context\nhi").unwrap().unwrap();
+        assert!(follow.contains("hi"));
+        match d {
+            WorldDirective::Context => {}
+            _ => panic!("expected context"),
+        }
+    }
 }

@@ -100,13 +100,31 @@ pub async fn workspace_app_asset(
 }
 
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
+    // 必须与 `mei-lang/scripts/build-assets.mjs` 的 MANAGE_SCRIPTS / ACCESS_SCRIPTS 完全一致，
+    // 否则「dist 存在时走预构建」与「dist 缺失时服务端拼接」会出现行为漂移。
     const MANAGE_SCRIPTS: &[&str] = &[
         "frame-stage.js",
+        "scope-params.js",
+        "vendor/marked.umd.js",
+        "vendor/dompurify.min.js",
         "vendor/diff-match-patch.js",
         "vendor/codemirror.js",
+        "vendor/codemirror-mode-javascript.js",
+        "vendor/codemirror-mode-xml.js",
+        "vendor/codemirror-mode-css.js",
+        "vendor/codemirror-mode-python.js",
         "source-codemirror-mode.js",
         "vendor/codemirror-merge.js",
         "manage-tabs.js",
+        "asset-source-editor.js",
+        "agent-panel-utils.js",
+        "agent-panel-routing.js",
+        "agent-panel-access-float.js",
+        "agent-panel-source.js",
+        "agent-panel-session.js",
+        "agent-panel-context.js",
+        "agent-panel-chrome.js",
+        "agent-panel-messages.js",
         "agent-panel.js",
         "workspace-splitters.js",
         "source-tree-controls.js",
@@ -115,7 +133,16 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
     ];
     const ACCESS_SCRIPTS: &[&str] = &[
         "frame-stage.js",
+        "scope-params.js",
         "statusbar.js",
+        "agent-panel-utils.js",
+        "agent-panel-routing.js",
+        "agent-panel-access-float.js",
+        "agent-panel-source.js",
+        "agent-panel-session.js",
+        "agent-panel-context.js",
+        "agent-panel-chrome.js",
+        "agent-panel-messages.js",
         "agent-panel.js",
         "workspace-splitters.js",
         "spa-navigation.js",
@@ -138,6 +165,7 @@ fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
 }
 
 fn app_bundle_styles() -> &'static [&'static str] {
+    // 与 `scripts/build-assets.mjs` 的 STYLES 一致
     &[
         "app-shell.css",
         "tailwind.css",
