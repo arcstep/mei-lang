@@ -2,7 +2,7 @@ use crate::agent_runtime::bridge::BridgePromptRequest;
 
 use super::super::super::scene_api::WorldScope;
 
-pub(super) fn world_scope_from_request(request: &BridgePromptRequest) -> WorldScope {
+pub(crate) fn world_scope_from_request(request: &BridgePromptRequest) -> WorldScope {
     WorldScope {
         scene_id: request
             .scene_id

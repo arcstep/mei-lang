@@ -85,44 +85,56 @@ fn build_dynamic_mei_context(
     }
     lines.push(String::new());
     if ask_mode {
-        if let Some((target_rel, full_path)) =
-            resolve_target_path_for_request(state, &app_id, request)
-        {
-            match fs::read_to_string(&full_path) {
-                Ok(content) => {
-                    let bytes = content.as_bytes();
-                    let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
-                        (
-                            String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES])
-                                .to_string(),
-                            true,
-                        )
-                    } else {
-                        (content, false)
-                    };
-                    lines.push("[Current Target .mei Snapshot]".to_string());
-                    lines.push(format!("path: {target_rel}"));
-                    lines.push(format!(
-                        "truncated: {} (max {} bytes)",
-                        if truncated { "yes" } else { "no" },
-                        ASK_INLINE_TARGET_MAX_BYTES
-                    ));
-                    lines.push("---".to_string());
-                    lines.push(inlined);
-                }
-                Err(error) => {
-                    lines.push(format!(
-                        "[Current Target .mei Snapshot]\npath: {target_rel}\nerror: failed to read target file ({error})"
-                    ));
-                }
+        lines.push(
+            concat!(
+                "[Ask mode — world-first]\n",
+                "The active target `.mei` source is not inlined here so the prompt stays focused on the injected world/runtime catalog.\n",
+                "Use `dataset_query` / `dataset_metric` for tabular data and metrics.\n",
+                "Use `read_file` only when you need verbatim DSL from a workspace path that is allowed by the current resource visibility (typically under `<app_id>/...`).",
+            )
+            .to_string(),
+        );
+    } else if let Some((target_rel, full_path)) =
+        resolve_target_path_for_request(state, &app_id, request)
+    {
+        match fs::read_to_string(&full_path) {
+            Ok(content) => {
+                let bytes = content.as_bytes();
+                let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
+                    (
+                        String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES]).to_string(),
+                        true,
+                    )
+                } else {
+                    (content, false)
+                };
+                lines.push("[Build mode — current target .mei snapshot]".to_string());
+                lines.push(format!("path: {target_rel}"));
+                lines.push(format!(
+                    "truncated: {} (max {} bytes)",
+                    if truncated { "yes" } else { "no" },
+                    ASK_INLINE_TARGET_MAX_BYTES
+                ));
+                lines.push("---".to_string());
+                lines.push(inlined);
             }
-        } else {
-            lines.push(
-                "[Current Target .mei Snapshot]\nunavailable: no valid target `.mei` in current request scope"
-                    .to_string(),
-            );
+            Err(error) => {
+                lines.push(format!(
+                    "[Build mode — current target .mei snapshot]\npath: {target_rel}\nerror: failed to read target file ({error})"
+                ));
+            }
         }
+        lines.push(String::new());
+        lines.push(
+            "Other referenced scene/world/frame files are not inlined by default; discover them with `read_file` within allowed paths, or use `skill_list` / `skill_read` for authoring rules."
+                .to_string(),
+        );
     } else {
+        lines.push(
+            "[Build mode — current target .mei snapshot]\nunavailable: no valid target `.mei` in current request scope"
+                .to_string(),
+        );
+        lines.push(String::new());
         lines.push(
             concat!(
                 "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
@@ -148,10 +160,27 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let scene_id = request.scene_id.as_deref().map(str::trim).unwrap_or("");
     let target_file = request.target_file.as_deref().map(str::trim).unwrap_or("");
     let mode = request_mode_slug(request);
+    let route = request.route_mode.as_deref().map(str::trim).unwrap_or("");
+    let policy = crate::mei_agent::mode_policy::AgentModePolicy::from_request(request);
+    let vis = crate::mei_agent::agent_scope_profile::resolve_resource_visibility(request, policy);
+    let rv = vis.as_slug();
+    let reach = crate::http::scene_api::build_world_context_snapshot_cached(
+        state,
+        app_id.as_str(),
+        Some(&super::request_scope::world_scope_from_request(request)),
+    )
+    .map(|snap| {
+        crate::mei_agent::agent_scope_profile::ScopeReachabilitySets::from_world_snapshot(
+            &snap,
+            app_id.as_str(),
+        )
+        .digest_short()
+    })
+    .unwrap_or_else(|_| "na".to_string());
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v5|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|mei_revision={revision}"
+        "v=world-context-v7|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|mei_revision={revision}"
     ))
 }
 
@@ -250,13 +279,15 @@ mod tests {
             route_mode: None,
             agent: None,
             model: None,
+            resource_visibility: None,
         };
         let signature = build_context_signature(&state, &request).expect("signature");
         assert!(signature.contains("scene=scene-a"));
         assert!(signature.contains("target=main.mei"));
+        assert!(signature.contains("v=world-context-v7"));
 
         let mut changed = request.clone();
-        changed.scene_id = Some("scene-b".to_string());
+        changed.resource_visibility = Some("local_only".into());
         let changed_signature =
             build_context_signature(&state, &changed).expect("changed signature");
         assert_ne!(signature, changed_signature);
@@ -278,6 +309,7 @@ mod tests {
             route_mode: None,
             agent: None,
             model: None,
+            resource_visibility: None,
         };
         let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(
@@ -288,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn ask_mode_inlines_current_target_snapshot() {
+    fn ask_mode_world_first_skips_target_mei_snapshot() {
         let (root, _app_root) = prepare_app_root();
         let state = build_test_state(root.clone(), root.clone());
         let request = BridgePromptRequest {
@@ -301,9 +333,33 @@ mod tests {
             route_mode: Some("access".to_string()),
             agent: None,
             model: None,
+            resource_visibility: None,
         };
         let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
-        assert!(ctx.contains("[Current Target .mei Snapshot]"));
+        assert!(ctx.contains("[Ask mode — world-first]"));
+        assert!(!ctx.contains("[Build mode — current target .mei snapshot]"));
+        assert!(!ctx.contains("[Build mode"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn build_mode_inlines_current_target_snapshot() {
+        let (root, _app_root) = prepare_app_root();
+        let state = build_test_state(root.clone(), root.clone());
+        let request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("demo".to_string()),
+            scene_id: Some("s1".to_string()),
+            target_file: Some("main.mei".to_string()),
+            system: None,
+            mode: Some("build".to_string()),
+            route_mode: Some("manage".to_string()),
+            agent: None,
+            model: None,
+            resource_visibility: None,
+        };
+        let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
+        assert!(ctx.contains("[Build mode — current target .mei snapshot]"));
         assert!(ctx.contains("app(kind=\"app\""));
         let _ = fs::remove_dir_all(&root);
     }

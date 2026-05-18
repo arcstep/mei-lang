@@ -31,6 +31,17 @@ pub(crate) fn classify_blocked_permission(
                 .to_string(),
         );
     }
+    if permission == "scope_denied" {
+        let p = path.clone().unwrap_or_default();
+        return (
+            path,
+            false,
+            format!(
+                "当前请求的业务 scope 不允许读取该路径（{}）。若确有需要，请在作者面板将「引用可见范围」扩大到「直接引用」或「场景可达」后重试。",
+                if p.is_empty() { "路径未记录" } else { p.trim() }
+            ),
+        );
+    }
     (
         path,
         true,
@@ -41,6 +52,14 @@ pub(crate) fn classify_blocked_permission(
 #[cfg(test)]
 mod tests {
     use super::classify_blocked_permission;
+
+    #[test]
+    fn classify_scope_denied_suggests_widen_visibility() {
+        let patterns = vec!["demo/other.mei".to_string()];
+        let (_, requires_admin, msg) = classify_blocked_permission("scope_denied", &patterns);
+        assert!(!requires_admin);
+        assert!(msg.contains("引用可见范围"), "{msg}");
+    }
 
     #[test]
     fn classify_skill_directory_mentions_builtin_assistant() {

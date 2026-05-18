@@ -9,6 +9,7 @@ use crate::http::scene_api::{
     query_resource_dataset, query_resource_dataset_metric, query_resource_get, query_resource_list,
     query_resource_runtime_peek, WorldScope,
 };
+use crate::mei_agent::agent_scope_profile::validate_dataset_world_scope_merge;
 use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceToolExecutor};
 
 #[derive(Debug, Default)]
@@ -103,7 +104,20 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
             Ok(v) => v,
             Err(e) => return format!("error: invalid tool arguments JSON: {e}"),
         };
+        let base_ws = WorldScope {
+            scene_id: scope.scene_id.clone(),
+            target_file: scope.target_file.clone(),
+        };
         let ws = Self::world_scope(scope, &args);
+        if let Err(e) = validate_dataset_world_scope_merge(
+            &base_ws,
+            &ws,
+            scope.resource_visibility,
+            Some(scope),
+            Some(app),
+        ) {
+            return format!("error: {e}");
+        }
         let scope_ref = Some(&ws);
         match tool_name {
             "dataset_query" => {

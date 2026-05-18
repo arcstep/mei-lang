@@ -1,5 +1,6 @@
 //! 内置 Agent：会话存储、流式对话、与 `/api/agent/*` 分发层对接。
 
+pub(crate) mod agent_scope_profile;
 pub(crate) mod dispatch;
 mod llm;
 pub(crate) mod llm_config;

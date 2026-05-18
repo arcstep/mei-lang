@@ -38,6 +38,9 @@ pub(crate) struct BridgePromptRequest {
     pub agent: Option<String>,
     #[serde(default)]
     pub model: Option<BridgeModelRef>,
+    /// 业务层「可读引用」范围：`local_only` | `allow_direct_refs` | `allow_scene_reachable`（大小写不敏感）。
+    #[serde(default, alias = "resourceVisibility")]
+    pub resource_visibility: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

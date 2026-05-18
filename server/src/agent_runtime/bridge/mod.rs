@@ -59,6 +59,7 @@ mod tests {
                 provider_id: "qwen".to_string(),
                 model_id: "qwen-max".to_string(),
             }),
+            resource_visibility: None,
         };
         let body = prompt_body(req);
         assert_eq!(body["system"], json!("system prompt"));

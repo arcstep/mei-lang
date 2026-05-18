@@ -96,6 +96,7 @@ mod tests {
             route_mode: route_mode.map(str::to_string),
             agent: agent.map(str::to_string),
             model: None,
+            resource_visibility: None,
         }
     }
 

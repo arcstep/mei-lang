@@ -31,10 +31,11 @@ use crate::{
         agent_abort_session, agent_create_session, agent_health, agent_list_sessions,
         agent_project_worktree, agent_respond_permission, agent_revert_session, agent_send_prompt,
         agent_session_diff, agent_session_messages, agent_unrevert_session, agent_vcs_summary,
+        agent_scope_profile::resolve_resource_visibility,
         llm_config,
         mode_policy::AgentModePolicy,
         native::{encode_host_event_line, filter_session_event},
-        resolve_agent_conn, sanitize_relative_path,
+        resolve_agent_conn, sanitize_relative_path, resource_tools,
     },
     AppState,
 };
@@ -50,6 +51,7 @@ use super::permissions::{
 };
 use super::prompt_context::{
     build_dynamic_session_context_preview, enrich_prompt_request, load_or_refresh_session_context,
+    AgentScopeProfile,
 };
 use super::sse::sse_session_status_notice;
 
@@ -358,6 +360,8 @@ pub struct OpencodeContextPreviewQuery {
     pub mode: Option<String>,
     #[serde(default, alias = "routeMode")]
     pub route_mode: Option<String>,
+    #[serde(default, alias = "resourceVisibility")]
+    pub resource_visibility: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -375,6 +379,10 @@ pub struct OpencodeContextPreviewResponse {
     pub resource_inventory: Value,
     #[serde(default)]
     pub preview_error: Option<String>,
+    #[serde(default)]
+    pub profile_summary: String,
+    #[serde(default)]
+    pub native_tool_names: Vec<String>,
     #[serde(default)]
     pub skill_status: Option<Value>,
 }
@@ -397,6 +405,7 @@ pub async fn api_agent_context_preview(
         route_mode: query.route_mode.clone(),
         agent: None,
         model: None,
+        resource_visibility: query.resource_visibility.clone(),
     };
     let policy = AgentModePolicy::from_request(&request);
     if let Err(error) = policy.validate() {
@@ -427,7 +436,34 @@ pub async fn api_agent_context_preview(
     )
     .unwrap_or_else(|| String::new());
     request = enrich_prompt_request(&state, Some(&session_context), request);
-    let (tools, resource_inventory) = match snapshot_result {
+    let profile = AgentScopeProfile::from_request_and_snapshot(
+        &request,
+        snapshot_result.as_ref().ok(),
+        app_id,
+    );
+    let profile_summary = profile.summary_line();
+    let pol2 = AgentModePolicy::from_request(&request);
+    let vis = resolve_resource_visibility(&request, pol2);
+    let mode_for_tools = request
+        .mode
+        .as_deref()
+        .or(request.agent.as_deref())
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .unwrap_or("build");
+    let native_tool_names: Vec<String> = resource_tools::tool_definitions_for_profile(
+        mode_for_tools,
+        vis,
+    )
+    .into_iter()
+    .filter_map(|item| {
+        item.get("function")
+            .and_then(|f| f.get("name"))
+            .and_then(|n| n.as_str())
+            .map(str::to_string)
+    })
+    .collect();
+    let (tools, resource_inventory) = match &snapshot_result {
         Ok(snapshot) => {
             let tools = if snapshot.query_tools.is_empty() {
                 default_resource_query_tools()
@@ -436,7 +472,7 @@ pub async fn api_agent_context_preview(
             };
             (
                 tools,
-                serde_json::to_value(snapshot.resource_inventory).unwrap_or(Value::Null),
+                serde_json::to_value(snapshot.resource_inventory.clone()).unwrap_or(Value::Null),
             )
         }
         Err(_) => (default_resource_query_tools(), Value::Null),
@@ -458,6 +494,8 @@ pub async fn api_agent_context_preview(
         query_tools,
         resource_inventory,
         preview_error,
+        profile_summary,
+        native_tool_names,
         skill_status,
     })
     .into_response()

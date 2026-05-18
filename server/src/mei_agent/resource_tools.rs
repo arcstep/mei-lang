@@ -1,16 +1,69 @@
 //! LLM 可调用的只读资源工具定义与执行桥接（实现放在 `resource_tool_bridge`，避免 `mei_agent` 依赖 `http`）。
 
+use std::collections::HashSet;
 use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::{json, Value};
 
 use super::{llm, skill_tools};
 
+/// 业务层资源与工具可见范围（在 workspace 安全边界之内进一步收敛）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResourceVisibility {
+    /// 仅允许使用请求基线 `scene_id + target_file`，禁止工具参数覆盖到其它入口。
+    #[default]
+    LocalOnly,
+    /// 允许在同 scene 下覆盖 `target_file`（例如引用其它 `.mei`），仍必须在 app 目录内。
+    AllowDirectRefs,
+    /// 与 `AllowDirectRefs` 同级校验 scene；预留未来 inventory 分层差异。
+    AllowSceneReachable,
+}
+
+impl ResourceVisibility {
+    pub(crate) fn parse(raw: Option<&str>) -> Option<Self> {
+        let s = raw.map(str::trim).filter(|v| !v.is_empty())?;
+        match s.to_ascii_lowercase().as_str() {
+            "local_only" | "localonly" | "local" => Some(Self::LocalOnly),
+            "allow_direct_refs" | "allowdirectrefs" | "direct_refs" | "refs" => {
+                Some(Self::AllowDirectRefs)
+            }
+            "allow_scene_reachable" | "scene_reachable" | "scene" => Some(Self::AllowSceneReachable),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn as_slug(self) -> &'static str {
+        match self {
+            ResourceVisibility::LocalOnly => "local_only",
+            ResourceVisibility::AllowDirectRefs => "allow_direct_refs",
+            ResourceVisibility::AllowSceneReachable => "allow_scene_reachable",
+        }
+    }
+}
+
 /// 与 [`crate::agent_runtime::bridge::BridgePromptRequest`](crate::agent_runtime::bridge::BridgePromptRequest) 对齐的 scope 快照。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AgentResourceScope {
     pub scene_id: Option<String>,
     pub target_file: Option<String>,
+    pub resource_visibility: ResourceVisibility,
+    /// 由 world inventory 解析出的「与 target 直接相关」可读路径集合（workspace 相对、已规范化）。
+    pub direct_ref_paths: Arc<HashSet<String>>,
+    /// 由 world inventory 解析出的「当前 scene 上下文可达」可读路径集合（workspace 相对、已规范化）。
+    pub scene_reachable_paths: Arc<HashSet<String>>,
+}
+
+impl Default for AgentResourceScope {
+    fn default() -> Self {
+        Self {
+            scene_id: None,
+            target_file: None,
+            resource_visibility: ResourceVisibility::LocalOnly,
+            direct_ref_paths: Arc::new(HashSet::new()),
+            scene_reachable_paths: Arc::new(HashSet::new()),
+        }
+    }
 }
 
 pub trait ResourceToolExecutor: Send + Sync {
@@ -44,11 +97,17 @@ impl ResourceToolExecutor for NoopResourceToolExecutor {
 }
 
 pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
+    tool_definitions_for_profile(mode, ResourceVisibility::AllowSceneReachable)
+}
+
+/// 按「模式 + 资源可见性」生成 LLM 可见工具 schema：`local_only` 下 dataset 工具不暴露 scope 覆盖参数。
+pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) -> Vec<Value> {
     let normalized = mode.trim().to_ascii_lowercase();
+    let allow_ds_scope_override = vis != ResourceVisibility::LocalOnly;
     let mut tools = vec![
         llm::read_file_tool_definition(),
-        dataset_query_tool_definition(),
-        dataset_metric_tool_definition(),
+        dataset_query_tool_definition(allow_ds_scope_override),
+        dataset_metric_tool_definition(allow_ds_scope_override),
     ];
     if normalized == "build" {
         tools.push(rewrite_current_mei_tool_definition());
@@ -58,7 +117,46 @@ pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
     tools
 }
 
-fn dataset_query_tool_definition() -> Value {
+fn dataset_query_tool_definition(allow_scope_override: bool) -> Value {
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "id".to_string(),
+        json!({ "type": "string", "description": "Dataset resource id in world, e.g. typical_cases" }),
+    );
+    props.insert(
+        "search".to_string(),
+        json!({ "type": "string", "description": "Optional global text search" }),
+    );
+    props.insert(
+        "filters".to_string(),
+        json!({
+            "type": "object",
+            "description": "Optional field filter map, e.g. {\"涉及单位\":\"某单位\"}",
+            "additionalProperties": { "type": "string" }
+        }),
+    );
+    props.insert(
+        "columns".to_string(),
+        json!({
+            "type": "array",
+            "description": "Optional preferred columns. If omitted, returns first 10 columns by schema order.",
+            "items": { "type": "string" }
+        }),
+    );
+    props.insert(
+        "limit".to_string(),
+        json!({ "type": "integer", "description": "Optional row count (default 10, max 50)" }),
+    );
+    if allow_scope_override {
+        props.insert(
+            "scene_id".to_string(),
+            json!({ "type": "string", "description": "Override scene id (optional)" }),
+        );
+        props.insert(
+            "target_file".to_string(),
+            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
+        );
+    }
     json!({
         "type": "function",
         "function": {
@@ -66,30 +164,49 @@ fn dataset_query_tool_definition() -> Value {
             "description": "Query one dataset resource by id via host Mei dataset engine (not raw xlsx reads). Returns bounded result: dataset schema preview + filters + metric ids + sample rows. Defaults keep output small.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "id": { "type": "string", "description": "Dataset resource id in world, e.g. typical_cases" },
-                    "search": { "type": "string", "description": "Optional global text search" },
-                    "filters": {
-                        "type": "object",
-                        "description": "Optional field filter map, e.g. {\"涉及单位\":\"某单位\"}",
-                        "additionalProperties": { "type": "string" }
-                    },
-                    "columns": {
-                        "type": "array",
-                        "description": "Optional preferred columns. If omitted, returns first 10 columns by schema order.",
-                        "items": { "type": "string" }
-                    },
-                    "limit": { "type": "integer", "description": "Optional row count (default 10, max 50)" },
-                    "scene_id": { "type": "string", "description": "Override scene id (optional)" },
-                    "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
-                },
+                "properties": props,
                 "required": ["id"]
             }
         }
     })
 }
 
-fn dataset_metric_tool_definition() -> Value {
+fn dataset_metric_tool_definition(allow_scope_override: bool) -> Value {
+    let mut props = serde_json::Map::new();
+    props.insert(
+        "id".to_string(),
+        json!({ "type": "string", "description": "Dataset resource id in world, e.g. issue_result_list" }),
+    );
+    props.insert(
+        "metric_ids".to_string(),
+        json!({
+            "type": "array",
+            "description": "Optional metric ids to evaluate. If omitted, returns all runtime metrics on the dataset.",
+            "items": { "type": "string" }
+        }),
+    );
+    props.insert(
+        "search".to_string(),
+        json!({ "type": "string", "description": "Optional global text search before metric evaluation" }),
+    );
+    props.insert(
+        "filters".to_string(),
+        json!({
+            "type": "object",
+            "description": "Optional field filter map applied before metric evaluation",
+            "additionalProperties": { "type": "string" }
+        }),
+    );
+    if allow_scope_override {
+        props.insert(
+            "scene_id".to_string(),
+            json!({ "type": "string", "description": "Override scene id (optional)" }),
+        );
+        props.insert(
+            "target_file".to_string(),
+            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
+        );
+    }
     json!({
         "type": "function",
         "function": {
@@ -97,22 +214,7 @@ fn dataset_metric_tool_definition() -> Value {
             "description": "Query runtime metric values for one dataset resource by id via host Mei dataset engine. Best for aggregated asks such as count/rate/trend/summary-card values.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "id": { "type": "string", "description": "Dataset resource id in world, e.g. issue_result_list" },
-                    "metric_ids": {
-                        "type": "array",
-                        "description": "Optional metric ids to evaluate. If omitted, returns all runtime metrics on the dataset.",
-                        "items": { "type": "string" }
-                    },
-                    "search": { "type": "string", "description": "Optional global text search before metric evaluation" },
-                    "filters": {
-                        "type": "object",
-                        "description": "Optional field filter map applied before metric evaluation",
-                        "additionalProperties": { "type": "string" }
-                    },
-                    "scene_id": { "type": "string", "description": "Override scene id (optional)" },
-                    "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
-                },
+                "properties": props,
                 "required": ["id"]
             }
         }
@@ -140,7 +242,7 @@ fn rewrite_current_mei_tool_definition() -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::tool_definitions_for_mode;
+    use super::{tool_definitions_for_mode, tool_definitions_for_profile, ResourceVisibility};
 
     fn tool_names(mode: &str) -> Vec<String> {
         tool_definitions_for_mode(mode)
@@ -152,6 +254,26 @@ mod tests {
                     .map(str::to_string)
             })
             .collect()
+    }
+
+    #[test]
+    fn local_only_dataset_tools_hide_scope_overrides() {
+        let defs = tool_definitions_for_profile("ask", ResourceVisibility::LocalOnly);
+        let dq = defs
+            .iter()
+            .find(|d| {
+                d.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    == Some("dataset_query")
+            })
+            .expect("dataset_query");
+        let props = dq
+            .pointer("/function/parameters/properties")
+            .and_then(|v| v.as_object())
+            .expect("props");
+        assert!(!props.contains_key("scene_id"));
+        assert!(!props.contains_key("target_file"));
     }
 
     #[test]

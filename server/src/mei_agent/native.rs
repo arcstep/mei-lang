@@ -29,7 +29,7 @@ use crate::agent_runtime::{
 };
 
 use super::{
-    llm, llm_config, permission_policy,
+    agent_scope_profile, llm, llm_config, permission_policy,
     resource_tools::{self, AgentResourceScope, NoopResourceToolExecutor, ResourceToolExecutor},
     skill_tools,
     workspace_snapshot_git::{WorkspaceSnapshotGit, SESSION_BASELINE_ANCHOR},
@@ -781,7 +781,7 @@ impl NativeAgent {
     ) -> String {
         let build_mode = agent_mode.trim().eq_ignore_ascii_case("build");
         match name {
-            "read_file" => self.run_read_file_tool(session_id, call_id, name, args, app_id),
+            "read_file" => self.run_read_file_tool(session_id, call_id, name, args, app_id, resource_scope),
             "dataset_query" | "dataset_metric" => self.inner.resource_tools.run_resource_tool(
                 &self.inner.source_root,
                 app_id,
@@ -848,21 +848,25 @@ impl NativeAgent {
         &self,
         session_id: &str,
         request: BridgePromptRequest,
+        resource_scope: AgentResourceScope,
     ) -> Result<BridgePromptSummary> {
         let this = self.clone();
         let sid = session_id.to_string();
-        tokio::task::spawn_blocking(move || this.send_prompt_blocking(&sid, request))
-            .await
-            .map_err(|e| anyhow::anyhow!("spawn prompt: {e}"))?
+        tokio::task::spawn_blocking(move || {
+            this.send_prompt_blocking(&sid, request, resource_scope)
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("spawn prompt: {e}"))?
     }
 
     fn send_prompt_blocking(
         &self,
         session_id: &str,
         request: BridgePromptRequest,
+        resource_scope: AgentResourceScope,
     ) -> Result<BridgePromptSummary> {
         let (_user_msg_id, assistant_msg_id, part_id) =
-            self.insert_user_and_assistant_placeholder(session_id, &request)?;
+            self.insert_user_and_assistant_placeholder(session_id, &request, &resource_scope)?;
 
         let conn = llm_config::resolve_llm(request.model.as_ref())
             .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -897,11 +901,11 @@ impl NativeAgent {
             .filter(|value| !value.is_empty())
             .unwrap_or("build")
             .to_string();
-        let tools = resource_tools::tool_definitions_for_mode(&agent_mode);
-        let resource_scope = AgentResourceScope {
-            scene_id: request.scene_id.clone(),
-            target_file: request.target_file.clone(),
-        };
+        let tools = resource_tools::tool_definitions_for_profile(
+            &agent_mode,
+            resource_scope.resource_visibility,
+        );
+        let resource_scope_tool = resource_scope.clone();
         let app_id = request.app_id.clone();
         let agent_mode_tool = agent_mode.clone();
         let assistant_for_tools = assistant_msg_id.clone();
@@ -930,7 +934,7 @@ impl NativeAgent {
                     batch,
                     &agent_mode_tool,
                     app_id.as_deref(),
-                    &resource_scope,
+                    &resource_scope_tool,
                 )
             },
             move |d| {
@@ -1022,6 +1026,7 @@ impl NativeAgent {
         &self,
         session_id: &str,
         request: &BridgePromptRequest,
+        resource_scope: &AgentResourceScope,
     ) -> Result<(String, String, String)> {
         let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
         let exists: bool = db.query_row(
@@ -1064,6 +1069,7 @@ impl NativeAgent {
             "agent": normalized_agent,
             "mode": normalized_mode,
             "routeMode": normalized_route_mode,
+            "resourceVisibility": resource_scope.resource_visibility.as_slug(),
         });
         db.execute(
             "INSERT INTO messages (id, session_id, role, sort_order, info_json) VALUES (?1, ?2, 'user', ?3, ?4)",
@@ -1714,6 +1720,7 @@ impl NativeAgent {
         name: &str,
         args_json: &str,
         app_id: Option<&str>,
+        resource_scope: &AgentResourceScope,
     ) -> String {
         if name != "read_file" {
             return format!("error: tool `{name}` is not allowed");
@@ -1733,6 +1740,15 @@ impl NativeAgent {
             return "error: path must be a relative path without '..'".to_string();
         }
         let rel = llm::sanitize_relative_path(raw).unwrap_or_default();
+        if !agent_scope_profile::read_file_allowed_for_agent(&rel, app_id, resource_scope) {
+            if let Err(e) = self.insert_blocked_notice(session_id, raw, "scope_denied") {
+                tracing::warn!(%e, "failed to record blocked permission notice");
+            }
+            return format!(
+                "error: read_file denied by resource visibility `{}` for current request scope; path is outside the resolved direct-ref / scene-reachable set. Try widening visibility in the author panel and retry.",
+                resource_scope.resource_visibility.as_slug()
+            );
+        }
         if Self::read_file_requires_user_confirmation(&rel) {
             return match self.request_read_confirmation_and_wait(session_id, &rel, args_json) {
                 Ok(()) => self.try_read_file_with_app_prefix(args_json, app_id, &rel),
@@ -2068,6 +2084,7 @@ impl NativeAgent {
 #[cfg(test)]
 #[test]
 fn blocked_notice_from_bad_path_lists_and_reject() {
+    use crate::mei_agent::resource_tools::AgentResourceScope;
     use std::fs;
 
     let dir = std::env::temp_dir().join(format!("mei_native_perm_{}", uuid::Uuid::new_v4()));
@@ -2075,7 +2092,8 @@ fn blocked_notice_from_bad_path_lists_and_reject() {
     fs::create_dir_all(&dir).unwrap();
     let agent = NativeAgent::open(dir.clone()).unwrap();
     let sid = "ses_test";
-    let out = agent.run_read_file_tool(sid, "", "read_file", r#"{"path":"../bad"}"#, None);
+    let scope = AgentResourceScope::default();
+    let out = agent.run_read_file_tool(sid, "", "read_file", r#"{"path":"../bad"}"#, None, &scope);
     assert!(out.contains("error"), "{out}");
     let pending = agent.list_pending_permissions_blocking();
     assert_eq!(pending.len(), 1, "{pending:?}");

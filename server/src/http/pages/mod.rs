@@ -328,7 +328,11 @@ frame.add_panel(
             .expect("read html body");
         let html = String::from_utf8(body.to_vec()).expect("response body utf8");
         assert!(html.contains("DETAILS_VIEW"));
-        assert!(html.contains("/apps/manage/multi-scene?scene=details"));
+        assert!(
+            html.contains("/apps/manage/multi-scene") && html.contains("scene=details"),
+            "expected manage URL to include scene=details (query order may vary): {}",
+            html.chars().take(1200).collect::<String>()
+        );
 
         let _ = fs::remove_dir_all(&root);
     }
