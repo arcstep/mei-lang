@@ -133,7 +133,7 @@ pub(super) fn panel_view(
                                 class="mt-1 grid min-h-0 gap-1 pr-1"
                                 style="max-height:50vh;min-height:10rem;overflow-y:auto;overscroll-behavior:contain;"
                             >
-                                <div class="flex items-center justify-end gap-2">
+                                <div class="flex flex-wrap items-center justify-between gap-2">
                                     <sl-button
                                         class="author-history-btn text-[10px] font-bold tracking-[0.02em]"
                                         id="author-context-refresh-btn"
@@ -142,6 +142,23 @@ pub(super) fn panel_view(
                                     >
                                         "刷新"
                                     </sl-button>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-2 text-[10px] text-slate-300">
+                                    <span class="shrink-0 font-bold tracking-[0.02em] text-slate-400">
+                                        "引用可见"
+                                    </span>
+                                    <sl-select
+                                        id="author-resource-visibility-select"
+                                        class="min-w-[140px] max-w-[220px]"
+                                        size="small"
+                                        placeholder="自动(route+mode)"
+                                        hoist=true
+                                    >
+                                        <sl-option value="">"自动"</sl-option>
+                                        <sl-option value="local_only">"仅当前入口"</sl-option>
+                                        <sl-option value="allow_direct_refs">"直接引用"</sl-option>
+                                        <sl-option value="allow_scene_reachable">"场景可达"</sl-option>
+                                    </sl-select>
                                 </div>
                                 <div id="author-context-preview-scope" class="text-[10px] text-slate-400"></div>
                                 <div id="author-context-preview-skill" class="text-[10px] text-slate-400"></div>

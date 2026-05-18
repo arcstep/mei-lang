@@ -16749,12 +16749,31 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     return String(root.dataset.scene || "").trim();
   }
 
+  function sessionBindingKind() {
+    return normalizeRouteMode(root.dataset.mode) === "access" ? "scene" : "file";
+  }
+
+  /** 与 `sessionBindingStorageKey` 对应，用于检测「绑定键」是否变化以重置自动会话等。 */
+  function currentSessionBindingFingerprint() {
+    return sessionBindingKind() === "scene"
+      ? "scene:" + currentSceneId()
+      : currentTargetKey();
+  }
+
+  function sessionBindingStorageKey() {
+    if (sessionBindingKind() === "scene") {
+      const sid = currentSceneId() || "__no_scene__";
+      return "scene:" + sid;
+    }
+    return "file:" + (currentTargetKey() || "__no_file__");
+  }
+
   function sessionStorageKey() {
-    return "mei-lang.agent.session." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.session." + currentAppKey() + "." + sessionBindingStorageKey();
   }
 
   function modeStorageKey() {
-    return "mei-lang.agent.mode." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.mode." + currentAppKey() + "." + sessionBindingStorageKey();
   }
 
   function accessFloatingStorageKey() {
@@ -16766,7 +16785,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   }
 
   function revertedStorageKey() {
-    return "mei-lang.agent.reverted." + currentAppKey() + "." + currentTargetKey();
+    return "mei-lang.agent.reverted." + currentAppKey() + "." + sessionBindingStorageKey();
   }
 
   function deltaDebugStorageKey(sessionId) {
@@ -17960,9 +17979,16 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   function buildBoundSessionTitle(targetKey) {
     const params = new URLSearchParams();
     params.set("app", String(root.dataset.app || ""));
-    params.set("file", String(targetKey || ""));
-    if (root.dataset.scene) {
-      params.set("scene", String(root.dataset.scene || ""));
+    const kind = sessionBindingKind();
+    params.set("bind", kind);
+    if (kind === "scene") {
+      params.set("scene", currentSceneId() || "");
+      params.set("anchor", String(targetKey || "").trim());
+    } else {
+      params.set("file", String(targetKey || "").trim());
+      if (root.dataset.scene) {
+        params.set("scene", String(root.dataset.scene || ""));
+      }
     }
     return "MEI|" + params.toString();
   }
@@ -17973,10 +17999,30 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     try {
       const params = new URLSearchParams(value.slice(4));
       const app = String(params.get("app") || "").trim();
+      if (!app) return null;
+      const bindRaw = String(params.get("bind") || "").trim().toLowerCase();
+      if (bindRaw === "scene") {
+        const scene = String(params.get("scene") || "").trim();
+        const anchor = normalizeTargetKey(params.get("anchor") || "");
+        if (!scene) return null;
+        return {
+          app: app,
+          bind: "scene",
+          scene: scene,
+          anchor: anchor,
+          target: anchor,
+        };
+      }
       const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
       const scene = String(params.get("scene") || "").trim();
-      if (!app || !target) return null;
-      return { app: app, target: target, scene: scene };
+      if (!target) return null;
+      return {
+        app: app,
+        bind: "file",
+        scene: scene,
+        anchor: target,
+        target: target,
+      };
     } catch (_) {
       return null;
     }
@@ -18432,6 +18478,8 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     state.agentMode = normalizeAgentMode(nextMode);
     rememberAgentMode();
     renderAgentMode();
+    state.contextPreviewFetchedAtMs = 0;
+    state.contextPreviewScopeKey = "";
     setInlineNote(
       state.agentMode === "ask"
         ? "已切换到 Ask（访问侧问答，只读）"
@@ -18457,6 +18505,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     if (target) params.set("target_file", target);
     params.set("route_mode", routeMode);
     params.set("mode", mode);
+    params.set("resource_visibility", currentResourceVisibility());
     // 非路由目标文件预览（如 data/dataset/**）不应携带 scene 约束，
     // 否则会触发 scope 校验失败并导致无意义重试。
     const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
@@ -18466,11 +18515,34 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     return params;
   }
 
+  /** 与后端 `agent_scope_profile::default_resource_visibility` 对齐的客户端默认值。 */
+  function defaultResourceVisibilityFromRoute() {
+    const route = normalizeRouteMode(root.dataset.mode);
+    const mode = normalizeAgentMode(state.agentMode);
+    if (route === "access" && mode === "ask") return "allow_scene_reachable";
+    if (route === "manage" && mode === "ask") return "allow_direct_refs";
+    if (route === "manage" && mode === "build") return "allow_direct_refs";
+    return "local_only";
+  }
+
+  /** 显式 UI 优先，否则走 route+mode 默认。 */
+  function currentResourceVisibility() {
+    const sel = document.getElementById("author-resource-visibility-select");
+    if (sel && "value" in sel && String(sel.value || "").trim()) {
+      return String(sel.value).trim();
+    }
+    return defaultResourceVisibilityFromRoute();
+  }
+
   function formatContextScopeText(payload) {
     const app = String((payload && payload.app_id) || currentAppKey() || "-");
     const scene = String((payload && payload.scene_id) || currentSceneId() || "-");
     const target = String((payload && payload.target_file) || currentTargetKey() || "-");
-    return "scope: app=" + app + " | scene=" + scene + " | file=" + target;
+    let line =
+      "scope: app=" + app + " | scene=" + scene + " | file=" + target;
+    const prof = payload && payload.profile_summary ? String(payload.profile_summary).trim() : "";
+    if (prof) line += "\n" + prof;
+    return line;
   }
 
   function formatContextSkillText(payload) {
@@ -18484,14 +18556,32 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   }
 
   function formatContextToolsText(payload) {
+    const native = Array.isArray(payload && payload.native_tool_names)
+      ? payload.native_tool_names
+      : [];
     const tools = Array.isArray(payload && payload.query_tools) ? payload.query_tools : [];
-    if (!tools.length) return "(none)";
-    return tools.map(function (tool) {
-      const id = String(tool && tool.id ? tool.id : "unknown");
-      const purpose = String(tool && tool.purpose ? tool.purpose : "");
-      const input = String(tool && tool.input ? tool.input : "");
-      return "- " + id + (purpose ? " | " + purpose : "") + (input ? "\n  input: " + input : "");
-    }).join("\n");
+    const parts = [];
+    if (native.length) {
+      parts.push(
+        "Native LLM tools:\n" +
+          native.map(function (n) {
+            return "- " + String(n || "");
+          }).join("\n"),
+      );
+    }
+    if (!tools.length) {
+      return parts.length ? parts.join("\n\n") : "(none)";
+    }
+    const catalog = tools
+      .map(function (tool) {
+        const id = String(tool && tool.id ? tool.id : "unknown");
+        const purpose = String(tool && tool.purpose ? tool.purpose : "");
+        const input = String(tool && tool.input ? tool.input : "");
+        return "- " + id + (purpose ? " | " + purpose : "") + (input ? "\n  input: " + input : "");
+      })
+      .join("\n");
+    parts.push("Resource query tools:\n" + catalog);
+    return parts.join("\n\n");
   }
 
   function formatContextPromptText(payload) {
@@ -19041,6 +19131,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
   function listBoundSessionsForTarget(sessions, targetKey) {
     const app = String(root.dataset.app || "");
+    const kind = sessionBindingKind();
     const scene = currentSceneId();
     const target = normalizeTargetKey(targetKey);
     return (Array.isArray(sessions) ? sessions : [])
@@ -19049,6 +19140,11 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         const meta = parseBoundSessionTitle(session.title);
         if (!meta) return false;
         if (meta.app !== app) return false;
+        if (kind === "scene") {
+          if (meta.bind !== "scene") return false;
+          return String(meta.scene || "") === String(scene || "");
+        }
+        if (meta.bind === "scene") return false;
         if (meta.target !== target) return false;
         if (scene && meta.scene && meta.scene !== scene) return false;
         return true;
@@ -19071,7 +19167,10 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     els.sessionSelect.innerHTML = "";
     const placeholder = document.createElement("sl-option");
     placeholder.value = "";
-    placeholder.textContent = "历史（当前文件）";
+    placeholder.textContent =
+      normalizeRouteMode(root.dataset.mode) === "access"
+        ? "历史（当前场景）"
+        : "历史（当前文件）";
     els.sessionSelect.appendChild(placeholder);
     sessions.forEach(function (session) {
       if (!session || typeof session !== "object") return;
@@ -19089,7 +19188,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   }
 
   function renderSessions() {
-    refreshSessionPicker(state.sessionId, state.sessionTargetKey || currentTargetKey()).catch(function () {});
+    refreshSessionPicker(state.sessionId, currentTargetKey()).catch(function () {});
   }
 
   function makeTextBlock(label, content, type, collapsed) {
@@ -20029,7 +20128,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       state.config = config;
       state.runtime = runtime;
       state.skillStatus = skillStatus;
-      state.sessionTargetKey = currentTargetKey();
+      state.sessionTargetKey = currentSessionBindingFingerprint();
       if (state.sessionTargetKey !== previousTargetKey) {
         state._meiAutoSessionOnce = false;
       }
@@ -20128,7 +20227,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   }
 
   async function postNewBoundSession() {
-    state.sessionTargetKey = currentTargetKey();
+    state.sessionTargetKey = currentSessionBindingFingerprint();
     const session = await fetchJson("/api/agent/session", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -20291,6 +20390,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       mode: normalizeAgentMode(state.agentMode),
       route_mode: normalizeRouteMode(root.dataset.mode),
       agent: normalizeAgentMode(state.agentMode),
+      resource_visibility: currentResourceVisibility(),
     };
     const mref = getSelectedCompletionModelRef();
     if (mref) {
@@ -20329,7 +20429,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         return;
       }
     }
-    state.sessionTargetKey = currentTargetKey();
+    state.sessionTargetKey = currentSessionBindingFingerprint();
     state.sending = true;
     state.aborting = false;
     state.pendingPromptDraft = draftText;
@@ -20446,7 +20546,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     const onSessionSelectChange = function () {
       state.sessionId = String(els.sessionSelect.value || "");
       restoreDeltaDebugLog(state.sessionId);
-      state.sessionTargetKey = currentTargetKey();
+      state.sessionTargetKey = currentSessionBindingFingerprint();
       resetPendingPermissionState();
       rememberSession();
       refreshMessages().catch(function (error) {
@@ -20468,6 +20568,17 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
   if (els.contextRefresh) {
     els.contextRefresh.addEventListener("click", function () {
+      refreshContextPreview(true).catch(function (error) {
+        setInlineNote("刷新上下文预览失败：" + String(error.message || error));
+      });
+    });
+  }
+
+  const resourceVisibilitySelect = document.getElementById("author-resource-visibility-select");
+  if (resourceVisibilitySelect) {
+    resourceVisibilitySelect.addEventListener("sl-change", function () {
+      state.contextPreviewFetchedAtMs = 0;
+      state.contextPreviewScopeKey = "";
       refreshContextPreview(true).catch(function (error) {
         setInlineNote("刷新上下文预览失败：" + String(error.message || error));
       });
