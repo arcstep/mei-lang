@@ -411,6 +411,7 @@ mod tests {
                         MetricContract {
                             id: "sales_total".to_string(),
                             label: Some("销售总额".to_string()),
+                            unit: Some("元".to_string()),
                             purpose: None,
                             shape: MetricShape::Scalar,
                             schema: vec![ColumnSchema {

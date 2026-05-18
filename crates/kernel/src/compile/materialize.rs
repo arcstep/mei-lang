@@ -462,6 +462,11 @@ fn materialize_legacy_metric_map(
                     .get("label")
                     .and_then(Value::as_str)
                     .map(ToString::to_string),
+                unit: map
+                    .get("unit")
+                    .and_then(Value::as_str)
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
                 purpose: None,
                 shape,
                 schema,

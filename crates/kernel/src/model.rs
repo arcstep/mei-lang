@@ -401,6 +401,9 @@ pub struct MetricContract {
     pub id: String,
     #[serde(default)]
     pub label: Option<String>,
+    /// `ds.scalar_map(..., unit = "...")` 等声明的展示单位，供指标卡等 UI 与数值分列展示。
+    #[serde(default)]
+    pub unit: Option<String>,
     #[serde(default)]
     pub purpose: Option<String>,
     #[serde(default = "default_metric_shape")]
