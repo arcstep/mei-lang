@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    compile_app_with_options, initial_runtime_state, project_runtime_view, CompileOptions,
-    CompiledApp, DatasetView, RuntimeState, UiNodeDecl,
+    compile_app_with_options, evaluate_runtime_metric_defs, initial_runtime_state,
+    project_runtime_view, CompileOptions, CompiledApp, DatasetView, RuntimeState, UiNodeDecl,
 };
 use serde_json::{json, Value};
 
@@ -102,9 +102,11 @@ where
             let matches_target = nt == normalize_path(by_scene.target_file.as_str());
             if matches_target {
                 selected_scene = Some(by_scene.scene_id.clone());
-            } else if let Some(by_target) = base_compiled.scene_routes.iter().find(|e| {
-                normalize_path(e.target_file.as_str()) == nt
-            }) {
+            } else if let Some(by_target) = base_compiled
+                .scene_routes
+                .iter()
+                .find(|e| normalize_path(e.target_file.as_str()) == nt)
+            {
                 if by_target.scene_id != by_scene.scene_id {
                     return Err(anyhow!(
                         "scene `{scene_id}` is not bound to target `{target_file}`"
@@ -112,9 +114,11 @@ where
                 }
                 selected_scene = Some(by_target.scene_id.clone());
             } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_file) {
-                if let Some(by_target) = base_compiled.scene_routes.iter().find(|e| {
-                    normalize_path(e.target_file.as_str()) == normalize_path(&rel)
-                }) {
+                if let Some(by_target) = base_compiled
+                    .scene_routes
+                    .iter()
+                    .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
+                {
                     if by_target.scene_id != by_scene.scene_id {
                         return Err(anyhow!(
                             "scene `{scene_id}` is not bound to target `{target_file}`"
@@ -145,9 +149,11 @@ where
         {
             selected_scene = Some(found.scene_id.clone());
         } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_only) {
-            if let Some(found) = base_compiled.scene_routes.iter().find(|e| {
-                normalize_path(e.target_file.as_str()) == normalize_path(&rel)
-            }) {
+            if let Some(found) = base_compiled
+                .scene_routes
+                .iter()
+                .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
+            {
                 selected_scene = Some(found.scene_id.clone());
             }
         }
@@ -522,11 +528,11 @@ fn build_prompt_catalog_lines(
     let mut lines: Vec<String> = Vec::new();
     lines.push("[World — catalog (highest-priority context)]".to_string());
     lines.push(
-        "Below lists bindable world assets for this scope. When a dataset resource id is known or implied (e.g. `typical_cases`), call `dataset_query` once in the first tool round. It returns bounded schema+filters+metric ids+sample rows, usually enough without follow-up tools."
+        "Below lists bindable world assets for this scope. When a dataset resource id is known or implied (e.g. `typical_cases`), call `dataset_query` for row/schema questions, or `dataset_metric` for aggregated questions whose metric id is already listed below (count/rate/trend/summary card asks)."
             .to_string(),
     );
     lines.push(
-        "Tool-chaining guard: do NOT read_file() `.xlsx/.xls` (binary). For dataset facts, do NOT chain `read_file` / `resource_list` / `resource_runtime_peek` after a successful `dataset_query` unless the user explicitly asks runtime trace or verbatim DSL edits."
+        "Tool-chaining guard: do NOT read_file() `.xlsx/.xls` (binary). `dataset_query` returns schema+filters+metric ids+sample rows, while `dataset_metric` returns metric values. For dataset facts, do NOT chain `read_file` / `resource_list` / `resource_runtime_peek` after a successful dataset tool call unless the user explicitly asks runtime trace or verbatim DSL edits."
             .to_string(),
     );
     lines.push(format!(
@@ -557,7 +563,7 @@ fn build_prompt_catalog_lines(
             let mstr = if metric_ids.is_empty() {
                 "-".to_string()
             } else {
-                metric_ids
+                metric_ids.clone()
             };
             let ds = if r.dataset.is_some() {
                 "dataset:yes"
@@ -566,7 +572,11 @@ fn build_prompt_catalog_lines(
             };
             let title = r.title.as_deref().unwrap_or("");
             let tool_hint = if matches!(r.kind.as_str(), "dataset" | "dataset_view") {
-                "tool=dataset_query"
+                if metric_ids.is_empty() {
+                    "tool=dataset_query"
+                } else {
+                    "tool=dataset_query,dataset_metric"
+                }
             } else {
                 "tool=none"
             };
@@ -1306,6 +1316,96 @@ pub(crate) fn query_world_dataset(
         *v = json!(after);
     }
     Ok(payload)
+}
+
+pub(crate) fn query_world_dataset_metrics(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    id: &str,
+    metric_ids: &[String],
+    search: Option<&str>,
+    filters: &BTreeMap<String, String>,
+) -> Result<Value> {
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let dataset_id = id.trim();
+    if dataset_id.is_empty() {
+        return Err(anyhow!("query parameter `id` is required"));
+    }
+    let loaded = bundle
+        .compiled
+        .resources
+        .iter()
+        .find(|item| item.id == dataset_id)
+        .ok_or_else(|| anyhow!("dataset resource `{dataset_id}` not found"))?;
+    let dataset = loaded
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow!("resource `{dataset_id}` is not a dataset"))?;
+    if dataset.runtime_metric_defs.is_empty() {
+        return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
+    }
+
+    let app_root = source_root.join(app_id);
+    let query_options = DatasetQueryOptions {
+        page: 1,
+        page_size: 0,
+        search: search
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        filters: filters.clone(),
+        collect_all: true,
+    };
+    let filtered_rows = query_dataset_rows(&app_root, dataset, query_options)?;
+
+    let mut runtime_dataset = dataset.clone();
+    runtime_dataset.rows = filtered_rows.rows.clone();
+    if !filtered_rows.columns.is_empty() {
+        runtime_dataset.columns = filtered_rows.columns.clone();
+    }
+
+    let mut datasets = bundle
+        .compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    datasets.insert(dataset_id.to_string(), runtime_dataset.clone());
+
+    let metric_filter = if metric_ids.is_empty() {
+        None
+    } else {
+        Some(metric_ids)
+    };
+    let metrics_map = evaluate_runtime_metric_defs(
+        &dataset.runtime_metric_defs,
+        &runtime_dataset.rows,
+        &datasets,
+        metric_filter,
+    )?;
+    let metrics = if metric_ids.is_empty() {
+        metrics_map.into_values().collect::<Vec<_>>()
+    } else {
+        metric_ids
+            .iter()
+            .filter_map(|metric_id| metrics_map.get(metric_id).cloned())
+            .collect::<Vec<_>>()
+    };
+
+    Ok(json!({
+        "app_id": app_id,
+        "scene_id": bundle.contract.scene.id,
+        "dataset_id": dataset_id,
+        "total_rows": runtime_dataset.rows.len(),
+        "metrics": metrics,
+        "usage_hint": "指标问答优先使用 dataset_metric；若要查看明细行，再改用 dataset_query。"
+    }))
 }
 
 pub(crate) fn query_world_runtime(

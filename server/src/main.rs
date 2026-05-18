@@ -19,9 +19,9 @@ use clap::{Parser, Subcommand};
 use mei_lang_kernel::CompiledApp;
 use std::time::Instant;
 
+mod agent_runtime;
 mod http;
 mod mei_agent;
-mod agent_runtime;
 mod resource_tool_bridge;
 
 #[derive(Parser)]
@@ -120,7 +120,9 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args).await,
-        Command::Agent(args) => agent_command(AgentRuntimeArgs { command: args.command }),
+        Command::Agent(args) => agent_command(AgentRuntimeArgs {
+            command: args.command,
+        }),
     }
 }
 
@@ -232,20 +234,20 @@ fn agent_command(args: AgentRuntimeArgs) -> Result<()> {
                 package_root.join(source_root)
             };
             match command {
-            AgentSkillCommand::Status => {
-                let status = agent_runtime::runtime::managed_agent_skill_status_for_root(
-                    &package_root,
-                    &source_root,
-                );
-                println!("{}", serde_json::to_string_pretty(&status)?);
-            }
-            AgentSkillCommand::Sync => {
-                let status = agent_runtime::runtime::sync_managed_agent_skill_for_root(
-                    &package_root,
-                    &source_root,
-                )?;
-                println!("{}", serde_json::to_string_pretty(&status)?);
-            }
+                AgentSkillCommand::Status => {
+                    let status = agent_runtime::runtime::managed_agent_skill_status_for_root(
+                        &package_root,
+                        &source_root,
+                    );
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                }
+                AgentSkillCommand::Sync => {
+                    let status = agent_runtime::runtime::sync_managed_agent_skill_for_root(
+                        &package_root,
+                        &source_root,
+                    )?;
+                    println!("{}", serde_json::to_string_pretty(&status)?);
+                }
             }
         }
     }

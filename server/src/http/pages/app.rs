@@ -25,11 +25,7 @@ fn manage_scene_for_render(compiled: &CompiledApp, query_scene: Option<&str>) ->
     if q.is_empty() {
         return None;
     }
-    if compiled
-        .scene_routes
-        .iter()
-        .any(|r| r.scene_id == q)
-    {
+    if compiled.scene_routes.iter().any(|r| r.scene_id == q) {
         return Some(q.to_string());
     }
     compiled.active_scene.clone()
@@ -92,13 +88,28 @@ fn percent_encode_query_component(value: &str) -> String {
 /// 访问态允许的 query：`scene`、`tab`、`chrome`（不含 `file`/`target`）。
 fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
     let mut parts = Vec::new();
-    if let Some(scene) = query.scene.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(scene) = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         parts.push(format!("scene={}", percent_encode_query_component(scene)));
     }
-    if let Some(tab) = query.tab.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(tab) = query
+        .tab
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         parts.push(format!("tab={}", percent_encode_query_component(tab)));
     }
-    if let Some(chrome) = query.chrome.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(chrome) = query
+        .chrome
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         parts.push(format!("chrome={}", percent_encode_query_component(chrome)));
     }
     if parts.is_empty() {
@@ -141,8 +152,10 @@ pub async fn app_page(
             .map(|f| !f.trim().is_empty())
             .unwrap_or(false)
     {
-        return Ok(Redirect::temporary(&access_sanitized_redirect_location(&app_id, &query))
-            .into_response());
+        return Ok(
+            Redirect::temporary(&access_sanitized_redirect_location(&app_id, &query))
+                .into_response(),
+        );
     }
     let discover_started = Instant::now();
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;

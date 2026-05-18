@@ -14,7 +14,7 @@ pub struct AgentResourceScope {
 }
 
 pub trait ResourceToolExecutor: Send + Sync {
-    /// 执行资源查询工具（不含 `read_file`），当前主要用于 `dataset_query`。
+    /// 执行资源查询工具（不含 `read_file`），当前主要用于 dataset 查询/指标查询。
     fn run_resource_tool(
         &self,
         source_root: &Path,
@@ -45,7 +45,11 @@ impl ResourceToolExecutor for NoopResourceToolExecutor {
 
 pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
     let normalized = mode.trim().to_ascii_lowercase();
-    let mut tools = vec![llm::read_file_tool_definition(), dataset_query_tool_definition()];
+    let mut tools = vec![
+        llm::read_file_tool_definition(),
+        dataset_query_tool_definition(),
+        dataset_metric_tool_definition(),
+    ];
     if normalized == "build" {
         tools.push(rewrite_current_mei_tool_definition());
         tools.push(skill_tools::skill_list_tool_definition());
@@ -76,6 +80,36 @@ fn dataset_query_tool_definition() -> Value {
                         "items": { "type": "string" }
                     },
                     "limit": { "type": "integer", "description": "Optional row count (default 10, max 50)" },
+                    "scene_id": { "type": "string", "description": "Override scene id (optional)" },
+                    "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
+                },
+                "required": ["id"]
+            }
+        }
+    })
+}
+
+fn dataset_metric_tool_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": "dataset_metric",
+            "description": "Query runtime metric values for one dataset resource by id via host Mei dataset engine. Best for aggregated asks such as count/rate/trend/summary-card values.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Dataset resource id in world, e.g. issue_result_list" },
+                    "metric_ids": {
+                        "type": "array",
+                        "description": "Optional metric ids to evaluate. If omitted, returns all runtime metrics on the dataset.",
+                        "items": { "type": "string" }
+                    },
+                    "search": { "type": "string", "description": "Optional global text search before metric evaluation" },
+                    "filters": {
+                        "type": "object",
+                        "description": "Optional field filter map applied before metric evaluation",
+                        "additionalProperties": { "type": "string" }
+                    },
                     "scene_id": { "type": "string", "description": "Override scene id (optional)" },
                     "target_file": { "type": "string", "description": "Override target .mei path (optional)" }
                 },
@@ -125,6 +159,7 @@ mod tests {
         let names = tool_names("ask");
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"dataset_query".to_string()));
+        assert!(names.contains(&"dataset_metric".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
         assert!(!names.contains(&"rewrite_current_mei".to_string()));
@@ -135,6 +170,7 @@ mod tests {
         let names = tool_names("build");
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"dataset_query".to_string()));
+        assert!(names.contains(&"dataset_metric".to_string()));
         assert!(names.contains(&"skill_list".to_string()));
         assert!(names.contains(&"skill_read".to_string()));
         assert!(names.contains(&"rewrite_current_mei".to_string()));

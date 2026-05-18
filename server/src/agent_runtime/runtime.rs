@@ -433,12 +433,10 @@ pub(crate) fn managed_agent_config_summary(state: &AppState) -> ManagedOpencodeC
         .first()
         .map(|c| c.model_id.clone())
         .or_else(|| qwen_completion_first.map(|s| s.to_string()));
-    let default_model = completion_model
-        .as_deref()
-        .map(managed_agent_default_model);
+    let default_model = completion_model.as_deref().map(managed_agent_default_model);
     let preferred_mode = state.agent_preferred_mode.as_ref().clone();
-    let preferred_server_url = (preferred_mode == "external")
-        .then(|| state.agent_preferred_server_url.as_ref().clone());
+    let preferred_server_url =
+        (preferred_mode == "external").then(|| state.agent_preferred_server_url.as_ref().clone());
 
     ManagedOpencodeConfigSummary {
         agent_backend: "native",
@@ -499,8 +497,6 @@ pub(crate) async fn start_managed_agent(
     managed_agent_runtime_status(state)
 }
 
-pub(crate) fn stop_managed_agent(
-    state: &AppState,
-) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
+pub(crate) fn stop_managed_agent(state: &AppState) -> anyhow::Result<ManagedOpencodeRuntimeStatus> {
     managed_agent_runtime_status(state)
 }

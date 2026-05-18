@@ -37,22 +37,14 @@ pub(crate) struct AgentModePolicy {
 }
 
 fn normalize_route_mode(value: Option<&str>) -> RouteMode {
-    match value
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
         Some("access") | Some("run") => RouteMode::Access,
         _ => RouteMode::Manage,
     }
 }
 
 fn normalize_mode(value: Option<&str>) -> Option<AgentMode> {
-    match value
-        .map(str::trim)
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
+    match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
         Some("ask") | Some("plan") => Some(AgentMode::Ask),
         Some("build") => Some(AgentMode::Build),
         _ => None,
@@ -89,7 +81,11 @@ mod tests {
     use super::{AgentMode, AgentModePolicy, RouteMode};
     use crate::agent_runtime::bridge::BridgePromptRequest;
 
-    fn request(mode: Option<&str>, route_mode: Option<&str>, agent: Option<&str>) -> BridgePromptRequest {
+    fn request(
+        mode: Option<&str>,
+        route_mode: Option<&str>,
+        agent: Option<&str>,
+    ) -> BridgePromptRequest {
         BridgePromptRequest {
             text: String::new(),
             app_id: None,

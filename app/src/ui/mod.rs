@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
+mod agent_panel;
 mod compile_status;
 mod manage_routing;
-mod agent_panel;
 mod preview;
 mod preview_chrome;
 mod route;
@@ -156,11 +156,11 @@ pub fn render_page(
 
 #[cfg(test)]
 mod tests {
-    use super::UiRouteMode;
     use super::manage_routing::{
         access_scene_query, encode_query_value, manage_tab_href, manage_view_tab_from_query,
         route_query, ManageViewTab,
     };
+    use super::UiRouteMode;
 
     #[test]
     fn manage_defaults_to_diagnostics_when_errors_exist() {
@@ -188,7 +188,10 @@ mod tests {
 
     #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
-        assert_eq!(route_query(UiRouteMode::Manage, None, None, Some("source")), "");
+        assert_eq!(
+            route_query(UiRouteMode::Manage, None, None, Some("source")),
+            ""
+        );
         assert_eq!(
             route_query(
                 UiRouteMode::Manage,
@@ -222,10 +225,7 @@ mod tests {
             access_scene_query(Some("中文 场景")),
             "?scene=%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
         );
-        assert_eq!(
-            encode_query_value("README #1.md"),
-            "README%20%231.md"
-        );
+        assert_eq!(encode_query_value("README #1.md"), "README%20%231.md");
     }
 
     #[test]

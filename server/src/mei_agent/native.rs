@@ -304,17 +304,16 @@ impl NativeAgent {
         let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
         if let Ok(hash) = snap_git.track() {
             if let Ok(db) = self.inner.db.lock() {
-                if let Err(e) = Self::persist_workspace_tree_hash(
-                    &db,
-                    &id,
-                    SESSION_BASELINE_ANCHOR,
-                    &hash,
-                ) {
+                if let Err(e) =
+                    Self::persist_workspace_tree_hash(&db, &id, SESSION_BASELINE_ANCHOR, &hash)
+                {
                     tracing::warn!(%e, "session baseline tree snapshot persist failed");
                 }
             }
         } else {
-            tracing::warn!("session baseline tree track skipped (git unavailable or worktree not ready)");
+            tracing::warn!(
+                "session baseline tree track skipped (git unavailable or worktree not ready)"
+            );
         }
         Ok(BridgeSessionSummary {
             id,
@@ -783,7 +782,7 @@ impl NativeAgent {
         let build_mode = agent_mode.trim().eq_ignore_ascii_case("build");
         match name {
             "read_file" => self.run_read_file_tool(session_id, call_id, name, args, app_id),
-            "dataset_query" => self.inner.resource_tools.run_resource_tool(
+            "dataset_query" | "dataset_metric" => self.inner.resource_tools.run_resource_tool(
                 &self.inner.source_root,
                 app_id,
                 resource_scope,
@@ -793,16 +792,20 @@ impl NativeAgent {
             "rewrite_current_mei" if build_mode => {
                 self.run_rewrite_current_mei_tool(args, resource_scope)
             }
-            "skill_list" if build_mode => {
-                skill_tools::execute_skill_list(&self.inner.skill_package_root, &self.inner.source_root)
-            }
+            "skill_list" if build_mode => skill_tools::execute_skill_list(
+                &self.inner.skill_package_root,
+                &self.inner.source_root,
+            ),
             "skill_read" if build_mode => skill_tools::execute_skill_read(
                 &self.inner.skill_package_root,
                 &self.inner.source_root,
                 args,
             ),
             "skill_list" | "skill_read" | "rewrite_current_mei" => {
-                format!("error: tool `{name}` is disabled in `{}` mode", agent_mode.trim())
+                format!(
+                    "error: tool `{name}` is disabled in `{}` mode",
+                    agent_mode.trim()
+                )
             }
             other => format!("error: tool `{other}` is not allowed"),
         }
@@ -978,27 +981,24 @@ impl NativeAgent {
                     .target_file
                     .as_deref()
                     .and_then(llm::sanitize_relative_path);
-                if let Err(e) = self.capture_session_diff_snapshot(
-                    &sid,
-                    &assistant_msg_id,
-                    diff_rel.as_deref(),
-                ) {
+                if let Err(e) =
+                    self.capture_session_diff_snapshot(&sid, &assistant_msg_id, diff_rel.as_deref())
+                {
                     tracing::warn!(%e, "session diff snapshot failed");
                 }
                 let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
                 if let Ok(hash) = snap_git.track() {
                     if let Ok(db) = self.inner.db.lock() {
-                        if let Err(e) = Self::persist_workspace_tree_hash(
-                            &db,
-                            &sid,
-                            &assistant_msg_id,
-                            &hash,
-                        ) {
+                        if let Err(e) =
+                            Self::persist_workspace_tree_hash(&db, &sid, &assistant_msg_id, &hash)
+                        {
                             tracing::warn!(%e, "workspace tree snapshot persist failed");
                         }
                     }
                 } else {
-                    tracing::warn!("workspace tree track skipped after assistant (git unavailable)");
+                    tracing::warn!(
+                        "workspace tree track skipped after assistant (git unavailable)"
+                    );
                 }
             }
             Err(e) => {
@@ -1403,7 +1403,9 @@ impl NativeAgent {
         let anchor = message_id
             .map(|m| format!("(live git diff; session anchor {session_id} @ {m}; no snapshot row)"))
             .unwrap_or_else(|| format!("(live git diff; session {session_id})"));
-        let file_label = diff_rel.map(str::to_string).unwrap_or_else(|| anchor.clone());
+        let file_label = diff_rel
+            .map(str::to_string)
+            .unwrap_or_else(|| anchor.clone());
         Ok(BridgeDiffSummary {
             session_id: session_id.to_string(),
             message_id: message_id.map(ToString::to_string),
@@ -1449,9 +1451,8 @@ impl NativeAgent {
                  ORDER BY m.sort_order DESC LIMIT 1",
             )
             .context("prepare last assistant tree")?;
-        let mut rows = stmt.query_map(params![session_id, before_sort], |r| {
-            r.get::<_, String>(0)
-        })?;
+        let mut rows =
+            stmt.query_map(params![session_id, before_sort], |r| r.get::<_, String>(0))?;
         match rows.next() {
             Some(Ok(s)) => Ok(Some(s)),
             Some(Err(e)) => Err(e.into()),
@@ -1459,10 +1460,7 @@ impl NativeAgent {
         }
     }
 
-    fn query_session_baseline_tree(
-        conn: &Connection,
-        session_id: &str,
-    ) -> Result<Option<String>> {
+    fn query_session_baseline_tree(conn: &Connection, session_id: &str) -> Result<Option<String>> {
         match conn.query_row(
             "SELECT tree_hash FROM workspace_tree_snapshots \
              WHERE session_id = ?1 AND anchor_message_id = ?2",
@@ -1532,10 +1530,7 @@ impl NativeAgent {
                 Ok(baseline) => match snap_git.restore_worktree(tgt) {
                     Ok(()) => {
                         if let Value::Object(ref mut o) = snap_val {
-                            o.insert(
-                                "workspace_baseline_tree".to_string(),
-                                json!(baseline),
-                            );
+                            o.insert("workspace_baseline_tree".to_string(), json!(baseline));
                             o.insert("workspace_target_tree".to_string(), json!(tgt));
                         }
                     }
@@ -1799,7 +1794,10 @@ impl NativeAgent {
             return "error: target path escapes workspace root".to_string();
         }
         if let Err(e) = std::fs::write(&full, content.as_bytes()) {
-            return format!("error: failed to write target file `{}`: {e}", full.display());
+            return format!(
+                "error: failed to write target file `{}`: {e}",
+                full.display()
+            );
         }
         format!(
             "ok: rewrote `{}` ({} bytes)",
@@ -2102,9 +2100,7 @@ fn model_from_env() -> String {
 }
 
 fn normalize_diff_rel_path(rel: &str) -> String {
-    rel.replace('\\', "/")
-        .trim_start_matches("./")
-        .to_string()
+    rel.replace('\\', "/").trim_start_matches("./").to_string()
 }
 
 fn paths_match_for_diff_filter(git_path: &str, rel: &str) -> bool {

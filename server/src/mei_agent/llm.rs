@@ -395,7 +395,9 @@ pub(crate) fn stream_chat_with_tools_blocking(
             "tool_calls": tool_calls_json,
         });
 
-        if message_assistant_text_content(&assistant_msg).is_none() && !round.assistant_text.is_empty() {
+        if message_assistant_text_content(&assistant_msg).is_none()
+            && !round.assistant_text.is_empty()
+        {
             assistant_msg["content"] = Value::String(round.assistant_text.clone());
         }
         messages.push(assistant_msg);
@@ -414,23 +416,23 @@ pub(crate) fn stream_chat_with_tools_blocking(
             };
             batch.push((id.to_string(), name.to_string(), args));
         }
-            let outputs = run_tool_batch(&batch);
-            if outputs.len() != batch.len() {
-                anyhow::bail!(
-                    "tool batch size mismatch (calls={}, outputs={})",
-                    batch.len(),
-                    outputs.len()
-                );
-            }
-            for ((id, _, _), content) in batch.iter().zip(outputs.into_iter()) {
-                messages.push(json!({
-                    "role": "tool",
-                    "tool_call_id": id,
-                    "content": content,
-                }));
-            }
-            // 让后续流式/非流式正文写入新的 text part，使 parts 顺序与对话时间线一致（正文、工具、再正文…）。
-            on_after_tool_calls()?;
+        let outputs = run_tool_batch(&batch);
+        if outputs.len() != batch.len() {
+            anyhow::bail!(
+                "tool batch size mismatch (calls={}, outputs={})",
+                batch.len(),
+                outputs.len()
+            );
+        }
+        for ((id, _, _), content) in batch.iter().zip(outputs.into_iter()) {
+            messages.push(json!({
+                "role": "tool",
+                "tool_call_id": id,
+                "content": content,
+            }));
+        }
+        // 让后续流式/非流式正文写入新的 text part，使 parts 顺序与对话时间线一致（正文、工具、再正文…）。
+        on_after_tool_calls()?;
     }
 
     anyhow::bail!(

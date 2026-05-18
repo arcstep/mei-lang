@@ -8,8 +8,9 @@ pub use handlers::{
 };
 
 pub(crate) use resource_query::{
-    default_resource_query_tools, query_resource_dataset, query_resource_get, query_resource_list,
-    query_resource_runtime_peek, RESOURCE_QUERY_SCHEMA_VERSION,
+    default_resource_query_tools, query_resource_dataset, query_resource_dataset_metric,
+    query_resource_get, query_resource_list, query_resource_runtime_peek,
+    RESOURCE_QUERY_SCHEMA_VERSION,
 };
 pub(crate) use types::{ResourceInventoryItem, WorldContextSnapshot, WorldScope};
 pub(crate) use world::{build_world_context_snapshot, build_world_context_snapshot_cached};

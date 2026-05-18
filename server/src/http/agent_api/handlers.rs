@@ -10,23 +10,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    mei_agent::{
-        agent_abort_session, agent_create_session, agent_health, agent_list_sessions,
-        agent_project_worktree, agent_respond_permission, agent_revert_session, agent_send_prompt,
-        agent_session_diff, agent_session_messages, agent_unrevert_session, agent_vcs_summary,
-        llm_config,
-        mode_policy::AgentModePolicy,
-        native::{encode_host_event_line, filter_session_event},
-        sanitize_relative_path,
-        resolve_agent_conn,
-    },
     agent_runtime::{
         bridge::{
-            BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary, BridgeModelRef,
-            BridgeHealthResponse, BridgePermissionResponseRequest, BridgePermissionResponseSummary,
-            BridgePromptRequest, BridgePromptSummary, BridgeRevertRequest, BridgeRevertSummary,
-            BridgeSessionDiffQuery, BridgeSessionMessageRaw, BridgeSessionSummary,
-            BridgeUnrevertSummary,
+            BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary,
+            BridgeHealthResponse, BridgeModelRef, BridgePermissionResponseRequest,
+            BridgePermissionResponseSummary, BridgePromptRequest, BridgePromptSummary,
+            BridgeRevertRequest, BridgeRevertSummary, BridgeSessionDiffQuery,
+            BridgeSessionMessageRaw, BridgeSessionSummary, BridgeUnrevertSummary,
         },
         events::{
             normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
@@ -36,6 +26,15 @@ use crate::{
             start_managed_agent, stop_managed_agent, sync_managed_agent_skill,
         },
         StartManagedOpencodeRequest,
+    },
+    mei_agent::{
+        agent_abort_session, agent_create_session, agent_health, agent_list_sessions,
+        agent_project_worktree, agent_respond_permission, agent_revert_session, agent_send_prompt,
+        agent_session_diff, agent_session_messages, agent_unrevert_session, agent_vcs_summary,
+        llm_config,
+        mode_policy::AgentModePolicy,
+        native::{encode_host_event_line, filter_session_event},
+        resolve_agent_conn, sanitize_relative_path,
     },
     AppState,
 };
@@ -200,9 +199,7 @@ pub async fn api_agent_health(State(state): State<AppState>) -> Response {
     }
 }
 
-pub async fn api_agent_model_probe(
-    Query(query): Query<OpencodeModelProbeQuery>,
-) -> Response {
+pub async fn api_agent_model_probe(Query(query): Query<OpencodeModelProbeQuery>) -> Response {
     let provider_id = query
         .provider_id
         .as_deref()

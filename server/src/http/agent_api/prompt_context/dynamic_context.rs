@@ -7,7 +7,8 @@ use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
 use super::paths::{resolve_app_root, sanitize_relative_path};
 use super::request_scope::world_scope_from_request;
 use super::world_snapshot_lines::{
-    append_world_context_error_lines, append_world_context_lines, append_world_context_snapshot_lines,
+    append_world_context_error_lines, append_world_context_lines,
+    append_world_context_snapshot_lines,
 };
 
 const ASK_INLINE_TARGET_MAX_BYTES: usize = 24 * 1024;
@@ -32,7 +33,11 @@ fn resolve_target_path_for_request(
     app_id: &str,
     request: &BridgePromptRequest,
 ) -> Option<(String, std::path::PathBuf)> {
-    let raw_target = request.target_file.as_deref().map(str::trim).filter(|v| !v.is_empty())?;
+    let raw_target = request
+        .target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())?;
     let target_rel = sanitize_relative_path(raw_target)?;
     let mut candidates = vec![(target_rel.clone(), state.source_root.join(&target_rel))];
     let app_prefixed = format!("{app_id}/{target_rel}");
@@ -80,13 +85,16 @@ fn build_dynamic_mei_context(
     }
     lines.push(String::new());
     if ask_mode {
-        if let Some((target_rel, full_path)) = resolve_target_path_for_request(state, &app_id, request) {
+        if let Some((target_rel, full_path)) =
+            resolve_target_path_for_request(state, &app_id, request)
+        {
             match fs::read_to_string(&full_path) {
                 Ok(content) => {
                     let bytes = content.as_bytes();
                     let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
                         (
-                            String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES]).to_string(),
+                            String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES])
+                                .to_string(),
                             true,
                         )
                     } else {
@@ -216,7 +224,8 @@ mod tests {
     }
 
     fn prepare_app_root() -> (PathBuf, PathBuf) {
-        let root = std::env::temp_dir().join(format!("mei_dynamic_context_test_{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("mei_dynamic_context_test_{}", Uuid::new_v4()));
         let app_root = root.join("demo");
         fs::create_dir_all(&app_root).expect("create app root");
         fs::write(

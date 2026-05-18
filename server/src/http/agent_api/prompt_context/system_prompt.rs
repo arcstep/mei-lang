@@ -39,7 +39,7 @@ pub(crate) fn build_meilang_system_prompt(
                 "Tool-first information policy (ask mode):\n",
                 "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
                 "- Use only read-only workspace evidence and keep answers scoped to the current page/target.\n",
-                "- For dataset resources, call `dataset_query`; do not read spreadsheets with `read_file`.\n",
+                "- For dataset resources, use `dataset_query` for schema/rows and `dataset_metric` for aggregated asks (count/rate/trend/summary-card values); do not read spreadsheets with `read_file`.\n",
                 "- Do not generate or suggest direct `.mei` rewrite plans in ask mode.\n",
                 "- Ask mode intentionally disables authoring skill tools; answer from injected context and read-only files."
             )
@@ -51,12 +51,13 @@ pub(crate) fn build_meilang_system_prompt(
                 "Tool-first information policy:\n",
                 "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
                 "- The session injects a **[World — catalog]** block first: treat it as the authoritative index of `world.resources` (datasets, sources, metric ids) plus query-tool contracts.\n",
-                "- For dataset resources, call **`dataset_query` once** in the first tool round when the id is known/implied; default output is bounded (`schema + filters + metric ids + first 10 rows + first 10 columns`, cell text truncated).\n",
-                "- **Do not** chain `read_file` on the active `.mei` after successful `dataset_query` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
-                "- **Do not** call `resource_list` / `resource_get` / `resource_runtime_peek` for routine dataset Q&A after a successful `dataset_query`; only use runtime peek when user explicitly asks phase/trace.\n",
+                "- For dataset resources, call **`dataset_query` once** in the first tool round when the question needs schema/filters/sample rows; it returns bounded (`schema + filters + metric ids + first 10 rows + first 10 columns`, cell text truncated).\n",
+                "- For aggregated questions like '多少/占比/趋势/卡片值', prefer **`dataset_metric` once** when the dataset id is known/implied and metric ids are available from the world catalog or dataset query output.\n",
+                "- **Do not** chain `read_file` on the active `.mei` after successful `dataset_query` / `dataset_metric` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
+                "- **Do not** call `resource_list` / `resource_get` / `resource_runtime_peek` for routine dataset Q&A after a successful dataset tool call; only use runtime peek when user explicitly asks phase/trace.\n",
                 "- Session context is still an index, not full app source.\n",
                 "- Read workspace **text** files with `read_file` (path relative to workspace root, no `..`; app-owned `.mei` / `.md` paths almost always start with `<app_id>/`, e.g. `spbjw/data/...`).\n",
-                "- Query datasets with `dataset_query` (optional overrides: scene_id, target_file).\n",
+                "- Query datasets with `dataset_query` / `dataset_metric` (optional overrides: scene_id, target_file).\n",
                 "- Read MeiLang author skill docs with `skill_list` then `skill_read` (path relative to skill root, no `..`).\n",
                 "- Only pull large sources when the user asks for edits/audits/reviews or you need evidence to answer correctly.",
             )

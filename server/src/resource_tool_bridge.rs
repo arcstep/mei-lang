@@ -6,8 +6,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::http::scene_api::{
-    query_resource_dataset, query_resource_get, query_resource_list, query_resource_runtime_peek,
-    WorldScope,
+    query_resource_dataset, query_resource_dataset_metric, query_resource_get, query_resource_list,
+    query_resource_runtime_peek, WorldScope,
 };
 use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceToolExecutor};
 
@@ -140,6 +140,43 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     &filters,
                     columns_ref,
                     limit,
+                ))
+            }
+            "dataset_metric" => {
+                let id = args
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or("");
+                if id.is_empty() {
+                    return "error: dataset_metric requires non-empty id".to_string();
+                }
+                let search = args
+                    .get("search")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                let filters = Self::parse_filters(&args);
+                let metric_ids = args
+                    .get("metric_ids")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                Self::json_result(query_resource_dataset_metric(
+                    source_root,
+                    app,
+                    scope_ref,
+                    id,
+                    &metric_ids,
+                    search,
+                    &filters,
                 ))
             }
             "resource_list" => {

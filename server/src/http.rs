@@ -1,6 +1,6 @@
+mod agent_api;
 mod compile_cache;
 mod datasets;
-mod agent_api;
 pub mod pages;
 pub mod projection_api;
 pub mod scene_api;
@@ -68,8 +68,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/agent/stop", post(agent_api::api_agent_stop))
         .route(
             "/api/agent/session",
-            get(agent_api::api_agent_list_sessions)
-                .post(agent_api::api_agent_create_session),
+            get(agent_api::api_agent_list_sessions).post(agent_api::api_agent_create_session),
         )
         .route(
             "/api/agent/session/:session_id/message",

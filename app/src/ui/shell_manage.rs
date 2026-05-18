@@ -1,12 +1,12 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
+use super::agent_panel;
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
     is_mei_script_target, source_language, AssetShellKind,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
-use super::agent_panel;
 use super::preview;
 use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;

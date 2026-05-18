@@ -58,7 +58,7 @@ pub(super) fn append_world_context_error_lines(
     lines.push("[World Index]".to_string());
     lines.push(format!("status=unavailable ({})", message));
     lines.push(format!(
-        "hint: `read_file` 路径相对于 workspace 根；应用内 `.mei` 常见为 `{app_id}/data/...`（裸写 `data/...` 会解析到 workspace 下错误目录）。dataset 资源优先用 `dataset_query`（不要读 `.xlsx`）；若 scope 仍失败，用 `read_file` 读目标 `.mei` 核对其中 `scene(id=...)`。"
+        "hint: `read_file` 路径相对于 workspace 根；应用内 `.mei` 常见为 `{app_id}/data/...`（裸写 `data/...` 会解析到 workspace 下错误目录）。dataset 行/结构问题优先用 `dataset_query`，指标值问题优先用 `dataset_metric`（都不要读 `.xlsx`）；若 scope 仍失败，用 `read_file` 读目标 `.mei` 核对其中 `scene(id=...)`。"
     ));
 }
 
@@ -133,7 +133,7 @@ pub(super) fn append_world_context_snapshot_lines(
         snapshot.runtime_summary.available_actions.join(", ")
     ));
     lines.push(format!(
-        "resource_inventory: related_items below are file/scene hints; [World — catalog] above is authoritative for world.resources ids. For dataset resources, use dataset_query(id) to get bounded schema+sample rows."
+        "resource_inventory: related_items below are file/scene hints; [World — catalog] above is authoritative for world.resources ids. For dataset resources, use dataset_query(id) for rows/schema and dataset_metric(id) for metric values."
     ));
 }
 

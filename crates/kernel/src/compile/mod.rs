@@ -101,21 +101,15 @@ fn inject_discovered_entry_scene_routes(
 
     const MAX_MEI_PROBES: usize = 400;
     let mut mei_files: Vec<(String, u128)> = Vec::new();
-    for entry in WalkDir::new(app_root)
-        .into_iter()
-        .filter_entry(|e| {
-            let name = e.file_name().to_string_lossy();
-            if e.depth() > 0 {
-                if matches!(
-                    name.as_ref(),
-                    ".git" | "node_modules" | "target" | ".mei"
-                ) {
-                    return false;
-                }
+    for entry in WalkDir::new(app_root).into_iter().filter_entry(|e| {
+        let name = e.file_name().to_string_lossy();
+        if e.depth() > 0 {
+            if matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".mei") {
+                return false;
             }
-            true
-        })
-    {
+        }
+        true
+    }) {
         let Ok(entry) = entry else { continue };
         if !entry.file_type().is_file() {
             continue;
@@ -142,19 +136,20 @@ fn inject_discovered_entry_scene_routes(
             break;
         }
         probed += 1;
-        let payload =
-            compile_scene_payload_for_target(app_root, app_decls, asset_map, rel_str.as_str(), None);
+        let payload = compile_scene_payload_for_target(
+            app_root,
+            app_decls,
+            asset_map,
+            rel_str.as_str(),
+            None,
+        );
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
         };
         if contract.scene.id.trim() != requested {
             continue;
         }
-        try_push_discovered_entry_route(
-            routes,
-            contract.scene.id.trim().to_string(),
-            rel_str,
-        );
+        try_push_discovered_entry_route(routes, contract.scene.id.trim().to_string(), rel_str);
         break;
     }
 }
@@ -321,11 +316,7 @@ pub fn compile_app_from_root_with_options(
                     Some(&route_meta),
                 )
             });
-        (
-            Some(route_meta.scene_id),
-            route_meta.target_file,
-            payload,
-        )
+        (Some(route_meta.scene_id), route_meta.target_file, payload)
     } else {
         (
             None,

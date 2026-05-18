@@ -149,10 +149,7 @@ impl WorkspaceSnapshotGit {
             .status()
             .context("spawn git checkout-index")?;
         if !r2.success() {
-            return Err(anyhow!(
-                "git checkout-index failed (exit {:?})",
-                r2.code()
-            ));
+            return Err(anyhow!("git checkout-index failed (exit {:?})", r2.code()));
         }
         Ok(())
     }

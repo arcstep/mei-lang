@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    agent_runtime::bridge::{BridgePendingPermission, BridgePermissionResponseRequest},
     mei_agent::{
         agent_list_pending_permissions, agent_respond_permission, permission_policy, AgentConn,
     },
-    agent_runtime::bridge::{BridgePendingPermission, BridgePermissionResponseRequest},
     AppState,
 };
 

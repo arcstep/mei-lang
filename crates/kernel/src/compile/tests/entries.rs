@@ -233,13 +233,19 @@ frame.add_panel(
     assert_eq!(compiled.active_scene.as_deref(), Some("home"));
     assert_eq!(compiled.active_target_file, "main.mei");
     assert_eq!(compiled.scene_routes.len(), 2);
-    assert!(compiled.scene_routes.iter().any(|route| route.scene_id == "home"
-        && route.target_file == "main.mei"
-        && route.kind == "inline"
-        && route.is_default));
-    assert!(compiled.scene_routes.iter().any(|route| route.scene_id == "home_default"
-        && route.target_file == "default.mei"
-        && route.kind == "file_ref"));
+    assert!(compiled
+        .scene_routes
+        .iter()
+        .any(|route| route.scene_id == "home"
+            && route.target_file == "main.mei"
+            && route.kind == "inline"
+            && route.is_default));
+    assert!(compiled
+        .scene_routes
+        .iter()
+        .any(|route| route.scene_id == "home_default"
+            && route.target_file == "default.mei"
+            && route.kind == "file_ref"));
 
     let _ = fs::remove_dir_all(&root);
 }

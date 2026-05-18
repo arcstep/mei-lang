@@ -9,10 +9,11 @@ use super::types::{
     WorldScope,
 };
 use super::world::{
-    query_world_asset, query_world_assets, query_world_dataset, query_world_runtime,
+    query_world_asset, query_world_assets, query_world_dataset, query_world_dataset_metrics,
+    query_world_runtime,
 };
 
-pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v3";
+pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v4";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[allow(dead_code)]
@@ -73,6 +74,19 @@ pub struct DatasetQueryToolInput {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct DatasetMetricQueryToolInput {
+    pub scope: ResourceToolScope,
+    pub id: String,
+    #[serde(default)]
+    pub metric_ids: Vec<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub filters: BTreeMap<String, String>,
+}
+
 pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
     vec![
         ResourceQueryToolSpec {
@@ -85,6 +99,18 @@ pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
                 .to_string(),
             output:
                 "bounded: {dataset{schema_preview,filters,metric_ids}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."
+                    .to_string(),
+        },
+        ResourceQueryToolSpec {
+            id: "dataset_metric".to_string(),
+            status: "phase2_api_ready".to_string(),
+            purpose:
+                "按 dataset 资源 id 查询运行时指标值（count/rate/trend 等聚合）；对应 LLM 工具名 dataset_metric"
+                    .to_string(),
+            input: "{id: string, metric_ids?: string[], search?: string, filters?: object, scene_id?, target_file?}"
+                .to_string(),
+            output:
+                "bounded: {dataset_id, total_rows, metrics}; when metric_ids omitted returns all runtime metrics for the dataset."
                     .to_string(),
         },
     ]
@@ -140,6 +166,18 @@ pub(crate) fn query_resource_dataset(
     )
 }
 
+pub(crate) fn query_resource_dataset_metric(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    id: &str,
+    metric_ids: &[String],
+    search: Option<&str>,
+    filters: &BTreeMap<String, String>,
+) -> Result<Value> {
+    query_world_dataset_metrics(source_root, app_id, scope, id, metric_ids, search, filters)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +188,9 @@ mod tests {
             .into_iter()
             .map(|item| item.id)
             .collect::<Vec<_>>();
-        assert_eq!(ids, vec!["dataset_query".to_string()]);
+        assert_eq!(
+            ids,
+            vec!["dataset_query".to_string(), "dataset_metric".to_string()]
+        );
     }
 }

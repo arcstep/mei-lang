@@ -106,13 +106,11 @@ pub(crate) async fn agent_session_diff(
     let agent = conn.clone();
     let sid = session_id.to_string();
     let mid = message_id.map(|s| s.to_string());
-    Ok(
-        tokio::task::spawn_blocking(move || {
-            agent.session_diff_blocking(&sid, mid.as_deref(), diff_path.as_deref())
-        })
-            .await
-            .map_err(|e| anyhow::anyhow!("diff: {e}"))??,
-    )
+    Ok(tokio::task::spawn_blocking(move || {
+        agent.session_diff_blocking(&sid, mid.as_deref(), diff_path.as_deref())
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("diff: {e}"))??)
 }
 
 pub(crate) async fn agent_abort_session(

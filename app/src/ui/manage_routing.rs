@@ -1,5 +1,5 @@
-use super::UiRouteMode;
 use super::compile_status::asset_dual_preview_source;
+use super::UiRouteMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManageViewTab {
@@ -34,13 +34,9 @@ pub(super) fn encode_query_value(value: &str) -> String {
     let mut out = String::new();
     for b in value.as_bytes() {
         match *b {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'-'
-            | b'_'
-            | b'.'
-            | b'~' => out.push(char::from(*b)),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(char::from(*b))
+            }
             _ => {
                 out.push('%');
                 out.push_str(&format!("{:02X}", b));
