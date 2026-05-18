@@ -130,6 +130,39 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         "unexpected errors: {:?}",
         compiled.diagnostics
     );
+    assert!(
+        compiled.scene_routes.iter().any(|r| {
+            r.scene_id == "typical_cases"
+                && r.target_file == "data/dataset/典型案例/监督典型案例.mei"
+        }),
+        "expected typical_cases in app route registry for access/manage deep links, got: {:?}",
+        compiled
+            .scene_routes
+            .iter()
+            .map(|r| (r.scene_id.as_str(), r.target_file.as_str()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("typical_cases".to_string()),
+            preview_target: None,
+        },
+    )
+    .expect("compile spbjw with typical_cases scene (access-style)");
+    assert_eq!(
+        compiled.active_target_file.as_str(),
+        "data/dataset/典型案例/监督典型案例.mei"
+    );
+    assert_eq!(compiled.active_scene.as_deref(), Some("typical_cases"));
 }
 
 #[test]

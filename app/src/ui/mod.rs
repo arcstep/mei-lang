@@ -156,9 +156,10 @@ pub fn render_page(
 
 #[cfg(test)]
 mod tests {
+    use super::UiRouteMode;
     use super::manage_routing::{
-        encode_query_value, manage_tab_href, manage_view_tab_from_query, route_query,
-        ManageViewTab,
+        access_scene_query, encode_query_value, manage_tab_href, manage_view_tab_from_query,
+        route_query, ManageViewTab,
     };
 
     #[test]
@@ -187,14 +188,38 @@ mod tests {
 
     #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
-        assert_eq!(route_query(None, None, Some("source")), "");
-        assert_eq!(route_query(None, Some("main.mei"), Some("diagnostics")), "");
+        assert_eq!(route_query(UiRouteMode::Manage, None, None, Some("source")), "");
+        assert_eq!(
+            route_query(
+                UiRouteMode::Manage,
+                None,
+                Some("main.mei"),
+                Some("diagnostics")
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn access_scene_query_available_while_manage_route_query_empty() {
+        assert_eq!(
+            route_query(UiRouteMode::Manage, Some("dataset-foo"), None, None),
+            ""
+        );
+        assert_eq!(
+            access_scene_query(Some("dataset-foo")),
+            "?scene=dataset-foo"
+        );
     }
 
     #[test]
     fn route_query_encodes_scene_value() {
         assert_eq!(
-            route_query(Some("中文 场景"), None, None),
+            route_query(UiRouteMode::Access, Some("中文 场景"), None, None),
+            "?scene=%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
+        );
+        assert_eq!(
+            access_scene_query(Some("中文 场景")),
             "?scene=%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
         );
         assert_eq!(
@@ -208,13 +233,12 @@ mod tests {
         assert_eq!(
             manage_tab_href(
                 "examples/demo",
-                Some("main"),
                 Some("docs/README #1.md"),
                 "docs/README #1.md",
                 false,
                 ManageViewTab::Source,
             ),
-            "/apps/manage/examples/demo?scene=main&file=docs%2FREADME%20%231.md&tab=source"
+            "/apps/manage/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
         );
     }
 }

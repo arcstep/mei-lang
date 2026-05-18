@@ -1,3 +1,4 @@
+use super::UiRouteMode;
 use super::compile_status::asset_dual_preview_source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,18 +83,12 @@ pub(super) fn manage_view_tab_from_query(
 
 pub(super) fn manage_tab_href(
     app_path: &str,
-    selected_scene: Option<&str>,
     file_param: Option<&str>,
     selected_target: &str,
     script_target: bool,
     tab: ManageViewTab,
 ) -> String {
     let mut query = Vec::new();
-    if let Some(scene) = selected_scene {
-        if !scene.is_empty() {
-            query.push(format!("scene={}", encode_query_value(scene)));
-        }
-    }
     if let Some(f) = file_param {
         if !f.is_empty() {
             query.push(format!("file={}", encode_query_value(f)));
@@ -114,11 +109,9 @@ pub(super) fn manage_tab_href(
     format!("/apps/manage/{app_path}?{}", query.join("&"))
 }
 
-pub(super) fn route_query(
-    selected_scene: Option<&str>,
-    _preview_target: Option<&str>,
-    _active_tab: Option<&str>,
-) -> String {
+/// 访问态入口使用的 `?scene=...` 片段：与当前页面是管理态还是访问态无关。
+/// 管理壳顶栏的「访问」链接必须始终用它生成，否则在 Manage 下 `route_query` 会为空，导致无法深链到当前解析出的场景。
+pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
     let mut parts = Vec::new();
     if let Some(scene) = selected_scene {
         let scene = scene.trim();
@@ -130,5 +123,18 @@ pub(super) fn route_query(
         String::new()
     } else {
         format!("?{}", parts.join("&"))
+    }
+}
+
+pub(super) fn route_query(
+    route_mode: UiRouteMode,
+    selected_scene: Option<&str>,
+    _preview_target: Option<&str>,
+    _active_tab: Option<&str>,
+) -> String {
+    if route_mode == UiRouteMode::Access {
+        access_scene_query(selected_scene)
+    } else {
+        String::new()
     }
 }

@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use std::collections::BTreeMap;
 
-use super::manage_routing::route_query;
+use super::manage_routing::{access_scene_query, route_query};
 use super::preview;
 use super::route::UiRouteMode;
 use super::{TopbarMenuConfig, TopbarMenuContext};
@@ -207,7 +207,8 @@ pub(super) fn topbar_view(
     active_tab: Option<&str>,
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let route_query = route_query(selected_scene, preview_target, active_tab);
+    let route_query = route_query(route_mode, selected_scene, preview_target, active_tab);
+    let access_entry_query = access_scene_query(selected_scene);
     let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
     let active_menu_context = menu_groups.iter().find_map(|group| {
         group
@@ -323,13 +324,13 @@ pub(super) fn topbar_view(
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
     let manage_href = format!("/apps/manage/{}{}", active_app_path, route_query);
-    let access_href = format!("/apps/access/{}{}", active_app_path, route_query);
-    let presentation_href = if route_query.is_empty() {
+    let access_href = format!("/apps/access/{}{}", active_app_path, access_entry_query);
+    let presentation_href = if access_entry_query.is_empty() {
         format!("/apps/access/{}?chrome=none", active_app_path)
     } else {
         format!(
             "/apps/access/{}{}&chrome=none",
-            active_app_path, route_query
+            active_app_path, access_entry_query
         )
     };
     let mode_tabs = view! {
