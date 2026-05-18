@@ -6,12 +6,19 @@ use std::{
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    compile_app, compile_app_with_options, initial_runtime_state, project_runtime_view,
-    CompileOptions, DatasetView, RuntimeState, UiNodeDecl,
+    compile_app_with_options, initial_runtime_state, project_runtime_view, CompileOptions,
+    CompiledApp, DatasetView, RuntimeState, UiNodeDecl,
 };
 use serde_json::{json, Value};
 
-use crate::http::datasets::{query_dataset_rows, DatasetQueryOptions};
+use crate::{
+    http::{
+        compile_cache::compile_app_with_cache,
+        datasets::{query_dataset_rows, DatasetQueryOptions},
+        pages::resolve_components_root,
+    },
+    AppState,
+};
 
 use super::resource_query::default_resource_query_tools;
 use super::types::{
@@ -64,16 +71,23 @@ fn app_relative_mei_for_preview(app_id: &str, target_file: &str) -> Option<Strin
     Some(t)
 }
 
-fn load_world_runtime_bundle(
+fn load_world_runtime_bundle_with<F>(
     source_root: &Path,
     app_id: &str,
     scope: Option<&WorldScope>,
-) -> Result<WorldRuntimeBundle> {
+    mut compile: F,
+) -> Result<WorldRuntimeBundle>
+where
+    F: FnMut(CompileOptions) -> Result<CompiledApp>,
+{
     let scope = normalize_world_scope(scope);
     let requested_scene = scope.scene_id.as_deref();
     let requested_target = scope.target_file.clone();
 
-    let base_compiled = compile_app(source_root, app_id)?;
+    let base_compiled = compile(CompileOptions {
+        scene: None,
+        preview_target: None,
+    })?;
     let app_root = source_root.join(app_id);
     let mut selected_scene: Option<String> = None;
 
@@ -150,14 +164,10 @@ fn load_world_runtime_bundle(
         })
     };
 
-    let compiled = compile_app_with_options(
-        source_root,
-        app_id,
-        CompileOptions {
-            scene: selected_scene.clone(),
-            preview_target: preview_path,
-        },
-    )?;
+    let compiled = compile(CompileOptions {
+        scene: selected_scene.clone(),
+        preview_target: preview_path,
+    })?;
     if let Some(sid) = selected_scene.as_deref() {
         if compiled.active_scene.as_deref() != Some(sid) {
             return Err(anyhow!("scene `{sid}` not found in app `{app_id}`"));
@@ -176,6 +186,29 @@ fn load_world_runtime_bundle(
         contract,
         state,
         scene_view,
+    })
+}
+
+fn load_world_runtime_bundle(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+) -> Result<WorldRuntimeBundle> {
+    load_world_runtime_bundle_with(source_root, app_id, scope, |options| {
+        compile_app_with_options(source_root, app_id, options)
+    })
+}
+
+fn load_world_runtime_bundle_cached(
+    state: &AppState,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+) -> Result<WorldRuntimeBundle> {
+    let components_root = resolve_components_root(&state.source_root);
+    load_world_runtime_bundle_with(&state.source_root, app_id, scope, |options| {
+        compile_app_with_cache(state, app_id, options, components_root.as_path())
+            .map(|outcome| outcome.compiled)
+            .map_err(|failure| failure.error)
     })
 }
 
@@ -1306,6 +1339,24 @@ pub(crate) fn build_world_context_snapshot(
     scope: Option<&WorldScope>,
 ) -> Result<WorldContextSnapshot> {
     let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    build_world_context_snapshot_from_bundle(source_root, app_id, scope, bundle)
+}
+
+pub(crate) fn build_world_context_snapshot_cached(
+    state: &AppState,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+) -> Result<WorldContextSnapshot> {
+    let bundle = load_world_runtime_bundle_cached(state, app_id, scope)?;
+    build_world_context_snapshot_from_bundle(&state.source_root, app_id, scope, bundle)
+}
+
+fn build_world_context_snapshot_from_bundle(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    bundle: WorldRuntimeBundle,
+) -> Result<WorldContextSnapshot> {
     let resource_inventory = build_resource_inventory(source_root, app_id, &bundle, scope);
     let world = bundle.contract.world.clone();
 

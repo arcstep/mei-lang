@@ -1,11 +1,14 @@
 use std::fs;
 
+use crate::http::scene_api::WorldContextSnapshot;
 use crate::{agent_runtime::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
 
 use super::mei_scan::{build_mei_files_revision, collect_mei_file_entries};
 use super::paths::{resolve_app_root, sanitize_relative_path};
 use super::request_scope::world_scope_from_request;
-use super::world_snapshot_lines::append_world_context_lines;
+use super::world_snapshot_lines::{
+    append_world_context_error_lines, append_world_context_lines, append_world_context_snapshot_lines,
+};
 
 const ASK_INLINE_TARGET_MAX_BYTES: usize = 24 * 1024;
 
@@ -41,7 +44,12 @@ fn resolve_target_path_for_request(
         .find(|(_, full)| full.exists() && full.is_file())
 }
 
-fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
+fn build_dynamic_mei_context(
+    state: &AppState,
+    request: &BridgePromptRequest,
+    world_snapshot: Option<&WorldContextSnapshot>,
+    world_snapshot_error: Option<&str>,
+) -> Option<String> {
     let (app_id, _app_root) = resolve_app_root(state, request)?;
     let ask_mode = request_mode_slug(request) == "ask";
     let world_scope = world_scope_from_request(request);
@@ -63,7 +71,13 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
             lines.push(format!("target: {target} (invalid relative path)"));
         }
     }
-    append_world_context_lines(&mut lines, &state.source_root, &app_id, &world_scope);
+    if let Some(snapshot) = world_snapshot {
+        append_world_context_snapshot_lines(&mut lines, snapshot);
+    } else if let Some(message) = world_snapshot_error {
+        append_world_context_error_lines(&mut lines, &app_id, message);
+    } else {
+        append_world_context_lines(&mut lines, &state.source_root, &app_id, &world_scope);
+    }
     lines.push(String::new());
     if ask_mode {
         if let Some((target_rel, full_path)) = resolve_target_path_for_request(state, &app_id, request) {
@@ -115,8 +129,10 @@ fn build_dynamic_mei_context(state: &AppState, request: &BridgePromptRequest) ->
 pub(crate) fn build_dynamic_session_context_preview(
     state: &AppState,
     request: &BridgePromptRequest,
+    world_snapshot: Option<&WorldContextSnapshot>,
+    world_snapshot_error: Option<&str>,
 ) -> Option<String> {
-    build_dynamic_mei_context(state, request)
+    build_dynamic_mei_context(state, request, world_snapshot, world_snapshot_error)
 }
 
 fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> Option<String> {
@@ -140,7 +156,7 @@ pub(crate) fn load_or_refresh_session_context(
     {
         let Ok(cache) = state.agent_session_context.lock() else {
             tracing::warn!("agent session context cache lock poisoned; fallback to rebuild");
-            return build_dynamic_mei_context(state, request);
+            return build_dynamic_mei_context(state, request, None, None);
         };
         if let Some(snapshot) = cache.get(session_id) {
             if snapshot.signature == signature {
@@ -148,7 +164,7 @@ pub(crate) fn load_or_refresh_session_context(
             }
         }
     }
-    let context = build_dynamic_mei_context(state, request)?;
+    let context = build_dynamic_mei_context(state, request, None, None)?;
     let Ok(mut cache) = state.agent_session_context.lock() else {
         tracing::warn!("agent session context cache lock poisoned; skip cache write");
         return Some(context);
@@ -254,7 +270,7 @@ mod tests {
             agent: None,
             model: None,
         };
-        let ctx = build_dynamic_mei_context(&state, &request).unwrap_or_default();
+        let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(
             !ctx.contains("```mei"),
             "expected no inlined mei fence: {ctx}"
@@ -277,7 +293,7 @@ mod tests {
             agent: None,
             model: None,
         };
-        let ctx = build_dynamic_mei_context(&state, &request).unwrap_or_default();
+        let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(ctx.contains("[Current Target .mei Snapshot]"));
         assert!(ctx.contains("app(kind=\"app\""));
         let _ = fs::remove_dir_all(&root);

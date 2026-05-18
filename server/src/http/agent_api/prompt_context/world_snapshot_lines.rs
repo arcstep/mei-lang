@@ -41,34 +41,31 @@ fn format_related_inventory_entry(item: &ResourceInventoryItem) -> String {
     s
 }
 
-pub(super) fn append_world_context_lines(
+pub(super) fn append_world_context_error_lines(
     lines: &mut Vec<String>,
-    source_root: &FsPath,
     app_id: &str,
-    scope: &WorldScope,
+    message: &str,
 ) {
-    let snapshot = match build_world_context_snapshot(source_root, app_id, Some(scope)) {
-        Ok(value) => value,
-        Err(error) => {
-            let message = error.to_string();
-            let is_scope_mismatch = message.contains("is not bound to target")
-                || message.contains("scene `")
-                || message.contains("does not provide a scene contract");
-            if is_scope_mismatch {
-                tracing::debug!(app_id = %app_id, error = %message, "skip world snapshot due to scope mismatch");
-            } else {
-                tracing::warn!(app_id = %app_id, error = %message, "failed to build world context snapshot");
-            }
-            lines.push(String::new());
-            lines.push("[World Index]".to_string());
-            lines.push(format!("status=unavailable ({})", message));
-            lines.push(format!(
-                "hint: `read_file` 路径相对于 workspace 根；应用内 `.mei` 常见为 `{app_id}/data/...`（裸写 `data/...` 会解析到 workspace 下错误目录）。dataset 资源优先用 `dataset_query`（不要读 `.xlsx`）；若 scope 仍失败，用 `read_file` 读目标 `.mei` 核对其中 `scene(id=...)`。"
-            ));
-            return;
-        }
-    };
+    let is_scope_mismatch = message.contains("is not bound to target")
+        || message.contains("scene `")
+        || message.contains("does not provide a scene contract");
+    if is_scope_mismatch {
+        tracing::debug!(app_id = %app_id, error = %message, "skip world snapshot due to scope mismatch");
+    } else {
+        tracing::warn!(app_id = %app_id, error = %message, "failed to build world context snapshot");
+    }
+    lines.push(String::new());
+    lines.push("[World Index]".to_string());
+    lines.push(format!("status=unavailable ({})", message));
+    lines.push(format!(
+        "hint: `read_file` 路径相对于 workspace 根；应用内 `.mei` 常见为 `{app_id}/data/...`（裸写 `data/...` 会解析到 workspace 下错误目录）。dataset 资源优先用 `dataset_query`（不要读 `.xlsx`）；若 scope 仍失败，用 `read_file` 读目标 `.mei` 核对其中 `scene(id=...)`。"
+    ));
+}
 
+pub(super) fn append_world_context_snapshot_lines(
+    lines: &mut Vec<String>,
+    snapshot: &super::super::super::scene_api::WorldContextSnapshot,
+) {
     if !snapshot.prompt_catalog_lines.is_empty() {
         lines.push(String::new());
         lines.extend(snapshot.prompt_catalog_lines.iter().cloned());
@@ -138,4 +135,16 @@ pub(super) fn append_world_context_lines(
     lines.push(format!(
         "resource_inventory: related_items below are file/scene hints; [World — catalog] above is authoritative for world.resources ids. For dataset resources, use dataset_query(id) to get bounded schema+sample rows."
     ));
+}
+
+pub(super) fn append_world_context_lines(
+    lines: &mut Vec<String>,
+    source_root: &FsPath,
+    app_id: &str,
+    scope: &WorldScope,
+) {
+    match build_world_context_snapshot(source_root, app_id, Some(scope)) {
+        Ok(snapshot) => append_world_context_snapshot_lines(lines, &snapshot),
+        Err(error) => append_world_context_error_lines(lines, app_id, &error.to_string()),
+    }
 }

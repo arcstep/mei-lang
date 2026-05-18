@@ -42,7 +42,7 @@ use crate::{
 
 use super::super::error_response;
 use super::super::scene_api::{
-    build_world_context_snapshot, default_resource_query_tools, WorldScope,
+    build_world_context_snapshot_cached, default_resource_query_tools, WorldScope,
     RESOURCE_QUERY_SCHEMA_VERSION,
 };
 use super::permissions::{
@@ -406,43 +406,44 @@ pub async fn api_agent_context_preview(
         return error_response(error);
     }
     policy.apply_to_request(&mut request);
-    let session_context =
-        build_dynamic_session_context_preview(&state, &request).unwrap_or_else(|| String::new());
-    request = enrich_prompt_request(&state, Some(&session_context), request);
     let scope = WorldScope {
         scene_id: query.scene_id.clone(),
         target_file: query.target_file.clone(),
     };
-    let (tools, resource_inventory, preview_error) =
-        match build_world_context_snapshot(&state.source_root, app_id, Some(&scope)) {
-            Ok(snapshot) => {
-                let tools = if snapshot.query_tools.is_empty() {
-                    default_resource_query_tools()
-                } else {
-                    snapshot.query_tools.clone()
-                };
-                (
-                    tools,
-                    serde_json::to_value(snapshot.resource_inventory).unwrap_or(Value::Null),
-                    None,
-                )
-            }
-            Err(error) => {
-                // 上下文预览属于辅助信息，不应因为 scope 不匹配/编译中间态持续返回 500。
-                tracing::debug!(
-                    app_id = %app_id,
-                    scene_id = ?query.scene_id,
-                    target_file = ?query.target_file,
-                    %error,
-                    "degraded context preview snapshot"
-                );
-                (
-                    default_resource_query_tools(),
-                    Value::Null,
-                    Some(error.to_string()),
-                )
-            }
-        };
+    let snapshot_result = build_world_context_snapshot_cached(&state, app_id, Some(&scope));
+    let preview_error = snapshot_result.as_ref().err().map(|error| {
+        // 上下文预览属于辅助信息，不应因为 scope 不匹配/编译中间态持续返回 500。
+        tracing::debug!(
+            app_id = %app_id,
+            scene_id = ?query.scene_id,
+            target_file = ?query.target_file,
+            %error,
+            "degraded context preview snapshot"
+        );
+        error.to_string()
+    });
+    let session_context = build_dynamic_session_context_preview(
+        &state,
+        &request,
+        snapshot_result.as_ref().ok(),
+        preview_error.as_deref(),
+    )
+    .unwrap_or_else(|| String::new());
+    request = enrich_prompt_request(&state, Some(&session_context), request);
+    let (tools, resource_inventory) = match snapshot_result {
+        Ok(snapshot) => {
+            let tools = if snapshot.query_tools.is_empty() {
+                default_resource_query_tools()
+            } else {
+                snapshot.query_tools.clone()
+            };
+            (
+                tools,
+                serde_json::to_value(snapshot.resource_inventory).unwrap_or(Value::Null),
+            )
+        }
+        Err(_) => (default_resource_query_tools(), Value::Null),
+    };
     let query_tools = tools
         .into_iter()
         .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))

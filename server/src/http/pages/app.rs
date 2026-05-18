@@ -49,6 +49,19 @@ fn default_file_for_scene(compiled: &CompiledApp, scene_id: Option<&str>) -> Str
         .unwrap_or_else(|| compiled.active_target_file.clone())
 }
 
+/// 若目标文件本身就是某条 scene route 的主文件，则返回该 route 的 scene id。
+fn canonical_scene_for_target(compiled: &CompiledApp, target_file: Option<&str>) -> Option<String> {
+    let target_file = target_file?.trim();
+    if target_file.is_empty() {
+        return None;
+    }
+    compiled
+        .scene_routes
+        .iter()
+        .find(|r| r.target_file == target_file)
+        .map(|r| r.scene_id.clone())
+}
+
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
     /// 管理页当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
@@ -93,18 +106,32 @@ pub async fn app_page(
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(false);
-    let file_query_manage = if route_mode == UiRouteMode::Manage {
-        query.file.clone()
+    let manage_file = if route_mode == UiRouteMode::Manage {
+        query
+            .file
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
     } else {
         None
     };
-    let normalized_preview_target = file_query_manage
+    let manage_script_file = manage_file
         .as_deref()
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
+    let normalized_preview_target = if route_mode == UiRouteMode::Manage {
+        manage_script_file.clone()
+    } else {
+        None
+    };
+    let compile_scene = if route_mode == UiRouteMode::Manage && manage_script_file.is_some() {
+        None
+    } else {
+        query.scene.clone()
+    };
     let components_root = resolve_components_root(&state.source_root);
     let compile_options = CompileOptions {
-        scene: query.scene.clone(),
+        scene: compile_scene,
         preview_target: normalized_preview_target.clone(),
     };
     let compile_outcome =
@@ -118,11 +145,8 @@ pub async fn app_page(
                 } = failure;
                 tracing::warn!(app_id = %app_id, %error, "failed to compile app page");
                 let target = if route_mode == UiRouteMode::Manage {
-                    query
-                        .file
-                        .as_ref()
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
+                    manage_file
+                        .clone()
                         .unwrap_or_else(|| "main.mei".to_string())
                 } else {
                     "main.mei".to_string()
@@ -325,18 +349,15 @@ pub async fn app_page(
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_hit = compile_outcome.cache_hit;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
-    let manage_scene_resolved = manage_scene_for_render(&compiled, query.scene.as_deref());
+    let manage_scene_resolved = canonical_scene_for_target(&compiled, manage_file.as_deref())
+        .or_else(|| compiled.active_scene.clone())
+        .or_else(|| manage_scene_for_render(&compiled, query.scene.as_deref()));
     let scene_for_default = manage_scene_resolved
         .as_deref()
         .or(compiled.active_scene.as_deref());
     let manage_default_file = default_file_for_scene(&compiled, scene_for_default);
     let target = if route_mode == UiRouteMode::Manage {
-        query
-            .file
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or(manage_default_file)
+        manage_file.clone().unwrap_or(manage_default_file)
     } else {
         compiled.active_target_file.clone()
     };

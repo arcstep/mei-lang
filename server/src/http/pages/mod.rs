@@ -13,6 +13,7 @@ mod util;
 pub use app::{app_page, index};
 pub use assets::{app_asset, app_bundle, workspace_app_asset};
 pub use components::component_asset;
+pub(crate) use components::resolve_components_root;
 pub use dataset_api::dataset_query_api;
 pub use metric_api::dataset_metric_api;
 
@@ -69,6 +70,73 @@ frame.add_panel(
     ],
 )
 "#;
+
+    const MULTI_SCENE_APP_SOURCE: &str = r##"
+app(
+    id = "multi-scene",
+    default_scene = "home",
+)
+
+app_add_scene(scene_file_ref("details.mei", id = "details"))
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(id = "home_doc", kind = "document", content = "# HOME_VIEW"),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "home_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("home_doc")),
+    ],
+)
+"##;
+
+    const DETAILS_SCENE_SOURCE: &str = r##"
+scene(
+    profile = "page",
+    summary = "details scene",
+)
+
+world()
+
+world.add_resource(
+    resource(
+        id = "details_doc",
+        kind = "document",
+        content = "# DETAILS_VIEW",
+    ),
+)
+
+frame()
+
+frame.set_layout(
+    flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "details_panel",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("details_doc")),
+    ],
+)
+"##;
 
     #[tokio::test]
     async fn app_bundle_returns_merged_javascript() {
@@ -213,6 +281,54 @@ frame.add_panel(
         assert!(html.contains("compile_failed"));
         assert!(html.contains("Parse error"));
         assert!(html.contains("错误诊断"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn manage_file_scene_route_overrides_conflicting_scene_query() {
+        let root = unique_test_root("multi-scene");
+        let app_root = root.join("multi-scene");
+        fs::create_dir_all(&app_root).expect("create multi-scene app root");
+        fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+        fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+        let source_root = Arc::new(root.clone());
+        let native_agent = Arc::new(
+            mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"),
+        );
+        let state = AppState {
+            package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+            source_root,
+            agent_preferred_mode: Arc::new("external".to_string()),
+            agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+            agent_auto_start: false,
+            agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+            agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+            compile_cache: Arc::new(Mutex::new(HashMap::new())),
+            native_agent,
+        };
+
+        let response = app_page(
+            State(state),
+            AxumPath(("manage".to_string(), "multi-scene".to_string())),
+            Query(AppQuery {
+                file: Some("details.mei".to_string()),
+                scene: Some("home".to_string()),
+                tab: Some("preview".to_string()),
+                chrome: None,
+            }),
+        )
+        .await
+        .expect("render app page response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("read html body");
+        let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+        assert!(html.contains("DETAILS_VIEW"));
+        assert!(html.contains("/apps/manage/multi-scene?scene=details"));
 
         let _ = fs::remove_dir_all(&root);
     }
