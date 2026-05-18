@@ -77,7 +77,7 @@ frame.add_panel(
         },
     )
     .expect("compile preview target");
-    assert_eq!(compiled.active_scene, None);
+    assert_eq!(compiled.active_scene.as_deref(), Some("scratch"));
     assert_eq!(compiled.active_target_file, "scratch.mei");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "scratch");
@@ -163,6 +163,30 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
         "data/dataset/典型案例/监督典型案例.mei"
     );
     assert_eq!(compiled.active_scene.as_deref(), Some("typical_cases"));
+}
+
+#[test]
+fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("enterprise_complaints".to_string()),
+            preview_target: None,
+        },
+    )
+    .expect("compile spbjw with enterprise_complaints scene (discovered route)");
+    assert_eq!(
+        compiled.active_target_file.as_str(),
+        "data/dataset/行政检查/企业投诉.mei"
+    );
+    assert_eq!(
+        compiled.active_scene.as_deref(),
+        Some("enterprise_complaints")
+    );
 }
 
 #[test]

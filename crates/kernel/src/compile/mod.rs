@@ -1,11 +1,16 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 
 use anyhow::{anyhow, Result};
 use serde_json::Value;
+use walkdir::WalkDir;
 
 use crate::{
     eval::evaluate_mei_file,
-    model::{CompiledApp, Diagnostic, Severity},
+    model::{CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, Severity},
     workspace::{load_component_assets, source_tree},
 };
 
@@ -25,6 +30,134 @@ mod ui_data_policy;
 use app_decl::decode_app_decl;
 use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
 use scene::{find_scene_route, resolve_scene_routes};
+
+/// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
+/// 以便管理态预览与访问态 `?scene=<id>` 能解析到同一入口文件。
+///
+/// 与 `mei-lang-server` 的 `compile_revision`（目录最新 mtime）配合：磁盘一旦有变更即编译缓存失效，
+/// 下一次访问会重新走本逻辑。按 `.mei` 修改时间倒序探测，使 Agent 刚写入的入口优先命中。
+fn try_push_discovered_entry_route(
+    routes: &mut Vec<CompiledSceneRoute>,
+    scene_id: String,
+    target_file: String,
+) {
+    let scene_id = scene_id.trim().to_string();
+    let target_file = target_file.trim().to_string();
+    if scene_id.is_empty() || target_file.is_empty() {
+        return;
+    }
+    if routes.iter().any(|r| r.target_file == target_file) {
+        return;
+    }
+    if routes.iter().any(|r| r.scene_id == scene_id) {
+        return;
+    }
+    routes.push(CompiledSceneRoute {
+        scene_id,
+        frame_id: None,
+        target_file,
+        kind: "file_ref".to_string(),
+        title: None,
+        is_default: false,
+    });
+}
+
+fn inject_discovered_entry_scene_routes(
+    app_root: &Path,
+    app_decls: &Value,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    routes: &mut Vec<CompiledSceneRoute>,
+    preview_target: Option<&str>,
+    scene_selector: Option<&str>,
+) {
+    if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
+        if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
+            let payload =
+                compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
+            if let Some(contract) = payload.scene_contract.as_ref() {
+                let sid = contract.scene.id.trim().to_string();
+                if !sid.is_empty() {
+                    try_push_discovered_entry_route(routes, sid, preview.to_string());
+                }
+            }
+        }
+    }
+
+    let Some(requested) = scene_selector.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    if find_scene_route(routes, requested).is_some() {
+        return;
+    }
+
+    fn file_modified_ms(path: &Path) -> u128 {
+        std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u128)
+            .unwrap_or(0)
+    }
+
+    const MAX_MEI_PROBES: usize = 400;
+    let mut mei_files: Vec<(String, u128)> = Vec::new();
+    for entry in WalkDir::new(app_root)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            if e.depth() > 0 {
+                if matches!(
+                    name.as_ref(),
+                    ".git" | "node_modules" | "target" | ".mei"
+                ) {
+                    return false;
+                }
+            }
+            true
+        })
+    {
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        if path.extension().and_then(|x| x.to_str()) != Some("mei") {
+            continue;
+        }
+        let Ok(rel) = path.strip_prefix(app_root) else {
+            continue;
+        };
+        let rel_str = rel.to_string_lossy().replace('\\', "/");
+        if routes.iter().any(|r| r.target_file == rel_str) {
+            continue;
+        }
+        let full: PathBuf = app_root.join(rel);
+        mei_files.push((rel_str, file_modified_ms(&full)));
+    }
+    mei_files.sort_by(|a, b| b.1.cmp(&a.1));
+
+    let mut probed = 0usize;
+    for (rel_str, _) in mei_files {
+        if probed >= MAX_MEI_PROBES {
+            break;
+        }
+        probed += 1;
+        let payload =
+            compile_scene_payload_for_target(app_root, app_decls, asset_map, rel_str.as_str(), None);
+        let Some(contract) = payload.scene_contract.as_ref() else {
+            continue;
+        };
+        if contract.scene.id.trim() != requested {
+            continue;
+        }
+        try_push_discovered_entry_route(
+            routes,
+            contract.scene.id.trim().to_string(),
+            rel_str,
+        );
+        break;
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct CompileOptions {
@@ -63,6 +196,14 @@ pub fn compile_app_from_root_with_options(
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 
     let asset_map = load_component_assets(source_root)?;
+    inject_discovered_entry_scene_routes(
+        app_root,
+        &app_decls,
+        &asset_map,
+        &mut route_registry.routes,
+        options.preview_target.as_deref(),
+        options.scene.as_deref(),
+    );
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     for route in &route_registry.routes {
         let result = compile_scene_payload_for_target(
