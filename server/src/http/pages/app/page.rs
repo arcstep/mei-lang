@@ -10,7 +10,9 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 
 use crate::{AppError, AppState};
 
-use super::query::{access_sanitized_redirect_location, AppQuery};
+use super::query::{
+    access_canonical_location, access_sanitized_redirect_location, parse_access_scene_path, AppQuery,
+};
 use super::scene::{canonical_scene_for_target, default_file_for_scene, manage_scene_for_render};
 use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
 use super::super::components::resolve_components_root;
@@ -21,20 +23,44 @@ use super::super::util::{
     push_manage_page_pipeline_diag,
 };
 
+fn html_escape_min(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 pub async fn app_page(
     State(state): State<AppState>,
     AxumPath((mode, app_id_raw)): AxumPath<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Result<Response, AppError> {
     let app_started = Instant::now();
-    let app_id = app_id_raw.trim_start_matches('/').to_string();
+    let route_mode = UiRouteMode::from_slug(&mode);
+    let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
+    let (app_id, access_path_scene) = if route_mode == UiRouteMode::Access {
+        match parse_access_scene_path(&app_id_trimmed) {
+            Ok(None) => (app_id_trimmed, None),
+            Ok(Some((app, scene))) => (app, Some(scene)),
+            Err(()) => {
+                return Ok((
+                    StatusCode::NOT_FOUND,
+                    Html(
+                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景路径无效</title></head><body><p>访问地址中的 <code>/scene/&lt;id&gt;</code> 无效。</p></body></html>".to_string(),
+                    ),
+                )
+                    .into_response());
+            }
+        }
+    } else {
+        (app_id_trimmed, None)
+    };
     if app_id.is_empty() {
         return Err(AppError::status(
             StatusCode::NOT_FOUND,
             "missing app id in route",
         ));
     }
-    let route_mode = UiRouteMode::from_slug(&mode);
     if route_mode == UiRouteMode::Access
         && query
             .file
@@ -46,6 +72,32 @@ pub async fn app_page(
             Redirect::temporary(&access_sanitized_redirect_location(&app_id, &query))
                 .into_response(),
         );
+    }
+    if route_mode == UiRouteMode::Access {
+        let q_scene = query.scene.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        if let Some(ref ps) = access_path_scene {
+            if let Some(qs) = q_scene {
+                if qs != ps {
+                    return Ok(Redirect::temporary(&access_canonical_location(
+                        &app_id,
+                        ps,
+                        query.tab.as_deref(),
+                        query.chrome.as_deref(),
+                    ))
+                    .into_response());
+                }
+            }
+        } else if let Some(qs) = q_scene {
+            return Ok(
+                Redirect::temporary(&access_canonical_location(
+                    &app_id,
+                    qs,
+                    query.tab.as_deref(),
+                    query.chrome.as_deref(),
+                ))
+                .into_response(),
+            );
+        }
     }
     let discover_started = Instant::now();
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
@@ -75,6 +127,8 @@ pub async fn app_page(
     };
     let compile_scene = if route_mode == UiRouteMode::Manage && manage_script_file.is_some() {
         None
+    } else if route_mode == UiRouteMode::Access {
+        access_path_scene.clone().or_else(|| query.scene.clone())
     } else {
         query.scene.clone()
     };
@@ -295,22 +349,58 @@ pub async fn app_page(
             }
         };
     let mut compiled = compile_outcome.compiled;
+    if route_mode == UiRouteMode::Access {
+        if access_path_scene.is_none() {
+            let sid = compiled.active_scene.clone().filter(|s| !s.trim().is_empty());
+            if let Some(ref s) = sid {
+                return Ok(Redirect::temporary(&access_canonical_location(
+                    &app_id,
+                    s,
+                    query.tab.as_deref(),
+                    query.chrome.as_deref(),
+                ))
+                .into_response());
+            }
+            let loc = format!("/apps/manage/{}", app_id.trim_start_matches('/'));
+            return Ok(Redirect::temporary(&loc).into_response());
+        }
+        let requested = access_path_scene.as_ref().expect("access_path_scene");
+        let rt = requested.trim();
+        if compiled.active_scene.as_deref() != Some(rt) {
+            let app_esc = html_escape_min(app_id.trim_start_matches('/'));
+            let scene_esc = html_escape_min(rt);
+            let manage_href_app = app_id.trim_start_matches('/');
+            return Ok((
+                StatusCode::NOT_FOUND,
+                Html(format!(
+                    "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景不存在</title></head><body>\
+                     <p>应用 <code>{app_esc}</code> 中不存在场景 <code>{scene_esc}</code>（或无法绑定到当前编译结果）。</p>\
+                     <p><a href=\"/apps/manage/{manage_href_app}\">返回管理态</a></p></body></html>",
+                )),
+            )
+                .into_response());
+        }
+    }
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_hit = compile_outcome.cache_hit;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
-    let manage_scene_resolved = canonical_scene_for_target(&compiled, manage_file.as_deref())
-        .or_else(|| compiled.active_scene.clone())
-        .or_else(|| {
-            compiled.scene_contract.as_ref().and_then(|c| {
-                let id = c.scene.id.trim();
-                if id.is_empty() {
-                    None
-                } else {
-                    Some(id.to_string())
-                }
+    let manage_scene_resolved = if route_mode == UiRouteMode::Access {
+        access_path_scene.clone()
+    } else {
+        canonical_scene_for_target(&compiled, manage_file.as_deref())
+            .or_else(|| compiled.active_scene.clone())
+            .or_else(|| {
+                compiled.scene_contract.as_ref().and_then(|c| {
+                    let id = c.scene.id.trim();
+                    if id.is_empty() {
+                        None
+                    } else {
+                        Some(id.to_string())
+                    }
+                })
             })
-        })
-        .or_else(|| manage_scene_for_render(&compiled, query.scene.as_deref()));
+            .or_else(|| manage_scene_for_render(&compiled, query.scene.as_deref()))
+    };
     let scene_for_default = manage_scene_resolved
         .as_deref()
         .or(compiled.active_scene.as_deref());

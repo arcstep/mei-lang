@@ -540,6 +540,11 @@
         for (const prefix of prefixes) {
           if (!path.startsWith(prefix)) continue;
           let rest = path.slice(prefix.length);
+          const sceneSeg = "/scene/";
+          const sceneIdx = rest.indexOf(sceneSeg);
+          if (sceneIdx >= 0) {
+            rest = rest.slice(0, sceneIdx);
+          }
           const slashQ = rest.indexOf("/?");
           if (slashQ >= 0) rest = rest.slice(0, slashQ);
           rest = rest.replace(/\/+$/, "");

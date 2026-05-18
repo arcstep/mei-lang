@@ -32,7 +32,7 @@ use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
 use scene::{find_scene_route, resolve_scene_routes};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
-/// 以便管理态预览与访问态 `?scene=<id>` 能解析到同一入口文件。
+/// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
 ///
 /// 与 `mei-lang-server` 的 `compile_revision`（目录最新 mtime）配合：磁盘一旦有变更即编译缓存失效，
 /// 下一次访问会重新走本逻辑。按 `.mei` 修改时间倒序探测，使 Agent 刚写入的入口优先命中。

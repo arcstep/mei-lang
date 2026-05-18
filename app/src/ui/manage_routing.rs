@@ -1,3 +1,5 @@
+use mei_lang_kernel::CompiledApp;
+
 use super::compile_status::asset_dual_preview_source;
 use super::UiRouteMode;
 
@@ -28,6 +30,22 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
         "diagnostics" => Some(ManageViewTab::Diagnostics),
         _ => None,
     }
+}
+
+/// 若 `target_file` 是某条 scene route 的主文件，返回其 `scene_id`。
+pub(super) fn canonical_scene_for_script_target<'a>(
+    compiled: &'a CompiledApp,
+    target_file: Option<&'a str>,
+) -> Option<&'a str> {
+    let t = target_file?.trim();
+    if t.is_empty() {
+        return None;
+    }
+    compiled
+        .scene_routes
+        .iter()
+        .find(|r| r.target_file == t)
+        .map(|r| r.scene_id.as_str())
 }
 
 pub(super) fn encode_query_value(value: &str) -> String {
@@ -105,32 +123,48 @@ pub(super) fn manage_tab_href(
     format!("/apps/manage/{app_path}?{}", query.join("&"))
 }
 
-/// 访问态入口使用的 `?scene=...` 片段：与当前页面是管理态还是访问态无关。
-/// 管理壳在同一次 SSR 编译中解析出的 `selected_scene` 写入此处，使「访问」仅携带 `scene=`，
-/// 与访问态禁止 `file=` 深链的发布边界一致；不依赖用户事先在 main 中手工登记路由。
-pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
-    let mut parts = Vec::new();
-    if let Some(scene) = selected_scene {
-        let scene = scene.trim();
-        if !scene.is_empty() {
-            parts.push(format!("scene={}", encode_query_value(scene)));
+/// 访问态 canonical 路径后缀：`/scene/<id>?tab=…&chrome=…`（`scene_id` 经 `encode_query_value` 编码）。
+pub(super) fn access_scene_route_suffix(
+    selected_scene: Option<&str>,
+    tab: Option<&str>,
+    chrome: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    if let Some(sc) = selected_scene.map(str::trim).filter(|s| !s.is_empty()) {
+        out.push_str("/scene/");
+        out.push_str(&encode_query_value(sc));
+    }
+    let mut q = Vec::new();
+    if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
+        q.push(format!("tab={}", encode_query_value(t)));
+    }
+    if let Some(c) = chrome.map(str::trim).filter(|s| !s.is_empty()) {
+        q.push(format!("chrome={}", encode_query_value(c)));
+    }
+    if !q.is_empty() {
+        if out.is_empty() {
+            out.push('?');
+        } else {
+            out.push('?');
         }
+        out.push_str(&q.join("&"));
     }
-    if parts.is_empty() {
-        String::new()
-    } else {
-        format!("?{}", parts.join("&"))
-    }
+    out
+}
+
+/// 访问态入口使用的路径后缀；无 scene 时返回空串（由调用方决定是否禁用「访问」按钮）。
+pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
+    access_scene_route_suffix(selected_scene, None, None)
 }
 
 pub(super) fn route_query(
     route_mode: UiRouteMode,
     selected_scene: Option<&str>,
     _preview_target: Option<&str>,
-    _active_tab: Option<&str>,
+    active_tab: Option<&str>,
 ) -> String {
     if route_mode == UiRouteMode::Access {
-        access_scene_query(selected_scene)
+        access_scene_route_suffix(selected_scene, active_tab, None)
     } else {
         String::new()
     }

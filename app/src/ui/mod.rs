@@ -211,7 +211,7 @@ mod tests {
         );
         assert_eq!(
             access_scene_query(Some("dataset-foo")),
-            "?scene=dataset-foo"
+            "/scene/dataset-foo"
         );
     }
 
@@ -219,13 +219,26 @@ mod tests {
     fn route_query_encodes_scene_value() {
         assert_eq!(
             route_query(UiRouteMode::Access, Some("中文 场景"), None, None),
-            "?scene=%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
+            "/scene/%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
         );
         assert_eq!(
             access_scene_query(Some("中文 场景")),
-            "?scene=%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
+            "/scene/%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
         );
         assert_eq!(encode_query_value("README #1.md"), "README%20%231.md");
+    }
+
+    #[test]
+    fn route_query_access_includes_tab_in_query() {
+        assert_eq!(
+            route_query(
+                UiRouteMode::Access,
+                Some("home"),
+                None,
+                Some("source")
+            ),
+            "/scene/home?tab=source"
+        );
     }
 
     #[test]

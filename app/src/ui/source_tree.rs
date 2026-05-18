@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
-use super::manage_routing::encode_query_value;
+use super::manage_routing::{access_scene_route_suffix, encode_query_value};
 use super::UiRouteMode;
 
 /// 与 `app/assets/favicon.svg` 相同的梅花铜钱外轮廓（viewBox 32×32）。
@@ -80,7 +80,6 @@ pub(super) fn source_tree_view(
                         .iter()
                         .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
                         .map(|(_, scene_id)| scene_id.as_str())
-                        .or(selected_scene)
                 } else {
                     None
                 };
@@ -187,17 +186,22 @@ fn source_href(
 ) -> String {
     match route_mode {
         UiRouteMode::Access => {
-            let mut parts = Vec::new();
-            if let Some(scene) = selected_scene {
-                let s = scene.trim();
-                if !s.is_empty() {
-                    parts.push(format!("scene={}", encode_query_value(s)));
-                }
-            }
-            if parts.is_empty() {
-                format!("/apps/access/{app_path}")
+            if let Some(scene) = selected_scene.map(str::trim).filter(|s| !s.is_empty()) {
+                let suffix = access_scene_route_suffix(Some(scene), None, None);
+                format!("/apps/access/{app_path}{suffix}")
             } else {
-                format!("/apps/access/{app_path}?{}", parts.join("&"))
+                let mut parts = Vec::new();
+                if let Some(f) = file_for_link {
+                    let t = f.trim();
+                    if !t.is_empty() {
+                        parts.push(format!("file={}", encode_query_value(t)));
+                    }
+                }
+                if parts.is_empty() {
+                    format!("/apps/manage/{app_path}")
+                } else {
+                    format!("/apps/manage/{app_path}?{}", parts.join("&"))
+                }
             }
         }
         UiRouteMode::Manage => {

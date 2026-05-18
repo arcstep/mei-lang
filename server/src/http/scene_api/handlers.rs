@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use anyhow::Error as AnyhowError;
 use mei_lang_kernel::{
     compile_app, initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step,
 };
@@ -19,6 +20,19 @@ use super::{
     query_resource_runtime_peek,
 };
 
+fn map_world_bundle_error(err: AnyhowError) -> AppError {
+    let msg = err.to_string();
+    if (msg.contains("scene `") && msg.contains("not found"))
+        || msg.contains("does not provide a scene contract")
+    {
+        AppError::status(StatusCode::NOT_FOUND, msg)
+    } else if msg.contains("not bound to target") {
+        AppError::status(StatusCode::BAD_REQUEST, msg)
+    } else {
+        AppError::from(err)
+    }
+}
+
 pub async fn world_context_api(
     State(state): State<AppState>,
     AxumPath(app_id_raw): AxumPath<String>,
@@ -27,7 +41,7 @@ pub async fn world_context_api(
     let app_id = app_id_raw.trim_start_matches('/');
     let scope = scope_query.to_scope();
     let snapshot = build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
-        .map_err(AppError::from)?;
+        .map_err(map_world_bundle_error)?;
     Ok(Json(snapshot))
 }
 
@@ -45,7 +59,7 @@ pub async fn world_assets_api(
         query.kind.as_deref(),
         query.limit,
     )
-    .map_err(AppError::from)?;
+    .map_err(map_world_bundle_error)?;
     Ok(Json(response))
 }
 
@@ -86,7 +100,7 @@ pub async fn world_runtime_api(
     let scope = query.scope.to_scope();
     let response =
         query_resource_runtime_peek(&state.source_root, app_id, Some(&scope), query.trace_limit)
-            .map_err(AppError::from)?;
+            .map_err(map_world_bundle_error)?;
     Ok(Json(response))
 }
 

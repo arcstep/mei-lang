@@ -2,7 +2,10 @@ use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use std::collections::BTreeMap;
 
-use super::manage_routing::{access_scene_query, route_query};
+use super::manage_routing::{
+    access_scene_query, access_scene_route_suffix, canonical_scene_for_script_target,
+    encode_query_value, route_query,
+};
 use super::preview;
 use super::route::UiRouteMode;
 use super::{TopbarMenuConfig, TopbarMenuContext};
@@ -208,7 +211,20 @@ pub(super) fn topbar_view(
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let route_query = route_query(route_mode, selected_scene, preview_target, active_tab);
-    let access_entry_query = access_scene_query(selected_scene);
+    let access_scene_for_href = selected_scene
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter(|sc| compiled.scene_routes.iter().any(|r| r.scene_id == *sc))
+        .filter(|sc| {
+            if route_mode == UiRouteMode::Manage {
+                canonical_scene_for_script_target(compiled, Some(compiled.active_target_file.as_str()))
+                    .is_some_and(|canon| canon == *sc)
+            } else {
+                compiled.active_scene.as_deref() == Some(*sc)
+            }
+        });
+    let access_entry_query = access_scene_query(access_scene_for_href);
+    let access_disabled = access_entry_query.is_empty();
     let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
     let active_menu_context = menu_groups.iter().find_map(|group| {
         group
@@ -251,8 +267,13 @@ pub(super) fn topbar_view(
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href =
-                        format!("/apps/{}/{}{}", route_mode.slug(), item.app_id, route_query);
+                    let href = if route_mode == UiRouteMode::Access
+                        && item.app_id.as_str() != active_app_path
+                    {
+                        format!("/apps/manage/{}", item.app_id)
+                    } else {
+                        format!("/apps/{}/{}{}", route_mode.slug(), item.app_id, route_query)
+                    };
                     view! { <a class=class href=href>{item.label.clone()}</a> }
                 })
                 .collect_view();
@@ -267,12 +288,18 @@ pub(super) fn topbar_view(
                             } else {
                                 "app-tab app-tab-sub"
                             };
-                            let href = format!(
-                                "/apps/{}/{}{}",
-                                route_mode.slug(),
-                                item.app_id,
-                                route_query
-                            );
+                            let href = if route_mode == UiRouteMode::Access
+                                && item.app_id.as_str() != active_app_path
+                            {
+                                format!("/apps/manage/{}", item.app_id)
+                            } else {
+                                format!(
+                                    "/apps/{}/{}{}",
+                                    route_mode.slug(),
+                                    item.app_id,
+                                    route_query
+                                )
+                            };
                             view! { <a class=class href=href>{item.label.clone()}</a> }
                         })
                         .collect_view();
@@ -323,16 +350,34 @@ pub(super) fn topbar_view(
             .into_any()
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
-    let manage_href = format!("/apps/manage/{}{}", active_app_path, route_query);
-    let access_href = format!("/apps/access/{}{}", active_app_path, access_entry_query);
-    let presentation_href = if access_entry_query.is_empty() {
-        format!("/apps/access/{}?chrome=none", active_app_path)
+    let manage_href = if route_mode == UiRouteMode::Access {
+        let mut parts = Vec::new();
+        let file = preview_target
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| compiled.active_target_file.as_str());
+        if !file.trim().is_empty() {
+            parts.push(format!("file={}", encode_query_value(file.trim())));
+        }
+        if let Some(t) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
+            parts.push(format!("tab={}", encode_query_value(t)));
+        }
+        if parts.is_empty() {
+            format!("/apps/manage/{active_app_path}")
+        } else {
+            format!("/apps/manage/{active_app_path}?{}", parts.join("&"))
+        }
     } else {
-        format!(
-            "/apps/access/{}{}&chrome=none",
-            active_app_path, access_entry_query
-        )
+        format!("/apps/manage/{}{}", active_app_path, route_query)
     };
+    let access_href = if access_disabled {
+        "#".to_string()
+    } else {
+        format!("/apps/access/{}{}", active_app_path, access_entry_query)
+    };
+    let presentation_suffix =
+        access_scene_route_suffix(access_scene_for_href, None, Some("none"));
+    let presentation_href = format!("/apps/access/{}{}", active_app_path, presentation_suffix);
     let mode_tabs = view! {
         <div class="mode-tabs inline-flex items-center">
             <sl-button-group class="mode-tab-group" label="模式切换">
@@ -357,8 +402,13 @@ pub(super) fn topbar_view(
                     class=if route_mode == UiRouteMode::Access { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                     size="small"
                     href=access_href
-                    title="访问态"
-                    aria-label="访问态"
+                    disabled=access_disabled
+                    title=if access_disabled {
+                        "当前文件没有可发布的 scene route，无法进入访问态"
+                    } else {
+                        "访问态"
+                    }
+                    aria-label=if access_disabled { "访问态（不可用）" } else { "访问态" }
                 >
                     <span class="mode-btn-content">
                         <span class="mode-icon" aria-hidden="true">
