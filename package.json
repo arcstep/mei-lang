@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "assets:build": "node ./scripts/build-assets.mjs",
+    "assets:list-large": "node ./scripts/list-large-files.mjs",
     "test:scope": "node ./scripts/test-scope-params.mjs"
   },
   "devDependencies": {

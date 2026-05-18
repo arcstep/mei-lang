@@ -18929,6 +18929,311 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
 ;
 
+/* ===== agent-panel-messages-model.js ===== */
+/**
+ * 消息纯逻辑：工具块摘要、权限阻塞解析、normalizeMessage、剪贴板。
+ * 须先于 agent-panel-messages.js 拼接；由 install 通过 globalThis.MeiAgentPanelMessagesModel 调用。
+ */
+(function (global) {
+  "use strict";
+
+  const M = {
+    makeTextBlock: function (label, content, type, collapsed) {
+      const text = String(content || "").trim();
+      if (!text) return null;
+      return {
+        type: String(type || "text"),
+        label: String(label || ""),
+        content: text,
+        collapsed: collapsed === true,
+      };
+    },
+
+    toolBlockLabel: function (part) {
+      const tool = part && part.tool ? part.tool : null;
+      if (!tool) return "工具调用";
+      const name = String(tool.tool || "").trim() || "unknown";
+      const fp = String(tool.input_path || "").trim();
+      const title = String(tool.title || "").trim();
+      if (name === "read_file" && fp) return "read_file · path=" + fp;
+      if (name === "skill_read" && fp) return "skill_read · path=" + fp;
+      if (name === "resource_get" && fp) return "resource_get · id=" + fp;
+      if (name === "resource_list") return "resource_list";
+      if (name === "resource_runtime_peek") return "resource_runtime_peek";
+      if (name === "skill_list") return "skill_list";
+      if (fp) return name + " · filePath=" + fp;
+      if (title && title !== name) return name + " · " + title;
+      return name;
+    },
+
+    formatToolPart: function (part) {
+      const tool = part && part.tool ? part.tool : null;
+      if (!tool) return null;
+      const name = String(tool.tool || "unknown");
+      const lines = [];
+      lines.push("工具: " + name);
+      const fp = String(tool.input_path || "").trim();
+      if (name === "read_file" && fp) lines.push("参数 path: " + fp);
+      else if (name === "skill_read" && fp) lines.push("参数 path: " + fp);
+      else if (name === "resource_get" && fp) lines.push("参数 id: " + fp);
+      else if (fp) lines.push("参数 filePath: " + fp);
+      lines.push("状态: " + String(tool.status || "pending"));
+      const cid = String(tool.call_id || "").trim();
+      if (cid) lines.push("call_id: " + cid);
+      const title = String(tool.title || "").trim();
+      if (title) lines.push("标题: " + title);
+      if (tool.output) lines.push("输出:\n" + String(tool.output));
+      if (tool.error) lines.push("错误:\n" + String(tool.error));
+      return lines.join("\n");
+    },
+
+    looksLikeSkillPath: function (path) {
+      return String(path || "").replaceAll("\\", "/").includes("/.mei/skills/meilang-author");
+    },
+
+    blockedPermissionNoticeFromData: function (data) {
+      const permissionId = String((data && data.permission_id) || "").trim();
+      const permission = String((data && data.permission) || "unknown").trim() || "unknown";
+      const patterns = Array.isArray(data && data.patterns)
+        ? data.patterns
+            .map(function (item) {
+              return String(item || "").trim();
+            })
+            .filter(Boolean)
+        : [];
+      const rawPath = String((data && data.path) || "").trim();
+      const path = rawPath || (patterns.length > 0 ? patterns[0] : "");
+      const requiresAdmin = !!(data && data.requires_admin);
+      const message = String((data && data.message) || "").trim();
+      return {
+        id: permissionId || "path:" + (path || permission || "unknown"),
+        permissionId: permissionId,
+        permission: permission,
+        path: path,
+        patterns: patterns,
+        requiresAdmin: requiresAdmin,
+        message: message,
+      };
+    },
+
+    blockedPermissionNoticeFromRunningRead: function (messageId, part) {
+      const tool = part && part.tool ? part.tool : null;
+      const path = String((tool && tool.input_path) || "").trim();
+      const id = String((part && part.part_id) || "") || String(messageId || "");
+      if (!path) return null;
+      if (M.looksLikeSkillPath(path)) {
+        return {
+          id: "running-read:" + id,
+          permissionId: "",
+          permission: "external_directory",
+          path: path,
+          patterns: [path],
+          requiresAdmin: true,
+          message:
+            "系统尝试读取 MeiLang skill 目录但当前未获授权。请在权限提示中批准，或请管理员检查 external_directory 策略。",
+        };
+      }
+      return {
+        id: "running-read:" + id,
+        permissionId: "",
+        permission: "external_directory",
+        path: path,
+        patterns: [path],
+        requiresAdmin: true,
+        message:
+          "检测到会话尝试访问未授权目录。请先检查你输入的目标路径；若这是系统预期目录，请联系管理员处理白名单。",
+      };
+    },
+
+    blockedPermissionBody: function (notice) {
+      const lines = [];
+      lines.push("类型: 权限阻塞");
+      lines.push("permission: " + String(notice.permission || "unknown"));
+      if (notice.permissionId) lines.push("permission_id: " + String(notice.permissionId));
+      if (notice.path) lines.push("目录: " + String(notice.path));
+      if (notice.patterns && notice.patterns.length > 0) {
+        lines.push("匹配模式:");
+        notice.patterns.forEach(function (pattern) {
+          lines.push("- " + String(pattern));
+        });
+      }
+      if (notice.message) lines.push("说明: " + String(notice.message));
+      lines.push(
+        notice.requiresAdmin
+          ? "建议: 若目录正确，请联系管理员；若目录异常，请修正你的任务路径。"
+          : "建议: 请检查当前任务与目录范围。",
+      );
+      return lines.join("\n");
+    },
+
+    mergeBlockedPermissionNotices: function (primary, fallback) {
+      const merged = [];
+      const seen = new Set();
+      function addList(list) {
+        (Array.isArray(list) ? list : []).forEach(function (item) {
+          if (!item || typeof item !== "object") return;
+          const id = String(item.id || "").trim();
+          if (!id || seen.has(id)) return;
+          seen.add(id);
+          merged.push(item);
+        });
+      }
+      addList(primary);
+      addList(fallback);
+      return merged;
+    },
+
+    blockedPermissionFingerprint: function (notices) {
+      return M.mergeBlockedPermissionNotices(notices, [])
+        .map(function (item) {
+          return [
+            String(item && item.id || ""),
+            String(item && item.permissionId || ""),
+            String(item && item.path || ""),
+          ].join("|");
+        })
+        .filter(Boolean)
+        .sort()
+        .join("||");
+    },
+
+    copyText: function (text) {
+      const value = String(text || "");
+      if (!value) return Promise.resolve();
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(value);
+      }
+      return new Promise(function (resolve, reject) {
+        try {
+          const temp = document.createElement("textarea");
+          temp.value = value;
+          temp.setAttribute("readonly", "readonly");
+          temp.style.position = "fixed";
+          temp.style.left = "-9999px";
+          temp.style.top = "-9999px";
+          document.body.appendChild(temp);
+          temp.select();
+          document.execCommand("copy");
+          document.body.removeChild(temp);
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+    },
+
+    normalizeMessage: function (raw) {
+      const partsRaw = Array.isArray(raw && raw.parts) ? raw.parts : [];
+      const parts = partsRaw.slice();
+      parts.sort(function (a, b) {
+        const ao = Number(a && a.sort_order);
+        const bo = Number(b && b.sort_order);
+        if (Number.isFinite(ao) && Number.isFinite(bo) && ao !== bo) return ao - bo;
+        return 0;
+      });
+      const role = String((raw && raw.role) || "assistant");
+      const blocks = [];
+      function pushTextBlock(text) {
+        const t = String(text || "").trim();
+        if (!t) return;
+        const tb = M.makeTextBlock("", t, "text");
+        if (tb) blocks.push(tb);
+      }
+      function pushReasoningBlock(text) {
+        const t = String(text || "").trim();
+        if (!t) return;
+        const rb = M.makeTextBlock("思考（可折叠调试）", t, "reasoning", true);
+        if (rb) blocks.push(rb);
+      }
+      parts.forEach(function (part) {
+        const type = String((part && part.part_type) || "");
+        if (type === "text") {
+          pushTextBlock(part && part.text ? part.text : "");
+          return;
+        }
+        if (type === "reasoning") {
+          pushReasoningBlock(part && part.text ? part.text : "");
+          return;
+        }
+        if (type === "tool") {
+          const toolBody = M.formatToolPart(part);
+          if (toolBody) {
+            const label = M.toolBlockLabel(part);
+            const block = M.makeTextBlock(label, toolBody, "tool", true);
+            if (block) blocks.push(block);
+          }
+          return;
+        }
+        if (type === "patch") {
+          const patchText = String(part && part.text ? part.text : "").trim();
+          if (patchText) {
+            const pb = M.makeTextBlock("代码补丁", patchText, "patch", true);
+            if (pb) blocks.push(pb);
+          }
+          return;
+        }
+        if (part && part.raw) {
+          const debugBody = JSON.stringify(part.raw, null, 2);
+          const block = M.makeTextBlock("结构化片段", debugBody, "debug", true);
+          if (block) blocks.push(block);
+        }
+      });
+      const body =
+        blocks.length > 0
+          ? blocks
+              .map(function (block) {
+                return (block.label ? "[" + block.label + "]\n" : "") + block.content;
+              })
+              .join("\n\n")
+          : "(空消息)";
+      return {
+        id: String((raw && raw.message_id) || ""),
+        role: role,
+        body: body,
+        blocks: blocks,
+        time: new Date().toLocaleTimeString("zh-CN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+        actions: [],
+      };
+    },
+
+    inferAgentModeFromRawMessage: function (raw) {
+      if (!raw || String(raw.role || "") !== "assistant") return null;
+      const parts = Array.isArray(raw.parts) ? raw.parts : [];
+      const hasPatchPart = parts.some(function (part) {
+        return String(part && part.part_type ? part.part_type : "") === "patch";
+      });
+      return hasPatchPart ? "build" : null;
+    },
+
+    deriveBlockedNoticesFromRawMessages: function (rawMessages) {
+      const notices = [];
+      (Array.isArray(rawMessages) ? rawMessages : []).forEach(function (raw) {
+        if (!raw || String(raw.role || "") !== "assistant") return;
+        const messageId = String(raw.message_id || "");
+        const parts = Array.isArray(raw.parts) ? raw.parts : [];
+        parts.forEach(function (part) {
+          if (!part || String(part.part_type || "") !== "tool") return;
+          const tool = part.tool || null;
+          if (!tool) return;
+          if (String(tool.tool || "") !== "read") return;
+          if (String(tool.status || "") !== "running") return;
+          const notice = M.blockedPermissionNoticeFromRunningRead(messageId, part);
+          if (notice) notices.push(notice);
+        });
+      });
+      return notices;
+    },
+  };
+
+  global.MeiAgentPanelMessagesModel = M;
+})(typeof globalThis !== "undefined" ? globalThis : window);
+
+;
+
 /* ===== agent-panel-messages.js ===== */
 /**
  * 会话列表缓存、消息渲染、权限提示与 Prompt 发送链。由 agent-panel 主文件装配 `MSG`。
@@ -18947,6 +19252,14 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     const SESSION_CACHE_KEY = api.SESSION_CACHE_KEY;
     const SESSION_CACHE_TTL_MS = api.SESSION_CACHE_TTL_MS;
     const CHAT_BOTTOM_STICKY_THRESHOLD_PX = api.CHAT_BOTTOM_STICKY_THRESHOLD_PX;
+
+    const M = global.MeiAgentPanelMessagesModel;
+    if (!M || typeof M.normalizeMessage !== "function") {
+      console.error(
+        "MeiAgentPanelMessagesModel missing: ensure agent-panel-messages-model.js is bundled before agent-panel-messages.js",
+      );
+      return {};
+    }
 
     function __meiSes() {
       return api.transport.ses;
@@ -19134,166 +19447,8 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     refreshSessionPicker(state.sessionId, api.currentTargetKey()).catch(function () {});
   }
 
-  function makeTextBlock(label, content, type, collapsed) {
-    const text = String(content || "").trim();
-    if (!text) return null;
-    return {
-      type: String(type || "text"),
-      label: String(label || ""),
-      content: text,
-      collapsed: collapsed === true,
-    };
-  }
-
-  /** 折叠摘要一行：工具名 + 与 OpenCode 侧一致的「主参数」提示（input 存在 filePath 字段）。 */
-  function toolBlockLabel(part) {
-    const tool = part && part.tool ? part.tool : null;
-    if (!tool) return "工具调用";
-    const name = String(tool.tool || "").trim() || "unknown";
-    const fp = String(tool.input_path || "").trim();
-    const title = String(tool.title || "").trim();
-    if (name === "read_file" && fp) return "read_file · path=" + fp;
-    if (name === "skill_read" && fp) return "skill_read · path=" + fp;
-    if (name === "resource_get" && fp) return "resource_get · id=" + fp;
-    if (name === "resource_list") return "resource_list";
-    if (name === "resource_runtime_peek") return "resource_runtime_peek";
-    if (name === "skill_list") return "skill_list";
-    if (fp) return name + " · filePath=" + fp;
-    if (title && title !== name) return name + " · " + title;
-    return name;
-  }
-
-  function formatToolPart(part) {
-    const tool = part && part.tool ? part.tool : null;
-    if (!tool) return null;
-    const name = String(tool.tool || "unknown");
-    const lines = [];
-    lines.push("工具: " + name);
-    const fp = String(tool.input_path || "").trim();
-    if (name === "read_file" && fp) lines.push("参数 path: " + fp);
-    else if (name === "skill_read" && fp) lines.push("参数 path: " + fp);
-    else if (name === "resource_get" && fp) lines.push("参数 id: " + fp);
-    else if (fp) lines.push("参数 filePath: " + fp);
-    lines.push("状态: " + String(tool.status || "pending"));
-    const cid = String(tool.call_id || "").trim();
-    if (cid) lines.push("call_id: " + cid);
-    const title = String(tool.title || "").trim();
-    if (title) lines.push("标题: " + title);
-    if (tool.output) lines.push("输出:\n" + String(tool.output));
-    if (tool.error) lines.push("错误:\n" + String(tool.error));
-    return lines.join("\n");
-  }
-
-  function looksLikeSkillPath(path) {
-    return String(path || "").replaceAll("\\", "/").includes("/.mei/skills/meilang-author");
-  }
-
-  function blockedPermissionNoticeFromData(data) {
-    const permissionId = String((data && data.permission_id) || "").trim();
-    const permission = String((data && data.permission) || "unknown").trim() || "unknown";
-    const patterns = Array.isArray(data && data.patterns)
-      ? data.patterns
-          .map(function (item) { return String(item || "").trim(); })
-          .filter(Boolean)
-      : [];
-    const rawPath = String((data && data.path) || "").trim();
-    const path = rawPath || (patterns.length > 0 ? patterns[0] : "");
-    const requiresAdmin = !!(data && data.requires_admin);
-    const message = String((data && data.message) || "").trim();
-    return {
-      id: permissionId || "path:" + (path || permission || "unknown"),
-      permissionId: permissionId,
-      permission: permission,
-      path: path,
-      patterns: patterns,
-      requiresAdmin: requiresAdmin,
-      message: message,
-    };
-  }
-
-  function blockedPermissionNoticeFromRunningRead(messageId, part) {
-    const tool = part && part.tool ? part.tool : null;
-    const path = String((tool && tool.input_path) || "").trim();
-    const id = String((part && part.part_id) || "") || String(messageId || "");
-    if (!path) return null;
-    if (looksLikeSkillPath(path)) {
-      return {
-        id: "running-read:" + id,
-        permissionId: "",
-        permission: "external_directory",
-        path: path,
-        patterns: [path],
-        requiresAdmin: true,
-        message:
-          "系统尝试读取 MeiLang skill 目录但当前未获授权。请在权限提示中批准，或请管理员检查 external_directory 策略。",
-      };
-    }
-    return {
-      id: "running-read:" + id,
-      permissionId: "",
-      permission: "external_directory",
-      path: path,
-      patterns: [path],
-      requiresAdmin: true,
-      message:
-        "检测到会话尝试访问未授权目录。请先检查你输入的目标路径；若这是系统预期目录，请联系管理员处理白名单。",
-    };
-  }
-
-  function blockedPermissionBody(notice) {
-    const lines = [];
-    lines.push("类型: 权限阻塞");
-    lines.push("permission: " + String(notice.permission || "unknown"));
-    if (notice.permissionId) lines.push("permission_id: " + String(notice.permissionId));
-    if (notice.path) lines.push("目录: " + String(notice.path));
-    if (notice.patterns && notice.patterns.length > 0) {
-      lines.push("匹配模式:");
-      notice.patterns.forEach(function (pattern) {
-        lines.push("- " + String(pattern));
-      });
-    }
-    if (notice.message) lines.push("说明: " + String(notice.message));
-    lines.push(
-      notice.requiresAdmin
-        ? "建议: 若目录正确，请联系管理员；若目录异常，请修正你的任务路径。"
-        : "建议: 请检查当前任务与目录范围。",
-    );
-    return lines.join("\n");
-  }
-
-  function mergeBlockedPermissionNotices(primary, fallback) {
-    const merged = [];
-    const seen = new Set();
-    function addList(list) {
-      (Array.isArray(list) ? list : []).forEach(function (item) {
-        if (!item || typeof item !== "object") return;
-        const id = String(item.id || "").trim();
-        if (!id || seen.has(id)) return;
-        seen.add(id);
-        merged.push(item);
-      });
-    }
-    addList(primary);
-    addList(fallback);
-    return merged;
-  }
-
-  function blockedPermissionFingerprint(notices) {
-    return mergeBlockedPermissionNotices(notices, [])
-      .map(function (item) {
-        return [
-          String(item && item.id || ""),
-          String(item && item.permissionId || ""),
-          String(item && item.path || ""),
-        ].join("|");
-      })
-      .filter(Boolean)
-      .sort()
-      .join("||");
-  }
-
   function rememberBlockedPermissionNotice(notice) {
-    state.pendingPermissionNotices = mergeBlockedPermissionNotices(
+    state.pendingPermissionNotices = M.mergeBlockedPermissionNotices(
       [notice],
       state.pendingPermissionNotices,
     );
@@ -19336,137 +19491,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     if (summary) {
       CHR.setInlineNote(summary);
     }
-  }
-
-  function deriveBlockedNoticesFromRawMessages(rawMessages) {
-    const notices = [];
-    (Array.isArray(rawMessages) ? rawMessages : []).forEach(function (raw) {
-      if (!raw || String(raw.role || "") !== "assistant") return;
-      const messageId = String(raw.message_id || "");
-      const parts = Array.isArray(raw.parts) ? raw.parts : [];
-      parts.forEach(function (part) {
-        if (!part || String(part.part_type || "") !== "tool") return;
-        const tool = part.tool || null;
-        if (!tool) return;
-        if (String(tool.tool || "") !== "read") return;
-        if (String(tool.status || "") !== "running") return;
-        const notice = blockedPermissionNoticeFromRunningRead(messageId, part);
-        if (notice) notices.push(notice);
-      });
-    });
-    return notices;
-  }
-
-  function copyText(text) {
-    const value = String(text || "");
-    if (!value) return Promise.resolve();
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(value);
-    }
-    return new Promise(function (resolve, reject) {
-      try {
-        const temp = document.createElement("textarea");
-        temp.value = value;
-        temp.setAttribute("readonly", "readonly");
-        temp.style.position = "fixed";
-        temp.style.left = "-9999px";
-        temp.style.top = "-9999px";
-        document.body.appendChild(temp);
-        temp.select();
-        document.execCommand("copy");
-        document.body.removeChild(temp);
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  function normalizeMessage(raw) {
-    const partsRaw = Array.isArray(raw && raw.parts) ? raw.parts : [];
-    const parts = partsRaw.slice();
-    parts.sort(function (a, b) {
-      const ao = Number(a && a.sort_order);
-      const bo = Number(b && b.sort_order);
-      if (Number.isFinite(ao) && Number.isFinite(bo) && ao !== bo) return ao - bo;
-      return 0;
-    });
-    const role = String((raw && raw.role) || "assistant");
-    const blocks = [];
-    function pushTextBlock(text) {
-      const t = String(text || "").trim();
-      if (!t) return;
-      const tb = makeTextBlock("", t, "text");
-      if (tb) blocks.push(tb);
-    }
-    function pushReasoningBlock(text) {
-      const t = String(text || "").trim();
-      if (!t) return;
-      const rb = makeTextBlock("思考（可折叠调试）", t, "reasoning", true);
-      if (rb) blocks.push(rb);
-    }
-    parts.forEach(function (part) {
-      const type = String((part && part.part_type) || "");
-      if (type === "text") {
-        pushTextBlock(part && part.text ? part.text : "");
-        return;
-      }
-      if (type === "reasoning") {
-        pushReasoningBlock(part && part.text ? part.text : "");
-        return;
-      }
-      if (type === "tool") {
-        const toolBody = formatToolPart(part);
-        if (toolBody) {
-          const label = toolBlockLabel(part);
-          const block = makeTextBlock(label, toolBody, "tool", true);
-          if (block) blocks.push(block);
-        }
-        return;
-      }
-      if (type === "patch") {
-        const patchText = String(part && part.text ? part.text : "").trim();
-        if (patchText) {
-          const pb = makeTextBlock("代码补丁", patchText, "patch", true);
-          if (pb) blocks.push(pb);
-        }
-        return;
-      }
-      if (part && part.raw) {
-        const debugBody = JSON.stringify(part.raw, null, 2);
-        const block = makeTextBlock("结构化片段", debugBody, "debug", true);
-        if (block) blocks.push(block);
-      }
-    });
-    const body =
-      blocks.length > 0
-        ? blocks
-            .map(function (block) {
-              return (block.label ? "[" + block.label + "]\n" : "") + block.content;
-            })
-            .join("\n\n")
-        : "(空消息)";
-    return {
-      id: String((raw && raw.message_id) || ""),
-      role: role,
-      body: body,
-      blocks: blocks,
-      time: new Date().toLocaleTimeString("zh-CN", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }),
-      actions: [],
-    };
-  }
-
-  function inferAgentModeFromRawMessage(raw) {
-    if (!raw || String(raw.role || "") !== "assistant") return null;
-    const parts = Array.isArray(raw.parts) ? raw.parts : [];
-    const hasPatchPart = parts.some(function (part) {
-      return String(part && part.part_type ? part.part_type : "") === "patch";
-    });
-    return hasPatchPart ? "build" : null;
   }
 
   function renderMessageActions(message, messageId) {
@@ -19842,7 +19866,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         if (!message) return;
         const text = debugCopyTextForMessage(message);
         const prevLabel = button.textContent;
-        copyText(text)
+        M.copyText(text)
           .then(function () {
             button.textContent = "已复制";
             button.setAttribute("title", "已复制到剪贴板");
@@ -20065,8 +20089,8 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
     state.progress = api.deriveProgressFromMessages(list);
     CHR.renderProgressStrip();
-    const runningBlocked = deriveBlockedNoticesFromRawMessages(list);
-    const runningBlockedFingerprint = blockedPermissionFingerprint(runningBlocked);
+    const runningBlocked = M.deriveBlockedNoticesFromRawMessages(list);
+    const runningBlockedFingerprint = M.blockedPermissionFingerprint(runningBlocked);
     const shouldBootstrapPendingPermissions =
       opts.forcePendingPermissions === true &&
       state.pendingPermissionsBootstrappedSessionId !== String(state.sessionId || "");
@@ -20093,7 +20117,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         const pending = pendingPayload && Array.isArray(pendingPayload.pending)
           ? pendingPayload.pending
           : [];
-        pendingBlocked = pending.map(blockedPermissionNoticeFromData);
+        pendingBlocked = pending.map(M.blockedPermissionNoticeFromData);
       } catch (_) {
         pendingBlocked = [];
       }
@@ -20106,7 +20130,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     state.pendingPermissionsFingerprint = runningBlockedFingerprint;
     state.lastMessagesFingerprint = nextFingerprint;
     list.forEach(function (raw) {
-      const inferred = inferAgentModeFromRawMessage(raw);
+      const inferred = M.inferAgentModeFromRawMessage(raw);
       const messageId = String(raw && raw.message_id ? raw.message_id : "");
       if (!inferred || !messageId) return;
       const meta = api.getMessageMeta(state.sessionId, messageId);
@@ -20114,9 +20138,9 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
         api.setMessageMeta(messageId, { agent: inferred, hasDiff: null, reverted: false });
       }
     });
-    state.messages = list.map(normalizeMessage);
+    state.messages = list.map(M.normalizeMessage);
     SRC.syncSourceDiffEntry();
-    const mergedBlocked = mergeBlockedPermissionNotices(pendingBlocked, runningBlocked);
+    const mergedBlocked = M.mergeBlockedPermissionNotices(pendingBlocked, runningBlocked);
     applyBlockedPermissionNotices(mergedBlocked);
     decorateMessageActions();
     renderMessages();
@@ -20332,7 +20356,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       fetchAllSessions: fetchAllSessions,
       renderSessions: renderSessions,
       resetPendingPermissionState: resetPendingPermissionState,
-      normalizeMessage: normalizeMessage,
+      normalizeMessage: M.normalizeMessage,
       respondPermissionRequest: respondPermissionRequest,
       rememberSession: rememberSession,
       restoreSession: restoreSession,
@@ -20348,11 +20372,744 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       sendPrompt: sendPrompt,
       applyRevertForMessage: applyRevertForMessage,
       applyUnrevertForSession: applyUnrevertForSession,
-      blockedPermissionNoticeFromData: blockedPermissionNoticeFromData,
+      blockedPermissionNoticeFromData: M.blockedPermissionNoticeFromData,
       rememberBlockedPermissionNotice: rememberBlockedPermissionNotice,
     };
   };
 })(window);
+
+;
+
+/* ===== agent-panel-layout.js ===== */
+/**
+ * 作者面板 DOM 引用与初始 state 工厂。须先于 agent-panel.js 拼接。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelCollectElements = function meiAgentPanelCollectElements() {
+    return {
+      serverDot: document.getElementById("author-server-dot"),
+      serverStatus: document.getElementById("author-server-status"),
+      config: document.getElementById("author-config-line"),
+      modelLabel: document.getElementById("author-model-label"),
+      reconnect: document.getElementById("author-reconnect-btn"),
+      newSession: document.getElementById("author-session-btn"),
+      skillLine: document.getElementById("author-skill-line"),
+      sessionSelect: document.getElementById("author-session-select"),
+      chatLog: document.getElementById("author-chat-log"),
+      progressStrip: document.getElementById("author-progress-strip"),
+      progressLabel: document.getElementById("author-progress-label"),
+      progressDetail: document.getElementById("author-progress-detail"),
+      progressItems: document.getElementById("author-progress-items"),
+      contextRefresh: document.getElementById("author-context-refresh-btn"),
+      contextScope: document.getElementById("author-context-preview-scope"),
+      contextSkill: document.getElementById("author-context-preview-skill"),
+      contextTools: document.getElementById("author-context-preview-tools"),
+      contextInventory: document.getElementById("author-context-preview-inventory"),
+      contextPrompt: document.getElementById("author-context-preview-prompt"),
+      contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
+      input: document.getElementById("author-intent-input"),
+      run: document.getElementById("author-run-btn"),
+      modeAsk:
+        document.getElementById("author-mode-ask-btn") ||
+        document.getElementById("author-mode-plan-btn"),
+      modeBuild: document.getElementById("author-mode-build-btn"),
+      completionModelSelect: document.getElementById("author-completion-model-select"),
+      completionModelWrap: document.getElementById("author-completion-model-wrap"),
+      undo: document.getElementById("author-undo-btn"),
+      redo: document.getElementById("author-redo-btn"),
+      sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
+      sourceViewHost: document.getElementById("source-view-host"),
+      sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
+      sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
+      sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
+      accessFloatingRoot: document.getElementById("access-chat-floating-root"),
+      accessFab: document.getElementById("access-chat-fab"),
+      accessClose: document.getElementById("access-chat-close"),
+      accessPanel: document.getElementById("access-chat-overlay-panel"),
+      statusModelService: document.getElementById("mei-status-model-service"),
+    };
+  };
+
+  global.__meiAgentPanelCreateInitialState = function meiAgentPanelCreateInitialState() {
+    return {
+      config: null,
+      runtime: null,
+      skillStatus: null,
+      health: null,
+      sessions: [],
+      sessionId: "",
+      sessionTargetKey: "",
+      messages: [],
+      loading: false,
+      sending: false,
+      aborting: false,
+      eventSource: null,
+      eventSourceSessionId: "",
+      streamConnected: false,
+      modelLabel: "模型",
+      sessionsCacheAtMs: 0,
+      sessionsFetchInFlight: null,
+      sendAbortController: null,
+      pendingPromptDraft: "",
+      generationSettleTimer: null,
+      _meiAutoSessionOnce: false,
+      _meiClientAutoOpencodeOnce: false,
+      lastMessagesFingerprint: "",
+      inlineNote: "",
+      agentMode: "build",
+      sessionHasRevertedChanges: {},
+      revertedMessageIds: {},
+      messageMeta: {},
+      messageDiffCache: {},
+      pendingReloadMessageId: "",
+      pendingPermissionsFingerprint: "",
+      pendingPermissionsFetchedAt: 0,
+      pendingPermissionNotices: [],
+      pendingPermissionsBootstrappedSessionId: "",
+      activeGenerationMessageId: "",
+      latestRoundAssistantId: "",
+      latestDiffMessageId: "",
+      sourceViewMode: "source",
+      sourceDiffMessageId: "",
+      sourceDiffMergeView: null,
+      sourceCodeMirror: null,
+      sourceEditorContainer: null,
+      sourceDiffResizeObserver: null,
+      sourceViewResizeObserver: null,
+      contextPreview: null,
+      contextPreviewBackoffUntilMs: 0,
+      contextPreviewFetchedAtMs: 0,
+      contextPreviewScopeKey: "",
+      modelProbe: null,
+      modelProbeFetchedAtMs: 0,
+      modelProbeFailureStreak: 0,
+      modelProbeLastSuccessAtMs: 0,
+      accessFloatingOpen: false,
+      accessFloatingDragMoved: false,
+      deltaDebugLog: [],
+      progress: {
+        visible: false,
+        label: "",
+        detail: "",
+        items: [],
+      },
+    };
+  };
+})(typeof globalThis !== "undefined" ? globalThis : window);
+
+;
+
+/* ===== agent-panel-delta-debug.js ===== */
+/**
+ * Delta 调试日志：sessionStorage 读写与 UI 渲染。
+ * 由 agent-panel 在具备 `els, state, RT, $U` 后调用 `__meiAgentPanelInstallDeltaDebug(api)`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallDeltaDebug = function (api) {
+    const els = api.els;
+    const state = api.state;
+    const RT = api.RT;
+    const $U = api.$U;
+
+    function normalizeDeltaDebugRows(rows) {
+      return $U.normalizeDeltaDebugRows(rows);
+    }
+
+    function writeDeltaDebugLogToStorage(sessionId, rows) {
+      if (!window.sessionStorage) return;
+      const key = RT.deltaDebugStorageKey(sessionId);
+      if (!key) return;
+      try {
+        window.sessionStorage.setItem(
+          key,
+          JSON.stringify({
+            updatedAtMs: Date.now(),
+            rows: normalizeDeltaDebugRows(rows),
+          }),
+        );
+      } catch (_) {}
+    }
+
+    function readDeltaDebugLogFromStorage(sessionId) {
+      if (!window.sessionStorage) return [];
+      const key = RT.deltaDebugStorageKey(sessionId);
+      if (!key) return [];
+      try {
+        const raw = window.sessionStorage.getItem(key);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return normalizeDeltaDebugRows(parsed && parsed.rows);
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function restoreDeltaDebugLog(sessionId) {
+      state.deltaDebugLog = readDeltaDebugLogFromStorage(sessionId);
+      renderDeltaDebugLog();
+    }
+
+    function trimDeltaPreview(text, maxChars) {
+      const raw = String(text || "");
+      if (!raw) return "";
+      const normalized = raw.replace(/\s+/g, " ").trim();
+      if (!normalized) return "";
+      if (normalized.length <= maxChars) return normalized;
+      return normalized.slice(0, Math.max(0, maxChars - 1)) + "…";
+    }
+
+    function formatDeltaDebugTs(stamp) {
+      const ms = Number(stamp || 0);
+      if (!Number.isFinite(ms) || ms <= 0) return "-";
+      const d = new Date(ms);
+      const pad = function (n, w) {
+        const s = String(Number(n) || 0);
+        return s.length >= w ? s : "0".repeat(w - s.length) + s;
+      };
+      return (
+        pad(d.getHours(), 2) +
+        ":" +
+        pad(d.getMinutes(), 2) +
+        ":" +
+        pad(d.getSeconds(), 2) +
+        "." +
+        pad(d.getMilliseconds(), 3)
+      );
+    }
+
+    function recordDeltaDebugEvent(event) {
+      const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
+      const clientRxTs = Date.now();
+      const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
+      const preview = trimDeltaPreview(deltaRaw, 48);
+      const gapRxMs =
+        Number.isFinite(serverTs) && serverTs > 0 ? clientRxTs - serverTs : null;
+      const row = {
+        serverTs: Number.isFinite(serverTs) ? serverTs : 0,
+        clientRxTs: clientRxTs,
+        paintTs: null,
+        partId: String(event && event.part_id ? event.part_id : ""),
+        messageId: String(event && event.message_id ? event.message_id : ""),
+        chars: deltaRaw.length,
+        preview: preview,
+        gapRxMs: gapRxMs,
+        gapPaintMs: null,
+      };
+      state.deltaDebugLog.unshift(row);
+      if (state.deltaDebugLog.length > 120) {
+        state.deltaDebugLog.length = 120;
+      }
+      writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+      renderDeltaDebugLog();
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          const paintTs = Date.now();
+          row.paintTs = paintTs;
+          row.gapPaintMs =
+            row.serverTs > 0 && Number.isFinite(row.serverTs) ? paintTs - row.serverTs : null;
+          writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
+          renderDeltaDebugLog();
+        });
+      });
+    }
+
+    function renderDeltaDebugLog() {
+      const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
+      const manageEl = document.getElementById("mei-manage-debug-agent-sse-delta");
+      const emptyManageHint =
+        "尚无助手流式 delta 记录。请在右侧「作者」连接会话并发消息；出现 srv/cli_rx/gap_rx 与 cli_paint/gap_paint（后者为连续两次 requestAnimationFrame 后的墙钟，近似「排帧后」与首绘间隔）。SPA 换文件后若曾收过 delta，请再点一次「调试」页签或发新消息以刷新本区。";
+      if (!log.length) {
+        if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = "(empty)";
+        if (manageEl) manageEl.textContent = emptyManageHint;
+        return;
+      }
+      const lines = log.slice(0, 60).map(function (item, index) {
+        const rxTs =
+          item && item.clientRxTs != null
+            ? item.clientRxTs
+            : item && item.clientTs != null
+              ? item.clientTs
+              : 0;
+        const gapRxLabel =
+          item && item.gapRxMs != null && Number.isFinite(item.gapRxMs)
+            ? String(item.gapRxMs) + "ms"
+            : item && item.gapMs != null && Number.isFinite(item.gapMs)
+              ? String(item.gapMs) + "ms"
+              : "-";
+        const paintTs = item && item.paintTs != null ? item.paintTs : null;
+        const cliPaintStr =
+          paintTs != null && Number.isFinite(paintTs) && paintTs > 0
+            ? formatDeltaDebugTs(paintTs)
+            : "-";
+        const gapPaintLabel =
+          item && item.gapPaintMs != null && Number.isFinite(item.gapPaintMs)
+            ? String(item.gapPaintMs) + "ms"
+            : "-";
+        return (
+          "#" +
+          String(index + 1).padStart(2, "0") +
+          " srv=" +
+          formatDeltaDebugTs(item.serverTs) +
+          " cli_rx=" +
+          formatDeltaDebugTs(rxTs) +
+          " gap_rx=" +
+          gapRxLabel +
+          " cli_paint=" +
+          cliPaintStr +
+          " gap_paint=" +
+          gapPaintLabel +
+          " chars=" +
+          String(item.chars || 0) +
+          " part=" +
+          String(item.partId || "-") +
+          " msg=" +
+          String(item.messageId || "-") +
+          " delta=\"" +
+          String(item.preview || "") +
+          "\""
+        );
+      });
+      const text = lines.join("\n");
+      if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = text;
+      if (manageEl) manageEl.textContent = text;
+    }
+
+    return {
+      writeDeltaDebugLogToStorage: writeDeltaDebugLogToStorage,
+      readDeltaDebugLogFromStorage: readDeltaDebugLogFromStorage,
+      restoreDeltaDebugLog: restoreDeltaDebugLog,
+      renderDeltaDebugLog: renderDeltaDebugLog,
+      recordDeltaDebugEvent: recordDeltaDebugEvent,
+    };
+  };
+})(typeof globalThis !== "undefined" ? globalThis : window);
+
+;
+
+/* ===== agent-panel-bindings.js ===== */
+/**
+ * 源码视图引用、composer、message meta、撤回状态、进度条推导、会话 diff 拉取。
+ * 由 agent-panel 在 `RT` 就绪后调用 `__meiAgentPanelInstallBindings(api)`。
+ */
+(function (global) {
+  "use strict";
+
+  global.__meiAgentPanelInstallBindings = function (api) {
+    const els = api.els;
+    const state = api.state;
+    const $U = api.$U;
+    const RT = api.RT;
+    const COMPOSER_MIN_ROWS = api.COMPOSER_MIN_ROWS;
+    const COMPOSER_MAX_ROWS = api.COMPOSER_MAX_ROWS;
+
+    function composerDraftText() {
+      return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
+    }
+
+    function refreshLinkedViewRefs() {
+      els.sourceViewHost = document.getElementById("source-view-host");
+      els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
+      els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
+      els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
+      els.accessFloatingRoot = document.getElementById("access-chat-floating-root");
+      els.accessFab = document.getElementById("access-chat-fab");
+      els.accessClose = document.getElementById("access-chat-close");
+      els.accessPanel = document.getElementById("access-chat-overlay-panel");
+      els.statusModelService = document.getElementById("mei-status-model-service");
+    }
+
+    function parsePx(value) {
+      const n = Number.parseFloat(String(value || "0"));
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function resolveComposerLineHeightPx(inputEl, style) {
+      const explicit = parsePx(style && style.lineHeight ? style.lineHeight : "");
+      if (explicit > 0) return explicit;
+      const fontSize = parsePx(style && style.fontSize ? style.fontSize : "");
+      return fontSize > 0 ? fontSize * 1.4 : 18;
+    }
+
+    function autoResizeComposerInput() {
+      if (!els.input) return;
+      const inputEl = els.input;
+      const style = window.getComputedStyle(inputEl);
+      const lineHeight = resolveComposerLineHeightPx(inputEl, style);
+      const verticalPadding =
+        parsePx(style.paddingTop) +
+        parsePx(style.paddingBottom) +
+        parsePx(style.borderTopWidth) +
+        parsePx(style.borderBottomWidth);
+      const minHeight = Math.round(lineHeight * COMPOSER_MIN_ROWS + verticalPadding);
+      const maxHeight = Math.round(lineHeight * COMPOSER_MAX_ROWS + verticalPadding);
+      inputEl.style.height = "auto";
+      const scrollHeight = Math.max(inputEl.scrollHeight, minHeight);
+      const nextHeight = Math.min(scrollHeight, maxHeight);
+      inputEl.style.height = String(nextHeight) + "px";
+      inputEl.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+    }
+
+    function canSubmitPrompt() {
+      return composerDraftText().trim().length > 0;
+    }
+
+    function normalizeFilePath(value) {
+      return $U.normalizeFilePath(value);
+    }
+
+    function sourceTargetKey() {
+      refreshLinkedViewRefs();
+      const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+      if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
+        return normalizeFilePath(targetNode.dataset.sourceTarget);
+      }
+      return RT.currentTargetKey();
+    }
+
+    function sourceLanguage() {
+      refreshLinkedViewRefs();
+      const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
+      if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
+        return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
+      }
+      return "plain";
+    }
+
+    function sourceRawText() {
+      refreshLinkedViewRefs();
+      return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
+    }
+
+    function latestRoundAssistantMessageId() {
+      const rounds = $U.conversationRounds(state.messages);
+      for (let index = rounds.length - 1; index >= 0; index -= 1) {
+        const round = rounds[index];
+        const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
+        const assistant = assistants.length ? assistants[assistants.length - 1] : null;
+        const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
+        if (messageId) return messageId;
+      }
+      return "";
+    }
+
+    function latestDiffEligibleMessageId() {
+      const latestAssistantId = latestRoundAssistantMessageId();
+      if (!latestAssistantId) return "";
+      const meta = getMessageMeta(state.sessionId, latestAssistantId);
+      if (!meta || meta.hasDiff !== true) return "";
+      return latestAssistantId;
+    }
+
+    function messageKey(sessionId, messageId) {
+      return String(sessionId || "") + "::" + String(messageId || "");
+    }
+
+    /** diff 结果随当前管理页目标路径变化，缓存键需包含 path。 */
+    function diffCacheKey(sessionId, messageId) {
+      const base = messageKey(sessionId, messageId);
+      const p = sourceTargetKey();
+      return p ? base + "::diffPath::" + p : base;
+    }
+
+    function setMessageMeta(messageId, patch) {
+      const key = messageKey(state.sessionId, messageId);
+      if (!key || key === "::") return;
+      const prev = state.messageMeta[key] || {};
+      state.messageMeta[key] = Object.assign({}, prev, patch || {});
+    }
+
+    function getMessageMeta(sessionId, messageId) {
+      return state.messageMeta[messageKey(sessionId, messageId)] || null;
+    }
+
+    function setSessionRevertedFlag(sessionId, hasReverted) {
+      const sid = String(sessionId || "").trim();
+      if (!sid) return;
+      state.sessionHasRevertedChanges[sid] = !!hasReverted;
+    }
+
+    function hasSessionRevertedChanges(sessionId) {
+      return !!state.sessionHasRevertedChanges[String(sessionId || "").trim()];
+    }
+
+    function persistRevertedState() {
+      try {
+        localStorage.setItem(RT.revertedStorageKey(), JSON.stringify(state.revertedMessageIds));
+      } catch (_) {}
+    }
+
+    function restoreRevertedState() {
+      state.revertedMessageIds = {};
+      state.sessionHasRevertedChanges = {};
+      try {
+        const raw = localStorage.getItem(RT.revertedStorageKey());
+        const parsed = raw ? JSON.parse(raw) : {};
+        if (!parsed || typeof parsed !== "object") return;
+        state.revertedMessageIds = parsed;
+        Object.keys(parsed).forEach(function (sid) {
+          setSessionRevertedFlag(sid, Array.isArray(parsed[sid]) && parsed[sid].length > 0);
+        });
+      } catch (_) {}
+    }
+
+    function revertedIdsForSession(sessionId) {
+      const sid = String(sessionId || "").trim();
+      const list = sid ? state.revertedMessageIds[sid] : null;
+      return Array.isArray(list) ? list.slice() : [];
+    }
+
+    function setRevertedIdsForSession(sessionId, nextIds) {
+      const sid = String(sessionId || "").trim();
+      if (!sid) return;
+      const deduped = Array.from(
+        new Set(
+          (Array.isArray(nextIds) ? nextIds : [])
+            .map(function (item) {
+              return String(item || "").trim();
+            })
+            .filter(Boolean),
+        ),
+      );
+      state.revertedMessageIds[sid] = deduped;
+      setSessionRevertedFlag(sid, deduped.length > 0);
+      persistRevertedState();
+    }
+
+    function isMessageReverted(sessionId, messageId) {
+      return revertedIdsForSession(sessionId).includes(String(messageId || "").trim());
+    }
+
+    function latestUndoMessageId() {
+      if (!state.sessionId) return "";
+      const rounds = $U.conversationRounds(state.messages);
+      for (let index = rounds.length - 1; index >= 0; index -= 1) {
+        const round = rounds[index];
+        const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
+        const message = assistants.length ? assistants[assistants.length - 1] : null;
+        const messageId = String(message && message.id ? message.id : "").trim();
+        if (!messageId) continue;
+        const meta = getMessageMeta(state.sessionId, messageId);
+        if (!meta || meta.hasDiff !== true) continue;
+        if (isMessageReverted(state.sessionId, messageId)) continue;
+        return messageId;
+      }
+      return "";
+    }
+
+    function canUndo() {
+      return !!latestUndoMessageId();
+    }
+
+    function canRedo() {
+      return hasSessionRevertedChanges(state.sessionId);
+    }
+
+    function progressStatusClass(status) {
+      const value = String(status || "").trim().toLowerCase();
+      if (value === "completed" || value === "done" || value === "finished") return "done";
+      if (value === "error" || value === "failed") return "error";
+      if (value === "running") return "running";
+      return "pending";
+    }
+
+    function progressLabelForTool(tool) {
+      const title = String(tool && tool.title ? tool.title : "").trim();
+      const name = String(tool && tool.tool ? tool.tool : "").trim();
+      return title || (name ? "工具：" + name : "工具步骤");
+    }
+
+    function activeAssistantRawMessage(rawMessages) {
+      const rows = Array.isArray(rawMessages) ? rawMessages : [];
+      const activeId = String(state.activeGenerationMessageId || "").trim();
+      if (activeId) {
+        const match = rows.find(function (row) {
+          return (
+            row &&
+            String(row.role || "") === "assistant" &&
+            String(row.message_id || "").trim() === activeId
+          );
+        });
+        if (match) return match;
+      }
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (row && String(row.role || "") === "assistant") {
+          return row;
+        }
+      }
+      return null;
+    }
+
+    function deriveProgressFromMessages(rawMessages) {
+      const active = activeAssistantRawMessage(rawMessages);
+      if (!state.sending || !active) {
+        return {
+          visible: false,
+          label: "",
+          detail: "",
+          items: [],
+        };
+      }
+      const messageId = String(active.message_id || "").trim();
+      const meta = getMessageMeta(state.sessionId, messageId) || {};
+      const agent = RT.normalizeAgentMode(meta.agent || state.agentMode);
+      const parts = Array.isArray(active.parts) ? active.parts : [];
+      const stepStarts = parts.filter(function (part) {
+        return String(part && part.part_type || "") === "step-start";
+      }).length;
+      const stepFinishes = parts.filter(function (part) {
+        return String(part && part.part_type || "") === "step-finish";
+      }).length;
+      const tools = parts
+        .filter(function (part) {
+          return String(part && part.part_type || "") === "tool" && part.tool;
+        })
+        .map(function (part) {
+          return part.tool;
+        });
+      const runningTools = tools.filter(function (tool) {
+        return String(tool && tool.status || "").trim().toLowerCase() === "running";
+      });
+      const pendingTools = tools.filter(function (tool) {
+        return String(tool && tool.status || "").trim().toLowerCase() === "pending";
+      });
+      const doneTools = tools.filter(function (tool) {
+        return String(tool && tool.status || "").trim().toLowerCase() === "completed";
+      });
+      const errorTools = tools.filter(function (tool) {
+        return String(tool && tool.status || "").trim().toLowerCase() === "error";
+      });
+
+      let label = agent === "ask" ? "问答处理中" : "脚本生成中";
+      if (runningTools.length > 0) {
+        label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 工具运行中";
+      } else if (stepStarts > stepFinishes) {
+        label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 步骤处理中";
+      } else if (parts.length > 0) {
+        label = agent === "ask" ? "正在生成回答" : "正在生成结果";
+      }
+
+      const totalSteps = Math.max(stepStarts, stepFinishes);
+      const detailParts = [];
+      if (totalSteps > 0) {
+        detailParts.push("步骤 " + String(stepFinishes) + "/" + String(totalSteps));
+      }
+      if (runningTools.length > 0) {
+        detailParts.push("运行中工具 " + String(runningTools.length));
+      } else if (pendingTools.length > 0) {
+        detailParts.push("待处理工具 " + String(pendingTools.length));
+      } else if (doneTools.length > 0) {
+        detailParts.push("已完成工具 " + String(doneTools.length));
+      }
+
+      const items = [];
+      tools.slice(-4).forEach(function (tool) {
+        items.push({
+          label: progressLabelForTool(tool),
+          status: progressStatusClass(tool && tool.status),
+        });
+      });
+      if (!items.length && totalSteps > 0) {
+        for (let index = 0; index < totalSteps; index += 1) {
+          items.push({
+            label: "步骤 " + String(index + 1),
+            status: index < stepFinishes ? "done" : (index < stepStarts ? "running" : "pending"),
+          });
+        }
+      }
+      if (!items.length) {
+        items.push({
+          label: agent === "ask" ? "等待回答输出" : "等待执行输出",
+          status: "running",
+        });
+      }
+
+      return {
+        visible: true,
+        label: label,
+        detail: detailParts.join(" · "),
+        items: items,
+      };
+    }
+
+    async function fetchSessionDiff(messageId) {
+      if (!state.sessionId) return null;
+      const params = new URLSearchParams();
+      const mid = String(messageId || "").trim();
+      if (mid) params.set("message_id", mid);
+      const pathKey = sourceTargetKey();
+      if (pathKey) params.set("path", pathKey);
+      const qs = params.toString();
+      return $U.fetchJson(
+        "/api/agent/session/" +
+          encodeURIComponent(state.sessionId) +
+          "/diff" +
+          (qs ? "?" + qs : ""),
+      );
+    }
+
+    /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */
+    function sessionDiffHasMaterialChanges(diff) {
+      if (!diff || typeof diff !== "object") return false;
+      const topAdd = Number(diff.additions);
+      const topDel = Number(diff.deletions);
+      if ((Number.isFinite(topAdd) && topAdd > 0) || (Number.isFinite(topDel) && topDel > 0)) {
+        return true;
+      }
+      const files = Array.isArray(diff.files) ? diff.files : [];
+      return files.some(function (f) {
+        if (!f || typeof f !== "object") return false;
+        const a = Number(f.additions);
+        const d = Number(f.deletions);
+        if ((Number.isFinite(a) && a > 0) || (Number.isFinite(d) && d > 0)) return true;
+        const after = String(f.after || "").trim();
+        if (!after) return false;
+        const low = after.toLowerCase();
+        if (low.includes("no git worktree") || low.includes("native diff snapshot:")) return false;
+        return after.split("\n").some(function (line) {
+          const t = String(line || "");
+          return (
+            (t.startsWith("+") && !t.startsWith("+++")) ||
+            (t.startsWith("-") && !t.startsWith("---"))
+          );
+        });
+      });
+    }
+
+    return {
+      composerDraftText: composerDraftText,
+      refreshLinkedViewRefs: refreshLinkedViewRefs,
+      autoResizeComposerInput: autoResizeComposerInput,
+      canSubmitPrompt: canSubmitPrompt,
+      normalizeFilePath: normalizeFilePath,
+      sourceTargetKey: sourceTargetKey,
+      sourceLanguage: sourceLanguage,
+      sourceRawText: sourceRawText,
+      latestRoundAssistantMessageId: latestRoundAssistantMessageId,
+      latestDiffEligibleMessageId: latestDiffEligibleMessageId,
+      diffCacheKey: diffCacheKey,
+      setMessageMeta: setMessageMeta,
+      getMessageMeta: getMessageMeta,
+      setSessionRevertedFlag: setSessionRevertedFlag,
+      hasSessionRevertedChanges: hasSessionRevertedChanges,
+      persistRevertedState: persistRevertedState,
+      restoreRevertedState: restoreRevertedState,
+      revertedIdsForSession: revertedIdsForSession,
+      setRevertedIdsForSession: setRevertedIdsForSession,
+      isMessageReverted: isMessageReverted,
+      latestUndoMessageId: latestUndoMessageId,
+      canUndo: canUndo,
+      canRedo: canRedo,
+      deriveProgressFromMessages: deriveProgressFromMessages,
+      fetchSessionDiff: fetchSessionDiff,
+      sessionDiffHasMaterialChanges: sessionDiffHasMaterialChanges,
+    };
+  };
+})(typeof globalThis !== "undefined" ? globalThis : window);
 
 ;
 
@@ -20369,112 +21126,18 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
   const root = document.getElementById("meilang-author-panel");
   if (!root) return;
 
-  const els = {
-    serverDot: document.getElementById("author-server-dot"),
-    serverStatus: document.getElementById("author-server-status"),
-    config: document.getElementById("author-config-line"),
-    modelLabel: document.getElementById("author-model-label"),
-    reconnect: document.getElementById("author-reconnect-btn"),
-    newSession: document.getElementById("author-session-btn"),
-    skillLine: document.getElementById("author-skill-line"),
-    sessionSelect: document.getElementById("author-session-select"),
-    chatLog: document.getElementById("author-chat-log"),
-    progressStrip: document.getElementById("author-progress-strip"),
-    progressLabel: document.getElementById("author-progress-label"),
-    progressDetail: document.getElementById("author-progress-detail"),
-    progressItems: document.getElementById("author-progress-items"),
-    contextRefresh: document.getElementById("author-context-refresh-btn"),
-    contextScope: document.getElementById("author-context-preview-scope"),
-    contextSkill: document.getElementById("author-context-preview-skill"),
-    contextTools: document.getElementById("author-context-preview-tools"),
-    contextInventory: document.getElementById("author-context-preview-inventory"),
-    contextPrompt: document.getElementById("author-context-preview-prompt"),
-    contextDeltaDebug: document.getElementById("author-context-preview-delta-debug"),
-    input: document.getElementById("author-intent-input"),
-    run: document.getElementById("author-run-btn"),
-    modeAsk:
-      document.getElementById("author-mode-ask-btn") ||
-      document.getElementById("author-mode-plan-btn"),
-    modeBuild: document.getElementById("author-mode-build-btn"),
-    completionModelSelect: document.getElementById("author-completion-model-select"),
-    completionModelWrap: document.getElementById("author-completion-model-wrap"),
-    undo: document.getElementById("author-undo-btn"),
-    redo: document.getElementById("author-redo-btn"),
-    sourceViewDiffBtn: document.getElementById("source-view-diff-btn"),
-    sourceViewHost: document.getElementById("source-view-host"),
-    sourceViewSourcePanel: document.getElementById("source-view-source-panel"),
-    sourceViewSourceRaw: document.getElementById("source-view-source-raw"),
-    sourceViewDiffPanel: document.getElementById("source-view-diff-panel"),
-    accessFloatingRoot: document.getElementById("access-chat-floating-root"),
-    accessFab: document.getElementById("access-chat-fab"),
-    accessClose: document.getElementById("access-chat-close"),
-    accessPanel: document.getElementById("access-chat-overlay-panel"),
-    statusModelService: document.getElementById("mei-status-model-service"),
-  };
+  if (
+    typeof window.__meiAgentPanelCollectElements !== "function" ||
+    typeof window.__meiAgentPanelCreateInitialState !== "function"
+  ) {
+    console.error(
+      "MeiAgentPanelLayout missing: ensure agent-panel-layout.js is bundled before agent-panel.js",
+    );
+    return;
+  }
 
-  const state = {
-    config: null,
-    runtime: null,
-    skillStatus: null,
-    health: null,
-    sessions: [],
-    sessionId: "",
-    sessionTargetKey: "",
-    messages: [],
-    loading: false,
-    sending: false,
-    aborting: false,
-    eventSource: null,
-    eventSourceSessionId: "",
-    streamConnected: false,
-    modelLabel: "模型",
-    sessionsCacheAtMs: 0,
-    sessionsFetchInFlight: null,
-    sendAbortController: null,
-    pendingPromptDraft: "",
-    generationSettleTimer: null,
-    _meiAutoSessionOnce: false,
-    _meiClientAutoOpencodeOnce: false,
-    lastMessagesFingerprint: "",
-    inlineNote: "",
-    agentMode: "build",
-    sessionHasRevertedChanges: {},
-    revertedMessageIds: {},
-    messageMeta: {},
-    messageDiffCache: {},
-    pendingReloadMessageId: "",
-    pendingPermissionsFingerprint: "",
-    pendingPermissionsFetchedAt: 0,
-    pendingPermissionNotices: [],
-    pendingPermissionsBootstrappedSessionId: "",
-    activeGenerationMessageId: "",
-    latestRoundAssistantId: "",
-    latestDiffMessageId: "",
-    sourceViewMode: "source",
-    sourceDiffMessageId: "",
-    sourceDiffMergeView: null,
-    sourceCodeMirror: null,
-    sourceEditorContainer: null,
-    sourceDiffResizeObserver: null,
-    sourceViewResizeObserver: null,
-    contextPreview: null,
-    contextPreviewBackoffUntilMs: 0,
-    contextPreviewFetchedAtMs: 0,
-    contextPreviewScopeKey: "",
-    modelProbe: null,
-    modelProbeFetchedAtMs: 0,
-    modelProbeFailureStreak: 0,
-    modelProbeLastSuccessAtMs: 0,
-    accessFloatingOpen: false,
-    accessFloatingDragMoved: false,
-    deltaDebugLog: [],
-    progress: {
-      visible: false,
-      label: "",
-      detail: "",
-      items: [],
-    },
-  };
+  const els = window.__meiAgentPanelCollectElements();
+  const state = window.__meiAgentPanelCreateInitialState();
 
   const SESSION_CACHE_KEY = "mei.author.sessions.v1";
   const SESSION_CACHE_TTL_MS = 30000;
@@ -20510,43 +21173,58 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     return;
   }
 
-  function normalizeDeltaDebugRows(rows) {
-    return $U.normalizeDeltaDebugRows(rows);
+  if (typeof window.__meiAgentPanelInstallDeltaDebug !== "function") {
+    console.error(
+      "MeiAgentPanelDeltaDebug missing: ensure agent-panel-delta-debug.js is bundled before agent-panel.js",
+    );
+    return;
   }
+  const DD = window.__meiAgentPanelInstallDeltaDebug({ els: els, state: state, RT: RT, $U: $U });
+  const writeDeltaDebugLogToStorage = DD.writeDeltaDebugLogToStorage;
+  const restoreDeltaDebugLog = DD.restoreDeltaDebugLog;
+  const renderDeltaDebugLog = DD.renderDeltaDebugLog;
+  const recordDeltaDebugEvent = DD.recordDeltaDebugEvent;
 
-  function writeDeltaDebugLogToStorage(sessionId, rows) {
-    if (!window.sessionStorage) return;
-    const key = RT.deltaDebugStorageKey(sessionId);
-    if (!key) return;
-    try {
-      window.sessionStorage.setItem(
-        key,
-        JSON.stringify({
-          updatedAtMs: Date.now(),
-          rows: normalizeDeltaDebugRows(rows),
-        }),
-      );
-    } catch (_) {}
+  if (typeof window.__meiAgentPanelInstallBindings !== "function") {
+    console.error(
+      "MeiAgentPanelBindings missing: ensure agent-panel-bindings.js is bundled before agent-panel.js",
+    );
+    return;
   }
-
-  function readDeltaDebugLogFromStorage(sessionId) {
-    if (!window.sessionStorage) return [];
-    const key = RT.deltaDebugStorageKey(sessionId);
-    if (!key) return [];
-    try {
-      const raw = window.sessionStorage.getItem(key);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return normalizeDeltaDebugRows(parsed && parsed.rows);
-    } catch (_) {
-      return [];
-    }
-  }
-
-  function restoreDeltaDebugLog(sessionId) {
-    state.deltaDebugLog = readDeltaDebugLogFromStorage(sessionId);
-    renderDeltaDebugLog();
-  }
+  const B = window.__meiAgentPanelInstallBindings({
+    els: els,
+    state: state,
+    $U: $U,
+    RT: RT,
+    COMPOSER_MIN_ROWS: COMPOSER_MIN_ROWS,
+    COMPOSER_MAX_ROWS: COMPOSER_MAX_ROWS,
+  });
+  const composerDraftText = B.composerDraftText;
+  const refreshLinkedViewRefs = B.refreshLinkedViewRefs;
+  const autoResizeComposerInput = B.autoResizeComposerInput;
+  const canSubmitPrompt = B.canSubmitPrompt;
+  const normalizeFilePath = B.normalizeFilePath;
+  const sourceTargetKey = B.sourceTargetKey;
+  const sourceLanguage = B.sourceLanguage;
+  const sourceRawText = B.sourceRawText;
+  const latestRoundAssistantMessageId = B.latestRoundAssistantMessageId;
+  const latestDiffEligibleMessageId = B.latestDiffEligibleMessageId;
+  const diffCacheKey = B.diffCacheKey;
+  const setMessageMeta = B.setMessageMeta;
+  const getMessageMeta = B.getMessageMeta;
+  const setSessionRevertedFlag = B.setSessionRevertedFlag;
+  const hasSessionRevertedChanges = B.hasSessionRevertedChanges;
+  const persistRevertedState = B.persistRevertedState;
+  const restoreRevertedState = B.restoreRevertedState;
+  const revertedIdsForSession = B.revertedIdsForSession;
+  const setRevertedIdsForSession = B.setRevertedIdsForSession;
+  const isMessageReverted = B.isMessageReverted;
+  const latestUndoMessageId = B.latestUndoMessageId;
+  const canUndo = B.canUndo;
+  const canRedo = B.canRedo;
+  const deriveProgressFromMessages = B.deriveProgressFromMessages;
+  const fetchSessionDiff = B.fetchSessionDiff;
+  const sessionDiffHasMaterialChanges = B.sessionDiffHasMaterialChanges;
 
   const AF =
     typeof window.__meiAgentPanelInstallAccessFloat === "function"
@@ -20564,332 +21242,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       "MeiAgentPanelAccessFloat missing: ensure agent-panel-access-float.js is bundled before agent-panel.js",
     );
     return;
-  }
-
-  function composerDraftText() {
-    return els.input && typeof els.input.value === "string" ? String(els.input.value) : "";
-  }
-
-  function refreshLinkedViewRefs() {
-    els.sourceViewHost = document.getElementById("source-view-host");
-    els.sourceViewSourcePanel = document.getElementById("source-view-source-panel");
-    els.sourceViewSourceRaw = document.getElementById("source-view-source-raw");
-    els.sourceViewDiffPanel = document.getElementById("source-view-diff-panel");
-    els.accessFloatingRoot = document.getElementById("access-chat-floating-root");
-    els.accessFab = document.getElementById("access-chat-fab");
-    els.accessClose = document.getElementById("access-chat-close");
-    els.accessPanel = document.getElementById("access-chat-overlay-panel");
-    els.statusModelService = document.getElementById("mei-status-model-service");
-  }
-
-  function parsePx(value) {
-    const n = Number.parseFloat(String(value || "0"));
-    return Number.isFinite(n) ? n : 0;
-  }
-
-  function resolveComposerLineHeightPx(inputEl, style) {
-    const explicit = parsePx(style && style.lineHeight ? style.lineHeight : "");
-    if (explicit > 0) return explicit;
-    const fontSize = parsePx(style && style.fontSize ? style.fontSize : "");
-    return fontSize > 0 ? fontSize * 1.4 : 18;
-  }
-
-  function autoResizeComposerInput() {
-    if (!els.input) return;
-    const inputEl = els.input;
-    const style = window.getComputedStyle(inputEl);
-    const lineHeight = resolveComposerLineHeightPx(inputEl, style);
-    const verticalPadding =
-      parsePx(style.paddingTop) +
-      parsePx(style.paddingBottom) +
-      parsePx(style.borderTopWidth) +
-      parsePx(style.borderBottomWidth);
-    const minHeight = Math.round(lineHeight * COMPOSER_MIN_ROWS + verticalPadding);
-    const maxHeight = Math.round(lineHeight * COMPOSER_MAX_ROWS + verticalPadding);
-    inputEl.style.height = "auto";
-    const scrollHeight = Math.max(inputEl.scrollHeight, minHeight);
-    const nextHeight = Math.min(scrollHeight, maxHeight);
-    inputEl.style.height = String(nextHeight) + "px";
-    inputEl.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
-  }
-
-  function canSubmitPrompt() {
-    return composerDraftText().trim().length > 0;
-  }
-
-  function normalizeFilePath(value) {
-    return $U.normalizeFilePath(value);
-  }
-
-  function sourceTargetKey() {
-    refreshLinkedViewRefs();
-    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
-    if (targetNode && targetNode.dataset && targetNode.dataset.sourceTarget) {
-      return normalizeFilePath(targetNode.dataset.sourceTarget);
-    }
-    return RT.currentTargetKey();
-  }
-
-  function sourceLanguage() {
-    refreshLinkedViewRefs();
-    const targetNode = els.sourceViewSourceRaw || els.sourceViewSourcePanel;
-    if (targetNode && targetNode.dataset && targetNode.dataset.sourceLang) {
-      return String(targetNode.dataset.sourceLang || "").trim().toLowerCase() || "plain";
-    }
-    return "plain";
-  }
-
-  function sourceRawText() {
-    refreshLinkedViewRefs();
-    return els.sourceViewSourceRaw ? String(els.sourceViewSourceRaw.textContent || "") : "";
-  }
-
-  function latestRoundAssistantMessageId() {
-    const rounds = $U.conversationRounds(state.messages);
-    for (let index = rounds.length - 1; index >= 0; index -= 1) {
-      const round = rounds[index];
-      const assistants = round && Array.isArray(round.assistants) ? round.assistants : [];
-      const assistant = assistants.length ? assistants[assistants.length - 1] : null;
-      const messageId = String(assistant && assistant.id ? assistant.id : "").trim();
-      if (messageId) return messageId;
-    }
-    return "";
-  }
-
-  function latestDiffEligibleMessageId() {
-    const latestAssistantId = latestRoundAssistantMessageId();
-    if (!latestAssistantId) return "";
-    const meta = getMessageMeta(state.sessionId, latestAssistantId);
-    if (!meta || meta.hasDiff !== true) return "";
-    return latestAssistantId;
-  }
-
-  function messageKey(sessionId, messageId) {
-    return String(sessionId || "") + "::" + String(messageId || "");
-  }
-
-  /** diff 结果随当前管理页目标路径变化，缓存键需包含 path。 */
-  function diffCacheKey(sessionId, messageId) {
-    const base = messageKey(sessionId, messageId);
-    const p = sourceTargetKey();
-    return p ? base + "::diffPath::" + p : base;
-  }
-
-  function setMessageMeta(messageId, patch) {
-    const key = messageKey(state.sessionId, messageId);
-    if (!key || key === "::") return;
-    const prev = state.messageMeta[key] || {};
-    state.messageMeta[key] = Object.assign({}, prev, patch || {});
-  }
-
-  function getMessageMeta(sessionId, messageId) {
-    return state.messageMeta[messageKey(sessionId, messageId)] || null;
-  }
-
-  function setSessionRevertedFlag(sessionId, hasReverted) {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return;
-    state.sessionHasRevertedChanges[sid] = !!hasReverted;
-  }
-
-  function hasSessionRevertedChanges(sessionId) {
-    return !!state.sessionHasRevertedChanges[String(sessionId || "").trim()];
-  }
-
-  function persistRevertedState() {
-    try {
-      localStorage.setItem(RT.revertedStorageKey(), JSON.stringify(state.revertedMessageIds));
-    } catch (_) {}
-  }
-
-  function restoreRevertedState() {
-    state.revertedMessageIds = {};
-    state.sessionHasRevertedChanges = {};
-    try {
-      const raw = localStorage.getItem(RT.revertedStorageKey());
-      const parsed = raw ? JSON.parse(raw) : {};
-      if (!parsed || typeof parsed !== "object") return;
-      state.revertedMessageIds = parsed;
-      Object.keys(parsed).forEach(function (sid) {
-        setSessionRevertedFlag(sid, Array.isArray(parsed[sid]) && parsed[sid].length > 0);
-      });
-    } catch (_) {}
-  }
-
-  function revertedIdsForSession(sessionId) {
-    const sid = String(sessionId || "").trim();
-    const list = sid ? state.revertedMessageIds[sid] : null;
-    return Array.isArray(list) ? list.slice() : [];
-  }
-
-  function setRevertedIdsForSession(sessionId, nextIds) {
-    const sid = String(sessionId || "").trim();
-    if (!sid) return;
-    const deduped = Array.from(
-      new Set(
-        (Array.isArray(nextIds) ? nextIds : [])
-          .map(function (item) { return String(item || "").trim(); })
-          .filter(Boolean),
-      ),
-    );
-    state.revertedMessageIds[sid] = deduped;
-    setSessionRevertedFlag(sid, deduped.length > 0);
-    persistRevertedState();
-  }
-
-  function isMessageReverted(sessionId, messageId) {
-    return revertedIdsForSession(sessionId).includes(String(messageId || "").trim());
-  }
-
-  function latestUndoMessageId() {
-    if (!state.sessionId) return "";
-    const rounds = $U.conversationRounds(state.messages);
-    for (let index = rounds.length - 1; index >= 0; index -= 1) {
-      const message = rounds[index] && rounds[index].assistant;
-      const messageId = String(message && message.id ? message.id : "").trim();
-      if (!messageId) continue;
-      const meta = getMessageMeta(state.sessionId, messageId);
-      if (!meta || meta.hasDiff !== true) continue;
-      if (isMessageReverted(state.sessionId, messageId)) continue;
-      return messageId;
-    }
-    return "";
-  }
-
-  function canUndo() {
-    return !!latestUndoMessageId();
-  }
-
-  function canRedo() {
-    return hasSessionRevertedChanges(state.sessionId);
-  }
-
-  function progressStatusClass(status) {
-    const value = String(status || "").trim().toLowerCase();
-    if (value === "completed" || value === "done" || value === "finished") return "done";
-    if (value === "error" || value === "failed") return "error";
-    if (value === "running") return "running";
-    return "pending";
-  }
-
-  function progressLabelForTool(tool) {
-    const title = String(tool && tool.title ? tool.title : "").trim();
-    const name = String(tool && tool.tool ? tool.tool : "").trim();
-    return title || (name ? "工具：" + name : "工具步骤");
-  }
-
-  function activeAssistantRawMessage(rawMessages) {
-    const rows = Array.isArray(rawMessages) ? rawMessages : [];
-    const activeId = String(state.activeGenerationMessageId || "").trim();
-    if (activeId) {
-      const match = rows.find(function (row) {
-        return (
-          row &&
-          String(row.role || "") === "assistant" &&
-          String(row.message_id || "").trim() === activeId
-        );
-      });
-      if (match) return match;
-    }
-    for (let index = rows.length - 1; index >= 0; index -= 1) {
-      const row = rows[index];
-      if (row && String(row.role || "") === "assistant") {
-        return row;
-      }
-    }
-    return null;
-  }
-
-  function deriveProgressFromMessages(rawMessages) {
-    const active = activeAssistantRawMessage(rawMessages);
-    if (!state.sending || !active) {
-      return {
-        visible: false,
-        label: "",
-        detail: "",
-        items: [],
-      };
-    }
-    const messageId = String(active.message_id || "").trim();
-    const meta = getMessageMeta(state.sessionId, messageId) || {};
-    const agent = RT.normalizeAgentMode(meta.agent || state.agentMode);
-    const parts = Array.isArray(active.parts) ? active.parts : [];
-    const stepStarts = parts.filter(function (part) {
-      return String(part && part.part_type || "") === "step-start";
-    }).length;
-    const stepFinishes = parts.filter(function (part) {
-      return String(part && part.part_type || "") === "step-finish";
-    }).length;
-    const tools = parts
-      .filter(function (part) {
-        return String(part && part.part_type || "") === "tool" && part.tool;
-      })
-      .map(function (part) {
-        return part.tool;
-      });
-    const runningTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "running";
-    });
-    const pendingTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "pending";
-    });
-    const doneTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "completed";
-    });
-    const errorTools = tools.filter(function (tool) {
-      return String(tool && tool.status || "").trim().toLowerCase() === "error";
-    });
-
-    let label = agent === "ask" ? "问答处理中" : "脚本生成中";
-    if (runningTools.length > 0) {
-      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 工具运行中";
-    } else if (stepStarts > stepFinishes) {
-      label = (agent === "ask" ? "问答处理中" : "脚本生成中") + " · 步骤处理中";
-    } else if (parts.length > 0) {
-      label = agent === "ask" ? "正在生成回答" : "正在生成结果";
-    }
-
-    const totalSteps = Math.max(stepStarts, stepFinishes);
-    const detailParts = [];
-    if (totalSteps > 0) {
-      detailParts.push("步骤 " + String(stepFinishes) + "/" + String(totalSteps));
-    }
-    if (runningTools.length > 0) {
-      detailParts.push("运行中工具 " + String(runningTools.length));
-    } else if (pendingTools.length > 0) {
-      detailParts.push("待处理工具 " + String(pendingTools.length));
-    } else if (doneTools.length > 0) {
-      detailParts.push("已完成工具 " + String(doneTools.length));
-    }
-
-    const items = [];
-    tools.slice(-4).forEach(function (tool) {
-      items.push({
-        label: progressLabelForTool(tool),
-        status: progressStatusClass(tool && tool.status),
-      });
-    });
-    if (!items.length && totalSteps > 0) {
-      for (let index = 0; index < totalSteps; index += 1) {
-        items.push({
-          label: "步骤 " + String(index + 1),
-          status: index < stepFinishes ? "done" : (index < stepStarts ? "running" : "pending"),
-        });
-      }
-    }
-    if (!items.length) {
-      items.push({
-        label: agent === "ask" ? "等待回答输出" : "等待执行输出",
-        status: "running",
-      });
-    }
-
-    return {
-      visible: true,
-      label: label,
-      detail: detailParts.join(" · "),
-      items: items,
-    };
   }
 
   let SES = null;
@@ -21014,177 +21366,6 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     return CTX.formatMsTime(v);
   };
 
-  function trimDeltaPreview(text, maxChars) {
-    const raw = String(text || "");
-    if (!raw) return "";
-    const normalized = raw.replace(/\s+/g, " ").trim();
-    if (!normalized) return "";
-    if (normalized.length <= maxChars) return normalized;
-    return normalized.slice(0, Math.max(0, maxChars - 1)) + "…";
-  }
-
-  function formatDeltaDebugTs(stamp) {
-    const ms = Number(stamp || 0);
-    if (!Number.isFinite(ms) || ms <= 0) return "-";
-    const d = new Date(ms);
-    const pad = function (n, w) {
-      const s = String(Number(n) || 0);
-      return s.length >= w ? s : "0".repeat(w - s.length) + s;
-    };
-    return (
-      pad(d.getHours(), 2) +
-      ":" +
-      pad(d.getMinutes(), 2) +
-      ":" +
-      pad(d.getSeconds(), 2) +
-      "." +
-      pad(d.getMilliseconds(), 3)
-    );
-  }
-
-  function recordDeltaDebugEvent(event) {
-    const serverTs = Number(event && event.server_ts_ms ? event.server_ts_ms : 0);
-    const clientRxTs = Date.now();
-    const deltaRaw = event && typeof event.delta === "string" ? event.delta : "";
-    const preview = trimDeltaPreview(deltaRaw, 48);
-    const gapRxMs =
-      Number.isFinite(serverTs) && serverTs > 0 ? clientRxTs - serverTs : null;
-    const row = {
-      serverTs: Number.isFinite(serverTs) ? serverTs : 0,
-      clientRxTs: clientRxTs,
-      paintTs: null,
-      partId: String(event && event.part_id ? event.part_id : ""),
-      messageId: String(event && event.message_id ? event.message_id : ""),
-      chars: deltaRaw.length,
-      preview: preview,
-      gapRxMs: gapRxMs,
-      gapPaintMs: null,
-    };
-    state.deltaDebugLog.unshift(row);
-    if (state.deltaDebugLog.length > 120) {
-      state.deltaDebugLog.length = 120;
-    }
-    writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
-    renderDeltaDebugLog();
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () {
-        const paintTs = Date.now();
-        row.paintTs = paintTs;
-        row.gapPaintMs =
-          row.serverTs > 0 && Number.isFinite(row.serverTs) ? paintTs - row.serverTs : null;
-        writeDeltaDebugLogToStorage(String(state.sessionId || ""), state.deltaDebugLog);
-        renderDeltaDebugLog();
-      });
-    });
-  }
-
-  function renderDeltaDebugLog() {
-    const log = Array.isArray(state.deltaDebugLog) ? state.deltaDebugLog : [];
-    const manageEl = document.getElementById("mei-manage-debug-agent-sse-delta");
-    const emptyManageHint =
-      "尚无助手流式 delta 记录。请在右侧「作者」连接会话并发消息；出现 srv/cli_rx/gap_rx 与 cli_paint/gap_paint（后者为连续两次 requestAnimationFrame 后的墙钟，近似「排帧后」与首绘间隔）。SPA 换文件后若曾收过 delta，请再点一次「调试」页签或发新消息以刷新本区。";
-    if (!log.length) {
-      if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = "(empty)";
-      if (manageEl) manageEl.textContent = emptyManageHint;
-      return;
-    }
-    const lines = log.slice(0, 60).map(function (item, index) {
-      const rxTs =
-        item && item.clientRxTs != null
-          ? item.clientRxTs
-          : item && item.clientTs != null
-            ? item.clientTs
-            : 0;
-      const gapRxLabel =
-        item && item.gapRxMs != null && Number.isFinite(item.gapRxMs)
-          ? String(item.gapRxMs) + "ms"
-          : item && item.gapMs != null && Number.isFinite(item.gapMs)
-            ? String(item.gapMs) + "ms"
-            : "-";
-      const paintTs = item && item.paintTs != null ? item.paintTs : null;
-      const cliPaintStr =
-        paintTs != null && Number.isFinite(paintTs) && paintTs > 0
-          ? formatDeltaDebugTs(paintTs)
-          : "-";
-      const gapPaintLabel =
-        item && item.gapPaintMs != null && Number.isFinite(item.gapPaintMs)
-          ? String(item.gapPaintMs) + "ms"
-          : "-";
-      return (
-        "#" +
-        String(index + 1).padStart(2, "0") +
-        " srv=" +
-        formatDeltaDebugTs(item.serverTs) +
-        " cli_rx=" +
-        formatDeltaDebugTs(rxTs) +
-        " gap_rx=" +
-        gapRxLabel +
-        " cli_paint=" +
-        cliPaintStr +
-        " gap_paint=" +
-        gapPaintLabel +
-        " chars=" +
-        String(item.chars || 0) +
-        " part=" +
-        String(item.partId || "-") +
-        " msg=" +
-        String(item.messageId || "-") +
-        " delta=\"" +
-        String(item.preview || "") +
-        "\""
-      );
-    });
-    const text = lines.join("\n");
-    if (els.contextDeltaDebug) els.contextDeltaDebug.textContent = text;
-    if (manageEl) manageEl.textContent = text;
-  }
-
-
-  async function fetchSessionDiff(messageId) {
-    if (!state.sessionId) return null;
-    const params = new URLSearchParams();
-    const mid = String(messageId || "").trim();
-    if (mid) params.set("message_id", mid);
-    const pathKey = sourceTargetKey();
-    if (pathKey) params.set("path", pathKey);
-    const qs = params.toString();
-    return $U.fetchJson(
-      "/api/agent/session/" +
-        encodeURIComponent(state.sessionId) +
-        "/diff" +
-        (qs ? "?" + qs : ""),
-    );
-  }
-
-  /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */
-  function sessionDiffHasMaterialChanges(diff) {
-    if (!diff || typeof diff !== "object") return false;
-    const topAdd = Number(diff.additions);
-    const topDel = Number(diff.deletions);
-    if ((Number.isFinite(topAdd) && topAdd > 0) || (Number.isFinite(topDel) && topDel > 0)) {
-      return true;
-    }
-    const files = Array.isArray(diff.files) ? diff.files : [];
-    return files.some(function (f) {
-      if (!f || typeof f !== "object") return false;
-      const a = Number(f.additions);
-      const d = Number(f.deletions);
-      if ((Number.isFinite(a) && a > 0) || (Number.isFinite(d) && d > 0)) return true;
-      const after = String(f.after || "").trim();
-      if (!after) return false;
-      const low = after.toLowerCase();
-      if (low.includes("no git worktree") || low.includes("native diff snapshot:")) return false;
-      return after.split("\n").some(function (line) {
-        const t = String(line || "");
-        return (
-          (t.startsWith("+") && !t.startsWith("+++")) ||
-          (t.startsWith("-") && !t.startsWith("---"))
-        );
-      });
-    });
-  }
-
-
   const transport = { ses: null };
   const msgApi = {
     transport: transport,
@@ -21231,7 +21412,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       : null;
   if (!MSG || typeof MSG.refreshMessages !== "function") {
     console.error(
-      "MeiAgentPanelMessages missing: ensure agent-panel-messages.js is bundled before agent-panel.js",
+      "MeiAgentPanelMessages missing: ensure agent-panel-messages-model.js, agent-panel-messages.js, agent-panel-layout.js are bundled before agent-panel.js",
     );
     return;
   }
@@ -22146,7 +22327,11 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     "/app-assets/agent-panel-session.js",
     "/app-assets/agent-panel-context.js",
     "/app-assets/agent-panel-chrome.js",
+    "/app-assets/agent-panel-messages-model.js",
     "/app-assets/agent-panel-messages.js",
+    "/app-assets/agent-panel-layout.js",
+    "/app-assets/agent-panel-delta-debug.js",
+    "/app-assets/agent-panel-bindings.js",
     "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([

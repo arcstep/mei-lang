@@ -17,7 +17,11 @@
     "/app-assets/agent-panel-session.js",
     "/app-assets/agent-panel-context.js",
     "/app-assets/agent-panel-chrome.js",
+    "/app-assets/agent-panel-messages-model.js",
     "/app-assets/agent-panel-messages.js",
+    "/app-assets/agent-panel-layout.js",
+    "/app-assets/agent-panel-delta-debug.js",
+    "/app-assets/agent-panel-bindings.js",
     "/app-assets/agent-panel.js",
   ]);
   const RELOAD_BUNDLE_SCRIPTS = new Set([
