@@ -110,7 +110,8 @@ pub(super) fn manage_tab_href(
 }
 
 /// 访问态入口使用的 `?scene=...` 片段：与当前页面是管理态还是访问态无关。
-/// 管理壳顶栏的「访问」链接必须始终用它生成，否则在 Manage 下 `route_query` 会为空，导致无法深链到当前解析出的场景。
+/// 管理壳在同一次 SSR 编译中解析出的 `selected_scene` 写入此处，使「访问」仅携带 `scene=`，
+/// 与访问态禁止 `file=` 深链的发布边界一致；不依赖用户事先在 main 中手工登记路由。
 pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
     let mut parts = Vec::new();
     if let Some(scene) = selected_scene {

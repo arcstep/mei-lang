@@ -402,6 +402,50 @@
     );
   }
 
+  /** 同路径 SPA 只替换 #workspace-root 时，顶栏仍在壳外，需从下一页文档同步 href（访问 / 演示 / 应用切换）。 */
+  function syncManageTopbarFromDoc(doc) {
+    try {
+      const currentHeader = document.querySelector("header.topbar-shell");
+      const nextHeader = doc.querySelector("header.topbar-shell");
+      if (!currentHeader || !nextHeader) return;
+
+      const currentGroup = currentHeader.querySelector("sl-button-group.mode-tab-group");
+      const nextGroup = nextHeader.querySelector("sl-button-group.mode-tab-group");
+      if (currentGroup && nextGroup) {
+        const curBtns = currentGroup.querySelectorAll("sl-button[href]");
+        const nextBtns = nextGroup.querySelectorAll("sl-button[href]");
+        const n = Math.min(curBtns.length, nextBtns.length);
+        for (let i = 0; i < n; i++) {
+          const nh = nextBtns[i].getAttribute("href");
+          if (nh) curBtns[i].setAttribute("href", nh);
+        }
+      }
+
+      const curLaunch = currentHeader.querySelector("sl-button.topbar-launch-btn");
+      const nextLaunch = nextHeader.querySelector("sl-button.topbar-launch-btn");
+      if (curLaunch && nextLaunch) {
+        const nh = nextLaunch.getAttribute("href");
+        if (nh) curLaunch.setAttribute("href", nh);
+      }
+
+      const curTabs = currentHeader.querySelectorAll("nav.app-tabs a[href]");
+      const nextTabs = nextHeader.querySelectorAll("nav.app-tabs a[href]");
+      const m = Math.min(curTabs.length, nextTabs.length);
+      for (let j = 0; j < m; j++) {
+        const h = nextTabs[j].getAttribute("href");
+        if (h) curTabs[j].setAttribute("href", h);
+      }
+
+      const curBread = currentHeader.querySelector(".app-current-path");
+      const nextBread = nextHeader.querySelector(".app-current-path");
+      if (curBread && nextBread) {
+        curBread.replaceWith(nextBread.cloneNode(true));
+      }
+    } catch (err) {
+      console.warn("[spa-navigation] sync topbar skipped", err);
+    }
+  }
+
   function swapManageWorkspace(doc, url, replaceHistory) {
     const currentShell = document.querySelector(".shell");
     const nextShell = doc.querySelector(".shell");
@@ -448,6 +492,8 @@
     if (currentStatusbar && nextStatusbar) {
       syncStatusbarContent(currentStatusbar, nextStatusbar);
     }
+
+    syncManageTopbarFromDoc(doc);
 
     if (replaceHistory) {
       window.history.replaceState({}, "", url);
