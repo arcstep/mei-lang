@@ -75,23 +75,25 @@ pub(super) fn source_tree_view(
                 }
                 .into_any()
             } else {
-                let scene_for_link = scene_target_pairs
-                    .iter()
-                    .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
-                    .map(|(_, scene_id)| scene_id.as_str())
-                    .or(selected_scene.filter(|_| route_mode == UiRouteMode::Access));
-                let file_for_link = if node.path == omit_file_query_when_path {
-                    None
-                } else if scene_for_link.is_some() {
-                    None
+                let scene_for_link = if route_mode == UiRouteMode::Access {
+                    scene_target_pairs
+                        .iter()
+                        .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
+                        .map(|(_, scene_id)| scene_id.as_str())
+                        .or(selected_scene)
                 } else {
+                    None
+                };
+                let file_for_link = if route_mode == UiRouteMode::Manage {
                     Some(node.path.as_str())
+                } else {
+                    None
                 };
                 let href = source_href(
                     route_mode,
                     app_path,
                     node.path.as_str(),
-                    scene_for_link.or(selected_scene),
+                    scene_for_link,
                     file_for_link,
                     active_tab,
                 );
@@ -200,12 +202,6 @@ fn source_href(
         }
         UiRouteMode::Manage => {
             let mut parts = Vec::new();
-            if let Some(scene) = selected_scene {
-                let s = scene.trim();
-                if !s.is_empty() {
-                    parts.push(format!("scene={}", encode_query_value(s)));
-                }
-            }
             if let Some(f) = file_for_link {
                 let t = f.trim();
                 if !t.is_empty() {

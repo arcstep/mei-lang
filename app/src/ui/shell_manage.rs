@@ -56,26 +56,11 @@ pub(super) fn manage_shell(
     let source_lang = source_language(selected_target.as_str());
     let preview = preview::preview_view(compiled, app_path);
     let active_scene = compiled.active_scene.as_deref();
-    let current_scene = selected_scene.or(active_scene);
     let scene_target_pairs = compiled
         .scene_routes
         .iter()
         .map(|route| (route.target_file.clone(), route.scene_id.clone()))
         .collect::<Vec<_>>();
-    let default_file_for_scene = current_scene
-        .and_then(|sid| {
-            compiled
-                .scene_routes
-                .iter()
-                .find(|r| r.scene_id == sid)
-                .map(|r| r.target_file.as_str())
-        })
-        .unwrap_or(compiled.active_target_file.as_str());
-    let file_for_url = if selected_target.as_str() == default_file_for_scene {
-        None
-    } else {
-        Some(selected_target.as_str())
-    };
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
         UiRouteMode::Manage,
@@ -83,7 +68,7 @@ pub(super) fn manage_shell(
         selected_target.as_str(),
         selected_scene.or(active_scene),
         scene_target_pairs.as_slice(),
-        default_file_for_scene,
+        compiled.active_target_file.as_str(),
         active_tab,
     );
     let diagnostics = diagnostics_view(compiled);
@@ -158,8 +143,7 @@ pub(super) fn manage_shell(
         .map(|(tab, label, badge, start_hidden)| {
             let href = manage_tab_href(
                 app_path,
-                selected_scene.or(active_scene),
-                file_for_url,
+                Some(selected_target.as_str()),
                 selected_target.as_str(),
                 script_target,
                 tab,
