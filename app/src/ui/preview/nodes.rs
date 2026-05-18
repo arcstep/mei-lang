@@ -118,6 +118,7 @@ fn node_view(
             app_path,
             scene_contract,
             resources,
+            theme,
         ),
     }
 }
@@ -129,11 +130,13 @@ fn block_view(
     app_path: &str,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
+    theme: &ThemeResolved,
 ) -> AnyView {
     let props = attach_host_meta(
         resolve_value(&block.props, scene_contract, resources),
         compiled,
         app_path,
+        &theme.components,
     );
     let tag = compiled
         .component_assets

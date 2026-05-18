@@ -3,7 +3,12 @@ use std::collections::BTreeMap;
 use mei_lang_kernel::{CompiledApp, LoadedResource, SceneContract};
 use serde_json::Value;
 
-pub(super) fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_path: &str) -> Value {
+pub(super) fn attach_host_meta(
+    mut props: Value,
+    compiled: &CompiledApp,
+    app_path: &str,
+    theme_components: &serde_json::Value,
+) -> Value {
     if let Some(map) = props.as_object_mut() {
         map.insert(
             "_mei".to_string(),
@@ -14,6 +19,7 @@ pub(super) fn attach_host_meta(mut props: Value, compiled: &CompiledApp, app_pat
                 "step_api": format!("/api/sim/step/{}", app_path),
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
                 "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
+                "components": theme_components.clone(),
             }),
         );
     }

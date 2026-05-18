@@ -8,6 +8,8 @@ pub(super) struct ThemeResolved {
     pub(super) panel: Value,
     pub(super) panel_bare: Value,
     pub(super) heading: Value,
+    /// 合并后的 `theme.components`，供宿主组件通过 `_mei.components` 读取。
+    pub(super) components: Value,
     pub(super) css_vars: Vec<(String, String)>,
 }
 
@@ -56,12 +58,19 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
     let css_vars = collect_theme_css_vars(&theme);
+    let components = theme
+        .as_object()
+        .and_then(|map| map.get("components"))
+        .cloned()
+        .filter(|value| !value.is_null())
+        .unwrap_or_else(|| serde_json::json!({}));
     ThemeResolved {
         id: theme_id,
         frame,
         panel,
         panel_bare,
         heading,
+        components,
         css_vars,
     }
 }
@@ -125,6 +134,11 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                     "radius": "6px",
                     "padding": "12px"
                 }
+            },
+            "components": {
+                "dataset_table": {
+                    "cell_preview_max_chars": 30
+                }
             }
         }),
         "game" => serde_json::json!({
@@ -164,6 +178,11 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                     "text_muted": "#9ca3af",
                     "text_accent": "#fbbf24"
                 }
+            },
+            "components": {
+                "dataset_table": {
+                    "cell_preview_max_chars": 30
+                }
             }
         }),
         _ => serde_json::json!({
@@ -199,6 +218,11 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                     "text_muted": "#94a3b8",
                     "text_accent": "#f8fafc"
                 }
+            },
+            "components": {
+                "dataset_table": {
+                    "cell_preview_max_chars": 30
+                }
             }
         }),
     };
@@ -206,14 +230,17 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
 }
 
 fn theme_decl_value(theme: &ThemeDecl) -> Value {
-    serde_json::json!({
-        "frame": theme.frame,
-        "panel": theme.panel,
-        "panel_bare": theme.panel_bare,
-        "heading": theme.heading,
-        "font": theme.font,
-        "tokens": theme.tokens,
-    })
+    let mut map = serde_json::Map::new();
+    map.insert("frame".to_string(), theme.frame.clone());
+    map.insert("panel".to_string(), theme.panel.clone());
+    map.insert("panel_bare".to_string(), theme.panel_bare.clone());
+    map.insert("heading".to_string(), theme.heading.clone());
+    map.insert("font".to_string(), theme.font.clone());
+    map.insert("tokens".to_string(), theme.tokens.clone());
+    if !theme.components.is_null() {
+        map.insert("components".to_string(), theme.components.clone());
+    }
+    Value::Object(map)
 }
 
 pub(super) fn resolve_panel_props(theme: &ThemeResolved, props: &Value) -> Value {

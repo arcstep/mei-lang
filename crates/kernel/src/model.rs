@@ -171,6 +171,9 @@ pub struct ThemeDecl {
     pub font: Value,
     #[serde(default)]
     pub tokens: Value,
+    /// 组件级默认配置（如 `dataset_table.cell_preview_max_chars`），由预览 `_mei.components` 下发。
+    #[serde(default)]
+    pub components: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

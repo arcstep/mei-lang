@@ -248,6 +248,7 @@ mod tests {
                 "border": "none",
             }),
             heading: json!({}),
+            components: json!({}),
             css_vars: Vec::new(),
         };
         let resolved = resolve_panel_props(
@@ -278,6 +279,7 @@ mod tests {
                 "background": "transparent",
             }),
             heading: json!({}),
+            components: json!({}),
             css_vars: Vec::new(),
         };
         let resolved = resolve_panel_props(
