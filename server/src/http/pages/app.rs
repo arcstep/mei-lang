@@ -64,12 +64,48 @@ fn canonical_scene_for_target(compiled: &CompiledApp, target_file: Option<&str>)
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
-    /// 管理页当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
+    /// 仅管理态：当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
+    /// 访问态禁止携带：若出现则 307 重定向到剥离 `file`/`target` 后的 URL（发布面不得深链内部路径）。
     #[serde(default, alias = "target")]
     pub file: Option<String>,
     pub scene: Option<String>,
     pub tab: Option<String>,
     pub chrome: Option<String>,
+}
+
+fn percent_encode_query_component(value: &str) -> String {
+    let mut out = String::new();
+    for b in value.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(char::from(*b));
+            }
+            _ => {
+                out.push('%');
+                out.push_str(&format!("{:02X}", b));
+            }
+        }
+    }
+    out
+}
+
+/// 访问态允许的 query：`scene`、`tab`、`chrome`（不含 `file`/`target`）。
+fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
+    let mut parts = Vec::new();
+    if let Some(scene) = query.scene.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("scene={}", percent_encode_query_component(scene)));
+    }
+    if let Some(tab) = query.tab.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("tab={}", percent_encode_query_component(tab)));
+    }
+    if let Some(chrome) = query.chrome.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("chrome={}", percent_encode_query_component(chrome)));
+    }
+    if parts.is_empty() {
+        format!("/apps/access/{app_id}")
+    } else {
+        format!("/apps/access/{app_id}?{}", parts.join("&"))
+    }
 }
 
 pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> {
@@ -97,10 +133,20 @@ pub async fn app_page(
             "missing app id in route",
         ));
     }
+    let route_mode = UiRouteMode::from_slug(&mode);
+    if route_mode == UiRouteMode::Access
+        && query
+            .file
+            .as_ref()
+            .map(|f| !f.trim().is_empty())
+            .unwrap_or(false)
+    {
+        return Ok(Redirect::temporary(&access_sanitized_redirect_location(&app_id, &query))
+            .into_response());
+    }
     let discover_started = Instant::now();
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
     let discover_ms = elapsed_ms(discover_started);
-    let route_mode = UiRouteMode::from_slug(&mode);
     let chrome_hidden = query
         .chrome
         .as_deref()
@@ -351,6 +397,16 @@ pub async fn app_page(
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let manage_scene_resolved = canonical_scene_for_target(&compiled, manage_file.as_deref())
         .or_else(|| compiled.active_scene.clone())
+        .or_else(|| {
+            compiled.scene_contract.as_ref().and_then(|c| {
+                let id = c.scene.id.trim();
+                if id.is_empty() {
+                    None
+                } else {
+                    Some(id.to_string())
+                }
+            })
+        })
         .or_else(|| manage_scene_for_render(&compiled, query.scene.as_deref()));
     let scene_for_default = manage_scene_resolved
         .as_deref()
