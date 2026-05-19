@@ -15,7 +15,7 @@ pub(crate) use read_file_scope::{read_file_allowed_for_agent, resource_world_too
 pub(crate) use resource_scope::{
     agent_resource_scope_from_request, agent_resource_scope_from_request_with_snapshot,
 };
-pub(crate) use visibility::{default_resource_visibility, resolve_resource_visibility};
+pub(crate) use visibility::resolve_resource_visibility;
 pub(crate) use world_inventory_scope::{
     allowed_world_injection_inventory_ids, resource_inventory_reach_tier,
     world_injection_inventory_item_allowed,
@@ -27,6 +27,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use super::visibility::default_resource_visibility;
     use crate::agent_runtime::bridge::BridgePromptRequest;
     use crate::mei_agent::mode_policy::{AgentMode, AgentModePolicy, RouteMode};
     use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceVisibility};

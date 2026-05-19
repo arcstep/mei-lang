@@ -100,6 +100,7 @@ impl ResourceToolExecutor for NoopResourceToolExecutor {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
     tool_definitions_for_profile(mode, ResourceVisibility::AllowSceneReachable)
 }
