@@ -535,6 +535,10 @@ def sum_metric_refs(refs, fallback = 0):
         "fallback": fallback,
     }
 
+def sum_rowset_counts(rowsets, fallback = 0):
+    """Sum `count(*)` across multiple rowsets (e.g. cross-dataset cockpit totals)."""
+    return _analysis("sum_rowset_counts", rowsets = rowsets, fallback = fallback)
+
 def dedupe_first_count_eq(dedupe_field, field, eq, fallback = 0):
     return count(where(first_by(_analysis("current_rows"), dedupe_field), _analysis("eq", field = field, value = eq)), fallback = fallback)
 

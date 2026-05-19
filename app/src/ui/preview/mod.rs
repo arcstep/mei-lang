@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, Severity};
+use mei_lang_kernel::{CompiledApp, LoadedResource, Severity};
 
 mod nodes;
 mod resolve;
@@ -18,12 +18,37 @@ pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
         .is_some()
 }
 
-pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
-    let resource_map = compiled
+pub(super) fn build_resource_map(compiled: &CompiledApp) -> BTreeMap<String, LoadedResource> {
+    let mut resource_map = compiled
         .resources
         .iter()
         .map(|resource| (resource.id.clone(), resource.clone()))
         .collect::<BTreeMap<_, _>>();
+    // 允许 metric_ref(from_dataset="data/dataset/.../*.mei")：按 scene 路由 target_file 别名到 world 资源 id。
+    for route in &compiled.scene_routes {
+        let Some(resource) = compiled
+            .resources
+            .iter()
+            .find(|resource| resource.id == route.scene_id)
+            .cloned()
+        else {
+            continue;
+        };
+        let target = route.target_file.trim();
+        if target.is_empty() {
+            continue;
+        }
+        resource_map.insert(target.to_string(), resource.clone());
+        let normalized = target.trim_start_matches("./");
+        if normalized != target {
+            resource_map.insert(normalized.to_string(), resource);
+        }
+    }
+    resource_map
+}
+
+pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
+    let resource_map = build_resource_map(compiled);
 
     if let Some(scene_contract) = &compiled.scene_contract {
         let resolved_theme = theme::resolve_theme(scene_contract);

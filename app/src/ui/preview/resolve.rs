@@ -147,7 +147,7 @@ fn resolve_data_ref(
     }
     let from_dataset = map.get("from_dataset").and_then(Value::as_str);
     let dataset_id = from_dataset.unwrap_or(id);
-    if is_forbidden_legacy_resource_id(dataset_id) {
+    if is_forbidden_legacy_resource_id(dataset_id) && !resources.contains_key(dataset_id) {
         return None;
     }
     Some((
@@ -162,19 +162,19 @@ fn resolve_metric_ref(
 ) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
     if let Some(dataset_id) = map.get("from_dataset").and_then(Value::as_str) {
-        if is_forbidden_legacy_resource_id(dataset_id) {
+        if is_forbidden_legacy_resource_id(dataset_id) && !resources.contains_key(dataset_id) {
             return None;
         }
-        return Some((
-            resources
-                .get(dataset_id)?
-                .dataset
-                .as_ref()?
-                .metrics
-                .get(metric_id)
-                .cloned()?,
-            dataset_id.to_string(),
-        ));
+        let resource = resources.get(dataset_id)?;
+        let metric = resource
+            .dataset
+            .as_ref()?
+            .metrics
+            .get(metric_id)
+            .cloned()?;
+        // 运行时 /api/datasets/metrics 使用 world 资源 id，不用 .mei 路径。
+        let runtime_dataset_id = resource.id.clone();
+        return Some((metric, runtime_dataset_id));
     }
     resources
         .iter()

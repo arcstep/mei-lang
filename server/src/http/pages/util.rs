@@ -60,7 +60,9 @@ pub(crate) fn push_manage_page_pipeline_diag(
             "detail": {
                 "compile_cache_hit": compile_cache_hit,
                 "compile_cache_lookup_ms": compile_cache_lookup_ms,
-                "hint": "parse / world / dataset 物化等子阶段未单独打点，均含于 compile_ms"
+                "resource_count": resource_count,
+                "dataset_resources": dataset_resources,
+                "hint": "widget 预览应 selective catalog（dataset_resources 远小于 21）且不编译 home；需重启 mei-lang-server 后生效"
             }
         }),
         json!({

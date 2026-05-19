@@ -176,6 +176,22 @@ pub(crate) fn eval_scalar_value(
             }
             Ok(json!(total))
         }
+        "sum_rowset_counts" => {
+            let rowsets = object
+                .get("rowsets")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let mut total = 0usize;
+            for rowset in rowsets {
+                total += eval_rowset(&rowset, datasets)?.len();
+            }
+            let fallback = object
+                .get("fallback")
+                .and_then(parse_number)
+                .unwrap_or(0.0);
+            Ok(json!(total as f64 + fallback))
+        }
         "number" => {
             let values = eval_numeric_values(Some(expr), datasets)?;
             Ok(Value::Array(

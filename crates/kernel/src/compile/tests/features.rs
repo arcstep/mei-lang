@@ -715,6 +715,232 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_spbjw_preview_widget_elements_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let started = std::time::Instant::now();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/widgets/执法要素.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw widget elements preview");
+    let elapsed = started.elapsed();
+    assert_eq!(compiled.active_target_file, "scenes/widgets/执法要素.mei");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "widget elements preview errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview scene contract");
+    assert_eq!(contract.scene.id, "widget_elements_preview");
+    assert_eq!(contract.panels.len(), 1);
+    let panel = &contract.panels[0];
+    assert_eq!(panel.blocks.len(), 5, "expected 4 summary-cards + objects breakdown deck");
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|resource| resource.id == "enforcement_units"),
+        "widget preview needs dataset catalog resources, got ids: {:?}",
+        compiled.resources.iter().map(|r| r.id.as_str()).collect::<Vec<_>>()
+    );
+    let dataset_resources: Vec<_> = compiled
+        .resources
+        .iter()
+        .filter(|r| r.dataset.is_some())
+        .collect();
+    assert!(
+        dataset_resources.len() <= 12,
+        "manage widget preview should use selective catalog, not full scan (got {}): {:?}",
+        dataset_resources.len(),
+        dataset_resources
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        elapsed.as_secs() < 9,
+        "manage widget preview should not compile home + full catalog (21 xlsx), took {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn compile_spbjw_preview_widget_metrics_system_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/widgets/指标体系.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw widget metrics preview");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(errors.is_empty(), "metrics widget preview errors: {:?}", errors);
+    assert_eq!(compiled.active_target_file, "scenes/widgets/指标体系.mei");
+    assert!(
+        compiled.resources.iter().any(|r| r.id == "supervision_matters"),
+        "expected dataset catalog in resources"
+    );
+}
+
+#[test]
+fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/widgets/监督预警.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw widget supervision preview");
+    assert_eq!(compiled.active_target_file, "scenes/widgets/监督预警.mei");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "supervision widget preview errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview scene contract");
+    assert_eq!(contract.scene.id, "widget_supervision_preview");
+    assert_eq!(contract.panels.len(), 1);
+    assert_eq!(
+        contract.panels[0].blocks.len(),
+        4,
+        "expected section-title + 3 summary-cards"
+    );
+    for id in ["supervision_matters", "warning_models", "warning_list"] {
+        assert!(
+            compiled.resources.iter().any(|r| r.id == id),
+            "missing dataset resource `{id}`"
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_preview_widget_typical_cases_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let started = std::time::Instant::now();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/widgets/典型案例.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw widget typical cases preview");
+    let elapsed = started.elapsed();
+    assert_eq!(compiled.active_target_file, "scenes/widgets/典型案例.mei");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "typical cases widget preview errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview scene contract");
+    assert_eq!(contract.scene.id, "widget_cases_preview");
+    assert_eq!(contract.panels[0].blocks.len(), 2);
+    let dataset_resources: Vec<_> = compiled
+        .resources
+        .iter()
+        .filter(|r| r.dataset.is_some())
+        .collect();
+    assert_eq!(
+        dataset_resources.len(),
+        1,
+        "selective catalog should only materialize typical_cases, got: {:?}",
+        dataset_resources
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        compiled.resources.iter().any(|r| r.id == "typical_cases"),
+        "missing typical_cases resource"
+    );
+    assert!(
+        elapsed.as_secs() < 8,
+        "widget preview with selective catalog should compile faster than full scan, took {:?}",
+        elapsed
+    );
+}
+
+#[test]
+fn compile_spbjw_preview_layout_header_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/layouts/顶栏.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw layout header preview");
+    assert_eq!(compiled.active_target_file, "scenes/layouts/顶栏.mei");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "layout header preview errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview scene contract");
+    assert_eq!(contract.scene.id, "layout_header_preview");
+    assert_eq!(contract.panels.len(), 1);
+}
+
+#[test]
 fn compile_spbjw_preview_logistics_park_vector_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");

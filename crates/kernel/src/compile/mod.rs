@@ -16,6 +16,7 @@ use crate::{
 
 mod analysis;
 mod app_decl;
+mod catalog;
 mod decls;
 mod entry_payload;
 mod load_external;
@@ -28,6 +29,9 @@ mod scene_binding;
 mod ui_data_policy;
 
 use app_decl::decode_app_decl;
+use catalog::{
+    build_dataset_catalog_filter, compile_dataset_catalog_resources, merge_resource_catalog,
+};
 use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
 use scene::{find_scene_route, resolve_scene_routes, scene_name_from_path};
 
@@ -69,16 +73,7 @@ fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str
     route.target_file == preview
 }
 
-/// Manage 态打开 `data/dataset/**` 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
-fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
-    let Some(preview) = options
-        .preview_target
-        .as_deref()
-        .map(str::trim)
-        .filter(|target| !target.is_empty())
-    else {
-        return false;
-    };
+fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
     if options
         .scene
         .as_deref()
@@ -86,9 +81,28 @@ fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
         .filter(|scene| !scene.is_empty())
         .is_some()
     {
-        return false;
+        return None;
     }
-    preview != "main.mei" && preview.starts_with("data/")
+    options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty() && *target != "main.mei")
+}
+
+/// Manage 态打开 `data/dataset/**` 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
+fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
+    manage_preview_target(options)
+        .is_some_and(|preview| preview.starts_with("data/"))
+}
+
+/// Manage 态按 `?file=scenes/...` 预览 widget/layout 等：只编译该入口 scene，不编译 home 与其它路由。
+fn is_manage_entry_preview(options: &CompileOptions) -> bool {
+    manage_preview_target(options).is_some()
+}
+
+fn is_manage_preview_only_compile(options: &CompileOptions) -> bool {
+    is_dataset_manage_preview(options) || is_manage_entry_preview(options)
 }
 
 fn inject_discovered_entry_scene_routes(
@@ -233,7 +247,7 @@ pub fn compile_app_from_root_with_options(
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 
     let asset_map = load_component_assets(source_root)?;
-    let preview_only = is_dataset_manage_preview(&options);
+    let preview_only = is_manage_preview_only_compile(&options);
     inject_discovered_entry_scene_routes(
         app_root,
         &app_decls,
@@ -388,6 +402,24 @@ pub fn compile_app_from_root_with_options(
         .clone()
         .unwrap_or_else(|| app_decl.id.clone());
 
+    let dataset_manage_preview = is_dataset_manage_preview(&options);
+    let catalog_filter = if dataset_manage_preview {
+        None
+    } else {
+        build_dataset_catalog_filter(app_root, options.preview_target.as_deref())
+    };
+    let dataset_catalog = if dataset_manage_preview {
+        Vec::new()
+    } else {
+        compile_dataset_catalog_resources(
+            app_root,
+            &app_decls,
+            &asset_map,
+            catalog_filter.as_ref(),
+        )
+    };
+    let resources = merge_resource_catalog(dataset_catalog, active_payload.resources);
+
     Ok(CompiledApp {
         app_id: app_decl.id.clone(),
         title,
@@ -397,7 +429,7 @@ pub fn compile_app_from_root_with_options(
         active_target_file,
         file_tree: source_tree(app_root)?,
         scene_contract: active_payload.scene_contract,
-        resources: active_payload.resources,
+        resources,
         component_assets: active_payload.component_assets,
         diagnostics,
     })
