@@ -78,15 +78,8 @@ fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str
 }
 
 fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
-    if options
-        .scene
-        .as_deref()
-        .map(str::trim)
-        .filter(|scene| !scene.is_empty())
-        .is_some()
-    {
-        return None;
-    }
+    // scene-first：Manage 可同时带 scene 锚与 preview_target（source-focus）；
+    // 单文件预览裁剪仍由 preview_target 决定，不得因 scene 已设置而退回全量 compile。
     options
         .preview_target
         .as_deref()
@@ -281,18 +274,34 @@ pub fn compile_app_from_root_with_options(
     let active_route_meta = if let Some(requested) = options.scene.as_deref() {
         let selected = find_scene_route(&route_registry.routes, requested).cloned();
         if selected.is_none() {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
-                code: "unknown_scene".to_string(),
-                message: format!("scene `{requested}` not found, fallback to default scene"),
-                source_path: Some(app_main.to_string_lossy().to_string()),
-            });
-            route_registry
-                .default_scene_id
+            let preview_route = options
+                .preview_target
                 .as_deref()
-                .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-                .cloned()
-                .or_else(|| route_registry.routes.first().cloned())
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
+                .and_then(|target| {
+                    route_registry
+                        .routes
+                        .iter()
+                        .find(|route| route.target_file == target)
+                        .cloned()
+                });
+            if preview_route.is_none() {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Warning,
+                    code: "unknown_scene".to_string(),
+                    message: format!("scene `{requested}` not found, fallback to default scene"),
+                    source_path: Some(app_main.to_string_lossy().to_string()),
+                });
+            }
+            preview_route.or_else(|| {
+                route_registry
+                    .default_scene_id
+                    .as_deref()
+                    .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+                    .cloned()
+                    .or_else(|| route_registry.routes.first().cloned())
+            })
         } else {
             selected
         }

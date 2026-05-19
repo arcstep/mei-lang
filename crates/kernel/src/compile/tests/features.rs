@@ -236,6 +236,60 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
 }
 
 #[test]
+fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_scene() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "data/dataset/执法要素/企业白名单.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("企业白名单".to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .expect("compile spbjw whitelist with filename-like scene query");
+    assert_eq!(compiled.active_target_file, target);
+    assert_eq!(compiled.active_scene.as_deref(), Some("enterprise_whitelist"));
+    assert!(
+        !compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "unknown_scene"),
+        "preview_target route should satisfy scene anchor without unknown_scene: {:?}",
+        compiled.diagnostics
+    );
+}
+
+#[test]
+fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_only() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "data/dataset/执法要素/企业白名单.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("enterprise_whitelist".to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .expect("compile spbjw whitelist scene+focus");
+    assert_eq!(compiled.active_scene.as_deref(), Some("enterprise_whitelist"));
+    assert_eq!(compiled.active_target_file, target);
+    assert!(
+        !compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "unknown_scene"),
+        "explicit scene+focus should not warn unknown_scene: {:?}",
+        compiled.diagnostics
+    );
+}
+
+#[test]
 fn compile_world_only_rejects_top_level_dataset_decl() {
     let root = temp_root("world-only-top-level-dataset");
     let app_root = root.join("world-only-top-level-dataset");
