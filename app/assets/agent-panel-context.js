@@ -18,18 +18,7 @@
       params.set("route_mode", routeMode);
       params.set("mode", mode);
       params.set("resource_visibility", currentResourceVisibility());
-      const ext =
-        typeof globalThis !== "undefined" && globalThis.MeiAgentScopeParams;
-      if (ext && typeof ext.shouldAttachSceneIdToScopeQuery === "function") {
-        if (ext.shouldAttachSceneIdToScopeQuery(target, sceneRouteTarget)) {
-          if (sceneId) params.set("scene_id", sceneId);
-        }
-      } else {
-        const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
-        if (scopedToSceneRoute) {
-          if (sceneId) params.set("scene_id", sceneId);
-        }
-      }
+      if (sceneId) params.set("scene_id", sceneId);
       return params;
     }
 

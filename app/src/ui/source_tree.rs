@@ -162,7 +162,8 @@ fn file_row_icon(node: &WorkspaceNode) -> AnyView {
 fn mei_coin_file_icon(mei_kind: Option<&str>) -> AnyView {
     let (title, fill): (&str, &str) = match mei_kind {
         Some("main") => ("应用入口 main.mei", "#fb7185"),
-        Some("scene") => ("包含 scene 的 Mei 脚本", "#b91c1c"),
+        Some("scene") => ("scene capsule（正式页面入口）", "#b91c1c"),
+        Some("fragment") => ("迁移中的 fragment（需 scene capsule 化）", "#eab308"),
         _ => ("Mei 脚本", "#eab308"),
     };
     let wrap_class = "mei-tree-icon inline-flex h-4 w-4 shrink-0 items-center justify-center";

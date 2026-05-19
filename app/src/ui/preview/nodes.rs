@@ -4,7 +4,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{BlockDecl, CompiledApp, LoadedResource, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
-use super::resolve::{attach_host_meta, resolve_value};
+use super::resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor};
 use super::style::{
     block_style, panel_body_style, panel_heading_config, panel_show_heading, panel_style,
 };
@@ -132,8 +132,14 @@ fn block_view(
     resources: &BTreeMap<String, LoadedResource>,
     theme: &ThemeResolved,
 ) -> AnyView {
+    let scene_anchor = RuntimeSceneAnchor::from_compiled(compiled);
     let props = attach_host_meta(
-        resolve_value(&block.props, scene_contract, resources),
+        resolve_value(
+            &block.props,
+            scene_contract,
+            resources,
+            &scene_anchor,
+        ),
         compiled,
         app_path,
         &theme.components,

@@ -80,21 +80,17 @@
     }
 
     function sessionBindingKind() {
-      return normalizeRouteMode(root.dataset.mode) === "access" ? "scene" : "file";
+      return "scene";
     }
 
     function currentSessionBindingFingerprint() {
-      return sessionBindingKind() === "scene"
-        ? "scene:" + currentSceneId()
-        : currentTargetKey();
+      const sid = currentSceneId() || "__no_scene__";
+      return "scene:" + sid;
     }
 
     function sessionBindingStorageKey() {
-      if (sessionBindingKind() === "scene") {
-        const sid = currentSceneId() || "__no_scene__";
-        return "scene:" + sid;
-      }
-      return "file:" + (currentTargetKey() || "__no_file__");
+      const sid = currentSceneId() || "__no_scene__";
+      return "scene:" + sid;
     }
 
     function sessionStorageKey() {
@@ -154,17 +150,9 @@
     function buildBoundSessionTitle(targetKey) {
       const params = new URLSearchParams();
       params.set("app", String(root.dataset.app || ""));
-      const kind = sessionBindingKind();
-      params.set("bind", kind);
-      if (kind === "scene") {
-        params.set("scene", currentSceneId() || "");
-        params.set("anchor", String(targetKey || "").trim());
-      } else {
-        params.set("file", String(targetKey || "").trim());
-        if (root.dataset.scene) {
-          params.set("scene", String(root.dataset.scene || ""));
-        }
-      }
+      params.set("bind", "scene");
+      params.set("scene", currentSceneId() || "");
+      params.set("anchor", String(targetKey || "").trim());
       return "MEI|" + params.toString();
     }
 
@@ -190,11 +178,11 @@
         }
         const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
         const scene = String(params.get("scene") || "").trim();
-        if (!target) return null;
+        if (!target && !scene) return null;
         return {
           app: app,
-          bind: "file",
-          scene: scene,
+          bind: "scene",
+          scene: scene || "__legacy_file__",
           anchor: target,
           target: target,
         };

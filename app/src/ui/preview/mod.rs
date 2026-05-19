@@ -456,8 +456,13 @@ mod tests {
             },
         );
 
+        let scene_anchor = super::resolve::RuntimeSceneAnchor {
+            scene_id: "home".to_string(),
+            scene_path: Some("scenes/home.mei".to_string()),
+        };
+
         let data_ref = json!({"__ref":"data","id":"sales_metrics"});
-        let resolved_data = resolve_value(&data_ref, &scene_contract, &resources);
+        let resolved_data = resolve_value(&data_ref, &scene_contract, &resources, &scene_anchor);
         assert_eq!(
             resolved_data.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")
@@ -472,7 +477,8 @@ mod tests {
 
         let metric_ref =
             json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
-        let resolved_metric = resolve_value(&metric_ref, &scene_contract, &resources);
+        let resolved_metric =
+            resolve_value(&metric_ref, &scene_contract, &resources, &scene_anchor);
         assert_eq!(
             resolved_metric.get("id").and_then(|value| value.as_str()),
             Some("sales_total")
@@ -486,7 +492,7 @@ mod tests {
         );
 
         let world_ref = json!({"__ref": "world", "id": "sales_metrics"});
-        let resolved_world = resolve_value(&world_ref, &scene_contract, &resources);
+        let resolved_world = resolve_value(&world_ref, &scene_contract, &resources, &scene_anchor);
         assert_eq!(
             resolved_world.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")

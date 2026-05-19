@@ -9,12 +9,13 @@ use crate::mei_agent::resource_tools::ResourceVisibility;
 
 use super::request_scope::world_scope_from_request;
 
-/// 与 UI `manage` / `access` 路由对应的「绑定语义」。
+/// 与宿主 scene-first 锚点对应的「绑定语义」。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BindingKind {
-    /// 管理页：以当前编辑文件为中心。
+    /// 历史兼容：曾用于 manage=file 绑定。
+    #[allow(dead_code)]
     File,
-    /// 访问页：以当前场景为中心。
+    /// 当前主路径：以 scene 为会话与 scope 主锚。
     Scene,
 }
 
@@ -37,10 +38,7 @@ impl AgentScopeProfile {
         let mode_policy = AgentModePolicy::from_request(request);
         let resource_visibility = resolve_resource_visibility(request, mode_policy);
         let world_scope = world_scope_from_request(request);
-        let binding_kind = match mode_policy.route_mode {
-            RouteMode::Manage => BindingKind::File,
-            RouteMode::Access => BindingKind::Scene,
-        };
+        let binding_kind = BindingKind::Scene;
         let reachability = match snapshot {
             Some(s) => ScopeReachabilitySets::from_world_snapshot(s, app_id),
             None => ScopeReachabilitySets::fallback_from_request_target(request, app_id),
@@ -60,9 +58,9 @@ impl AgentScopeProfile {
 
     /// 供 UI 展示的短摘要（单行）。
     pub(crate) fn summary_line(&self) -> String {
-        let bind = match self.binding_kind {
-            BindingKind::File => "file(manage)",
-            BindingKind::Scene => "scene(access)",
+        let bind = match self.mode_policy.route_mode {
+            RouteMode::Manage => "scene(manage)",
+            RouteMode::Access => "scene(access)",
         };
         let scene = self.world_scope.scene_id.as_deref().unwrap_or("-");
         let tgt = self.world_scope.target_file.as_deref().unwrap_or("-");

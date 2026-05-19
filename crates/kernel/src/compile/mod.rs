@@ -302,7 +302,8 @@ pub fn compile_app_from_root_with_options(
     let selected_target = options
         .preview_target
         .as_deref()
-        .filter(|_| options.scene.is_none())
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
         .map(|value| value.to_string());
 
     let (active_scene, active_target_file, mut active_payload) = if let Some(target_file) =

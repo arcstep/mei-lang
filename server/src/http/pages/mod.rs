@@ -7,6 +7,7 @@ mod components;
 pub mod dataset_api;
 mod menus;
 pub mod metric_api;
+mod scene_qualified;
 mod static_serve;
 mod util;
 
@@ -385,6 +386,22 @@ frame.add_panel(
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn scene_query_coords_builds_compile_options_with_scene_and_focus() {
+        use super::scene_qualified::{compile_options_from_coords, SceneQueryCoords};
+
+        let coords = SceneQueryCoords::from_parts(
+            Some("home".to_string()),
+            Some("scenes/widgets/foo.mei".to_string()),
+        );
+        let opts = compile_options_from_coords(&coords);
+        assert_eq!(opts.scene.as_deref(), Some("home"));
+        assert_eq!(
+            opts.preview_target.as_deref(),
+            Some("scenes/widgets/foo.mei")
+        );
     }
 
     fn unique_test_root(label: &str) -> PathBuf {

@@ -43,11 +43,22 @@ impl ScopeReachabilitySets {
         }
     }
 
-    /// 无快照时的保守回退：仅将请求中的 `target_file` 纳入 direct/scene（若可规范化）。
+    /// 无快照时的保守回退：优先 scene 锚点，再纳入 source-focus `target_file`。
     pub(crate) fn fallback_from_request_target(request: &BridgePromptRequest, app_id: &str) -> Self {
         let mut direct = HashSet::new();
         let mut scene = HashSet::new();
         let app = app_id.trim();
+        if let Some(raw) = request
+            .scene_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            let pseudo = format!("{app}/scenes/{raw}.mei");
+            if let Some(p) = norm_workspace_rel(&pseudo, app) {
+                scene.insert(p);
+            }
+        }
         if let Some(raw) = request
             .target_file
             .as_deref()

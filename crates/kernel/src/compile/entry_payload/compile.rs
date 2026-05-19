@@ -337,6 +337,19 @@ pub(super) fn compile_scene_payload(
     let requires_scene_contract =
         (route_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
+        let is_legacy_fragment = frame_decl_count > 0
+            || !panels.is_empty()
+            || world_decl_count > 0
+            || frame_default.is_some()
+            || world_default.is_some();
+        if is_legacy_fragment {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "public_fragment_file_deprecated".to_string(),
+                message: "legacy frame/world/panel fragment without scene(...); migrate to a minimal scene capsule or import via *_file_ref".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_scene".to_string(),

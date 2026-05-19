@@ -221,15 +221,7 @@ pub async fn api_agent_context_preview(
     let skill_status = crate::agent_runtime::runtime::managed_agent_skill_status(&state)
         .ok()
         .and_then(|item| serde_json::to_value(item).ok());
-    let binding_scope = if request
-        .scene_id
-        .as_ref()
-        .is_some_and(|s| !s.trim().is_empty())
-    {
-        "scene".to_string()
-    } else {
-        "file".to_string()
-    };
+    let binding_scope = "scene".to_string();
     let edit_scope = if mode_for_tools.eq_ignore_ascii_case("ask") {
         "read_only".to_string()
     } else {

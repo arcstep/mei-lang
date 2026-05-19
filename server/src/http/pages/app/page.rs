@@ -125,12 +125,24 @@ pub async fn app_page(
     } else {
         None
     };
-    let compile_scene = if route_mode == UiRouteMode::Manage && manage_script_file.is_some() {
-        None
-    } else if route_mode == UiRouteMode::Access {
+    let compile_scene = if route_mode == UiRouteMode::Access {
         access_path_scene.clone().or_else(|| query.scene.clone())
     } else {
-        query.scene.clone()
+        query.scene.clone().or_else(|| {
+            manage_script_file.as_ref().and_then(|path| {
+                let stem = path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(path.as_str())
+                    .trim_end_matches(".mei")
+                    .trim();
+                if stem.is_empty() {
+                    None
+                } else {
+                    Some(stem.to_string())
+                }
+            })
+        })
     };
     let components_root = resolve_components_root(&state.source_root);
     let compile_options = CompileOptions {

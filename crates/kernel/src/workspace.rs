@@ -121,6 +121,22 @@ fn mei_body_declares_scene(body: &str) -> bool {
     false
 }
 
+fn mei_body_declares_fragment_surface(body: &str) -> bool {
+    for line in body.lines() {
+        let head = line.split('#').next().unwrap_or("").trim_start();
+        if head.starts_with("frame(")
+            || head.starts_with("frame (")
+            || head.starts_with("panel(")
+            || head.starts_with("panel (")
+            || head.starts_with("world(")
+            || head.starts_with("world (")
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String> {
     if !file_name.ends_with(".mei") {
         return None;
@@ -134,6 +150,9 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
     };
     if mei_body_declares_scene(&body) {
         return Some("scene".into());
+    }
+    if mei_body_declares_fragment_surface(&body) {
+        return Some("fragment".into());
     }
     Some("mei".into())
 }

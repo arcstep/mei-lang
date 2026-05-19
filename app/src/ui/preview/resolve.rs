@@ -1,7 +1,62 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{CompiledApp, LoadedResource, SceneContract};
-use serde_json::Value;
+use serde_json::{json, Value};
+
+/// Scene anchor injected into `__mei_runtime_ref` for scene-qualified runtime APIs.
+#[derive(Debug, Clone)]
+pub(super) struct RuntimeSceneAnchor {
+    pub scene_id: String,
+    pub scene_path: Option<String>,
+}
+
+impl RuntimeSceneAnchor {
+    pub fn from_compiled(compiled: &CompiledApp) -> Self {
+        let scene_id = compiled
+            .active_scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                compiled
+                    .scene_routes
+                    .iter()
+                    .find(|route| route.target_file == compiled.active_target_file)
+                    .map(|route| route.scene_id.clone())
+            })
+            .unwrap_or_else(|| "default".to_string());
+        let scene_path = compiled.active_target_file.trim().to_string();
+        Self {
+            scene_id,
+            scene_path: if scene_path.is_empty() {
+                None
+            } else {
+                Some(scene_path)
+            },
+        }
+    }
+
+    fn runtime_ref_extra(&self, kind: &str, dataset_id: &str, metric_id: Option<&str>) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("kind".to_string(), Value::String(kind.to_string()));
+        obj.insert(
+            "scene_id".to_string(),
+            Value::String(self.scene_id.clone()),
+        );
+        if let Some(path) = self.scene_path.as_deref().filter(|s| !s.is_empty()) {
+            obj.insert("scene_path".to_string(), Value::String(path.to_string()));
+        }
+        obj.insert(
+            "dataset_id".to_string(),
+            Value::String(dataset_id.to_string()),
+        );
+        if let Some(mid) = metric_id.filter(|s| !s.is_empty()) {
+            obj.insert("metric_id".to_string(), Value::String(mid.to_string()));
+        }
+        Value::Object(obj)
+    }
+}
 
 pub(super) fn attach_host_meta(
     mut props: Value,
@@ -9,12 +64,14 @@ pub(super) fn attach_host_meta(
     app_path: &str,
     theme_components: &serde_json::Value,
 ) -> Value {
+    let anchor = RuntimeSceneAnchor::from_compiled(compiled);
     if let Some(map) = props.as_object_mut() {
         map.insert(
             "_mei".to_string(),
-            serde_json::json!({
+            json!({
                 "app_id": compiled.app_id,
                 "app_path": app_path,
+                "active_scene_id": anchor.scene_id,
                 "active_target_file": compiled.active_target_file,
                 "step_api": format!("/api/sim/step/{}", app_path),
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
@@ -30,6 +87,7 @@ pub(super) fn resolve_value(
     value: &Value,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
+    scene_anchor: &RuntimeSceneAnchor,
 ) -> Value {
     match value {
         Value::Object(map) => {
@@ -39,16 +97,10 @@ pub(super) fn resolve_value(
                         return Value::Null;
                     }
                     if let Some(resource) = resources.get(id) {
-                        // 数据集：展开为 DatasetView + __mei_runtime_ref，供 runtime-query 解析
-                        // dataset_id 并发起 /api/datasets/query（与 __ref:"data" 一致）。
-                        // 若整包返回 LoadedResource，rows 在嵌套 `dataset` 下，前端拿不到 dataset_id。
                         if let Some(dataset) = resource.dataset.as_ref() {
                             return with_runtime_ref(
                                 serde_json::to_value(dataset).unwrap_or(Value::Null),
-                                serde_json::json!({
-                                    "kind": "data",
-                                    "dataset_id": id,
-                                }),
+                                scene_anchor.runtime_ref_extra("data", id, None),
                             );
                         }
                         return serde_json::to_value(resource).unwrap_or(Value::Null);
@@ -62,23 +114,17 @@ pub(super) fn resolve_value(
                 if let Some((dataset, dataset_id)) = resolve_data_ref(map, resources) {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
-                        serde_json::json!({
-                            "kind": "data",
-                            "dataset_id": dataset_id,
-                        }),
+                        scene_anchor.runtime_ref_extra("data", &dataset_id, None),
                     );
                 }
                 return Value::Null;
             }
             if map.get("__ref").and_then(Value::as_str) == Some("metric") {
                 if let Some((metric, dataset_id)) = resolve_metric_ref(map, resources) {
+                    let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
-                        serde_json::json!({
-                            "kind": "metric",
-                            "dataset_id": dataset_id,
-                            "metric_id": map.get("id").and_then(Value::as_str).unwrap_or(""),
-                        }),
+                        scene_anchor.runtime_ref_extra("metric", &dataset_id, Some(metric_id)),
                     );
                 }
                 return Value::Null;
@@ -97,13 +143,10 @@ pub(super) fn resolve_value(
                     compat.insert("from_dataset".to_string(), from);
                 }
                 if let Some((metric, dataset_id)) = resolve_metric_ref(&compat, resources) {
+                    let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
-                        serde_json::json!({
-                            "kind": "metric",
-                            "dataset_id": dataset_id,
-                            "metric_id": compat.get("id").and_then(Value::as_str).unwrap_or(""),
-                        }),
+                        scene_anchor.runtime_ref_extra("metric", &dataset_id, Some(metric_id)),
                     );
                 }
             }
@@ -113,24 +156,24 @@ pub(super) fn resolve_value(
                 if let Some((dataset, dataset_id)) = resolve_rows_expr(map, resources) {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
-                        serde_json::json!({
-                            "kind": "data",
-                            "dataset_id": dataset_id,
-                        }),
+                        scene_anchor.runtime_ref_extra("data", &dataset_id, None),
                     );
                 }
                 return Value::Null;
             }
             let mut out = serde_json::Map::new();
             for (key, entry) in map {
-                out.insert(key.clone(), resolve_value(entry, scene_contract, resources));
+                out.insert(
+                    key.clone(),
+                    resolve_value(entry, scene_contract, resources, scene_anchor),
+                );
             }
             Value::Object(out)
         }
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|item| resolve_value(item, scene_contract, resources))
+                .map(|item| resolve_value(item, scene_contract, resources, scene_anchor))
                 .collect(),
         ),
         _ => value.clone(),
@@ -172,7 +215,6 @@ fn resolve_metric_ref(
             .metrics
             .get(metric_id)
             .cloned()?;
-        // 运行时 /api/datasets/metrics 使用 world 资源 id，不用 .mei 路径。
         let runtime_dataset_id = resource.id.clone();
         return Some((metric, runtime_dataset_id));
     }

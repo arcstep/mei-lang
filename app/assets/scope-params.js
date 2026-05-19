@@ -25,13 +25,11 @@
         .replace(/^\.\/+/, "");
     },
     /**
-     * 当预览目标与「scene 路由锚点」不一致时（例如 data/dataset/**），不附带 scene_id，
-     * 避免触发无意义的 scope 校验失败。
+     * scene-first：只要宿主页面能解析出 scene，就随 preview/send 附带 scene_id。
+     * source-focus file 与 scene 路由文件不一致时（如 data/dataset/**）仍保留 scene 主锚。
      */
-    shouldAttachSceneIdToScopeQuery: function (targetKey, sceneRouteTarget) {
-      const tgt = api.normTargetKeyForScope(targetKey);
-      const sceneT = api.normTargetKeyForScope(sceneRouteTarget);
-      return !tgt || (sceneT && tgt === sceneT);
+    shouldAttachSceneIdToScopeQuery: function (_targetKey, _sceneRouteTarget) {
+      return true;
     },
     /** 显式 UI 选择优先，否则走 route+mode 默认。 */
     effectiveResourceVisibility: function (selectValue, route, mode) {

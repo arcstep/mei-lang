@@ -59,7 +59,7 @@ pub(crate) fn build_meilang_system_prompt(
         blocks.push(
             concat!(
                 "Tool-first information policy (build mode):\n",
-                "- Build mode is **file-first**: you are editing the current target `.mei`; treat injected session context as an index, not the full app.\n",
+                "- Build mode is **scene-first** with an optional **source-focus file**: anchor on the current scene; inline only the active source-focus `.mei` body; treat other session context as structured scene index, not the full app.\n",
                 "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
                 "- The session injects a **[World — catalog]** block first: treat it as the authoritative index of `world.resources` (datasets, sources, metric ids) plus query-tool contracts.\n",
                 "- For routine **authoring** tasks, prefer `read_file` / `skill_*` over repeatedly calling `dataset_query` unless you need live data samples to tune bindings.\n",
