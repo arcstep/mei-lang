@@ -13,7 +13,7 @@ use super::query::query_dataset_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 
-const DEFAULT_PAGE_SIZE: usize = 100;
+const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize = 1000;
 
 pub fn query_metric_dataframe(

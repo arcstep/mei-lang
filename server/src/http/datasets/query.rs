@@ -22,7 +22,7 @@ pub fn query_dataset_rows(
     let query_total_started = Instant::now();
     let meta = parse_source_meta(dataset.source.content.as_deref());
     let cache_settings = resolve_external_file_cache_settings(app_root);
-    let default_page_size = meta.lazy.default_page_size.unwrap_or(100).max(1);
+    let default_page_size = meta.lazy.default_page_size.unwrap_or(20).max(1);
     let max_page_size = meta
         .lazy
         .max_page_size

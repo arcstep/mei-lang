@@ -230,4 +230,33 @@ mod tests {
         assert!(!result.has_more);
         assert_eq!(result.page, 1);
     }
+
+    #[test]
+    fn paginate_rows_returns_logical_columns_when_normalize_maps_source_headers() {
+        use super::paginate::paginate_rows;
+        use serde_json::json;
+
+        let mut normalize = BTreeMap::new();
+        normalize.insert("流水号".to_string(), "id".to_string());
+        normalize.insert("反映来源".to_string(), "source".to_string());
+        let rows = vec![json!({"流水号": "1", "反映来源": "热线"})];
+        let result = paginate_rows(
+            rows,
+            &["流水号".to_string(), "反映来源".to_string()],
+            &normalize,
+            &DatasetQueryOptions {
+                page: 1,
+                page_size: 10,
+                search: None,
+                filters: BTreeMap::new(),
+                collect_all: false,
+            },
+            true,
+        );
+        assert_eq!(result.columns, vec!["id", "source"]);
+        assert_eq!(
+            result.rows[0].get("id").and_then(|v| v.as_str()),
+            Some("1")
+        );
+    }
 }

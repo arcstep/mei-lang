@@ -50,6 +50,7 @@ pub(crate) fn paginate_rows(
     if columns.is_empty() {
         columns = infer_columns(&rows_page);
     }
+    columns = output_columns(&columns, normalize);
     let has_more = if collect_all {
         false
     } else {
@@ -99,6 +100,29 @@ pub(crate) fn row_matches(
             .any(|value| value_to_text(value).to_lowercase().contains(keyword));
     }
     true
+}
+
+/// 查询结果列名：行经 `normalize` 后已是逻辑名，若 hint 仍是源表头则映射为逻辑名。
+pub(crate) fn output_columns(
+    columns_hint: &[String],
+    normalize: &BTreeMap<String, String>,
+) -> Vec<String> {
+    if normalize.is_empty() {
+        return columns_hint.to_vec();
+    }
+    if columns_hint.is_empty() {
+        return normalize.values().cloned().collect();
+    }
+    if columns_hint
+        .iter()
+        .any(|name| normalize.contains_key(name.as_str()))
+    {
+        return columns_hint
+            .iter()
+            .filter_map(|name| normalize.get(name).cloned())
+            .collect();
+    }
+    columns_hint.to_vec()
 }
 
 pub(crate) fn apply_normalize(row: Value, normalize: &BTreeMap<String, String>) -> Value {

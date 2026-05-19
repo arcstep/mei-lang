@@ -10,7 +10,9 @@ use super::file_cache::{
     should_cache_external_file, try_get_cached_external_dataset, CachedExternalDataset,
     ExternalFileCacheSettings,
 };
-use super::paginate::{apply_normalize, empty_result, paginate_rows, row_matches, QueryWindow};
+use super::paginate::{
+    apply_normalize, empty_result, output_columns, paginate_rows, row_matches, QueryWindow,
+};
 use super::paths::resolve_source_path;
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
@@ -193,7 +195,7 @@ where
             window.push(normalized);
         }
     }
-    let mut result = window.finish(headers, true);
+    let mut result = window.finish(output_columns(&headers, normalize), true);
     result
         .perf
         .insert("xlsx_scan_filter_ms".to_string(), elapsed_ms(scan_started));
