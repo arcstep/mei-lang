@@ -8,7 +8,7 @@ use crate::model::{DatasetView, LoadedResource, ResourceDecl, SourceDecl};
 
 use super::analysis::schema::infer_schema_from_rows;
 const DEFAULT_PREVIEW_ROWS: usize = 1000;
-const DEFAULT_PAGE_SIZE: usize = 100;
+const DEFAULT_PAGE_SIZE: usize = 20;
 const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
 
 pub(super) fn load_resources(

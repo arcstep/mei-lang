@@ -493,8 +493,8 @@ def group_by(rowset, fields = None, by = None, universe = None, value = None, ag
         resolved = [by]
     return _analysis("group_by", rowset = rowset, fields = resolved, by = by, universe = universe, value = value, agg = agg)
 
-def agg(grouped, metrics = [], sort = None, limit = None):
-    return _analysis("agg", grouped = grouped, metrics = metrics, sort = sort, limit = limit)
+def agg(grouped, metrics = [], sort = None, order = "desc", limit = None):
+    return _analysis("agg", grouped = grouped, metrics = metrics, sort = sort, order = order, limit = limit)
 
 def bucket_date(rowset, field, by = "month"):
     return _analysis("bucket_date", rowset = rowset, field = field, by = by)

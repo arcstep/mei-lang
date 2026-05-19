@@ -21,7 +21,7 @@ use super::{
 };
 
 const DEFAULT_PREVIEW_ROWS: usize = 1000;
-const DEFAULT_PAGE_SIZE: usize = 100;
+const DEFAULT_PAGE_SIZE: usize = 20;
 const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
 
 #[derive(Debug, Clone)]

@@ -2,7 +2,50 @@ use std::collections::BTreeSet;
 
 use serde_json::{json, Value};
 
+use super::dates::{
+    aggregate_month_value, format_month_label, latest_month_window, max_row_month, parse_row_date,
+};
 use super::schema::{parse_number, row_number, row_string, row_value};
+
+pub(super) fn trend_rows_by_month(
+    rows: &[Value],
+    date_field: &str,
+    value_field: Option<&str>,
+    agg: &str,
+    months: usize,
+    label_field: &str,
+) -> Vec<Value> {
+    let Some(anchor) = max_row_month(rows, date_field) else {
+        return Vec::new();
+    };
+    latest_month_window(anchor, months)
+        .into_iter()
+        .map(|(year, month)| {
+            let value =
+                aggregate_month_value(rows, date_field, value_field, agg, year, month);
+            let mut row = serde_json::Map::new();
+            row.insert(
+                label_field.to_string(),
+                Value::String(format_month_label(year, month)),
+            );
+            row.insert("value".to_string(), json!(value));
+            Value::Object(row)
+        })
+        .collect()
+}
+
+pub(super) fn bucket_rows_by_month(rows: &[Value], field: &str, label_field: &str) -> Vec<Value> {
+    rows.iter()
+        .map(|row| {
+            let mut object = row.as_object().cloned().unwrap_or_default();
+            let label = parse_row_date(row, field)
+                .map(|(year, month, _)| format_month_label(year, month))
+                .unwrap_or_default();
+            object.insert(label_field.to_string(), Value::String(label));
+            Value::Object(object)
+        })
+        .collect()
+}
 
 pub(super) fn aggregate_group_rows(
     rows: &[Value],
@@ -15,6 +58,9 @@ pub(super) fn aggregate_group_rows(
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
     for row in rows {
         let label = row_string(row, group_field);
+        if label.is_empty() {
+            continue;
+        }
         *counts.entry(label.clone()).or_insert(0) += 1;
         if let Some(field) = value_field {
             if let Some(number) = row_number(row, field) {
@@ -121,6 +167,33 @@ pub(super) fn reorder_fields(row: &Value, fields: &[String]) -> Value {
         }
     }
     Value::Object(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::trend_rows_by_month;
+    use serde_json::json;
+
+    #[test]
+    fn trend_by_month_fills_missing_buckets_with_zero() {
+        let rows = vec![
+            json!({"做出处罚日期": "2024-05-10", "罚款金额": 100}),
+            json!({"做出处罚日期": "2024-06-10", "罚款金额": 200}),
+        ];
+        let trend = trend_rows_by_month(
+            &rows,
+            "做出处罚日期",
+            Some("罚款金额"),
+            "sum",
+            6,
+            "month",
+        );
+        assert_eq!(trend.len(), 6);
+        assert_eq!(trend[0].get("month").and_then(|v| v.as_str()), Some("2024-01"));
+        assert_eq!(trend[0].get("value").and_then(|v| v.as_f64()), Some(0.0));
+        assert_eq!(trend[4].get("value").and_then(|v| v.as_f64()), Some(100.0));
+        assert_eq!(trend[5].get("value").and_then(|v| v.as_f64()), Some(200.0));
+    }
 }
 
 pub(super) fn sort_rows_by_field(rows: &mut [Value], field: &str, order: &str) {

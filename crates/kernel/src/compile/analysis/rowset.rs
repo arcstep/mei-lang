@@ -6,11 +6,13 @@ use serde_json::{json, Value};
 use crate::model::DatasetView;
 
 use super::{
+    dates::{filter_rows_in_latest_days, filter_rows_in_latest_months},
     predicate::predicate_matches,
     schema::{row_string, row_value},
     transforms::{
-        aggregate_group_rows, distinct_rows_by_fields, first_rows_by_field, mutate_row,
-        rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
+        aggregate_group_rows, bucket_rows_by_month, distinct_rows_by_fields, first_rows_by_field,
+        mutate_row, rename_fields, reorder_fields, select_fields, sort_rows_by_field,
+        summarize_rows, trend_rows_by_month,
     },
 };
 
@@ -306,6 +308,14 @@ fn eval_analysis_rowset(
                 let value_field = map.get("value").and_then(Value::as_str).unwrap_or("value");
                 rows = summarize_rows(&rows, agg, value_field);
             }
+            let sort_field = map
+                .get("sort")
+                .and_then(Value::as_str)
+                .or_else(|| map.get("sort_by").and_then(Value::as_str));
+            if let Some(field) = sort_field {
+                let order = map.get("order").and_then(Value::as_str).unwrap_or("desc");
+                sort_rows_by_field(&mut rows, field, order);
+            }
             if let Some(limit) = map.get("limit").and_then(Value::as_u64) {
                 rows.truncate(limit as usize);
             }
@@ -316,20 +326,38 @@ fn eval_analysis_rowset(
                 .get("rowset")
                 .ok_or_else(|| anyhow!("trend expression missing rowset"))?;
             let rows = eval_rowset(rowset_expr, datasets)?;
-            let group_field = map
-                .get("by")
-                .or_else(|| map.get("date_field"))
-                .or_else(|| map.get("field"))
+            let date_field = map
+                .get("date_field")
                 .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("trend expression missing field"))?;
+                .or_else(|| map.get("field").and_then(Value::as_str))
+                .ok_or_else(|| anyhow!("trend expression missing date_field"))?;
+            let by = map.get("by").and_then(Value::as_str).unwrap_or("month");
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
+            let months = map
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize)
+                .unwrap_or(6);
+            let label_field = map
+                .get("label_field")
+                .and_then(Value::as_str)
+                .unwrap_or("month");
+            if by == "month" {
+                let mut out =
+                    trend_rows_by_month(&rows, date_field, value_field, agg, months, label_field);
+                let order = map.get("order").and_then(Value::as_str).unwrap_or("asc");
+                if order.eq_ignore_ascii_case("desc") {
+                    out.reverse();
+                }
+                return Ok(out);
+            }
             Ok(aggregate_group_rows(
                 &rows,
-                group_field,
+                date_field,
                 value_field,
                 agg,
-                map.get("limit").and_then(Value::as_u64).map(|n| n as usize),
+                Some(months),
             ))
         }
         "table_rows" => {
@@ -417,26 +445,33 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("{analysis_type} expression missing rowset"))?;
-            let mut rows = eval_rowset(rowset_expr, datasets)?;
-            let limit = if analysis_type == "latest_days" {
-                map.get("days")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(rows.len() as u64) as usize
-            } else {
-                map.get("months")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(rows.len() as u64) as usize
-            };
-            if rows.len() > limit {
-                rows = rows.split_off(rows.len() - limit);
+            let rows = eval_rowset(rowset_expr, datasets)?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("{analysis_type} expression missing field"))?;
+            if analysis_type == "latest_days" {
+                let days = map.get("days").and_then(Value::as_u64).unwrap_or(7) as usize;
+                return Ok(filter_rows_in_latest_days(&rows, field, days));
             }
-            Ok(rows)
+            let months = map.get("months").and_then(Value::as_u64).unwrap_or(6) as usize;
+            Ok(filter_rows_in_latest_months(&rows, field, months))
         }
         "bucket_date" => {
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("bucket_date expression missing rowset"))?;
-            Ok(eval_rowset(rowset_expr, datasets)?)
+            let rows = eval_rowset(rowset_expr, datasets)?;
+            let field = map
+                .get("field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("bucket_date expression missing field"))?;
+            let label_field = map
+                .get("label_field")
+                .and_then(Value::as_str)
+                .or_else(|| map.get("by").and_then(Value::as_str))
+                .unwrap_or("month");
+            Ok(bucket_rows_by_month(&rows, field, label_field))
         }
         "limit" => {
             let rowset_expr = map

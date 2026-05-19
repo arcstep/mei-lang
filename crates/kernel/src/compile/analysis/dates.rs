@@ -1,0 +1,248 @@
+use serde_json::Value;
+
+use super::schema::{row_number, row_value};
+
+/// 从行字段解析日历日期；支持常见字符串与 Excel 序列日。
+pub(super) fn parse_row_date(row: &Value, field: &str) -> Option<(i32, u32, u32)> {
+    let value = row_value(row, field)?;
+    parse_date_value(value)
+}
+
+pub(super) fn parse_date_value(value: &Value) -> Option<(i32, u32, u32)> {
+    match value {
+        Value::String(raw) => {
+            parse_date_text(raw).or_else(|| {
+                raw.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .and_then(parse_excel_serial_date)
+            })
+        }
+        Value::Number(number) => number
+            .as_f64()
+            .and_then(parse_excel_serial_date),
+        _ => None,
+    }
+}
+
+fn parse_date_text(raw: &str) -> Option<(i32, u32, u32)> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let normalized = text
+        .replace('年', "-")
+        .replace('月', "-")
+        .replace('日', "")
+        .replace('/', "-")
+        .replace('.', "-");
+    let parts = normalized
+        .split('-')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>();
+    if parts.len() >= 3 {
+        let year = parts[0].parse::<i32>().ok()?;
+        let month = parts[1].parse::<u32>().ok()?;
+        let day = parts[2].parse::<u32>().ok()?;
+        if (1..=12).contains(&month) && (1..=31).contains(&day) {
+            return Some((year, month, day));
+        }
+    }
+    None
+}
+
+/// Excel 序列日：0 = 1899-12-30（与 calamine / Excel 1900 date system 一致）。
+fn parse_excel_serial_date(serial: f64) -> Option<(i32, u32, u32)> {
+    if !serial.is_finite() || serial <= 0.0 {
+        return None;
+    }
+    let days = serial.floor() as i32;
+    Some(civil_ymd_from_days(civil_days_from_ymd(1899, 12, 30) + days))
+}
+
+/// Proleptic Gregorian civil days (Howard Hinnant).
+fn civil_days_from_ymd(year: i32, month: u32, day: u32) -> i32 {
+    let month = month as i32;
+    let day = day as i32;
+    let y = year - if month <= 2 { 1 } else { 0 };
+    let era = if y >= 0 { y / 400 } else { (y - 399) / 400 };
+    let yoe = y - era * 400;
+    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + yoe / 400 + doy;
+    era * 146097 + doe - 719468
+}
+
+fn civil_ymd_from_days(days: i32) -> (i32, u32, u32) {
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    (year, m as u32, d as u32)
+}
+
+pub(super) fn format_month_label(year: i32, month: u32) -> String {
+    format!("{year:04}-{month:02}")
+}
+
+pub(super) fn add_months(year: i32, month: u32, delta: i32) -> (i32, u32) {
+    let total = year * 12 + month as i32 - 1 + delta;
+    let next_year = total.div_euclid(12);
+    let next_month = total.rem_euclid(12) + 1;
+    (next_year, next_month as u32)
+}
+
+pub(super) fn latest_month_window(anchor: (i32, u32), months: usize) -> Vec<(i32, u32)> {
+    let count = months.max(1);
+    let mut out = Vec::with_capacity(count);
+    for offset in 0..count {
+        let delta = -(count as i32 - 1) + offset as i32;
+        out.push(add_months(anchor.0, anchor.1, delta));
+    }
+    out
+}
+
+pub(super) fn max_row_month(rows: &[Value], field: &str) -> Option<(i32, u32)> {
+    rows.iter()
+        .filter_map(|row| parse_row_date(row, field))
+        .map(|(year, month, _)| (year, month))
+        .max()
+}
+
+pub(super) fn filter_rows_in_latest_months(
+    rows: &[Value],
+    field: &str,
+    months: usize,
+) -> Vec<Value> {
+    let Some(anchor) = max_row_month(rows, field) else {
+        return Vec::new();
+    };
+    let window = latest_month_window(anchor, months);
+    rows.iter()
+        .filter(|row| {
+            parse_row_date(row, field)
+                .map(|(year, month, _)| window.contains(&(year, month)))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect()
+}
+
+pub(super) fn filter_rows_in_latest_days(rows: &[Value], field: &str, days: usize) -> Vec<Value> {
+    let mut parsed = Vec::new();
+    for row in rows {
+        if let Some(date) = parse_row_date(row, field) {
+            parsed.push((row, date_ord(date)));
+        }
+    }
+    if parsed.is_empty() {
+        return Vec::new();
+    }
+    let max_ord = parsed.iter().map(|(_, ord)| *ord).max().unwrap_or(0);
+    let min_ord = max_ord.saturating_sub(days.saturating_sub(1) as i64);
+    parsed
+        .into_iter()
+        .filter(|(_, ord)| *ord >= min_ord)
+        .map(|(row, _)| row.clone())
+        .collect()
+}
+
+fn date_ord((year, month, day): (i32, u32, u32)) -> i64 {
+    year as i64 * 10_000 + month as i64 * 100 + day as i64
+}
+
+pub(super) fn row_in_month(row: &Value, field: &str, year: i32, month: u32) -> bool {
+    parse_row_date(row, field)
+        .map(|(y, m, _)| y == year && m == month)
+        .unwrap_or(false)
+}
+
+pub(super) fn aggregate_month_value(
+    rows: &[Value],
+    date_field: &str,
+    value_field: Option<&str>,
+    agg: &str,
+    year: i32,
+    month: u32,
+) -> f64 {
+    let mut numbers = Vec::new();
+    let mut count = 0usize;
+    for row in rows {
+        if !row_in_month(row, date_field, year, month) {
+            continue;
+        }
+        count += 1;
+        if let Some(field) = value_field {
+            if let Some(number) = row_number(row, field) {
+                numbers.push(number);
+            }
+        }
+    }
+    match agg {
+        "sum" => numbers.iter().sum(),
+        "avg" => {
+            if numbers.is_empty() {
+                0.0
+            } else {
+                numbers.iter().sum::<f64>() / numbers.len() as f64
+            }
+        }
+        "min" => numbers.into_iter().reduce(f64::min).unwrap_or(0.0),
+        "max" => numbers.into_iter().reduce(f64::max).unwrap_or(0.0),
+        _ => count as f64,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        filter_rows_in_latest_days, format_month_label, latest_month_window, parse_date_text,
+        parse_date_value,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn parse_excel_serial_matches_excel_epoch() {
+        assert_eq!(parse_date_value(&json!(45960)), Some((2025, 10, 30)));
+        assert_eq!(parse_date_value(&json!(46020)), Some((2025, 12, 29)));
+        assert_eq!(parse_date_value(&json!("45960")), Some((2025, 10, 30)));
+    }
+
+    #[test]
+    fn latest_days_anchors_on_max_row_date_not_wall_clock() {
+        let rows = vec![
+            json!({"检查日期": 45954}),
+            json!({"检查日期": 45960}),
+            json!({"检查日期": 45950}),
+        ];
+        let filtered = filter_rows_in_latest_days(&rows, "检查日期", 7);
+        assert_eq!(filtered.len(), 2);
+        assert!(
+            filtered
+                .iter()
+                .all(|row| row.get("检查日期").and_then(|v| v.as_f64()) != Some(45950.0))
+        );
+    }
+
+    #[test]
+    fn latest_month_window_ends_at_anchor() {
+        let window = latest_month_window((2024, 6), 6);
+        assert_eq!(window.len(), 6);
+        assert_eq!(window.first().copied(), Some((2024, 1)));
+        assert_eq!(window.last().copied(), Some((2024, 6)));
+        assert_eq!(format_month_label(2024, 6), "2024-06");
+    }
+
+    #[test]
+    fn parse_common_date_strings() {
+        assert_eq!(parse_date_text("2024-06-15"), Some((2024, 6, 15)));
+        assert_eq!(parse_date_text("2024/6/15"), Some((2024, 6, 15)));
+        assert_eq!(parse_date_value(&json!("2024年6月15日")), Some((2024, 6, 15)));
+    }
+}
