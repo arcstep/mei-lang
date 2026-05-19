@@ -57,14 +57,13 @@ pub(super) fn row_value<'a>(row: &'a Value, field: &str) -> Option<&'a Value> {
 }
 
 pub(super) fn row_string(row: &Value, field: &str) -> String {
-    row_value(row, field)
-        .map(|value| match value {
-            Value::String(raw) => raw.clone(),
-            Value::Number(raw) => raw.to_string(),
-            Value::Bool(raw) => raw.to_string(),
-            _ => value.to_string(),
-        })
-        .unwrap_or_default()
+    match row_value(row, field) {
+        Some(Value::String(raw)) => raw.clone(),
+        Some(Value::Number(raw)) => raw.to_string(),
+        Some(Value::Bool(raw)) => raw.to_string(),
+        Some(Value::Null) | None => String::new(),
+        Some(other) => other.to_string(),
+    }
 }
 
 pub(super) fn row_number(row: &Value, field: &str) -> Option<f64> {

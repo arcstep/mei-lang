@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{anyhow, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::model::DatasetView;
 
@@ -13,6 +13,80 @@ use super::{
         rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
     },
 };
+
+fn eval_universe_labels(
+    expr: &Value,
+    datasets: &BTreeMap<String, DatasetView>,
+    fallback_field: &str,
+) -> Result<Vec<String>> {
+    if let Some(items) = expr.as_array() {
+        return Ok(items
+            .iter()
+            .filter_map(|item| {
+                item.as_str()
+                    .map(str::trim)
+                    .filter(|label| !label.is_empty())
+                    .map(ToString::to_string)
+            })
+            .collect());
+    }
+    let Some(map) = expr.as_object() else {
+        return Ok(Vec::new());
+    };
+    if map.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return Ok(Vec::new());
+    }
+    let field = map
+        .get("field")
+        .and_then(Value::as_str)
+        .unwrap_or(fallback_field);
+    let rows = match map.get("type").and_then(Value::as_str).unwrap_or("") {
+        "text" => {
+            let source = map
+                .get("source")
+                .or_else(|| map.get("rowset"))
+                .ok_or_else(|| anyhow!("text expression missing source"))?;
+            eval_rowset(source, datasets)?
+        }
+        _ => eval_rowset(expr, datasets)?,
+    };
+    Ok(rows
+        .into_iter()
+        .map(|row| row_string(&row, field))
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty())
+        .collect())
+}
+
+fn apply_universe(
+    rows: Vec<Value>,
+    universe_expr: &Value,
+    group_field: &str,
+    datasets: &BTreeMap<String, DatasetView>,
+) -> Result<Vec<Value>> {
+    let labels = eval_universe_labels(universe_expr, datasets, group_field)?;
+    if labels.is_empty() {
+        return Ok(rows);
+    }
+    let mut indexed = BTreeMap::<String, Value>::new();
+    for row in rows {
+        let key = row_string(&row, group_field);
+        if !key.is_empty() {
+            indexed.insert(key, row);
+        }
+    }
+    Ok(labels
+        .into_iter()
+        .map(|label| {
+            indexed.remove(&label).unwrap_or_else(|| {
+                let mut object = serde_json::Map::new();
+                object.insert(group_field.to_string(), Value::String(label.clone()));
+                object.insert("value".to_string(), json!(0.0));
+                Value::Object(object)
+            })
+        })
+        .collect())
+}
 
 pub(crate) fn eval_rowset(
     expr: &Value,
@@ -82,7 +156,7 @@ fn eval_analysis_rowset(
             let predicate = map.get("predicate").unwrap_or(&Value::Null);
             Ok(eval_rowset(rowset_expr, datasets)?
                 .into_iter()
-                .filter(|row| predicate_matches(row, predicate))
+                .filter(|row| predicate_matches(row, predicate, datasets))
                 .collect())
         }
         "select" => {
@@ -198,6 +272,7 @@ fn eval_analysis_rowset(
             let group_field = map
                 .get("by")
                 .and_then(Value::as_str)
+                .or_else(|| map.get("fields").and_then(Value::as_str))
                 .or_else(|| {
                     map.get("fields")
                         .and_then(Value::as_array)
@@ -208,13 +283,17 @@ fn eval_analysis_rowset(
                 .ok_or_else(|| anyhow!("group_by expression missing by"))?;
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
-            Ok(aggregate_group_rows(
+            let mut grouped = aggregate_group_rows(
                 &rows,
                 group_field,
                 value_field,
                 agg,
                 map.get("limit").and_then(Value::as_u64).map(|n| n as usize),
-            ))
+            );
+            if let Some(universe) = map.get("universe") {
+                grouped = apply_universe(grouped, universe, group_field, datasets)?;
+            }
+            Ok(grouped)
         }
         "agg" => {
             let rowset_expr = map

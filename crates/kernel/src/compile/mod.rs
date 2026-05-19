@@ -29,7 +29,7 @@ mod ui_data_policy;
 
 use app_decl::decode_app_decl;
 use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
-use scene::{find_scene_route, resolve_scene_routes};
+use scene::{find_scene_route, resolve_scene_routes, scene_name_from_path};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
 /// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
@@ -62,6 +62,35 @@ fn try_push_discovered_entry_route(
     });
 }
 
+fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str>) -> bool {
+    let Some(preview) = preview_target.map(str::trim).filter(|target| !target.is_empty()) else {
+        return false;
+    };
+    route.target_file == preview
+}
+
+/// Manage 态打开 `data/dataset/**` 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
+fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
+    let Some(preview) = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+    else {
+        return false;
+    };
+    if options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty())
+        .is_some()
+    {
+        return false;
+    }
+    preview != "main.mei" && preview.starts_with("data/")
+}
+
 fn inject_discovered_entry_scene_routes(
     app_root: &Path,
     app_decls: &Value,
@@ -69,18 +98,31 @@ fn inject_discovered_entry_scene_routes(
     routes: &mut Vec<CompiledSceneRoute>,
     preview_target: Option<&str>,
     scene_selector: Option<&str>,
+    preview_only: bool,
 ) {
     if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
         if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
-            let payload =
-                compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
-            if let Some(contract) = payload.scene_contract.as_ref() {
-                let sid = contract.scene.id.trim().to_string();
-                if !sid.is_empty() {
-                    try_push_discovered_entry_route(routes, sid, preview.to_string());
+            if preview_only {
+                try_push_discovered_entry_route(
+                    routes,
+                    scene_name_from_path(preview),
+                    preview.to_string(),
+                );
+            } else {
+                let payload =
+                    compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
+                if let Some(contract) = payload.scene_contract.as_ref() {
+                    let sid = contract.scene.id.trim().to_string();
+                    if !sid.is_empty() {
+                        try_push_discovered_entry_route(routes, sid, preview.to_string());
+                    }
                 }
             }
         }
+    }
+
+    if preview_only {
+        return;
     }
 
     let Some(requested) = scene_selector.map(str::trim).filter(|s| !s.is_empty()) else {
@@ -191,6 +233,7 @@ pub fn compile_app_from_root_with_options(
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 
     let asset_map = load_component_assets(source_root)?;
+    let preview_only = is_dataset_manage_preview(&options);
     inject_discovered_entry_scene_routes(
         app_root,
         &app_decls,
@@ -198,9 +241,13 @@ pub fn compile_app_from_root_with_options(
         &mut route_registry.routes,
         options.preview_target.as_deref(),
         options.scene.as_deref(),
+        preview_only,
     );
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     for route in &route_registry.routes {
+        if preview_only && !route_targets_preview(route, options.preview_target.as_deref()) {
+            continue;
+        }
         let result = compile_scene_payload_for_target(
             app_root,
             &app_decls,

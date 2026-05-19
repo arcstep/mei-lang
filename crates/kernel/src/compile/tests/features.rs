@@ -713,3 +713,92 @@ frame.add_panel(
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn compile_spbjw_preview_logistics_park_vector_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("data/dataset/物流园区/园区统计.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw logistics preview");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "logistics_park_vector preview errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("preview scene contract");
+    assert!(
+        !contract.panels.is_empty(),
+        "expected stats/charts/table panels"
+    );
+    let logistics = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "logistics_park_vector")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("logistics_park_vector dataset");
+    assert!(logistics.metrics.contains_key("logistics_parks_count"));
+    assert_eq!(
+        logistics.rows.len(),
+        3,
+        "geojson FeatureCollection should yield 3 park rows"
+    );
+    let inspection = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "administrative_inspection")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("administrative_inspection dataset");
+    assert!(inspection.metrics.contains_key("park_inspection_count"));
+    let inspection_by_park = inspection
+        .metrics
+        .get("park_inspection_count")
+        .expect("park_inspection_count metric");
+    let by_park_rows = inspection_by_park
+        .value
+        .as_array()
+        .or_else(|| inspection_by_park.value.get("value").and_then(|v| v.as_array()))
+        .unwrap_or_else(|| {
+            panic!(
+                "dataframe metric rows expected array, got: {}",
+                inspection_by_park.value
+            );
+        });
+    assert!(
+        !by_park_rows.is_empty(),
+        "park_inspection_count should have grouped rows, got {by_park_rows:?}"
+    );
+    assert!(
+        by_park_rows[0]
+            .get("园区名称")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "group_by should use 园区名称 field, not label: {:?}",
+        by_park_rows[0]
+    );
+    let total = inspection
+        .metrics
+        .get("park_inspection_total")
+        .and_then(|m| m.value.get("value"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(-1.0);
+    assert!(
+        total > 0.0 && total < 100.0,
+        "park_inspection_total should be enterprise-matched inspections on preview rows, got {total}"
+    );
+}

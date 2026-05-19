@@ -1,5 +1,6 @@
 mod compile;
 mod eval;
+mod geojson;
 mod model;
 mod runtime;
 mod workspace;
@@ -8,6 +9,7 @@ pub use compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_with_options, evaluate_runtime_metric_defs, CompileOptions,
 };
+pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use model::{
     BlockDecl, ColumnSchema, CompiledApp, CompiledSceneRoute, ComponentAsset, DataRef,

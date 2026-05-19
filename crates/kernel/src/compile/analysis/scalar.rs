@@ -146,7 +146,7 @@ pub(crate) fn eval_scalar_value(
                 .get("predicate")
                 .map(|predicate| {
                     rows.iter()
-                        .filter(|row| predicate_matches(row, predicate))
+                        .filter(|row| predicate_matches(row, predicate, datasets))
                         .count()
                 })
                 .unwrap_or(rows.len());

@@ -3,6 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 
+use crate::geojson::rows_from_geojson_value;
 use crate::model::{
     ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape,
     SourceDecl,
@@ -139,6 +140,8 @@ fn load_legacy_rows_from_source(
     let path_lower = source_path.to_ascii_lowercase();
     let inferred = if path_lower.ends_with(".xlsx") || path_lower.ends_with(".xls") {
         "xlsx"
+    } else if path_lower.ends_with(".json") || path_lower.ends_with(".geojson") {
+        "json"
     } else {
         "csv"
     };
@@ -175,6 +178,16 @@ fn load_legacy_rows_from_source(
             let json: Value = serde_json::from_str(&raw)
                 .with_context(|| format!("invalid json dataset {}", path.display()))?;
             let mut rows = json.as_array().cloned().unwrap_or_default();
+            let truncated = rows.len() > preview_rows;
+            rows.truncate(preview_rows);
+            Ok(LegacyRowsSnapshot { rows, truncated })
+        }
+        "geojson" => {
+            let raw = std::fs::read_to_string(&path)
+                .with_context(|| format!("failed to read geojson dataset {}", path.display()))?;
+            let json: Value = serde_json::from_str(&raw)
+                .with_context(|| format!("invalid geojson dataset {}", path.display()))?;
+            let mut rows = rows_from_geojson_value(&json);
             let truncated = rows.len() > preview_rows;
             rows.truncate(preview_rows);
             Ok(LegacyRowsSnapshot { rows, truncated })

@@ -41,10 +41,10 @@ pub(super) fn aggregate_group_rows(
             "max" => numbers.into_iter().reduce(f64::max).unwrap_or(0.0),
             _ => counts.get(&label).copied().unwrap_or(0) as f64,
         };
-        out.push(json!({
-            "label": label,
-            "value": value,
-        }));
+        let mut row = serde_json::Map::new();
+        row.insert(group_field.to_string(), Value::String(label));
+        row.insert("value".to_string(), json!(value));
+        out.push(Value::Object(row));
     }
     if let Some(limit) = limit {
         out.truncate(limit);

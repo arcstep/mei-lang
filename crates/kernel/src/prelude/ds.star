@@ -18,6 +18,15 @@ def json(path, preview_rows = None, page_size = None, max_page_size = None):
         "max_page_size": max_page_size,
     })
 
+def geojson(path, preview_rows = None, page_size = None, max_page_size = None):
+    return _without_empty({
+        "__source": "geojson",
+        "path": path,
+        "preview_rows": preview_rows,
+        "page_size": page_size,
+        "max_page_size": max_page_size,
+    })
+
 def csv(path, header_row = 1, preview_rows = None, page_size = None, max_page_size = None):
     return _without_empty({
         "__source": "csv",
