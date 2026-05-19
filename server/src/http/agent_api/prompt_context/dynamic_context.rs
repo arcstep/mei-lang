@@ -95,9 +95,14 @@ fn build_dynamic_mei_context(
             )
             .to_string(),
         );
-    } else if let Some((target_rel, full_path)) =
-        resolve_target_path_for_request(state, &app_id, request)
-    {
+    } else {
+        lines.push(format!(
+            "[Build mode — scene anchor] scene_id={scene_id} (source-focus file body inlined below when available)"
+        ));
+        lines.push(String::new());
+        if let Some((target_rel, full_path)) =
+            resolve_target_path_for_request(state, &app_id, request)
+        {
         match fs::read_to_string(&full_path) {
             Ok(content) => {
                 let bytes = content.as_bytes();
@@ -127,22 +132,23 @@ fn build_dynamic_mei_context(
         }
         lines.push(String::new());
         lines.push(
-            "Other referenced scene/world/frame files are not inlined by default; discover them with `read_file` within allowed paths, or use `skill_list` / `skill_read` for authoring rules."
+            "Other scene/world/frame files are indexed in the injected world/runtime catalog above, not inlined; use `read_file` within allowed paths for source-focus edits."
                 .to_string(),
         );
-    } else {
-        lines.push(
-            "[Build mode — current target .mei snapshot]\nunavailable: no valid target `.mei` in current request scope"
+        } else {
+            lines.push(
+                "[Build mode — current target .mei snapshot]\nunavailable: no valid target `.mei` in current request scope"
+                    .to_string(),
+            );
+            lines.push(String::new());
+            lines.push(
+                concat!(
+                    "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
+                    "For app-owned files use `<app_id>/...` (e.g. `spbjw/data/dataset/...`); a bare `data/...` resolves next to the workspace root and is usually wrong."
+                )
                 .to_string(),
-        );
-        lines.push(String::new());
-        lines.push(
-            concat!(
-                "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
-                "For app-owned files use `<app_id>/...` (e.g. `spbjw/data/dataset/...`); a bare `data/...` resolves next to the workspace root and is usually wrong."
-            )
-            .to_string(),
-        );
+            );
+        }
     }
     Some(lines.join("\n"))
 }

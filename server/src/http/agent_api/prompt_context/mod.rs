@@ -15,7 +15,15 @@ pub(crate) use scope_bundle::AgentScopeBundle;
 #[allow(unused_imports)]
 pub(crate) use paths::{resolve_app_root, sanitize_relative_path};
 
-use crate::{agent_runtime::bridge::BridgePromptRequest, AppState};
+use crate::{agent_runtime::bridge::BridgePromptRequest, AppError, AppState};
+
+/// Preview / send 共用的 prompt 预处理：`/world` 首行指令展开。
+pub(crate) fn prepare_prompt_request(
+    state: &AppState,
+    request: &mut BridgePromptRequest,
+) -> Result<(), AppError> {
+    world_directive::apply_world_directive_to_prompt(state, request)
+}
 
 pub(crate) fn enrich_prompt_request(
     state: &AppState,

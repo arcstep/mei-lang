@@ -379,6 +379,7 @@ mod tests {
                 summary: None,
                 goal: None,
                 state: json!({}),
+                access_export: true,
             },
             themes: vec![],
             world: None,

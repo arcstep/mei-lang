@@ -3,6 +3,7 @@
 pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "frame-stage.js",
     "scope-params.js",
+    "agent-host-coordinates.js",
     "vendor/marked.umd.js",
     "vendor/dompurify.min.js",
     "vendor/diff-match-patch.js",
@@ -37,6 +38,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
 pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "frame-stage.js",
     "scope-params.js",
+    "agent-host-coordinates.js",
     "statusbar.js",
     "agent-panel-utils.js",
     "agent-panel-routing.js",

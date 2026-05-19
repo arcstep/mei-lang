@@ -378,6 +378,21 @@ pub async fn app_page(
         }
         let requested = access_path_scene.as_ref().expect("access_path_scene");
         let rt = requested.trim();
+        if let Some(route) = compiled.scene_routes.iter().find(|r| r.scene_id == rt) {
+            if !route.access_export {
+                let app_esc = html_escape_min(app_id.trim_start_matches('/'));
+                let scene_esc = html_escape_min(rt);
+                return Ok((
+                    StatusCode::FORBIDDEN,
+                    Html(format!(
+                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景未导出</title></head><body>\
+                         <p>场景 <code>{scene_esc}</code> 在应用 <code>{app_esc}</code> 中未开启 Access 导出（access_export=false）。</p>\
+                         <p><a href=\"/apps/manage/{app_esc}\">返回管理态</a></p></body></html>",
+                    )),
+                )
+                    .into_response());
+            }
+        }
         if compiled.active_scene.as_deref() != Some(rt) {
             let app_esc = html_escape_min(app_id.trim_start_matches('/'));
             let scene_esc = html_escape_min(rt);

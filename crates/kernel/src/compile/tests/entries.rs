@@ -331,3 +331,84 @@ frame.add_panel(
 
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn preview_fragment_without_scene_contract_skips_discovered_route() {
+    let root = temp_root("fragment-no-discover-route");
+    let app_root = root.join("frag-preview");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "frag-preview",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+)
+
+world(
+    id = "home_world",
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column"),
+)
+"#,
+    );
+    write_file(
+        &app_root.join("widget.mei"),
+        r#"
+frame(
+    id = "widget_frame",
+    layout = flex(direction = "column"),
+)
+
+frame.add_panel(
+    id = "body",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", content = "fragment widget"),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            preview_target: Some("widget.mei".to_string()),
+            ..CompileOptions::default()
+        },
+    )
+    .expect("compile fragment preview");
+    assert!(
+        !compiled
+            .scene_routes
+            .iter()
+            .any(|route| route.target_file == "widget.mei"),
+        "fragment without scene(...) must not be auto-discovered as a route"
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "public_fragment_file_deprecated"),
+        "expected public_fragment_file_deprecated warning"
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "missing_scene"),
+        "expected missing_scene error"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}

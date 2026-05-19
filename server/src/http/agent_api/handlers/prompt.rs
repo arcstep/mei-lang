@@ -17,7 +17,7 @@ use crate::{
 
 use crate::http::agent_api::prompt_context::{
     build_dynamic_session_context_preview, enrich_prompt_request, load_or_refresh_session_context,
-    AgentScopeBundle,
+    prepare_prompt_request, AgentScopeBundle,
 };
 use crate::http::error_response;
 use crate::http::scene_api::{default_resource_query_tools, RESOURCE_QUERY_SCHEMA_VERSION};
@@ -141,6 +141,9 @@ pub async fn api_agent_context_preview(
         return error_response(error);
     }
     policy.apply_to_request(&mut request);
+    if let Err(error) = prepare_prompt_request(&state, &mut request) {
+        return error.into_response();
+    }
     let bundle = AgentScopeBundle::resolve(&state, &request);
     let snapshot_ref = bundle.as_ref().and_then(|b| b.snapshot.as_ref());
     let preview_error = bundle.as_ref().and_then(|b| b.snapshot_error.as_deref());
@@ -265,12 +268,8 @@ pub async fn api_agent_send_message(
         return error_response(error);
     }
     policy.apply_to_request(&mut request);
-    if let Err(e) =
-        crate::http::agent_api::prompt_context::world_directive::apply_world_directive_to_prompt(
-            &state, &mut request,
-        )
-    {
-        return e.into_response();
+    if let Err(error) = prepare_prompt_request(&state, &mut request) {
+        return error.into_response();
     }
     let session_context = load_or_refresh_session_context(&state, &session_id, &request);
     let request = enrich_prompt_request(&state, session_context.as_deref(), request);
@@ -317,6 +316,7 @@ mod agent_http_tests {
         assert!(set.contains("resource_get"));
         assert!(set.contains("resource_runtime_peek"));
         let b = v.get("scope_boundary").expect("boundary");
+        assert_eq!(b["binding_scope"], "scene");
         assert_eq!(b["resource_visibility"], "allow_direct_refs");
         assert_eq!(b["edit_scope"], "read_only");
         let inv = v.get("resource_inventory").and_then(|x| x.as_object());
@@ -330,6 +330,25 @@ mod agent_http_tests {
                 "items should include reach_tier"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn context_preview_scene_id_matches_query() {
+        let state = test_support::test_app_state().expect("app state");
+        let app = http::router().with_state(state);
+        let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=build&resourceVisibility=allow_direct_refs";
+        let req = Request::builder()
+            .uri(uri)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v["scene_id"], "home");
+        assert_eq!(v["target_file"], "main.mei");
     }
 
     #[tokio::test]

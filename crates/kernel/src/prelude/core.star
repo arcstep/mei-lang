@@ -112,7 +112,7 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         state = state,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None):
     return _declare(_clean({
         "kind": "scene",
         "id": id,
@@ -124,9 +124,10 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "summary": summary,
         "goal": goal,
         "state": state if state != None else {},
+        "access_export": access_export,
     }))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None):
     return scene_decl(
         id = id,
         world = world,
@@ -137,6 +138,7 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         summary = summary,
         goal = goal,
         state = state,
+        access_export = access_export,
     )
 
 def world(id = None, topology = None, resources = None, entities = None):

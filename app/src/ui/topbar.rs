@@ -214,7 +214,12 @@ pub(super) fn topbar_view(
     let access_scene_for_href = selected_scene
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .filter(|sc| compiled.scene_routes.iter().any(|r| r.scene_id == *sc))
+        .filter(|sc| {
+            compiled
+                .scene_routes
+                .iter()
+                .any(|r| r.scene_id == *sc && r.access_export)
+        })
         .filter(|sc| {
             if route_mode == UiRouteMode::Manage {
                 canonical_scene_for_script_target(compiled, Some(compiled.active_target_file.as_str()))

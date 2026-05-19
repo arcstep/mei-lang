@@ -28,12 +28,14 @@ mod scene;
 mod scene_binding;
 mod ui_data_policy;
 
+use ui_data_policy::validate_imported_catalog_world_refs;
+
 use app_decl::decode_app_decl;
 use catalog::{
     build_dataset_catalog_filter, compile_dataset_catalog_resources, merge_resource_catalog,
 };
 use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
-use scene::{find_scene_route, resolve_scene_routes, scene_name_from_path};
+use scene::{find_scene_route, resolve_scene_routes};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
 /// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
@@ -44,6 +46,7 @@ fn try_push_discovered_entry_route(
     routes: &mut Vec<CompiledSceneRoute>,
     scene_id: String,
     target_file: String,
+    access_export: bool,
 ) {
     let scene_id = scene_id.trim().to_string();
     let target_file = target_file.trim().to_string();
@@ -63,6 +66,7 @@ fn try_push_discovered_entry_route(
         kind: "file_ref".to_string(),
         title: None,
         is_default: false,
+        access_export,
     });
 }
 
@@ -116,20 +120,17 @@ fn inject_discovered_entry_scene_routes(
 ) {
     if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
         if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
-            if preview_only {
-                try_push_discovered_entry_route(
-                    routes,
-                    scene_name_from_path(preview),
-                    preview.to_string(),
-                );
-            } else {
-                let payload =
-                    compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
-                if let Some(contract) = payload.scene_contract.as_ref() {
-                    let sid = contract.scene.id.trim().to_string();
-                    if !sid.is_empty() {
-                        try_push_discovered_entry_route(routes, sid, preview.to_string());
-                    }
+            let payload =
+                compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
+            if let Some(contract) = payload.scene_contract.as_ref() {
+                let sid = contract.scene.id.trim().to_string();
+                if !sid.is_empty() {
+                    try_push_discovered_entry_route(
+                        routes,
+                        sid,
+                        preview.to_string(),
+                        contract.scene.access_export,
+                    );
                 }
             }
         }
@@ -205,7 +206,12 @@ fn inject_discovered_entry_scene_routes(
         if contract.scene.id.trim() != requested {
             continue;
         }
-        try_push_discovered_entry_route(routes, contract.scene.id.trim().to_string(), rel_str);
+        try_push_discovered_entry_route(
+            routes,
+            contract.scene.id.trim().to_string(),
+            rel_str,
+            contract.scene.access_export,
+        );
         break;
     }
 }
@@ -419,7 +425,17 @@ pub fn compile_app_from_root_with_options(
             catalog_filter.as_ref(),
         )
     };
-    let resources = merge_resource_catalog(dataset_catalog, active_payload.resources);
+    let scene_resources = active_payload.resources.clone();
+    let resources = merge_resource_catalog(dataset_catalog, scene_resources);
+    if let Some(contract) = active_payload.scene_contract.as_ref() {
+        validate_imported_catalog_world_refs(
+            contract,
+            &active_payload.resources,
+            &resources,
+            active_target_file.as_str(),
+            &mut diagnostics,
+        );
+    }
 
     Ok(CompiledApp {
         app_id: app_decl.id.clone(),

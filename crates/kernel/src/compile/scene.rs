@@ -97,6 +97,7 @@ fn collect_route_from_app_scene_field(
                 kind: "declarative".to_string(),
                 title: None,
                 is_default: false,
+                access_export: true,
             },
         );
         return;
@@ -121,6 +122,7 @@ fn collect_route_from_app_scene_field(
             kind: "file_ref".to_string(),
             title: None,
             is_default: false,
+            access_export: true,
         },
     );
 }
@@ -157,6 +159,10 @@ fn collect_inline_scene_routes(
                     .and_then(Value::as_str)
                     .map(|value| value.to_string()),
                 is_default: false,
+                access_export: value
+                    .get("access_export")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(true),
             },
         );
     }
@@ -196,6 +202,7 @@ fn collect_scene_file_ref_routes(
                 kind: "file_ref".to_string(),
                 title: None,
                 is_default: false,
+                access_export: true,
             },
         );
     }

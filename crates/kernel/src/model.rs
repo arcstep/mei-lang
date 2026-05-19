@@ -153,6 +153,13 @@ pub struct SceneDecl {
     pub goal: Option<String>,
     #[serde(default)]
     pub state: Value,
+    /// Access 态是否允许导出该 scene（默认 true，保持兼容）。
+    #[serde(default = "default_access_export")]
+    pub access_export: bool,
+}
+
+fn default_access_export() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -505,6 +512,8 @@ pub struct CompiledSceneRoute {
     pub title: Option<String>,
     #[serde(default)]
     pub is_default: bool,
+    #[serde(default = "default_access_export")]
+    pub access_export: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

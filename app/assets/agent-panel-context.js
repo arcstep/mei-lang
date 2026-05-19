@@ -6,12 +6,28 @@
 
   global.__meiAgentPanelInstallContextPreview = function (api) {
     function currentScopeParams() {
+      const host =
+        typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
+      if (host && typeof host.build === "function") {
+        const coords = host.build(api);
+        coords.resource_visibility = currentResourceVisibility();
+        const params = new URLSearchParams();
+        if (host.applyToUrlSearchParams) {
+          return host.applyToUrlSearchParams(params, coords);
+        }
+        if (coords.app_id) params.set("app_id", coords.app_id);
+        if (coords.target_file) params.set("target_file", coords.target_file);
+        params.set("route_mode", coords.route_mode);
+        params.set("mode", coords.mode);
+        params.set("resource_visibility", coords.resource_visibility);
+        if (coords.scene_id) params.set("scene_id", coords.scene_id);
+        return params;
+      }
       const params = new URLSearchParams();
       const app = api.currentAppKey();
       const sceneId = api.currentSceneId();
       const routeMode = api.normalizeRouteMode(api.root.dataset.mode);
       const mode = api.normalizeAgentMode(api.state.agentMode);
-      const sceneRouteTarget = api.normalizeTargetKey(String(api.root.dataset.sceneTarget || ""));
       const target = api.currentTargetKey();
       if (app) params.set("app_id", app);
       if (target) params.set("target_file", target);

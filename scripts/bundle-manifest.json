@@ -2,6 +2,7 @@
   "manageScripts": [
     "frame-stage.js",
     "scope-params.js",
+    "agent-host-coordinates.js",
     "vendor/marked.umd.js",
     "vendor/dompurify.min.js",
     "vendor/diff-match-patch.js",
@@ -35,6 +36,7 @@
   "accessScripts": [
     "frame-stage.js",
     "scope-params.js",
+    "agent-host-coordinates.js",
     "statusbar.js",
     "agent-panel-utils.js",
     "agent-panel-routing.js",

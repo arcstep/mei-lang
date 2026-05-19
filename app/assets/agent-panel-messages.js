@@ -958,15 +958,31 @@
   }
 
   async function postPromptWithCurrentSession(text, controller) {
+    const host =
+      typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
+    const coords =
+      host && typeof host.build === "function"
+        ? host.build(api)
+        : {
+            app_id: String(root.dataset.app || ""),
+            scene_id: api.currentSceneId(),
+            target_file: api.currentTargetKey(),
+            mode: api.normalizeAgentMode(state.agentMode),
+            route_mode: api.normalizeRouteMode(root.dataset.mode),
+            resource_visibility: CTX.currentResourceVisibility(),
+          };
+    if (!coords.resource_visibility && CTX && CTX.currentResourceVisibility) {
+      coords.resource_visibility = CTX.currentResourceVisibility();
+    }
     const body = {
       text: text,
-      app_id: String(root.dataset.app || ""),
-      scene_id: api.currentSceneId(),
-      target_file: api.currentTargetKey(),
-      mode: api.normalizeAgentMode(state.agentMode),
-      route_mode: api.normalizeRouteMode(root.dataset.mode),
-      agent: api.normalizeAgentMode(state.agentMode),
-      resource_visibility: CTX.currentResourceVisibility(),
+      app_id: coords.app_id,
+      scene_id: coords.scene_id,
+      target_file: coords.target_file,
+      mode: coords.mode,
+      route_mode: coords.route_mode,
+      agent: coords.mode,
+      resource_visibility: coords.resource_visibility,
     };
     const mref = CHR.getSelectedCompletionModelRef();
     if (mref) {

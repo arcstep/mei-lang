@@ -126,13 +126,11 @@
         .replace(/^\.\/+/, "");
     },
     /**
-     * 当预览目标与「scene 路由锚点」不一致时（例如 data/dataset/**），不附带 scene_id，
-     * 避免触发无意义的 scope 校验失败。
+     * scene-first：只要宿主页面能解析出 scene，就随 preview/send 附带 scene_id。
+     * source-focus file 与 scene 路由文件不一致时（如 data/dataset/**）仍保留 scene 主锚。
      */
-    shouldAttachSceneIdToScopeQuery: function (targetKey, sceneRouteTarget) {
-      const tgt = api.normTargetKeyForScope(targetKey);
-      const sceneT = api.normTargetKeyForScope(sceneRouteTarget);
-      return !tgt || (sceneT && tgt === sceneT);
+    shouldAttachSceneIdToScopeQuery: function (_targetKey, _sceneRouteTarget) {
+      return true;
     },
     /** 显式 UI 选择优先，否则走 route+mode 默认。 */
     effectiveResourceVisibility: function (selectValue, route, mode) {
@@ -152,6 +150,60 @@
     },
   };
   g.MeiAgentScopeParams = api;
+})(typeof globalThis !== "undefined" ? globalThis : this);
+
+;
+
+/* ===== agent-host-coordinates.js ===== */
+/**
+ * Agent preview / send / SSE 共用的宿主坐标（scene-first）。
+ * 与后端 `BridgePromptRequest` 字段对齐。
+ */
+(function (g) {
+  "use strict";
+
+  function buildAgentHostCoordinates(api) {
+    const root = api.root;
+    const state = api.state || {};
+    const ext =
+      typeof g !== "undefined" && g.MeiAgentScopeParams ? g.MeiAgentScopeParams : null;
+    const route = api.normalizeRouteMode(root.dataset.mode);
+    const mode = api.normalizeAgentMode(state.agentMode);
+    let resourceVisibility = "";
+    if (ext && typeof ext.effectiveResourceVisibility === "function") {
+      const sel = document.getElementById("author-resource-visibility-select");
+      const rawSel = sel && "value" in sel ? String(sel.value || "").trim() : "";
+      resourceVisibility = ext.effectiveResourceVisibility(rawSel, route, mode);
+    } else if (api.CTX && typeof api.CTX.currentResourceVisibility === "function") {
+      resourceVisibility = api.CTX.currentResourceVisibility();
+    }
+    return {
+      app_id: String(root.dataset.app || api.currentAppKey() || ""),
+      scene_id: String(api.currentSceneId() || ""),
+      target_file: String(api.currentTargetKey() || ""),
+      route_mode: route,
+      mode: mode,
+      resource_visibility: resourceVisibility,
+    };
+  }
+
+  function applyToUrlSearchParams(params, coords) {
+    if (!params || !coords) return params;
+    if (coords.app_id) params.set("app_id", coords.app_id);
+    if (coords.target_file) params.set("target_file", coords.target_file);
+    params.set("route_mode", coords.route_mode || "manage");
+    params.set("mode", coords.mode || "build");
+    if (coords.resource_visibility) {
+      params.set("resource_visibility", coords.resource_visibility);
+    }
+    if (coords.scene_id) params.set("scene_id", coords.scene_id);
+    return params;
+  }
+
+  g.MeiAgentHostCoordinates = {
+    build: buildAgentHostCoordinates,
+    applyToUrlSearchParams: applyToUrlSearchParams,
+  };
 })(typeof globalThis !== "undefined" ? globalThis : this);
 
 ;
@@ -565,21 +617,17 @@
     }
 
     function sessionBindingKind() {
-      return normalizeRouteMode(root.dataset.mode) === "access" ? "scene" : "file";
+      return "scene";
     }
 
     function currentSessionBindingFingerprint() {
-      return sessionBindingKind() === "scene"
-        ? "scene:" + currentSceneId()
-        : currentTargetKey();
+      const sid = currentSceneId() || "__no_scene__";
+      return "scene:" + sid;
     }
 
     function sessionBindingStorageKey() {
-      if (sessionBindingKind() === "scene") {
-        const sid = currentSceneId() || "__no_scene__";
-        return "scene:" + sid;
-      }
-      return "file:" + (currentTargetKey() || "__no_file__");
+      const sid = currentSceneId() || "__no_scene__";
+      return "scene:" + sid;
     }
 
     function sessionStorageKey() {
@@ -639,17 +687,9 @@
     function buildBoundSessionTitle(targetKey) {
       const params = new URLSearchParams();
       params.set("app", String(root.dataset.app || ""));
-      const kind = sessionBindingKind();
-      params.set("bind", kind);
-      if (kind === "scene") {
-        params.set("scene", currentSceneId() || "");
-        params.set("anchor", String(targetKey || "").trim());
-      } else {
-        params.set("file", String(targetKey || "").trim());
-        if (root.dataset.scene) {
-          params.set("scene", String(root.dataset.scene || ""));
-        }
-      }
+      params.set("bind", "scene");
+      params.set("scene", currentSceneId() || "");
+      params.set("anchor", String(targetKey || "").trim());
       return "MEI|" + params.toString();
     }
 
@@ -675,11 +715,11 @@
         }
         const target = normalizeTargetKey(params.get("file") || params.get("target") || "");
         const scene = String(params.get("scene") || "").trim();
-        if (!target) return null;
+        if (!target && !scene) return null;
         return {
           app: app,
-          bind: "file",
-          scene: scene,
+          bind: "scene",
+          scene: scene || "__legacy_file__",
           anchor: target,
           target: target,
         };
@@ -1666,30 +1706,35 @@
 
   global.__meiAgentPanelInstallContextPreview = function (api) {
     function currentScopeParams() {
+      const host =
+        typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
+      if (host && typeof host.build === "function") {
+        const coords = host.build(api);
+        coords.resource_visibility = currentResourceVisibility();
+        const params = new URLSearchParams();
+        if (host.applyToUrlSearchParams) {
+          return host.applyToUrlSearchParams(params, coords);
+        }
+        if (coords.app_id) params.set("app_id", coords.app_id);
+        if (coords.target_file) params.set("target_file", coords.target_file);
+        params.set("route_mode", coords.route_mode);
+        params.set("mode", coords.mode);
+        params.set("resource_visibility", coords.resource_visibility);
+        if (coords.scene_id) params.set("scene_id", coords.scene_id);
+        return params;
+      }
       const params = new URLSearchParams();
       const app = api.currentAppKey();
       const sceneId = api.currentSceneId();
       const routeMode = api.normalizeRouteMode(api.root.dataset.mode);
       const mode = api.normalizeAgentMode(api.state.agentMode);
-      const sceneRouteTarget = api.normalizeTargetKey(String(api.root.dataset.sceneTarget || ""));
       const target = api.currentTargetKey();
       if (app) params.set("app_id", app);
       if (target) params.set("target_file", target);
       params.set("route_mode", routeMode);
       params.set("mode", mode);
       params.set("resource_visibility", currentResourceVisibility());
-      const ext =
-        typeof globalThis !== "undefined" && globalThis.MeiAgentScopeParams;
-      if (ext && typeof ext.shouldAttachSceneIdToScopeQuery === "function") {
-        if (ext.shouldAttachSceneIdToScopeQuery(target, sceneRouteTarget)) {
-          if (sceneId) params.set("scene_id", sceneId);
-        }
-      } else {
-        const scopedToSceneRoute = !target || (sceneRouteTarget && target === sceneRouteTarget);
-        if (scopedToSceneRoute) {
-          if (sceneId) params.set("scene_id", sceneId);
-        }
-      }
+      if (sceneId) params.set("scene_id", sceneId);
       return params;
     }
 
@@ -3970,15 +4015,31 @@
   }
 
   async function postPromptWithCurrentSession(text, controller) {
+    const host =
+      typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
+    const coords =
+      host && typeof host.build === "function"
+        ? host.build(api)
+        : {
+            app_id: String(root.dataset.app || ""),
+            scene_id: api.currentSceneId(),
+            target_file: api.currentTargetKey(),
+            mode: api.normalizeAgentMode(state.agentMode),
+            route_mode: api.normalizeRouteMode(root.dataset.mode),
+            resource_visibility: CTX.currentResourceVisibility(),
+          };
+    if (!coords.resource_visibility && CTX && CTX.currentResourceVisibility) {
+      coords.resource_visibility = CTX.currentResourceVisibility();
+    }
     const body = {
       text: text,
-      app_id: String(root.dataset.app || ""),
-      scene_id: api.currentSceneId(),
-      target_file: api.currentTargetKey(),
-      mode: api.normalizeAgentMode(state.agentMode),
-      route_mode: api.normalizeRouteMode(root.dataset.mode),
-      agent: api.normalizeAgentMode(state.agentMode),
-      resource_visibility: CTX.currentResourceVisibility(),
+      app_id: coords.app_id,
+      scene_id: coords.scene_id,
+      target_file: coords.target_file,
+      mode: coords.mode,
+      route_mode: coords.route_mode,
+      agent: coords.mode,
+      resource_visibility: coords.resource_visibility,
     };
     const mref = CHR.getSelectedCompletionModelRef();
     if (mref) {
