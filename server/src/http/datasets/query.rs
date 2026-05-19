@@ -7,6 +7,7 @@ use mei_lang_kernel::DatasetView;
 use super::csv_dataset;
 use super::db_dataset;
 use super::file_cache::resolve_external_file_cache_settings;
+use super::geojson_dataset;
 use super::json_dataset;
 use super::paginate::paginate_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult, SourceMeta};
@@ -83,6 +84,13 @@ pub fn query_dataset_rows(
             &normalized_options,
             &cache_settings,
         ),
+        "geojson" => geojson_dataset::query_geojson_rows(
+            app_root,
+            &dataset.source,
+            &meta,
+            &normalized_options,
+            &cache_settings,
+        ),
         "xlsx" | "xls" => xlsx_dataset::query_xlsx_rows(
             app_root,
             &dataset.source,
@@ -124,7 +132,7 @@ fn file_backed_for_lazy_query(dataset: &DatasetView, meta: &SourceMeta) -> bool 
     }
     matches!(
         source_kind(dataset).as_str(),
-        "csv" | "json" | "xlsx" | "xls"
+        "csv" | "json" | "geojson" | "xlsx" | "xls"
     )
 }
 
@@ -135,6 +143,8 @@ fn source_kind(dataset: &DatasetView) -> String {
     }
     if dataset.source.path.ends_with(".xlsx") || dataset.source.path.ends_with(".xls") {
         "xlsx".to_string()
+    } else if dataset.source.path.ends_with(".geojson") {
+        "geojson".to_string()
     } else if dataset.source.path.ends_with(".json") {
         "json".to_string()
     } else {

@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use crate::{AppError, AppState};
 
 use super::super::compile_cache::compile_app_with_cache;
-use super::super::datasets::{query_dataset_rows, DatasetQueryOptions};
+use super::super::datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
 use super::components::resolve_components_root;
 use super::util::{elapsed_ms, is_script_target};
 
@@ -31,11 +31,16 @@ pub struct DatasetQueryRequest {
     pub filters: BTreeMap<String, String>,
     #[serde(default)]
     pub full: bool,
+    /// 非空时对 runtime metric（dataframe）求值后分页，与 dataset 行集共用过滤/分页语义。
+    #[serde(default)]
+    pub metric_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct DatasetQueryResponse {
     pub dataset_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric_id: Option<String>,
     pub page: usize,
     pub page_size: usize,
     pub total: usize,
@@ -121,8 +126,19 @@ pub async fn dataset_query_api(
         filters: request.filters.clone(),
         collect_all: request.full,
     };
+    let metric_id = request
+        .metric_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let query_started = Instant::now();
-    let result = query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?;
+    let result = if let Some(metric_id) = metric_id.as_deref() {
+        query_metric_dataframe(&compiled, &app_root, normalized_dataset_id, metric_id, query)
+            .map_err(AppError::from)?
+    } else {
+        query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?
+    };
     let query_ms = elapsed_ms(query_started);
     let mut perf = result.perf.clone();
     perf.insert("compile_ms".to_string(), compile_ms);
@@ -139,6 +155,7 @@ pub async fn dataset_query_api(
     perf.insert("total_ms".to_string(), elapsed_ms(request_started));
     Ok(Json(DatasetQueryResponse {
         dataset_id: resource.id.clone(),
+        metric_id,
         page: result.page,
         page_size: result.page_size,
         total: result.total,

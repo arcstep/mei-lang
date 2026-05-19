@@ -3,7 +3,9 @@
 mod csv_dataset;
 mod db_dataset;
 mod file_cache;
+mod geojson_dataset;
 mod json_dataset;
+mod metric_dataframe;
 mod paginate;
 mod paths;
 mod query;
@@ -12,6 +14,7 @@ mod util;
 mod xlsx_dataset;
 mod xlsx_format;
 
+pub use metric_dataframe::query_metric_dataframe;
 pub use query::query_dataset_rows;
 pub use types::DatasetQueryOptions;
 
