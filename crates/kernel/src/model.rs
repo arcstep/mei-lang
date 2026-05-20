@@ -58,6 +58,9 @@ pub struct FrameDecl {
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
     pub props: Value,
+    /// Owner 槽位：`frame(panels=[panel_ref(...), panel(...)])` 归一后的 panel 集合。
+    #[serde(default)]
+    pub panels: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,7 +242,7 @@ pub struct SceneDecl {
     #[serde(default)]
     pub world: Option<Value>,
     #[serde(default)]
-    pub flow: Option<String>,
+    pub flow: Option<Value>,
     #[serde(default)]
     pub frame: Option<Value>,
     #[serde(default)]
@@ -328,6 +331,12 @@ pub struct WorldDecl {
     pub topology: Option<WorldGridDecl>,
     #[serde(default)]
     pub resources: Vec<ResourceDecl>,
+    /// 一等 dataset 集合（`world(datasets=[...])` / `world.add_dataset(...)` 账本归一）。
+    #[serde(default)]
+    pub datasets: Vec<ResourceDecl>,
+    /// 一等 metric_pack 集合。
+    #[serde(default)]
+    pub metric_packs: Vec<ResourceDecl>,
     #[serde(default)]
     pub entities: Vec<EntityDecl>,
 }

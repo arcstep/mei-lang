@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 use crate::{
     eval::evaluate_mei_file,
     model::{CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, Severity},
+    typed_refs::SceneRegistry,
     workspace::{load_component_assets, source_tree},
 };
 
@@ -108,14 +109,21 @@ fn inject_discovered_entry_scene_routes(
     app_decls: &Value,
     asset_map: &BTreeMap<String, ComponentAsset>,
     routes: &mut Vec<CompiledSceneRoute>,
+    scene_registry: &SceneRegistry,
     preview_target: Option<&str>,
     scene_selector: Option<&str>,
     preview_only: bool,
 ) {
     if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
         if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
-            let payload =
-                compile_scene_payload_for_target(app_root, app_decls, asset_map, preview, None);
+            let payload = compile_scene_payload_for_target(
+                app_root,
+                app_decls,
+                asset_map,
+                preview,
+                None,
+                scene_registry,
+            );
             if let Some(contract) = payload.scene_contract.as_ref() {
                 let sid = contract.scene.id.trim().to_string();
                 if !sid.is_empty() {
@@ -193,6 +201,7 @@ fn inject_discovered_entry_scene_routes(
             asset_map,
             rel_str.as_str(),
             None,
+            scene_registry,
         );
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
@@ -248,15 +257,18 @@ pub fn compile_app_from_root_with_options(
 
     let asset_map = load_component_assets(source_root)?;
     let preview_only = is_manage_preview_only_compile(&options);
+    let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     inject_discovered_entry_scene_routes(
         app_root,
         &app_decls,
         &asset_map,
         &mut route_registry.routes,
+        &scene_registry,
         options.preview_target.as_deref(),
         options.scene.as_deref(),
         preview_only,
     );
+    let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     for route in &route_registry.routes {
         if preview_only && !route_targets_preview(route, options.preview_target.as_deref()) {
@@ -268,6 +280,7 @@ pub fn compile_app_from_root_with_options(
             &asset_map,
             route.target_file.as_str(),
             Some(route),
+            &scene_registry,
         );
         official_results.insert(route.scene_id.clone(), result);
     }
@@ -341,6 +354,7 @@ pub fn compile_app_from_root_with_options(
                         &asset_map,
                         target_file.as_str(),
                         Some(&scene_route),
+                        &scene_registry,
                     )
                 });
             (Some(scene_route.scene_id), target_file, payload)
@@ -351,6 +365,7 @@ pub fn compile_app_from_root_with_options(
                 &asset_map,
                 target_file.as_str(),
                 None,
+                &scene_registry,
             );
             if target_file == "main.mei" && payload.scene_contract.is_none() {
                 let fallback_route = active_route_meta.clone().or_else(|| {
@@ -371,6 +386,7 @@ pub fn compile_app_from_root_with_options(
                                 &asset_map,
                                 route_meta.target_file.as_str(),
                                 Some(&route_meta),
+                                &scene_registry,
                             )
                         });
                     (Some(route_meta.scene_id), target_file, fallback_payload)
@@ -392,6 +408,7 @@ pub fn compile_app_from_root_with_options(
                     &asset_map,
                     route_meta.target_file.as_str(),
                     Some(&route_meta),
+                    &scene_registry,
                 )
             });
         (Some(route_meta.scene_id), route_meta.target_file, payload)
@@ -399,7 +416,14 @@ pub fn compile_app_from_root_with_options(
         (
             None,
             "main.mei".to_string(),
-            compile_scene_payload_for_target(app_root, &app_decls, &asset_map, "main.mei", None),
+            compile_scene_payload_for_target(
+                app_root,
+                &app_decls,
+                &asset_map,
+                "main.mei",
+                None,
+                &scene_registry,
+            ),
         )
     };
 

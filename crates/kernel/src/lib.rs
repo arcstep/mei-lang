@@ -3,6 +3,8 @@ mod eval;
 mod geojson;
 mod model;
 mod runtime;
+mod runtime_resource_index;
+mod typed_refs;
 mod workspace;
 
 pub use compile::{
@@ -22,5 +24,14 @@ pub use model::{
 pub use runtime::{
     initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step, RuntimeIntent,
     RuntimeSceneView, RuntimeState, RuntimeSubjectTimerState, RuntimeTraceItem,
+};
+pub use typed_refs::{
+    decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,
+    SceneLocator, SceneRegistry,
+};
+pub use runtime_resource_index::{
+    build_runtime_resource_index, build_runtime_resource_map, is_forbidden_legacy_resource_id,
+    locate_dataset_resource, resolve_dataset_resource_id, resolve_dataset_selector_value,
+    RuntimeResourceIndex, RuntimeResourceResolveError,
 };
 pub use workspace::{discover_apps, load_component_assets, read_source_file, source_tree};

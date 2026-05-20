@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::eval::evaluate_mei_file;
 use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic, Severity};
+use crate::typed_refs::SceneRegistry;
 
 mod compile;
 mod helpers;
@@ -25,10 +26,18 @@ pub(super) fn compile_scene_payload_for_target(
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
     target_file: &str,
     route_meta: Option<&CompiledSceneRoute>,
+    scene_registry: &SceneRegistry,
 ) -> CompiledScenePayload {
     match load_entry_decls(app_root, app_decls, target_file) {
         Ok(entry_decls) => {
-            match compile_scene_payload(app_root, asset_map, target_file, &entry_decls, route_meta)
+            match compile_scene_payload(
+                app_root,
+                asset_map,
+                target_file,
+                &entry_decls,
+                route_meta,
+                scene_registry,
+            )
             {
                 Ok(payload) => payload,
                 Err(error) => CompiledScenePayload {

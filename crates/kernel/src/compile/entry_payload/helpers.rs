@@ -7,6 +7,13 @@ use super::super::decls::{
     LegacySourceDecl,
 };
 
+pub(super) fn all_world_resource_decls(world: &crate::model::WorldDecl) -> Vec<ResourceDecl> {
+    let mut all = world.resources.clone();
+    all.extend(world.datasets.clone());
+    all.extend(world.metric_packs.clone());
+    all
+}
+
 pub(super) fn partition_world_resources(
     resources: &[ResourceDecl],
 ) -> (Vec<ResourceDecl>, Vec<ResourceDecl>) {

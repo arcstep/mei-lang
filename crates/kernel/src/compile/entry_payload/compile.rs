@@ -13,18 +13,22 @@ use super::super::decls::{
     FrameSetLayoutDecl, LegacyDatasetDecl, LegacyMetricPackDecl, WorldAddEntityDecl,
     WorldAddResourceDecl, WorldSetTopologyDecl,
 };
-use super::super::load_external::{load_frame_from_file, load_world_from_file};
+use super::super::load_external::{
+    load_flow_from_file, load_frame_from_file, load_panel_from_scene_file, load_world_from_file,
+};
 use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
 use super::super::mutations::{apply_frame_mutations, apply_world_mutations};
 use super::super::resources::load_resources;
 use super::super::scene_binding::{
-    decode_scene_decl, parse_scene_binding, pick_only_frame, pick_only_world, SceneBinding,
+    decode_scene_decl, parse_flow_binding, parse_frame_binding, parse_world_binding,
+    pick_only_frame, pick_only_world, SceneBinding,
 };
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::helpers::{
-    collect_asset_keys_from_nodes, decode_world_dataset_decl, decode_world_metric_pack_decl,
-    insert_resource_checked, partition_world_resources,
+    all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
+    decode_world_metric_pack_decl, insert_resource_checked, partition_world_resources,
 };
+use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 use super::CompiledScenePayload;
 pub(super) fn compile_scene_payload(
     app_root: &Path,
@@ -32,6 +36,7 @@ pub(super) fn compile_scene_payload(
     target_file: &str,
     entry_decls: &Value,
     route_meta: Option<&CompiledSceneRoute>,
+    scene_registry: &SceneRegistry,
 ) -> Result<CompiledScenePayload> {
     let mut diagnostics = Vec::new();
     let mut scenes: BTreeMap<String, SceneDecl> = BTreeMap::new();
@@ -93,7 +98,7 @@ pub(super) fn compile_scene_payload(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
-                        frames.entry(id.to_string()).or_insert(frame_decl);
+                        frames.insert(id.to_string(), frame_decl);
                     } else {
                         if frame_default.is_none() {
                             frame_default = Some(frame_decl);
@@ -106,7 +111,7 @@ pub(super) fn compile_scene_payload(
                     }
                     scene_decl_count += 1;
                     let scene_decl = decode_scene_decl(value, target_file)?;
-                    scenes.entry(scene_decl.id.clone()).or_insert(scene_decl);
+                    scenes.insert(scene_decl.id.clone(), scene_decl);
                 }
                 "world" => {
                     if first_world_decl_index.is_none() {
@@ -121,7 +126,7 @@ pub(super) fn compile_scene_payload(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
-                        worlds.entry(id.to_string()).or_insert(world_decl);
+                        worlds.insert(id.to_string(), world_decl);
                     } else {
                         if world_default.is_none() {
                             world_default = Some(world_decl);
@@ -296,6 +301,15 @@ pub(super) fn compile_scene_payload(
         target_file,
         frame_decl_count,
     );
+    merge_frame_panel_slots(
+        app_root,
+        &frames,
+        frame_default.as_ref(),
+        &mut panels,
+        scene_registry,
+        &mut diagnostics,
+        target_file,
+    );
     if scene_decl_count > 1 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -357,7 +371,7 @@ pub(super) fn compile_scene_payload(
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
                 code: "public_fragment_file_deprecated".to_string(),
-                message: "legacy frame/world/panel fragment without scene(...); migrate to a minimal scene capsule or import via *_file_ref".to_string(),
+                message: "legacy frame/world/panel fragment without scene(...); migrate to a minimal scene capsule with scene(...) and typed refs (world_ref/frame_ref)".to_string(),
                 source_path: Some(target_file.to_string()),
             });
         }
@@ -389,7 +403,7 @@ pub(super) fn compile_scene_payload(
         let binding = scene_decl
             .frame
             .as_ref()
-            .map(|value| parse_scene_binding(value, "frame_file_ref", "frame"));
+            .map(|value| parse_frame_binding(value, Some(scene_registry)));
         match binding {
             Some(Ok(SceneBinding::LocalId(frame_id))) => {
                 let matched = frames.get(frame_id.as_str()).cloned();
@@ -409,7 +423,7 @@ pub(super) fn compile_scene_payload(
                     Err(error) => {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
-                            code: "load_frame_file_ref_failed".to_string(),
+                            code: "load_frame_ref_failed".to_string(),
                             message: error.to_string(),
                             source_path: Some(target_file.to_string()),
                         });
@@ -436,7 +450,7 @@ pub(super) fn compile_scene_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_frame".to_string(),
-            message: "scene route requires a frame(...) declaration or frame_file_ref(...)"
+            message: "scene route requires a frame(...) declaration or frame_ref(...)"
                 .to_string(),
             source_path: Some(target_file.to_string()),
         });
@@ -446,7 +460,7 @@ pub(super) fn compile_scene_payload(
         let binding = scene_decl
             .world
             .as_ref()
-            .map(|value| parse_scene_binding(value, "world_file_ref", "world"));
+            .map(|value| parse_world_binding(value, Some(scene_registry)));
         match binding {
             Some(Ok(SceneBinding::LocalId(world_id))) => {
                 let matched = worlds.get(world_id.as_str()).cloned();
@@ -466,7 +480,7 @@ pub(super) fn compile_scene_payload(
                     Err(error) => {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
-                            code: "load_world_file_ref_failed".to_string(),
+                            code: "load_world_ref_failed".to_string(),
                             message: error.to_string(),
                             source_path: Some(target_file.to_string()),
                         });
@@ -493,7 +507,7 @@ pub(super) fn compile_scene_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_world".to_string(),
-            message: "scene entry requires a world(...) declaration or world_file_ref(...)"
+            message: "scene entry requires a world(...) declaration or world_ref(...)"
                 .to_string(),
             source_path: Some(target_file.to_string()),
         });
@@ -501,10 +515,17 @@ pub(super) fn compile_scene_payload(
 
     let flow = selected_scene
         .as_ref()
-        .and_then(|scene| scene.flow.as_deref())
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .and_then(|id| flows.get(id).cloned())
+        .and_then(|scene| scene.flow.as_ref())
+        .and_then(|value| {
+            resolve_flow_binding(
+                value,
+                &flows,
+                app_root,
+                Some(scene_registry),
+                &mut diagnostics,
+                target_file,
+            )
+        })
         .or_else(|| {
             flow_default.clone().or_else(|| {
                 (flows.len() == 1)
@@ -518,7 +539,7 @@ pub(super) fn compile_scene_payload(
     let mut world_metric_pack_decls: Vec<LegacyMetricPackDecl> = Vec::new();
     if let Some(world_decl) = world.as_ref() {
         let (normal_resources, dataset_resources) =
-            partition_world_resources(&world_decl.resources);
+            partition_world_resources(&all_world_resource_decls(world_decl));
         resources = load_resources(app_root, &normal_resources)?;
         for resource in dataset_resources {
             if resource.id == "__source_path__" || resource.id.ends_with(".mei") {
@@ -595,4 +616,158 @@ pub(super) fn compile_scene_payload(
         component_assets,
         diagnostics,
     })
+}
+
+fn resolve_flow_binding(
+    value: &Value,
+    flows: &BTreeMap<String, FlowDecl>,
+    app_root: &Path,
+    scene_registry: Option<&SceneRegistry>,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+) -> Option<FlowDecl> {
+    if let Some(id) = value.as_str().map(str::trim).filter(|id| !id.is_empty()) {
+        if let Some(flow) = flows.get(id) {
+            return Some(flow.clone());
+        }
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "missing_bound_flow".to_string(),
+            message: format!("declared flow `{id}` was not found"),
+            source_path: Some(target_file.to_string()),
+        });
+        return None;
+    }
+    match parse_flow_binding(value, scene_registry) {
+        Ok(SceneBinding::LocalId(id)) => {
+            if let Some(flow) = flows.get(id.as_str()) {
+                return Some(flow.clone());
+            }
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "missing_bound_flow".to_string(),
+                message: format!("declared flow `{id}` was not found"),
+                source_path: Some(target_file.to_string()),
+            });
+            None
+        }
+        Ok(SceneBinding::FileRef { path, id }) => match load_flow_from_file(app_root, path.as_str(), id.as_deref())
+        {
+            Ok(flow_decl) => Some(flow_decl),
+            Err(error) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "load_flow_ref_failed".to_string(),
+                    message: error.to_string(),
+                    source_path: Some(target_file.to_string()),
+                });
+                None
+            }
+        },
+        Ok(SceneBinding::Absent) => None,
+        Err(message) => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_scene_flow_binding".to_string(),
+                message: message.to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+            None
+        }
+    }
+}
+
+fn merge_frame_panel_slots(
+    app_root: &Path,
+    frames: &BTreeMap<String, FrameDecl>,
+    frame_default: Option<&FrameDecl>,
+    panels: &mut Vec<PanelDecl>,
+    scene_registry: &SceneRegistry,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+) {
+    let mut sources: Vec<&FrameDecl> = frames.values().collect();
+    if let Some(frame) = frame_default {
+        sources.push(frame);
+    }
+    for frame in sources {
+        for slot in &frame.panels {
+            if let Some(panel) = decode_panel_slot(slot) {
+                upsert_panel(panels, panel);
+                continue;
+            }
+            if let Some(expr) = decode_ref_value(slot) {
+                if expr.kind == RefKind::Panel {
+                    let panel_id = expr.id.as_deref().unwrap_or_default().trim();
+                    if panel_id.is_empty() {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "invalid_panel_ref".to_string(),
+                            message: "panel_ref(...) requires panel id".to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                        continue;
+                    }
+                    let path = if let Some(path) = expr
+                        .locator
+                        .scene_file
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|path| !path.is_empty())
+                    {
+                        path.to_string()
+                    } else {
+                        match scene_registry.resolve_target(&expr.locator) {
+                            Ok((_, path)) => path,
+                            Err(message) => {
+                                diagnostics.push(Diagnostic {
+                                    severity: Severity::Error,
+                                    code: "panel_ref_not_resolved".to_string(),
+                                    message,
+                                    source_path: Some(target_file.to_string()),
+                                });
+                                continue;
+                            }
+                        }
+                    };
+                    match load_panel_from_scene_file(app_root, path.as_str(), panel_id) {
+                        Ok(panel) => {
+                            upsert_panel(panels, panel);
+                            continue;
+                        }
+                        Err(error) => {
+                            diagnostics.push(Diagnostic {
+                                severity: Severity::Error,
+                                code: "panel_ref_not_resolved".to_string(),
+                                message: error.to_string(),
+                                source_path: Some(target_file.to_string()),
+                            });
+                            continue;
+                        }
+                    }
+                }
+            }
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_frame_panel_slot".to_string(),
+                message: "frame.panels entries must be panel(...) or panel_ref(...)".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+    }
+}
+
+fn decode_panel_slot(value: &Value) -> Option<PanelDecl> {
+    if value.get("kind").and_then(Value::as_str) == Some("panel") {
+        return serde_json::from_value::<PanelDecl>(value.clone()).ok();
+    }
+    None
+}
+
+fn upsert_panel(panels: &mut Vec<PanelDecl>, panel: PanelDecl) {
+    if let Some(existing) = panels.iter_mut().find(|item| item.id == panel.id) {
+        *existing = panel;
+        return;
+    }
+    panels.push(panel);
 }

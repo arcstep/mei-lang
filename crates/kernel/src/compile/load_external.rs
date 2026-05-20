@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use serde_json::Value;
 
 use crate::eval::evaluate_mei_file;
-use crate::model::FrameDecl;
+use crate::model::{FlowDecl, FrameDecl, PanelDecl};
 
 use super::decls::{
     FrameSetLayoutDecl, WorldAddEntityDecl, WorldAddResourceDecl, WorldSetTopologyDecl,
@@ -188,7 +188,69 @@ pub(super) fn load_frame_from_file(
             .next()
             .ok_or_else(|| anyhow!("frame_file_ref `{relative_path}` did not contain frame")),
         count => Err(anyhow!(
-            "frame_file_ref `{relative_path}` matched {count} frame(...) declarations; provide id"
+            "frame_ref `{relative_path}` matched {count} frame(...) declarations; provide id"
         )),
     }
+}
+
+pub(super) fn load_flow_from_file(
+    app_root: &Path,
+    relative_path: &str,
+    flow_id: Option<&str>,
+) -> Result<FlowDecl> {
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file(&source_path)?;
+    let mut flows = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            if value.get("kind").and_then(Value::as_str) == Some("flow") {
+                flows.push(serde_json::from_value::<FlowDecl>(value.clone())?);
+            }
+        }
+    }
+    if let Some(expected_id) = flow_id {
+        return flows
+            .into_iter()
+            .find(|decl| decl.id.as_deref() == Some(expected_id))
+            .ok_or_else(|| {
+                anyhow!("flow_ref `{relative_path}` did not contain flow id `{expected_id}`")
+            });
+    }
+    match flows.len() {
+        0 => Err(anyhow!(
+            "flow_ref `{relative_path}` did not contain flow(...) declarations"
+        )),
+        1 => flows
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("flow_ref `{relative_path}` did not contain flow")),
+        count => Err(anyhow!(
+            "flow_ref `{relative_path}` matched {count} flow(...) declarations; provide id"
+        )),
+    }
+}
+
+pub(super) fn load_panel_from_scene_file(
+    app_root: &Path,
+    relative_path: &str,
+    panel_id: &str,
+) -> Result<PanelDecl> {
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file(&source_path)?;
+    let mut panels = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            if value.get("kind").and_then(Value::as_str) == Some("panel") {
+                if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+                    panels.push(panel);
+                }
+            }
+        }
+    }
+    panels
+        .into_iter()
+        .find(|panel| panel.id == panel_id)
+        .ok_or_else(|| {
+            anyhow!("panel_ref `{relative_path}` did not contain panel id `{panel_id}`")
+        })
 }

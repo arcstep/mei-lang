@@ -51,6 +51,8 @@ mod tests {
                     cells: Vec::new(),
                 }),
                 resources: Vec::new(),
+                datasets: Vec::new(),
+                metric_packs: Vec::new(),
                 entities: vec![
                     EntityDecl {
                         id: "room_fire".to_string(),
@@ -168,6 +170,8 @@ mod tests {
                     }],
                 }),
                 resources: Vec::new(),
+                datasets: Vec::new(),
+                metric_packs: Vec::new(),
                 entities: vec![EntityDecl {
                     id: "extinguisher_1".to_string(),
                     kind: "tool".to_string(),

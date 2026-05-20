@@ -228,6 +228,49 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_app_scene_field_with_typed_scene_ref() {
+    let root = temp_root("app-scene-field-typed-scene-ref");
+    let app_root = root.join("typed-scene");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "typed-scene",
+    scene = scene_ref(scene_file = "home.mei"),
+)
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(profile = "simulation")
+
+world(
+    resources = [
+        resource(id = "welcome_doc", kind = "document", content = "hello"),
+    ],
+)
+
+frame(layout = flex(direction = "column"))
+
+frame.add_panel(
+    id = "status",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile typed scene_ref");
+    assert_eq!(compiled.active_target_file, "home.mei");
+    assert_eq!(compiled.active_scene.as_deref(), Some("home"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_supports_app_scene_field_with_scene_file_ref() {
     let root = temp_root("app-scene-field-scene-file-ref");
     let app_root = root.join("fire");
@@ -274,6 +317,108 @@ frame.add_panel(
     assert_eq!(contract.scene.id, "home");
     assert_eq!(contract.panels.len(), 1);
     assert_eq!(contract.world.expect("world").resources.len(), 1);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_typed_world_and_frame_refs() {
+    let root = temp_root("typed-world-frame-ref");
+    let app_root = root.join("typed-ref-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "typed-ref-app",
+)
+
+scene(
+    world = world_ref(scene_file = "shared-world.mei"),
+    frame = frame_ref(scene_file = "shared-frame.mei"),
+    profile = "page",
+)
+
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [
+        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("shared-world.mei"),
+        r#"
+world()
+
+world.add_resource(
+    resource(id = "welcome_doc", kind = "document", content = "hello from typed ref"),
+)
+"#,
+    );
+    write_file(
+        &app_root.join("shared-frame.mei"),
+        r#"
+frame()
+
+frame.set_layout(
+    flex(direction = "column"),
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile typed world/frame refs");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert!(contract.world.is_some());
+    assert!(contract.frame.is_some());
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "typed world/frame refs should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_app_add_scene_with_typed_scene_ref() {
+    let root = temp_root("app-add-scene-typed-ref");
+    let app_root = root.join("multi");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "multi",
+)
+
+app_add_scene(scene = scene_ref(scene_file = "home.mei", scene_id = "room"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(id = "room", profile = "page")
+
+world(resources = [resource(id = "doc", kind = "document", content = "hi")])
+
+frame(layout = flex(direction = "column"))
+
+frame.add_panel(id = "p1", area = "auto", blocks = [doc.markdown(area = "auto", resource = world_ref("doc"))])
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile app_add_scene scene_ref");
+    assert!(
+        compiled
+            .scene_routes
+            .iter()
+            .any(|route| route.scene_id == "room" && route.target_file == "home.mei"),
+        "scene_ref route should be registered"
+    );
 
     let _ = fs::remove_dir_all(&root);
 }

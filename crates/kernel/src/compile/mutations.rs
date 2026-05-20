@@ -94,9 +94,33 @@ pub(super) fn apply_world_mutations_to_decl(
     entities: &[EntityDecl],
     topology: Option<WorldGridDecl>,
 ) {
-    world_decl.resources.extend(resources.iter().cloned());
-    world_decl.entities.extend(entities.iter().cloned());
+    for resource in resources {
+        match resource.kind.as_str() {
+            "dataset" | "dataset_view" => upsert_resource(&mut world_decl.datasets, resource),
+            "metric_pack" => upsert_resource(&mut world_decl.metric_packs, resource),
+            _ => upsert_resource(&mut world_decl.resources, resource),
+        }
+    }
+    for entity in entities {
+        if let Some(existing) = world_decl
+            .entities
+            .iter_mut()
+            .find(|item| item.id == entity.id)
+        {
+            *existing = entity.clone();
+        } else {
+            world_decl.entities.push(entity.clone());
+        }
+    }
     if let Some(topology) = topology {
         world_decl.topology = Some(topology);
+    }
+}
+
+fn upsert_resource(target: &mut Vec<ResourceDecl>, resource: &ResourceDecl) {
+    if let Some(existing) = target.iter_mut().find(|item| item.id == resource.id) {
+        *existing = resource.clone();
+    } else {
+        target.push(resource.clone());
     }
 }

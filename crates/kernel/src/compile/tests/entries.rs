@@ -14,7 +14,7 @@ app(
     id = "declarative-preview",
     default_scene = "room_fire_click",
 )
-app_add_scene(scene_file_ref("home.mei", id = "room_fire_click"))
+app_add_scene(scene = scene_ref(scene_file = "home.mei", scene_id = "room_fire_click"))
 "#,
     );
     write_file(
@@ -182,7 +182,7 @@ app.add_scene(
 )
 
 app.add_scene(
-    scene_file_ref("default.mei", id = "home_default"),
+    scene = scene_ref(scene_file = "default.mei", scene_id = "home_default"),
 )
 
 scene.set_frame(
@@ -268,7 +268,7 @@ app.add_scene(
 )
 
 app.add_scene(
-    scene_file_ref("default.mei", id = "home_default"),
+    scene = scene_ref(scene_file = "default.mei", scene_id = "home_default"),
 )
 
 scene.set_frame(

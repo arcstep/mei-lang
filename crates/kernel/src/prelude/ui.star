@@ -319,7 +319,7 @@ def component_ref(use, pack = "cockpit-default", data = None, props = None, mapp
         "mapping": mapping,
     })
 
-def frame_ref(frame, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
+def frame_embed(frame, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
     ref_id = id if id != None else area
     # Block-only embed: must not _declare (would duplicate as top-level export).
     return {"component": _without_empty({
@@ -331,6 +331,18 @@ def frame_ref(frame, area, id = None, title = None, data = None, render = "place
         "render_policy": render,
         "data": data,
     })}
+
+def frame_ref(frame = None, scene_file = None, scene_id = None, id = None, area = None, title = None, data = None, render = "placeholder-or-embed"):
+    if area != None:
+        return frame_embed(frame, area, id = id, title = title, data = data, render = render)
+    if frame != None and scene_file == None and scene_id == None:
+        return frame_embed(frame, area if area != None else "auto", id = id, title = title, data = data, render = render)
+    return _clean({
+        "__ref": "frame",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })
 
 def metric_block(id, title, component, metrics):
     return _without_empty({

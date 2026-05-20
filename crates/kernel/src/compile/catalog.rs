@@ -12,6 +12,7 @@ use walkdir::WalkDir;
 use crate::model::{ComponentAsset, LoadedResource};
 
 use super::entry_payload::compile_scene_payload_for_target;
+use crate::typed_refs::SceneRegistry;
 
 static DATASET_CATALOG_COMPILE_CACHE: Mutex<BTreeMap<String, Vec<LoadedResource>>> =
     Mutex::new(BTreeMap::new());
@@ -311,6 +312,7 @@ pub(super) fn compile_dataset_catalog_resources(
                 asset_map,
                 rel.as_str(),
                 None,
+                &SceneRegistry::new(),
             );
             let mut dataset_resources = Vec::new();
             for resource in payload.resources {

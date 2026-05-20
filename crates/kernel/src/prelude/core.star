@@ -141,13 +141,15 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         access_export = access_export,
     )
 
-def world(id = None, topology = None, resources = None, entities = None):
+def world(id = None, topology = None, resources = None, entities = None, datasets = None, metric_packs = None):
     return _declare(_clean({
         "kind": "world",
         "id": id,
         "topology": topology,
         "resources": resources if resources != None else [],
         "entities": entities if entities != None else [],
+        "datasets": datasets if datasets != None else [],
+        "metric_packs": metric_packs if metric_packs != None else [],
     }))
 
 def world_add_resource(item):
@@ -296,14 +298,50 @@ def flow(id = None, start = None, interactions = None, timer = None, subject_tim
         "outcome": outcome,
     }))
 
-def world_ref(id):
-    return {
+def world_ref(id = None, scene_file = None, scene_id = None):
+    return _clean({
         "__ref": "world",
         "id": id,
-    }
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })
 
-def scene_ref(id):
-    return {
+def scene_ref(id = None, scene_file = None, scene_id = None):
+    return _clean({
         "__ref": "scene",
         "id": id,
-    }
+        "scene_id": scene_id if scene_id != None else id,
+        "scene_file": scene_file,
+    })
+
+def flow_ref(id = None, scene_file = None, scene_id = None):
+    return _clean({
+        "__ref": "flow",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })
+
+def frame_ref(scene_file = None, scene_id = None, id = None):
+    return _clean({
+        "__ref": "frame",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })
+
+def panel_ref(id, scene_file = None, scene_id = None):
+    return _clean({
+        "__ref": "panel",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })
+
+def resource_ref(id, scene_file = None, scene_id = None):
+    return _clean({
+        "__ref": "resource",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })

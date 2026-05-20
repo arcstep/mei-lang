@@ -156,10 +156,12 @@ def dataset(id = None, key = None, title = None, desc = None, purpose = None, so
         "__forbidden_world_only__": "dataset",
     })
 
-def dataset_ref(id, path = None):
+def dataset_ref(id, scene_file = None, scene_id = None, path = None):
     return _without_empty({
+        "__ref": "dataset",
         "id": id,
-        "path": path,
+        "scene_id": scene_id,
+        "scene_file": scene_file if scene_file != None else path,
     })
 
 def data_ref(path):

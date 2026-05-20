@@ -160,7 +160,8 @@ fn imported_world_ref_id(
     authorized_ids: &BTreeSet<String>,
     merged_ids: &BTreeSet<String>,
 ) -> Option<String> {
-    if map.get("__ref").and_then(Value::as_str) != Some("world") {
+    let ref_kind = map.get("__ref").and_then(Value::as_str)?;
+    if ref_kind != "world" && ref_kind != "dataset" && ref_kind != "resource" {
         return None;
     }
     let id = map
@@ -334,7 +335,8 @@ fn world_ref_issue(
     map: &serde_json::Map<String, Value>,
     resource_ids: &BTreeSet<String>,
 ) -> Option<String> {
-    if map.get("__ref").and_then(Value::as_str) != Some("world") {
+    let ref_kind = map.get("__ref").and_then(Value::as_str)?;
+    if ref_kind != "world" && ref_kind != "dataset" && ref_kind != "resource" {
         return None;
     }
     let id = map
