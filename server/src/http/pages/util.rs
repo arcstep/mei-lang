@@ -165,7 +165,7 @@ pub(crate) fn push_manage_page_pipeline_diag(
             {
                 "id": "dataset_query",
                 "label": "数据绑定 / 外部数据源动态查询",
-                "hint": "由预览 iframe 内 mei-dataset-table 上报；见下方 runtime_perf 与 #mei-runtime-dataset-perf-json"
+                "hint": "由预览区 mei-dataset-table / dataset.summary-cards 上报；见下方 runtime_perf（含 client_ttfb_ms、server_handler_total_ms、client_outside_server_ms）"
             }
         ],
         "request_timing": {

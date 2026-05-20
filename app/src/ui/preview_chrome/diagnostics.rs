@@ -283,15 +283,22 @@ pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-slate-500/35">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_perf"</strong>
                 <span class="text-xs leading-5 text-slate-300">
-                    "数据查询运行时耗时（最新 20 条）。"
+                    "数据查询运行时耗时（最新 20 条；SPA 换文件会清空，避免其它页慢记录误导）。"
                     <code class="text-slate-200">"mei-dataset-table"</code>
-                    " 对外部 csv/json/xlsx/db 源会调 /api/datasets/query；派生 "
-                    <code class="text-slate-200">"dataset_view"</code>
-                    " 无独立文件，只用编译期物化的 rows；编译阶段耗时见 "
-                    <code class="text-slate-200">"manage_page_pipeline"</code>
-                    " JSON 中 "
-                    <code class="text-slate-200">"compile_app"</code>
-                    " 阶段。"
+                    " / "
+                    <code class="text-slate-200">"dataset.summary-cards"</code>
+                    " 对外部源会调 /api/datasets/query 或 metrics。"
+                    <code class="text-slate-200">"client_ttfb_ms"</code>
+                    " / "
+                    <code class="text-slate-200">"client_json_ms"</code>
+                    " 拆分浏览器侧；"
+                    <code class="text-slate-200">"server_handler_total_ms"</code>
+                    " 为接口 handler 墙钟；"
+                    <code class="text-slate-200">"client_outside_server_ms"</code>
+                    " 为二者差（排队、主线程、并发 manage 编译等）。"
+                    " 行尾 "
+                    <code class="text-slate-200">"scene/file"</code>
+                    " 标明触发组件与当前预览目标。"
                 </span>
                 <div
                     id="runtime-perf-diagnostics"

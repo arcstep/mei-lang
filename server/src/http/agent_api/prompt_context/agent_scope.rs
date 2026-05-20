@@ -58,9 +58,11 @@ impl AgentScopeProfile {
 
     /// 供 UI 展示的短摘要（单行）。
     pub(crate) fn summary_line(&self) -> String {
-        let bind = match self.mode_policy.route_mode {
-            RouteMode::Manage => "scene(manage)",
-            RouteMode::Access => "scene(access)",
+        let bind = match (self.binding_kind, self.mode_policy.route_mode) {
+            (BindingKind::Scene, RouteMode::Manage) => "scene(manage)",
+            (BindingKind::Scene, RouteMode::Access) => "scene(access)",
+            (BindingKind::File, RouteMode::Manage) => "file(manage)",
+            (BindingKind::File, RouteMode::Access) => "file(access)",
         };
         let scene = self.world_scope.scene_id.as_deref().unwrap_or("-");
         let tgt = self.world_scope.target_file.as_deref().unwrap_or("-");

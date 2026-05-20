@@ -84,6 +84,7 @@ pub async fn dataset_query_api(
                     app_id = %app_id,
                     error = %failure.error,
                     cache_lookup_ms = failure.cache_lookup_ms,
+                    compile_cache_lock_wait_ms = failure.compile_cache_lock_wait_ms,
                     compile_ms = failure.compile_ms,
                     "dataset query compile failed"
                 );
@@ -137,6 +138,10 @@ pub async fn dataset_query_api(
     perf.insert(
         "compile_cache_lookup_ms".to_string(),
         compile_outcome.cache_lookup_ms,
+    );
+    perf.insert(
+        "compile_cache_lock_wait_ms".to_string(),
+        compile_outcome.compile_cache_lock_wait_ms,
     );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);

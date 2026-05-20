@@ -144,9 +144,17 @@ pub async fn app_page(
                 let CompileWithCacheFailure {
                     error,
                     cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
                     compile_ms,
                 } = failure;
-                tracing::warn!(app_id = %app_id, %error, "failed to compile app page");
+                tracing::warn!(
+                    app_id = %app_id,
+                    %error,
+                    cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
+                    compile_ms,
+                    "failed to compile app page"
+                );
                 let target = if route_mode == UiRouteMode::Manage {
                     manage_file
                         .clone()

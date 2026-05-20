@@ -548,6 +548,11 @@
       preserveFrameStage: preserveManageWorkspace,
       preserveSourceHighlight: preserveManageWorkspace,
     });
+    if (preserveManageWorkspace && typeof window.__meiClearRuntimePerfDiagnostics === "function") {
+      try {
+        window.__meiClearRuntimePerfDiagnostics("SPA 换文件");
+      } catch (_) {}
+    }
     document.title = doc.title || document.title;
     if (document.body.className !== doc.body.className) {
       document.body.className = doc.body.className;
