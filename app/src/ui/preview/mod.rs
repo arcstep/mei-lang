@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, LoadedResource, Severity};
+use mei_lang_kernel::{
+    build_runtime_resource_index, build_runtime_resource_map, CompiledApp, LoadedResource,
+    RuntimeResourceIndex, Severity,
+};
 
 mod nodes;
 mod resolve;
@@ -18,37 +21,24 @@ pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
         .is_some()
 }
 
-pub(super) fn build_resource_map(compiled: &CompiledApp) -> BTreeMap<String, LoadedResource> {
-    let mut resource_map = compiled
-        .resources
-        .iter()
-        .map(|resource| (resource.id.clone(), resource.clone()))
-        .collect::<BTreeMap<_, _>>();
-    // 允许 metric_ref(from_dataset="data/dataset/.../*.mei")：按 scene 路由 target_file 别名到 world 资源 id。
-    for route in &compiled.scene_routes {
-        let Some(resource) = compiled
-            .resources
-            .iter()
-            .find(|resource| resource.id == route.scene_id)
-            .cloned()
-        else {
-            continue;
-        };
-        let target = route.target_file.trim();
-        if target.is_empty() {
-            continue;
-        }
-        resource_map.insert(target.to_string(), resource.clone());
-        let normalized = target.trim_start_matches("./");
-        if normalized != target {
-            resource_map.insert(normalized.to_string(), resource);
-        }
+pub(super) struct PreviewRuntimeContext {
+    pub resources: BTreeMap<String, LoadedResource>,
+    pub index: RuntimeResourceIndex,
+}
+
+pub(super) fn build_preview_runtime_context(compiled: &CompiledApp) -> PreviewRuntimeContext {
+    PreviewRuntimeContext {
+        index: build_runtime_resource_index(compiled),
+        resources: build_runtime_resource_map(compiled),
     }
-    resource_map
+}
+
+pub(super) fn build_resource_map(compiled: &CompiledApp) -> BTreeMap<String, LoadedResource> {
+    build_preview_runtime_context(compiled).resources
 }
 
 pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
-    let resource_map = build_resource_map(compiled);
+    let runtime_ctx = build_preview_runtime_context(compiled);
 
     if let Some(scene_contract) = &compiled.scene_contract {
         let resolved_theme = theme::resolve_theme(scene_contract);
@@ -64,7 +54,7 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
                         compiled,
                         app_path,
                         scene_contract,
-                        &resource_map,
+                        &runtime_ctx,
                         &resolved_theme,
                     )
                 })
@@ -170,7 +160,8 @@ mod tests {
     use super::theme::{resolve_panel_props, ThemeResolved};
     use super::viewport::{frame_viewport_config, frame_viewport_style};
     use mei_lang_kernel::{
-        ColumnSchema, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
+        build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
+        CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
         SceneContract, SceneDecl, SourceDecl,
     };
     use serde_json::{json, Value};
@@ -457,13 +448,34 @@ mod tests {
             },
         );
 
+        let compiled = CompiledApp {
+            app_id: "preview-test".to_string(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            resources: resources.values().cloned().collect(),
+            scene_routes: Vec::new(),
+            app_root: ".".to_string(),
+            title: "preview-test".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let resource_index = build_runtime_resource_index(&compiled);
         let scene_anchor = super::resolve::RuntimeSceneAnchor {
             scene_id: "home".to_string(),
             scene_path: Some("scenes/home.mei".to_string()),
         };
 
         let data_ref = json!({"__ref":"data","id":"sales_metrics"});
-        let resolved_data = resolve_value(&data_ref, &scene_contract, &resources, &scene_anchor);
+        let resolved_data = resolve_value(
+            &data_ref,
+            &scene_contract,
+            &resources,
+            &scene_anchor,
+            &resource_index,
+            &compiled,
+        );
         assert_eq!(
             resolved_data.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")
@@ -478,8 +490,14 @@ mod tests {
 
         let metric_ref =
             json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
-        let resolved_metric =
-            resolve_value(&metric_ref, &scene_contract, &resources, &scene_anchor);
+        let resolved_metric = resolve_value(
+            &metric_ref,
+            &scene_contract,
+            &resources,
+            &scene_anchor,
+            &resource_index,
+            &compiled,
+        );
         assert_eq!(
             resolved_metric.get("id").and_then(|value| value.as_str()),
             Some("sales_total")
@@ -493,7 +511,14 @@ mod tests {
         );
 
         let world_ref = json!({"__ref": "world", "id": "sales_metrics"});
-        let resolved_world = resolve_value(&world_ref, &scene_contract, &resources, &scene_anchor);
+        let resolved_world = resolve_value(
+            &world_ref,
+            &scene_contract,
+            &resources,
+            &scene_anchor,
+            &resource_index,
+            &compiled,
+        );
         assert_eq!(
             resolved_world.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")
@@ -512,6 +537,126 @@ mod tests {
                 .and_then(|value| value.get("dataset_id"))
                 .and_then(|value| value.as_str()),
             Some("sales_metrics")
+        );
+    }
+
+    #[test]
+    fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
+        use mei_lang_kernel::{CompiledSceneRoute, MetricContract, MetricShape, SceneDecl};
+
+        let scene_contract = SceneContract {
+            scene: SceneDecl {
+                kind: "scene".to_string(),
+                id: "home".to_string(),
+                world: None,
+                flow: None,
+                frame: None,
+                profile: None,
+                theme: None,
+                summary: None,
+                goal: None,
+                state: json!({}),
+                access_export: true,
+            },
+            themes: vec![],
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![],
+        };
+        let mut resources = BTreeMap::new();
+        resources.insert(
+            "home".to_string(),
+            LoadedResource {
+                id: "home".to_string(),
+                kind: "dataset".to_string(),
+                title: None,
+                document: None,
+                dataset: Some(DatasetView {
+                    id: "home".to_string(),
+                    title: None,
+                    purpose: None,
+                    schema: Vec::new(),
+                    stage_schema: Vec::new(),
+                    columns: vec!["value".to_string()],
+                    rows: vec![json!({"value": 1})],
+                    source: SourceDecl {
+                        kind: "derived".to_string(),
+                        path: "dataset_view:home".to_string(),
+                        sheet: None,
+                        header_row: None,
+                        preview_rows: None,
+                        page_size: None,
+                        max_page_size: None,
+                        table: None,
+                        query: None,
+                        connection: None,
+                        content: None,
+                    },
+                    sources: Vec::new(),
+                    metrics: BTreeMap::from([(
+                        "sales_total".to_string(),
+                        MetricContract {
+                            id: "sales_total".to_string(),
+                            label: None,
+                            unit: None,
+                            purpose: None,
+                            shape: MetricShape::Scalar,
+                            schema: Vec::new(),
+                            dataset: None,
+                            transforms: Vec::new(),
+                            value: json!({"value": 1}),
+                        },
+                    )]),
+                    runtime_metric_defs: Default::default(),
+                }),
+            },
+        );
+        let compiled = CompiledApp {
+            app_id: "preview-alias".to_string(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            resources: resources.values().cloned().collect(),
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: None,
+                is_default: true,
+                access_export: true,
+            }],
+            app_root: ".".to_string(),
+            title: "preview-alias".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let resource_index = build_runtime_resource_index(&compiled);
+        let scene_anchor = super::resolve::RuntimeSceneAnchor {
+            scene_id: "home".to_string(),
+            scene_path: Some("scenes/home.mei".to_string()),
+        };
+        let metric_ref = json!({
+            "__ref": "metric",
+            "id": "sales_total",
+            "from_dataset": "scenes/home.mei"
+        });
+        let resolved = resolve_value(
+            &metric_ref,
+            &scene_contract,
+            &build_runtime_resource_map(&compiled),
+            &scene_anchor,
+            &resource_index,
+            &compiled,
+        );
+        assert_eq!(
+            resolved
+                .get("__mei_runtime_ref")
+                .and_then(|value| value.get("dataset_id"))
+                .and_then(|value| value.as_str()),
+            Some("home")
         );
     }
 }

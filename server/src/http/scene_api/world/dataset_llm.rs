@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::DatasetView;
+use mei_lang_kernel::{locate_dataset_resource, DatasetView};
 use serde_json::{json, Value};
 
 use crate::http::datasets::{query_dataset_rows, DatasetQueryOptions};
@@ -154,12 +154,8 @@ pub(crate) fn query_world_dataset(
     if dataset_id.is_empty() {
         return Err(anyhow!("query parameter `id` is required"));
     }
-    let loaded = bundle
-        .compiled
-        .resources
-        .iter()
-        .find(|item| item.id == dataset_id)
-        .ok_or_else(|| anyhow!("dataset resource `{dataset_id}` not found"))?;
+    let loaded = locate_dataset_resource(&bundle.compiled, dataset_id)
+        .map_err(|error| anyhow!("{error}"))?;
     let dataset = loaded
         .dataset
         .as_ref()
@@ -267,12 +263,8 @@ pub(crate) fn query_world_dataset_metrics(
     if dataset_id.is_empty() {
         return Err(anyhow!("query parameter `id` is required"));
     }
-    let loaded = bundle
-        .compiled
-        .resources
-        .iter()
-        .find(|item| item.id == dataset_id)
-        .ok_or_else(|| anyhow!("dataset resource `{dataset_id}` not found"))?;
+    let loaded = locate_dataset_resource(&bundle.compiled, dataset_id)
+        .map_err(|error| anyhow!("{error}"))?;
     let dataset = loaded
         .dataset
         .as_ref()

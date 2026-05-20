@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use mei_lang_kernel::{PanelDecl, UiNodeDecl};
+use mei_lang_kernel::{decode_ref_value, PanelDecl, RefKind, UiNodeDecl};
 use serde_json::Value;
 
 use crate::http::scene_api::types::{
@@ -9,26 +9,53 @@ use crate::http::scene_api::types::{
 };
 use super::util::normalize_path;
 
-fn file_ref_from_scene_binding(value: Option<&Value>, expected_kind: &str) -> Option<String> {
+/// 外部 capsule 绑定路径与对外 resource_type（typed 主路径，legacy 仅 compat）。
+fn external_slot_binding(value: Option<&Value>, slot: RefKind) -> Option<(String, &'static str)> {
     let value = value?;
-    let map = value.as_object()?;
-    let kind = map
-        .get("kind")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
-    if kind != expected_kind {
-        return None;
+    if let Some(map) = value.as_object() {
+        let legacy_kind = match slot {
+            RefKind::World => Some("world_file_ref"),
+            RefKind::Frame => Some("frame_file_ref"),
+            RefKind::Scene => Some("scene_file_ref"),
+            _ => None,
+        };
+        if let Some(expected) = legacy_kind {
+            let kind = map
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default();
+            if kind == expected {
+                let path = map
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .unwrap_or_default();
+                if !path.is_empty() {
+                    return Some((normalize_path(path), expected));
+                }
+            }
+        }
     }
-    let path = map
-        .get("path")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
-    if path.is_empty() {
-        return None;
+    if let Some(expr) = decode_ref_value(value) {
+        if expr.kind == slot {
+            let path = expr
+                .locator
+                .scene_file
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .map(normalize_path)?;
+            let resource_type = match slot {
+                RefKind::World => "world_ref",
+                RefKind::Frame => "frame_ref",
+                RefKind::Scene => "scene_ref",
+                _ => return None,
+            };
+            return Some((path, resource_type));
+        }
     }
-    Some(normalize_path(path))
+    None
 }
 
 pub(crate) fn related_to_target(source_path: Option<&str>, target_file: Option<&str>) -> bool {
@@ -95,7 +122,20 @@ pub(crate) fn extract_ref_tokens_from_source(source: &str) -> Vec<String> {
                 refs.push(token.trim_end_matches('(').to_string());
             }
         }
-        for token in ["scene_file_ref(", "world_file_ref(", "frame_file_ref("] {
+        for token in [
+            "scene_ref(",
+            "world_ref(",
+            "flow_ref(",
+            "frame_ref(",
+            "frame_embed(",
+            "panel_ref(",
+            "dataset_ref(",
+            "metric_ref(",
+            "resource_ref(",
+            "scene_file_ref(",
+            "world_file_ref(",
+            "frame_file_ref(",
+        ] {
             if trimmed.contains(token) {
                 refs.push(token.trim_end_matches('(').to_string());
             }
@@ -160,10 +200,12 @@ pub(super) fn build_resource_inventory(
         .map(normalize_path)
         .or_else(|| Some(bundle.active_target_file.clone()));
     let target_ref = target_file.as_deref();
-    let scene_world_file_ref =
-        file_ref_from_scene_binding(bundle.contract.scene.world.as_ref(), "world_file_ref");
-    let scene_frame_file_ref =
-        file_ref_from_scene_binding(bundle.contract.scene.frame.as_ref(), "frame_file_ref");
+    let scene_world_binding =
+        external_slot_binding(bundle.contract.scene.world.as_ref(), RefKind::World);
+    let scene_frame_binding =
+        external_slot_binding(bundle.contract.scene.frame.as_ref(), RefKind::Frame);
+    let scene_world_path = scene_world_binding.as_ref().map(|(path, _)| path.clone());
+    let scene_frame_path = scene_frame_binding.as_ref().map(|(path, _)| path.clone());
     let mut items = Vec::new();
 
     push_inventory_item(
@@ -176,25 +218,25 @@ pub(super) fn build_resource_inventory(
         Vec::new(),
         target_ref,
     );
-    if let Some(path) = scene_world_file_ref.clone() {
+    if let Some((path, resource_type)) = scene_world_binding.clone() {
         push_inventory_item(
             &mut items,
-            format!("world_file_ref:{path}"),
-            "world_file_ref",
+            format!("{resource_type}:{path}"),
+            resource_type,
             Some(path.clone()),
-            Some("scene 绑定的外部 world 文件".to_string()),
+            Some("scene 绑定的外部 world capsule".to_string()),
             Some(path),
             Vec::new(),
             target_ref,
         );
     }
-    if let Some(path) = scene_frame_file_ref.clone() {
+    if let Some((path, resource_type)) = scene_frame_binding.clone() {
         push_inventory_item(
             &mut items,
-            format!("frame_file_ref:{path}"),
-            "frame_file_ref",
+            format!("{resource_type}:{path}"),
+            resource_type,
             Some(path.clone()),
-            Some("scene 绑定的外部 frame 文件".to_string()),
+            Some("scene 绑定的外部 frame capsule".to_string()),
             Some(path),
             Vec::new(),
             target_ref,
@@ -217,7 +259,7 @@ pub(super) fn build_resource_inventory(
                     .map(|item| item.cells.len())
                     .unwrap_or(0)
             )),
-            scene_world_file_ref
+            scene_world_path
                 .clone()
                 .or_else(|| Some(bundle.active_target_file.clone())),
             Vec::new(),
@@ -239,7 +281,7 @@ pub(super) fn build_resource_inventory(
                 item.source
                     .as_ref()
                     .map(|source| normalize_path(&source.path))
-                    .or_else(|| scene_world_file_ref.clone())
+                    .or_else(|| scene_world_path.clone())
                     .or_else(|| Some(bundle.active_target_file.clone())),
                 references,
                 target_ref,
@@ -256,7 +298,7 @@ pub(super) fn build_resource_inventory(
                     item.kind,
                     item.status.as_deref().unwrap_or("unknown")
                 )),
-                scene_world_file_ref
+                scene_world_path
                     .clone()
                     .or_else(|| Some(bundle.active_target_file.clone())),
                 item.spawns.clone(),
@@ -276,7 +318,7 @@ pub(super) fn build_resource_inventory(
                         cell.row,
                         cell.col
                     )),
-                    scene_world_file_ref
+                    scene_world_path
                         .clone()
                         .or_else(|| Some(bundle.active_target_file.clone())),
                     cell.tags.clone(),
@@ -293,7 +335,7 @@ pub(super) fn build_resource_inventory(
             "frame",
             frame.title.clone(),
             Some("scene 主 frame".to_string()),
-            scene_frame_file_ref
+            scene_frame_path
                 .clone()
                 .or_else(|| Some(bundle.active_target_file.clone())),
             Vec::new(),
@@ -323,7 +365,7 @@ pub(super) fn build_resource_inventory(
             "panel",
             panel.title.clone(),
             Some(format!("blocks={}", panel.blocks.len())),
-            scene_frame_file_ref
+            scene_frame_path
                 .clone()
                 .or_else(|| Some(bundle.active_target_file.clone())),
             collect_panel_references(panel),
@@ -399,5 +441,34 @@ pub(super) fn build_resource_inventory(
         target_file,
         total_items: items.len(),
         items,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::external_slot_binding;
+    use mei_lang_kernel::RefKind;
+    use serde_json::json;
+
+    #[test]
+    fn external_slot_binding_prefers_typed_world_ref() {
+        let value = json!({
+            "__ref": "world",
+            "scene_file": "worlds/demo-world.mei"
+        });
+        let binding = external_slot_binding(Some(&value), RefKind::World).expect("binding");
+        assert_eq!(binding.0, "worlds/demo-world.mei");
+        assert_eq!(binding.1, "world_ref");
+    }
+
+    #[test]
+    fn external_slot_binding_supports_legacy_world_file_ref() {
+        let value = json!({
+            "kind": "world_file_ref",
+            "path": "worlds/legacy-world.mei"
+        });
+        let binding = external_slot_binding(Some(&value), RefKind::World).expect("binding");
+        assert_eq!(binding.0, "worlds/legacy-world.mei");
+        assert_eq!(binding.1, "world_file_ref");
     }
 }

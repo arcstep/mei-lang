@@ -28,16 +28,25 @@ mod tests {
     use super::util::app_relative_mei_for_preview;
 
     #[test]
-    fn extract_ref_tokens_collects_common_refs() {
+    fn extract_ref_tokens_collects_typed_refs() {
+        let source = r#"
+scene(id = "s1", world = world_ref(scene_file = "worlds/s1-world.mei"))
+frame.add_panel(id = "p1", blocks = [component("x", props = metric_ref("sales_growth"))])
+panel_ref("overview")
+"#;
+        let refs = extract_ref_tokens_from_source(source);
+        assert!(refs.contains(&"world_ref".to_string()));
+        assert!(refs.contains(&"panel_ref".to_string()));
+        assert!(refs.contains(&"metric_ref".to_string()));
+    }
+
+    #[test]
+    fn extract_ref_tokens_collects_legacy_file_ref_compat() {
         let source = r#"
 scene(kind="scene", id="s1", world=world_file_ref(path="worlds/s1-world.mei"))
-panel_ref("overview")
-metric_ref("sales_growth")
 "#;
         let refs = extract_ref_tokens_from_source(source);
         assert!(refs.contains(&"world_file_ref".to_string()));
-        assert!(refs.contains(&"panel_ref".to_string()));
-        assert!(refs.contains(&"metric_ref".to_string()));
     }
 
     #[test]

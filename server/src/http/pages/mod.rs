@@ -78,7 +78,7 @@ app(
     default_scene = "home",
 )
 
-app_add_scene(scene_file_ref("details.mei", id = "details"))
+app_add_scene(scene = scene_ref(scene_file = "details.mei", scene_id = "details"))
 
 scene(
     id = "home",

@@ -1,10 +1,11 @@
-use std::collections::BTreeMap;
-
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, LoadedResource, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{BlockDecl, CompiledApp, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
-use super::resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor};
+use super::{
+    resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor},
+    PreviewRuntimeContext,
+};
 use super::style::{
     block_style, panel_body_style, panel_heading_config, panel_show_heading, panel_style,
 };
@@ -16,7 +17,7 @@ pub(super) fn panel_view(
     compiled: &CompiledApp,
     app_path: &str,
     scene_contract: &SceneContract,
-    resources: &BTreeMap<String, LoadedResource>,
+    runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
 ) -> AnyView {
     let panel_props = resolve_panel_props(theme, &panel.props);
@@ -30,7 +31,7 @@ pub(super) fn panel_view(
                 compiled,
                 app_path,
                 scene_contract,
-                resources,
+                runtime_ctx,
                 theme,
             )
         })
@@ -98,7 +99,7 @@ fn node_view(
     compiled: &CompiledApp,
     app_path: &str,
     scene_contract: &SceneContract,
-    resources: &BTreeMap<String, LoadedResource>,
+    runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
 ) -> AnyView {
     match node {
@@ -108,7 +109,7 @@ fn node_view(
             compiled,
             app_path,
             scene_contract,
-            resources,
+            runtime_ctx,
             theme,
         ),
         UiNodeDecl::Block(block) => block_view(
@@ -117,7 +118,7 @@ fn node_view(
             compiled,
             app_path,
             scene_contract,
-            resources,
+            runtime_ctx,
             theme,
         ),
         UiNodeDecl::FrameRef(frame_ref) => {
@@ -148,7 +149,7 @@ fn block_view(
     compiled: &CompiledApp,
     app_path: &str,
     scene_contract: &SceneContract,
-    resources: &BTreeMap<String, LoadedResource>,
+    runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
 ) -> AnyView {
     let scene_anchor = RuntimeSceneAnchor::from_compiled(compiled);
@@ -156,8 +157,10 @@ fn block_view(
         resolve_value(
             &block.props,
             scene_contract,
-            resources,
+            &runtime_ctx.resources,
             &scene_anchor,
+            &runtime_ctx.index,
+            compiled,
         ),
         compiled,
         app_path,
@@ -178,15 +181,6 @@ fn block_view(
     .into_any()
 }
 fn component_html(tag: &str, props: &Value) -> String {
-    let props =
-        escape_html_attr(&serde_json::to_string(props).unwrap_or_else(|_| "{}".to_string()));
-    format!("<{tag} data-props=\"{props}\"></{tag}>")
-}
-
-fn escape_html_attr(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    let props_json = props.to_string();
+    format!("<{tag} data-props='{props_json}'></{tag}>")
 }

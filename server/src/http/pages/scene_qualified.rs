@@ -1,7 +1,10 @@
 //! Scene-qualified compile options and dataset/metric lookup for runtime APIs.
 
 use axum::http::StatusCode;
-use mei_lang_kernel::{CompileOptions, CompiledApp, LoadedResource};
+use mei_lang_kernel::{
+    locate_dataset_resource as kernel_locate_dataset_resource, CompileOptions,
+    CompiledApp, LoadedResource, RuntimeResourceResolveError,
+};
 
 use crate::AppError;
 
@@ -76,46 +79,35 @@ pub fn resolved_scene_context(compiled: &CompiledApp) -> ResolvedSceneContext {
     }
 }
 
+fn map_resolve_error(error: RuntimeResourceResolveError) -> AppError {
+    match error {
+        RuntimeResourceResolveError::EmptySelector => {
+            AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+        }
+        RuntimeResourceResolveError::ForbiddenLegacyId => {
+            AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+        }
+        RuntimeResourceResolveError::NotFound { .. } => {
+            AppError::status(StatusCode::NOT_FOUND, error.to_string())
+        }
+        RuntimeResourceResolveError::Ambiguous { .. } => {
+            AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+        }
+        RuntimeResourceResolveError::NotDataset { .. } => {
+            AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+        }
+    }
+}
+
 /// Locate a dataset resource within the compiled active scene resource table.
 pub fn locate_dataset_resource<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
     expected_scene_id: Option<&str>,
 ) -> Result<&'a LoadedResource, AppError> {
-    let normalized = dataset_id.trim();
-    if normalized.is_empty() {
-        return Err(AppError::status(
-            StatusCode::BAD_REQUEST,
-            "dataset_id is required",
-        ));
-    }
-    if normalized == "__source_path__" || normalized.ends_with(".mei") {
-        return Err(AppError::status(
-            StatusCode::BAD_REQUEST,
-            "dataset_id must be an explicit stable world resource id",
-        ));
-    }
+    let resource = kernel_locate_dataset_resource(compiled, dataset_id)
+        .map_err(map_resolve_error)?;
 
-    let matches: Vec<_> = compiled
-        .resources
-        .iter()
-        .filter(|resource| resource.id == normalized)
-        .collect();
-
-    if matches.is_empty() {
-        return Err(AppError::status(
-            StatusCode::NOT_FOUND,
-            format!("dataset `{normalized}` not found in active scene resources"),
-        ));
-    }
-    if matches.len() > 1 {
-        return Err(AppError::status(
-            StatusCode::BAD_REQUEST,
-            format!("dataset `{normalized}` is ambiguous across scenes"),
-        ));
-    }
-
-    let resource = matches[0];
     if let Some(expected) = expected_scene_id.map(str::trim).filter(|s| !s.is_empty()) {
         let active = compiled
             .active_scene
@@ -127,11 +119,97 @@ pub fn locate_dataset_resource<'a>(
             return Err(AppError::status(
                 StatusCode::BAD_REQUEST,
                 format!(
-                    "dataset `{normalized}` is not available in scene `{expected}` (active scene is `{active}`)"
+                    "dataset `{}` is not available in scene `{expected}` (active scene is `{active}`)",
+                    resource.id
                 ),
             ));
         }
     }
 
     Ok(resource)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::locate_dataset_resource;
+    use mei_lang_kernel::{
+        CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl,
+    };
+    use serde_json::json;
+
+    fn sample_dataset_resource(id: &str) -> LoadedResource {
+        LoadedResource {
+            id: id.to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: id.to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: vec!["a".to_string()],
+                rows: vec![json!({"a": 1})],
+                source: SourceDecl {
+                    kind: "csv".to_string(),
+                    path: format!("data/{id}.csv"),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: Default::default(),
+                runtime_metric_defs: Default::default(),
+            }),
+        }
+    }
+
+    fn sample_compiled() -> CompiledApp {
+        CompiledApp {
+            app_id: "demo".to_string(),
+            active_scene: Some("home".to_string()),
+            active_target_file: "scenes/home.mei".to_string(),
+            resources: vec![
+                sample_dataset_resource("warning_list"),
+                sample_dataset_resource("home"),
+            ],
+            scene_routes: vec![CompiledSceneRoute {
+                scene_id: "home".to_string(),
+                frame_id: None,
+                target_file: "scenes/home.mei".to_string(),
+                kind: "file_ref".to_string(),
+                title: None,
+                is_default: true,
+                access_export: true,
+            }],
+            app_root: ".".to_string(),
+            title: "demo".to_string(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn locate_dataset_accepts_route_target_alias() {
+        let compiled = sample_compiled();
+        let resource =
+            locate_dataset_resource(&compiled, "scenes/home.mei", Some("home")).expect("alias");
+        assert_eq!(resource.id, "home");
+    }
+
+    #[test]
+    fn locate_dataset_accepts_canonical_resource_id() {
+        let compiled = sample_compiled();
+        let resource = locate_dataset_resource(&compiled, "warning_list", None).expect("id");
+        assert_eq!(resource.id, "warning_list");
+    }
 }

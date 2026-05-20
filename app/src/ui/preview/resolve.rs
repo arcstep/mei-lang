@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use mei_lang_kernel::{CompiledApp, LoadedResource, SceneContract};
+use mei_lang_kernel::{
+    build_runtime_resource_index, resolve_dataset_resource_id, resolve_dataset_selector_value,
+    CompiledApp, LoadedResource, RuntimeResourceIndex, SceneContract,
+};
 use serde_json::{json, Value};
 
 /// Scene anchor injected into `__mei_runtime_ref` for scene-qualified runtime APIs.
@@ -88,19 +91,23 @@ pub(super) fn resolve_value(
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
     scene_anchor: &RuntimeSceneAnchor,
+    resource_index: &RuntimeResourceIndex,
+    compiled: &CompiledApp,
 ) -> Value {
     match value {
         Value::Object(map) => {
-            if map.get("__ref").and_then(Value::as_str) == Some("world") {
-                if let Some(id) = map.get("id").and_then(Value::as_str) {
-                    if is_forbidden_legacy_resource_id(id) {
-                        return Value::Null;
-                    }
-                    if let Some(resource) = resources.get(id) {
+            if matches!(
+                map.get("__ref").and_then(Value::as_str),
+                Some("world") | Some("dataset") | Some("resource")
+            ) {
+                if let Some(canonical_id) =
+                    resolve_dataset_selector_value(compiled, value, resource_index)
+                {
+                    if let Some(resource) = resources.get(&canonical_id) {
                         if let Some(dataset) = resource.dataset.as_ref() {
                             return with_runtime_ref(
                                 serde_json::to_value(dataset).unwrap_or(Value::Null),
-                                scene_anchor.runtime_ref_extra("data", id, None),
+                                scene_anchor.runtime_ref_extra("data", &canonical_id, None),
                             );
                         }
                         return serde_json::to_value(resource).unwrap_or(Value::Null);
@@ -111,7 +118,9 @@ pub(super) fn resolve_value(
                 return serde_json::to_value(scene_contract).unwrap_or(Value::Null);
             }
             if map.get("__ref").and_then(Value::as_str) == Some("data") {
-                if let Some((dataset, dataset_id)) = resolve_data_ref(map, resources) {
+                if let Some((dataset, dataset_id)) =
+                    resolve_data_ref(map, resources, compiled, resource_index)
+                {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra("data", &dataset_id, None),
@@ -120,7 +129,9 @@ pub(super) fn resolve_value(
                 return Value::Null;
             }
             if map.get("__ref").and_then(Value::as_str) == Some("metric") {
-                if let Some((metric, dataset_id)) = resolve_metric_ref(map, resources) {
+                if let Some((metric, dataset_id)) =
+                    resolve_metric_ref(map, resources, compiled, resource_index)
+                {
                     let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
@@ -142,7 +153,9 @@ pub(super) fn resolve_value(
                 {
                     compat.insert("from_dataset".to_string(), from);
                 }
-                if let Some((metric, dataset_id)) = resolve_metric_ref(&compat, resources) {
+                if let Some((metric, dataset_id)) =
+                    resolve_metric_ref(&compat, resources, compiled, resource_index)
+                {
                     let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
@@ -153,7 +166,9 @@ pub(super) fn resolve_value(
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
                 && map.get("type").and_then(Value::as_str) == Some("rows")
             {
-                if let Some((dataset, dataset_id)) = resolve_rows_expr(map, resources) {
+                if let Some((dataset, dataset_id)) =
+                    resolve_rows_expr(map, resources, compiled, resource_index)
+                {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra("data", &dataset_id, None),
@@ -165,7 +180,14 @@ pub(super) fn resolve_value(
             for (key, entry) in map {
                 out.insert(
                     key.clone(),
-                    resolve_value(entry, scene_contract, resources, scene_anchor),
+                    resolve_value(
+                        entry,
+                        scene_contract,
+                        resources,
+                        scene_anchor,
+                        resource_index,
+                        compiled,
+                    ),
                 );
             }
             Value::Object(out)
@@ -173,7 +195,16 @@ pub(super) fn resolve_value(
         Value::Array(items) => Value::Array(
             items
                 .iter()
-                .map(|item| resolve_value(item, scene_contract, resources, scene_anchor))
+                .map(|item| {
+                    resolve_value(
+                        item,
+                        scene_contract,
+                        resources,
+                        scene_anchor,
+                        resource_index,
+                        compiled,
+                    )
+                })
                 .collect(),
         ),
         _ => value.clone(),
@@ -183,40 +214,37 @@ pub(super) fn resolve_value(
 fn resolve_data_ref(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
+    compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
 ) -> Option<(mei_lang_kernel::DatasetView, String)> {
     let id = map.get("id").and_then(Value::as_str)?;
-    if is_forbidden_legacy_resource_id(id) {
-        return None;
-    }
     let from_dataset = map.get("from_dataset").and_then(Value::as_str);
-    let dataset_id = from_dataset.unwrap_or(id);
-    if is_forbidden_legacy_resource_id(dataset_id) && !resources.contains_key(dataset_id) {
-        return None;
-    }
+    let selector = from_dataset.unwrap_or(id);
+    let dataset_id = resolve_dataset_resource_id(compiled, selector, Some(resource_index)).ok()?;
     Some((
-        resources.get(dataset_id)?.dataset.clone()?,
-        dataset_id.to_string(),
+        resources.get(&dataset_id)?.dataset.clone()?,
+        dataset_id,
     ))
 }
 
 fn resolve_metric_ref(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
+    compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
 ) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
-    if let Some(dataset_id) = map.get("from_dataset").and_then(Value::as_str) {
-        if is_forbidden_legacy_resource_id(dataset_id) && !resources.contains_key(dataset_id) {
-            return None;
-        }
-        let resource = resources.get(dataset_id)?;
+    if let Some(from_dataset) = map.get("from_dataset").and_then(Value::as_str) {
+        let dataset_id =
+            resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;
+        let resource = resources.get(&dataset_id)?;
         let metric = resource
             .dataset
             .as_ref()?
             .metrics
             .get(metric_id)
             .cloned()?;
-        let runtime_dataset_id = resource.id.clone();
-        return Some((metric, runtime_dataset_id));
+        return Some((metric, dataset_id));
     }
     resources
         .iter()
@@ -233,15 +261,15 @@ fn resolve_metric_ref(
 fn resolve_rows_expr(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
+    compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
 ) -> Option<(mei_lang_kernel::DatasetView, String)> {
     let dataset = map
         .get("dataset")
         .and_then(Value::as_str)
         .map(|value| value.strip_prefix("dataset.").unwrap_or(value).to_string())?;
-    if is_forbidden_legacy_resource_id(dataset.as_str()) {
-        return None;
-    }
-    Some((resources.get(&dataset)?.dataset.clone()?, dataset))
+    let dataset_id = resolve_dataset_resource_id(compiled, &dataset, Some(resource_index)).ok()?;
+    Some((resources.get(&dataset_id)?.dataset.clone()?, dataset_id))
 }
 
 fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
@@ -249,8 +277,4 @@ fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
         map.insert("__mei_runtime_ref".to_string(), runtime_ref);
     }
     value
-}
-
-fn is_forbidden_legacy_resource_id(id: &str) -> bool {
-    id.trim() == "__source_path__" || id.trim().ends_with(".mei")
 }

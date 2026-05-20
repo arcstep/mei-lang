@@ -5,7 +5,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{evaluate_runtime_metric_defs, CompiledApp, MetricShape};
+use mei_lang_kernel::{
+    evaluate_runtime_metric_defs, locate_dataset_resource, CompiledApp, MetricShape,
+};
 use serde_json::Value;
 
 use super::paginate::paginate_rows;
@@ -23,11 +25,8 @@ pub fn query_metric_dataframe(
     metric_id: &str,
     options: DatasetQueryOptions,
 ) -> Result<DatasetQueryResult> {
-    let resource = compiled
-        .resources
-        .iter()
-        .find(|resource| resource.id == dataset_id)
-        .ok_or_else(|| anyhow!("dataset `{dataset_id}` not found"))?;
+    let resource = locate_dataset_resource(compiled, dataset_id)
+        .map_err(|error| anyhow!("{error}"))?;
     let dataset = resource
         .dataset
         .as_ref()
