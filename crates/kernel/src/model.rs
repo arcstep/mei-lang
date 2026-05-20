@@ -122,11 +122,110 @@ pub struct BlockDecl {
     pub props: Value,
 }
 
+/// `frame_ref(...)` block inside `frame.add_panel(...).blocks` (embed external scene capsule).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+pub struct FrameRefBlockDecl {
+    #[serde(default)]
+    pub id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub area: Option<String>,
+    pub frame_ref: String,
+    #[serde(default)]
+    pub render_policy: Option<String>,
+    #[serde(default)]
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
 pub enum UiNodeDecl {
     Panel(PanelDecl),
     Block(BlockDecl),
+    FrameRef(FrameRefBlockDecl),
+}
+
+impl Serialize for UiNodeDecl {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            UiNodeDecl::Panel(panel) => panel.serialize(serializer),
+            UiNodeDecl::Block(block) => block.serialize(serializer),
+            UiNodeDecl::FrameRef(frame_ref) => {
+                let component = serde_json::json!({
+                    "id": frame_ref.id,
+                    "title": frame_ref.title,
+                    "area": frame_ref.area,
+                    "block_kind": "frame_ref",
+                    "frame_ref": frame_ref.frame_ref,
+                    "render_policy": frame_ref.render_policy,
+                    "data": frame_ref.data,
+                });
+                serde_json::json!({ "component": component }).serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for UiNodeDecl {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        deserialize_ui_node_value(value).map_err(serde::de::Error::custom)
+    }
+}
+
+pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
+    if value.get("kind").and_then(Value::as_str) == Some("panel") {
+        return serde_json::from_value::<PanelDecl>(value)
+            .map(UiNodeDecl::Panel)
+            .map_err(|error| error.to_string());
+    }
+    if value.get("use_key").is_some() || value.get("kind").and_then(Value::as_str) == Some("block") {
+        return serde_json::from_value::<BlockDecl>(value)
+            .map(UiNodeDecl::Block)
+            .map_err(|error| error.to_string());
+    }
+    if let Some(component) = value.get("component") {
+        if component.get("block_kind").and_then(Value::as_str) == Some("frame_ref") {
+            let frame_ref = component
+                .get("frame_ref")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|path| !path.is_empty())
+                .ok_or_else(|| "frame_ref block missing component.frame_ref path".to_string())?;
+            return Ok(UiNodeDecl::FrameRef(FrameRefBlockDecl {
+                id: component
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                title: component
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                area: component
+                    .get("area")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                frame_ref: frame_ref.to_string(),
+                render_policy: component
+                    .get("render_policy")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                data: component.get("data").cloned(),
+            }));
+        }
+    }
+    if value.get("frame_ref").is_some() {
+        return serde_json::from_value::<FrameRefBlockDecl>(value)
+            .map(UiNodeDecl::FrameRef)
+            .map_err(|error| error.to_string());
+    }
+    Err("data did not match any variant of untagged enum UiNodeDecl".to_string())
 }
 
 fn default_block_kind() -> String {

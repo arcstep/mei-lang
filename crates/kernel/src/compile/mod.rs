@@ -87,10 +87,11 @@ fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
         .filter(|target| !target.is_empty() && *target != "main.mei")
 }
 
-/// Manage 态打开 `data/dataset/**` 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
+/// Manage 态打开 dataset 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
 fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
-    manage_preview_target(options)
-        .is_some_and(|preview| preview.starts_with("data/"))
+    manage_preview_target(options).is_some_and(|preview| {
+        preview.starts_with("data/") || preview.contains("/datasets/")
+    })
 }
 
 /// Manage 态按 `?file=scenes/...` 预览 widget/layout 等：只编译该入口 scene，不编译 home 与其它路由。

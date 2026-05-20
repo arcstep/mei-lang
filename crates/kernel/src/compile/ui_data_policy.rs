@@ -92,6 +92,7 @@ fn scan_ui_node_imported_refs(
                 diagnostics,
             );
         }
+        UiNodeDecl::FrameRef(_) => {}
     }
 }
 
@@ -238,6 +239,7 @@ fn scan_ui_node(
                 diagnostics,
             );
         }
+        UiNodeDecl::FrameRef(_) => {}
     }
 }
 

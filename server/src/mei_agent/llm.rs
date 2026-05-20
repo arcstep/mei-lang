@@ -287,7 +287,7 @@ pub(crate) fn read_file_tool_definition() -> Value {
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "Relative to workspace root (no ..). App sources are usually under <app_id>/..., e.g. spbjw/data/dataset/foo.mei." }
+                    "path": { "type": "string", "description": "Relative to workspace root (no ..). App sources are usually under <app_id>/..., e.g. spbjw/scenes/行政检查/datasets/foo.mei or spbjw/upload/...." }
                 },
                 "required": ["path"]
             }
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn non_text_asset_suffix_detection() {
-        assert!(is_non_text_workspace_asset("spbjw/data/raw/a.xlsx"));
+        assert!(is_non_text_workspace_asset("spbjw/upload/a.xlsx"));
         assert!(is_non_text_workspace_asset("x.XLSX"));
         assert!(!is_non_text_workspace_asset("spbjw/x.mei"));
         assert!(!is_non_text_workspace_asset("spbjw/data/x.csv"));

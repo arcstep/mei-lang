@@ -96,7 +96,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("data/dataset/典型案例/监督典型案例.mei".to_string()),
+            preview_target: Some("scenes/典型案例/datasets/监督典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw with dataset mei preview");
@@ -133,7 +133,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     assert!(
         compiled.scene_routes.iter().any(|r| {
             r.scene_id == "typical_cases"
-                && r.target_file == "data/dataset/典型案例/监督典型案例.mei"
+                && r.target_file == "scenes/典型案例/datasets/监督典型案例.mei"
         }),
         "expected typical_cases in app route registry for access/manage deep links, got: {:?}",
         compiled
@@ -160,7 +160,7 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
     .expect("compile spbjw with typical_cases scene (access-style)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "data/dataset/典型案例/监督典型案例.mei"
+        "scenes/典型案例/datasets/监督典型案例.mei"
     );
     assert_eq!(compiled.active_scene.as_deref(), Some("typical_cases"));
 }
@@ -181,7 +181,7 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
     .expect("compile spbjw with enterprise_complaints scene (discovered route)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "data/dataset/行政检查/企业投诉.mei"
+        "scenes/行政检查/datasets/企业投诉.mei"
     );
     assert_eq!(
         compiled.active_scene.as_deref(),
@@ -194,7 +194,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "data/dataset/执法要素/企业白名单.mei";
+    let target = "scenes/行政检查/datasets/企业白名单.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -240,7 +240,7 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "data/dataset/执法要素/企业白名单.mei";
+    let target = "scenes/行政检查/datasets/企业白名单.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -267,7 +267,7 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "data/dataset/执法要素/企业白名单.mei";
+    let target = "scenes/行政检查/datasets/企业白名单.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -779,12 +779,12 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/widgets/执法要素.mei".to_string()),
+            preview_target: Some("scenes/行政检查/panels/执法要素.mei".to_string()),
         },
     )
     .expect("compile spbjw widget elements preview");
     let elapsed = started.elapsed();
-    assert_eq!(compiled.active_target_file, "scenes/widgets/执法要素.mei");
+    assert_eq!(compiled.active_target_file, "scenes/行政检查/panels/执法要素.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -842,7 +842,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/widgets/指标体系.mei".to_string()),
+            preview_target: Some("scenes/行政检查/panels/指标体系.mei".to_string()),
         },
     )
     .expect("compile spbjw widget metrics preview");
@@ -852,7 +852,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         .filter(|d| matches!(d.severity, crate::Severity::Error))
         .collect();
     assert!(errors.is_empty(), "metrics widget preview errors: {:?}", errors);
-    assert_eq!(compiled.active_target_file, "scenes/widgets/指标体系.mei");
+    assert_eq!(compiled.active_target_file, "scenes/行政检查/panels/指标体系.mei");
     assert!(
         compiled.resources.iter().any(|r| r.id == "supervision_matters"),
         "expected dataset catalog in resources"
@@ -869,11 +869,11 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/widgets/监督预警.mei".to_string()),
+            preview_target: Some("scenes/监督和问题办理/panels/监督预警.mei".to_string()),
         },
     )
     .expect("compile spbjw widget supervision preview");
-    assert_eq!(compiled.active_target_file, "scenes/widgets/监督预警.mei");
+    assert_eq!(compiled.active_target_file, "scenes/监督和问题办理/panels/监督预警.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -914,12 +914,12 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/widgets/典型案例.mei".to_string()),
+            preview_target: Some("scenes/典型案例/panels/典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw widget typical cases preview");
     let elapsed = started.elapsed();
-    assert_eq!(compiled.active_target_file, "scenes/widgets/典型案例.mei");
+    assert_eq!(compiled.active_target_file, "scenes/典型案例/panels/典型案例.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -962,7 +962,7 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
 }
 
 #[test]
-fn compile_spbjw_preview_layout_header_succeeds() {
+fn compile_spbjw_preview_home_scene_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
@@ -971,11 +971,11 @@ fn compile_spbjw_preview_layout_header_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/layouts/顶栏.mei".to_string()),
+            preview_target: Some("scenes/home.mei".to_string()),
         },
     )
-    .expect("compile spbjw layout header preview");
-    assert_eq!(compiled.active_target_file, "scenes/layouts/顶栏.mei");
+    .expect("compile spbjw home preview");
+    assert_eq!(compiled.active_target_file, "scenes/home.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -983,15 +983,52 @@ fn compile_spbjw_preview_layout_header_succeeds() {
         .collect();
     assert!(
         errors.is_empty(),
-        "layout header preview errors: {:?}",
+        "home preview errors: {:?}",
         errors
     );
     let contract = compiled
         .scene_contract
         .as_ref()
         .expect("preview scene contract");
-    assert_eq!(contract.scene.id, "layout_header_preview");
-    assert_eq!(contract.panels.len(), 1);
+    assert_eq!(contract.scene.id, "home");
+    let frame = contract.frame.as_ref().expect("home should have frame");
+    assert!(
+        frame.layout.is_some(),
+        "home should expose frame grid layout"
+    );
+    assert_eq!(
+        contract.panels.len(),
+        2,
+        "home should use header + body panels (body holds left/center/right frame_ref)"
+    );
+    assert!(
+        contract
+            .panels
+            .iter()
+            .any(|panel| panel.area.as_deref() == Some("header")),
+        "missing header panel"
+    );
+    let body = contract
+        .panels
+        .iter()
+        .find(|panel| panel.area.as_deref() == Some("body"))
+        .expect("missing body panel");
+    assert_eq!(body.blocks.len(), 3, "body should embed three layout columns");
+    let viewport = frame
+        .props
+        .get("viewport")
+        .and_then(|value| value.as_object())
+        .expect("home frame should declare viewport props");
+    assert_eq!(
+        viewport.get("design_width").and_then(|v| v.as_i64()),
+        Some(1920)
+    );
+    assert_eq!(
+        viewport.get("design_height").and_then(|v| v.as_i64()),
+        Some(1080)
+    );
+    assert_eq!(contract.themes.len(), 1);
+    assert_eq!(contract.themes[0].id, "cockpit");
 }
 
 #[test]
@@ -1004,7 +1041,7 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("data/dataset/物流园区/园区统计.mei".to_string()),
+            preview_target: Some("scenes/物流园区/datasets/园区统计.mei".to_string()),
         },
     )
     .expect("compile spbjw logistics preview");

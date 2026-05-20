@@ -70,6 +70,17 @@ pub(super) fn compile_scene_payload(
                 continue;
             }
             let Some(kind) = value.get("kind").and_then(Value::as_str) else {
+                if let Some(component) = value.get("component") {
+                    if component.get("block_kind").and_then(Value::as_str) == Some("frame_ref") {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "top_level_frame_ref".to_string(),
+                            message: "frame_ref(...) must appear inside frame.add_panel(...).blocks, not at scene top level; one scene owns one active frame"
+                                .to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                    }
+                }
                 continue;
             };
             match kind {

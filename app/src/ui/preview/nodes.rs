@@ -120,6 +120,25 @@ fn node_view(
             resources,
             theme,
         ),
+        UiNodeDecl::FrameRef(frame_ref) => {
+            let label = frame_ref
+                .title
+                .clone()
+                .unwrap_or_else(|| frame_ref.frame_ref.clone());
+            view! {
+                <section
+                    class="preview-card frame-ref-slot"
+                    style=block_style(frame_ref.area.as_deref(), parent_layout)
+                    data-frame-ref=frame_ref.frame_ref.clone()
+                >
+                    <div class="panel-heading">
+                        <h3>{label}</h3>
+                    </div>
+                    <p class="text-sm opacity-70">{"embedded scene: "}{frame_ref.frame_ref.clone()}</p>
+                </section>
+            }
+            .into_any()
+        }
     }
 }
 

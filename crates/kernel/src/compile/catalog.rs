@@ -72,7 +72,11 @@ pub fn build_dataset_catalog_filter(
     preview_target: Option<&str>,
 ) -> Option<DatasetCatalogFilter> {
     let preview = preview_target?.trim();
-    if preview.is_empty() || preview == "main.mei" || preview.starts_with("data/") {
+    if preview.is_empty()
+        || preview == "main.mei"
+        || preview.starts_with("data/")
+        || preview.contains("/datasets/")
+    {
         return None;
     }
     let path = app_root.join(preview);
@@ -95,31 +99,59 @@ pub fn build_dataset_catalog_filter(
     }
 }
 
-/// 派生数据集（如执法要素概览）在 .mei 内 `ds.data_ref` 依赖其它 world id，需一并物化。
-fn expand_catalog_filter_data_refs(app_root: &Path, filter: &mut DatasetCatalogFilter) {
-    let dataset_root = app_root.join("data/dataset");
-    if !dataset_root.is_dir() {
-        return;
-    }
-    let mut rel_by_id = BTreeMap::<String, String>::new();
-    for entry in WalkDir::new(&dataset_root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-    {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("mei") {
+/// 收集应用内所有 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**/datasets/**`）。
+fn collect_dataset_catalog_mei_files(app_root: &Path) -> Vec<String> {
+    let mut mei_files = Vec::new();
+    for root_rel in ["data/dataset", "scenes"] {
+        let root = app_root.join(root_rel);
+        if !root.is_dir() {
             continue;
         }
-        let Ok(rel) = path.strip_prefix(app_root) else {
-            continue;
-        };
-        let rel = rel.to_string_lossy().replace('\\', "/");
-        let Ok(content) = fs::read_to_string(path) else {
+        for entry in WalkDir::new(&root)
+            .into_iter()
+            .filter_entry(|entry| {
+                let name = entry.file_name().to_string_lossy();
+                if entry.depth() > 0 {
+                    if matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".mei") {
+                        return false;
+                    }
+                }
+                true
+            })
+        {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("mei") {
+                continue;
+            }
+            let Ok(rel) = entry.path().strip_prefix(app_root) else {
+                continue;
+            };
+            let rel = rel.to_string_lossy().replace('\\', "/");
+            if root_rel == "scenes" && !rel.contains("/datasets/") {
+                continue;
+            }
+            mei_files.push(rel);
+        }
+    }
+    mei_files.sort();
+    const MAX_DATASET_ENTRIES: usize = 256;
+    mei_files.truncate(MAX_DATASET_ENTRIES);
+    mei_files
+}
+
+/// 派生数据集（如执法要素概览）在 .mei 内 `ds.data_ref` 依赖其它 world id，需一并物化。
+fn expand_catalog_filter_data_refs(app_root: &Path, filter: &mut DatasetCatalogFilter) {
+    let mut rel_by_id = BTreeMap::<String, String>::new();
+    for rel in collect_dataset_catalog_mei_files(app_root) {
+        let path = app_root.join(&rel);
+        let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
         for id in extract_world_dataset_ids(&content) {
-            rel_by_id.entry(id).or_insert_with(|| rel.clone());
+            rel_by_id.entry(id).or_insert(rel.clone());
         }
     }
 
@@ -247,48 +279,19 @@ fn dataset_file_matches_filter(app_root: &Path, rel: &str, filter: &DatasetCatal
         .any(|id| file_declares_resource_id(&content, id))
 }
 
-/// 收集 `data/dataset/**/*.mei` 中声明的 world 数据集资源，供驾驶舱 widget 等跨入口 `metric_ref` 解析。
+/// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**/datasets/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
 pub(super) fn compile_dataset_catalog_resources(
     app_root: &Path,
     app_decls: &Value,
     asset_map: &BTreeMap<String, ComponentAsset>,
     filter: Option<&DatasetCatalogFilter>,
 ) -> Vec<LoadedResource> {
-    let dataset_root = app_root.join("data/dataset");
-    if !dataset_root.is_dir() {
+    let mei_files = collect_dataset_catalog_mei_files(app_root);
+    if mei_files.is_empty() {
         return Vec::new();
     }
 
     let mut by_id = BTreeMap::<String, LoadedResource>::new();
-    const MAX_DATASET_ENTRIES: usize = 256;
-
-    let mut mei_files = Vec::new();
-    for entry in WalkDir::new(&dataset_root)
-        .into_iter()
-        .filter_entry(|entry| {
-            let name = entry.file_name().to_string_lossy();
-            if entry.depth() > 0 {
-                if matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".mei") {
-                    return false;
-                }
-            }
-            true
-        })
-    {
-        let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("mei") {
-            continue;
-        }
-        let Ok(rel) = entry.path().strip_prefix(app_root) else {
-            continue;
-        };
-        mei_files.push(rel.to_string_lossy().replace('\\', "/"));
-    }
-    mei_files.sort();
-    mei_files.truncate(MAX_DATASET_ENTRIES);
 
     for rel in mei_files {
         if let Some(filter) = filter {

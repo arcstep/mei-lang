@@ -118,6 +118,9 @@ fn collect_panel_references(panel: &PanelDecl) -> Vec<String> {
                 refs.push(format!("use_key:{}", block.use_key));
                 collect_refs_from_value(&block.props, &mut refs, 0);
             }
+            UiNodeDecl::FrameRef(frame_ref) => {
+                refs.push(format!("frame_ref:{}", frame_ref.frame_ref));
+            }
         }
     }
     refs.sort();

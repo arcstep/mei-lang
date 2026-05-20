@@ -321,7 +321,8 @@ def component_ref(use, pack = "cockpit-default", data = None, props = None, mapp
 
 def frame_ref(frame, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
     ref_id = id if id != None else area
-    return _declare({"component": _without_empty({
+    # Block-only embed: must not _declare (would duplicate as top-level export).
+    return {"component": _without_empty({
         "id": ref_id,
         "title": title,
         "block_kind": "frame_ref",
@@ -329,7 +330,7 @@ def frame_ref(frame, area, id = None, title = None, data = None, render = "place
         "frame_ref": frame,
         "render_policy": render,
         "data": data,
-    })})
+    })}
 
 def metric_block(id, title, component, metrics):
     return _without_empty({
