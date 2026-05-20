@@ -62,6 +62,33 @@ fn compile_core_examples_baselines() {
 }
 
 #[test]
+fn compile_sim_examples_baselines() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/sim");
+    for app_id in [
+        "01-fire-baseline",
+        "02-fire-minimal",
+        "03-fire-spread",
+        "04-fire-multiroom",
+    ] {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+            "example {app_id} should not produce error diagnostics"
+        );
+        assert!(
+            compiled.scene_contract.is_some(),
+            "example {app_id} should produce a scene contract"
+        );
+    }
+}
+
+#[test]
 fn compile_workspaces_spbjw_baseline() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
