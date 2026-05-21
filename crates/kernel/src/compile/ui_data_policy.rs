@@ -3,10 +3,20 @@
 //! 组件 props 应使用本地 id 的 `dataset_ref` / `metric_ref` / `resource_ref`；
 //! `world_ref` 仅用于 `scene.world` 单例槽位，不得作为资源选择器。
 
-use serde_json::Value;
 use std::collections::BTreeSet;
+use std::path::Path;
 
-use crate::model::{Diagnostic, LoadedResource, PanelDecl, SceneContract, Severity, UiNodeDecl};
+use serde_json::Value;
+
+use crate::eval::evaluate_mei_file;
+use crate::model::{
+    BlockDecl, Diagnostic, LoadedResource, PanelDecl, PanelRefEmbedDecl, SceneContract, Severity,
+    UiNodeDecl,
+};
+
+use super::entry_payload::helpers::{
+    insert_resource_if_absent, load_resources_from_capsule_file,
+};
 
 const IMPORTED_RESOURCE_DOC: &str =
     "see docs/mei-lang/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
@@ -92,7 +102,7 @@ fn scan_ui_node_imported_refs(
                 diagnostics,
             );
         }
-        UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
+        UiNodeDecl::PanelRefEmbed(_) => {}
     }
 }
 
@@ -184,6 +194,7 @@ fn imported_world_ref_id(
 pub(super) fn validate_scene_ui_data_bindings(
     contract: &SceneContract,
     resources: &[LoadedResource],
+    app_root: &Path,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -196,6 +207,66 @@ pub(super) fn validate_scene_ui_data_bindings(
         for node in &panel.blocks {
             scan_ui_node(node, &resource_ids, target_file, diagnostics);
             scan_deprecated_embed_nodes(node, target_file, diagnostics);
+            if let UiNodeDecl::PanelRefEmbed(embed) = node {
+                validate_embed_capsule_ui_bindings(
+                    app_root,
+                    embed,
+                    resources,
+                    target_file,
+                    diagnostics,
+                );
+            }
+        }
+    }
+}
+
+fn validate_embed_capsule_ui_bindings(
+    app_root: &Path,
+    embed: &PanelRefEmbedDecl,
+    host_resources: &[LoadedResource],
+    _target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let path = embed.scene_file.trim();
+    if path.is_empty() {
+        return;
+    }
+    let mut effective_resources = host_resources.to_vec();
+    if let Ok(mut capsule_resources) = load_resources_from_capsule_file(app_root, path)
+    {
+        for resource in capsule_resources.drain(..) {
+            insert_resource_if_absent(&mut effective_resources, resource);
+        }
+    }
+    let resource_ids: BTreeSet<String> = effective_resources
+        .iter()
+        .map(|r| r.id.clone())
+        .collect();
+    let Ok(decls) = evaluate_mei_file(app_root.join(path)) else {
+        return;
+    };
+    let Some(values) = decls.as_array() else {
+        return;
+    };
+    for value in values {
+        if value.get("kind").and_then(Value::as_str) == Some("panel") {
+            if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+                scan_panel_props(&panel, &resource_ids, path, diagnostics);
+                for node in &panel.blocks {
+                    scan_ui_node(node, &resource_ids, path, diagnostics);
+                }
+            }
+        }
+        if value.get("kind").and_then(Value::as_str) == Some("block") {
+            if let Ok(block) = serde_json::from_value::<BlockDecl>(value.clone()) {
+                push_violations(
+                    &block.props,
+                    &resource_ids,
+                    &format!("block `{}` props", block.id.as_deref().unwrap_or("?")),
+                    path,
+                    diagnostics,
+                );
+            }
         }
     }
 }
@@ -211,18 +282,25 @@ fn scan_deprecated_embed_nodes(
                 scan_deprecated_embed_nodes(child, target_file, diagnostics);
             }
         }
-        UiNodeDecl::FrameRef(frame_ref) => {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
-                code: "deprecated_frame_ref_block_embed".to_string(),
-                message: format!(
-                    "legacy frame_ref block embed `{}` is deprecated; migrate to panel_capsule_ref(scene_file = ..., area = ...)",
-                    frame_ref.frame_ref
-                ),
-                source_path: Some(target_file.to_string()),
-            });
+        UiNodeDecl::PanelRefEmbed(embed) => {
+            if let Some(legacy) = embed.compat_source.as_deref() {
+                let code = match legacy {
+                    "frame_ref" => "deprecated_frame_ref_block_embed",
+                    "panel_capsule_ref" => "deprecated_panel_capsule_ref",
+                    _ => "deprecated_panel_ref_embed",
+                };
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: code.to_string(),
+                    message: format!(
+                        "legacy {legacy} block embed `{}` is removed; use panel_ref(scene_file = ..., area = ...)",
+                        embed.scene_file
+                    ),
+                    source_path: Some(target_file.to_string()),
+                });
+            }
         }
-        UiNodeDecl::Block(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
+        UiNodeDecl::Block(_) => {}
     }
 }
 
@@ -267,7 +345,7 @@ fn scan_ui_node(
                 diagnostics,
             );
         }
-        UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
+        UiNodeDecl::PanelRefEmbed(_) => {}
     }
 }
 
@@ -471,7 +549,7 @@ mod tests {
             }],
         };
         let mut diagnostics = Vec::new();
-        validate_scene_ui_data_bindings(&contract, &[], "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(&contract, &[], Path::new("."), "entry.mei", &mut diagnostics);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "forbidden_direct_ui_data_binding");
     }
@@ -568,7 +646,7 @@ mod tests {
             document: None,
             dataset: None,
         }];
-        validate_scene_ui_data_bindings(&contract, &resources, "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(&contract, &resources, Path::new("."), "entry.mei", &mut diagnostics);
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "misused_world_ref_in_props");
     }
@@ -608,7 +686,7 @@ mod tests {
             document: None,
             dataset: None,
         }];
-        validate_scene_ui_data_bindings(&contract, &resources, "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(&contract, &resources, Path::new("."), "entry.mei", &mut diagnostics);
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

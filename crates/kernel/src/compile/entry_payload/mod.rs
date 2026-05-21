@@ -8,7 +8,7 @@ use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic, Severity};
 use crate::typed_refs::SceneRegistry;
 
 mod compile;
-mod helpers;
+pub(super) mod helpers;
 
 use compile::compile_scene_payload;
 

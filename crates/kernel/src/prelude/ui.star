@@ -122,25 +122,20 @@ def flex(direction, wrap = None, gap = None, padding = None, align = None, justi
         "justify": justify,
     })
 
-def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None):
-    if blocks != None:
-        return _declare(_clean({
-            "kind": "frame",
-            "id": id,
-            "title": title,
-            "layout": layout,
-            "blocks": blocks,
-            "profile": profile,
-            "props": props if props != None else {},
-        }))
-    return _declare(_clean({
+def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None):
+    payload = {
         "kind": "frame",
         "id": id,
         "title": title,
         "layout": layout,
         "profile": profile,
         "props": props if props != None else {},
-    }))
+    }
+    if blocks != None:
+        payload["blocks"] = blocks
+    if panels != None:
+        payload["panels"] = panels
+    return _declare(_clean(payload))
 
 def frame_set_layout(layout):
     return _declare({
@@ -317,36 +312,6 @@ def component_ref(use, pack = "cockpit-default", data = None, props = None, mapp
         "data_ref": _metric_data_ref(data),
         "props": resolved_props,
         "mapping": mapping,
-    })
-
-def panel_capsule_ref(scene_file, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
-    ref_id = id if id != None else area
-    return {"component": _without_empty({
-        "id": ref_id,
-        "title": title,
-        "block_kind": "panel_capsule_ref",
-        "area": area,
-        "scene_file": scene_file,
-        "render_policy": render,
-        "data": data,
-    })}
-
-def frame_ref(scene_file = None, scene_id = None, id = None, frame = None, area = None, title = None, data = None, render = None):
-    if frame != None or area != None:
-        path = frame if frame != None else scene_file
-        return panel_capsule_ref(
-            path,
-            area if area != None else "auto",
-            id = id,
-            title = title,
-            data = data,
-            render = render if render != None else "placeholder-or-embed",
-        )
-    return _clean({
-        "__ref": "frame",
-        "id": id,
-        "scene_id": scene_id,
-        "scene_file": scene_file,
     })
 
 def metric_block(id, title, component, metrics):

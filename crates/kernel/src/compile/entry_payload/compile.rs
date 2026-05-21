@@ -78,12 +78,14 @@ pub(super) fn compile_scene_payload(
                 if let Some(component) = value.get("component") {
                     if matches!(
                         component.get("block_kind").and_then(Value::as_str),
-                        Some("frame_ref") | Some("panel_capsule_ref")
+                        Some("panel_ref")
+                            | Some("panel_capsule_ref")
+                            | Some("frame_ref")
                     ) {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
-                            code: "top_level_panel_capsule_ref".to_string(),
-                            message: "panel_capsule_ref(...) / legacy frame_ref embed must appear inside frame.add_panel(...).blocks, not at scene top level"
+                            code: "top_level_panel_ref_embed".to_string(),
+                            message: "panel_ref(scene_file=..., area=...) block embed must appear inside frame.add_panel(...).blocks, not at scene top level"
                                 .to_string(),
                             source_path: Some(target_file.to_string()),
                         });
@@ -610,7 +612,20 @@ pub(super) fn compile_scene_payload(
         panels,
     });
     if let Some(ref contract) = scene_contract {
-        validate_scene_ui_data_bindings(contract, &resources, target_file, &mut diagnostics);
+        super::helpers::merge_implicit_embed_capsule_resources(
+            app_root,
+            &contract.panels,
+            &mut resources,
+            target_file,
+            &mut diagnostics,
+        );
+        validate_scene_ui_data_bindings(
+            contract,
+            &resources,
+            app_root,
+            target_file,
+            &mut diagnostics,
+        );
     }
 
     Ok(CompiledScenePayload {

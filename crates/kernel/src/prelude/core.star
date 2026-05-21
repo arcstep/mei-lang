@@ -330,7 +330,19 @@ def frame_ref(scene_file = None, scene_id = None, id = None):
         "scene_file": scene_file,
     })
 
-def panel_ref(id, scene_file = None, scene_id = None):
+def panel_ref(id = None, scene_file = None, scene_id = None, area = None, title = None, data = None, render = None):
+    if area != None:
+        path = scene_file
+        ref_id = id if id != None else area
+        return {"component": _without_empty({
+            "id": ref_id,
+            "title": title,
+            "block_kind": "panel_ref",
+            "area": area,
+            "scene_file": path,
+            "render_policy": render if render != None else "placeholder-or-embed",
+            "data": data,
+        })}
     return _clean({
         "__ref": "panel",
         "id": id,

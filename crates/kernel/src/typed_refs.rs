@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -254,12 +253,6 @@ fn ref_kind_tag(kind: RefKind) -> &'static str {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SceneRegistryEntry {
-    pub scene_id: String,
-    pub scene_file: String,
-}
-
 #[derive(Debug, Default)]
 pub struct SceneRegistry {
     by_id: BTreeMap<String, String>,
@@ -315,10 +308,6 @@ impl SceneRegistry {
 
 pub fn normalize_rel_path(path: &str) -> String {
     path.trim().replace('\\', "/").trim_start_matches("./").to_string()
-}
-
-pub fn join_app_path(app_root: &Path, relative: &str) -> PathBuf {
-    app_root.join(normalize_rel_path(relative))
 }
 
 #[cfg(test)]

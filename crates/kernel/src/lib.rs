@@ -19,7 +19,7 @@ pub use model::{
     LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl,
     ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
     RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, Severity, SourceDecl, ThemeDecl,
-    FrameRefBlockDecl, PanelCapsuleRefBlockDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
+    PanelRefEmbedDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
     WorldCellDecl,
 };
 pub use runtime::{

@@ -1050,7 +1050,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     assert_eq!(
         contract.panels.len(),
         2,
-        "home should use header + body panels (body holds left/center/right frame_ref)"
+        "home should use header + body panels (body holds left/center/right panel_ref embeds)"
     );
     assert!(
         contract
@@ -1169,4 +1169,58 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         total > 0.0 && total < 100.0,
         "park_inspection_total should be enterprise-matched inspections on preview rows, got {total}"
     );
+}
+
+#[test]
+fn compile_refs_scenario3_world_ref_imports_external_resources_for_props() {
+    let root = temp_root("refs-scenario-3");
+    let app_root = root.join("refs-03");
+    write_file(
+        &app_root.join("shared-world.mei"),
+        r#"
+world(resources = [resource(id = "shared_doc", kind = "document", content = "from external world")])
+"#,
+    );
+    write_file(
+        &app_root.join("shared-frame.mei"),
+        r#"
+scene(id = "shared", profile = "page")
+world()
+frame()
+"#,
+    );
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "refs-03", default_scene = "home")
+scene(
+    id = "home",
+    profile = "page",
+    world = world_ref(scene_file = "shared-world.mei"),
+    frame = frame_ref(scene_file = "shared-frame.mei"),
+)
+frame.add_panel(
+    id = "welcome",
+    area = "auto",
+    blocks = [doc.markdown(area = "auto", resource = resource_ref("shared_doc"))],
+)
+"#,
+    );
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile refs scenario 3");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "scenario 3 should compile with imported world: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|item| item.id == "shared_doc"),
+        "world_ref should make shared_doc available to props"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

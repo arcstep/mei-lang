@@ -127,7 +127,6 @@ pub(crate) fn extract_ref_tokens_from_source(source: &str) -> Vec<String> {
             "world_ref(",
             "flow_ref(",
             "frame_ref(",
-            "panel_capsule_ref(",
             "panel_ref(",
             "dataset_ref(",
             "metric_ref(",
@@ -158,11 +157,8 @@ fn collect_panel_references(panel: &PanelDecl) -> Vec<String> {
                 refs.push(format!("use_key:{}", block.use_key));
                 collect_refs_from_value(&block.props, &mut refs, 0);
             }
-            UiNodeDecl::FrameRef(frame_ref) => {
-                refs.push(format!("frame_ref:{}", frame_ref.frame_ref));
-            }
-            UiNodeDecl::PanelCapsuleRef(capsule) => {
-                refs.push(format!("panel_capsule_ref:{}", capsule.scene_file));
+            UiNodeDecl::PanelRefEmbed(embed) => {
+                refs.push(format!("panel_ref:{}", embed.scene_file));
             }
         }
     }

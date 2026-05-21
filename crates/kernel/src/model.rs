@@ -125,9 +125,9 @@ pub struct BlockDecl {
     pub props: Value,
 }
 
-/// `panel_capsule_ref(...)` block inside `frame.add_panel(...).blocks` (embed external scene capsule).
+/// `panel_ref(scene_file=..., area=...)` inside `frame.add_panel(...).blocks` (embed external scene capsule).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PanelCapsuleRefBlockDecl {
+pub struct PanelRefEmbedDecl {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
@@ -139,30 +139,16 @@ pub struct PanelCapsuleRefBlockDecl {
     pub render_policy: Option<String>,
     #[serde(default)]
     pub data: Option<Value>,
-}
-
-/// Legacy block embed shape (`frame_ref` path + area). Prefer `PanelCapsuleRefBlockDecl`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FrameRefBlockDecl {
-    #[serde(default)]
-    pub id: Option<String>,
-    #[serde(default)]
-    pub title: Option<String>,
-    #[serde(default)]
-    pub area: Option<String>,
-    pub frame_ref: String,
-    #[serde(default)]
-    pub render_policy: Option<String>,
-    #[serde(default)]
-    pub data: Option<Value>,
+    /// Set when decoding legacy `panel_capsule_ref` / `frame_ref` block embed shapes.
+    #[serde(default, skip_serializing)]
+    pub compat_source: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub enum UiNodeDecl {
     Panel(PanelDecl),
     Block(BlockDecl),
-    PanelCapsuleRef(PanelCapsuleRefBlockDecl),
-    FrameRef(FrameRefBlockDecl),
+    PanelRefEmbed(PanelRefEmbedDecl),
 }
 
 impl Serialize for UiNodeDecl {
@@ -173,27 +159,15 @@ impl Serialize for UiNodeDecl {
         match self {
             UiNodeDecl::Panel(panel) => panel.serialize(serializer),
             UiNodeDecl::Block(block) => block.serialize(serializer),
-            UiNodeDecl::PanelCapsuleRef(capsule) => {
+            UiNodeDecl::PanelRefEmbed(embed) => {
                 let component = serde_json::json!({
-                    "id": capsule.id,
-                    "title": capsule.title,
-                    "area": capsule.area,
-                    "block_kind": "panel_capsule_ref",
-                    "scene_file": capsule.scene_file,
-                    "render_policy": capsule.render_policy,
-                    "data": capsule.data,
-                });
-                serde_json::json!({ "component": component }).serialize(serializer)
-            }
-            UiNodeDecl::FrameRef(frame_ref) => {
-                let component = serde_json::json!({
-                    "id": frame_ref.id,
-                    "title": frame_ref.title,
-                    "area": frame_ref.area,
-                    "block_kind": "frame_ref",
-                    "frame_ref": frame_ref.frame_ref,
-                    "render_policy": frame_ref.render_policy,
-                    "data": frame_ref.data,
+                    "id": embed.id,
+                    "title": embed.title,
+                    "area": embed.area,
+                    "block_kind": "panel_ref",
+                    "scene_file": embed.scene_file,
+                    "render_policy": embed.render_policy,
+                    "data": embed.data,
                 });
                 serde_json::json!({ "component": component }).serialize(serializer)
             }
@@ -224,16 +198,25 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
     }
     if let Some(component) = value.get("component") {
         let block_kind = component.get("block_kind").and_then(Value::as_str);
-        if block_kind == Some("panel_capsule_ref") {
+        if matches!(
+            block_kind,
+            Some("panel_ref") | Some("panel_capsule_ref") | Some("frame_ref")
+        ) {
+            let compat_source = match block_kind {
+                Some("panel_capsule_ref") => Some("panel_capsule_ref".to_string()),
+                Some("frame_ref") => Some("frame_ref".to_string()),
+                _ => None,
+            };
             let scene_file = component
                 .get("scene_file")
+                .or_else(|| component.get("frame_ref"))
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|path| !path.is_empty())
                 .ok_or_else(|| {
-                    "panel_capsule_ref block missing component.scene_file path".to_string()
+                    "panel_ref block embed missing component.scene_file path".to_string()
                 })?;
-            return Ok(UiNodeDecl::PanelCapsuleRef(PanelCapsuleRefBlockDecl {
+            return Ok(UiNodeDecl::PanelRefEmbed(PanelRefEmbedDecl {
                 id: component
                     .get("id")
                     .and_then(Value::as_str)
@@ -252,42 +235,9 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 data: component.get("data").cloned(),
+                compat_source,
             }));
         }
-        if block_kind == Some("frame_ref") {
-            let frame_ref = component
-                .get("frame_ref")
-                .or_else(|| component.get("scene_file"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|path| !path.is_empty())
-                .ok_or_else(|| "frame_ref block missing component.frame_ref path".to_string())?;
-            return Ok(UiNodeDecl::FrameRef(FrameRefBlockDecl {
-                id: component
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                title: component
-                    .get("title")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                area: component
-                    .get("area")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                frame_ref: frame_ref.to_string(),
-                render_policy: component
-                    .get("render_policy")
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                data: component.get("data").cloned(),
-            }));
-        }
-    }
-    if value.get("frame_ref").is_some() {
-        return serde_json::from_value::<FrameRefBlockDecl>(value)
-            .map(UiNodeDecl::FrameRef)
-            .map_err(|error| error.to_string());
     }
     Err("data did not match any variant of untagged enum UiNodeDecl".to_string())
 }

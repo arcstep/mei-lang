@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
-use crate::model::{Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, LoadedResource, PanelDecl, ResourceDecl, Severity, UiNodeDecl};
 
 use super::super::decls::{
     LegacyDatasetDecl, LegacyDatasetNodeDecl, LegacyMetricPackDecl, LegacyMetricPackMetaDecl,
@@ -127,6 +128,115 @@ pub(super) fn insert_resource_checked(
     }
 }
 
+/// Implicit embed imports: only fill ids not already present (host scene world wins on conflict).
+pub(crate) fn insert_resource_if_absent(resources: &mut Vec<LoadedResource>, resource: LoadedResource) {
+    if resources.iter().any(|item| item.id == resource.id) {
+        return;
+    }
+    resources.push(resource);
+}
+
+pub(crate) fn merge_implicit_embed_capsule_resources(
+    app_root: &Path,
+    panels: &[PanelDecl],
+    resources: &mut Vec<LoadedResource>,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let mut seen_paths = BTreeSet::new();
+    for panel in panels {
+        collect_embed_paths_from_panel(panel, &mut seen_paths);
+    }
+    for path in seen_paths {
+        match load_resources_from_capsule_file(app_root, path.as_str()) {
+            Ok(capsule_resources) => {
+                for resource in capsule_resources {
+                    insert_resource_if_absent(resources, resource);
+                }
+            }
+            Err(error) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Warning,
+                    code: "embed_capsule_resources_load_failed".to_string(),
+                    message: format!(
+                        "failed to load implicit world resources from embed capsule `{path}`: {error}"
+                    ),
+                    source_path: Some(target_file.to_string()),
+                });
+            }
+        }
+    }
+}
+
+fn collect_embed_paths_from_panel(panel: &PanelDecl, out: &mut BTreeSet<String>) {
+    for node in &panel.blocks {
+        match node {
+            UiNodeDecl::PanelRefEmbed(embed) => {
+                let path = embed.scene_file.trim();
+                if !path.is_empty() {
+                    out.insert(path.to_string());
+                }
+            }
+            UiNodeDecl::Panel(nested) => collect_embed_paths_from_panel(nested, out),
+            UiNodeDecl::Block(_) => {}
+        }
+    }
+}
+
+pub(crate) fn load_resources_from_capsule_file(
+    app_root: &Path,
+    relative_path: &str,
+) -> anyhow::Result<Vec<LoadedResource>> {
+    use super::super::load_external::load_world_from_file;
+    use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
+    use super::super::resources::load_resources;
+
+    let world_decl = match load_world_from_file(app_root, relative_path, None) {
+        Ok(decl) => decl,
+        Err(_) => return Ok(Vec::new()),
+    };
+
+    let (normal_resources, dataset_resources) =
+        partition_world_resources(&all_world_resource_decls(&world_decl));
+    let mut resources = load_resources(app_root, &normal_resources)?;
+    let mut world_dataset_decls = Vec::new();
+    let mut world_metric_pack_decls = Vec::new();
+
+    for resource in dataset_resources {
+        if resource.id == "__source_path__" || resource.id.ends_with(".mei") {
+            continue;
+        }
+        match resource.kind.as_str() {
+            "dataset" | "dataset_view" => {
+                if let Ok(decl) = decode_world_dataset_decl(resource.clone()) {
+                    world_dataset_decls.push(decl);
+                }
+            }
+            "metric_pack" => {
+                if let Ok(decl) = decode_world_metric_pack_decl(resource.clone()) {
+                    world_metric_pack_decls.push(decl);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if !world_dataset_decls.is_empty() {
+        let derived = materialize_legacy_datasets(app_root, &resources, &world_dataset_decls)?;
+        for resource in derived {
+            insert_resource_if_absent(&mut resources, resource);
+        }
+    }
+    if !world_metric_pack_decls.is_empty() {
+        let derived = materialize_metric_packs(&resources, &world_metric_pack_decls)?;
+        for resource in derived {
+            insert_resource_if_absent(&mut resources, resource);
+        }
+    }
+
+    Ok(resources)
+}
+
 pub(super) fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
     for node in nodes {
         match node {
@@ -134,7 +244,7 @@ pub(super) fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &m
             UiNodeDecl::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
             }
-            UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
+            UiNodeDecl::PanelRefEmbed(_) => {}
         }
     }
 }

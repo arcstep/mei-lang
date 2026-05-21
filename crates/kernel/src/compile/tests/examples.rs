@@ -152,6 +152,63 @@ fn compile_core_invalid_examples_report_expected_errors() {
 }
 
 #[test]
+fn compile_refs_examples_baselines() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/refs");
+    for app_id in [
+        "01-local-ids-in-props",
+        "02-metric-from-local-dataset",
+        "03-world-imports-external-resources",
+        "04-panel-ref-implicit-world",
+        "05-local-overrides-external-ledger",
+    ] {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+            "refs example {app_id} should not produce error diagnostics: {:?}",
+            compiled.diagnostics
+        );
+        assert!(
+            compiled.scene_contract.is_some(),
+            "refs example {app_id} should produce a scene contract"
+        );
+    }
+}
+
+#[test]
+fn compile_refs_invalid_examples_report_expected_errors() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/refs/_invalid");
+    let cases = [
+        ("01-props-external-dataset", "external_ref_requires_world_import"),
+        ("02-props-misused-world-ref", "misused_world_ref_in_props"),
+        ("03-top-level-panel-ref-embed", "top_level_panel_ref_embed"),
+    ];
+
+    for (app_id, expected_code) in cases {
+        let app_root = source_root.join(app_id);
+        let compiled = compile_app_from_root(&source_root, &app_root)
+            .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
+        assert!(
+            compiled
+                .diagnostics
+                .iter()
+                .any(|diag| {
+                    diag.code == expected_code
+                        && matches!(diag.severity, crate::Severity::Error)
+                }),
+            "refs invalid example {app_id} should report `{expected_code}`: {:?}",
+            compiled.diagnostics
+        );
+    }
+}
+
+#[test]
 fn compile_capability_examples_baselines() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/capability");

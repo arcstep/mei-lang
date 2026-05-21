@@ -15,7 +15,8 @@ pub(super) struct SceneFileRefDecl {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct WorldFileRefDecl {
-    pub kind: String,
+    #[serde(rename = "kind")]
+    _kind: String,
     pub path: String,
     #[serde(default)]
     pub id: Option<String>,
@@ -23,7 +24,8 @@ pub(super) struct WorldFileRefDecl {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(super) struct FrameFileRefDecl {
-    pub kind: String,
+    #[serde(rename = "kind")]
+    _kind: String,
     pub path: String,
     #[serde(default)]
     pub id: Option<String>,
