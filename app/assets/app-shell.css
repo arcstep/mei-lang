@@ -860,6 +860,36 @@ a.status-chip-link:focus-visible {
 }
 .component-card { min-width: 0; }
 .component-host { min-height: 80px; }
+/* 群腐等指标格：panel 背景铺满 grid 单元，子组件撑满 panel body */
+.preview-panel-body > .preview-card-bare {
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.preview-card-bare > .preview-panel-body:only-child,
+.preview-card-bare > .preview-panel-body {
+  height: 100%;
+  min-height: 0;
+  align-content: stretch;
+}
+.preview-card-bare > .preview-panel-body > .component-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.preview-card-bare > .preview-panel-body > .component-card > .component-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile {
+  display: block;
+  width: 100%;
+  min-height: 0;
+}
 .source-block {
   margin: 0;
   padding: 12px;

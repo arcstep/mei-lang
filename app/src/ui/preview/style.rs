@@ -311,22 +311,36 @@ pub(super) fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> 
             layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
             layout.padding.clone().unwrap_or_else(|| "0".to_string()),
         ),
-        _ => format!(
-            "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};",
-            layout
-                .columns
-                .clone()
-                .unwrap_or_else(|| vec!["1fr".to_string()])
-                .join(" "),
-            layout
-                .rows
-                .clone()
-                .unwrap_or_else(|| vec!["auto".to_string()])
-                .join(" "),
-            grid_template_areas_style(layout),
-            layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
-            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
-        ),
+        _ => {
+            let align_items = layout
+                .align
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!("align-items:{value};"))
+                .unwrap_or_default();
+            let align_content = layout
+                .justify
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .map(|value| format!("align-content:{value};"))
+                .unwrap_or_default();
+            format!(
+                "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};{align_items}{align_content}",
+                layout
+                    .columns
+                    .clone()
+                    .unwrap_or_else(|| vec!["1fr".to_string()])
+                    .join(" "),
+                layout
+                    .rows
+                    .clone()
+                    .unwrap_or_else(|| vec!["auto".to_string()])
+                    .join(" "),
+                grid_template_areas_style(layout),
+                layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
+                layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+            )
+        }
     }
 }
 

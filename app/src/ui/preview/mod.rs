@@ -190,6 +190,8 @@ mod tests {
             areas: Some(vec![vec!["doc".to_string(), "table".to_string()]]),
             gap: Some("16px".to_string()),
             padding: Some("20px".to_string()),
+            align: None,
+            justify: None,
         }
     }
 
@@ -213,6 +215,14 @@ mod tests {
         let style = panel_body_style(Some(&layout));
         assert!(style.contains("display:grid;"));
         assert!(style.contains("grid-template-columns:1fr 2fr;"));
+    }
+
+    #[test]
+    fn panel_body_style_emits_grid_align_items() {
+        let mut layout = grid_layout();
+        layout.align = Some("stretch".to_string());
+        let style = panel_body_style(Some(&layout));
+        assert!(style.contains("align-items:stretch;"));
     }
 
     #[test]
