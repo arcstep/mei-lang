@@ -275,3 +275,17 @@ fn parse_cockpit_default_compare_scene_file() {
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn compile_cockpit_qunfu_chrome_includes_body_shell_panel() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("03-spbjw-qunfu-chrome");
+    let compiled = compile_app_from_root(&source_root, &app_root).unwrap();
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert!(
+        sc.panels.iter().any(|p| p.id == "body_shell"),
+        "body_shell panel must compile; got ids: {:?}",
+        sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+    );
+}

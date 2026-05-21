@@ -708,11 +708,22 @@ pub(super) fn resolve_panel_slot(
         Ok(panel) => panel,
         Err(error) => {
             let message = error.to_string();
+            let panel_id = slot
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("<anonymous>");
             if message.contains("panel_ref_embed_removed") {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Error,
                     code: "panel_ref_embed_removed".to_string(),
                     message,
+                    source_path: Some(target_file.to_string()),
+                });
+            } else {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "invalid_panel_decl".to_string(),
+                    message: format!("panel `{panel_id}` failed to compile: {message}"),
                     source_path: Some(target_file.to_string()),
                 });
             }

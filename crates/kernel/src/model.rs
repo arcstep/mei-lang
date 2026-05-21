@@ -45,6 +45,10 @@ pub struct LayoutDecl {
     pub gap: Option<String>,
     #[serde(default)]
     pub padding: Option<String>,
+    #[serde(default)]
+    pub align: Option<String>,
+    #[serde(default)]
+    pub justify: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
