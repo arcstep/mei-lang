@@ -112,8 +112,8 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         state = state,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None):
-    return _declare(_clean({
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None, base = None):
+    payload = {
         "kind": "scene",
         "id": id,
         "world": world,
@@ -125,7 +125,10 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "goal": goal,
         "state": state if state != None else {},
         "access_export": access_export,
-    }))
+    }
+    if base != None:
+        payload["base"] = base
+    return _declare(_clean(payload))
 
 def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None):
     return scene_decl(
@@ -141,8 +144,8 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         access_export = access_export,
     )
 
-def world(id = None, topology = None, resources = None, entities = None, datasets = None, metric_packs = None):
-    return _declare(_clean({
+def world(id = None, topology = None, resources = None, entities = None, datasets = None, metric_packs = None, base = None):
+    payload = {
         "kind": "world",
         "id": id,
         "topology": topology,
@@ -150,7 +153,10 @@ def world(id = None, topology = None, resources = None, entities = None, dataset
         "entities": entities if entities != None else [],
         "datasets": datasets if datasets != None else [],
         "metric_packs": metric_packs if metric_packs != None else [],
-    }))
+    }
+    if base != None:
+        payload["base"] = base
+    return _declare(_clean(payload))
 
 def world_add_resource(item):
     return _declare({
@@ -188,8 +194,8 @@ def cell(id, row = None, col = None, surface_kind = None, flammable = None, walk
         "tags": tags if tags != None else [],
     })
 
-def resource(id, kind, title = None, purpose = None, source = None, content = None, dataset = None, metrics = None, filters = None):
-    return _clean({
+def resource(id, kind, title = None, purpose = None, source = None, content = None, dataset = None, metrics = None, filters = None, base = None):
+    payload = {
         "id": id,
         "kind": kind,
         "title": title,
@@ -199,17 +205,23 @@ def resource(id, kind, title = None, purpose = None, source = None, content = No
         "dataset": dataset,
         "metrics": metrics,
         "filters": filters,
-    })
+    }
+    if base != None:
+        payload["base"] = base
+    return _clean(payload)
 
-def entity(id, kind, label = None, spawns = None, status = None, flags = None):
-    return _clean({
+def entity(id, kind, label = None, spawns = None, status = None, flags = None, base = None):
+    payload = {
         "id": id,
         "kind": kind,
         "label": label,
         "spawns": spawns if spawns != None else [],
         "status": status,
         "flags": flags if flags != None else {},
-    })
+    }
+    if base != None:
+        payload["base"] = base
+    return _clean(payload)
 
 def start(mode = None, action_label = None):
     return _clean({
@@ -287,8 +299,8 @@ def rule_outcome(success = None, fail = None):
         "fail": fail,
     })
 
-def flow(id = None, start = None, interactions = None, timer = None, subject_timers = None, outcome = None):
-    return _declare(_clean({
+def flow(id = None, start = None, interactions = None, timer = None, subject_timers = None, outcome = None, base = None):
+    payload = {
         "kind": "flow",
         "id": id,
         "start": start,
@@ -296,7 +308,10 @@ def flow(id = None, start = None, interactions = None, timer = None, subject_tim
         "timer": timer,
         "subject_timers": subject_timers if subject_timers != None else [],
         "outcome": outcome,
-    }))
+    }
+    if base != None:
+        payload["base"] = base
+    return _declare(_clean(payload))
 
 def world_ref(id = None, scene_file = None, scene_id = None):
     return _clean({
@@ -330,10 +345,11 @@ def frame_ref(scene_file = None, scene_id = None, id = None):
         "scene_file": scene_file,
     })
 
+# Pure reference value: use panel(base=panel_ref(...), ...) to clone and override fields.
 def panel_ref(id = None, scene_file = None, scene_id = None, area = None, title = None, data = None, render = None):
     _ = (title, data, render)
     if area != None:
-        fail("panel_ref only references an external panel by id; scene/frame block embed via `area` was removed")
+        fail("panel_ref only references an external panel by id; use panel(base=panel_ref(...), area=...) to clone")
     if id == None or str(id).strip() == "":
         fail("panel_ref requires `id` (target panel id in scene_file)")
     return _clean({

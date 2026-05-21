@@ -3,7 +3,7 @@
 //! 覆盖 route 发现、official 编译、catalog、embed 预览等全部调用方，避免同一 `.mei` 在单次 compile 内被重复编译。
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
@@ -138,29 +138,14 @@ pub(super) fn compile_scene_payload_for_target(
     )
 }
 
-/// 按 target 文件索引 official_results，避免 route 发现阶段已编译的文件在 official 循环中再编一次。
-pub(super) fn index_official_payloads_by_target(
-    payloads: &[(String, CompiledScenePayload)],
-) -> BTreeMap<String, CompiledScenePayload> {
-    payloads
-        .iter()
-        .map(|(target, payload)| (target.clone(), payload.clone()))
-        .collect()
-}
-
+#[cfg(test)]
 pub(crate) fn clear_scene_payload_cache_for_tests() {
     if let Ok(mut cache) = SCENE_PAYLOAD_CACHE.lock() {
         cache.clear();
     }
 }
 
+#[cfg(test)]
 pub(crate) fn scene_payload_cache_len_for_tests() -> usize {
     SCENE_PAYLOAD_CACHE.lock().map(|c| c.len()).unwrap_or(0)
-}
-
-pub(super) fn resolve_source_root(app_root: &Path) -> PathBuf {
-    app_root
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| app_root.to_path_buf())
 }

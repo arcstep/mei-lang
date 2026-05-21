@@ -91,12 +91,14 @@ pub(super) fn cached_load_legacy_rows_from_source(
 }
 
 /// 供测试：清空 L3 缓存。
+#[cfg(test)]
 pub(crate) fn clear_materialize_cache_for_tests() {
     if let Ok(mut c) = LEGACY_ROWS_CACHE.lock() {
         c.clear();
     }
 }
 
+#[cfg(test)]
 pub(crate) fn legacy_rows_cache_len_for_tests() -> usize {
     LEGACY_ROWS_CACHE.lock().map(|c| c.len()).unwrap_or(0)
 }

@@ -510,14 +510,17 @@ pub fn compile_app_from_root_with_options(
     })
 }
 
+pub use materialize_cache::dataset_materialize_cache_epoch;
+pub use scene_payload_cache::scene_payload_cache_epoch;
+
+#[cfg(test)]
 pub(crate) use materialize_cache::{
     clear_materialize_cache_for_tests, legacy_rows_cache_len_for_tests,
 };
-pub use materialize_cache::dataset_materialize_cache_epoch;
+#[cfg(test)]
 pub(crate) use scene_payload_cache::{
     clear_scene_payload_cache_for_tests, scene_payload_cache_len_for_tests,
 };
-pub use scene_payload_cache::scene_payload_cache_epoch;
 
 pub fn evaluate_runtime_metric_defs(
     metric_defs: &BTreeMap<String, Value>,

@@ -14,7 +14,7 @@ use super::super::decls::{
     WorldAddResourceDecl, WorldSetTopologyDecl,
 };
 use super::super::load_external::{
-    load_flow_from_file, load_frame_from_file, load_panel_from_scene_file, load_world_from_file,
+    load_flow_from_file, load_frame_from_file, load_world_from_file,
 };
 use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
 use super::super::mutations::{apply_frame_mutations, apply_world_mutations};
@@ -24,12 +24,16 @@ use super::super::scene_binding::{
     pick_only_frame, pick_only_world, SceneBinding,
 };
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
+use super::clone_merge::{
+    normalize_flow_decl, normalize_frame_decl, normalize_world_decl, resolve_entity_slot,
+    resolve_panel_slot, resolve_resource_slot,
+};
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
     decode_world_metric_pack_decl, insert_resource_checked, merge_panel_ref_source_resources,
     partition_world_resources,
 };
-use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
+use crate::typed_refs::SceneRegistry;
 use super::CompiledScenePayload;
 pub(super) fn compile_scene_payload(
     app_root: &Path,
@@ -104,7 +108,21 @@ pub(super) fn compile_scene_payload(
             match kind {
                 "frame" => {
                     frame_decl_count += 1;
-                    let frame_decl = serde_json::from_value::<FrameDecl>(value.clone())?;
+                    let frame_value = value.clone();
+                    let mut frame_decl = serde_json::from_value::<FrameDecl>(frame_value.clone())?;
+                    if frame_decl.base.is_some() || frame_value.get("base").is_some() {
+                        match normalize_frame_decl(
+                            app_root,
+                            frame_decl,
+                            &frame_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        ) {
+                            Some(normalized) => frame_decl = normalized,
+                            None => continue,
+                        }
+                    }
                     if let Some(id) = frame_decl
                         .id
                         .as_deref()
@@ -123,7 +141,8 @@ pub(super) fn compile_scene_payload(
                         first_scene_decl_index = Some(decl_index);
                     }
                     scene_decl_count += 1;
-                    let scene_decl = decode_scene_decl(value, target_file)?;
+                    let scene_decl =
+                        decode_scene_decl(app_root, value, target_file, Some(scene_registry))?;
                     scenes.insert(scene_decl.id.clone(), scene_decl);
                 }
                 "world" => {
@@ -131,8 +150,22 @@ pub(super) fn compile_scene_payload(
                         first_world_decl_index = Some(decl_index);
                     }
                     world_decl_count += 1;
-                    let world_decl =
-                        serde_json::from_value::<crate::model::WorldDecl>(value.clone())?;
+                    let world_value = value.clone();
+                    let mut world_decl =
+                        serde_json::from_value::<crate::model::WorldDecl>(world_value.clone())?;
+                    if world_decl.base.is_some() || world_value.get("base").is_some() {
+                        match normalize_world_decl(
+                            app_root,
+                            world_decl,
+                            &world_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        ) {
+                            Some(normalized) => world_decl = normalized,
+                            None => continue,
+                        }
+                    }
                     if let Some(id) = world_decl
                         .id
                         .as_deref()
@@ -159,7 +192,16 @@ pub(super) fn compile_scene_payload(
                     }
                     let decl = serde_json::from_value::<WorldAddResourceDecl>(value.clone())?;
                     if decl.kind == "world_add_resource" {
-                        pending_world_resources.push(decl.resource);
+                        let resource_value = serde_json::to_value(&decl.resource)?;
+                        if let Some(resource) = resolve_resource_slot(
+                            app_root,
+                            &resource_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        ) {
+                            pending_world_resources.push(resource);
+                        }
                     }
                 }
                 "world_add_entity" => {
@@ -174,7 +216,16 @@ pub(super) fn compile_scene_payload(
                     }
                     let decl = serde_json::from_value::<WorldAddEntityDecl>(value.clone())?;
                     if decl.kind == "world_add_entity" {
-                        pending_world_entities.push(decl.entity);
+                        let entity_value = serde_json::to_value(&decl.entity)?;
+                        if let Some(entity) = resolve_entity_slot(
+                            app_root,
+                            &entity_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        ) {
+                            pending_world_entities.push(entity);
+                        }
                     }
                 }
                 "world_set_topology" => {
@@ -207,7 +258,21 @@ pub(super) fn compile_scene_payload(
                     }
                 }
                 "flow" => {
-                    let flow_decl = serde_json::from_value::<FlowDecl>(value.clone())?;
+                    let flow_value = value.clone();
+                    let mut flow_decl = serde_json::from_value::<FlowDecl>(flow_value.clone())?;
+                    if flow_decl.base.is_some() || flow_value.get("base").is_some() {
+                        match normalize_flow_decl(
+                            app_root,
+                            flow_decl,
+                            &flow_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        ) {
+                            Some(normalized) => flow_decl = normalized,
+                            None => continue,
+                        }
+                    }
                     if let Some(id) = flow_decl
                         .id
                         .as_deref()
@@ -220,7 +285,17 @@ pub(super) fn compile_scene_payload(
                     }
                 }
                 "theme" => themes.push(serde_json::from_value(value.clone())?),
-                "panel" => panels.push(serde_json::from_value(value.clone())?),
+                "panel" => {
+                    if let Some(panel) = resolve_panel_slot(
+                        app_root,
+                        value,
+                        scene_registry,
+                        &mut diagnostics,
+                        target_file,
+                    ) {
+                        panels.push(panel);
+                    }
+                }
                 "dataset_view" => top_level_legacy_dataset_view_count += 1,
                 "app" | "app_scene_ref" => {}
                 _ => diagnostics.push(Diagnostic {
@@ -432,7 +507,21 @@ pub(super) fn compile_scene_payload(
             }
             Some(Ok(SceneBinding::FileRef { path, id })) => {
                 match load_frame_from_file(app_root, path.as_str(), id.as_deref()) {
-                    Ok(frame_decl) => Some(frame_decl),
+                    Ok(frame_decl) => {
+                        if frame_decl.base.is_some() {
+                            let frame_value = serde_json::to_value(&frame_decl)?;
+                            normalize_frame_decl(
+                                app_root,
+                                frame_decl,
+                                &frame_value,
+                                scene_registry,
+                                &mut diagnostics,
+                                target_file,
+                            )
+                        } else {
+                            Some(frame_decl)
+                        }
+                    }
                     Err(error) => {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
@@ -489,7 +578,17 @@ pub(super) fn compile_scene_payload(
             }
             Some(Ok(SceneBinding::FileRef { path, id })) => {
                 match load_world_from_file(app_root, path.as_str(), id.as_deref()) {
-                    Ok(world_decl) => Some(world_decl),
+                    Ok(world_decl) => {
+                        let world_value = serde_json::to_value(&world_decl)?;
+                        normalize_world_decl(
+                            app_root,
+                            world_decl,
+                            &world_value,
+                            scene_registry,
+                            &mut diagnostics,
+                            target_file,
+                        )
+                    }
                     Err(error) => {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
@@ -679,19 +778,33 @@ fn resolve_flow_binding(
             });
             None
         }
-        Ok(SceneBinding::FileRef { path, id }) => match load_flow_from_file(app_root, path.as_str(), id.as_deref())
-        {
-            Ok(flow_decl) => Some(flow_decl),
-            Err(error) => {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    code: "load_flow_ref_failed".to_string(),
-                    message: error.to_string(),
-                    source_path: Some(target_file.to_string()),
-                });
-                None
+        Ok(SceneBinding::FileRef { path, id }) => {
+            match load_flow_from_file(app_root, path.as_str(), id.as_deref()) {
+                Ok(flow_decl) => {
+                    let Some(registry) = scene_registry else {
+                        return Some(flow_decl);
+                    };
+                    let flow_value = serde_json::to_value(&flow_decl).ok()?;
+                    normalize_flow_decl(
+                        app_root,
+                        flow_decl,
+                        &flow_value,
+                        registry,
+                        diagnostics,
+                        target_file,
+                    )
+                }
+                Err(error) => {
+                    diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "load_flow_ref_failed".to_string(),
+                        message: error.to_string(),
+                        source_path: Some(target_file.to_string()),
+                    });
+                    None
+                }
             }
-        },
+        }
         Ok(SceneBinding::Absent) => None,
         Err(message) => {
             diagnostics.push(Diagnostic {
@@ -720,76 +833,17 @@ fn merge_frame_panel_slots(
     }
     for frame in sources {
         for slot in &frame.panels {
-            if let Some(panel) = decode_panel_slot(slot) {
+            if let Some(panel) = resolve_panel_slot(
+                app_root,
+                slot,
+                scene_registry,
+                diagnostics,
+                target_file,
+            ) {
                 upsert_panel(panels, panel);
-                continue;
             }
-            if let Some(expr) = decode_ref_value(slot) {
-                if expr.kind == RefKind::Panel {
-                    let panel_id = expr.id.as_deref().unwrap_or_default().trim();
-                    if panel_id.is_empty() {
-                        diagnostics.push(Diagnostic {
-                            severity: Severity::Error,
-                            code: "invalid_panel_ref".to_string(),
-                            message: "panel_ref(...) requires panel id".to_string(),
-                            source_path: Some(target_file.to_string()),
-                        });
-                        continue;
-                    }
-                    let path = if let Some(path) = expr
-                        .locator
-                        .scene_file
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|path| !path.is_empty())
-                    {
-                        path.to_string()
-                    } else {
-                        match scene_registry.resolve_target(&expr.locator) {
-                            Ok((_, path)) => path,
-                            Err(message) => {
-                                diagnostics.push(Diagnostic {
-                                    severity: Severity::Error,
-                                    code: "panel_ref_not_resolved".to_string(),
-                                    message,
-                                    source_path: Some(target_file.to_string()),
-                                });
-                                continue;
-                            }
-                        }
-                    };
-                    match load_panel_from_scene_file(app_root, path.as_str(), panel_id) {
-                        Ok(panel) => {
-                            upsert_panel(panels, panel);
-                            continue;
-                        }
-                        Err(error) => {
-                            diagnostics.push(Diagnostic {
-                                severity: Severity::Error,
-                                code: "panel_ref_not_resolved".to_string(),
-                                message: error.to_string(),
-                                source_path: Some(target_file.to_string()),
-                            });
-                            continue;
-                        }
-                    }
-                }
-            }
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                code: "invalid_frame_panel_slot".to_string(),
-                message: "frame.panels entries must be panel(...) or panel_ref(...)".to_string(),
-                source_path: Some(target_file.to_string()),
-            });
         }
     }
-}
-
-fn decode_panel_slot(value: &Value) -> Option<PanelDecl> {
-    if value.get("kind").and_then(Value::as_str) == Some("panel") {
-        return serde_json::from_value::<PanelDecl>(value.clone()).ok();
-    }
-    None
 }
 
 fn upsert_panel(panels: &mut Vec<PanelDecl>, panel: PanelDecl) {

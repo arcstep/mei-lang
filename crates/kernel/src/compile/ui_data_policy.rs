@@ -544,8 +544,18 @@ mod tests {
                     props: serde_json::json!({
                         "data": {"__kind": "analysis_expr", "type": "rows", "dataset": "x"}
                     }),
+                    base: None,
+                    layout: None,
+                    blocks: vec![],
+                    component: None,
+                    placement: None,
+                    interactions: vec![],
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                base: None,
             }],
         };
         let mut diagnostics = Vec::new();
@@ -577,8 +587,18 @@ mod tests {
                     props: serde_json::json!({
                         "data": {"__ref": "resource", "id": "catalog_only"}
                     }),
+                    base: None,
+                    layout: None,
+                    blocks: vec![],
+                    component: None,
+                    placement: None,
+                    interactions: vec![],
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                base: None,
             }],
         };
         let authorized = vec![LoadedResource {
@@ -634,8 +654,18 @@ mod tests {
                     props: serde_json::json!({
                         "data": {"__ref": "world", "id": "my_dataset"}
                     }),
+                    base: None,
+                    layout: None,
+                    blocks: vec![],
+                    component: None,
+                    placement: None,
+                    interactions: vec![],
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                base: None,
             }],
         };
         let mut diagnostics = Vec::new();
@@ -674,8 +704,18 @@ mod tests {
                     props: serde_json::json!({
                         "data": {"__ref": "resource", "id": "my_dataset"}
                     }),
+                    base: None,
+                    layout: None,
+                    blocks: vec![],
+                    component: None,
+                    placement: None,
+                    interactions: vec![],
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                base: None,
             }],
         };
         let mut diagnostics = Vec::new();

@@ -9,7 +9,7 @@ use super::{
 use super::style::{
     block_style, panel_body_style, panel_heading_config, panel_show_heading, panel_style,
 };
-use super::theme::{resolve_panel_props, resolve_theme, ThemeResolved};
+use super::theme::{resolve_panel_props, ThemeResolved};
 
 pub(super) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
@@ -155,27 +155,6 @@ fn panel_ref_embed_removed_view(
             <p class="text-sm text-red-300/90">
                 "panel_ref 仅支持在 frame.panels 中按 id 引用外部 panel；block 内 scene 嵌入已移除。"
             </p>
-        </section>
-    }
-    .into_any()
-}
-
-fn panel_ref_embed_placeholder(
-    label: &str,
-    path: &str,
-    area: Option<&str>,
-    parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
-) -> AnyView {
-    view! {
-        <section
-            class="preview-card frame-ref-slot"
-            style=block_style(area, parent_layout)
-            data-panel-ref-embed=path
-        >
-            <div class="panel-heading">
-                <h3>{label.to_string()}</h3>
-            </div>
-            <p class="text-sm opacity-70">{"embedded capsule: "}{path.to_string()}</p>
         </section>
     }
     .into_any()

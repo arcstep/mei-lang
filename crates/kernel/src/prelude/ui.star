@@ -122,7 +122,7 @@ def flex(direction, wrap = None, gap = None, padding = None, align = None, justi
         "justify": justify,
     })
 
-def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None):
+def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None, base = None):
     payload = {
         "kind": "frame",
         "id": id,
@@ -131,6 +131,8 @@ def frame(id = None, title = None, layout = None, blocks = None, profile = None,
         "profile": profile,
         "props": props if props != None else {},
     }
+    if base != None:
+        payload["base"] = base
     if blocks != None:
         payload["blocks"] = blocks
     if panels != None:
@@ -162,8 +164,11 @@ def _clone_props(value):
             out[k] = v
     return out
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
-    panel_id = id if id != None else area
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+    if base != None:
+        panel_id = id if id != None and str(id).strip() != "" else ""
+    else:
+        panel_id = id if id != None else area
     panel_props = _clone_props(props)
     if subtitle != None:
         panel_props["subtitle"] = subtitle
@@ -187,19 +192,23 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
                 panel_props["chrome"] = "bare"
             if panel_props.get("show_heading") == None:
                 panel_props["show_heading"] = False
-    return _clean({
+    payload = {
         "kind": "panel",
         "id": panel_id,
         "title": title,
         "area": area,
         "layout": layout,
-        "blocks": blocks if blocks != None else [],
         "data_ref": _data_ref_value(data),
         "props": panel_props,
         "data": data_plan,
-    })
+    }
+    if base != None:
+        payload["base"] = base
+    if blocks != None:
+        payload["blocks"] = blocks
+    return _clean(payload)
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     return _panel_node(
         id = id,
         title = title,
@@ -215,9 +224,10 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        base = base,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -233,6 +243,7 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        base = base,
     ))
 
 def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
@@ -269,7 +280,9 @@ def box_decl(id = None, title = None, area = None, layout = None, blocks = [], d
         heading_variant = heading_variant,
     )
 
-def component(use, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = [], interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None):
+def component(use = None, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = None, interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None, base = None):
+    if use == None and base == None:
+        fail("component(...) requires `use` or `base=component_ref(...)`")
     resolved_props = _with_metric_data_props(data, props)
     if data != None and resolved_props.get("data") == None and _is_dict(data):
         if data.get("__ref") == "world":
@@ -287,14 +300,13 @@ def component(use, id = None, title = None, area = None, pack = "cockpit-default
         "props": resolved_props,
         "mapping": mapping,
     })
-    return _clean({
+    payload = {
         "kind": "block",
         "use_key": use,
         "id": id,
         "title": title,
         "area": area,
         "layout": layout,
-        "blocks": blocks if blocks != None else [],
         "props": resolved_props,
         "component": component_ref,
         "placement": placement,
@@ -302,16 +314,21 @@ def component(use, id = None, title = None, area = None, pack = "cockpit-default
         "lifecycle": lifecycle,
         "constraints": constraints,
         "data": data_plan,
-    })
+    }
+    if blocks != None:
+        payload["blocks"] = blocks
+    if base != None:
+        payload["base"] = base
+    return _clean(payload)
 
-def component_ref(use, pack = "cockpit-default", data = None, props = None, mapping = None):
-    resolved_props = _with_metric_data_props(data, props)
+def component_ref(use = None, id = None, pack = "cockpit-default", scene_file = None, scene_id = None, data = None, props = None, mapping = None):
+    _ = (data, props, mapping, pack)
     return _without_empty({
+        "__ref": "component",
+        "id": id,
         "use": use,
-        "pack": pack,
-        "data_ref": _metric_data_ref(data),
-        "props": resolved_props,
-        "mapping": mapping,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
     })
 
 def metric_block(id, title, component, metrics):

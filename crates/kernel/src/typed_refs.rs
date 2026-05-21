@@ -15,6 +15,7 @@ pub enum RefKind {
     Metric,
     Resource,
     Entity,
+    Component,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -52,11 +53,19 @@ pub struct RefExpr {
     pub id: Option<String>,
     #[serde(flatten)]
     pub locator: SceneLocator,
+    /// `component_ref` 的 `use`（与 block `id` 二选一用于定位源组件）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub use_key: Option<String>,
 }
 
 impl RefExpr {
     pub fn new(kind: RefKind, id: Option<String>, locator: SceneLocator) -> Self {
-        Self { kind, id, locator }
+        Self {
+            kind,
+            id,
+            locator,
+            use_key: None,
+        }
     }
 
     pub fn scene(scene_id: Option<String>, scene_file: Option<String>) -> Self {
@@ -93,6 +102,19 @@ impl RefExpr {
 
     pub fn entity(id: impl Into<String>, locator: SceneLocator) -> Self {
         Self::new(RefKind::Entity, Some(id.into()), locator)
+    }
+
+    pub fn component(
+        id: Option<String>,
+        use_key: Option<String>,
+        locator: SceneLocator,
+    ) -> Self {
+        Self {
+            kind: RefKind::Component,
+            id,
+            locator,
+            use_key,
+        }
     }
 }
 
@@ -131,6 +153,7 @@ pub fn decode_ref_value(value: &Value) -> Option<RefExpr> {
                 "metric" => RefKind::Metric,
                 "resource" => RefKind::Resource,
                 "entity" => RefKind::Entity,
+                "component" => RefKind::Component,
                 "data" => RefKind::Dataset,
                 _ => return None,
             };
@@ -140,8 +163,19 @@ pub fn decode_ref_value(value: &Value) -> Option<RefExpr> {
                 .map(str::trim)
                 .filter(|id| !id.is_empty())
                 .map(str::to_string);
+            let use_key = obj
+                .get("use")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|key| !key.is_empty())
+                .map(str::to_string);
             let locator = decode_locator(obj);
-            return Some(RefExpr::new(ref_kind, id, locator));
+            return Some(RefExpr {
+                kind: ref_kind,
+                id,
+                locator,
+                use_key,
+            });
         }
         if let Some(kind) = obj.get("kind").and_then(Value::as_str) {
             return decode_legacy_file_ref(kind, obj);
@@ -250,6 +284,7 @@ fn ref_kind_tag(kind: RefKind) -> &'static str {
         RefKind::Metric => "metric",
         RefKind::Resource => "resource",
         RefKind::Entity => "entity",
+        RefKind::Component => "component",
     }
 }
 

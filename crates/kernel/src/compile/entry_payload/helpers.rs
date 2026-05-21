@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use crate::model::{
-    Diagnostic, FrameDecl, LoadedResource, PanelDecl, ResourceDecl, Severity, UiNodeDecl,
+    Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
 };
 
 use super::super::decls::{
@@ -174,27 +174,18 @@ fn collect_panel_ref_scene_files_from_frames(
     frame_default: Option<&FrameDecl>,
     out: &mut BTreeSet<String>,
 ) {
+    use super::clone_merge::collect_ref_scene_files;
+
     let mut sources: Vec<&FrameDecl> = frames.values().collect();
     if let Some(frame) = frame_default {
         sources.push(frame);
     }
     for frame in sources {
         for slot in &frame.panels {
-            let Some(expr) = crate::typed_refs::decode_ref_value(slot) else {
-                continue;
-            };
-            if expr.kind != crate::typed_refs::RefKind::Panel {
-                continue;
-            }
-            let path = expr
-                .locator
-                .scene_file
-                .as_deref()
-                .map(str::trim)
-                .filter(|path| !path.is_empty());
-            if let Some(path) = path {
-                out.insert(path.to_string());
-            }
+            collect_ref_scene_files(slot, out);
+        }
+        if let Ok(frame_value) = serde_json::to_value(frame) {
+            collect_ref_scene_files(&frame_value, out);
         }
     }
 }

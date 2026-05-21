@@ -58,6 +58,9 @@ pub struct FrameDecl {
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
     pub props: Value,
+    /// Authoring-only：`frame(base = frame_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default)]
+    pub base: Option<Value>,
     /// Owner 槽位：`frame(panels=[panel_ref(...), panel(...)])` 归一后的 panel 集合。
     #[serde(default)]
     pub panels: Vec<Value>,
@@ -108,6 +111,9 @@ pub struct ResourceDecl {
     pub metrics: Option<BTreeMap<String, Value>>,
     #[serde(default)]
     pub filters: Option<Value>,
+    /// Authoring-only：`resource(base = *_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,6 +129,25 @@ pub struct BlockDecl {
     pub area: Option<String>,
     #[serde(default)]
     pub props: Value,
+    /// Authoring-only：`component(base = component_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Value>,
+    #[serde(default)]
+    pub layout: Option<LayoutDecl>,
+    #[serde(default)]
+    pub blocks: Vec<Value>,
+    #[serde(default)]
+    pub component: Option<Value>,
+    #[serde(default)]
+    pub placement: Option<Value>,
+    #[serde(default)]
+    pub interactions: Vec<Value>,
+    #[serde(default)]
+    pub lifecycle: Option<Value>,
+    #[serde(default)]
+    pub constraints: Option<Value>,
+    #[serde(default)]
+    pub data: Option<Value>,
 }
 
 /// Legacy block embed IR (panel_ref+area removed); kept for serde compat and error surfacing only.
@@ -312,6 +337,9 @@ pub struct EntityDecl {
     pub status: Option<String>,
     #[serde(default)]
     pub flags: Value,
+    /// Authoring-only：`entity(base = entity_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -354,6 +382,9 @@ pub struct WorldDecl {
     pub metric_packs: Vec<ResourceDecl>,
     #[serde(default)]
     pub entities: Vec<EntityDecl>,
+    /// Authoring-only：`world(base = world_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,6 +476,9 @@ pub struct FlowDecl {
     pub subject_timers: Vec<RuleSubjectTimerDecl>,
     #[serde(default)]
     pub outcome: Option<RuleOutcomeDecl>,
+    /// Authoring-only：`flow(base = flow_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -461,6 +495,9 @@ pub struct PanelDecl {
     pub blocks: Vec<UiNodeDecl>,
     #[serde(default)]
     pub props: Value,
+    /// Authoring-only：`panel(base = panel_ref(...))` 克隆源；编译归一后清除。
+    #[serde(default)]
+    pub base: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

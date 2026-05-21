@@ -860,6 +860,21 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         contract.panels.iter().any(|p| !p.blocks.is_empty()),
         "layout left panels should carry blocks from external panel lookup"
     );
+    let stats = contract
+        .panels
+        .iter()
+        .find(|p| p.id == "enforcement_elements_overview_stats")
+        .expect("enforcement stats panel from panel_ref");
+    let panel_layout = stats.layout.as_ref().expect("panel_ref must preserve panel.layout from source");
+    assert_eq!(panel_layout.layout_type, "grid");
+    assert!(
+        panel_layout
+            .columns
+            .as_ref()
+            .is_some_and(|cols| cols.iter().any(|c| c.contains("repeat(4") || c.contains("repeat(3"))),
+        "stats panel should keep fixed multi-column grid, got {:?}",
+        panel_layout.columns
+    );
     assert!(
         compiled
             .resources
@@ -1085,6 +1100,15 @@ fn compile_spbjw_preview_home_scene_succeeds() {
             "missing grid area panel: {area}"
         );
     }
+    let overview = contract
+        .panels
+        .iter()
+        .find(|p| p.id == "enforcement_elements_overview_stats")
+        .expect("overview panel from panel(base=panel_ref)");
+    assert!(
+        !overview.blocks.is_empty(),
+        "home panel(base=panel_ref) should inherit blocks from external panel"
+    );
     let viewport = frame
         .props
         .get("viewport")

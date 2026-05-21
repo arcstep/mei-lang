@@ -161,6 +161,10 @@ fn compile_refs_examples_baselines() {
         "03-world-imports-external-resources",
         "04-panel-ref-implicit-world",
         "05-local-overrides-external-ledger",
+        "06-singleton-base-clone",
+        "07-world-collection-base-clone",
+        "08-component-base-clone",
+        "09-nine-grid-panel-clone",
     ] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)

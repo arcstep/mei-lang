@@ -34,7 +34,7 @@ pub(crate) fn build_meilang_system_prompt(
         );
     }
     blocks.push(
-        "Prefer declarative bindings: app(scene=scene_ref(...) / app.add_scene(scene_ref(...))), scene(world=world_ref(...), flow=flow_ref(...), frame=frame_ref(...)), frame(panels=[panel_ref(id=..., scene_file=...), panel(...)]), frame.add_panel(...). blocks must not use panel_ref with area (removed). Import external resources via world_ref before panel_ref panels consume dataset_ref/resource_ref. In component props use dataset_ref/resource_ref/metric_ref (local ids only); world_ref is only for scene.world singleton slot.".to_string(),
+        "Unified ref/clone: xxx_ref(...) is always a pure reference value; xxx(base=xxx_ref(...), ...) clones then field-overrides (scalars replace, props deep-merge, lists replace when explicit). Applies to scene/world/flow/frame/panel/dataset/metric/resource/entity/component. Owner slots bind pure refs only: scene.world/flow/frame, frame.panels, world collections. component_ref(use/id, scene_file) + component(base=component_ref(...)). panel_ref never embeds in blocks. props consume dataset_ref/resource_ref/metric_ref with local ids only.".to_string(),
     );
     blocks.push(
         "Default to Chinese (Simplified Chinese) for all responses, plans, progress updates, and explanations unless the user explicitly requests another language.".to_string(),

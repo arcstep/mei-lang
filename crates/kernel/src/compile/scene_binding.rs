@@ -7,15 +7,39 @@ use crate::model::{FrameDecl, SceneDecl};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
 use super::decls::{FrameFileRefDecl, WorldFileRefDecl};
+use super::entry_payload::clone_merge::normalize_scene_value;
 use super::scene::scene_name_from_path;
 
-pub(super) fn decode_scene_decl(value: &Value, target_file: &str) -> Result<SceneDecl> {
-    let mut raw = value.clone();
+pub(super) fn decode_scene_decl(
+    app_root: &std::path::Path,
+    value: &Value,
+    target_file: &str,
+    scene_registry: Option<&SceneRegistry>,
+) -> Result<SceneDecl> {
+    let mut raw = if let Some(registry) = scene_registry {
+        if value.get("base").is_some() {
+            let mut diagnostics = Vec::new();
+            normalize_scene_value(app_root, value, registry, &mut diagnostics, target_file)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "scene(base=...) failed: {}",
+                        diagnostics
+                            .first()
+                            .map(|d| d.message.as_str())
+                            .unwrap_or("unknown error")
+                    )
+                })?
+        } else {
+            value.clone()
+        }
+    } else {
+        value.clone()
+    };
     let missing_scene_id = raw
         .get("id")
         .and_then(Value::as_str)
         .map(str::trim)
-        .map(|id| id.is_empty())
+        .map(|id: &str| id.is_empty())
         .unwrap_or(true);
     if missing_scene_id {
         raw["id"] = Value::String(scene_name_from_path(target_file));
