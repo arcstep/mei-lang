@@ -1,7 +1,10 @@
 use mei_lang_kernel::LayoutDecl;
 use serde_json::Value;
 
-use super::style::{container_visual_style, surface_layout_style};
+use super::style::{
+    container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
+    surface_layout_style,
+};
 use super::theme::{theme_css_vars_style, ThemeResolved};
 
 #[derive(Debug, Clone)]
@@ -165,7 +168,10 @@ pub(super) fn frame_stage_style(
     viewport: &FrameViewportConfig,
     theme: &ThemeResolved,
 ) -> String {
-    let mut style = frame_style(layout, props, theme);
+    let mut style = surface_layout_style(layout);
+    style.push_str(&frame_backdrop_css_vars(props));
+    style.push_str(&container_visual_style_without_background(props));
+    style.push_str(&theme_css_vars_style(theme));
     style.push_str(&format!(
         "width:{}px;height:{}px;transform-origin:top left;",
         viewport.design_width, viewport.design_height

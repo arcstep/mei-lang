@@ -72,10 +72,16 @@ pub(super) fn preview_view(
                 })
                 .collect_view();
             if let Some(vp) = viewport::frame_viewport_config(&frame_props) {
+                let viewport_style = viewport::frame_viewport_style(&vp);
+                let stage_class = if style::has_frame_backdrop(&frame_props) {
+                    "preview-surface preview-stage preview-stage-has-backdrop"
+                } else {
+                    "preview-surface preview-stage"
+                };
                 return view! {
                     <section
                         class="preview-viewport"
-                        style=viewport::frame_viewport_style(&vp)
+                        style=viewport_style
                         data-mei-frame-viewport="true"
                         data-design-width=vp.design_width.to_string()
                         data-design-height=vp.design_height.to_string()
@@ -86,7 +92,7 @@ pub(super) fn preview_view(
                         data-safe-left=vp.safe_left.to_string()
                     >
                         <div class="preview-stage-shell">
-                            <section class="preview-surface preview-stage" style=viewport::frame_stage_style(frame.layout.as_ref(), &frame_props, &vp, &resolved_theme)>
+                            <section class=stage_class style=viewport::frame_stage_style(frame.layout.as_ref(), &frame_props, &vp, &resolved_theme)>
                                 {panels}
                             </section>
                         </div>
@@ -162,8 +168,9 @@ mod tests {
 
     use super::resolve::resolve_value;
     use super::style::{
-        block_style, container_visual_style, panel_body_style, panel_show_heading, panel_style,
-        surface_layout_style,
+        block_style, container_visual_style, container_visual_style_without_background,
+        frame_backdrop_css_vars, has_frame_backdrop, panel_body_style, panel_show_heading,
+        panel_style, surface_layout_style,
     };
     use super::theme::{resolve_panel_props, ThemeResolved};
     use super::viewport::{frame_viewport_config, frame_viewport_style};
@@ -249,6 +256,25 @@ mod tests {
         assert!(style.contains("background-image:url(\"/workspace-components/demo.png\")"));
         assert!(style.contains("background-size:cover;"));
         assert!(style.contains("background-repeat:no-repeat;"));
+    }
+
+    #[test]
+    fn frame_backdrop_css_vars_exports_layer_tokens_without_inline_background() {
+        let props = json!({
+            "background": {
+                "color": "#182f42",
+                "image": "linear-gradient(180deg, #1a3348, #0a1824)",
+                "size": "100% 100%",
+            }
+        });
+        let vars = frame_backdrop_css_vars(&props);
+        assert!(vars.contains("--mei-frame-bg-color:#182f42;"));
+        assert!(vars.contains("--mei-frame-bg-image:linear-gradient(180deg, #1a3348, #0a1824);"));
+        assert!(vars.contains("--mei-frame-bg-size:100% 100%;"));
+        assert!(has_frame_backdrop(&props));
+        let stage = container_visual_style_without_background(&props);
+        assert!(!stage.contains("background-color"));
+        assert!(!stage.contains("background-image"));
     }
 
     #[test]

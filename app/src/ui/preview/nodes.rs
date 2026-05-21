@@ -7,7 +7,8 @@ use super::{
     PreviewRuntimeContext,
 };
 use super::style::{
-    block_style, panel_body_style, panel_heading_config, panel_show_heading, panel_style,
+    block_style, panel_body_style, panel_chrome_bare, panel_heading_config, panel_show_heading,
+    panel_style,
 };
 use super::theme::{resolve_panel_props, ThemeResolved};
 
@@ -23,6 +24,7 @@ pub(super) fn panel_view(
     preview_scene_path: &str,
 ) -> AnyView {
     let panel_props = resolve_panel_props(theme, &panel.props);
+    let chrome_bare = panel_chrome_bare(&panel_props);
     let blocks = panel
         .blocks
         .iter()
@@ -44,8 +46,18 @@ pub(super) fn panel_view(
     let show_heading = panel_show_heading(&panel_props);
     let heading = panel_heading_config(&theme.heading, &panel_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
+    let card_class = if chrome_bare {
+        "preview-card preview-card-bare"
+    } else {
+        "preview-card"
+    };
+    let body_class = if chrome_bare {
+        "preview-panel-body"
+    } else {
+        "preview-panel-body preview-panel-body-gap"
+    };
     view! {
-        <section class="preview-card" style=panel_style(panel.area.as_deref(), frame_layout, &panel_props)>
+        <section class=card_class style=panel_style(panel.area.as_deref(), frame_layout, &panel_props)>
             {if show_heading {
                 view! {
                     <div
@@ -89,7 +101,7 @@ pub(super) fn panel_view(
             } else {
                 view! { <></> }.into_any()
             }}
-            <div class="grid min-w-0 gap-3" style=panel_body_style(panel.layout.as_ref())>
+            <div class=body_class style=panel_body_style(panel.layout.as_ref())>
                 {blocks}
             </div>
         </section>

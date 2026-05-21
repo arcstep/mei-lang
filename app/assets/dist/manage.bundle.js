@@ -22383,6 +22383,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
     "/app-assets/frame-stage.js",
     "/app-assets/statusbar.js",
     "/app-assets/manage-tabs.js",
+    "/app-assets/manage-diagnostics.js",
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",
@@ -22924,6 +22925,11 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
       preserveFrameStage: preserveManageWorkspace,
       preserveSourceHighlight: preserveManageWorkspace,
     });
+    if (preserveManageWorkspace && typeof window.__meiClearRuntimePerfDiagnostics === "function") {
+      try {
+        window.__meiClearRuntimePerfDiagnostics("SPA 换文件");
+      } catch (_) {}
+    }
     document.title = doc.title || document.title;
     if (document.body.className !== doc.body.className) {
       document.body.className = doc.body.className;
