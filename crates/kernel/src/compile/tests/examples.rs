@@ -277,6 +277,68 @@ fn parse_cockpit_default_compare_scene_file() {
 }
 
 #[test]
+fn compile_cockpit_header_title_draw_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("04-header-title-draw");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile 04-header-title-draw failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "04-header-title-draw should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "04-header-title-draw should produce a scene contract"
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert!(
+        sc.panels.iter().any(|p| p.id == "gallery"),
+        "gallery panel must compile; got ids: {:?}",
+        sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn compile_cockpit_section_panel_draw_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("05-section-panel-draw");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile 05-section-panel-draw failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "05-section-panel-draw should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "05-section-panel-draw should produce a scene contract"
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    for panel_id in [
+        "block_title_metrics",
+        "block_title_only",
+        "block_metrics_only",
+        "block_title_metrics_solid",
+        "block_title_metrics_waist",
+    ] {
+        assert!(
+            sc.panels.iter().any(|p| p.id == panel_id),
+            "panel {panel_id} must compile; got ids: {:?}",
+            sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn compile_cockpit_qunfu_chrome_includes_body_shell_panel() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/cockpit");
