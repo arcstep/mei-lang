@@ -58,7 +58,7 @@ pub(super) fn access_shell(
     let preview_panel_class = if chrome_hidden {
         "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else if stage_enabled {
-        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-surface]:min-h-auto max-[1200px]:h-auto max-[1200px]:overflow-visible"
+        "min-h-0 min-w-0 h-full overflow-hidden [&_.preview-viewport-fluid-width]:max-h-full [&_.preview-viewport-fluid-width]:min-h-0 [&_.preview-viewport-fluid-width]:overflow-y-auto [&_.preview-surface]:min-h-auto max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else {
         "min-h-0 min-w-0 overflow-visible [&_.preview-surface]:min-h-auto"
     };

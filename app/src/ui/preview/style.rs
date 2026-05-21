@@ -22,8 +22,16 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .direction
                 .clone()
                 .unwrap_or_else(|| "column".to_string()),
-            layout.gap.clone().unwrap_or_else(|| "16px".to_string()),
-            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+            layout
+                .gap
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "16px".to_string()),
+            layout
+                .padding
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "0".to_string()),
         ),
         _ => format!(
             "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};",
@@ -38,8 +46,16 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .unwrap_or_else(|| vec!["auto".to_string()])
                 .join(" "),
             grid_template_areas_style(layout),
-            layout.gap.clone().unwrap_or_else(|| "16px".to_string()),
-            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+            layout
+                .gap
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "16px".to_string()),
+            layout
+                .padding
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "0".to_string()),
         ),
     }
 }
@@ -217,6 +233,26 @@ fn append_background_css_vars(style: &mut String, prefix: &str, background: &Val
     }
 }
 
+pub(super) fn frame_background_color(props: &Value) -> Option<String> {
+    let background = props.as_object()?.get("background")?;
+    match background {
+        Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        Value::Object(bg) => bg
+            .get("color")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+pub(super) fn frame_viewport_letterbox_style(props: &Value) -> String {
+    frame_background_color(props)
+        .map(|color| format!("background:{color};"))
+        .unwrap_or_default()
+}
+
 pub(super) fn frame_backdrop_css_vars(props: &Value) -> String {
     let Some(map) = props.as_object() else {
         return String::new();
@@ -226,6 +262,9 @@ pub(super) fn frame_backdrop_css_vars(props: &Value) -> String {
     };
     let mut style = String::new();
     append_background_css_vars(&mut style, "mei-frame", background);
+    if let Some(color) = frame_background_color(props) {
+        style.push_str(&format!("--mei-frame-letterbox:{color};"));
+    }
     style
 }
 
@@ -260,9 +299,76 @@ pub(super) fn container_visual_style_without_background(props: &Value) -> String
     append_string_style(&mut style, map.get("overflow"), "overflow");
     append_string_style(&mut style, map.get("min_height"), "min-height");
     append_string_style(&mut style, map.get("height"), "height");
+    append_string_style(&mut style, map.get("width"), "width");
+    append_string_style(&mut style, map.get("max_width"), "max-width");
     append_string_style(&mut style, map.get("min_width"), "min-width");
     append_string_style(&mut style, map.get("box_sizing"), "box-sizing");
     style
+}
+
+pub(super) fn length_px_from_value(value: &Value) -> Option<f64> {
+    if let Some(number) = value.as_f64() {
+        return Some(number);
+    }
+    if let Some(number) = value.as_i64() {
+        return Some(number as f64);
+    }
+    let raw = value.as_str()?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let number = raw.strip_suffix("px").unwrap_or(raw).trim();
+    number.parse().ok()
+}
+
+pub(super) fn length_px_from_props(props: &Value, key: &str) -> Option<f64> {
+    props
+        .as_object()
+        .and_then(|map| map.get(key))
+        .and_then(length_px_from_value)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct FrameStageContentBounds {
+    /// 内容区最大宽度（px）；`None` 表示按设计稿全宽。
+    pub max_width: Option<f64>,
+    pub height: f64,
+    pub fallback_width: f64,
+}
+
+fn frame_width_is_fluid(props: &Value) -> bool {
+    props
+        .as_object()
+        .and_then(|map| map.get("width"))
+        .and_then(Value::as_str)
+        .is_some_and(|raw| {
+            let value = raw.trim();
+            value.ends_with('%') || value.eq_ignore_ascii_case("auto")
+        })
+}
+
+/// Frame viewport 下 stage 尺寸语义：`max_width` 为上限；`width: 100%` 在上限内铺满宿主；
+/// 仅写 `width: Npx` 且无 `max_width` 时，将 N 视为上限（便于与旧示例兼容）。
+pub(super) fn frame_stage_content_bounds(
+    props: &Value,
+    design_width: f64,
+    design_height: f64,
+) -> FrameStageContentBounds {
+    let height = length_px_from_props(props, "height")
+        .or_else(|| length_px_from_props(props, "min_height"))
+        .unwrap_or(design_height);
+    let max_from_prop = length_px_from_props(props, "max_width");
+    let width_px = length_px_from_props(props, "width");
+    let max_width = match (max_from_prop, width_px) {
+        (Some(cap), _) => Some(cap),
+        (None, Some(cap)) if !frame_width_is_fluid(props) => Some(cap),
+        _ => None,
+    };
+    FrameStageContentBounds {
+        max_width,
+        height,
+        fallback_width: design_width,
+    }
 }
 
 pub(super) fn container_visual_style(props: &Value) -> String {
@@ -285,9 +391,24 @@ pub(super) fn append_string_style(style: &mut String, value: Option<&Value>, css
     }
 }
 
+/// `gap` / `padding` 等：纯数字自动补 `px`，避免 `gap:5` 被浏览器忽略。
+pub(super) fn normalize_css_length(raw: &str) -> String {
+    let value = raw.trim();
+    if value.is_empty() {
+        return value.to_string();
+    }
+    if value.chars().any(|ch| ch.is_ascii_alphabetic() || ch == '%') {
+        return value.to_string();
+    }
+    if value.ends_with("px") {
+        return value.to_string();
+    }
+    format!("{value}px")
+}
+
 pub(super) fn normalize_background_image(value: &str) -> String {
     let value = value.trim();
-    if value.is_empty() {
+    if value.is_empty() || value.eq_ignore_ascii_case("none") {
         return "none".to_string();
     }
     if value.contains('(') || value.starts_with("var(") || value.starts_with("url(") {
@@ -308,8 +429,16 @@ pub(super) fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> 
                 .direction
                 .clone()
                 .unwrap_or_else(|| "column".to_string()),
-            layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
-            layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+            layout
+                .gap
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "12px".to_string()),
+            layout
+                .padding
+                .as_deref()
+                .map(normalize_css_length)
+                .unwrap_or_else(|| "0".to_string()),
         ),
         _ => {
             let align_items = layout
@@ -337,8 +466,16 @@ pub(super) fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> 
                     .unwrap_or_else(|| vec!["auto".to_string()])
                     .join(" "),
                 grid_template_areas_style(layout),
-                layout.gap.clone().unwrap_or_else(|| "12px".to_string()),
-                layout.padding.clone().unwrap_or_else(|| "0".to_string()),
+                layout
+                    .gap
+                    .as_deref()
+                    .map(normalize_css_length)
+                    .unwrap_or_else(|| "12px".to_string()),
+                layout
+                    .padding
+                    .as_deref()
+                    .map(normalize_css_length)
+                    .unwrap_or_else(|| "0".to_string()),
             )
         }
     }
@@ -362,7 +499,21 @@ pub(super) fn block_style(
     {
         if let Some(area) = area {
             if !area.trim().is_empty() && area != "auto" {
-                return format!("grid-area:{};", area);
+                let mut style = format!(
+                    "grid-area:{};min-width:0;min-height:0;width:100%;height:100%;align-self:stretch;box-sizing:border-box;",
+                    area
+                );
+                if layout
+                    .and_then(|value| value.areas.as_ref())
+                    .is_some_and(|rows| {
+                        rows.first().is_some_and(|row| {
+                            row.len() > 1 && row.iter().all(|cell| cell == area)
+                        })
+                    })
+                {
+                    style.push_str("grid-column:1 / -1;");
+                }
+                return style;
             }
         }
     }

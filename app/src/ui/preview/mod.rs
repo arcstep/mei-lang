@@ -72,7 +72,34 @@ pub(super) fn preview_view(
                 })
                 .collect_view();
             if let Some(vp) = viewport::frame_viewport_config(&frame_props) {
-                let viewport_style = viewport::frame_viewport_style(&vp);
+                let content_bounds =
+                    viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
+                let fluid_width = content_bounds.max_width.is_some();
+                let mut viewport_style = if fluid_width {
+                    viewport::frame_viewport_style_fluid_width(&vp)
+                } else {
+                    viewport::frame_viewport_style(&vp)
+                };
+                viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
+                let content_max_width = content_bounds
+                    .max_width
+                    .unwrap_or(0.0)
+                    .to_string();
+                let content_height = if fluid_width {
+                    "0".to_string()
+                } else {
+                    content_bounds.height.to_string()
+                };
+                let content_fluid_width = if content_bounds.max_width.is_some() {
+                    "true"
+                } else {
+                    "false"
+                };
+                let viewport_class = if content_bounds.max_width.is_some() {
+                    "preview-viewport preview-viewport-fluid-width"
+                } else {
+                    "preview-viewport"
+                };
                 let stage_class = if style::has_frame_backdrop(&frame_props) {
                     "preview-surface preview-stage preview-stage-has-backdrop"
                 } else {
@@ -80,11 +107,14 @@ pub(super) fn preview_view(
                 };
                 return view! {
                     <section
-                        class="preview-viewport"
+                        class=viewport_class
                         style=viewport_style
                         data-mei-frame-viewport="true"
+                        data-content-fluid-width=content_fluid_width
                         data-design-width=vp.design_width.to_string()
                         data-design-height=vp.design_height.to_string()
+                        data-content-max-width=content_max_width
+                        data-content-height=content_height
                         data-scale-mode=vp.scale_mode.clone()
                         data-safe-top=vp.safe_top.to_string()
                         data-safe-right=vp.safe_right.to_string()
@@ -169,11 +199,15 @@ mod tests {
     use super::resolve::resolve_value;
     use super::style::{
         block_style, container_visual_style, container_visual_style_without_background,
-        frame_backdrop_css_vars, has_frame_backdrop, panel_body_style, panel_show_heading,
-        panel_style, surface_layout_style,
+        frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
+        has_frame_backdrop, normalize_background_image, panel_body_style,
+        panel_show_heading, panel_style, surface_layout_style,
     };
     use super::theme::{resolve_panel_props, ThemeResolved};
-    use super::viewport::{frame_viewport_config, frame_viewport_style};
+    use super::viewport::{
+        frame_stage_content_bounds_for_viewport, frame_stage_style, frame_viewport_config,
+        frame_viewport_style,
+    };
     use mei_lang_kernel::{
         build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
         CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
@@ -226,12 +260,35 @@ mod tests {
     }
 
     #[test]
+    fn panel_body_style_normalizes_bare_numeric_gap_to_px() {
+        let mut layout = grid_layout();
+        layout.gap = Some("5".to_string());
+        let style = panel_body_style(Some(&layout));
+        assert!(style.contains("gap:5px;"));
+    }
+
+    #[test]
     fn block_style_uses_full_span_in_grid() {
         let layout = grid_layout();
         assert_eq!(
             block_style(Some("full"), Some(&layout)),
             "grid-column:1 / -1;"
         );
+    }
+
+    #[test]
+    fn block_style_spans_head_row_across_columns() {
+        let mut layout = grid_layout();
+        layout.columns = Some(vec!["1fr".to_string(); 3]);
+        layout.rows = Some(vec!["59px".to_string(), "102px".to_string()]);
+        layout.areas = Some(vec![
+            vec!["head".to_string(); 3],
+            vec!["m0".to_string(), "m1".to_string(), "m2".to_string()],
+        ]);
+        let style = block_style(Some("head"), Some(&layout));
+        assert!(style.contains("grid-area:head;"));
+        assert!(style.contains("grid-column:1 / -1;"));
+        assert!(style.contains("height:100%;"));
     }
 
     #[test]
@@ -266,6 +323,22 @@ mod tests {
         assert!(style.contains("background-image:url(\"/workspace-components/demo.png\")"));
         assert!(style.contains("background-size:cover;"));
         assert!(style.contains("background-repeat:no-repeat;"));
+    }
+
+    #[test]
+    fn normalize_background_image_none_is_not_wrapped_as_url() {
+        assert_eq!(
+            normalize_background_image("none"),
+            "none".to_string()
+        );
+    }
+
+    #[test]
+    fn frame_viewport_letterbox_style_uses_background_color() {
+        let style = frame_viewport_letterbox_style(&json!({
+            "background": { "color": "rgb(29, 47, 65)" }
+        }));
+        assert!(style.contains("background:rgb(29, 47, 65);"));
     }
 
     #[test]
@@ -398,6 +471,57 @@ mod tests {
         assert!(style.contains("justify-items:start;"));
         assert!(style.contains("align-items:start;"));
         assert!(style.contains("padding:18px 18px 18px 18px;"));
+    }
+
+    #[test]
+    fn frame_stage_content_bounds_treats_max_width_as_cap() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 720,
+            }
+        }))
+        .expect("viewport config");
+        let props = json!({
+            "width": "100%",
+            "max_width": "520px",
+        });
+        let bounds = frame_stage_content_bounds(&props, vp.design_width, vp.design_height);
+        assert_eq!(bounds.max_width, Some(520.0));
+        assert_eq!(bounds.height, 720.0);
+        assert_eq!(bounds.fallback_width, 1920.0);
+        let viewport_bounds = frame_stage_content_bounds_for_viewport(&props, &vp);
+        assert_eq!(viewport_bounds.max_width, Some(520.0));
+    }
+
+    #[test]
+    fn frame_stage_style_uses_max_width_cap_not_fixed_canvas_width() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 720,
+            }
+        }))
+        .expect("viewport config");
+        let props = json!({
+            "max_width": "520px",
+            "width": "100%",
+        });
+        let theme = ThemeResolved {
+            id: "cockpit".to_string(),
+            frame: json!({}),
+            panel: json!({}),
+            panel_bare: json!({}),
+            heading: json!({}),
+            components: json!({}),
+            css_vars: Vec::new(),
+        };
+        let style = frame_stage_style(None, &props, &vp, &theme);
+        assert!(style.contains("--mei-frame-content-max-width:520px;"));
+        assert!(style.contains("width:100%;"));
+        assert!(style.contains("height:auto;"));
+        assert!(style.contains("transform:none;"));
+        assert!(!style.contains("width:1920px;"));
     }
 
     #[test]

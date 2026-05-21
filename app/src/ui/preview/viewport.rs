@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use super::style::{
     container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
-    surface_layout_style,
+    frame_stage_content_bounds, surface_layout_style, FrameStageContentBounds,
 };
 use super::theme::{theme_css_vars_style, ThemeResolved};
 
@@ -113,6 +113,19 @@ pub(super) fn frame_viewport_style(viewport: &FrameViewportConfig) -> String {
     )
 }
 
+/// `max_width` 限宽时：视口高度仍占满宿主，但允许纵向滚动以看完所有 panel。
+pub(super) fn frame_viewport_style_fluid_width(viewport: &FrameViewportConfig) -> String {
+    format!(
+        "width:100%;height:100%;max-height:100%;min-width:0;min-height:0;overflow-x:hidden;overflow-y:auto;display:grid;justify-items:{};align-items:{};align-content:start;padding:{}px {}px {}px {}px;",
+        viewport.align_x,
+        viewport.align_y,
+        viewport.safe_top,
+        viewport.safe_right,
+        viewport.safe_bottom,
+        viewport.safe_left,
+    )
+}
+
 pub(super) fn frame_viewport_config(props: &Value) -> Option<FrameViewportConfig> {
     let map = props.as_object()?;
     let viewport = map.get("viewport")?.as_object()?;
@@ -162,19 +175,36 @@ pub(super) fn frame_style(
     style
 }
 
+pub(super) fn frame_stage_content_bounds_for_viewport(
+    props: &Value,
+    viewport: &FrameViewportConfig,
+) -> FrameStageContentBounds {
+    frame_stage_content_bounds(props, viewport.design_width, viewport.design_height)
+}
+
 pub(super) fn frame_stage_style(
     layout: Option<&LayoutDecl>,
     props: &Value,
     viewport: &FrameViewportConfig,
     theme: &ThemeResolved,
 ) -> String {
+    let bounds = frame_stage_content_bounds_for_viewport(props, viewport);
     let mut style = surface_layout_style(layout);
     style.push_str(&frame_backdrop_css_vars(props));
     style.push_str(&container_visual_style_without_background(props));
     style.push_str(&theme_css_vars_style(theme));
-    style.push_str(&format!(
-        "width:{}px;height:{}px;transform-origin:top left;",
-        viewport.design_width, viewport.design_height
-    ));
+    if bounds.max_width.is_some() {
+        style.push_str(
+            "max-width:100%;width:100%;height:auto;min-height:0;transform:none;transform-origin:top left;",
+        );
+        if let Some(max_width) = bounds.max_width {
+            style.push_str(&format!("--mei-frame-content-max-width:{}px;", max_width));
+        }
+    } else {
+        style.push_str(&format!(
+            "width:{}px;height:{}px;transform-origin:top left;",
+            bounds.fallback_width, bounds.height
+        ));
+    }
     style
 }
