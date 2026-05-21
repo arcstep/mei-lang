@@ -34,7 +34,7 @@ pub(crate) fn build_meilang_system_prompt(
         );
     }
     blocks.push(
-        "Prefer declarative bindings: app(scene=scene_ref(...) / app.add_scene(scene_ref(...))), scene(world=world_ref(...), flow=flow_ref(...), frame=frame_ref(...)), frame(panels=[panel_ref(...), panel(...)]), frame.add_panel(...); use frame_embed(...) only for block embed inside panel blocks.".to_string(),
+        "Prefer declarative bindings: app(scene=scene_ref(...) / app.add_scene(scene_ref(...))), scene(world=world_ref(...), flow=flow_ref(...), frame=frame_ref(...)), frame(panels=[panel_ref(...), panel(...)]), frame.add_panel(...); embed external panel capsules with panel_capsule_ref(...) inside panel blocks. In component props use dataset_ref/resource_ref/metric_ref (local ids only); world_ref is only for scene.world singleton slot.".to_string(),
     );
     blocks.push(
         "Default to Chinese (Simplified Chinese) for all responses, plans, progress updates, and explanations unless the user explicitly requests another language.".to_string(),

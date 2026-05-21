@@ -510,9 +510,9 @@ mod tests {
             Some("sales_total")
         );
 
-        let world_ref = json!({"__ref": "world", "id": "sales_metrics"});
-        let resolved_world = resolve_value(
-            &world_ref,
+        let dataset_ref = json!({"__ref": "dataset", "id": "sales_metrics"});
+        let resolved_dataset = resolve_value(
+            &dataset_ref,
             &scene_contract,
             &resources,
             &scene_anchor,
@@ -520,19 +520,19 @@ mod tests {
             &compiled,
         );
         assert_eq!(
-            resolved_world.get("id").and_then(|value| value.as_str()),
+            resolved_dataset.get("id").and_then(|value| value.as_str()),
             Some("sales_metrics")
         );
-        assert!(resolved_world.get("rows").is_some());
+        assert!(resolved_dataset.get("rows").is_some());
         assert_eq!(
-            resolved_world
+            resolved_dataset
                 .get("__mei_runtime_ref")
                 .and_then(|value| value.get("kind"))
                 .and_then(|value| value.as_str()),
             Some("data")
         );
         assert_eq!(
-            resolved_world
+            resolved_dataset
                 .get("__mei_runtime_ref")
                 .and_then(|value| value.get("dataset_id"))
                 .and_then(|value| value.as_str()),

@@ -34,7 +34,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -92,7 +92,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -153,7 +153,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -257,7 +257,7 @@ frame.add_panel(
     id = "status",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -304,7 +304,7 @@ frame.add_panel(
     id = "status",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -342,7 +342,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -407,7 +407,7 @@ world(resources = [resource(id = "doc", kind = "document", content = "hi")])
 
 frame(layout = flex(direction = "column"))
 
-frame.add_panel(id = "p1", area = "auto", blocks = [doc.markdown(area = "auto", resource = world_ref("doc"))])
+frame.add_panel(id = "p1", area = "auto", blocks = [doc.markdown(area = "auto", resource = resource_ref("doc"))])
 "#,
     );
 
@@ -444,7 +444,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,
@@ -533,7 +533,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#,

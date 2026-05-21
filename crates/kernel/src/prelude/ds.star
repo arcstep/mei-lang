@@ -169,11 +169,13 @@ def data_ref(path):
         return path
     return _analysis("rows", dataset = path)
 
-def metric_ref(id, from_dataset = None):
+def metric_ref(id, from_dataset = None, scene_file = None, scene_id = None):
     return _without_empty({
         "__ref": "metric",
         "id": id,
         "from_dataset": from_dataset,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
     })
 
 def _computed_metric_source(metric):

@@ -345,3 +345,11 @@ def resource_ref(id, scene_file = None, scene_id = None):
         "scene_id": scene_id,
         "scene_file": scene_file,
     })
+
+def entity_ref(id, scene_file = None, scene_id = None):
+    return _clean({
+        "__ref": "entity",
+        "id": id,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+    })

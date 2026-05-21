@@ -1,7 +1,7 @@
 //! UI 数据绑定策略：scene 的 panel / block 树中禁止直连行集（`ds.data_ref` 物化形态）。
 //!
-//! 组件侧应使用 `world_ref("资源 id")`，由 `world(...)` / `world.add_resource` 与 legacy 物化合并后的
-//! `resources` 表统一解析（见预览层 `resolve_value`）。
+//! 组件 props 应使用本地 id 的 `dataset_ref` / `metric_ref` / `resource_ref`；
+//! `world_ref` 仅用于 `scene.world` 单例槽位，不得作为资源选择器。
 
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -11,7 +11,7 @@ use crate::model::{Diagnostic, LoadedResource, PanelDecl, SceneContract, Severit
 const IMPORTED_RESOURCE_DOC: &str =
     "see docs/mei-lang/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
 
-/// 在 catalog 合并后检查：UI `world_ref` 指向 catalog 中可见但未进入当前 scene world 授权表的资源。
+/// 在 catalog 合并后检查：UI 资源 ref 指向 catalog 中可见但未进入当前 scene world 授权表的资源。
 pub(super) fn validate_imported_catalog_world_refs(
     contract: &SceneContract,
     authorized_resources: &[LoadedResource],
@@ -92,7 +92,7 @@ fn scan_ui_node_imported_refs(
                 diagnostics,
             );
         }
-        UiNodeDecl::FrameRef(_) => {}
+        UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
     }
 }
 
@@ -110,7 +110,7 @@ fn push_imported_violations(
             severity: Severity::Warning,
             code: "imported_resource_not_authorized".to_string(),
             message: format!(
-                "{context}：在 `{path}` 的 world_ref 引用资源 `{id}` 来自 catalog 合并未授权进当前 scene world；请通过 world.add_resource 或 capsule 迁移显式授权（{IMPORTED_RESOURCE_DOC}）"
+                "{context}：在 `{path}` 的资源 ref 引用 `{id}` 来自 catalog 合并未授权进当前 scene world；请通过 world.add_resource 或 capsule 迁移显式授权（{IMPORTED_RESOURCE_DOC}）"
             ),
             source_path: Some(target_file.to_string()),
         });
@@ -161,7 +161,7 @@ fn imported_world_ref_id(
     merged_ids: &BTreeSet<String>,
 ) -> Option<String> {
     let ref_kind = map.get("__ref").and_then(Value::as_str)?;
-    if ref_kind != "world" && ref_kind != "dataset" && ref_kind != "resource" {
+    if ref_kind != "dataset" && ref_kind != "metric" && ref_kind != "resource" && ref_kind != "entity" {
         return None;
     }
     let id = map
@@ -195,7 +195,34 @@ pub(super) fn validate_scene_ui_data_bindings(
         scan_panel_props(panel, &resource_ids, target_file, diagnostics);
         for node in &panel.blocks {
             scan_ui_node(node, &resource_ids, target_file, diagnostics);
+            scan_deprecated_embed_nodes(node, target_file, diagnostics);
         }
+    }
+}
+
+fn scan_deprecated_embed_nodes(
+    node: &UiNodeDecl,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    match node {
+        UiNodeDecl::Panel(panel) => {
+            for child in &panel.blocks {
+                scan_deprecated_embed_nodes(child, target_file, diagnostics);
+            }
+        }
+        UiNodeDecl::FrameRef(frame_ref) => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "deprecated_frame_ref_block_embed".to_string(),
+                message: format!(
+                    "legacy frame_ref block embed `{}` is deprecated; migrate to panel_capsule_ref(scene_file = ..., area = ...)",
+                    frame_ref.frame_ref
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+        }
+        UiNodeDecl::Block(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
     }
 }
 
@@ -240,7 +267,7 @@ fn scan_ui_node(
                 diagnostics,
             );
         }
-        UiNodeDecl::FrameRef(_) => {}
+        UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
     }
 }
 
@@ -257,17 +284,17 @@ fn push_violations(
             severity: Severity::Error,
             code: "forbidden_direct_ui_data_binding".to_string(),
             message: format!(
-                "{context}：在 `{path}` 发现禁止的数据直连（`ds.data_ref` / `__ref:\"data\"` / `analysis_expr` rows）；请改为 `world_ref(\"资源 id\")`，并确保该 id 出现在本入口编译产出的资源表中"
+                "{context}：在 `{path}` 发现禁止的数据直连（`ds.data_ref` / `__ref:\"data\"` / `analysis_expr` rows）；请改为 `dataset_ref(id=...)` / `resource_ref(id=...)`，并确保该 id 已在当前 scene world 资源账本中"
             ),
             source_path: Some(target_file.to_string()),
         });
     }
-    let world_ref_issues = collect_invalid_world_ref_paths(value, "$", resource_ids);
-    for (path, message) in world_ref_issues {
+    let ref_issues = collect_resource_ref_issues(value, "$", resource_ids);
+    for (path, code, message) in ref_issues {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
-            code: "invalid_world_resource_ref".to_string(),
-            message: format!("{context}：在 `{path}` 发现非法 world_ref：{message}"),
+            code,
+            message: format!("{context}：在 `{path}` {message}"),
             source_path: Some(target_file.to_string()),
         });
     }
@@ -304,26 +331,41 @@ fn forbidden_binding(map: &serde_json::Map<String, Value>) -> bool {
         && map.get("type").and_then(Value::as_str) == Some("rows")
 }
 
-fn collect_invalid_world_ref_paths(
+fn has_external_locator(map: &serde_json::Map<String, Value>) -> bool {
+    map.get("scene_file")
+        .or_else(|| map.get("path"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .is_some()
+        || map
+            .get("scene_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_some()
+}
+
+fn collect_resource_ref_issues(
     value: &Value,
     path: &str,
     resource_ids: &BTreeSet<String>,
-) -> Vec<(String, String)> {
+) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     match value {
         Value::Object(map) => {
-            if let Some(issue) = world_ref_issue(map, resource_ids) {
-                out.push((path.to_string(), issue));
+            if let Some((code, message)) = resource_ref_issue(map, resource_ids) {
+                out.push((path.to_string(), code, message));
             }
             for (key, child) in map {
                 let next = format!("{path}.{key}");
-                out.extend(collect_invalid_world_ref_paths(child, &next, resource_ids));
+                out.extend(collect_resource_ref_issues(child, &next, resource_ids));
             }
         }
         Value::Array(items) => {
             for (idx, child) in items.iter().enumerate() {
                 let next = format!("{path}[{idx}]");
-                out.extend(collect_invalid_world_ref_paths(child, &next, resource_ids));
+                out.extend(collect_resource_ref_issues(child, &next, resource_ids));
             }
         }
         _ => {}
@@ -331,12 +373,34 @@ fn collect_invalid_world_ref_paths(
     out
 }
 
-fn world_ref_issue(
+fn resource_ref_issue(
     map: &serde_json::Map<String, Value>,
     resource_ids: &BTreeSet<String>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     let ref_kind = map.get("__ref").and_then(Value::as_str)?;
-    if ref_kind != "world" && ref_kind != "dataset" && ref_kind != "resource" {
+    if ref_kind == "world" {
+        return Some((
+            "misused_world_ref_in_props".to_string(),
+            "误用 `world_ref` 作资源选择器；`world_ref` 仅用于 scene.world 单例槽位，资源消费请用 dataset_ref/resource_ref/metric_ref".to_string(),
+        ));
+    }
+    if ref_kind != "dataset" && ref_kind != "metric" && ref_kind != "resource" && ref_kind != "entity" {
+        return None;
+    }
+    if has_external_locator(map) {
+        return Some((
+            "external_ref_requires_world_import".to_string(),
+            "不得在 frame/component props 中直接跨文件引用；请先在 world 中引入该对象".to_string(),
+        ));
+    }
+    if ref_kind == "metric"
+        && map
+            .get("from_dataset")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .is_some()
+    {
         return None;
     }
     let id = map
@@ -345,13 +409,22 @@ fn world_ref_issue(
         .unwrap_or_default()
         .trim();
     if id.is_empty() {
-        return Some("缺少资源 id".to_string());
+        return Some((
+            "invalid_resource_ref".to_string(),
+            "缺少资源 id".to_string(),
+        ));
     }
     if id == "__source_path__" || id.ends_with(".mei") {
-        return Some(format!("资源 id `{id}` 已禁用；请使用稳定显式 id"));
+        return Some((
+            "invalid_resource_ref".to_string(),
+            format!("资源 id `{id}` 已禁用；请使用稳定显式 id"),
+        ));
     }
     if !resource_ids.contains(id) {
-        return Some(format!("资源 id `{id}` 未在当前入口 world 资源清单中声明"));
+        return Some((
+            "invalid_resource_ref".to_string(),
+            format!("资源 id `{id}` 未在当前 scene world 资源清单中可见"),
+        ));
     }
     None
 }
@@ -404,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn flags_imported_catalog_world_ref_as_warning() {
+    fn flags_imported_catalog_resource_ref_as_warning() {
         let contract = SceneContract {
             scene: sample_scene(),
             themes: vec![],
@@ -424,7 +497,7 @@ mod tests {
                     title: None,
                     area: None,
                     props: serde_json::json!({
-                        "data": {"__ref": "world", "id": "catalog_only"}
+                        "data": {"__ref": "resource", "id": "catalog_only"}
                     }),
                 })],
                 props: Value::Object(serde_json::Map::new()),
@@ -461,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn allows_world_ref_in_props() {
+    fn flags_misused_world_ref_in_props() {
         let contract = SceneContract {
             scene: sample_scene(),
             themes: vec![],
@@ -482,6 +555,46 @@ mod tests {
                     area: None,
                     props: serde_json::json!({
                         "data": {"__ref": "world", "id": "my_dataset"}
+                    }),
+                })],
+                props: Value::Object(serde_json::Map::new()),
+            }],
+        };
+        let mut diagnostics = Vec::new();
+        let resources = vec![LoadedResource {
+            id: "my_dataset".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: None,
+        }];
+        validate_scene_ui_data_bindings(&contract, &resources, "entry.mei", &mut diagnostics);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].code, "misused_world_ref_in_props");
+    }
+
+    #[test]
+    fn allows_resource_ref_in_props_when_authorized() {
+        let contract = SceneContract {
+            scene: sample_scene(),
+            themes: vec![],
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![PanelDecl {
+                kind: "panel".to_string(),
+                id: "p1".to_string(),
+                title: None,
+                area: None,
+                layout: None,
+                blocks: vec![UiNodeDecl::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "dataset.table".to_string(),
+                    id: None,
+                    title: None,
+                    area: None,
+                    props: serde_json::json!({
+                        "data": {"__ref": "resource", "id": "my_dataset"}
                     }),
                 })],
                 props: Value::Object(serde_json::Map::new()),

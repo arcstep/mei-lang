@@ -98,7 +98,7 @@ pub(super) fn resolve_value(
         Value::Object(map) => {
             if matches!(
                 map.get("__ref").and_then(Value::as_str),
-                Some("world") | Some("dataset") | Some("resource")
+                Some("dataset") | Some("metric") | Some("resource") | Some("entity")
             ) {
                 if let Some(canonical_id) =
                     resolve_dataset_selector_value(compiled, value, resource_index)

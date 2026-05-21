@@ -134,7 +134,7 @@ pub(super) fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &m
             UiNodeDecl::Block(block) => {
                 asset_keys.insert(block.use_key.clone());
             }
-            UiNodeDecl::FrameRef(_) => {}
+            UiNodeDecl::FrameRef(_) | UiNodeDecl::PanelCapsuleRef(_) => {}
         }
     }
 }

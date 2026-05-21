@@ -67,7 +67,7 @@ frame.add_panel(
     id = "welcome",
     area = "auto",
     blocks = [
-        doc.markdown(area = "auto", resource = world_ref("welcome_doc")),
+        doc.markdown(area = "auto", resource = resource_ref("welcome_doc")),
     ],
 )
 "#

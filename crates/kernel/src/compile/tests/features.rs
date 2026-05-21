@@ -318,7 +318,7 @@ frame.add_panel(
     id = "table",
     area = "auto",
     blocks = [
-        component("dataset.table", area = "auto", props = {"data": world_ref("legacy_rows")}),
+        component("dataset.table", area = "auto", props = {"data": dataset_ref("legacy_rows")}),
     ],
 )
 "#,
@@ -376,7 +376,7 @@ frame.add_panel(
     id = "table",
     area = "auto",
     blocks = [
-        component("dataset.table", area = "auto", props = {"data": world_ref("missing_rows")}),
+        component("dataset.table", area = "auto", props = {"data": dataset_ref("missing_rows")}),
     ],
 )
 "#,
@@ -409,9 +409,60 @@ frame.add_panel(
         compiled
             .diagnostics
             .iter()
-            .any(|d| d.code == "invalid_world_resource_ref"),
-        "expected invalid world ref diagnostic, got {:?}",
+            .any(|d| d.code == "invalid_resource_ref"),
+        "expected invalid resource ref diagnostic, got {:?}",
         compiled.diagnostics
+    );
+}
+
+#[test]
+fn compile_rejects_misused_world_ref_and_external_dataset_ref_in_props() {
+    let root = temp_root("typed-ref-props-policy");
+    let app_root = root.join("typed-ref-props-policy");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "typed-ref-props-policy", default_scene = "home")
+scene(id = "home")
+world(resources = [resource(id = "local_ds", kind = "dataset", source = ds.csv(path = "data/a.csv"))])
+frame()
+frame.add_panel(
+    id = "p1",
+    area = "auto",
+    blocks = [
+        component("dataset.table", area = "auto", props = {"data": world_ref("local_ds")}),
+        component("dataset.table", area = "auto", props = {"data": dataset_ref("remote_ds", scene_file = "other.mei")}),
+    ],
+)
+"#,
+    );
+    write_file(&app_root.join("data/a.csv"), "x\n1\n");
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"{ "components": { "dataset.table": { "tag": "mei-dataset-table", "script": "dataset-table.js" } } }"#,
+    );
+    let compiled = compile_app_from_root_with_options(
+        &root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("main.mei".to_string()),
+        },
+    )
+    .expect("compile");
+    let codes: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .map(|d| d.code.as_str())
+        .collect();
+    assert!(
+        codes.contains(&"misused_world_ref_in_props"),
+        "expected misused_world_ref_in_props, got {codes:?}"
+    );
+    assert!(
+        codes.contains(&"external_ref_requires_world_import"),
+        "expected external_ref_requires_world_import, got {codes:?}"
     );
 }
 
@@ -498,7 +549,7 @@ frame.add_panel(
     id = "table",
     area = "auto",
     blocks = [
-        component("dataset.table", area = "auto", props = {"data": world_ref("sales_metrics")}),
+        component("dataset.table", area = "auto", props = {"data": dataset_ref("sales_metrics")}),
     ],
 )
 "#,

@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 use crate::model::{CompiledApp, LoadedResource};
-use crate::typed_refs::{decode_ref_value, normalize_rel_path};
+use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeResourceResolveError {
@@ -198,6 +198,12 @@ pub fn resolve_dataset_selector_value(
     index: &RuntimeResourceIndex,
 ) -> Option<String> {
     if let Some(expr) = decode_ref_value(value) {
+        if matches!(
+            expr.kind,
+            RefKind::World | RefKind::Scene | RefKind::Flow | RefKind::Frame | RefKind::Panel
+        ) {
+            return None;
+        }
         let selector = expr
             .id
             .as_deref()

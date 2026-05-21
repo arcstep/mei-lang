@@ -15,6 +15,7 @@ pub enum RefKind {
     Dataset,
     Metric,
     Resource,
+    Entity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
@@ -90,6 +91,10 @@ impl RefExpr {
     pub fn resource(id: impl Into<String>, locator: SceneLocator) -> Self {
         Self::new(RefKind::Resource, Some(id.into()), locator)
     }
+
+    pub fn entity(id: impl Into<String>, locator: SceneLocator) -> Self {
+        Self::new(RefKind::Entity, Some(id.into()), locator)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +131,7 @@ pub fn decode_ref_value(value: &Value) -> Option<RefExpr> {
                 "dataset" => RefKind::Dataset,
                 "metric" => RefKind::Metric,
                 "resource" => RefKind::Resource,
+                "entity" => RefKind::Entity,
                 "data" => RefKind::Dataset,
                 _ => return None,
             };
@@ -244,6 +250,7 @@ fn ref_kind_tag(kind: RefKind) -> &'static str {
         RefKind::Dataset => "dataset",
         RefKind::Metric => "metric",
         RefKind::Resource => "resource",
+        RefKind::Entity => "entity",
     }
 }
 

@@ -319,24 +319,29 @@ def component_ref(use, pack = "cockpit-default", data = None, props = None, mapp
         "mapping": mapping,
     })
 
-def frame_embed(frame, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
+def panel_capsule_ref(scene_file, area, id = None, title = None, data = None, render = "placeholder-or-embed"):
     ref_id = id if id != None else area
-    # Block-only embed: must not _declare (would duplicate as top-level export).
     return {"component": _without_empty({
         "id": ref_id,
         "title": title,
-        "block_kind": "frame_ref",
+        "block_kind": "panel_capsule_ref",
         "area": area,
-        "frame_ref": frame,
+        "scene_file": scene_file,
         "render_policy": render,
         "data": data,
     })}
 
-def frame_ref(frame = None, scene_file = None, scene_id = None, id = None, area = None, title = None, data = None, render = "placeholder-or-embed"):
-    if area != None:
-        return frame_embed(frame, area, id = id, title = title, data = data, render = render)
-    if frame != None and scene_file == None and scene_id == None:
-        return frame_embed(frame, area if area != None else "auto", id = id, title = title, data = data, render = render)
+def frame_ref(scene_file = None, scene_id = None, id = None, frame = None, area = None, title = None, data = None, render = None):
+    if frame != None or area != None:
+        path = frame if frame != None else scene_file
+        return panel_capsule_ref(
+            path,
+            area if area != None else "auto",
+            id = id,
+            title = title,
+            data = data,
+            render = render if render != None else "placeholder-or-embed",
+        )
     return _clean({
         "__ref": "frame",
         "id": id,
