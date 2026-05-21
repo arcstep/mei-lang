@@ -7,6 +7,7 @@
     "/app-assets/frame-stage.js",
     "/app-assets/statusbar.js",
     "/app-assets/manage-tabs.js",
+    "/app-assets/manage-diagnostics.js",
     "/app-assets/workspace-splitters.js",
     "/app-assets/source-tree-controls.js",
     "/app-assets/source-highlight.js",

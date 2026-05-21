@@ -4,7 +4,7 @@ use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use super::agent_panel;
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
-    is_mei_script_target, source_language, AssetShellKind,
+    is_mei_script_target, source_language, AssetShellKind, DiagnosticsFilterMode,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::preview;
@@ -50,11 +50,13 @@ pub(super) fn manage_shell(
     selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
+    diag_filter: Option<&str>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
+    let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
-    let preview = preview::preview_view(compiled, app_path);
+    let preview = preview::preview_view(compiled, app_path, selected_target.as_str());
     let active_scene = compiled.active_scene.as_deref();
     let scene_target_pairs = compiled
         .scene_routes
@@ -71,7 +73,12 @@ pub(super) fn manage_shell(
         compiled.active_target_file.as_str(),
         active_tab,
     );
-    let diagnostics = diagnostics_view(compiled);
+    let diagnostics = diagnostics_view(
+        compiled,
+        app_path,
+        selected_target.as_str(),
+        diag_filter_mode,
+    );
     let diagnostics_total = compiled.diagnostics.len();
     let script_target = is_mei_script_target(selected_target.as_str());
     let active_manage_tab = manage_view_tab_from_query(
@@ -147,6 +154,11 @@ pub(super) fn manage_shell(
                 selected_target.as_str(),
                 script_target,
                 tab,
+                if tab == ManageViewTab::Diagnostics {
+                    Some(diag_filter_mode.slug())
+                } else {
+                    None
+                },
             );
             let class = if tab == active_manage_tab {
                 "manage-view-tab is-active"

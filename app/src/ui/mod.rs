@@ -81,6 +81,7 @@ pub fn render_page(
     selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
+    diag_filter: Option<&str>,
     chrome_hidden: bool,
 ) -> String {
     let shell_mode_class = if route_mode == UiRouteMode::Access && chrome_hidden {
@@ -113,6 +114,7 @@ pub fn render_page(
             selected_scene,
             preview_target,
             active_tab,
+            diag_filter,
         ),
     };
     let chrome_scripts = chrome_scripts_view(route_mode);
@@ -250,6 +252,7 @@ mod tests {
                 "docs/README #1.md",
                 false,
                 ManageViewTab::Source,
+                None,
             ),
             "/apps/manage/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
         );

@@ -121,36 +121,15 @@ fn node_view(
             runtime_ctx,
             theme,
         ),
-        UiNodeDecl::PanelCapsuleRef(capsule) => {
-            let path = capsule.scene_file.clone();
-            let label = capsule.title.clone().unwrap_or_else(|| path.clone());
-            let area = capsule.area.as_deref();
+        UiNodeDecl::PanelRefEmbed(embed) => {
+            let path = embed.scene_file.clone();
+            let label = embed.title.clone().unwrap_or_else(|| path.clone());
+            let area = embed.area.as_deref();
             view! {
                 <section
                     class="preview-card frame-ref-slot"
                     style=block_style(area, parent_layout)
-                    data-panel-capsule=path.as_str()
-                >
-                    <div class="panel-heading">
-                        <h3>{label}</h3>
-                    </div>
-                    <p class="text-sm opacity-70">{"embedded capsule: "}{path.clone()}</p>
-                </section>
-            }
-            .into_any()
-        }
-        UiNodeDecl::FrameRef(frame_ref) => {
-            let path = frame_ref.frame_ref.clone();
-            let label = frame_ref
-                .title
-                .clone()
-                .unwrap_or_else(|| path.clone());
-            let area = frame_ref.area.as_deref();
-            view! {
-                <section
-                    class="preview-card frame-ref-slot"
-                    style=block_style(area, parent_layout)
-                    data-panel-capsule=path.as_str()
+                    data-panel-ref-embed=path.as_str()
                 >
                     <div class="panel-heading">
                         <h3>{label}</h3>

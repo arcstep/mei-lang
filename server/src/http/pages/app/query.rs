@@ -9,6 +9,8 @@ pub struct AppQuery {
     pub file: Option<String>,
     pub scene: Option<String>,
     pub tab: Option<String>,
+    /// 管理态调试页：编译诊断范围。`all` = 全部诊断；缺省或其它 = 当前文件。
+    pub diag_filter: Option<String>,
     pub chrome: Option<String>,
 }
 

@@ -3,8 +3,10 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, CompiledApp, LoadedResource,
-    RuntimeResourceIndex, Severity,
+    RuntimeResourceIndex,
 };
+
+use super::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
 
 mod nodes;
 mod resolve;
@@ -33,11 +35,11 @@ pub(super) fn build_preview_runtime_context(compiled: &CompiledApp) -> PreviewRu
     }
 }
 
-pub(super) fn build_resource_map(compiled: &CompiledApp) -> BTreeMap<String, LoadedResource> {
-    build_preview_runtime_context(compiled).resources
-}
-
-pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
+pub(super) fn preview_view(
+    compiled: &CompiledApp,
+    app_path: &str,
+    selected_target: &str,
+) -> AnyView {
     let runtime_ctx = build_preview_runtime_context(compiled);
 
     if let Some(scene_contract) = &compiled.scene_contract {
@@ -103,28 +105,24 @@ pub(super) fn preview_view(compiled: &CompiledApp, app_path: &str) -> AnyView {
         .into_any();
     }
 
-    let blocking_errors = compiled
-        .diagnostics
-        .iter()
-        .filter(|diag| matches!(diag.severity, Severity::Error))
-        .cloned()
-        .collect::<Vec<_>>();
+    let blocking_errors = blocking_errors_for_preview(compiled, selected_target, 3);
     if !blocking_errors.is_empty() {
         let error_items = blocking_errors
             .into_iter()
-            .take(3)
             .map(|diag| {
-                let source = diag
-                    .source_path
-                    .map(|path| format!(" · {}", path))
-                    .unwrap_or_default();
+                let source = normalize_diagnostic_source(
+                    &compiled.app_root,
+                    diag.source_path.as_deref(),
+                )
+                .map(|path| format!(" · {path}"))
+                .unwrap_or_default();
                 view! {
                     <li class="rounded-xl border border-red-400/25 bg-red-950/30 px-3 py-2">
                         <div class="text-xs font-semibold uppercase tracking-[0.02em] text-red-200">
-                            {diag.code}
+                            {diag.code.clone()}
                         </div>
                         <div class="mt-1 text-sm leading-6 text-slate-200">
-                            {diag.message}
+                            {diag.message.clone()}
                         </div>
                         <div class="mt-1 text-[11px] text-slate-400">
                             {source}

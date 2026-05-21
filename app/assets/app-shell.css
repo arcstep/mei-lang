@@ -321,6 +321,15 @@ a { color: inherit; text-decoration: none; }
   width: 6px;
   height: 6px;
 }
+a.status-chip-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+a.status-chip-link:hover,
+a.status-chip-link:focus-visible {
+  filter: brightness(1.08);
+}
 .status-chip-runtime::before {
   width: 8px;
   height: 8px;
@@ -1269,6 +1278,32 @@ a.tree-link {
   color: #c7dbf2;
   font-size: 10px;
   font-weight: 700;
+}
+.manage-diag-filter {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(117, 131, 151, 0.28);
+  background: rgba(10, 15, 24, 0.45);
+  color: #b8c8dc;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
+}
+.manage-diag-filter:hover,
+.manage-diag-filter:focus-visible {
+  background: rgba(51, 67, 93, 0.56);
+  color: #f4f8fc;
+  border-color: rgba(117, 131, 151, 0.42);
+}
+.manage-diag-filter.is-active {
+  background: linear-gradient(180deg, rgba(25, 68, 79, 0.86), rgba(18, 55, 63, 0.9));
+  color: #eefbfb;
+  border-color: rgba(110, 203, 201, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(110, 203, 201, 0.18);
 }
 .manage-view-tab.is-active .manage-view-tab-badge {
   border-color: rgba(103, 198, 197, 0.64);

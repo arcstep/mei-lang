@@ -190,6 +190,7 @@ pub async fn app_page(
                         manage_scene_resolved.as_deref(),
                         normalized_preview_target.as_deref(),
                         query.tab.as_deref(),
+                        query.diag_filter.as_deref(),
                         chrome_hidden,
                     );
                     (html, elapsed_ms(t))
@@ -474,6 +475,7 @@ pub async fn app_page(
             manage_scene_resolved.as_deref(),
             normalized_preview_target.as_deref(),
             query.tab.as_deref(),
+            query.diag_filter.as_deref(),
             chrome_hidden,
         );
         (html, elapsed_ms(t))

@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    build_runtime_resource_index, resolve_dataset_resource_id, resolve_dataset_selector_value,
-    CompiledApp, LoadedResource, RuntimeResourceIndex, SceneContract,
+    resolve_dataset_resource_id, resolve_dataset_selector_value, CompiledApp, LoadedResource,
+    RuntimeResourceIndex, SceneContract,
 };
 use serde_json::{json, Value};
 

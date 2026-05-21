@@ -18,8 +18,8 @@ pub(super) fn access_shell(
     active_tab: Option<&str>,
     chrome_hidden: bool,
 ) -> AnyView {
-    let preview = preview::preview_view(compiled, app_path);
     let current_target = preview_target.unwrap_or(&compiled.active_target_file);
+    let preview = preview::preview_view(compiled, app_path, current_target);
     let panel_tab = active_tab.unwrap_or("preview");
     let topbar = topbar_view(
         apps,

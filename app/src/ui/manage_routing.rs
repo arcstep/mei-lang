@@ -101,6 +101,7 @@ pub(super) fn manage_tab_href(
     selected_target: &str,
     script_target: bool,
     tab: ManageViewTab,
+    diag_filter: Option<&str>,
 ) -> String {
     let mut query = Vec::new();
     if let Some(f) = file_param {
@@ -120,6 +121,13 @@ pub(super) fn manage_tab_href(
         ManageViewTab::Preview
     };
     query.push(format!("tab={}", route_tab.slug()));
+    if matches!(tab, ManageViewTab::Diagnostics) {
+        if let Some(filter) = diag_filter.map(str::trim).filter(|s| !s.is_empty()) {
+            if filter.eq_ignore_ascii_case("all") {
+                query.push("diag_filter=all".to_string());
+            }
+        }
+    }
     format!("/apps/manage/{app_path}?{}", query.join("&"))
 }
 

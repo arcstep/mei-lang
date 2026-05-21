@@ -1,7 +1,42 @@
 use leptos::prelude::*;
 use mei_lang_kernel::CompiledApp;
 
+use super::super::compile_status::{
+    compile_diagnostics_for_mode, compile_diagnostics_other_file_count, is_manage_pipeline_diag,
+    normalize_diagnostic_source, severity_counts, DiagnosticsFilterMode,
+};
+use super::super::manage_routing::{manage_tab_href, ManageViewTab};
 use super::html_escape::escape_html_attr;
+
+fn compile_diag_card(diag: &mei_lang_kernel::Diagnostic, compiled: &CompiledApp) -> AnyView {
+    let class = match diag.severity {
+        mei_lang_kernel::Severity::Error => {
+            "diag mei-compile-diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-red-900/25 border-red-400/30"
+        }
+        mei_lang_kernel::Severity::Warning => {
+            "diag mei-compile-diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-amber-900/25 border-amber-300/35"
+        }
+        mei_lang_kernel::Severity::Info => {
+            "diag mei-compile-diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-blue-900/25 border-blue-300/35"
+        }
+    };
+    let source_label = normalize_diagnostic_source(&compiled.app_root, diag.source_path.as_deref())
+        .unwrap_or_else(|| "（未标注来源）".to_string());
+    let source_attr = escape_html_attr(&source_label);
+    view! {
+        <div
+            class=class
+            data-mei-compile-diag="true"
+            attr:data-diag-code=diag.code.clone()
+            attr:data-diag-source=source_attr
+        >
+            <strong class="text-xs font-semibold text-slate-50">{diag.code.clone()}</strong>
+            <span class="text-xs leading-5 text-slate-200">{diag.message.clone()}</span>
+            <span class="text-[10px] font-mono text-slate-500">{format!("来源：{source_label}")}</span>
+        </div>
+    }
+    .into_any()
+}
 
 fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView {
     let base_class =
@@ -214,55 +249,134 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
     }
 }
 
-pub(super) fn diagnostics_view(compiled: &CompiledApp) -> AnyView {
+pub(super) fn diagnostics_view(
+    compiled: &CompiledApp,
+    app_path: &str,
+    selected_target: &str,
+    filter_mode: DiagnosticsFilterMode,
+) -> AnyView {
     if compiled.diagnostics.is_empty() {
         return view! { <></> }.into_any();
     }
-    let diagnostics = compiled
+    let pipeline_views = compiled
         .diagnostics
         .iter()
-        .map(|diag| {
-            if diag.code == "manage_page_pipeline" {
-                manage_page_pipeline_diag_view(diag)
-            } else {
-                let class = match diag.severity {
-                    mei_lang_kernel::Severity::Error => {
-                        "diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-red-900/25 border-red-400/30"
-                    }
-                    mei_lang_kernel::Severity::Warning => {
-                        "diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-amber-900/25 border-amber-300/35"
-                    }
-                    mei_lang_kernel::Severity::Info => {
-                        "diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-blue-900/25 border-blue-300/35"
-                    }
-                };
-                view! {
-                    <div class=class>
-                        <strong class="text-xs font-semibold text-slate-50">{diag.code.clone()}</strong>
-                        <span class="text-xs leading-5 text-slate-200">{diag.message.clone()}</span>
-                    </div>
-                }
-                .into_any()
-            }
-        })
+        .filter(|diag| is_manage_pipeline_diag(diag))
+        .map(manage_page_pipeline_diag_view)
         .collect_view();
+    let compile_list = compile_diagnostics_for_mode(compiled, selected_target, filter_mode);
+    let (cur_e, cur_w, cur_i) = severity_counts(
+        &compile_diagnostics_for_mode(compiled, selected_target, DiagnosticsFilterMode::CurrentFile),
+    );
+    let (all_e, all_w, all_i) = severity_counts(
+        &compile_diagnostics_for_mode(compiled, selected_target, DiagnosticsFilterMode::All),
+    );
+    let other_count = compile_diagnostics_other_file_count(compiled, selected_target);
+    let compile_cards = compile_list
+        .iter()
+        .map(|diag| compile_diag_card(diag, compiled))
+        .collect_view();
+    let empty_compile_hint = if compile_list.is_empty() {
+        view! {
+            <p class="m-0 rounded-lg border border-dashed border-slate-600/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
+                {match filter_mode {
+                    DiagnosticsFilterMode::CurrentFile => {
+                        format!("当前文件 `{selected_target}` 无 compile diagnostics。")
+                    }
+                    DiagnosticsFilterMode::All => "本次编译无 compile diagnostics（不含 manage_page_pipeline）。".to_string(),
+                }}
+            </p>
+        }
+        .into_any()
+    } else {
+        view! { <></> }.into_any()
+    };
+    let other_hint = if filter_mode == DiagnosticsFilterMode::CurrentFile && other_count > 0 {
+        let href = manage_tab_href(
+            app_path,
+            Some(selected_target),
+            selected_target,
+            true,
+            ManageViewTab::Diagnostics,
+            Some("all"),
+        );
+        view! {
+            <p class="m-0 text-xs text-slate-400">
+                {format!("另有 {other_count} 条诊断来自其它文件。")}
+                <a class="ml-1 text-sky-300 hover:text-sky-200" href=href>"查看全部诊断"</a>
+            </p>
+        }
+        .into_any()
+    } else {
+        view! { <></> }.into_any()
+    };
+    let href_current = manage_tab_href(
+        app_path,
+        Some(selected_target),
+        selected_target,
+        true,
+        ManageViewTab::Diagnostics,
+        None,
+    );
+    let href_all = manage_tab_href(
+        app_path,
+        Some(selected_target),
+        selected_target,
+        true,
+        ManageViewTab::Diagnostics,
+        Some("all"),
+    );
+    let filter_current_class = if filter_mode == DiagnosticsFilterMode::CurrentFile {
+        "manage-diag-filter is-active"
+    } else {
+        "manage-diag-filter"
+    };
+    let filter_all_class = if filter_mode == DiagnosticsFilterMode::All {
+        "manage-diag-filter is-active"
+    } else {
+        "manage-diag-filter"
+    };
     view! {
-        <section class="source-diagnostics mt-4 grid gap-2 border-t border-slate-600/40 pt-4">
+        <section
+            class="source-diagnostics mt-4 grid gap-2 border-t border-slate-600/40 pt-4"
+            id="mei-manage-diagnostics-root"
+            data-mei-diag-filter=filter_mode.slug()
+            data-mei-selected-target=selected_target.to_string()
+        >
             <div class="mb-0 grid gap-1">
                 <h3 class="m-0 text-[15px] font-semibold text-slate-50">"错误与诊断"</h3>
                 <p class="m-0 text-xs text-slate-400">
-                    "编译期 diagnostics；管理页加载流水线见 "
+                    "编译期 diagnostics 默认按当前文件过滤；"
                     <code class="text-slate-200">"manage_page_pipeline"</code>
-                    "（JSON）。运行时 "
-                    <code class="text-slate-200">"/api/datasets/query"</code>
-                    " / metrics 失败见下方 "
+                    " 表示本页请求流水线。"
+                    " 运行时见下方 "
                     <code class="text-slate-200">"runtime_query_errors"</code>
-                    "（由组件上报）。内置助手 SSE 流式 delta 见 "
+                    " / "
+                    <code class="text-slate-200">"runtime_perf"</code>
+                    " / "
                     <code class="text-slate-200">"agent_sse_delta"</code>
-                    "（由作者面板写入，与事件 JSON 字段一致）。"
+                    "。"
                 </p>
+                <div class="flex flex-wrap items-center gap-2 text-[11px]">
+                    <span class="text-slate-500">"编译诊断范围："</span>
+                    <a class=filter_current_class href=href_current data-mei-diag-filter-link="current">"当前文件"</a>
+                    <a class=filter_all_class href=href_all data-mei-diag-filter-link="all">"全部诊断"</a>
+                    <span class="text-slate-500">
+                        {format!(
+                            "（当前文件 {cur_e} 错 / {cur_w} 警 / {cur_i} 提 · 全部 {all_e} 错 / {all_w} 警 / {all_i} 提）"
+                        )}
+                    </span>
+                </div>
+                {other_hint}
             </div>
-            {diagnostics}
+            {pipeline_views}
+            <div class="grid gap-1" data-mei-compile-diagnostics="true">
+                <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    "compile diagnostics"
+                </span>
+                {empty_compile_hint}
+                {compile_cards}
+            </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-red-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_query_errors"</strong>
                 <span class="text-xs leading-5 text-slate-300">

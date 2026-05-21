@@ -3,7 +3,9 @@ use mei_lang_kernel::CompiledApp;
 
 use super::compile_status::{
     compile_status_counts, compile_status_summary, compile_status_title, compile_status_tone,
+    compile_status_counts_for_target,
 };
+use super::manage_routing::{manage_tab_href, ManageViewTab};
 use super::SourcePanelMeta;
 pub(super) fn statusbar_view(
     app_path: &str,
@@ -44,8 +46,21 @@ pub(super) fn statusbar_view(
     let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
     let info_tone = if infos > 0 { "info" } else { "neutral" };
     let compile_summary = compile_status_summary(compiled);
-    let compile_summary_title = compile_status_title(compiled);
+    let compile_summary_title = compile_status_title(compiled, current_target);
     let compile_tone = compile_status_tone(compiled);
+    let (cur_errors, _, _) = compile_status_counts_for_target(compiled, current_target);
+    let diagnostics_tab_href = if show_compile_center && (errors > 0 || warnings > 0) {
+        Some(manage_tab_href(
+            app_path,
+            Some(current_target),
+            current_target,
+            current_target.ends_with(".mei"),
+            ManageViewTab::Diagnostics,
+            None,
+        ))
+    } else {
+        None
+    };
     let model_service_summary = if runtime_enabled {
         "模型服务检测中"
     } else {
@@ -63,8 +78,29 @@ pub(super) fn statusbar_view(
                     {if show_compile_center {
                         view! {
                             <>
-                                <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title>{compile_summary}</span>
-                                <span class="status-chip status-chip-diagnostic" data-tone=error_tone>{format!("Error {}", errors)}</span>
+                                <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title.clone()>{compile_summary}</span>
+                                {diagnostics_tab_href
+                                    .map(|href| {
+                                        view! {
+                                            <a
+                                                class="status-chip status-chip-diagnostic status-chip-link"
+                                                data-tone=error_tone
+                                                href=href
+                                                title=format!("当前文件 {current_target}：{cur_errors} 个错误；点击查看调试页")
+                                            >
+                                                {format!("Error {} (文件 {})", errors, cur_errors)}
+                                            </a>
+                                        }
+                                        .into_any()
+                                    })
+                                    .unwrap_or_else(|| {
+                                        view! {
+                                            <span class="status-chip status-chip-diagnostic" data-tone=error_tone title=compile_summary_title>
+                                                {format!("Error {}", errors)}
+                                            </span>
+                                        }
+                                        .into_any()
+                                    })}
                                 <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
                                 <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
                             </>
