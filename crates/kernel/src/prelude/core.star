@@ -331,18 +331,11 @@ def frame_ref(scene_file = None, scene_id = None, id = None):
     })
 
 def panel_ref(id = None, scene_file = None, scene_id = None, area = None, title = None, data = None, render = None):
+    _ = (title, data, render)
     if area != None:
-        path = scene_file
-        ref_id = id if id != None else area
-        return {"component": _without_empty({
-            "id": ref_id,
-            "title": title,
-            "block_kind": "panel_ref",
-            "area": area,
-            "scene_file": path,
-            "render_policy": render if render != None else "placeholder-or-embed",
-            "data": data,
-        })}
+        fail("panel_ref only references an external panel by id; scene/frame block embed via `area` was removed")
+    if id == None or str(id).strip() == "":
+        fail("panel_ref requires `id` (target panel id in scene_file)")
     return _clean({
         "__ref": "panel",
         "id": id,

@@ -26,7 +26,8 @@ use super::super::scene_binding::{
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
-    decode_world_metric_pack_decl, insert_resource_checked, partition_world_resources,
+    decode_world_metric_pack_decl, insert_resource_checked, merge_panel_ref_source_resources,
+    partition_world_resources,
 };
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 use super::CompiledScenePayload;
@@ -76,16 +77,23 @@ pub(super) fn compile_scene_payload(
             }
             let Some(kind) = value.get("kind").and_then(Value::as_str) else {
                 if let Some(component) = value.get("component") {
-                    if matches!(
+                    if component.get("block_kind").and_then(Value::as_str) == Some("panel_ref") {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "panel_ref_embed_removed".to_string(),
+                            message: "panel_ref only references external panels in frame.panels; \
+                                      block embed with `area` was removed"
+                                .to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                    } else if matches!(
                         component.get("block_kind").and_then(Value::as_str),
-                        Some("panel_ref")
-                            | Some("panel_capsule_ref")
-                            | Some("frame_ref")
+                        Some("panel_capsule_ref") | Some("frame_ref")
                     ) {
                         diagnostics.push(Diagnostic {
                             severity: Severity::Error,
                             code: "top_level_panel_ref_embed".to_string(),
-                            message: "panel_ref(scene_file=..., area=...) block embed must appear inside frame.add_panel(...).blocks, not at scene top level"
+                            message: "legacy panel embed block must appear inside frame.add_panel(...).blocks, not at scene top level"
                                 .to_string(),
                             source_path: Some(target_file.to_string()),
                         });
@@ -603,6 +611,15 @@ pub(super) fn compile_scene_payload(
         }
     }
 
+    merge_panel_ref_source_resources(
+        app_root,
+        &frames,
+        frame_default.as_ref(),
+        &mut resources,
+        target_file,
+        &mut diagnostics,
+    );
+
     let scene_contract = selected_scene.map(|scene_decl| SceneContract {
         scene: scene_decl,
         themes,
@@ -612,13 +629,6 @@ pub(super) fn compile_scene_payload(
         panels,
     });
     if let Some(ref contract) = scene_contract {
-        super::helpers::merge_implicit_embed_capsule_resources(
-            app_root,
-            &contract.panels,
-            &mut resources,
-            target_file,
-            &mut diagnostics,
-        );
         validate_scene_ui_data_bindings(
             contract,
             &resources,

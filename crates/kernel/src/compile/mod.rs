@@ -23,7 +23,9 @@ mod entry_payload;
 mod load_external;
 mod loaders;
 mod materialize;
+mod materialize_cache;
 mod mutations;
+mod scene_payload_cache;
 mod resources;
 mod scene;
 mod scene_binding;
@@ -34,8 +36,10 @@ use ui_data_policy::validate_imported_catalog_world_refs;
 use app_decl::decode_app_decl;
 use catalog::{
     build_dataset_catalog_filter, compile_dataset_catalog_resources, merge_resource_catalog,
+    DatasetCatalogFilter,
 };
-use entry_payload::{compile_scene_payload_for_target, CompiledScenePayload};
+use entry_payload::CompiledScenePayload;
+use scene_payload_cache::compile_scene_payload_for_target;
 use scene::{find_scene_route, resolve_scene_routes};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
@@ -106,6 +110,7 @@ fn is_manage_preview_only_compile(options: &CompileOptions) -> bool {
 
 fn inject_discovered_entry_scene_routes(
     app_root: &Path,
+    source_root: &Path,
     app_decls: &Value,
     asset_map: &BTreeMap<String, ComponentAsset>,
     routes: &mut Vec<CompiledSceneRoute>,
@@ -118,6 +123,7 @@ fn inject_discovered_entry_scene_routes(
         if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
             let payload = compile_scene_payload_for_target(
                 app_root,
+                source_root,
                 app_decls,
                 asset_map,
                 preview,
@@ -197,6 +203,7 @@ fn inject_discovered_entry_scene_routes(
         probed += 1;
         let payload = compile_scene_payload_for_target(
             app_root,
+            source_root,
             app_decls,
             asset_map,
             rel_str.as_str(),
@@ -260,6 +267,7 @@ pub fn compile_app_from_root_with_options(
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     inject_discovered_entry_scene_routes(
         app_root,
+        source_root,
         &app_decls,
         &asset_map,
         &mut route_registry.routes,
@@ -276,6 +284,7 @@ pub fn compile_app_from_root_with_options(
         }
         let result = compile_scene_payload_for_target(
             app_root,
+            source_root,
             &app_decls,
             &asset_map,
             route.target_file.as_str(),
@@ -350,6 +359,7 @@ pub fn compile_app_from_root_with_options(
                 .unwrap_or_else(|| {
                     compile_scene_payload_for_target(
                         app_root,
+                        source_root,
                         &app_decls,
                         &asset_map,
                         target_file.as_str(),
@@ -361,6 +371,7 @@ pub fn compile_app_from_root_with_options(
         } else {
             let payload = compile_scene_payload_for_target(
                 app_root,
+                source_root,
                 &app_decls,
                 &asset_map,
                 target_file.as_str(),
@@ -382,6 +393,7 @@ pub fn compile_app_from_root_with_options(
                         .unwrap_or_else(|| {
                             compile_scene_payload_for_target(
                                 app_root,
+                                source_root,
                                 &app_decls,
                                 &asset_map,
                                 route_meta.target_file.as_str(),
@@ -404,6 +416,7 @@ pub fn compile_app_from_root_with_options(
             .unwrap_or_else(|| {
                 compile_scene_payload_for_target(
                     app_root,
+                    source_root,
                     &app_decls,
                     &asset_map,
                     route_meta.target_file.as_str(),
@@ -418,6 +431,7 @@ pub fn compile_app_from_root_with_options(
             "main.mei".to_string(),
             compile_scene_payload_for_target(
                 app_root,
+                source_root,
                 &app_decls,
                 &asset_map,
                 "main.mei",
@@ -444,19 +458,29 @@ pub fn compile_app_from_root_with_options(
         .unwrap_or_else(|| app_decl.id.clone());
 
     let dataset_manage_preview = is_dataset_manage_preview(&options);
+    let route_target_files: Vec<String> = route_registry
+        .routes
+        .iter()
+        .map(|route| route.target_file.clone())
+        .collect();
     let catalog_filter = if dataset_manage_preview {
-        None
+        DatasetCatalogFilter::default()
     } else {
-        build_dataset_catalog_filter(app_root, options.preview_target.as_deref())
+        build_dataset_catalog_filter(
+            app_root,
+            options.preview_target.as_deref(),
+            route_target_files.as_slice(),
+        )
     };
     let dataset_catalog = if dataset_manage_preview {
         Vec::new()
     } else {
         compile_dataset_catalog_resources(
             app_root,
+            source_root,
             &app_decls,
             &asset_map,
-            catalog_filter.as_ref(),
+            &catalog_filter,
         )
     };
     let scene_resources = active_payload.resources.clone();
@@ -485,6 +509,15 @@ pub fn compile_app_from_root_with_options(
         diagnostics,
     })
 }
+
+pub(crate) use materialize_cache::{
+    clear_materialize_cache_for_tests, legacy_rows_cache_len_for_tests,
+};
+pub use materialize_cache::dataset_materialize_cache_epoch;
+pub(crate) use scene_payload_cache::{
+    clear_scene_payload_cache_for_tests, scene_payload_cache_len_for_tests,
+};
+pub use scene_payload_cache::scene_payload_cache_epoch;
 
 pub fn evaluate_runtime_metric_defs(
     metric_defs: &BTreeMap<String, Value>,

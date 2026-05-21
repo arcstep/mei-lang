@@ -157,9 +157,7 @@ fn collect_panel_references(panel: &PanelDecl) -> Vec<String> {
                 refs.push(format!("use_key:{}", block.use_key));
                 collect_refs_from_value(&block.props, &mut refs, 0);
             }
-            UiNodeDecl::PanelRefEmbed(embed) => {
-                refs.push(format!("panel_ref:{}", embed.scene_file));
-            }
+            UiNodeDecl::PanelRefEmbed(_) => {}
         }
     }
     refs.sort();

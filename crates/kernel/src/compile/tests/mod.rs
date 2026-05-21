@@ -1,3 +1,4 @@
+mod cache;
 mod authoring;
 mod entries;
 mod examples;

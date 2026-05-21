@@ -125,7 +125,7 @@ pub struct BlockDecl {
     pub props: Value,
 }
 
-/// `panel_ref(scene_file=..., area=...)` inside `frame.add_panel(...).blocks` (embed external scene capsule).
+/// Legacy block embed IR (panel_ref+area removed); kept for serde compat and error surfacing only.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PanelRefEmbedDecl {
     #[serde(default)]
@@ -198,10 +198,14 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
     }
     if let Some(component) = value.get("component") {
         let block_kind = component.get("block_kind").and_then(Value::as_str);
-        if matches!(
-            block_kind,
-            Some("panel_ref") | Some("panel_capsule_ref") | Some("frame_ref")
-        ) {
+        if block_kind == Some("panel_ref") {
+            return Err(
+                "panel_ref_embed_removed: panel_ref only references external panels in frame.panels; \
+                 block embed with `area` is no longer supported"
+                    .to_string(),
+            );
+        }
+        if matches!(block_kind, Some("panel_capsule_ref") | Some("frame_ref")) {
             let compat_source = match block_kind {
                 Some("panel_capsule_ref") => Some("panel_capsule_ref".to_string()),
                 Some("frame_ref") => Some("frame_ref".to_string()),
@@ -214,7 +218,7 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
                 .map(str::trim)
                 .filter(|path| !path.is_empty())
                 .ok_or_else(|| {
-                    "panel_ref block embed missing component.scene_file path".to_string()
+                    "legacy panel embed missing component.scene_file path".to_string()
                 })?;
             return Ok(UiNodeDecl::PanelRefEmbed(PanelRefEmbedDecl {
                 id: component

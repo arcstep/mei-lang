@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::model::{Diagnostic, LoadedResource, PanelDecl, ResourceDecl, Severity, UiNodeDecl};
+use crate::model::{
+    Diagnostic, FrameDecl, LoadedResource, PanelDecl, ResourceDecl, Severity, UiNodeDecl,
+};
 
 use super::super::decls::{
     LegacyDatasetDecl, LegacyDatasetNodeDecl, LegacyMetricPackDecl, LegacyMetricPackMetaDecl,
@@ -128,7 +130,7 @@ pub(super) fn insert_resource_checked(
     }
 }
 
-/// Implicit embed imports: only fill ids not already present (host scene world wins on conflict).
+/// Panel-ref source imports: only fill ids not already present (host scene world wins on conflict).
 pub(crate) fn insert_resource_if_absent(resources: &mut Vec<LoadedResource>, resource: LoadedResource) {
     if resources.iter().any(|item| item.id == resource.id) {
         return;
@@ -136,17 +138,16 @@ pub(crate) fn insert_resource_if_absent(resources: &mut Vec<LoadedResource>, res
     resources.push(resource);
 }
 
-pub(crate) fn merge_implicit_embed_capsule_resources(
+pub(crate) fn merge_panel_ref_source_resources(
     app_root: &Path,
-    panels: &[PanelDecl],
+    frames: &BTreeMap<String, FrameDecl>,
+    frame_default: Option<&FrameDecl>,
     resources: &mut Vec<LoadedResource>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut seen_paths = BTreeSet::new();
-    for panel in panels {
-        collect_embed_paths_from_panel(panel, &mut seen_paths);
-    }
+    collect_panel_ref_scene_files_from_frames(frames, frame_default, &mut seen_paths);
     for path in seen_paths {
         match load_resources_from_capsule_file(app_root, path.as_str()) {
             Ok(capsule_resources) => {
@@ -157,9 +158,9 @@ pub(crate) fn merge_implicit_embed_capsule_resources(
             Err(error) => {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Warning,
-                    code: "embed_capsule_resources_load_failed".to_string(),
+                    code: "panel_ref_resources_load_failed".to_string(),
                     message: format!(
-                        "failed to load implicit world resources from embed capsule `{path}`: {error}"
+                        "failed to load world resources from panel_ref source `{path}`: {error}"
                     ),
                     source_path: Some(target_file.to_string()),
                 });
@@ -168,17 +169,32 @@ pub(crate) fn merge_implicit_embed_capsule_resources(
     }
 }
 
-fn collect_embed_paths_from_panel(panel: &PanelDecl, out: &mut BTreeSet<String>) {
-    for node in &panel.blocks {
-        match node {
-            UiNodeDecl::PanelRefEmbed(embed) => {
-                let path = embed.scene_file.trim();
-                if !path.is_empty() {
-                    out.insert(path.to_string());
-                }
+fn collect_panel_ref_scene_files_from_frames(
+    frames: &BTreeMap<String, FrameDecl>,
+    frame_default: Option<&FrameDecl>,
+    out: &mut BTreeSet<String>,
+) {
+    let mut sources: Vec<&FrameDecl> = frames.values().collect();
+    if let Some(frame) = frame_default {
+        sources.push(frame);
+    }
+    for frame in sources {
+        for slot in &frame.panels {
+            let Some(expr) = crate::typed_refs::decode_ref_value(slot) else {
+                continue;
+            };
+            if expr.kind != crate::typed_refs::RefKind::Panel {
+                continue;
             }
-            UiNodeDecl::Panel(nested) => collect_embed_paths_from_panel(nested, out),
-            UiNodeDecl::Block(_) => {}
+            let path = expr
+                .locator
+                .scene_file
+                .as_deref()
+                .map(str::trim)
+                .filter(|path| !path.is_empty());
+            if let Some(path) = path {
+                out.insert(path.to_string());
+            }
         }
     }
 }

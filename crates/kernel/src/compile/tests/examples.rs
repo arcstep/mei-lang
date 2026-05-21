@@ -187,7 +187,7 @@ fn compile_refs_invalid_examples_report_expected_errors() {
     let cases = [
         ("01-props-external-dataset", "external_ref_requires_world_import"),
         ("02-props-misused-world-ref", "misused_world_ref_in_props"),
-        ("03-top-level-panel-ref-embed", "top_level_panel_ref_embed"),
+        ("03-top-level-panel-ref-embed", "panel_ref_embed_removed"),
     ];
 
     for (app_id, expected_code) in cases {

@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{BlockDecl, CompiledApp, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
 use super::{
@@ -9,7 +9,7 @@ use super::{
 use super::style::{
     block_style, panel_body_style, panel_heading_config, panel_show_heading, panel_style,
 };
-use super::theme::{resolve_panel_props, ThemeResolved};
+use super::theme::{resolve_panel_props, resolve_theme, ThemeResolved};
 
 pub(super) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
@@ -19,6 +19,8 @@ pub(super) fn panel_view(
     scene_contract: &SceneContract,
     runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
+    embed_depth: u8,
+    preview_scene_path: &str,
 ) -> AnyView {
     let panel_props = resolve_panel_props(theme, &panel.props);
     let blocks = panel
@@ -33,6 +35,8 @@ pub(super) fn panel_view(
                 scene_contract,
                 runtime_ctx,
                 theme,
+                embed_depth,
+                preview_scene_path,
             )
         })
         .collect_view();
@@ -101,6 +105,8 @@ fn node_view(
     scene_contract: &SceneContract,
     runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
+    embed_depth: u8,
+    preview_scene_path: &str,
 ) -> AnyView {
     match node {
         UiNodeDecl::Panel(panel) => panel_view(
@@ -111,6 +117,8 @@ fn node_view(
             scene_contract,
             runtime_ctx,
             theme,
+            embed_depth,
+            preview_scene_path,
         ),
         UiNodeDecl::Block(block) => block_view(
             block,
@@ -120,26 +128,57 @@ fn node_view(
             scene_contract,
             runtime_ctx,
             theme,
+            preview_scene_path,
         ),
-        UiNodeDecl::PanelRefEmbed(embed) => {
-            let path = embed.scene_file.clone();
-            let label = embed.title.clone().unwrap_or_else(|| path.clone());
-            let area = embed.area.as_deref();
-            view! {
-                <section
-                    class="preview-card frame-ref-slot"
-                    style=block_style(area, parent_layout)
-                    data-panel-ref-embed=path.as_str()
-                >
-                    <div class="panel-heading">
-                        <h3>{label}</h3>
-                    </div>
-                    <p class="text-sm opacity-70">{"embedded capsule: "}{path.clone()}</p>
-                </section>
-            }
-            .into_any()
-        }
+        UiNodeDecl::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
+}
+
+fn panel_ref_embed_removed_view(
+    embed: &PanelRefEmbedDecl,
+    parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
+) -> AnyView {
+    let path = embed.scene_file.trim();
+    let label = embed
+        .title
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| path.to_string());
+    view! {
+        <section
+            class="preview-card panel-ref-embed-error"
+            style=block_style(embed.area.as_deref(), parent_layout)
+        >
+            <div class="panel-heading">
+                <h3>{label}</h3>
+            </div>
+            <p class="text-sm text-red-300/90">
+                "panel_ref 仅支持在 frame.panels 中按 id 引用外部 panel；block 内 scene 嵌入已移除。"
+            </p>
+        </section>
+    }
+    .into_any()
+}
+
+fn panel_ref_embed_placeholder(
+    label: &str,
+    path: &str,
+    area: Option<&str>,
+    parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
+) -> AnyView {
+    view! {
+        <section
+            class="preview-card frame-ref-slot"
+            style=block_style(area, parent_layout)
+            data-panel-ref-embed=path
+        >
+            <div class="panel-heading">
+                <h3>{label.to_string()}</h3>
+            </div>
+            <p class="text-sm opacity-70">{"embedded capsule: "}{path.to_string()}</p>
+        </section>
+    }
+    .into_any()
 }
 
 fn block_view(
@@ -150,8 +189,12 @@ fn block_view(
     scene_contract: &SceneContract,
     runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
+    preview_scene_path: &str,
 ) -> AnyView {
-    let scene_anchor = RuntimeSceneAnchor::from_compiled(compiled);
+    let scene_anchor = RuntimeSceneAnchor {
+        scene_id: scene_contract.scene.id.clone(),
+        scene_path: Some(preview_scene_path.to_string()),
+    };
     let props = attach_host_meta(
         resolve_value(
             &block.props,
@@ -164,6 +207,7 @@ fn block_view(
         compiled,
         app_path,
         &theme.components,
+        Some(preview_scene_path),
     );
     let tag = compiled
         .component_assets
@@ -179,6 +223,7 @@ fn block_view(
     }
     .into_any()
 }
+
 fn component_html(tag: &str, props: &Value) -> String {
     let props_json = props.to_string();
     format!("<{tag} data-props='{props_json}'></{tag}>")

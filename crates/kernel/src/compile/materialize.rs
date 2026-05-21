@@ -17,6 +17,7 @@ use super::{
     },
     decls::{LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl},
     loaders::load_legacy_xlsx_rows,
+    materialize_cache::cached_load_legacy_rows_from_source,
     resources::csv_record_to_json,
 };
 
@@ -24,11 +25,7 @@ const DEFAULT_PREVIEW_ROWS: usize = 1000;
 const DEFAULT_PAGE_SIZE: usize = 20;
 const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
 
-#[derive(Debug, Clone)]
-struct LegacyRowsSnapshot {
-    rows: Vec<Value>,
-    truncated: bool,
-}
+use super::materialize_cache::LegacyRowsSnapshot;
 
 pub(super) fn materialize_legacy_datasets(
     app_root: &Path,
@@ -44,84 +41,103 @@ pub(super) fn materialize_legacy_datasets(
 
     let mut compiled = Vec::new();
     for decl in decls {
-        let dataset_id = decl
-            .data_ref
-            .as_deref()
-            .and_then(|value| value.strip_prefix("dataset."))
-            .map(ToString::to_string)
-            .unwrap_or_else(|| decl.dataset.key.clone());
-        let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false);
-        let mut source_truncated = false;
-        let mut rows = if decl.dataset.kind == "dataframe" {
-            let snapshot = load_legacy_rows_from_source(app_root, &decl.source)?;
-            source_truncated = snapshot.truncated;
-            snapshot.rows
-        } else {
-            Vec::new()
-        };
-        if let Some(rowset) = &decl.dataset.rowset {
-            rows = eval_rowset(rowset, &datasets)
-                .with_context(|| format!("failed to materialize legacy rowset `{dataset_id}`"))?;
+        let resource = materialize_one_legacy_dataset(app_root, &mut datasets, decl)?;
+        if let Some(dataset) = &resource.dataset {
+            datasets.insert(resource.id.clone(), dataset.clone());
         }
-        if !decl.dataset.normalize.is_empty() {
-            rows = apply_legacy_normalize(rows, &decl.dataset.normalize);
-        }
-        let schema = if decl.dataset.columns.is_empty() {
-            infer_schema_from_rows(&rows)
-        } else {
-            decl.dataset.columns.clone()
-        };
-        let columns = if schema.is_empty() {
-            infer_columns(&rows)
-        } else {
-            schema.iter().map(|column| column.name.clone()).collect()
-        };
-        let dataset_stub = DatasetView {
-            id: dataset_id.clone(),
-            title: decl.title.clone(),
-            purpose: None,
-            schema: schema.clone(),
-            stage_schema: Vec::new(),
-            columns: columns.clone(),
-            rows: rows.clone(),
-            source: source_decl.clone(),
-            sources: Vec::new(),
-            metrics: BTreeMap::new(),
-            runtime_metric_defs: BTreeMap::new(),
-        };
-        datasets.insert(dataset_id.clone(), dataset_stub.clone());
-        let metrics = materialize_legacy_metric_map(&decl.metrics, &rows, &datasets)
-            .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
-        let dataset = DatasetView {
-            id: dataset_id.clone(),
-            title: decl.title.clone(),
-            purpose: None,
-            schema,
-            stage_schema: Vec::new(),
-            columns,
-            rows,
-            source: legacy_dataset_source_decl(
-                &decl.source,
-                &decl.dataset.normalize,
-                source_truncated,
-            ),
-            sources: Vec::new(),
-            metrics,
-            runtime_metric_defs: decl.metrics.clone(),
-        };
-        datasets.insert(dataset_id.clone(), dataset.clone());
-        compiled.push(LoadedResource {
-            id: dataset_id.clone(),
-            kind: "dataset".to_string(),
-            title: decl.title.clone(),
-            document: None,
-            dataset: Some(dataset.clone()),
-        });
+        compiled.push(resource);
     }
     Ok(compiled)
 }
 
+fn materialize_one_legacy_dataset(
+    app_root: &Path,
+    datasets: &mut BTreeMap<String, DatasetView>,
+    decl: &LegacyDatasetDecl,
+) -> Result<LoadedResource> {
+    let dataset_id = decl
+        .data_ref
+        .as_deref()
+        .and_then(|value| value.strip_prefix("dataset."))
+        .map(ToString::to_string)
+        .unwrap_or_else(|| decl.dataset.key.clone());
+    let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false);
+    let mut source_truncated = false;
+    let mut rows = if decl.dataset.kind == "dataframe" {
+        let snapshot = load_legacy_rows_from_source(app_root, &decl.source)?;
+        source_truncated = snapshot.truncated;
+        snapshot.rows
+    } else {
+        Vec::new()
+    };
+    if let Some(rowset) = &decl.dataset.rowset {
+        rows = eval_rowset(rowset, datasets)
+            .with_context(|| format!("failed to materialize legacy rowset `{dataset_id}`"))?;
+    }
+    if !decl.dataset.normalize.is_empty() {
+        rows = apply_legacy_normalize(rows, &decl.dataset.normalize);
+    }
+    let schema = if decl.dataset.columns.is_empty() {
+        infer_schema_from_rows(&rows)
+    } else {
+        decl.dataset.columns.clone()
+    };
+    let columns = if schema.is_empty() {
+        infer_columns(&rows)
+    } else {
+        schema.iter().map(|column| column.name.clone()).collect()
+    };
+    let dataset_stub = DatasetView {
+        id: dataset_id.clone(),
+        title: decl.title.clone(),
+        purpose: None,
+        schema: schema.clone(),
+        stage_schema: Vec::new(),
+        columns: columns.clone(),
+        rows: rows.clone(),
+        source: source_decl.clone(),
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+    };
+    datasets.insert(dataset_id.clone(), dataset_stub.clone());
+    let metrics = materialize_legacy_metric_map(&decl.metrics, &rows, datasets)
+        .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
+    let dataset = DatasetView {
+        id: dataset_id.clone(),
+        title: decl.title.clone(),
+        purpose: None,
+        schema,
+        stage_schema: Vec::new(),
+        columns,
+        rows,
+        source: legacy_dataset_source_decl(
+            &decl.source,
+            &decl.dataset.normalize,
+            source_truncated,
+        ),
+        sources: Vec::new(),
+        metrics,
+        runtime_metric_defs: decl.metrics.clone(),
+    };
+    datasets.insert(dataset_id.clone(), dataset.clone());
+    Ok(LoadedResource {
+        id: dataset_id.clone(),
+        kind: "dataset".to_string(),
+        title: decl.title.clone(),
+        document: None,
+        dataset: Some(dataset),
+    })
+}
+
 fn load_legacy_rows_from_source(
+    app_root: &Path,
+    source: &LegacySourceDecl,
+) -> Result<LegacyRowsSnapshot> {
+    cached_load_legacy_rows_from_source(app_root, source, || load_legacy_rows_from_source_inner(app_root, source))
+}
+
+fn load_legacy_rows_from_source_inner(
     app_root: &Path,
     source: &LegacySourceDecl,
 ) -> Result<LegacyRowsSnapshot> {

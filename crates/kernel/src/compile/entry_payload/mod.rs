@@ -20,7 +20,7 @@ pub(super) struct CompiledScenePayload {
     pub(super) diagnostics: Vec<Diagnostic>,
 }
 
-pub(super) fn compile_scene_payload_for_target(
+pub(super) fn compile_scene_payload_for_target_uncached(
     app_root: &Path,
     app_decls: &Value,
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,

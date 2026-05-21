@@ -2,8 +2,6 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs,
     path::Path,
-    sync::Mutex,
-    time::UNIX_EPOCH,
 };
 
 use serde_json::Value;
@@ -11,48 +9,8 @@ use walkdir::WalkDir;
 
 use crate::model::{ComponentAsset, LoadedResource};
 
-use super::entry_payload::compile_scene_payload_for_target;
+use super::scene_payload_cache::compile_scene_payload_for_target;
 use crate::typed_refs::SceneRegistry;
-
-static DATASET_CATALOG_COMPILE_CACHE: Mutex<BTreeMap<String, Vec<LoadedResource>>> =
-    Mutex::new(BTreeMap::new());
-
-fn file_mtime_ms(path: &Path) -> u128 {
-    fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_millis())
-        .unwrap_or(0)
-}
-
-fn catalog_compile_cache_key(app_root: &Path, rel: &str) -> Option<String> {
-    let path = app_root.join(rel);
-    if !path.is_file() {
-        return None;
-    }
-    Some(format!(
-        "{}|{rel}|{}",
-        app_root.display(),
-        file_mtime_ms(&path)
-    ))
-}
-
-fn take_cached_catalog_resources(key: &str) -> Option<Vec<LoadedResource>> {
-    DATASET_CATALOG_COMPILE_CACHE
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(key).cloned())
-}
-
-fn store_cached_catalog_resources(key: String, resources: Vec<LoadedResource>) {
-    if let Ok(mut cache) = DATASET_CATALOG_COMPILE_CACHE.lock() {
-        if cache.len() >= 96 {
-            cache.clear();
-        }
-        cache.insert(key, resources);
-    }
-}
 
 /// 管理页预览 scene/widget 时，仅物化脚本里 `from_dataset` 引用到的数据集，避免扫全库 xlsx。
 #[derive(Debug, Default)]
@@ -67,37 +25,120 @@ impl DatasetCatalogFilter {
     }
 }
 
-/// 从预览入口 `.mei` 提取 `from_dataset = "..."`（world id 或 `data/dataset/...` 路径）。
+/// 仅收集 typed `panel_ref(id=..., scene_file=...)` 的外部 panel 引用；忽略带 `area=` 的旧 block embed。
+fn extract_typed_panel_ref_scene_files(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    const NEEDLE: &str = "panel_ref(";
+    while let Some(start) = rest.find(NEEDLE) {
+        let chunk_start = start + NEEDLE.len();
+        let Some(end_rel) = rest[chunk_start..].find(')') else {
+            break;
+        };
+        let chunk = &rest[chunk_start..chunk_start + end_rel];
+        if chunk.contains("area") && chunk.contains('=') {
+            rest = &rest[chunk_start + end_rel..];
+            continue;
+        }
+        let mut sub = chunk;
+        const SF: &str = "scene_file";
+        while let Some(idx) = sub.find(SF) {
+            let tail = &sub[idx + SF.len()..];
+            let Some(eq_idx) = tail.find('=') else {
+                break;
+            };
+            let after_eq = tail[eq_idx + 1..].trim_start();
+            if let Some(value) = parse_quoted_string(after_eq) {
+                let value = value.trim();
+                if !value.is_empty() {
+                    out.push(value.to_string());
+                }
+            }
+            sub = tail;
+        }
+        rest = &rest[chunk_start + end_rel..];
+    }
+    out
+}
+
+fn seed_paths_for_catalog_scan(
+    app_root: &Path,
+    preview_target: Option<&str>,
+    route_targets: &[String],
+) -> Vec<String> {
+    let mut seeds = Vec::new();
+    let preview = preview_target.map(str::trim).filter(|s| !s.is_empty());
+    match preview {
+        None => {
+            for target in route_targets {
+                let path = normalize_rel_path(target);
+                if !path.is_empty() && path.ends_with(".mei") {
+                    seeds.push(path);
+                }
+            }
+        }
+        Some("main.mei") => {
+            if let Ok(main_content) = fs::read_to_string(app_root.join("main.mei")) {
+                for path in extract_typed_panel_ref_scene_files(&main_content) {
+                    seeds.push(normalize_rel_path(&path));
+                }
+            }
+            if seeds.is_empty() {
+                seeds.push("scenes/home.mei".to_string());
+            }
+        }
+        Some(p) if p.starts_with("data/") || p.contains("/datasets/") => {}
+        Some(p) => seeds.push(normalize_rel_path(p)),
+    }
+    seeds
+}
+
+/// 从预览入口 + `panel_ref` 嵌入树收集 catalog 范围；**恒返回 `Some`**，无匹配时为空过滤器（不触发全量扫描）。
 pub fn build_dataset_catalog_filter(
     app_root: &Path,
     preview_target: Option<&str>,
-) -> Option<DatasetCatalogFilter> {
-    let preview = preview_target?.trim();
-    if preview.is_empty()
-        || preview == "main.mei"
-        || preview.starts_with("data/")
-        || preview.contains("/datasets/")
-    {
-        return None;
-    }
-    let path = app_root.join(preview);
-    let content = fs::read_to_string(&path).ok()?;
+    route_targets: &[String],
+) -> DatasetCatalogFilter {
     let mut filter = DatasetCatalogFilter::default();
-    for token in extract_from_dataset_tokens(&content) {
-        if token.contains('/') {
-            filter
-                .dataset_paths
-                .insert(normalize_rel_path(&token));
-        } else {
-            filter.resource_ids.insert(token);
+    let seeds = seed_paths_for_catalog_scan(app_root, preview_target, route_targets);
+    let mut queue = seeds;
+    let mut queued = HashSet::<String>::new();
+    let mut processed = HashSet::<String>::new();
+    for seed in &queue {
+        queued.insert(normalize_rel_path(seed));
+    }
+    while let Some(rel) = queue.pop() {
+        let rel = normalize_rel_path(rel.as_str());
+        if rel.is_empty() || !processed.insert(rel.clone()) {
+            continue;
+        }
+        filter.dataset_paths.insert(rel.clone());
+        let path = app_root.join(&rel);
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        for token in extract_from_dataset_tokens(&content) {
+            if token.contains('/') {
+                let path = normalize_rel_path(&token);
+                filter.dataset_paths.insert(path.clone());
+                if queued.insert(path.clone()) {
+                    queue.push(path);
+                }
+            } else {
+                filter.resource_ids.insert(token);
+            }
+        }
+        for embed in extract_typed_panel_ref_scene_files(&content) {
+            let path = normalize_rel_path(&embed);
+            if queued.insert(path.clone()) {
+                queue.push(path);
+            }
         }
     }
     if filter.is_active() {
         expand_catalog_filter_data_refs(app_root, &mut filter);
-        Some(filter)
-    } else {
-        None
     }
+    filter
 }
 
 /// 收集应用内所有 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**/datasets/**`）。
@@ -157,9 +198,9 @@ fn expand_catalog_filter_data_refs(app_root: &Path, filter: &mut DatasetCatalogF
     }
 
     let mut queue: Vec<String> = filter.resource_ids.iter().cloned().collect();
-    let mut visited = HashSet::<String>::new();
+    let mut expanded_ids = HashSet::<String>::new();
     while let Some(id) = queue.pop() {
-        if !visited.insert(id.clone()) {
+        if !expanded_ids.insert(id.clone()) {
             continue;
         }
         let Some(rel) = rel_by_id.get(&id) else {
@@ -280,13 +321,19 @@ fn dataset_file_matches_filter(app_root: &Path, rel: &str, filter: &DatasetCatal
         .any(|id| file_declares_resource_id(&content, id))
 }
 
-/// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**/datasets/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
+/// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
+///
+/// **硬约束**：仅当 `filter.is_active()` 且路径命中过滤器时才物化；绝不因 `filter == None` 或空过滤器而扫全库。
 pub(super) fn compile_dataset_catalog_resources(
     app_root: &Path,
+    source_root: &Path,
     app_decls: &Value,
     asset_map: &BTreeMap<String, ComponentAsset>,
-    filter: Option<&DatasetCatalogFilter>,
+    filter: &DatasetCatalogFilter,
 ) -> Vec<LoadedResource> {
+    if !filter.is_active() {
+        return Vec::new();
+    }
     let mei_files = collect_dataset_catalog_mei_files(app_root);
     if mei_files.is_empty() {
         return Vec::new();
@@ -295,36 +342,24 @@ pub(super) fn compile_dataset_catalog_resources(
     let mut by_id = BTreeMap::<String, LoadedResource>::new();
 
     for rel in mei_files {
-        if let Some(filter) = filter {
-            if filter.is_active() && !dataset_file_matches_filter(app_root, rel.as_str(), filter) {
-                continue;
+        if !dataset_file_matches_filter(app_root, rel.as_str(), filter) {
+            continue;
+        }
+        let payload = compile_scene_payload_for_target(
+            app_root,
+            source_root,
+            app_decls,
+            asset_map,
+            rel.as_str(),
+            None,
+            &SceneRegistry::new(),
+        );
+        let mut dataset_resources = Vec::new();
+        for resource in payload.resources {
+            if resource.dataset.is_some() {
+                dataset_resources.push(resource);
             }
         }
-        let cached = catalog_compile_cache_key(app_root, rel.as_str())
-            .as_deref()
-            .and_then(take_cached_catalog_resources);
-        let dataset_resources = if let Some(resources) = cached {
-            resources
-        } else {
-            let payload = compile_scene_payload_for_target(
-                app_root,
-                app_decls,
-                asset_map,
-                rel.as_str(),
-                None,
-                &SceneRegistry::new(),
-            );
-            let mut dataset_resources = Vec::new();
-            for resource in payload.resources {
-                if resource.dataset.is_some() {
-                    dataset_resources.push(resource);
-                }
-            }
-            if let Some(key) = catalog_compile_cache_key(app_root, rel.as_str()) {
-                store_cached_catalog_resources(key, dataset_resources.clone());
-            }
-            dataset_resources
-        };
         for resource in dataset_resources {
             by_id.insert(resource.id.clone(), resource);
         }
@@ -350,6 +385,74 @@ pub(super) fn merge_resource_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    #[test]
+    fn inactive_filter_compiles_no_catalog_files() {
+        let filter = DatasetCatalogFilter::default();
+        assert!(!filter.is_active());
+        let root = std::env::temp_dir().join(format!(
+            "mei-catalog-inactive-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("scenes")).unwrap();
+        fs::write(
+            root.join("main.mei"),
+            r#"app(id = "t") scene = scene_ref(scene_file = "scenes/a.mei")"#,
+        )
+        .unwrap();
+        fs::write(root.join("scenes/a.mei"), r#"scene(id="a") world() frame()"#).unwrap();
+        fs::write(root.join("scenes/b.mei"), r#"scene(id="b") world() frame()"#).unwrap();
+        let out = compile_dataset_catalog_resources(
+            &root,
+            &root,
+            &serde_json::json!([]),
+            &BTreeMap::new(),
+            &filter,
+        );
+        assert!(out.is_empty());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn build_filter_never_returns_none_and_expands_panel_ref() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-catalog-embed-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("scenes/layouts")).unwrap();
+        fs::write(
+            root.join("scenes/layouts/left.mei"),
+            r#"
+scene(id = "left")
+world()
+frame(
+    panels = [
+        panel_ref(id = "child_panel", scene_file = "scenes/child.mei"),
+    ],
+)
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("scenes/child.mei"),
+            r#"
+scene(id = "child")
+world()
+world.add_dataset(id = "child_ds", source = ds.csv("x.csv"), schema = [ds.column("a", "string")])
+frame()
+frame.add_panel(id = "child_panel", area = "auto", blocks = [])
+"#,
+        )
+        .unwrap();
+        let filter = build_dataset_catalog_filter(&root, Some("scenes/layouts/left.mei"), &[]);
+        assert!(filter.is_active());
+        assert!(filter.dataset_paths.contains("scenes/layouts/left.mei"));
+        assert!(filter.dataset_paths.contains("scenes/child.mei"));
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn extract_from_dataset_tokens_parses_world_id_and_path() {

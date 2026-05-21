@@ -42,6 +42,14 @@ pub(super) fn preview_view(
 ) -> AnyView {
     let runtime_ctx = build_preview_runtime_context(compiled);
 
+    let preview_scene_path = {
+        let selected = selected_target.trim();
+        if !selected.is_empty() {
+            selected.to_string()
+        } else {
+            compiled.active_target_file.clone()
+        }
+    };
     if let Some(scene_contract) = &compiled.scene_contract {
         let resolved_theme = theme::resolve_theme(scene_contract);
         if let Some(frame) = &scene_contract.frame {
@@ -58,6 +66,8 @@ pub(super) fn preview_view(
                         scene_contract,
                         &runtime_ctx,
                         &resolved_theme,
+                        0,
+                        preview_scene_path.as_str(),
                     )
                 })
                 .collect_view();

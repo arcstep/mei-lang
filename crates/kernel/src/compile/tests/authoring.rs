@@ -624,8 +624,8 @@ scene.set_frame(
 }
 
 #[test]
-fn compile_supports_panel_ref_block_embed_in_add_panel_blocks() {
-    let root = temp_root("panel-ref-block-embed");
+fn compile_rejects_panel_ref_block_embed_with_area() {
+    let root = temp_root("panel-ref-block-embed-removed");
     let app_root = root.join("embed-app");
     write_file(
         &app_root.join("main.mei"),
@@ -642,7 +642,47 @@ frame.add_panel(
     id = "stack",
     area = "auto",
     blocks = [
-        panel_ref(scene_file = "child.mei", area = "auto", id = "child_slot", title = "Child"),
+        {"component": {
+            "block_kind": "panel_ref",
+            "scene_file": "child.mei",
+            "area": "auto",
+            "id": "child_slot",
+        }},
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile legacy block panel_ref");
+    assert!(
+        compiled.diagnostics.iter().any(|diag| {
+            diag.code == "compile_scene_failed"
+                && diag.message.contains("panel_ref_embed_removed")
+        }),
+        "legacy block panel_ref IR should report panel_ref_embed_removed: {:?}",
+        compiled.diagnostics
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_supports_panel_ref_in_frame_panels() {
+    let root = temp_root("panel-ref-frame-panels");
+    let app_root = root.join("embed-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "embed-app", default_scene = "home")
+
+scene(id = "home", profile = "page")
+
+world()
+
+frame(
+    layout = flex(direction = "column"),
+    panels = [
+        panel_ref(id = "inner", scene_file = "child.mei"),
     ],
 )
 "#,
@@ -657,26 +697,18 @@ frame.add_panel(id = "inner", area = "auto", blocks = [])
 "#,
     );
 
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile panel_ref block embed");
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile panel_ref in frame.panels");
     assert!(
         compiled
             .diagnostics
             .iter()
             .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
-        "panel_ref block embed should not error: {:?}",
+        "frame.panels panel_ref should not error: {:?}",
         compiled.diagnostics
     );
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.panels.len(), 1);
-    assert_eq!(contract.panels[0].blocks.len(), 1);
-    match &contract.panels[0].blocks[0] {
-        crate::UiNodeDecl::PanelRefEmbed(embed) => {
-            assert_eq!(embed.scene_file, "child.mei");
-            assert_eq!(embed.area.as_deref(), Some("auto"));
-            assert!(embed.compat_source.is_none());
-        }
-        other => panic!("expected PanelRefEmbed, got {other:?}"),
-    }
+    assert_eq!(contract.panels[0].id, "inner");
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -708,10 +740,10 @@ exports.append({"component": {
     let compiled = compile_app_from_root(&root, &app_root).expect("compile top-level panel_ref embed");
     assert!(
         compiled.diagnostics.iter().any(|diag| {
-            diag.code == "top_level_panel_ref_embed"
+            (diag.code == "panel_ref_embed_removed" || diag.code == "top_level_panel_ref_embed")
                 && matches!(diag.severity, crate::Severity::Error)
         }),
-        "expected top_level_panel_ref_embed: {:?}",
+        "expected panel_ref_embed_removed at scene top level: {:?}",
         compiled.diagnostics
     );
 
@@ -859,21 +891,21 @@ frame.add_panel(
 }
 
 #[test]
-fn compile_refs_scenario4_panel_ref_embed_merges_implicit_capsule_world() {
+fn compile_refs_scenario4_panel_ref_with_world_ref_imports_external_panel() {
     let root = temp_root("refs-scenario-4");
     let app_root = root.join("refs-04");
     write_file(
         &app_root.join("main.mei"),
         r#"
 app(id = "refs-04", default_scene = "home")
-scene(id = "home", profile = "page")
-world()
-frame()
-frame.add_panel(
-    id = "slot",
-    area = "auto",
-    blocks = [
-        panel_ref(scene_file = "panels/widget.mei", area = "auto", id = "widget_slot", title = "Widget"),
+scene(
+    id = "home",
+    profile = "page",
+    world = world_ref(scene_file = "panels/widget.mei"),
+)
+frame(
+    panels = [
+        panel_ref(id = "widget_panel", scene_file = "panels/widget.mei"),
     ],
 )
 "#,
@@ -897,7 +929,7 @@ frame.add_panel(
             .diagnostics
             .iter()
             .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
-        "scenario 4 should merge embed capsule world: {:?}",
+        "scenario 4 should compile with world_ref + panel_ref: {:?}",
         compiled.diagnostics
     );
     assert!(
@@ -905,14 +937,19 @@ frame.add_panel(
             .diagnostics
             .iter()
             .any(|diag| diag.code == "imported_resource_not_authorized"),
-        "implicit capsule world should authorize widget_doc"
+        "world_ref should authorize widget_doc"
     );
     assert!(
         compiled
             .resources
             .iter()
             .any(|item| item.id == "widget_doc"),
-        "widget_doc from embed capsule should appear in scene resources"
+        "widget_doc from external world should appear in scene resources"
+    );
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert!(
+        contract.panels.iter().any(|p| p.id == "widget_panel"),
+        "panel_ref should resolve widget_panel into scene panels"
     );
     let _ = fs::remove_dir_all(&root);
 }

@@ -293,7 +293,7 @@ fn scan_deprecated_embed_nodes(
                     severity: Severity::Error,
                     code: code.to_string(),
                     message: format!(
-                        "legacy {legacy} block embed `{}` is removed; use panel_ref(scene_file = ..., area = ...)",
+                        "legacy {legacy} block embed `{}` is removed; use frame.panels panel_ref(id = ..., scene_file = ...)",
                         embed.scene_file
                     ),
                     source_path: Some(target_file.to_string()),

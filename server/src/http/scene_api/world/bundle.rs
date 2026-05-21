@@ -14,114 +14,18 @@ use crate::{
 use crate::http::scene_api::types::{WorldRuntimeBundle, WorldScope};
 use super::util::{app_relative_mei_for_preview, normalize_path, normalize_world_scope};
 
-pub(super) fn load_world_runtime_bundle_with<F>(
-    source_root: &Path,
-    app_id: &str,
-    scope: Option<&WorldScope>,
-    mut compile: F,
-) -> Result<WorldRuntimeBundle>
-where
-    F: FnMut(CompileOptions) -> Result<CompiledApp>,
-{
-    let scope = normalize_world_scope(scope);
-    let requested_scene = scope.scene_id.as_deref();
-    let requested_target = scope.target_file.clone();
+fn is_mei_target(target: &str) -> bool {
+    target.to_lowercase().ends_with(".mei")
+}
 
-    let base_compiled = compile(CompileOptions {
-        scene: None,
-        preview_target: None,
-    })?;
-    let app_root = source_root.join(app_id);
-    let mut selected_scene: Option<String> = None;
-
-    if let Some(scene_id) = requested_scene {
-        let by_scene = base_compiled
-            .scene_routes
-            .iter()
-            .find(|item| item.scene_id == scene_id)
-            .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
-        if let Some(target_file) = requested_target.as_deref() {
-            let nt = normalize_path(target_file);
-            let matches_target = nt == normalize_path(by_scene.target_file.as_str());
-            if matches_target {
-                selected_scene = Some(by_scene.scene_id.clone());
-            } else if let Some(by_target) = base_compiled
-                .scene_routes
-                .iter()
-                .find(|e| normalize_path(e.target_file.as_str()) == nt)
-            {
-                if by_target.scene_id != by_scene.scene_id {
-                    return Err(anyhow!(
-                        "scene `{scene_id}` is not bound to target `{target_file}`"
-                    ));
-                }
-                selected_scene = Some(by_target.scene_id.clone());
-            } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_file) {
-                if let Some(by_target) = base_compiled
-                    .scene_routes
-                    .iter()
-                    .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
-                {
-                    if by_target.scene_id != by_scene.scene_id {
-                        return Err(anyhow!(
-                            "scene `{scene_id}` is not bound to target `{target_file}`"
-                        ));
-                    }
-                    selected_scene = Some(by_target.scene_id.clone());
-                } else if app_root.join(&rel).is_file() {
-                    selected_scene = None;
-                } else {
-                    return Err(anyhow!(
-                        "scene `{scene_id}` is not bound to target `{target_file}`"
-                    ));
-                }
-            } else {
-                return Err(anyhow!(
-                    "scene `{scene_id}` is not bound to target `{target_file}`"
-                ));
-            }
-        } else {
-            selected_scene = Some(by_scene.scene_id.clone());
-        }
-    } else if let Some(target_only) = requested_target.as_deref() {
-        let nt = normalize_path(target_only);
-        if let Some(found) = base_compiled
-            .scene_routes
-            .iter()
-            .find(|item| normalize_path(item.target_file.as_str()) == nt)
-        {
-            selected_scene = Some(found.scene_id.clone());
-        } else if let Some(rel) = app_relative_mei_for_preview(app_id, target_only) {
-            if let Some(found) = base_compiled
-                .scene_routes
-                .iter()
-                .find(|e| normalize_path(e.target_file.as_str()) == normalize_path(&rel))
-            {
-                selected_scene = Some(found.scene_id.clone());
-            }
-        }
+fn resolve_preview_target(app_id: &str, target: &str) -> Option<String> {
+    if !is_mei_target(target) {
+        return None;
     }
+    app_relative_mei_for_preview(app_id, target).or_else(|| Some(normalize_path(target)))
+}
 
-    let preview_path = if selected_scene.is_some() {
-        None
-    } else {
-        requested_target.as_deref().and_then(|target| {
-            if !target.to_lowercase().ends_with(".mei") {
-                return None;
-            }
-            app_relative_mei_for_preview(app_id, target).or_else(|| Some(normalize_path(target)))
-        })
-    };
-
-    let compiled = compile(CompileOptions {
-        scene: selected_scene.clone(),
-        preview_target: preview_path,
-    })?;
-    if let Some(sid) = selected_scene.as_deref() {
-        if compiled.active_scene.as_deref() != Some(sid) {
-            return Err(anyhow!("scene `{sid}` not found in app `{app_id}`"));
-        }
-    }
+fn finish_bundle(compiled: CompiledApp, app_id: &str) -> Result<WorldRuntimeBundle> {
     let contract = compiled
         .scene_contract
         .clone()
@@ -136,6 +40,84 @@ where
         state,
         scene_view,
     })
+}
+
+pub(super) fn load_world_runtime_bundle_with<F>(
+    source_root: &Path,
+    app_id: &str,
+    scope: Option<&WorldScope>,
+    mut compile: F,
+) -> Result<WorldRuntimeBundle>
+where
+    F: FnMut(CompileOptions) -> Result<CompiledApp>,
+{
+    let scope = normalize_world_scope(scope);
+    let requested_scene = scope.scene_id.as_deref();
+    let requested_target = scope.target_file.clone();
+    let app_root = source_root.join(app_id);
+
+    // 单编路径：manage/API 仅按 `.mei` 预览或显式 scene 请求时，避免「基线 + 目标」双次整包编译。
+    // L1/L2/L3 仍会在 miss 时复用 scene payload 与数据行缓存。
+    if requested_scene.is_none() {
+        if let Some(target) = requested_target.as_deref().filter(|t| is_mei_target(t)) {
+            let preview_target = resolve_preview_target(app_id, target);
+            let compiled = compile(CompileOptions {
+                scene: None,
+                preview_target: preview_target.clone(),
+            })?;
+            return finish_bundle(compiled, app_id);
+        }
+    }
+
+    if let Some(scene_id) = requested_scene {
+        let preview_target = requested_target
+            .as_deref()
+            .filter(|t| is_mei_target(t))
+            .and_then(|t| resolve_preview_target(app_id, t));
+        let compiled = compile(CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target,
+        })?;
+        if compiled.active_scene.as_deref() != Some(scene_id) {
+            // 回退：用路由表做一次基线解析（仅当单编未命中 scene id 时）
+            let base = compile(CompileOptions::default())?;
+            let exists = base.scene_routes.iter().any(|r| r.scene_id == scene_id);
+            if !exists {
+                return Err(anyhow!("scene `{scene_id}` not found in app `{app_id}`"));
+            }
+            let route = base
+                .scene_routes
+                .iter()
+                .find(|r| r.scene_id == scene_id)
+                .ok_or_else(|| anyhow!("scene `{scene_id}` not found in app `{app_id}`"))?;
+            let preview_target = requested_target
+                .as_deref()
+                .filter(|t| is_mei_target(t))
+                .and_then(|t| {
+                    let nt = normalize_path(t);
+                    if nt == normalize_path(route.target_file.as_str()) {
+                        None
+                    } else if app_root.join(app_relative_mei_for_preview(app_id, t).unwrap_or(nt)).is_file()
+                    {
+                        resolve_preview_target(app_id, t)
+                    } else {
+                        None
+                    }
+                });
+            let compiled = compile(CompileOptions {
+                scene: Some(scene_id.to_string()),
+                preview_target,
+            })?;
+            if compiled.active_scene.as_deref() != Some(scene_id) {
+                return Err(anyhow!("scene `{scene_id}` not found in app `{app_id}`"));
+            }
+            return finish_bundle(compiled, app_id);
+        }
+        return finish_bundle(compiled, app_id);
+    }
+
+    let compiled = compile(CompileOptions::default())?;
+    finish_bundle(compiled, app_id)
 }
 
 pub(super) fn load_world_runtime_bundle(

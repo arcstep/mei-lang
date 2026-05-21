@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    resolve_dataset_resource_id, resolve_dataset_selector_value, CompiledApp, LoadedResource,
-    RuntimeResourceIndex, SceneContract,
+    dataset_materialize_cache_epoch, resolve_dataset_resource_id, resolve_dataset_selector_value,
+    scene_payload_cache_epoch, CompiledApp, LoadedResource, RuntimeResourceIndex, SceneContract,
 };
 use serde_json::{json, Value};
 
@@ -66,8 +66,17 @@ pub(super) fn attach_host_meta(
     compiled: &CompiledApp,
     app_path: &str,
     theme_components: &serde_json::Value,
+    preview_scene_path: Option<&str>,
 ) -> Value {
-    let anchor = RuntimeSceneAnchor::from_compiled(compiled);
+    let mut anchor = RuntimeSceneAnchor::from_compiled(compiled);
+    if let Some(path) = preview_scene_path.map(str::trim).filter(|s| !s.is_empty()) {
+        anchor.scene_path = Some(path.to_string());
+    }
+    let active_target_file = anchor
+        .scene_path
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(compiled.active_target_file.as_str());
     if let Some(map) = props.as_object_mut() {
         map.insert(
             "_mei".to_string(),
@@ -75,7 +84,14 @@ pub(super) fn attach_host_meta(
                 "app_id": compiled.app_id,
                 "app_path": app_path,
                 "active_scene_id": anchor.scene_id,
-                "active_target_file": compiled.active_target_file,
+                "active_target_file": active_target_file,
+                "entry_target": active_target_file,
+                "compile_epoch": format!(
+                    "{}|{}|{}",
+                    scene_payload_cache_epoch(),
+                    dataset_materialize_cache_epoch(),
+                    active_target_file
+                ),
                 "step_api": format!("/api/sim/step/{}", app_path),
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
                 "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
