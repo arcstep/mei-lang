@@ -272,7 +272,7 @@ mod tests {
     use super::style::{
         block_style, container_visual_style, container_visual_style_without_background,
         frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
-        has_frame_backdrop, normalize_background_image, panel_body_style,
+        has_frame_backdrop, normalize_background_image, panel_card_layout_style,
         panel_show_heading, panel_style, surface_layout_style,
     };
     use super::theme::{resolve_panel_props, ThemeResolved};
@@ -281,12 +281,12 @@ mod tests {
         effective_viewport_overflow, effective_viewport_safe_inset,
         effective_canvas_width, frame_stage_content_bounds_for_viewport, frame_stage_style,
         frame_viewport_config,
-        frame_viewport_style_for_route, frame_viewport_style_fluid_width_for_route,
+        frame_viewport_style_for_route,
         viewport_overflow_is_debug,
     };
     use mei_lang_kernel::{
         build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
-        CompiledSceneRoute, DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
+        DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
         SceneContract, SceneDecl, SourceDecl,
     };
     use serde_json::{json, Value};
@@ -320,26 +320,26 @@ mod tests {
     }
 
     #[test]
-    fn panel_body_style_applies_grid_columns() {
+    fn panel_card_layout_style_applies_grid_columns() {
         let layout = grid_layout();
-        let style = panel_body_style(Some(&layout));
+        let style = panel_card_layout_style(Some(&layout), &json!({}));
         assert!(style.contains("display:grid;"));
         assert!(style.contains("grid-template-columns:1fr 2fr;"));
     }
 
     #[test]
-    fn panel_body_style_emits_grid_align_items() {
+    fn panel_card_layout_style_emits_grid_align_items() {
         let mut layout = grid_layout();
         layout.align = Some("stretch".to_string());
-        let style = panel_body_style(Some(&layout));
+        let style = panel_card_layout_style(Some(&layout), &json!({}));
         assert!(style.contains("align-items:stretch;"));
     }
 
     #[test]
-    fn panel_body_style_normalizes_bare_numeric_gap_to_px() {
+    fn panel_card_layout_style_normalizes_bare_numeric_gap_to_px() {
         let mut layout = grid_layout();
         layout.gap = Some("5".to_string());
-        let style = panel_body_style(Some(&layout));
+        let style = panel_card_layout_style(Some(&layout), &json!({}));
         assert!(style.contains("gap:5px;"));
     }
 
@@ -437,10 +437,11 @@ mod tests {
     }
 
     #[test]
-    fn panel_show_heading_supports_bare_chrome() {
+    fn panel_show_heading_uses_normalized_head_flag() {
         assert!(!panel_show_heading(&json!({"show_heading": false})));
         assert!(!panel_show_heading(&json!({"chrome": "bare"})));
-        assert!(panel_show_heading(&json!({})));
+        assert!(!panel_show_heading(&json!({})));
+        assert!(panel_show_heading(&json!({"__mei_has_head": true})));
     }
 
     #[test]

@@ -101,12 +101,65 @@ pub(super) fn panel_chrome_bare(props: &Value) -> bool {
 
 pub(super) fn panel_show_heading(props: &Value) -> bool {
     let Some(map) = props.as_object() else {
-        return true;
+        return false;
     };
+    if let Some(value) = map.get("__mei_has_head").and_then(Value::as_bool) {
+        return value;
+    }
     if let Some(value) = map.get("show_heading").and_then(Value::as_bool) {
         return value;
     }
-    !matches!(map.get("chrome").and_then(Value::as_str), Some("bare"))
+    false
+}
+
+pub(super) fn panel_slot_area_style(slot: &str) -> String {
+    format!("grid-area:{slot};min-width:0;min-height:0;width:100%;height:100%;box-sizing:border-box;")
+}
+
+/// 整卡 grid：来自 `panel.layout`；`props.heading.height` 与 `rows` 合并为 `grid-template-rows`。
+pub(super) fn panel_card_layout_style(
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+) -> String {
+    let Some(layout) = layout else {
+        return String::new();
+    };
+    let mut style = surface_layout_style(Some(layout));
+    let heading_height = props
+        .as_object()
+        .and_then(|map| map.get("heading"))
+        .and_then(|value| value.as_object())
+        .and_then(|map| map.get("height"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if let Some(heading_height) = heading_height {
+        let heading_row = normalize_css_length(heading_height);
+        let body_row = layout
+            .rows
+            .as_ref()
+            .and_then(|rows| rows.get(1).map(String::as_str))
+            .or_else(|| layout.rows.as_ref().and_then(|rows| rows.first().map(String::as_str)));
+        if let Some(body_row) = body_row {
+            if layout
+                .areas
+                .as_ref()
+                .is_some_and(|areas| areas.iter().flatten().any(|cell| cell == "body"))
+            {
+                style.push_str(&format!(
+                    "grid-template-rows:{} {};",
+                    heading_row,
+                    normalize_css_length(body_row)
+                ));
+            } else {
+                style.push_str(&format!("grid-template-rows:{};", heading_row));
+            }
+        } else {
+            style.push_str(&format!("grid-template-rows:{} 1fr;", heading_row));
+        }
+    }
+    style.push_str("gap:0;");
+    style
 }
 
 pub(super) fn panel_heading_config(theme_heading: &Value, props: &Value) -> PanelHeadingConfig {
@@ -157,6 +210,54 @@ pub(super) fn panel_heading_config(theme_heading: &Value, props: &Value) -> Pane
         show_flair: show_flair.unwrap_or(default_flair),
         show_dots: show_dots.unwrap_or(default_dots),
     }
+}
+
+/// `panel.props.heading.height` / `min_height` / `max_height` / `align`（如 `center`）→ 标题栏 inline 样式。
+pub(super) fn panel_heading_style(props: &Value) -> String {
+    let Some(heading) = props
+        .as_object()
+        .and_then(|map| map.get("heading"))
+        .filter(|value| value.is_object())
+    else {
+        return String::new();
+    };
+    let Some(map) = heading.as_object() else {
+        return String::new();
+    };
+    let mut style = String::new();
+    if let Some(value) = map.get("height").and_then(Value::as_str) {
+        let px = normalize_css_length(value);
+        style.push_str(&format!("height:{px};min-height:{px};"));
+    } else {
+        if let Some(value) = map.get("min_height").and_then(Value::as_str) {
+            style.push_str(&format!("min-height:{};", normalize_css_length(value)));
+        }
+        if let Some(value) = map.get("max_height").and_then(Value::as_str) {
+            style.push_str(&format!("max-height:{};", normalize_css_length(value)));
+        }
+    }
+    if map
+        .get("align")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
+    {
+        style.push_str(
+            "display:flex;align-items:center;justify-content:center;padding:0;box-sizing:border-box;overflow:hidden;",
+        );
+        style.push_str("width:100%;");
+    }
+    style
+}
+
+pub(super) fn panel_body_layout_centered(layout: &mei_lang_kernel::LayoutDecl) -> bool {
+    layout
+        .align
+        .as_deref()
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
+        && layout
+            .justify
+            .as_deref()
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
 }
 
 fn append_background_inline(style: &mut String, background: &Value) {
@@ -415,69 +516,6 @@ pub(super) fn normalize_background_image(value: &str) -> String {
         value.to_string()
     } else {
         format!("url(\"{}\")", value.replace('"', "%22"))
-    }
-}
-
-pub(super) fn panel_body_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
-    let Some(layout) = layout else {
-        return String::new();
-    };
-    match layout.layout_type.as_str() {
-        "flex" => format!(
-            "display:flex;flex-direction:{};gap:{};padding:{};",
-            layout
-                .direction
-                .clone()
-                .unwrap_or_else(|| "column".to_string()),
-            layout
-                .gap
-                .as_deref()
-                .map(normalize_css_length)
-                .unwrap_or_else(|| "12px".to_string()),
-            layout
-                .padding
-                .as_deref()
-                .map(normalize_css_length)
-                .unwrap_or_else(|| "0".to_string()),
-        ),
-        _ => {
-            let align_items = layout
-                .align
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .map(|value| format!("align-items:{value};"))
-                .unwrap_or_default();
-            let align_content = layout
-                .justify
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .map(|value| format!("align-content:{value};"))
-                .unwrap_or_default();
-            format!(
-                "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};{align_items}{align_content}",
-                layout
-                    .columns
-                    .clone()
-                    .unwrap_or_else(|| vec!["1fr".to_string()])
-                    .join(" "),
-                layout
-                    .rows
-                    .clone()
-                    .unwrap_or_else(|| vec!["auto".to_string()])
-                    .join(" "),
-                grid_template_areas_style(layout),
-                layout
-                    .gap
-                    .as_deref()
-                    .map(normalize_css_length)
-                    .unwrap_or_else(|| "12px".to_string()),
-                layout
-                    .padding
-                    .as_deref()
-                    .map(normalize_css_length)
-                    .unwrap_or_else(|| "0".to_string()),
-            )
-        }
     }
 }
 

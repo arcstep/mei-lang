@@ -7,10 +7,14 @@ use super::{
     PreviewRuntimeContext,
 };
 use super::style::{
-    block_style, panel_body_style, panel_chrome_bare, panel_heading_config, panel_show_heading,
+    block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
+    panel_heading_config, panel_heading_style, panel_show_heading, panel_slot_area_style,
     panel_style,
 };
 use super::theme::{resolve_panel_props, ThemeResolved};
+
+const SLOT_HEAD: &str = "head";
+const SLOT_BODY: &str = "body";
 
 pub(super) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
@@ -25,9 +29,16 @@ pub(super) fn panel_view(
 ) -> AnyView {
     let panel_props = resolve_panel_props(theme, &panel.props);
     let chrome_bare = panel_chrome_bare(&panel_props);
-    let blocks = panel
-        .blocks
-        .iter()
+    let has_head = panel_show_heading(&panel_props);
+    let heading = panel_heading_config(&theme.heading, &panel_props);
+    let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
+    let heading_cell_style = panel_heading_style(&panel_props);
+
+    let (head_nodes, body_nodes) = partition_panel_blocks(&panel.blocks, has_head);
+    let has_body_slot = !body_nodes.is_empty();
+
+    let head_blocks = head_nodes
+        .into_iter()
         .map(|node| {
             node_view(
                 node,
@@ -42,69 +53,147 @@ pub(super) fn panel_view(
             )
         })
         .collect_view();
-    let title = panel.title.clone().unwrap_or_else(|| panel.id.clone());
-    let show_heading = panel_show_heading(&panel_props);
-    let heading = panel_heading_config(&theme.heading, &panel_props);
-    let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
+    let body_blocks = body_nodes
+        .into_iter()
+        .map(|node| {
+            node_view(
+                node,
+                panel.layout.as_ref(),
+                compiled,
+                app_path,
+                scene_contract,
+                runtime_ctx,
+                theme,
+                embed_depth,
+                preview_scene_path,
+            )
+        })
+        .collect_view();
+
+    let mut card_style = panel_style(panel.area.as_deref(), frame_layout, &panel_props);
+    card_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &panel_props));
+
     let card_class = if chrome_bare {
         "preview-card preview-card-bare"
     } else {
         "preview-card"
     };
-    let body_class = if chrome_bare {
-        "preview-panel-body"
+
+    let body_layout_centered = panel
+        .layout
+        .as_ref()
+        .is_some_and(panel_body_layout_centered);
+    let body_slot_class = if body_layout_centered {
+        "panel-body-cell panel-body-slot-center"
     } else {
-        "preview-panel-body preview-panel-body-gap"
+        "panel-body-cell"
     };
+
+    let label = panel
+        .title
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| panel.id.clone());
+
     view! {
-        <section class=card_class style=panel_style(panel.area.as_deref(), frame_layout, &panel_props)>
-            {if show_heading {
+        <section
+            class=card_class
+            style=card_style
+            data-mei-panel-id=panel.id.clone()
+        >
+            {if has_head {
                 view! {
                     <div
-                        class=heading_class
+                        class=format!("panel-head-cell {heading_class}")
+                        style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
+                        data-mei-panel-head="true"
                         data-heading-variant=heading.variant.clone()
+                        aria-label=label.clone()
                     >
-                        {if heading.show_accent {
-                            view! { <div class="panel-heading-accent" aria-hidden="true"></div> }.into_any()
-                        } else {
-                            view! { <></> }.into_any()
-                        }}
-                        {if heading.show_flair {
-                            view! { <div class="panel-heading-flair panel-heading-flair-left" aria-hidden="true"></div> }.into_any()
-                        } else {
-                            view! { <></> }.into_any()
-                        }}
-                        <div class="panel-heading-copy">
-                            <h3>{title}</h3>
-                            {if let Some(subtitle) = heading.subtitle.clone() {
-                                view! { <p>{subtitle}</p> }.into_any()
-                            } else {
-                                view! { <></> }.into_any()
-                            }}
+                        {heading_chrome_decorations(&heading)}
+                        <div class="panel-head-slot">
+                            {head_blocks}
                         </div>
-                        {if heading.show_flair {
-                            view! { <div class="panel-heading-flair panel-heading-flair-right" aria-hidden="true"></div> }.into_any()
-                        } else {
-                            view! { <></> }.into_any()
-                        }}
-                        {if heading.show_dots {
-                            view! {
-                                <div class="panel-heading-dots" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </div>
-                            }.into_any()
-                        } else {
-                            view! { <></> }.into_any()
-                        }}
                     </div>
                 }.into_any()
             } else {
                 view! { <></> }.into_any()
             }}
-            <div class=body_class style=panel_body_style(panel.layout.as_ref())>
-                {blocks}
-            </div>
+            {if has_body_slot {
+                view! {
+                    <div
+                        class=body_slot_class
+                        style=panel_slot_area_style(SLOT_BODY)
+                        data-mei-panel-body="true"
+                    >
+                        {body_blocks}
+                    </div>
+                }.into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
         </section>
+    }
+    .into_any()
+}
+
+fn partition_panel_blocks(blocks: &[UiNodeDecl], has_head: bool) -> (Vec<&UiNodeDecl>, Vec<&UiNodeDecl>) {
+    let mut head = Vec::new();
+    let mut body = Vec::new();
+    for node in blocks {
+        let area = node_area(node).unwrap_or("");
+        if has_head && area == SLOT_HEAD {
+            head.push(node);
+        } else {
+            body.push(node);
+        }
+    }
+    (head, body)
+}
+
+fn node_area(node: &UiNodeDecl) -> Option<&str> {
+    match node {
+        UiNodeDecl::Block(block) => block.area.as_deref(),
+        UiNodeDecl::Panel(panel) => panel.area.as_deref(),
+        UiNodeDecl::PanelRefEmbed(embed) => embed.area.as_deref(),
+    }
+}
+
+fn heading_chrome_decorations(heading: &super::style::PanelHeadingConfig) -> AnyView {
+    view! {
+        {if heading.show_accent {
+            view! { <div class="panel-heading-accent" aria-hidden="true"></div> }.into_any()
+        } else {
+            view! { <></> }.into_any()
+        }}
+        {if heading.show_flair {
+            view! { <div class="panel-heading-flair panel-heading-flair-left" aria-hidden="true"></div> }.into_any()
+        } else {
+            view! { <></> }.into_any()
+        }}
+        {if let Some(subtitle) = heading.subtitle.clone() {
+            view! {
+                <div class="panel-heading-copy panel-heading-subtitle-only">
+                    <p>{subtitle}</p>
+                </div>
+            }.into_any()
+        } else {
+            view! { <></> }.into_any()
+        }}
+        {if heading.show_flair {
+            view! { <div class="panel-heading-flair panel-heading-flair-right" aria-hidden="true"></div> }.into_any()
+        } else {
+            view! { <></> }.into_any()
+        }}
+        {if heading.show_dots {
+            view! {
+                <div class="panel-heading-dots" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                </div>
+            }.into_any()
+        } else {
+            view! { <></> }.into_any()
+        }}
     }
     .into_any()
 }
@@ -161,7 +250,7 @@ fn panel_ref_embed_removed_view(
             class="preview-card panel-ref-embed-error"
             style=block_style(embed.area.as_deref(), parent_layout)
         >
-            <div class="panel-heading">
+            <div class="panel-head-cell panel-heading">
                 <h3>{label}</h3>
             </div>
             <p class="text-sm text-red-300/90">

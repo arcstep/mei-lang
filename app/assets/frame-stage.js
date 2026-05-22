@@ -385,7 +385,7 @@
     let maxBottom = 0;
     let hasContent = false;
     stage
-      .querySelectorAll(".preview-card, .panel-heading, .preview-panel-body")
+      .querySelectorAll(".preview-card, .panel-head-cell, .panel-body-cell, .panel-heading, .preview-panel-body")
       .forEach((node) => {
         if (
           node.closest(
