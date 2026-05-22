@@ -25,6 +25,7 @@ mod loaders;
 mod materialize;
 mod materialize_cache;
 mod mutations;
+mod panel_normalize;
 mod scene_payload_cache;
 mod resources;
 mod scene;
@@ -511,6 +512,7 @@ pub fn compile_app_from_root_with_options(
 }
 
 pub use materialize_cache::dataset_materialize_cache_epoch;
+pub use panel_normalize::panel_resolved_has_head;
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
 #[cfg(test)]

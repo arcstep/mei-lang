@@ -1443,3 +1443,74 @@ frame.add_panel(
     );
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn compile_panel_normalizes_title_to_head_slot() {
+    let root = temp_root("panel-head-slot");
+    let app_root = root.join("head-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "head-app", default_scene = "home")
+
+scene(id = "home", profile = "page")
+
+world(id = "home_world", resources = [])
+
+frame(layout = flex(direction = "column"))
+
+frame.add_panel(
+    id = "p",
+    area = "auto",
+    title = "标题",
+    blocks = [
+        text("正文", area = "auto"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/mei/manifest.json"),
+        r#"
+{
+  "components": {
+    "mei.text": { "tag": "mei-text", "script": "text.js" }
+  }
+}
+"#,
+    );
+    write_file(
+        &root.join("_components/mei/text.js"),
+        "// stub",
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile panel head");
+    let contract = compiled.scene_contract.expect("scene contract");
+    let panel = contract.panels.iter().find(|p| p.id == "p").expect("panel");
+    assert!(crate::panel_resolved_has_head(panel));
+    let layout = panel.layout.as_ref().expect("layout");
+    assert!(
+        layout
+            .areas
+            .as_ref()
+            .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "head"))
+    );
+    assert!(
+        panel
+            .blocks
+            .iter()
+            .any(|node| matches!(
+                node,
+                crate::UiNodeDecl::Block(block)
+                    if block.area.as_deref() == Some("head")
+                        && block.props.get("content").and_then(|v| v.as_str()) == Some("标题")
+            ))
+    );
+    assert!(
+        panel.blocks.iter().any(|node| matches!(
+            node,
+            crate::UiNodeDecl::Block(block) if block.area.as_deref() == Some("body")
+        ))
+    );
+    let _ = fs::remove_dir_all(&root);
+}

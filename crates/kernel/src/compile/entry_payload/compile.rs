@@ -23,6 +23,7 @@ use super::super::scene_binding::{
     decode_scene_decl, parse_flow_binding, parse_frame_binding, parse_world_binding,
     pick_only_frame, pick_only_world, SceneBinding,
 };
+use super::super::panel_normalize::normalize_panel_slots;
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::clone_merge::{
     normalize_flow_decl, normalize_frame_decl, normalize_world_decl, resolve_entity_slot,
@@ -398,6 +399,7 @@ pub(super) fn compile_scene_payload(
         &mut diagnostics,
         target_file,
     );
+    normalize_panel_slots(&mut panels, &mut diagnostics, target_file);
     if scene_decl_count > 1 {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,

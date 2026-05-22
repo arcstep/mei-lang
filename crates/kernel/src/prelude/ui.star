@@ -164,12 +164,32 @@ def _clone_props(value):
             out[k] = v
     return out
 
+def _title_is_block_shape(value):
+    if not _is_dict(value):
+        return False
+    if value.get("kind") == "block":
+        return True
+    if value.get("use_key") != None:
+        return True
+    if value.get("use") != None:
+        return True
+    return False
+
 def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""
     else:
         panel_id = id if id != None else area
     panel_props = _clone_props(props)
+    title_label = None
+    head_slot = None
+    if title != None:
+        if type(title) == "string":
+            title_label = title
+        elif _title_is_block_shape(title):
+            head_slot = title
+        else:
+            title_label = str(title)
     if subtitle != None:
         panel_props["subtitle"] = subtitle
     if chrome != None:
@@ -190,12 +210,11 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         if variant_norm == "container" or variant_norm == "bare":
             if panel_props.get("chrome") == None:
                 panel_props["chrome"] = "bare"
-            if panel_props.get("show_heading") == None:
-                panel_props["show_heading"] = False
     payload = {
         "kind": "panel",
         "id": panel_id,
-        "title": title,
+        "title": title_label,
+        "head": head_slot,
         "area": area,
         "layout": layout,
         "data_ref": _data_ref_value(data),

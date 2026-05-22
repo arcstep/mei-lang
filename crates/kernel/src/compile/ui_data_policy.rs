@@ -533,6 +533,7 @@ mod tests {
                 kind: "panel".to_string(),
                 id: "p1".to_string(),
                 title: None,
+                head: None,
                 area: None,
                 layout: None,
                 blocks: vec![UiNodeDecl::Block(BlockDecl {
@@ -576,6 +577,7 @@ mod tests {
                 kind: "panel".to_string(),
                 id: "p1".to_string(),
                 title: None,
+                head: None,
                 area: None,
                 layout: None,
                 blocks: vec![UiNodeDecl::Block(BlockDecl {
@@ -643,6 +645,7 @@ mod tests {
                 kind: "panel".to_string(),
                 id: "p1".to_string(),
                 title: None,
+                head: None,
                 area: None,
                 layout: None,
                 blocks: vec![UiNodeDecl::Block(BlockDecl {
@@ -693,6 +696,7 @@ mod tests {
                 kind: "panel".to_string(),
                 id: "p1".to_string(),
                 title: None,
+                head: None,
                 area: None,
                 layout: None,
                 blocks: vec![UiNodeDecl::Block(BlockDecl {

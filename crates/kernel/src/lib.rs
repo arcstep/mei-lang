@@ -10,7 +10,8 @@ mod workspace;
 pub use compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_with_options, dataset_materialize_cache_epoch,
-    evaluate_runtime_metric_defs, scene_payload_cache_epoch, CompileOptions,
+    evaluate_runtime_metric_defs, panel_resolved_has_head, scene_payload_cache_epoch,
+    CompileOptions,
 };
 
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};

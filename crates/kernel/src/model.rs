@@ -491,6 +491,9 @@ pub struct PanelDecl {
     pub id: String,
     #[serde(default)]
     pub title: Option<String>,
+    /// 可视化标题槽（`title=text(...)` / `title=component(...)`）；编译归一后并入 `blocks` 的 `head` 区。
+    #[serde(default)]
+    pub head: Option<Box<UiNodeDecl>>,
     #[serde(default)]
     pub area: Option<String>,
     #[serde(default)]
