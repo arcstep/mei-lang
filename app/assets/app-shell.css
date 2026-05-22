@@ -1000,6 +1000,20 @@ a.status-chip-link:focus-visible {
   margin: 0;
   min-width: 0;
   position: relative;
+  overflow: visible;
+}
+/* head 槽：默认不铺 screen 顶栏底色，让 panel.props / 整卡背景透出 */
+.preview-card > .panel-head-cell.panel-heading-plain,
+.preview-card > .panel-head-cell.panel-heading-default,
+.preview-card > .panel-head-cell.panel-heading-compact {
+  background: transparent;
+  border-bottom: none;
+  box-shadow: none;
+}
+.preview-card > .panel-head-cell.panel-heading-screen {
+  padding: 8px 10px;
+  background: linear-gradient(180deg, rgba(0, 20, 45, 0.55) 0%, rgba(0, 12, 28, 0.15) 100%);
+  border-bottom: 1px solid rgba(0, 180, 255, 0.22);
 }
 .preview-card > .panel-head-cell .panel-head-slot {
   flex: 1;
@@ -1009,10 +1023,14 @@ a.status-chip-link:focus-visible {
   align-items: center;
   width: 100%;
 }
+.preview-card > .panel-head-cell .component-host {
+  min-height: 0;
+}
 .preview-card > .panel-body-cell {
   display: grid;
   min-width: 0;
   min-height: 0;
+  overflow: visible;
 }
 .preview-card > .panel-body-cell.panel-body-slot-center > .component-card {
   display: flex;
@@ -1033,7 +1051,7 @@ a.status-chip-link:focus-visible {
   box-sizing: border-box;
 }
 .preview-card > .panel-head-cell .panel-heading-accent,
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-accent {
+.preview-card > .panel-heading .panel-heading-accent {
   width: 78px;
   height: 3px;
   border-radius: 2px;
@@ -1041,13 +1059,15 @@ a.status-chip-link:focus-visible {
   background: linear-gradient(90deg, #22d3ee, #38bdf8 55%, rgba(56, 189, 248, 0.05));
   box-shadow: 0 0 14px rgba(0, 180, 255, 0.65), 0 0 4px rgba(0, 120, 255, 0.9);
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-copy {
+.preview-card > .panel-head-cell .panel-heading-copy,
+.preview-card > .panel-heading .panel-heading-copy {
   flex: 1;
   min-width: 0;
   display: grid;
   gap: 4px;
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading h3 {
+.preview-card > .panel-head-cell h3,
+.preview-card > .panel-heading h3 {
   min-width: 0;
   margin: 0;
   font-size: var(--mei-font-2, 15px);
@@ -1056,7 +1076,8 @@ a.status-chip-link:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading p {
+.preview-card > .panel-head-cell p,
+.preview-card > .panel-heading p {
   margin: 0;
   font-size: var(--mei-font-1, 12px);
   color: var(--mei-color-text-muted, #94a3b8);
@@ -1065,7 +1086,8 @@ a.status-chip-link:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-flair {
+.preview-card > .panel-head-cell .panel-heading-flair,
+.preview-card > .panel-heading .panel-heading-flair {
   width: 9px;
   height: 9px;
   flex: 0 0 auto;
@@ -1074,16 +1096,19 @@ a.status-chip-link:focus-visible {
   filter: drop-shadow(0 0 5px rgba(255, 214, 102, 0.45));
   opacity: 0.92;
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-flair-right {
+.preview-card > .panel-head-cell .panel-heading-flair-right,
+.preview-card > .panel-heading .panel-heading-flair-right {
   transform: rotate(180deg);
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-dots {
+.preview-card > .panel-head-cell .panel-heading-dots,
+.preview-card > .panel-heading .panel-heading-dots {
   display: flex;
   gap: 5px;
   flex: 0 0 auto;
   align-items: center;
 }
-.preview-card > .panel-head-cell.panel-heading, .preview-card > .panel-heading .panel-heading-dots span {
+.preview-card > .panel-head-cell .panel-heading-dots span,
+.preview-card > .panel-heading .panel-heading-dots span {
   width: 3px;
   height: 9px;
   border-radius: 1px;
@@ -1147,8 +1172,9 @@ a.status-chip-link:focus-visible {
 .preview-card > .panel-heading-compact .panel-heading-dots {
   display: none;
 }
+.preview-card > .panel-head-cell.panel-heading-plain,
 .preview-card > .panel-heading-plain {
-  padding: 10px 12px 0;
+  padding: 8px 10px;
 }
 .preview-card > .panel-heading-plain .panel-heading-accent,
 .preview-card > .panel-heading-plain .panel-heading-flair,

@@ -9,9 +9,12 @@ use super::{
 use super::style::{
     block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
     panel_heading_config, panel_heading_style, panel_show_heading, panel_slot_area_style,
-    panel_style,
+    panel_slot_typography_style, panel_style,
 };
-use super::theme::{resolve_panel_props, ThemeResolved};
+use super::theme::{
+    resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
+};
+use super::style::container_visual_style;
 
 const SLOT_HEAD: &str = "head";
 const SLOT_BODY: &str = "body";
@@ -27,12 +30,19 @@ pub(super) fn panel_view(
     embed_depth: u8,
     preview_scene_path: &str,
 ) -> AnyView {
-    let panel_props = resolve_panel_props(theme, &panel.props);
-    let chrome_bare = panel_chrome_bare(&panel_props);
-    let has_head = panel_show_heading(&panel_props);
-    let heading = panel_heading_config(&theme.heading, &panel_props);
+    let card_props = resolve_panel_card_props(theme, panel);
+    let head_props = resolve_panel_head_props(theme, panel);
+    let body_props = resolve_panel_body_props(theme, panel);
+    let chrome_bare = panel_chrome_bare(&card_props);
+    let has_head = panel_show_heading(&card_props);
+    let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
-    let heading_cell_style = panel_heading_style(&panel_props);
+    let mut heading_cell_style = panel_heading_style(&head_props);
+    heading_cell_style.push_str(&panel_slot_typography_style(&head_props));
+    heading_cell_style.push_str(&container_visual_style(&head_props));
+    let mut body_cell_style = panel_slot_area_style(SLOT_BODY);
+    body_cell_style.push_str(&panel_slot_typography_style(&body_props));
+    body_cell_style.push_str(&container_visual_style(&body_props));
 
     let (head_nodes, body_nodes) = partition_panel_blocks(&panel.blocks, has_head);
     let has_body_slot = !body_nodes.is_empty();
@@ -70,8 +80,11 @@ pub(super) fn panel_view(
         })
         .collect_view();
 
-    let mut card_style = panel_style(panel.area.as_deref(), frame_layout, &panel_props);
-    card_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &panel_props));
+    let mut card_style = panel_style(panel.area.as_deref(), frame_layout, &card_props);
+    card_style.push_str(&panel_card_layout_style(
+        panel.layout.as_ref(),
+        &head_props,
+    ));
 
     let card_class = if chrome_bare {
         "preview-card preview-card-bare"
@@ -123,7 +136,7 @@ pub(super) fn panel_view(
                 view! {
                     <div
                         class=body_slot_class
-                        style=panel_slot_area_style(SLOT_BODY)
+                        style=body_cell_style.clone()
                         data-mei-panel-body="true"
                     >
                         {body_blocks}

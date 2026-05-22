@@ -113,7 +113,49 @@ pub(super) fn panel_show_heading(props: &Value) -> bool {
 }
 
 pub(super) fn panel_slot_area_style(slot: &str) -> String {
+    if slot == "head" {
+        return "grid-area:head;min-width:0;min-height:0;width:100%;align-self:start;box-sizing:border-box;"
+            .to_string();
+    }
     format!("grid-area:{slot};min-width:0;min-height:0;width:100%;height:100%;box-sizing:border-box;")
+}
+
+/// `panel_head` / `panel_body` / `head_props` / `body_props` 的 `font` 键 → 槽位默认字号（子组件可 `props.font` 覆盖）。
+pub(super) fn panel_slot_typography_style(props: &Value) -> String {
+    let Some(map) = props.as_object() else {
+        return String::new();
+    };
+    let Some(font) = map.get("font") else {
+        return String::new();
+    };
+    let key = match font {
+        Value::String(raw) => raw.trim().to_string(),
+        Value::Number(raw) => {
+            if let Some(n) = raw.as_i64() {
+                n.to_string()
+            } else if let Some(n) = raw.as_f64() {
+                if (n - n.round()).abs() < f64::EPSILON {
+                    format!("{}", n.round() as i64)
+                } else {
+                    n.to_string()
+                }
+            } else {
+                return String::new();
+            }
+        }
+        _ => return String::new(),
+    };
+    if key.is_empty() {
+        return String::new();
+    }
+    if key.ends_with("px")
+        || key.ends_with("rem")
+        || key.ends_with("em")
+        || key.ends_with('%')
+    {
+        return format!("font-size:{key};");
+    }
+    format!("font-size:var(--mei-font-{key},14px);")
 }
 
 /// 整卡 grid：来自 `panel.layout`；`props.heading.height` 与 `rows` 合并为 `grid-template-rows`。
@@ -125,10 +167,9 @@ pub(super) fn panel_card_layout_style(
         return String::new();
     };
     let mut style = surface_layout_style(Some(layout));
-    let heading_height = props
+    let chrome_props = heading_chrome_props(props);
+    let heading_height = chrome_props
         .as_object()
-        .and_then(|map| map.get("heading"))
-        .and_then(|value| value.as_object())
         .and_then(|map| map.get("height"))
         .and_then(Value::as_str)
         .map(str::trim)
@@ -157,28 +198,56 @@ pub(super) fn panel_card_layout_style(
         } else {
             style.push_str(&format!("grid-template-rows:{} 1fr;", heading_row));
         }
+    } else {
+        patch_default_head_body_grid_rows(&mut style, layout);
     }
     style.push_str("gap:0;");
     style
 }
 
-pub(super) fn panel_heading_config(theme_heading: &Value, props: &Value) -> PanelHeadingConfig {
+fn patch_default_head_body_grid_rows(style: &mut String, layout: &mei_lang_kernel::LayoutDecl) {
+    let Some(rows) = layout.rows.as_ref() else {
+        return;
+    };
+    let slots: Vec<&str> = layout
+        .areas
+        .as_ref()
+        .map(|areas| areas.iter().flat_map(|row| row.iter().map(String::as_str)).collect())
+        .unwrap_or_default();
+    let has_head = slots.iter().any(|slot| *slot == "head");
+    let has_body = slots.iter().any(|slot| *slot == "body");
+    if has_head && has_body && rows.len() >= 2 && rows[0] == "auto" && rows[1] == "1fr" {
+        style.push_str("grid-template-rows:minmax(max-content,auto) minmax(0,1fr);");
+    } else if has_head && !has_body && rows.first().is_some_and(|row| row == "auto") {
+        style.push_str("grid-template-rows:minmax(max-content,auto);");
+    }
+}
+
+fn heading_chrome_props(head_props: &Value) -> Value {
+    let Some(map) = head_props.as_object() else {
+        return head_props.clone();
+    };
+    let Some(chrome) = map.get("chrome").filter(|value| value.is_object()) else {
+        return head_props.clone();
+    };
+    deep_merge_value(chrome, head_props)
+}
+
+pub(super) fn panel_heading_config(
+    theme_panel_head: &Value,
+    head_props: &Value,
+    card_props: &Value,
+) -> PanelHeadingConfig {
     let mut variant = "default".to_string();
     let mut subtitle = None;
     let mut show_accent = None;
     let mut show_flair = None;
     let mut show_dots = None;
 
-    let heading_props = deep_merge_value(
-        theme_heading,
-        &props
-            .as_object()
-            .and_then(|map| map.get("heading"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({})),
-    );
+    let heading_props = heading_chrome_props(head_props);
+    let heading_props = deep_merge_value(theme_panel_head, &heading_props);
 
-    if let Some(map) = props.as_object() {
+    if let Some(map) = card_props.as_object() {
         subtitle = map
             .get("subtitle")
             .and_then(Value::as_str)
@@ -212,16 +281,10 @@ pub(super) fn panel_heading_config(theme_heading: &Value, props: &Value) -> Pane
     }
 }
 
-/// `panel.props.heading.height` / `min_height` / `max_height` / `align`（如 `center`）→ 标题栏 inline 样式。
-pub(super) fn panel_heading_style(props: &Value) -> String {
-    let Some(heading) = props
-        .as_object()
-        .and_then(|map| map.get("heading"))
-        .filter(|value| value.is_object())
-    else {
-        return String::new();
-    };
-    let Some(map) = heading.as_object() else {
+/// `head_props` 的 height / align → head 单元格 inline 样式。
+pub(super) fn panel_heading_style(head_props: &Value) -> String {
+    let chrome_props = heading_chrome_props(head_props);
+    let Some(map) = chrome_props.as_object() else {
         return String::new();
     };
     let mut style = String::new();
@@ -537,10 +600,16 @@ pub(super) fn block_style(
     {
         if let Some(area) = area {
             if !area.trim().is_empty() && area != "auto" {
-                let mut style = format!(
-                    "grid-area:{};min-width:0;min-height:0;width:100%;height:100%;align-self:stretch;box-sizing:border-box;",
-                    area
-                );
+                let fill_row = area != "head";
+                let mut style = if fill_row {
+                    format!(
+                        "grid-area:{area};min-width:0;min-height:0;width:100%;height:100%;align-self:stretch;box-sizing:border-box;"
+                    )
+                } else {
+                    format!(
+                        "grid-area:{area};min-width:0;width:100%;box-sizing:border-box;"
+                    )
+                };
                 if layout
                     .and_then(|value| value.areas.as_ref())
                     .is_some_and(|rows| {

@@ -1,4 +1,4 @@
-use mei_lang_kernel::{SceneContract, ThemeDecl};
+use mei_lang_kernel::{PanelDecl, SceneContract, ThemeDecl};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -7,6 +7,10 @@ pub(super) struct ThemeResolved {
     pub(super) frame: Value,
     pub(super) panel: Value,
     pub(super) panel_bare: Value,
+    pub(super) panel_head: Value,
+    pub(super) panel_body: Value,
+    /// 兼容：`theme.heading` 已合并进 `panel_head`（保留字段供调试/后续消费）。
+    #[allow(dead_code)]
     pub(super) heading: Value,
     /// 合并后的 `theme.components`，供宿主组件通过 `_mei.components` 读取。
     pub(super) components: Value,
@@ -37,26 +41,12 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
             theme_id = custom.id.clone();
         }
     }
-    let frame = theme
-        .as_object()
-        .and_then(|map| map.get("frame"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    let panel = theme
-        .as_object()
-        .and_then(|map| map.get("panel"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    let panel_bare = theme
-        .as_object()
-        .and_then(|map| map.get("panel_bare"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    let heading = theme
-        .as_object()
-        .and_then(|map| map.get("heading"))
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
+    let frame = theme_field(&theme, "frame");
+    let panel = theme_field(&theme, "panel");
+    let panel_bare = theme_field(&theme, "panel_bare");
+    let panel_head = merge_panel_head_theme(&theme);
+    let panel_body = theme_field(&theme, "panel_body");
+    let heading = theme_field(&theme, "heading");
     let css_vars = collect_theme_css_vars(&theme);
     let components = theme
         .as_object()
@@ -69,10 +59,26 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
         frame,
         panel,
         panel_bare,
+        panel_head,
+        panel_body,
         heading,
         components,
         css_vars,
     }
+}
+
+fn theme_field(theme: &Value, key: &str) -> Value {
+    theme
+        .as_object()
+        .and_then(|map| map.get(key))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn merge_panel_head_theme(theme: &Value) -> Value {
+    let panel_head = theme_field(theme, "panel_head");
+    let heading = theme_field(theme, "heading");
+    deep_merge_value(&panel_head, &heading)
 }
 
 fn builtin_theme(theme_id: &str) -> Option<Value> {
@@ -112,12 +118,14 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "padding": "0",
                 "overflow": "visible"
             },
-            "heading": {
-                "variant": "screen",
-                "accent": true,
-                "flair": true,
-                "dots": true
+            "panel_head": {
+                "variant": "plain",
+                "accent": false,
+                "flair": false,
+                "dots": false
             },
+            "panel_body": {},
+            "heading": {},
             "font": {
                 "1": "12px",
                 "2": "14px",
@@ -162,10 +170,14 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "padding": "0",
                 "overflow": "visible"
             },
-            "heading": {
+            "panel_head": {
                 "variant": "compact",
-                "accent": true
+                "accent": true,
+                "flair": false,
+                "dots": false
             },
+            "panel_body": {},
+            "heading": {},
             "font": {
                 "1": "12px",
                 "2": "14px",
@@ -202,10 +214,14 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "padding": "0",
                 "overflow": "visible"
             },
-            "heading": {
-                "variant": "default",
-                "accent": true
+            "panel_head": {
+                "variant": "plain",
+                "accent": false,
+                "flair": false,
+                "dots": false
             },
+            "panel_body": {},
+            "heading": {},
             "font": {
                 "1": "12px",
                 "2": "14px",
@@ -234,6 +250,8 @@ fn theme_decl_value(theme: &ThemeDecl) -> Value {
     map.insert("frame".to_string(), theme.frame.clone());
     map.insert("panel".to_string(), theme.panel.clone());
     map.insert("panel_bare".to_string(), theme.panel_bare.clone());
+    map.insert("panel_head".to_string(), theme.panel_head.clone());
+    map.insert("panel_body".to_string(), theme.panel_body.clone());
     map.insert("heading".to_string(), theme.heading.clone());
     map.insert("font".to_string(), theme.font.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
@@ -241,6 +259,12 @@ fn theme_decl_value(theme: &ThemeDecl) -> Value {
         map.insert("components".to_string(), theme.components.clone());
     }
     Value::Object(map)
+}
+
+/// 整卡 panel：theme.panel + `props`（剥离槽位键）。
+pub(super) fn resolve_panel_card_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+    let merged = resolve_panel_props(theme, &panel.props);
+    strip_slot_keys_from_card_props(&merged)
 }
 
 pub(super) fn resolve_panel_props(theme: &ThemeResolved, props: &Value) -> Value {
@@ -254,6 +278,23 @@ pub(super) fn resolve_panel_props(theme: &ThemeResolved, props: &Value) -> Value
     } else {
         deep_merge_value(&theme.panel, props)
     }
+}
+
+pub(super) fn resolve_panel_head_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+    deep_merge_value(&theme.panel_head, &panel.head_props)
+}
+
+pub(super) fn resolve_panel_body_props(theme: &ThemeResolved, panel: &PanelDecl) -> Value {
+    deep_merge_value(&theme.panel_body, &panel.body_props)
+}
+
+fn strip_slot_keys_from_card_props(props: &Value) -> Value {
+    let Some(map) = props.as_object() else {
+        return props.clone();
+    };
+    let mut map = map.clone();
+    map.remove("heading");
+    Value::Object(map)
 }
 
 pub(super) fn deep_merge_value(base: &Value, overlay: &Value) -> Value {
