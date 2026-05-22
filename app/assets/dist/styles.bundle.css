@@ -645,6 +645,83 @@ a.status-chip-link:focus-visible {
   overflow: hidden;
   background: var(--mei-frame-letterbox, #070d14);
 }
+/* 管理端编辑调试：等比缩放 + 分辨率虚线框 + 可滚动查看裁切外内容 */
+.preview-viewport.preview-viewport-edit-debug {
+  position: relative;
+  overflow-x: auto;
+  overflow-y: auto;
+  align-content: start;
+  justify-items: start;
+}
+.preview-viewport-chrome {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  z-index: 10;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(71, 85, 105, 0.55);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.preview-viewport.preview-viewport-edit-debug .preview-stage-shell {
+  overflow: visible;
+  max-height: none;
+  flex: none;
+  position: relative;
+}
+.preview-viewport.preview-viewport-edit-debug .preview-stage.preview-surface {
+  position: relative;
+  z-index: 1;
+  will-change: transform;
+}
+.preview-design-bounds {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 2px dashed rgba(56, 189, 248, 0.92);
+  border-radius: 2px;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.55),
+    inset 0 0 0 1px rgba(125, 211, 252, 0.15);
+}
+.preview-design-overflow-veil {
+  position: absolute;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(251, 191, 36, 0.06),
+    rgba(251, 191, 36, 0.06) 8px,
+    rgba(15, 23, 42, 0.12) 8px,
+    rgba(15, 23, 42, 0.12) 16px
+  );
+  outline: 1px dashed rgba(251, 191, 36, 0.45);
+}
+.preview-design-overflow-veil::after {
+  content: "溢出区（访问态将裁切）";
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(253, 230, 138, 0.95);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+/* 访问态：随窗口 contain/cover 缩放并裁切（frame-stage.js） */
+.preview-viewport.preview-viewport-access-clip {
+  overflow: hidden;
+}
 /* frame 设 max_width 时：1:1 布局，宽随宿主、高由内容撑开；视口内纵向可滚动以看完多组 panel */
 .preview-viewport.preview-viewport-fluid-width {
   max-height: 100%;
@@ -913,6 +990,7 @@ a.status-chip-link:focus-visible {
 }
 .preview-card-bare .component-host > mei-cockpit-qunfu-park-donut-trio,
 .preview-card-bare .component-host > mei-cockpit-qunfu-park-amount-list,
+.preview-card-bare .component-host > mei-cockpit-scroll-list,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-donut-trio,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-amount-list,

@@ -7,6 +7,7 @@ use mei_lang_kernel::{
 };
 
 use super::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
+use super::route::UiRouteMode;
 
 mod nodes;
 mod resolve;
@@ -39,6 +40,7 @@ pub(super) fn preview_view(
     compiled: &CompiledApp,
     app_path: &str,
     selected_target: &str,
+    route_mode: UiRouteMode,
 ) -> AnyView {
     let runtime_ctx = build_preview_runtime_context(compiled);
 
@@ -72,13 +74,14 @@ pub(super) fn preview_view(
                 })
                 .collect_view();
             if let Some(vp) = viewport::frame_viewport_config(&frame_props) {
+                let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
                 let content_bounds =
                     viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
                 let fluid_width = content_bounds.max_width.is_some();
                 let mut viewport_style = if fluid_width {
-                    viewport::frame_viewport_style_fluid_width(&vp)
+                    viewport::frame_viewport_style_fluid_width(&vp, overflow_mode.as_str())
                 } else {
-                    viewport::frame_viewport_style(&vp)
+                    viewport::frame_viewport_style(&vp, overflow_mode.as_str())
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
                 let content_max_width = content_bounds
@@ -97,8 +100,10 @@ pub(super) fn preview_view(
                 };
                 let viewport_class = if content_bounds.max_width.is_some() {
                     "preview-viewport preview-viewport-fluid-width"
+                } else if viewport::viewport_overflow_is_debug(overflow_mode.as_str()) {
+                    "preview-viewport preview-viewport-edit-debug"
                 } else {
-                    "preview-viewport"
+                    "preview-viewport preview-viewport-access-clip"
                 };
                 let stage_class = if style::has_frame_backdrop(&frame_props) {
                     "preview-surface preview-stage preview-stage-has-backdrop"
@@ -120,9 +125,13 @@ pub(super) fn preview_view(
                         data-safe-right=vp.safe_right.to_string()
                         data-safe-bottom=vp.safe_bottom.to_string()
                         data-safe-left=vp.safe_left.to_string()
+                        data-overflow-mode=overflow_mode.clone()
+                        data-edit-scale-mode=vp.edit_scale_mode.clone()
+                        data-show-design-bounds=if vp.show_design_bounds { "true" } else { "false" }.to_string()
+                        data-aspect-ratio=vp.aspect_ratio.clone().unwrap_or_else(|| "16:9".to_string())
                     >
                         <div class="preview-stage-shell">
-                            <section class=stage_class style=viewport::frame_stage_style(frame.layout.as_ref(), &frame_props, &vp, &resolved_theme)>
+                            <section class=stage_class style=viewport::frame_stage_style(frame.layout.as_ref(), &frame_props, &vp, &resolved_theme, overflow_mode.as_str())>
                                 {panels}
                             </section>
                         </div>
@@ -204,9 +213,11 @@ mod tests {
         panel_show_heading, panel_style, surface_layout_style,
     };
     use super::theme::{resolve_panel_props, ThemeResolved};
+    use crate::ui::route::UiRouteMode;
     use super::viewport::{
-        frame_stage_content_bounds_for_viewport, frame_stage_style, frame_viewport_config,
-        frame_viewport_style,
+        effective_viewport_overflow, frame_stage_content_bounds_for_viewport,
+        frame_stage_style, frame_viewport_config, frame_viewport_style,
+        viewport_overflow_is_debug,
     };
     use mei_lang_kernel::{
         build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
@@ -456,6 +467,57 @@ mod tests {
     }
 
     #[test]
+    fn effective_viewport_overflow_respects_route_and_frame_props() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 1080,
+                "overflow": "clip",
+                "edit_overflow": "scroll",
+            }
+        }))
+        .expect("viewport config");
+        assert_eq!(
+            effective_viewport_overflow(&vp, UiRouteMode::Manage),
+            "debug"
+        );
+        assert_eq!(
+            effective_viewport_overflow(&vp, UiRouteMode::Access),
+            "clip"
+        );
+    }
+
+    #[test]
+    fn frame_stage_style_debug_uses_full_canvas_without_css_scale() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 1080,
+                "aspect_ratio": "16:9",
+            }
+        }))
+        .expect("viewport config");
+        let theme = ThemeResolved {
+            id: "cockpit".to_string(),
+            frame: json!({}),
+            panel: json!({}),
+            panel_bare: json!({}),
+            heading: json!({}),
+            components: json!({}),
+            css_vars: Vec::new(),
+        };
+        let style = frame_stage_style(None, &json!({}), &vp, &theme, "debug");
+        assert!(style.contains("width:1920px;"));
+        assert!(style.contains("min-height:1080px;"));
+        assert!(style.contains("height:auto;"));
+        assert!(style.contains("transform:none;"));
+        let debug_style = frame_viewport_style(&vp, "debug");
+        assert!(debug_style.contains("overflow-x:auto;"));
+        assert!(viewport_overflow_is_debug("debug"));
+        assert!(viewport_overflow_is_debug("scroll"));
+    }
+
+    #[test]
     fn frame_viewport_style_applies_alignment_and_padding() {
         let vp = frame_viewport_config(&json!({
             "viewport": {
@@ -467,7 +529,7 @@ mod tests {
             }
         }))
         .expect("viewport config");
-        let style = frame_viewport_style(&vp);
+        let style = frame_viewport_style(&vp, "clip");
         assert!(style.contains("justify-items:start;"));
         assert!(style.contains("align-items:start;"));
         assert!(style.contains("padding:18px 18px 18px 18px;"));
@@ -516,7 +578,7 @@ mod tests {
             components: json!({}),
             css_vars: Vec::new(),
         };
-        let style = frame_stage_style(None, &props, &vp, &theme);
+        let style = frame_stage_style(None, &props, &vp, &theme, "clip");
         assert!(style.contains("--mei-frame-content-max-width:520px;"));
         assert!(style.contains("width:100%;"));
         assert!(style.contains("height:auto;"));

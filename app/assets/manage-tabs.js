@@ -128,6 +128,12 @@
     if (opts.emit !== false) {
       emitTabChange(active);
     }
+    if (active === "preview") {
+      window.dispatchEvent(new Event("meilang:preview-updated"));
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("meilang:preview-updated"));
+      });
+    }
     return active;
   }
 

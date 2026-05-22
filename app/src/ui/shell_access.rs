@@ -19,7 +19,7 @@ pub(super) fn access_shell(
     chrome_hidden: bool,
 ) -> AnyView {
     let current_target = preview_target.unwrap_or(&compiled.active_target_file);
-    let preview = preview::preview_view(compiled, app_path, current_target);
+    let preview = preview::preview_view(compiled, app_path, current_target, UiRouteMode::Access);
     let panel_tab = active_tab.unwrap_or("preview");
     let topbar = topbar_view(
         apps,

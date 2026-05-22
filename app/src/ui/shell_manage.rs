@@ -56,7 +56,12 @@ pub(super) fn manage_shell(
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let source_lang = source_language(selected_target.as_str());
-    let preview = preview::preview_view(compiled, app_path, selected_target.as_str());
+    let preview = preview::preview_view(
+        compiled,
+        app_path,
+        selected_target.as_str(),
+        UiRouteMode::Manage,
+    );
     let active_scene = compiled.active_scene.as_deref();
     let scene_target_pairs = compiled
         .scene_routes
