@@ -911,7 +911,15 @@ a.status-chip-link:focus-visible {
   min-height: 0;
   height: 100%;
 }
-.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile {
+.preview-card-bare .component-host > mei-cockpit-qunfu-park-donut-trio,
+.preview-card-bare .component-host > mei-cockpit-qunfu-park-amount-list,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-donut-trio,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-amount-list,
+.preview-panel-body > .component-card > .component-host > mei-chart-trend,
+.preview-panel-body > .component-card > .component-host > mei-chart-line,
+.preview-panel-body > .component-card > .component-host > mei-chart-ranking,
+.preview-panel-body > .component-card > .component-host > mei-chart-bar-mini {
   display: block;
   width: 100%;
   height: 100%;

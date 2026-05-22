@@ -240,7 +240,10 @@ pub(super) fn load_panel_from_scene_file(
     let mut panels = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {
-            if value.get("kind").and_then(Value::as_str) == Some("panel") {
+            if matches!(
+                value.get("kind").and_then(Value::as_str),
+                Some("panel") | Some("panel_decl")
+            ) {
                 if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
                     panels.push(panel);
                 }

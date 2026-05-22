@@ -128,6 +128,13 @@ pub fn build_dataset_catalog_filter(
                 filter.resource_ids.insert(token);
             }
         }
+        for embed in extract_scene_file_tokens(&content) {
+            let path = normalize_rel_path(&embed);
+            filter.dataset_paths.insert(path.clone());
+            if queued.insert(path.clone()) {
+                queue.push(path);
+            }
+        }
         for embed in extract_typed_panel_ref_scene_files(&content) {
             let path = normalize_rel_path(&embed);
             if queued.insert(path.clone()) {
@@ -184,15 +191,85 @@ fn collect_dataset_catalog_mei_files(app_root: &Path) -> Vec<String> {
     mei_files
 }
 
-/// 派生数据集（如执法要素概览）在 .mei 内 `ds.data_ref` 依赖其它 world id，需一并物化。
+fn extract_scene_file_tokens(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    const NEEDLE: &str = "scene_file";
+    while let Some(idx) = rest.find(NEEDLE) {
+        let tail = &rest[idx + NEEDLE.len()..];
+        let Some(eq_idx) = tail.find('=') else {
+            rest = tail;
+            continue;
+        };
+        let after_eq = tail[eq_idx + 1..].trim_start();
+        if let Some(value) = parse_quoted_string(after_eq) {
+            let value = value.trim();
+            if !value.is_empty() && value.ends_with(".mei") {
+                out.push(value.to_string());
+            }
+        }
+        rest = tail;
+    }
+    out
+}
+
+fn build_dataset_id_to_scene_file_map(app_root: &Path) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::<String, String>::new();
+    let scenes_root = app_root.join("scenes");
+    if !scenes_root.is_dir() {
+        return map;
+    }
+    for entry in WalkDir::new(&scenes_root)
+        .into_iter()
+        .filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            entry.depth() == 0 || !matches!(name.as_ref(), ".git" | "node_modules" | "target")
+        })
+    {
+        let Ok(entry) = entry else { continue };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("mei") {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(app_root) else {
+            continue;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let Ok(content) = fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for id in extract_world_dataset_ids(&content) {
+            map.entry(id).or_insert(rel.clone());
+        }
+    }
+    map
+}
+
+/// 派生数据集（如执法要素概览）在 .mei 内 `ds.data_ref` / `metric_ref(from_dataset=...)` 依赖其它 world id，需一并物化。
 fn expand_catalog_filter_data_refs(app_root: &Path, filter: &mut DatasetCatalogFilter) {
+    let dataset_scene_files = build_dataset_id_to_scene_file_map(app_root);
+    for (id, rel) in &dataset_scene_files {
+        if filter.resource_ids.contains(id) {
+            filter.dataset_paths.insert(rel.clone());
+        }
+    }
     let mut rel_by_id = BTreeMap::<String, String>::new();
-    for rel in collect_dataset_catalog_mei_files(app_root) {
+    rel_by_id.extend(dataset_scene_files);
+    let mut scan_rels: Vec<String> = collect_dataset_catalog_mei_files(app_root);
+    for rel in &filter.dataset_paths {
+        if rel.ends_with(".mei") && !scan_rels.iter().any(|r| r == rel) {
+            scan_rels.push(rel.clone());
+        }
+    }
+    for rel in scan_rels {
         let path = app_root.join(&rel);
         let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
         for id in extract_world_dataset_ids(&content) {
+            filter.resource_ids.insert(id.clone());
             rel_by_id.entry(id).or_insert(rel.clone());
         }
     }
@@ -334,14 +411,28 @@ pub(super) fn compile_dataset_catalog_resources(
     if !filter.is_active() {
         return Vec::new();
     }
-    let mei_files = collect_dataset_catalog_mei_files(app_root);
-    if mei_files.is_empty() {
-        return Vec::new();
-    }
 
     let mut by_id = BTreeMap::<String, LoadedResource>::new();
 
-    for rel in mei_files {
+    let mut compile_rels: Vec<String> = collect_dataset_catalog_mei_files(app_root);
+    for rel in &filter.dataset_paths {
+        if rel.ends_with(".mei") && !compile_rels.iter().any(|r| r == rel) {
+            compile_rels.push(rel.clone());
+        }
+    }
+    let dataset_scene_files = build_dataset_id_to_scene_file_map(app_root);
+    for id in &filter.resource_ids {
+        if let Some(rel) = dataset_scene_files.get(id) {
+            if !compile_rels.iter().any(|r| r == rel) {
+                compile_rels.push(rel.clone());
+            }
+        }
+    }
+    if compile_rels.is_empty() {
+        return Vec::new();
+    }
+
+    for rel in compile_rels {
         if !dataset_file_matches_filter(app_root, rel.as_str(), filter) {
             continue;
         }

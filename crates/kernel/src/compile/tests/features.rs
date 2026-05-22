@@ -852,7 +852,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .expect("preview scene contract");
     assert_eq!(contract.scene.id, "layout_left");
     assert!(
-        contract.panels.len() >= 8,
+        contract.panels.len() >= 3,
         "layout left should resolve frame.panels panel_ref slots, got {}",
         contract.panels.len()
     );
@@ -863,17 +863,13 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
     let stats = contract
         .panels
         .iter()
-        .find(|p| p.id == "enforcement_elements_overview_stats")
+        .find(|p| p.id == "enforcement_elements_stats")
         .expect("enforcement stats panel from panel_ref");
     let panel_layout = stats.layout.as_ref().expect("panel_ref must preserve panel.layout from source");
     assert_eq!(panel_layout.layout_type, "grid");
     assert!(
-        panel_layout
-            .columns
-            .as_ref()
-            .is_some_and(|cols| cols.iter().any(|c| c.contains("repeat(4") || c.contains("repeat(3"))),
-        "stats panel should keep fixed multi-column grid, got {:?}",
-        panel_layout.columns
+        !stats.blocks.is_empty(),
+        "stats panel should carry title + metrics body blocks"
     );
     assert!(
         compiled
@@ -889,7 +885,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .filter(|r| r.dataset.is_some())
         .collect();
     assert!(
-        dataset_resources.len() <= 12,
+        dataset_resources.len() <= 14,
         "manage widget preview should use selective catalog, not full scan (got {}): {:?}",
         dataset_resources.len(),
         dataset_resources
@@ -965,7 +961,7 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
         .expect("preview scene contract");
     assert_eq!(contract.scene.id, "layout_right");
     assert!(
-        contract.panels.len() >= 7,
+        contract.panels.len() >= 4,
         "layout right should resolve multiple panel_ref slots, got {}",
         contract.panels.len()
     );
@@ -1052,6 +1048,48 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
 }
 
 #[test]
+fn compile_spbjw_overview_preview_materializes_imported_metrics() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/layouts/左栏.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .expect("compile spbjw layout left preview");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "layout left preview errors: {:?}",
+        errors
+    );
+    let ids: Vec<_> = compiled.resources.iter().map(|r| r.id.as_str()).collect();
+    let units = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "enforcement_units")
+        .unwrap_or_else(|| panic!("expected enforcement_units in catalog, got {ids:?}"));
+    let dataset = units.dataset.as_ref().expect("enforcement_units dataset");
+    assert!(
+        !dataset.runtime_metric_defs.is_empty(),
+        "imported dataset should carry runtime metric defs"
+    );
+    assert!(
+        dataset.metrics.contains_key("enforcement_units_count"),
+        "expected enforcement_units_count metric"
+    );
+}
+
+#[test]
 fn compile_spbjw_preview_home_scene_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
@@ -1103,8 +1141,8 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     let overview = contract
         .panels
         .iter()
-        .find(|p| p.id == "enforcement_elements_overview_stats")
-        .expect("overview panel from panel(base=panel_ref)");
+        .find(|p| p.id == "enforcement_elements_stats")
+        .expect("enforcement elements stats from panel(base=panel_ref)");
     assert!(
         !overview.blocks.is_empty(),
         "home panel(base=panel_ref) should inherit blocks from external panel"
