@@ -119,7 +119,7 @@ pub(super) fn manage_shell(
         "shell shell-surface text-slate-200"
     };
     let preview_scroll_class = if stage_enabled {
-        "main-pane-scroll preview-pane-scroll frame-stage-enabled flex-1 min-h-0 overflow-hidden p-0"
+        "main-pane-scroll preview-pane-scroll frame-stage-enabled flex-1 min-h-0 overflow-auto p-0"
     } else {
         "main-pane-scroll preview-pane-scroll flex-1 min-h-0 overflow-auto p-0"
     };
@@ -344,7 +344,11 @@ pub(super) fn manage_shell(
                             view! {
                                 <>
                                     <section
-                                        class="preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                                        class=if stage_enabled {
+                                            "preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-auto"
+                                        } else {
+                                            "preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                                        }
                                         data-manage-tab-panel="preview"
                                         hidden=!preview_tab_active
                                     >

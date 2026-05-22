@@ -75,13 +75,23 @@ pub(super) fn preview_view(
                 .collect_view();
             if let Some(vp) = viewport::frame_viewport_config(&frame_props) {
                 let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
+                let is_manage = route_mode == UiRouteMode::Manage;
                 let content_bounds =
                     viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
-                let fluid_width = content_bounds.max_width.is_some();
+                let fluid_height = vp.fluid_height;
+                let fluid_width = content_bounds.max_width.is_some() && !fluid_height;
                 let mut viewport_style = if fluid_width {
-                    viewport::frame_viewport_style_fluid_width(&vp, overflow_mode.as_str())
+                    viewport::frame_viewport_style_fluid_width_for_route(
+                        &vp,
+                        overflow_mode.as_str(),
+                        route_mode,
+                    )
                 } else {
-                    viewport::frame_viewport_style(&vp, overflow_mode.as_str())
+                    viewport::frame_viewport_style_for_route(
+                        &vp,
+                        overflow_mode.as_str(),
+                        route_mode,
+                    )
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
                 let content_max_width = content_bounds
@@ -93,15 +103,22 @@ pub(super) fn preview_view(
                 } else {
                     content_bounds.height.to_string()
                 };
-                let content_fluid_width = if content_bounds.max_width.is_some() {
+                let content_fluid_width = if fluid_width {
                     "true"
                 } else {
                     "false"
                 };
-                let viewport_class = if content_bounds.max_width.is_some() {
-                    "preview-viewport preview-viewport-fluid-width"
-                } else if viewport::viewport_overflow_is_debug(overflow_mode.as_str()) {
-                    "preview-viewport preview-viewport-edit-debug"
+                let content_fluid_height = if fluid_height { "true" } else { "false" };
+                let viewport_class = if is_manage {
+                    if fluid_width {
+                        "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-width"
+                    } else if fluid_height {
+                        "preview-viewport preview-viewport-edit-debug preview-viewport-fluid-height"
+                    } else {
+                        "preview-viewport preview-viewport-edit-debug"
+                    }
+                } else if fluid_width {
+                    "preview-viewport preview-viewport-access-clip preview-viewport-fluid-width"
                 } else {
                     "preview-viewport preview-viewport-access-clip"
                 };
@@ -110,13 +127,38 @@ pub(super) fn preview_view(
                 } else {
                     "preview-surface preview-stage"
                 };
+                let show_viewport_chrome = is_manage;
+                let chrome_height = if fluid_height {
+                    content_bounds.height
+                } else {
+                    vp.design_height
+                };
+                let chrome_height_suffix = if fluid_height { " (内容高)" } else { "" };
+                let chrome_aspect = vp
+                    .aspect_ratio
+                    .as_ref()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| format!(" · {value}"))
+                    .unwrap_or_default();
+                let effective_canvas_width = viewport::effective_canvas_width(&frame_props, &vp);
+                let canvas_width = effective_canvas_width.round() as i64;
+                let canvas_width_attr = effective_canvas_width.to_string();
+                let chrome_label = format!(
+                    "{} × {}{}{}",
+                    canvas_width, chrome_height.round() as i64, chrome_height_suffix, chrome_aspect
+                );
+                if is_manage && effective_canvas_width + 0.5 < vp.design_width {
+                    viewport_style = viewport_style.replace("justify-items:center", "justify-items:start");
+                }
                 return view! {
                     <section
                         class=viewport_class
                         style=viewport_style
                         data-mei-frame-viewport="true"
                         data-content-fluid-width=content_fluid_width
+                        data-content-fluid-height=content_fluid_height
                         data-design-width=vp.design_width.to_string()
+                        data-canvas-width=canvas_width_attr
                         data-design-height=vp.design_height.to_string()
                         data-content-max-width=content_max_width
                         data-content-height=content_height
@@ -125,11 +167,32 @@ pub(super) fn preview_view(
                         data-safe-right=vp.safe_right.to_string()
                         data-safe-bottom=vp.safe_bottom.to_string()
                         data-safe-left=vp.safe_left.to_string()
+                        data-edit-safe-top=vp.edit_safe_top.to_string()
+                        data-edit-safe-right=vp.edit_safe_right.to_string()
+                        data-edit-safe-bottom=vp.edit_safe_bottom.to_string()
+                        data-edit-safe-left=vp.edit_safe_left.to_string()
+                        data-route-mode=route_mode.slug()
                         data-overflow-mode=overflow_mode.clone()
-                        data-edit-scale-mode=vp.edit_scale_mode.clone()
-                        data-show-design-bounds=if vp.show_design_bounds { "true" } else { "false" }.to_string()
+                        data-show-design-bounds="true"
                         data-aspect-ratio=vp.aspect_ratio.clone().unwrap_or_else(|| "16:9".to_string())
                     >
+                        {show_viewport_chrome.then(|| view! {
+                            <div class="preview-viewport-toolbar">
+                                <div class="preview-viewport-zoom-bar" data-preview-zoom-bar="true">
+                                    <span class="preview-viewport-zoom-title">"视窗"</span>
+                                    <button type="button" class="preview-viewport-zoom-btn is-active" data-preview-zoom="fit">"自适应"</button>
+                                    <button type="button" class="preview-viewport-zoom-btn" data-preview-zoom="1">"100%"</button>
+                                    <button type="button" class="preview-viewport-zoom-btn" data-preview-zoom="0.75">"75%"</button>
+                                    <button type="button" class="preview-viewport-zoom-btn" data-preview-zoom="0.5">"50%"</button>
+                                    <button type="button" class="preview-viewport-zoom-btn" data-preview-zoom="minus" title="缩小">"−"</button>
+                                    <button type="button" class="preview-viewport-zoom-btn" data-preview-zoom="plus" title="放大">"+"</button>
+                                    <span class="preview-viewport-zoom-readout" data-preview-zoom-readout="true">"—"</span>
+                                </div>
+                                <div class="preview-viewport-chrome" aria-hidden="true">
+                                    {chrome_label.clone()}
+                                </div>
+                            </div>
+                        })}
                         <div class="preview-stage-shell">
                             <section class=stage_class style=viewport::frame_stage_style(frame.layout.as_ref(), &frame_props, &vp, &resolved_theme, overflow_mode.as_str())>
                                 {panels}
@@ -215,8 +278,10 @@ mod tests {
     use super::theme::{resolve_panel_props, ThemeResolved};
     use crate::ui::route::UiRouteMode;
     use super::viewport::{
-        effective_viewport_overflow, frame_stage_content_bounds_for_viewport,
-        frame_stage_style, frame_viewport_config, frame_viewport_style,
+        effective_viewport_overflow, effective_viewport_safe_inset,
+        effective_canvas_width, frame_stage_content_bounds_for_viewport, frame_stage_style,
+        frame_viewport_config,
+        frame_viewport_style_for_route, frame_viewport_style_fluid_width_for_route,
         viewport_overflow_is_debug,
     };
     use mei_lang_kernel::{
@@ -442,6 +507,28 @@ mod tests {
     }
 
     #[test]
+    fn frame_viewport_config_supports_fluid_height() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1000,
+                "design_height": 480,
+                "fluid_height": true,
+            }
+        }))
+        .expect("viewport config");
+        assert!(vp.fluid_height);
+        let locked = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1000,
+                "design_height": 480,
+                "lock_height": false,
+            }
+        }))
+        .expect("viewport config");
+        assert!(locked.fluid_height);
+    }
+
+    #[test]
     fn frame_viewport_config_supports_align_and_safe_inset() {
         let vp = frame_viewport_config(&json!({
             "viewport": {
@@ -467,13 +554,13 @@ mod tests {
     }
 
     #[test]
-    fn effective_viewport_overflow_respects_route_and_frame_props() {
+    fn effective_viewport_overflow_is_fixed_by_route_not_frame_props() {
         let vp = frame_viewport_config(&json!({
             "viewport": {
                 "design_width": 1920,
                 "design_height": 1080,
-                "overflow": "clip",
-                "edit_overflow": "scroll",
+                "overflow": "scroll",
+                "edit_overflow": "clip",
             }
         }))
         .expect("viewport config");
@@ -484,6 +571,38 @@ mod tests {
         assert_eq!(
             effective_viewport_overflow(&vp, UiRouteMode::Access),
             "clip"
+        );
+    }
+
+    #[test]
+    fn frame_stage_style_debug_caps_canvas_width_to_frame_max_width() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1000,
+                "design_height": 480,
+                "fluid_height": true,
+            }
+        }))
+        .expect("viewport config");
+        let props = json!({
+            "max_width": "972px",
+            "width": "100%",
+        });
+        let theme = ThemeResolved {
+            id: "cockpit".to_string(),
+            frame: json!({}),
+            panel: json!({}),
+            panel_bare: json!({}),
+            heading: json!({}),
+            components: json!({}),
+            css_vars: Vec::new(),
+        };
+        let style = frame_stage_style(None, &props, &vp, &theme, "debug");
+        assert!(style.contains("width:972px;"));
+        assert!(!style.contains("width:1000px;"));
+        assert_eq!(
+            effective_canvas_width(&props, &vp),
+            972.0
         );
     }
 
@@ -511,7 +630,8 @@ mod tests {
         assert!(style.contains("min-height:1080px;"));
         assert!(style.contains("height:auto;"));
         assert!(style.contains("transform:none;"));
-        let debug_style = frame_viewport_style(&vp, "debug");
+        let debug_style =
+            frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
         assert!(debug_style.contains("overflow-x:auto;"));
         assert!(viewport_overflow_is_debug("debug"));
         assert!(viewport_overflow_is_debug("scroll"));
@@ -529,10 +649,38 @@ mod tests {
             }
         }))
         .expect("viewport config");
-        let style = frame_viewport_style(&vp, "clip");
-        assert!(style.contains("justify-items:start;"));
-        assert!(style.contains("align-items:start;"));
-        assert!(style.contains("padding:18px 18px 18px 18px;"));
+        let debug_style =
+            frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
+        assert!(debug_style.contains("justify-items:start;"));
+        assert!(debug_style.contains("align-items:start;"));
+        assert!(debug_style.contains("padding:18px 18px 18px 18px;"));
+
+        let access_style = frame_viewport_style_for_route(&vp, "clip", UiRouteMode::Access);
+        assert!(access_style.contains("display:flex;"));
+        assert!(access_style.contains("align-items:center;"));
+        assert!(access_style.contains("justify-content:center;"));
+        assert!(access_style.contains("padding:18px 18px 18px 18px;"));
+    }
+
+    #[test]
+    fn effective_viewport_safe_inset_splits_access_and_edit() {
+        let vp = frame_viewport_config(&json!({
+            "viewport": {
+                "design_width": 1920,
+                "design_height": 1080,
+                "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
+                "edit_safe_inset": { "top": 32, "right": 16, "bottom": 12, "left": 8 },
+            }
+        }))
+        .expect("viewport config");
+        assert_eq!(
+            effective_viewport_safe_inset(&vp, UiRouteMode::Access),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            effective_viewport_safe_inset(&vp, UiRouteMode::Manage),
+            (32.0, 16.0, 12.0, 8.0)
+        );
     }
 
     #[test]
