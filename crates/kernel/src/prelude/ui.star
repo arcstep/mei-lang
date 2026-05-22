@@ -145,13 +145,23 @@ def frame_set_layout(layout):
         "layout": layout,
     })
 
-def theme(id, frame = None, panel = None, panel_bare = None, heading = None, font = None, tokens = None):
+def _merge_dict(base, overlay):
+    out = _clone_props(base)
+    if _is_dict(overlay):
+        for k, v in overlay.items():
+            out[k] = v
+    return out
+
+def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, tokens = None):
+    resolved_panel_head = _merge_dict(panel_head, heading)
     return _declare(_clean({
         "kind": "theme",
         "id": id,
         "frame": frame if frame != None else {},
         "panel": panel if panel != None else {},
         "panel_bare": panel_bare if panel_bare != None else {},
+        "panel_head": resolved_panel_head,
+        "panel_body": panel_body if panel_body != None else {},
         "heading": heading if heading != None else {},
         "font": font if font != None else {},
         "tokens": tokens if tokens != None else {},
@@ -175,12 +185,22 @@ def _title_is_block_shape(value):
         return True
     return False
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def _merge_head_props(head_props = None, heading = None, heading_variant = None):
+    merged = _clone_props(head_props)
+    if _is_dict(heading):
+        merged = _merge_dict(merged, heading)
+    if heading_variant != None:
+        merged["variant"] = heading_variant
+    return merged
+
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""
     else:
         panel_id = id if id != None else area
     panel_props = _clone_props(props)
+    panel_head_props = _merge_head_props(head_props, heading, heading_variant)
+    panel_body_props = _clone_props(body_props)
     title_label = None
     head_slot = None
     if title != None:
@@ -196,14 +216,6 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         panel_props["chrome"] = chrome
     if show_heading != None:
         panel_props["show_heading"] = show_heading
-    if _is_dict(heading):
-        panel_props["heading"] = _clone_props(heading)
-    if heading_variant != None:
-        heading_props = panel_props.get("heading")
-        if not _is_dict(heading_props):
-            heading_props = {}
-        heading_props["variant"] = heading_variant
-        panel_props["heading"] = heading_props
     variant_key = variant
     if type(variant_key) == "string":
         variant_norm = variant_key.strip().lower()
@@ -219,6 +231,8 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         "layout": layout,
         "data_ref": _data_ref_value(data),
         "props": panel_props,
+        "head_props": panel_head_props,
+        "body_props": panel_body_props,
         "data": data_plan,
     }
     if base != None:
@@ -227,7 +241,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         payload["blocks"] = blocks
     return _clean(payload)
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     return _panel_node(
         id = id,
         title = title,
@@ -237,6 +251,8 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         blocks = blocks,
         data = data,
         props = props,
+        head_props = head_props,
+        body_props = body_props,
         data_plan = data_plan,
         variant = variant,
         chrome = chrome,
@@ -246,7 +262,7 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         base = base,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -256,6 +272,8 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         blocks = blocks,
         data = data,
         props = props,
+        head_props = head_props,
+        body_props = body_props,
         data_plan = data_plan,
         variant = variant,
         chrome = chrome,

@@ -17,7 +17,7 @@ use super::super::load_external::{
     load_scene_from_file, load_world_from_file,
 };
 
-pub(super) fn deep_merge_json(base: &Value, overlay: &Value) -> Value {
+pub(crate) fn deep_merge_json(base: &Value, overlay: &Value) -> Value {
     match (base, overlay) {
         (Value::Object(base_map), Value::Object(overlay_map)) => {
             let mut out = base_map.clone();
@@ -478,6 +478,12 @@ pub(super) fn merge_panel_decl(base: PanelDecl, overlay_value: &Value) -> Result
     }
     if value_has_key(overlay_value, "props") {
         merged.props = deep_merge_json(&merged.props, &overlay.props);
+    }
+    if value_has_key(overlay_value, "head_props") {
+        merged.head_props = deep_merge_json(&merged.head_props, &overlay.head_props);
+    }
+    if value_has_key(overlay_value, "body_props") {
+        merged.body_props = deep_merge_json(&merged.body_props, &overlay.body_props);
     }
     merged.kind = "panel".to_string();
     merged.base = None;

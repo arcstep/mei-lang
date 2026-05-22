@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 
+use crate::compile::entry_payload::clone_merge::deep_merge_json;
 use crate::model::{
     BlockDecl, Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl,
 };
@@ -71,8 +72,42 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
         remap_block_areas_to_body(&mut panel.blocks);
     }
 
+    hoist_heading_to_head_props(panel, diagnostics, source_path);
     stamp_has_head_prop(panel, has_head);
     panel.head = None;
+}
+
+fn hoist_heading_to_head_props(
+    panel: &mut PanelDecl,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
+    let Some(props_map) = panel.props.as_object() else {
+        return;
+    };
+    let Some(heading) = props_map.get("heading").cloned() else {
+        return;
+    };
+    let head_has_content = panel
+        .head_props
+        .as_object()
+        .is_some_and(|map| !map.is_empty());
+    if head_has_content {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Info,
+            code: "heading_migrated_to_head_props".to_string(),
+            message: format!(
+                "panel `{}`: props.heading is ignored when head_props is set; use head_props only",
+                panel.id
+            ),
+            source_path: Some(source_path.to_string()),
+        });
+    } else {
+        panel.head_props = deep_merge_json(&panel.head_props, &heading);
+    }
+    let mut map = props_map.clone();
+    map.remove("heading");
+    panel.props = Value::Object(map);
 }
 
 fn merge_head_slot(panel: &mut PanelDecl) {
@@ -350,6 +385,8 @@ mod tests {
                 data: None,
             })],
             props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
             base: None,
         }
     }
@@ -387,6 +424,38 @@ mod tests {
     }
 
     #[test]
+    fn normalize_hoists_props_heading_to_head_props() {
+        let mut panels = vec![PanelDecl {
+            kind: "panel".to_string(),
+            id: "p".to_string(),
+            title: None,
+            head: None,
+            area: None,
+            layout: None,
+            blocks: vec![],
+            props: json!({"heading": {"variant": "screen", "height": "40px"}}),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+        }];
+        let mut diagnostics = Vec::new();
+        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+        let panel = &panels[0];
+        assert!(panel.props.as_object().and_then(|m| m.get("heading")).is_none());
+        assert_eq!(
+            panel
+                .head_props
+                .get("variant")
+                .and_then(Value::as_str),
+            Some("screen")
+        );
+        assert_eq!(
+            panel.head_props.get("height").and_then(Value::as_str),
+            Some("40px")
+        );
+    }
+
+    #[test]
     fn normalize_no_head_without_title() {
         let mut panels = vec![PanelDecl {
             kind: "panel".to_string(),
@@ -397,6 +466,8 @@ mod tests {
             layout: None,
             blocks: vec![],
             props: json!({}),
+            head_props: json!({}),
+            body_props: json!({}),
             base: None,
         }];
         let mut diagnostics = Vec::new();

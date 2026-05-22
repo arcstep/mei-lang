@@ -319,6 +319,11 @@ pub struct ThemeDecl {
     #[serde(default)]
     pub panel_bare: Value,
     #[serde(default)]
+    pub panel_head: Value,
+    #[serde(default)]
+    pub panel_body: Value,
+    /// 兼容：合并时迁入 `panel_head`。
+    #[serde(default)]
     pub heading: Value,
     #[serde(default)]
     pub font: Value,
@@ -502,6 +507,12 @@ pub struct PanelDecl {
     pub blocks: Vec<UiNodeDecl>,
     #[serde(default)]
     pub props: Value,
+    /// head 子容器视觉 props（与 `head` 标题槽内容区分）。
+    #[serde(default)]
+    pub head_props: Value,
+    /// body 子容器视觉 props。
+    #[serde(default)]
+    pub body_props: Value,
     /// Authoring-only：`panel(base = panel_ref(...))` 克隆源；编译归一后清除。
     #[serde(default)]
     pub base: Option<Value>,

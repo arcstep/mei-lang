@@ -556,6 +556,8 @@ mod tests {
                     data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                head_props: Value::Object(serde_json::Map::new()),
+                body_props: Value::Object(serde_json::Map::new()),
                 base: None,
             }],
         };
@@ -600,6 +602,8 @@ mod tests {
                     data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                head_props: Value::Object(serde_json::Map::new()),
+                body_props: Value::Object(serde_json::Map::new()),
                 base: None,
             }],
         };
@@ -668,6 +672,8 @@ mod tests {
                     data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                head_props: Value::Object(serde_json::Map::new()),
+                body_props: Value::Object(serde_json::Map::new()),
                 base: None,
             }],
         };
@@ -719,6 +725,8 @@ mod tests {
                     data: None,
                 })],
                 props: Value::Object(serde_json::Map::new()),
+                head_props: Value::Object(serde_json::Map::new()),
+                body_props: Value::Object(serde_json::Map::new()),
                 base: None,
             }],
         };
