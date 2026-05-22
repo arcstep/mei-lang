@@ -1018,6 +1018,32 @@ a.status-chip-link:focus-visible {
   background: linear-gradient(180deg, rgba(0, 20, 45, 0.55) 0%, rgba(0, 12, 28, 0.15) 100%);
   border-bottom: 1px solid rgba(0, 180, 255, 0.22);
 }
+/* head_props.carets：单图右侧原向、左侧 rotate（默认 180deg） */
+.preview-card > .panel-head-cell[data-mei-head-carets] {
+  position: relative;
+}
+.preview-card > .panel-head-cell[data-mei-head-carets]::before,
+.preview-card > .panel-head-cell[data-mei-head-carets]::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 24px;
+  background-image: var(--mei-head-caret-url);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: var(--mei-head-caret-size, 14px 24px);
+  pointer-events: none;
+  z-index: 1;
+}
+.preview-card > .panel-head-cell[data-mei-head-carets]::before {
+  left: var(--mei-head-caret-inset, 14px);
+  transform: translateY(-50%) rotate(var(--mei-head-caret-left-rotate, 180deg));
+}
+.preview-card > .panel-head-cell[data-mei-head-carets]::after {
+  right: var(--mei-head-caret-inset, 14px);
+  transform: translateY(-50%);
+}
 .preview-card > .panel-head-cell .panel-head-slot {
   flex: 1;
   min-width: 0;
@@ -1025,6 +1051,8 @@ a.status-chip-link:focus-visible {
   display: flex;
   align-items: center;
   width: 100%;
+  position: relative;
+  z-index: 2;
 }
 .preview-card > .panel-head-cell .component-host {
   min-height: 0;

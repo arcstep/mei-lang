@@ -8,8 +8,8 @@ use super::{
 };
 use super::style::{
     block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
-    panel_heading_config, panel_heading_style, panel_show_heading, panel_slot_area_style,
-    panel_slot_typography_style, panel_style,
+    panel_head_caret_style, panel_head_carets_enabled, panel_heading_config, panel_heading_style,
+    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
 };
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
@@ -37,8 +37,12 @@ pub(super) fn panel_view(
     let has_head = panel_show_heading(&card_props);
     let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
+    let head_carets = panel_head_carets_enabled(&head_props);
     let mut heading_cell_style = panel_heading_style(&head_props);
     heading_cell_style.push_str(&panel_slot_typography_style(&head_props));
+    if head_carets {
+        heading_cell_style.push_str(&panel_head_caret_style(&head_props));
+    }
     heading_cell_style.push_str(&container_visual_style(&head_props));
     let mut body_cell_style = panel_slot_area_style(SLOT_BODY);
     body_cell_style.push_str(&panel_slot_typography_style(&body_props));
@@ -115,11 +119,13 @@ pub(super) fn panel_view(
             data-mei-panel-id=panel.id.clone()
         >
             {if has_head {
+                let head_carets_attr = head_carets.then_some("true");
                 view! {
                     <div
                         class=format!("panel-head-cell {heading_class}")
                         style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
                         data-mei-panel-head="true"
+                        data-mei-head-carets=head_carets_attr
                         data-heading-variant=heading.variant.clone()
                         aria-label=label.clone()
                     >

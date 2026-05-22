@@ -158,6 +158,58 @@ pub(super) fn panel_slot_typography_style(props: &Value) -> String {
     format!("font-size:var(--mei-font-{key},14px);")
 }
 
+/// `head_props.carets`：单张图右侧原图、左侧 `left_rotate`（默认 180deg），由 CSS 伪元素绘制。
+pub(super) fn panel_head_carets_enabled(head_props: &Value) -> bool {
+    head_props
+        .as_object()
+        .and_then(|map| map.get("carets"))
+        .and_then(|value| value.as_object())
+        .and_then(|map| map.get("url"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+pub(super) fn panel_head_caret_style(head_props: &Value) -> String {
+    let Some(carets) = head_props.as_object().and_then(|map| map.get("carets")) else {
+        return String::new();
+    };
+    let Some(map) = carets.as_object() else {
+        return String::new();
+    };
+    let Some(url) = map.get("url").and_then(Value::as_str) else {
+        return String::new();
+    };
+    let url = url.trim();
+    if url.is_empty() {
+        return String::new();
+    }
+    let inset = map
+        .get("inset")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("14px");
+    let left_rotate = map
+        .get("left_rotate")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("180deg");
+    let size = map
+        .get("size")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("14px 24px");
+    format!(
+        "--mei-head-caret-url:{};--mei-head-caret-inset:{};--mei-head-caret-left-rotate:{};--mei-head-caret-size:{};",
+        normalize_background_image(url),
+        inset,
+        left_rotate,
+        size
+    )
+}
+
 /// 整卡 grid：来自 `panel.layout`；`props.heading.height` 与 `rows` 合并为 `grid-template-rows`。
 pub(super) fn panel_card_layout_style(
     layout: Option<&mei_lang_kernel::LayoutDecl>,
