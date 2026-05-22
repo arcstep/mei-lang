@@ -339,6 +339,56 @@ fn compile_cockpit_section_panel_draw_example() {
 }
 
 #[test]
+fn compile_cockpit_panel_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("05-panel");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile 05-panel failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "05-panel should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "05-panel should produce a scene contract"
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    for panel_id in ["demo_title_and_body", "demo_title_only", "demo_body_only"] {
+        assert!(
+            sc.panels.iter().any(|p| p.id == panel_id),
+            "panel {panel_id} must compile; got ids: {:?}",
+            sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+        );
+    }
+    for (panel_id, expected_content) in [
+        ("demo_title_and_body", "标题下的正文。"),
+        ("demo_body_only", "仅内容"),
+    ] {
+        let panel = sc
+            .panels
+            .iter()
+            .find(|p| p.id == panel_id)
+            .unwrap_or_else(|| panic!("panel {panel_id}"));
+        assert_eq!(panel.blocks.len(), 1);
+        match &panel.blocks[0] {
+            crate::UiNodeDecl::Block(block) => {
+                assert_eq!(block.use_key, "mei.text");
+                assert_eq!(
+                    block.props.get("content").and_then(|v| v.as_str()),
+                    Some(expected_content)
+                );
+            }
+            other => panic!("{panel_id} block should be mei.text, got {other:?}"),
+        }
+    }
+}
+
+#[test]
 fn compile_cockpit_qunfu_chrome_includes_body_shell_panel() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/cockpit");

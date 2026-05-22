@@ -1371,3 +1371,75 @@ frame.add_panel(
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn compile_builtin_text_shorthand() {
+    let root = temp_root("mei-text-shorthand");
+    let app_root = root.join("text-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "text-app", default_scene = "home")
+
+scene(id = "home", profile = "page")
+
+world(id = "home_world", resources = [])
+
+frame(layout = flex(direction = "column"))
+
+frame.add_panel(
+    id = "p",
+    area = "auto",
+    blocks = [
+        text("我是文本"),
+        text(html = "<b>加粗</b>"),
+    ],
+)
+"#,
+    );
+    write_file(
+        &root.join("_components/mei/manifest.json"),
+        r#"
+{
+  "components": {
+    "mei.text": { "tag": "mei-text", "script": "text.js" }
+  }
+}
+"#,
+    );
+    write_file(
+        &root.join("_components/mei/text.js"),
+        "// stub for compile asset resolution",
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile text shorthand");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "text shorthand should compile: {:?}",
+        compiled.diagnostics
+    );
+    let contract = compiled.scene_contract.expect("scene contract");
+    let panel = contract
+        .panels
+        .iter()
+        .find(|p| p.id == "p")
+        .expect("panel p");
+    assert_eq!(panel.blocks.len(), 2);
+    for (idx, expected) in ["mei.text", "mei.text"].iter().enumerate() {
+        match &panel.blocks[idx] {
+            crate::UiNodeDecl::Block(block) => assert_eq!(block.use_key, *expected),
+            other => panic!("block {idx} should be Block, got {other:?}"),
+        }
+    }
+    assert!(
+        compiled
+            .component_assets
+            .iter()
+            .any(|a| a.key == "mei.text"),
+        "mei.text should be in component_assets"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
