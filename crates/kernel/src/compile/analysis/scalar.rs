@@ -11,6 +11,27 @@ use super::{
     schema::{parse_number, row_number, row_string},
 };
 
+fn series_value_field(object: &serde_json::Map<String, Value>) -> &str {
+    object
+        .get("value_field")
+        .and_then(Value::as_str)
+        .unwrap_or("value")
+}
+
+fn period_over_period_rate(rows: &[Value], value_field: &str, offset: usize) -> f64 {
+    if rows.len() <= offset {
+        return 0.0;
+    }
+    let current = row_number(&rows[rows.len() - 1], value_field).unwrap_or(0.0);
+    let base_idx = rows.len().saturating_sub(1 + offset);
+    let base = row_number(&rows[base_idx], value_field).unwrap_or(0.0);
+    if base.abs() < f64::EPSILON {
+        0.0
+    } else {
+        (current - base) / base.abs() * 100.0
+    }
+}
+
 pub(crate) fn eval_scalar_value(
     expr: &Value,
     base_rows: &[Value],
@@ -199,6 +220,31 @@ pub(crate) fn eval_scalar_value(
             ))
         }
         "lit" => Ok(object.get("value").cloned().unwrap_or(Value::Null)),
+        "mom" => {
+            let series_expr = object
+                .get("series")
+                .or_else(|| object.get("rowset"))
+                .ok_or_else(|| anyhow!("mom expression missing series"))?;
+            let rows = eval_rowset(series_expr, datasets)?;
+            Ok(json!(period_over_period_rate(
+                &rows,
+                series_value_field(object),
+                1,
+            )))
+        }
+        "yoy" => {
+            let series_expr = object
+                .get("series")
+                .or_else(|| object.get("rowset"))
+                .ok_or_else(|| anyhow!("yoy expression missing series"))?;
+            let rows = eval_rowset(series_expr, datasets)?;
+            let offset = if rows.len() > 12 { 12 } else { rows.len().saturating_sub(1).max(1) };
+            Ok(json!(period_over_period_rate(
+                &rows,
+                series_value_field(object),
+                offset,
+            )))
+        }
         _ => Ok(expr.clone()),
     }
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fs,
     path::Path,
 };
@@ -7,7 +7,62 @@ use std::{
 use serde_json::Value;
 use walkdir::WalkDir;
 
-use crate::model::{ComponentAsset, LoadedResource};
+use crate::model::{ComponentAsset, DatasetView, LoadedResource};
+
+fn dataset_schema_width(dataset: &DatasetView) -> usize {
+    if !dataset.schema.is_empty() {
+        return dataset.schema.len();
+    }
+    dataset.columns.len()
+}
+
+fn merge_dataset_resource(existing: &mut LoadedResource, incoming: LoadedResource) {
+    let Some(incoming_ds) = incoming.dataset.as_ref() else {
+        return;
+    };
+    let Some(existing_ds) = existing.dataset.as_mut() else {
+        existing.dataset = incoming.dataset.clone();
+        return;
+    };
+    for (metric_id, metric) in &incoming_ds.metrics {
+        existing_ds.metrics.insert(metric_id.clone(), metric.clone());
+    }
+    for (metric_id, raw) in &incoming_ds.runtime_metric_defs {
+        existing_ds
+            .runtime_metric_defs
+            .insert(metric_id.clone(), raw.clone());
+    }
+    if dataset_schema_width(incoming_ds) > dataset_schema_width(existing_ds) {
+        existing_ds.schema = incoming_ds.schema.clone();
+        existing_ds.stage_schema = incoming_ds.stage_schema.clone();
+        existing_ds.columns = incoming_ds.columns.clone();
+        existing_ds.rows = incoming_ds.rows.clone();
+        existing_ds.source = incoming_ds.source.clone();
+        existing_ds.sources = incoming_ds.sources.clone();
+        if let Some(title) = incoming_ds.title.as_ref().filter(|s| !s.is_empty()) {
+            existing_ds.title = Some(title.clone());
+        }
+    }
+}
+
+fn upsert_catalog_dataset_resource(
+    by_id: &mut BTreeMap<String, LoadedResource>,
+    resource: LoadedResource,
+) {
+    let id = resource.id.clone();
+    if resource.dataset.is_none() {
+        by_id.insert(id, resource);
+        return;
+    }
+    match by_id.get_mut(&id) {
+        None => {
+            by_id.insert(id, resource);
+        }
+        Some(existing) => {
+            merge_dataset_resource(existing, resource);
+        }
+    }
+}
 
 use super::scene_payload_cache::compile_scene_payload_for_target;
 use crate::typed_refs::SceneRegistry;
@@ -25,8 +80,55 @@ impl DatasetCatalogFilter {
     }
 }
 
+/// 同文件内 `LAYOUT_LEFT = "scenes/..."` 形式，供 `panel_ref(..., scene_file = LAYOUT_LEFT)` 解析。
+fn extract_string_assignment_constants(content: &str) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for line in content.lines() {
+        let line = line.split('#').next().unwrap_or(line).trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some(eq_idx) = line.find('=') else {
+            continue;
+        };
+        let name = line[..eq_idx].trim();
+        if name.is_empty() || name.contains(' ') || name.contains('(') {
+            continue;
+        }
+        let after_eq = line[eq_idx + 1..].trim();
+        if let Some(value) = parse_quoted_string(after_eq) {
+            let value = value.trim();
+            if !value.is_empty() {
+                out.insert(name.to_string(), value.to_string());
+            }
+        }
+    }
+    out
+}
+
+fn resolve_scene_file_token(token: &str, constants: &HashMap<String, String>) -> Option<String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return None;
+    }
+    if let Some(value) = parse_quoted_string(token) {
+        let value = value.trim();
+        if !value.is_empty() {
+            return Some(value.to_string());
+        }
+        return None;
+    }
+    let ident = token
+        .split(|c: char| c == ',' || c == ')' || c.is_whitespace())
+        .next()
+        .unwrap_or(token)
+        .trim();
+    constants.get(ident).cloned()
+}
+
 /// 仅收集 typed `panel_ref(id=..., scene_file=...)` 的外部 panel 引用；忽略带 `area=` 的旧 block embed。
 fn extract_typed_panel_ref_scene_files(content: &str) -> Vec<String> {
+    let constants = extract_string_assignment_constants(content);
     let mut out = Vec::new();
     let mut rest = content;
     const NEEDLE: &str = "panel_ref(";
@@ -48,11 +150,8 @@ fn extract_typed_panel_ref_scene_files(content: &str) -> Vec<String> {
                 break;
             };
             let after_eq = tail[eq_idx + 1..].trim_start();
-            if let Some(value) = parse_quoted_string(after_eq) {
-                let value = value.trim();
-                if !value.is_empty() {
-                    out.push(value.to_string());
-                }
+            if let Some(value) = resolve_scene_file_token(after_eq, &constants) {
+                out.push(value);
             }
             sub = tail;
         }
@@ -452,7 +551,7 @@ pub(super) fn compile_dataset_catalog_resources(
             }
         }
         for resource in dataset_resources {
-            by_id.insert(resource.id.clone(), resource);
+            upsert_catalog_dataset_resource(&mut by_id, resource);
         }
     }
 
@@ -465,10 +564,10 @@ pub(super) fn merge_resource_catalog(
 ) -> Vec<LoadedResource> {
     let mut by_id = BTreeMap::<String, LoadedResource>::new();
     for resource in catalog {
-        by_id.insert(resource.id.clone(), resource);
+        upsert_catalog_dataset_resource(&mut by_id, resource);
     }
     for resource in scene_resources {
-        by_id.insert(resource.id.clone(), resource);
+        upsert_catalog_dataset_resource(&mut by_id, resource);
     }
     by_id.into_values().collect()
 }

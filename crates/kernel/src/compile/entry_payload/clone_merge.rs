@@ -114,8 +114,8 @@ pub(super) fn resolve_panel_ref(
     else {
         return None;
     };
-    match load_panel_from_scene_file(app_root, path.as_str(), panel_id) {
-        Ok(panel) => Some(panel),
+    let panel = match load_panel_from_scene_file(app_root, path.as_str(), panel_id) {
+        Ok(panel) => panel,
         Err(error) => {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
@@ -123,9 +123,47 @@ pub(super) fn resolve_panel_ref(
                 message: error.to_string(),
                 source_path: Some(target_file.to_string()),
             });
-            None
+            return None;
         }
+    };
+    let Some(panel_value) = serde_json::to_value(&panel).ok() else {
+        return Some(panel);
+    };
+    if let Some(base_value) = panel_value
+        .get("base")
+        .filter(|value| !value.is_null())
+    {
+        let Some(base_expr) = decode_ref_value(base_value) else {
+            return Some(panel);
+        };
+        let Some(base_panel) =
+            resolve_panel_ref(app_root, &base_expr, scene_registry, diagnostics, target_file)
+        else {
+            return None;
+        };
+        let mut overlay = panel_value.clone();
+        if let Some(obj) = overlay.as_object_mut() {
+            if obj
+                .get("blocks")
+                .and_then(Value::as_array)
+                .is_some_and(|blocks| blocks.is_empty())
+            {
+                obj.remove("blocks");
+            }
+            obj.remove("base");
+        }
+        let mut merged = merge_panel_decl(base_panel, &overlay).ok()?;
+        merged.blocks = normalize_ui_nodes(
+            app_root,
+            &merged.blocks,
+            scene_registry,
+            diagnostics,
+            target_file,
+        );
+        merged.base = None;
+        return Some(merged);
     }
+    Some(panel)
 }
 
 pub(super) fn resolve_frame_ref(
@@ -433,7 +471,10 @@ pub(super) fn merge_panel_decl(base: PanelDecl, overlay_value: &Value) -> Result
         merged.layout = overlay.layout;
     }
     if value_has_key(overlay_value, "blocks") {
-        merged.blocks = overlay.blocks;
+        let overlay_has_blocks = !overlay.blocks.is_empty();
+        if overlay_has_blocks {
+            merged.blocks = overlay.blocks;
+        }
     }
     if value_has_key(overlay_value, "props") {
         merged.props = deep_merge_json(&merged.props, &overlay.props);

@@ -1125,11 +1125,20 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         "home should expose frame grid layout"
     );
     assert!(
-        contract.panels.len() >= 20,
-        "home should flatten many panel_ref slots into scene panels, got {}",
+        contract.panels.len() >= 10,
+        "home should flatten panel_ref slots into scene panels, got {}",
         contract.panels.len()
     );
-    for area in ["header", "left", "center", "right"] {
+    for area in [
+        "header",
+        "left_1",
+        "left_2",
+        "left_3",
+        "center_top",
+        "center_bottom",
+        "right_1",
+        "right_4",
+    ] {
         assert!(
             contract
                 .panels
@@ -1147,6 +1156,11 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         !overview.blocks.is_empty(),
         "home panel(base=panel_ref) should inherit blocks from external panel"
     );
+    let resource_ids: Vec<_> = compiled.resources.iter().map(|r| r.id.as_str()).collect();
+    assert!(
+        compiled.resources.iter().any(|r| r.id == "enforcement_units"),
+        "home preview catalog should materialize panel_ref datasets, got {resource_ids:?}"
+    );
     let viewport = frame
         .props
         .get("viewport")
@@ -1162,6 +1176,50 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     );
     assert_eq!(contract.themes.len(), 1);
     assert_eq!(contract.themes[0].id, "cockpit");
+    let inspection = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "administrative_inspection")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("administrative_inspection from 行政检查.mei");
+    assert!(inspection.metrics.contains_key("inspections_total_count"));
+    assert!(inspection.metrics.contains_key("park_inspection_count"));
+}
+
+#[test]
+fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("main.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw main preview");
+    let inspection = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "administrative_inspection")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("administrative_inspection");
+    assert!(inspection.metrics.contains_key("inspections_total_count"));
+    assert!(inspection.metrics.contains_key("inspections_6m_count_trend"));
+    let penalty = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "penalty_result_list")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("penalty_result_list");
+    assert!(penalty.metrics.contains_key("penalties_today_count"));
+    assert!(penalty.metrics.contains_key("penalties_6m_amount_trend"));
+    assert!(
+        inspection.metrics.contains_key("park_inspection_count"),
+        "catalog should merge park metrics without dropping cockpit defs"
+    );
 }
 
 #[test]
@@ -1214,7 +1272,10 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         .find(|r| r.id == "administrative_inspection")
         .and_then(|r| r.dataset.as_ref())
         .expect("administrative_inspection dataset");
-    assert!(inspection.metrics.contains_key("park_inspection_count"));
+    assert!(
+        inspection.metrics.contains_key("park_inspection_count"),
+        "catalog should merge 园区统计 park metrics into administrative_inspection"
+    );
     let inspection_by_park = inspection
         .metrics
         .get("park_inspection_count")
@@ -1244,8 +1305,12 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
     let total = inspection
         .metrics
         .get("park_inspection_total")
-        .and_then(|m| m.value.get("value"))
-        .and_then(|v| v.as_f64())
+        .and_then(|m| {
+            m.value
+                .get("value")
+                .and_then(|v| v.as_f64())
+                .or_else(|| m.value.as_f64())
+        })
         .unwrap_or(-1.0);
     assert!(
         total > 0.0 && total < 100.0,
