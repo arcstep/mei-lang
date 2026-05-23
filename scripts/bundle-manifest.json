@@ -1,6 +1,12 @@
 {
   "manageScripts": [
-    "frame-stage.js",
+    "frame-stage/preamble.js",
+    "frame-stage/util.js",
+    "frame-stage/viewport.js",
+    "frame-stage/manage-zoom.js",
+    "frame-stage/layout-audit.js",
+    "frame-stage/lifecycle.js",
+    "frame-stage/epilogue.js",
     "scope-params.js",
     "agent-host-coordinates.js",
     "vendor/marked.umd.js",
@@ -34,7 +40,13 @@
     "spa-navigation.js"
   ],
   "accessScripts": [
-    "frame-stage.js",
+    "frame-stage/preamble.js",
+    "frame-stage/util.js",
+    "frame-stage/viewport.js",
+    "frame-stage/manage-zoom.js",
+    "frame-stage/layout-audit.js",
+    "frame-stage/lifecycle.js",
+    "frame-stage/epilogue.js",
     "scope-params.js",
     "agent-host-coordinates.js",
     "statusbar.js",
