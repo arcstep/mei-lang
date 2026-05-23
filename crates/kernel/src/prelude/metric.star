@@ -49,41 +49,33 @@ def _metric_default_gap(template, density):
     tpl = _metric_template_name(template)
     if tpl == "row":
         if density == "compact":
-            return "4px"
-        if density == "roomy":
-            return "8px"
-        return "6px"
+            return "3px"
+        return "4px"
     if tpl == "column":
         if density == "compact":
-            return "4px"
-        if density == "roomy":
-            return "8px"
-        return "6px"
+            return "3px"
+        return "4px"
     if tpl == "stack_desc":
         if density == "compact":
-            return "3px 2px"
+            return "2px 2px"
         if density == "roomy":
-            return "5px 3px"
-        return "4px 2px"
-    if density == "compact":
+            return "4px 3px"
         return "3px 2px"
+    if density == "compact":
+        return "2px 2px"
     if density == "roomy":
-        return "5px 3px"
-    return "4px 2px"
+        return "4px 3px"
+    return "3px 2px"
 
 def _metric_default_padding(template, density):
     tpl = _metric_template_name(template)
     if tpl == "row":
-        if density == "compact":
-            return "0 6px"
-        if density == "roomy":
-            return "0 10px"
-        return "0 8px"
+        return "0 4px"
     if density == "compact":
         return "4px 3px"
     if density == "roomy":
-        return "10px 6px"
-    return "8px 4px"
+        return "8px 5px"
+    return "6px 4px"
 
 def layout_metric_stack(density = None):
     density = density if density != None else "normal"
@@ -93,7 +85,7 @@ def layout_metric_stack(density = None):
         areas = [["label", "label"], ["value", "unit"]],
         gap = _metric_default_gap("stack", density),
         align = "center",
-        justify = "center",
+        justify = "stretch",
     )
 
 def layout_metric_row(density = None):
@@ -104,7 +96,7 @@ def layout_metric_row(density = None):
         areas = [["label", "value", "unit"]],
         gap = _metric_default_gap("row", density),
         align = "center",
-        justify = "center",
+        justify = "stretch",
     )
 
 def layout_metric_column(density = None):
@@ -115,7 +107,7 @@ def layout_metric_column(density = None):
         areas = [["label"], ["value"], ["unit"]],
         gap = _metric_default_gap("column", density),
         align = "center",
-        justify = "center",
+        justify = "stretch",
     )
 
 def layout_metric_stack_desc(density = None):
@@ -126,7 +118,7 @@ def layout_metric_stack_desc(density = None):
         areas = [["label", "label"], ["value", "unit"], ["desc", "desc"]],
         gap = _metric_default_gap("stack_desc", density),
         align = "center",
-        justify = "center",
+        justify = "stretch",
     )
 
 def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None):
@@ -243,14 +235,47 @@ def _metric_static_slots(source, map = None, patch = None):
             values[slot] = source.get(slot)
     return _metric_patch_slots(values, patch)
 
-def _metric_literal_blocks(values, variant = None):
+def _metric_slot_align(template, role):
+    tpl = _metric_template_name(template)
+    if tpl == "column":
+        return "center"
+    if role == "label" or role == "desc":
+        return "left"
+    if role == "value" or role == "unit":
+        return "right"
+    return None
+
+def _metric_literal_blocks(values, template = None, variant = None):
+    tpl = _metric_template_name(template)
     blocks = [
-        label(values.get("label") if values.get("label") != None else "", area = "label", variant = variant),
-        value(values.get("value") if values.get("value") != None else "", area = "value", variant = variant),
-        unit(values.get("unit") if values.get("unit") != None else "", area = "unit", variant = variant),
+        label(
+            values.get("label") if values.get("label") != None else "",
+            area = "label",
+            align = _metric_slot_align(tpl, "label"),
+            variant = variant,
+        ),
+        value(
+            values.get("value") if values.get("value") != None else "",
+            area = "value",
+            align = _metric_slot_align(tpl, "value"),
+            variant = variant,
+        ),
+        unit(
+            values.get("unit") if values.get("unit") != None else "",
+            area = "unit",
+            align = _metric_slot_align(tpl, "unit"),
+            variant = variant,
+        ),
     ]
     if values.get("desc") != None:
-        blocks.append(desc(values.get("desc"), area = "desc", variant = variant))
+        blocks.append(
+            desc(
+                values.get("desc"),
+                area = "desc",
+                align = _metric_slot_align(tpl, "desc"),
+                variant = variant,
+            ),
+        )
     return blocks
 
 def _metric_component_extra(extra):
@@ -347,7 +372,11 @@ def metric_card(
             ]
             card_layout = None
         elif _is_dict(source):
-            card_blocks = _metric_literal_blocks(_metric_static_slots(source, map, patch), variant)
+            card_blocks = _metric_literal_blocks(
+                _metric_static_slots(source, map, patch),
+                template,
+                variant,
+            )
         else:
             fail("metric_card(source=...) expects metric_ref(...) or a static object")
     return panel(

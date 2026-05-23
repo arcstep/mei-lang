@@ -292,6 +292,54 @@ fn panel_with_title(title: &str) -> PanelDecl {
     }
 
     #[test]
+    fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
+        let mut panels = vec![PanelDecl {
+            kind: "panel".to_string(),
+            id: "metrics_2x2".to_string(),
+            title: None,
+            head: None::<Box<UiNodeDecl>>,
+            area: Some("auto".to_string()),
+            layout: None,
+            blocks: vec![
+                metric_card_panel_with_height("a", Some("102px")),
+                metric_card_panel_with_height("b", Some("102px")),
+                metric_card_panel_with_height("c", Some("102px")),
+                metric_card_panel_with_height("d", Some("102px")),
+            ],
+            props: json!({
+                "__mei_layout_policy": "metrics_2x2",
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+        }];
+        let mut diagnostics = Vec::new();
+        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+        let panel = &panels[0];
+        let layout = panel.layout.as_ref().expect("metrics 2x2 layout");
+        assert_eq!(
+            layout.areas.as_ref(),
+            Some(&vec![
+                vec!["m0".to_string(), "m1".to_string()],
+                vec!["m2".to_string(), "m3".to_string()],
+            ])
+        );
+        assert_eq!(
+            layout.rows.as_ref(),
+            Some(&vec!["102px".to_string(), "102px".to_string()])
+        );
+        assert_eq!(layout.gap.as_deref(), Some("8px"));
+        assert_eq!(layout.padding.as_deref(), Some("12px"));
+        assert_eq!(
+            panel
+                .props
+                .get("__mei_layout_policy")
+                .and_then(Value::as_str),
+            Some("metrics_2x2")
+        );
+    }
+
+    #[test]
     fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
         let mut panels = vec![PanelDecl {
             kind: "panel".to_string(),
@@ -317,6 +365,30 @@ fn panel_with_title(title: &str) -> PanelDecl {
             panels[0].layout.is_some(),
             "fallback layout should still be injected"
         );
+    }
+
+    #[test]
+    fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
+        let mut panels = vec![PanelDecl {
+            kind: "panel".to_string(),
+            id: "invalid_2x2".to_string(),
+            title: None,
+            head: None::<Box<UiNodeDecl>>,
+            area: Some("auto".to_string()),
+            layout: None,
+            blocks: vec![metric_card_panel("a"), metric_card_panel("b"), metric_card_panel("c")],
+            props: json!({
+                "__mei_layout_policy": "metrics_2x2",
+            }),
+            head_props: json!({}),
+            body_props: json!({}),
+            base: None,
+        }];
+        let mut diagnostics = Vec::new();
+        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+        assert!(diagnostics
+            .iter()
+            .any(|diag| diag.code == "layout_policy_metrics_2x2_conflict"));
     }
 
     #[test]

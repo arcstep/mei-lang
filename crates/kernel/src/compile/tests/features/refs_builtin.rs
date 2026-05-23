@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::{compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs, temp_root, write_file, workspace_root, CompileOptions};
+use super::{compile_app_from_root, temp_root, write_file};
 
 #[test]
 fn compile_refs_scenario3_world_ref_imports_external_resources_for_props() {

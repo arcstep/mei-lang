@@ -2,7 +2,7 @@ use std::fs;
 
 use super::{
     compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs,
-    temp_root, write_file, workspace_root, BTreeMap, CompileOptions, MetricShape,
+    temp_root, write_file, BTreeMap, CompileOptions, MetricShape,
 };
 
 #[test]

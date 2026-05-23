@@ -6,8 +6,8 @@ use crate::model::{Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl};
 
 use super::constants::{
     COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_CARD_GAP_TARGET, COCKPIT_PANEL_PADDING_MAX,
-    COCKPIT_PANEL_PADDING_MIN, LAYOUT_POLICY_METRIC_COMPOUND_2_1, LAYOUT_POLICY_METRICS_2_1,
-    LAYOUT_POLICY_METRICS_STRIP, SLOT_BODY, SLOT_HEAD,
+    COCKPIT_PANEL_PADDING_MIN, LAYOUT_POLICY_METRIC_COMPOUND_2_1, LAYOUT_POLICY_METRICS_2X2,
+    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, SLOT_BODY, SLOT_HEAD,
 };
 use super::css_util::{
     css_scalar_numbers, first_css_scalar_px, is_degenerate_track, layout_gap_y_px,
@@ -353,6 +353,7 @@ pub(super) fn audit_policy_spacing_budget(
         return;
     };
     if policy != LAYOUT_POLICY_METRICS_STRIP
+        && policy != LAYOUT_POLICY_METRICS_2X2
         && policy != LAYOUT_POLICY_METRICS_2_1
         && policy != LAYOUT_POLICY_METRIC_COMPOUND_2_1
     {
@@ -512,6 +513,30 @@ pub(super) fn estimate_body_required_height(panel: &PanelDecl) -> Option<f64> {
             })?;
         let padding_vertical = layout_padding_vertical_px(body_layout);
         return Some(card_height + padding_vertical);
+    }
+    if policy == LAYOUT_POLICY_METRICS_2X2 {
+        let top_row = body_panel
+            .blocks
+            .iter()
+            .take(2)
+            .filter_map(node_height_track)
+            .fold(None, |acc: Option<f64>, value| match acc {
+                Some(existing) => Some(existing.max(value)),
+                None => Some(value),
+            })?;
+        let bottom_row = body_panel
+            .blocks
+            .iter()
+            .skip(2)
+            .take(2)
+            .filter_map(node_height_track)
+            .fold(None, |acc: Option<f64>, value| match acc {
+                Some(existing) => Some(existing.max(value)),
+                None => Some(value),
+            })?;
+        let padding_vertical = layout_padding_vertical_px(body_layout);
+        let gap = layout_gap_y_px(body_layout);
+        return Some(top_row + bottom_row + padding_vertical + gap);
     }
     if policy == LAYOUT_POLICY_METRIC_COMPOUND_2_1 {
         let rows = body_layout.rows.as_ref()?;

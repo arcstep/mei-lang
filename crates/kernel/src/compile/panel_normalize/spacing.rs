@@ -4,8 +4,8 @@ use crate::model::PanelDecl;
 
 use super::constants::{
     COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_PANEL_PADDING_MAX, COCKPIT_PANEL_PADDING_MIN,
-    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, PROP_HAS_HEAD, PROP_LAYOUT_GAP,
-    PROP_LAYOUT_PADDING, PROP_LAYOUT_POLICY, PolicySpacing,
+    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_STRIP, PROP_HAS_HEAD,
+    PROP_LAYOUT_GAP, PROP_LAYOUT_PADDING, PROP_LAYOUT_POLICY, PolicySpacing,
 };
 use super::css_util::{first_css_scalar_px, parse_px, px_track};
 
@@ -67,7 +67,7 @@ pub(super) fn normalize_policy_gap(policy: Option<&str>, raw_gap: &str) -> Strin
     };
     let next = if matches!(
         policy,
-        Some(LAYOUT_POLICY_METRICS_STRIP | LAYOUT_POLICY_METRICS_2_1)
+        Some(LAYOUT_POLICY_METRICS_STRIP | LAYOUT_POLICY_METRICS_2X2 | LAYOUT_POLICY_METRICS_2_1)
     ) {
         px.clamp(COCKPIT_CARD_GAP_MIN, COCKPIT_CARD_GAP_MAX)
     } else {
@@ -79,7 +79,7 @@ pub(super) fn normalize_policy_gap(policy: Option<&str>, raw_gap: &str) -> Strin
 pub(super) fn normalize_policy_padding(policy: Option<&str>, raw_padding: &str) -> String {
     if !matches!(
         policy,
-        Some(LAYOUT_POLICY_METRICS_STRIP | LAYOUT_POLICY_METRICS_2_1)
+        Some(LAYOUT_POLICY_METRICS_STRIP | LAYOUT_POLICY_METRICS_2X2 | LAYOUT_POLICY_METRICS_2_1)
     ) {
         return raw_padding.to_string();
     }

@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::{compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs, temp_root, write_file, CompileOptions};
+use super::{compile_app_from_root, compile_app_from_root_with_options, temp_root, write_file, CompileOptions};
 
 #[test]
 fn compile_supports_scene_file_ref_authoring() {

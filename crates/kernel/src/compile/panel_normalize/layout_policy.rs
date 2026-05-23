@@ -3,7 +3,8 @@ use serde_json::Value;
 use crate::model::{LayoutDecl, PanelDecl};
 
 use super::constants::{
-    DEFAULT_METRIC_COMPOUND_2_1_GAP, DEFAULT_METRICS_2_1_COLUMNS, DEFAULT_METRICS_2_1_GAP,
+    DEFAULT_METRIC_COMPOUND_2_1_GAP, DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP,
+    DEFAULT_METRICS_2X2_PADDING, DEFAULT_METRICS_2_1_COLUMNS, DEFAULT_METRICS_2_1_GAP,
     DEFAULT_METRICS_2_1_PADDING, PROP_LAYOUT_COLUMNS, SLOT_BODY, SLOT_HEAD, PolicySpacing,
 };
 use super::css_util::px_track;
@@ -71,6 +72,52 @@ pub(super) fn default_metrics_strip_layout(count: usize, spacing: &PolicySpacing
         areas: Some(vec![areas]),
         gap: Some(spacing.gap.clone()),
         padding: Some(spacing.padding.clone()),
+        align: Some("stretch".to_string()),
+        justify: None,
+    }
+}
+
+pub(super) fn default_metrics_2x2_layout(panel: &PanelDecl) -> LayoutDecl {
+    let spacing = policy_spacing(panel, DEFAULT_METRICS_2X2_GAP, DEFAULT_METRICS_2X2_PADDING);
+    let top_row = panel
+        .blocks
+        .iter()
+        .take(2)
+        .filter_map(node_height_track)
+        .fold(None, |acc: Option<f64>, value| match acc {
+            Some(existing) => Some(existing.max(value)),
+            None => Some(value),
+        })
+        .map(px_track)
+        .unwrap_or_else(|| "auto".to_string());
+    let bottom_row = panel
+        .blocks
+        .iter()
+        .skip(2)
+        .take(2)
+        .filter_map(node_height_track)
+        .fold(None, |acc: Option<f64>, value| match acc {
+            Some(existing) => Some(existing.max(value)),
+            None => Some(value),
+        })
+        .map(px_track)
+        .unwrap_or_else(|| "auto".to_string());
+    LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: Some(
+            DEFAULT_METRICS_2X2_COLUMNS
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+        ),
+        rows: Some(vec![top_row, bottom_row]),
+        areas: Some(vec![
+            vec!["m0".to_string(), "m1".to_string()],
+            vec!["m2".to_string(), "m3".to_string()],
+        ]),
+        gap: Some(spacing.gap),
+        padding: Some(spacing.padding),
         align: Some("stretch".to_string()),
         justify: None,
     }
@@ -170,6 +217,13 @@ pub(super) fn should_inject_metrics_strip(panel: &PanelDecl, has_head: bool) -> 
     panel.blocks.iter().all(node_is_metric_card_like)
 }
 
+pub(super) fn should_inject_metrics_2x2(panel: &PanelDecl, has_head: bool) -> bool {
+    if has_head || panel.blocks.len() != 4 {
+        return false;
+    }
+    panel.blocks.iter().all(node_is_metric_card_like)
+}
+
 pub(super) fn should_inject_metrics_2_1(panel: &PanelDecl, has_head: bool) -> bool {
     if has_head || panel.blocks.len() != 3 {
         return false;
@@ -189,6 +243,13 @@ pub(super) fn inject_default_metrics_strip_layout(panel: &mut PanelDecl, spacing
         set_node_area(node, &format!("m{idx}"));
     }
     panel.layout = Some(default_metrics_strip_layout(panel.blocks.len(), spacing));
+}
+
+pub(super) fn inject_default_metrics_2x2_layout(panel: &mut PanelDecl) {
+    for (idx, node) in panel.blocks.iter_mut().enumerate() {
+        set_node_area(node, &format!("m{idx}"));
+    }
+    panel.layout = Some(default_metrics_2x2_layout(panel));
 }
 
 pub(super) fn inject_default_metrics_2_1_layout(panel: &mut PanelDecl) {

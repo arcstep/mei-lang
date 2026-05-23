@@ -135,7 +135,7 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "font_size": "16px",
                 "color": "rgba(255,255,255,0.80)",
                 "font_weight": "400",
-                "text_align": "center",
+                "text_align": "left",
                 "line_height": "1.15"
             },
             "metric_value": {
@@ -151,7 +151,7 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "font_size": "16px",
                 "color": "rgba(255,255,255,0.80)",
                 "font_weight": "400",
-                "text_align": "center",
+                "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_sub_label": {
@@ -159,7 +159,7 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "font_size": "12px",
                 "color": "rgba(255,255,255,0.80)",
                 "font_weight": "400",
-                "text_align": "center",
+                "text_align": "left",
                 "line_height": "1.05"
             },
             "metric_sub_value": {
@@ -175,7 +175,7 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "font_size": "12px",
                 "color": "rgba(255,255,255,0.80)",
                 "font_weight": "400",
-                "text_align": "center",
+                "text_align": "right",
                 "line_height": "1.05"
             },
             "font": {

@@ -551,6 +551,24 @@ fn compile_cockpit_metric_data_example() {
         "static_demo missing; got {:?}",
         panel_ids
     );
+    let binding_demo = sc
+        .panels
+        .iter()
+        .find_map(|panel| match panel.id.as_str() {
+            "binding_shell" => panel.blocks.iter().find_map(|node| match node {
+                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo" => Some(nested),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("binding_demo");
+    assert_eq!(
+        binding_demo
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_2x2")
+    );
     fn collect_use_keys(nodes: &[crate::UiNodeDecl], out: &mut Vec<String>) {
         for node in nodes {
             match node {

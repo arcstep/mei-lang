@@ -1,6 +1,4 @@
-use std::fs;
-
-use super::{compile_app_from_root, compile_app_from_root_with_options, evaluate_runtime_metric_defs, temp_root, write_file, workspace_root, CompileOptions};
+use super::{compile_app_from_root_with_options, workspace_root, CompileOptions};
 
 #[test]
 fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
