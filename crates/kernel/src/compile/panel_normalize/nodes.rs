@@ -119,3 +119,10 @@ pub(super) fn node_height_track(node: &UiNodeDecl) -> Option<f64> {
         _ => None,
     }
 }
+
+pub(super) fn node_width_track(node: &UiNodeDecl) -> Option<f64> {
+    match node {
+        UiNodeDecl::Panel(panel) => panel_px_prop(panel, "width"),
+        _ => None,
+    }
+}

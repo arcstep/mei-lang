@@ -398,6 +398,11 @@ fn compile_cockpit_panel_example() {
         "panel block_title_metrics_bg must compile; got ids: {:?}",
         sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
     );
+    assert!(sc.panels.iter().any(|p| p.id == "block_title_metrics_grid"));
+    assert!(sc
+        .panels
+        .iter()
+        .any(|p| p.id == "block_title_metrics_focus"));
     let metrics = sc
         .panels
         .iter()
@@ -422,7 +427,7 @@ fn compile_cockpit_panel_example() {
             .props
             .get("__mei_layout_policy")
             .and_then(Value::as_str),
-        Some("metrics_2_1")
+        Some("metrics_auto")
     );
     let metric_tiles: Vec<_> = body_shell
         .blocks
@@ -463,6 +468,46 @@ fn compile_cockpit_panel_example() {
         .expect("title+metrics shell layout");
     assert_eq!(layout_areas[0], ["head"]);
     assert_eq!(layout_areas[1], ["body"]);
+    let grid_shell = sc
+        .panels
+        .iter()
+        .find(|p| p.id == "block_title_metrics_grid")
+        .and_then(|panel| {
+            panel.blocks.iter().find_map(|node| match node {
+                crate::UiNodeDecl::Panel(nested) if nested.id == "metrics_grid_body" => {
+                    Some(nested)
+                }
+                _ => None,
+            })
+        })
+        .expect("metrics_grid_body");
+    let grid_areas = grid_shell
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("metrics grid layout");
+    assert_eq!(grid_areas[0], ["m0", "m1", "m2"]);
+    assert_eq!(grid_areas[1], ["m3", "m4", "m5"]);
+    let focus_shell = sc
+        .panels
+        .iter()
+        .find(|p| p.id == "block_title_metrics_focus")
+        .and_then(|panel| {
+            panel.blocks.iter().find_map(|node| match node {
+                crate::UiNodeDecl::Panel(nested) if nested.id == "metrics_focus_body" => {
+                    Some(nested)
+                }
+                _ => None,
+            })
+        })
+        .expect("metrics_focus_body");
+    let focus_areas = focus_shell
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("metrics focus layout");
+    assert_eq!(focus_areas[0], ["m0", "m1", "m2", "m3"]);
+    assert_eq!(focus_areas[1], ["m4", "m4", "m4", "m4"]);
 }
 
 #[test]
@@ -557,22 +602,19 @@ fn compile_cockpit_metric_data_example() {
     }
     let mut panel_ids = Vec::new();
     collect_panel_ids(&sc.panels, &mut panel_ids);
-    assert!(
-        panel_ids.iter().any(|id| id == "binding_demo"),
-        "binding_demo panel missing; got {:?}",
-        panel_ids
-    );
-    assert!(
-        panel_ids.iter().any(|id| id == "static_demo"),
-        "static_demo missing; got {:?}",
-        panel_ids
-    );
+    assert!(panel_ids.iter().any(|id| id == "binding_shell_wide"));
+    assert!(panel_ids.iter().any(|id| id == "binding_shell_grid"));
+    assert!(panel_ids.iter().any(|id| id == "binding_demo_wide"));
+    assert!(panel_ids.iter().any(|id| id == "binding_demo_grid"));
+    assert!(panel_ids.iter().any(|id| id == "static_demo_wide_a"));
     let binding_demo = sc
         .panels
         .iter()
         .find_map(|panel| match panel.id.as_str() {
-            "binding_shell" => panel.blocks.iter().find_map(|node| match node {
-                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo" => Some(nested),
+            "binding_shell_grid" => panel.blocks.iter().find_map(|node| match node {
+                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo_grid" => {
+                    Some(nested)
+                }
                 _ => None,
             }),
             _ => None,
@@ -583,8 +625,35 @@ fn compile_cockpit_metric_data_example() {
             .props
             .get("__mei_layout_policy")
             .and_then(Value::as_str),
-        Some("metrics_2x2")
+        Some("metrics_auto")
     );
+    let grid_areas = binding_demo
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("binding_demo_grid areas");
+    assert_eq!(grid_areas[0], ["m0", "m1"]);
+    assert_eq!(grid_areas[1], ["m2", "m3"]);
+    let binding_demo_wide = sc
+        .panels
+        .iter()
+        .find_map(|panel| match panel.id.as_str() {
+            "binding_shell_wide" => panel.blocks.iter().find_map(|node| match node {
+                crate::UiNodeDecl::Panel(nested) if nested.id == "binding_demo_wide" => {
+                    Some(nested)
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("binding_demo_wide");
+    let wide_areas = binding_demo_wide
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("binding_demo_wide areas");
+    assert_eq!(wide_areas[0], ["m0", "m1", "m2"]);
+    assert_eq!(wide_areas[1], ["m3", "m3", "m3"]);
     fn collect_use_keys(nodes: &[crate::UiNodeDecl], out: &mut Vec<String>) {
         for node in nodes {
             match node {

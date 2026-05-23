@@ -2,6 +2,7 @@
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   if (boot.manageDiagnosticsMounted) return;
   boot.manageDiagnosticsMounted = true;
+  const LAYOUT_AUDIT_EVENT = "mei:layout-audit";
 
   function root() {
     return document.getElementById("mei-manage-diagnostics-root");
@@ -35,6 +36,42 @@
 
   function layoutAuditRoot() {
     return document.getElementById("mei-runtime-layout-audit");
+  }
+
+  function currentLayoutAuditSource() {
+    try {
+      const url = new URL(window.location.href);
+      return String(url.searchParams.get("file") || "main.mei").trim() || "main.mei";
+    } catch (_) {
+      return "main.mei";
+    }
+  }
+
+  function layoutAuditStorageKey(sourcePath) {
+    const pathname = String(window.location.pathname || "").trim();
+    const source = String(sourcePath || currentLayoutAuditSource()).trim() || "main.mei";
+    return `mei:layout-audit:${pathname}:${source}`;
+  }
+
+  function isCurrentLayoutAudit(detail) {
+    if (!detail || typeof detail !== "object") return false;
+    return String(detail.sourcePath || "").trim() === currentLayoutAuditSource();
+  }
+
+  function readCachedLayoutAudit() {
+    try {
+      const raw = sessionStorage.getItem(layoutAuditStorageKey());
+      if (!raw) return null;
+      const detail = JSON.parse(raw);
+      return detail && typeof detail === "object" ? detail : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function currentLayoutAuditDetail() {
+    const live = isCurrentLayoutAudit(window.__meiLastLayoutEval) ? window.__meiLastLayoutEval : null;
+    return live || readCachedLayoutAudit();
   }
 
   function escapeHtml(input) {
@@ -110,14 +147,23 @@
   }
 
   syncFilterLinks();
+  renderLayoutAudit(currentLayoutAuditDetail());
   document.addEventListener("mei:manage-context-change", () => {
     syncFilterLinks();
-    renderLayoutAudit({ diagnostics: [] });
+    renderLayoutAudit(currentLayoutAuditDetail());
   });
   document.addEventListener("mei:manage-tab-change", () => {
     syncFilterLinks();
+    renderLayoutAudit(currentLayoutAuditDetail());
   });
-  document.addEventListener("mei:layout-audit", (event) => {
+  document.addEventListener(LAYOUT_AUDIT_EVENT, (event) => {
+    if (!isCurrentLayoutAudit(event?.detail || null)) return;
     renderLayoutAudit(event?.detail || null);
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== window.location.origin) return;
+    if (event.data?.type !== LAYOUT_AUDIT_EVENT) return;
+    if (!isCurrentLayoutAudit(event.data?.detail || null)) return;
+    renderLayoutAudit(event.data?.detail || null);
   });
 })();

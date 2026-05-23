@@ -77,7 +77,22 @@
     }
   }
 
+  function managePreviewTabIsActive() {
+    try {
+      const url = new URL(window.location.href);
+      const tab = String(url.searchParams.get("tab") || "preview").trim().toLowerCase();
+      return !tab || tab === "preview";
+    } catch (_) {
+      return true;
+    }
+  }
+
   function updateViewport(root) {
+    if (!root || root.hidden || root.closest?.("[hidden]")) return;
+    const auditOnly = root.dataset.meiLayoutAuditRoot === "true";
+    if (auditOnly && String(root.dataset.routeMode || "").trim().toLowerCase() === "manage") {
+      if (!managePreviewTabIsActive()) return;
+    }
     const designWidthDeclared = Number(root.dataset.designWidth || 0);
     const designWidth = resolveCanvasWidth(root, designWidthDeclared);
     const designHeight = Number(root.dataset.designHeight || 0);
@@ -91,6 +106,33 @@
     const safe = readSafeInsets(root, overflowMode);
     const shell = root.querySelector(".preview-stage-shell");
     const stage = root.querySelector(".preview-stage");
+    if (auditOnly) {
+      const auditStage =
+        (root.matches?.(".preview-surface, .preview-stage") ? root : null) ||
+        root.querySelector(".preview-surface, .preview-stage");
+      if (!auditStage) return;
+      const extent = measureStageContentExtentByRect(auditStage, contentMaxWidth);
+      const auditWidth =
+        designWidth ||
+        auditStage.offsetWidth ||
+        auditStage.getBoundingClientRect().width ||
+        extent.width;
+      const auditHeight =
+        designHeight ||
+        auditStage.offsetHeight ||
+        auditStage.getBoundingClientRect().height ||
+        extent.height;
+      runLayoutAudit(
+        root,
+        auditStage,
+        Math.max(1, auditWidth),
+        Math.max(1, auditHeight),
+        extent.width,
+        extent.height,
+        extent.width,
+      );
+      return;
+    }
     if (!shell || !stage || !designWidth) return;
 
     syncChromeNoneViewportBox(root);

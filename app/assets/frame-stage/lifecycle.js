@@ -51,14 +51,14 @@
 
   function scan() {
     document
-      .querySelectorAll('[data-mei-frame-viewport="true"]')
+      .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
   }
 
   function scheduleViewportRelayout() {
     requestAnimationFrame(() => {
       document
-        .querySelectorAll('[data-mei-frame-viewport="true"]')
+        .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
         .forEach((root) => {
           if (isManagePreviewRoute(root)) invalidateManageLayout(root);
           queueUpdateViewport(root);
@@ -127,4 +127,3 @@
     tracked.clear();
     boot.scheduleFrameViewportRelayout = null;
   };
-})();

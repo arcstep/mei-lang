@@ -170,7 +170,13 @@ pub(super) fn preview_view(
                 .into_any();
             }
             return view! {
-                <section class="preview-surface" style=viewport::frame_style(frame.layout.as_ref(), &frame_props, &resolved_theme)>
+                <section
+                    class="preview-surface"
+                    style=viewport::frame_style(frame.layout.as_ref(), &frame_props, &resolved_theme)
+                    data-mei-layout-audit-root="true"
+                    data-source-path=selected_target.to_string()
+                    data-route-mode=route_mode.slug()
+                >
                     {panels}
                 </section>
             }

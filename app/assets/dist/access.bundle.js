@@ -421,6 +421,41 @@
     return { width, height };
   }
 
+  function measureStageContentExtentByRect(stage, contentMaxWidth) {
+    const cap = contentMaxWidth > 0 ? contentMaxWidth : 0;
+    const stageRect = stage.getBoundingClientRect();
+    if (cap > 0 && stageRect.width > 0 && stageRect.width <= cap + 2) {
+      return { width: cap, height: Math.max(1, stageRect.height) };
+    }
+    let maxRight = 0;
+    let maxBottom = 0;
+    let hasContent = false;
+    stage
+      .querySelectorAll(".preview-card, .panel-head-cell, .panel-body-cell, .panel-heading, .preview-panel-body")
+      .forEach((node) => {
+        if (
+          node.closest(
+            ".preview-design-bounds, .preview-design-overflow-veil, .preview-design-overflow-veil-x",
+          )
+        ) {
+          return;
+        }
+        const rect = node.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return;
+        hasContent = true;
+        const right = rect.right - stageRect.left;
+        const bottom = rect.bottom - stageRect.top;
+        if (right > maxRight) maxRight = right;
+        if (bottom > maxBottom) maxBottom = bottom;
+      });
+    let width = hasContent ? Math.max(1, maxRight, stageRect.width) : stageRect.width;
+    let height = hasContent ? Math.max(1, maxBottom, stageRect.height) : stageRect.height;
+    if (cap > 0 && width <= cap + 2) {
+      width = cap;
+    }
+    return { width, height };
+  }
+
   function measureStageContentSize(
     stage,
     canvasWidth,
@@ -556,8 +591,22 @@
         const style = getComputedStyle(node);
         const clipsY = /hidden|clip/.test(style.overflowY || style.overflow || "");
         const clipsX = /hidden|clip/.test(style.overflowX || style.overflow || "");
-        const yOverflow = node.scrollHeight - node.clientHeight > 1;
-        const xOverflow = node.scrollWidth - node.clientWidth > 1;
+        if (!clipsY && !clipsX) return;
+        const nodeRect = node.getBoundingClientRect();
+        let xOverflow = false;
+        let yOverflow = false;
+        node.querySelectorAll(":scope > *, :scope > * *").forEach((child) => {
+          if (xOverflow && yOverflow) return;
+          if (!(child instanceof Element)) return;
+          const rect = child.getBoundingClientRect();
+          if (rect.width < 1 || rect.height < 1) return;
+          if (clipsX && (rect.left < nodeRect.left - 1 || rect.right > nodeRect.right + 1)) {
+            xOverflow = true;
+          }
+          if (clipsY && (rect.top < nodeRect.top - 1 || rect.bottom > nodeRect.bottom + 1)) {
+            yOverflow = true;
+          }
+        });
         if ((clipsY && yOverflow) || (clipsX && xOverflow)) {
           hits.push({
             panelId: closestPanelId(node),
@@ -631,6 +680,14 @@
     );
   }
 
+  function rectOverlapX(a, b) {
+    return Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  }
+
+  function rectOverlapY(a, b) {
+    return Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  }
+
   function detectCardOverlap(stage, limit = 6) {
     const hits = [];
     stage.querySelectorAll(".panel-body-cell").forEach((body) => {
@@ -672,14 +729,24 @@
         body.querySelectorAll(':scope > .preview-card[data-mei-panel-id]'),
       );
       if (cards.length < 2) return;
+      const isMetricGroup = cards.every((card) => metricRoleNodes(card).length > 0);
+      const maxHorizontalGap = isMetricGroup ? 32 : 12;
+      const maxVerticalGap = isMetricGroup ? 24 : 16;
+      const maxPadding = isMetricGroup ? 64 : 24;
       const bodyRect = body.getBoundingClientRect();
       const horizontal = cards
         .map((node) => node.getBoundingClientRect())
         .filter((rect) => rect.width > 1 && rect.height > 1)
         .sort((a, b) => a.left - b.left);
       if (horizontal.length >= 2) {
-        const gap = horizontal[1].left - horizontal[0].right;
-        if (gap < 4 || gap > 12) {
+        const pair = horizontal.find((rect, idx) => {
+          if (idx === 0) return false;
+          return rectOverlapY(horizontal[idx - 1], rect) > 8;
+        });
+        const pairIdx = pair ? horizontal.indexOf(pair) : -1;
+        const prev = pairIdx > 0 ? horizontal[pairIdx - 1] : null;
+        const gap = prev && pair ? pair.left - prev.right : null;
+        if (gap != null && (gap < 4 || gap > maxHorizontalGap)) {
           hits.push({
             panelId: groupPanelId,
             label: groupLabel,
@@ -693,8 +760,14 @@
         .filter((rect) => rect.width > 1 && rect.height > 1)
         .sort((a, b) => a.top - b.top);
       if (vertical.length >= 2) {
-        const gap = vertical[1].top - vertical[0].bottom;
-        if (gap < 4 || gap > 16) {
+        const pair = vertical.find((rect, idx) => {
+          if (idx === 0) return false;
+          return rectOverlapX(vertical[idx - 1], rect) > 8;
+        });
+        const pairIdx = pair ? vertical.indexOf(pair) : -1;
+        const prev = pairIdx > 0 ? vertical[pairIdx - 1] : null;
+        const gap = prev && pair ? pair.top - prev.bottom : null;
+        if (gap != null && (gap < 4 || gap > maxVerticalGap)) {
           hits.push({
             panelId: groupPanelId,
             label: groupLabel,
@@ -714,12 +787,23 @@
         bodyRect.bottom - (vertical[vertical.length - 1]?.bottom || bodyRect.bottom),
       );
       const maxPad = Math.max(leftPad, rightPad, topPad, bottomPad);
-      if (maxPad > 24) {
+      if (maxPad > maxPadding) {
         hits.push({
           panelId: groupPanelId,
           label: groupLabel,
           axis: "padding",
           gap: maxPad,
+        });
+      }
+      const horizontalPadDelta = Math.abs(leftPad - rightPad);
+      if (horizontalPadDelta > 12) {
+        hits.push({
+          panelId: groupPanelId,
+          label: groupLabel,
+          axis: "padding_symmetry",
+          gap: horizontalPadDelta,
+          leftPad,
+          rightPad,
         });
       }
     });
@@ -741,13 +825,13 @@
           const slotRects = {
             label: roles
               .filter((entry) => entry.props.metric_role === "label")
-              .map((entry) => entry.node.getBoundingClientRect()),
+              .map((entry) => entry.node.getBoundingClientRect().left - rect.left),
             value: roles
               .filter((entry) => entry.props.metric_role === "value")
-              .map((entry) => entry.node.getBoundingClientRect()),
+              .map((entry) => entry.node.getBoundingClientRect().right - rect.left),
             unit: roles
               .filter((entry) => entry.props.metric_role === "unit")
-              .map((entry) => entry.node.getBoundingClientRect()),
+              .map((entry) => entry.node.getBoundingClientRect().right - rect.left),
           };
           return { rect, slotRects };
         })
@@ -761,12 +845,9 @@
       });
       buckets.forEach((bucketCards) => {
         if (bucketCards.length < 2 || hits.length >= limit) return;
-        const labelLefts = bucketCards
-          .flatMap((item) => item.slotRects.label.map((rect) => rect.left));
-        const valueRights = bucketCards
-          .flatMap((item) => item.slotRects.value.map((rect) => rect.right));
-        const unitRights = bucketCards
-          .flatMap((item) => item.slotRects.unit.map((rect) => rect.right));
+        const labelLefts = bucketCards.flatMap((item) => item.slotRects.label);
+        const valueRights = bucketCards.flatMap((item) => item.slotRects.value);
+        const unitRights = bucketCards.flatMap((item) => item.slotRects.unit);
         const spreads = [];
         if (labelLefts.length >= 2) {
           spreads.push({ role: "label", spread: Math.max(...labelLefts) - Math.min(...labelLefts) });
@@ -791,6 +872,26 @@
     return hits;
   }
 
+  const LAYOUT_AUDIT_EVENT = "mei:layout-audit";
+
+  function layoutAuditStorageKey(sourcePath) {
+    const pathname = String(window.location.pathname || "").trim();
+    const source = String(sourcePath || "main.mei").trim() || "main.mei";
+    return `mei:layout-audit:${pathname}:${source}`;
+  }
+
+  function persistLayoutAudit(payload) {
+    try {
+      const key = layoutAuditStorageKey(payload?.sourcePath);
+      sessionStorage.setItem(key, JSON.stringify(payload));
+    } catch (_) {}
+  }
+
+  function dispatchLayoutAudit(targetDocument, payload) {
+    if (!targetDocument) return;
+    targetDocument.dispatchEvent(new CustomEvent(LAYOUT_AUDIT_EVENT, { detail: payload }));
+  }
+
   function publishLayoutAudit(root, diagnostics, report = {}) {
     const payload = {
       sourcePath: String(root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"),
@@ -801,7 +902,19 @@
       metrics: report?.metrics && typeof report.metrics === "object" ? report.metrics : {},
     };
     window.__meiLastLayoutEval = payload;
-    document.dispatchEvent(new CustomEvent("mei:layout-audit", { detail: payload }));
+    persistLayoutAudit(payload);
+    dispatchLayoutAudit(document, payload);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.__meiLastLayoutEval = payload;
+      } catch (_) {}
+      try {
+        dispatchLayoutAudit(window.parent.document, payload);
+      } catch (_) {}
+      try {
+        window.parent.postMessage({ type: LAYOUT_AUDIT_EVENT, detail: payload }, window.location.origin);
+      } catch (_) {}
+    }
   }
 
   function runLayoutAudit(
@@ -883,12 +996,19 @@
     const gapBudget = detectCardGapBudget(stage);
     if (gapBudget.length) {
       diagnostics.push({
-        severity: gapBudget.some((hit) => hit.axis === "padding") ? "warning" : "info",
+        severity: gapBudget.some(
+          (hit) => hit.axis === "padding" || hit.axis === "padding_symmetry",
+        )
+          ? "warning"
+          : "info",
         code: "layout_eval_card_gap_budget_runtime",
         panelId: gapBudget[0]?.panelId || null,
         message: `检测到卡组 gap/留白偏离预算：${gapBudget
           .map((hit) => {
             if (hit.axis === "padding") return `${hit.label}(四周留白≈${Math.round(hit.gap)}px)`;
+            if (hit.axis === "padding_symmetry") {
+              return `${hit.label}(左右留白≈${Math.round(hit.leftPad || 0)}px/${Math.round(hit.rightPad || 0)}px)`;
+            }
             const axis = hit.axis === "vertical" ? "纵向" : "横向";
             return `${hit.label}(${axis} gap≈${Math.round(hit.gap)}px)`;
           })
@@ -1337,7 +1457,22 @@
     }
   }
 
+  function managePreviewTabIsActive() {
+    try {
+      const url = new URL(window.location.href);
+      const tab = String(url.searchParams.get("tab") || "preview").trim().toLowerCase();
+      return !tab || tab === "preview";
+    } catch (_) {
+      return true;
+    }
+  }
+
   function updateViewport(root) {
+    if (!root || root.hidden || root.closest?.("[hidden]")) return;
+    const auditOnly = root.dataset.meiLayoutAuditRoot === "true";
+    if (auditOnly && String(root.dataset.routeMode || "").trim().toLowerCase() === "manage") {
+      if (!managePreviewTabIsActive()) return;
+    }
     const designWidthDeclared = Number(root.dataset.designWidth || 0);
     const designWidth = resolveCanvasWidth(root, designWidthDeclared);
     const designHeight = Number(root.dataset.designHeight || 0);
@@ -1351,6 +1486,33 @@
     const safe = readSafeInsets(root, overflowMode);
     const shell = root.querySelector(".preview-stage-shell");
     const stage = root.querySelector(".preview-stage");
+    if (auditOnly) {
+      const auditStage =
+        (root.matches?.(".preview-surface, .preview-stage") ? root : null) ||
+        root.querySelector(".preview-surface, .preview-stage");
+      if (!auditStage) return;
+      const extent = measureStageContentExtentByRect(auditStage, contentMaxWidth);
+      const auditWidth =
+        designWidth ||
+        auditStage.offsetWidth ||
+        auditStage.getBoundingClientRect().width ||
+        extent.width;
+      const auditHeight =
+        designHeight ||
+        auditStage.offsetHeight ||
+        auditStage.getBoundingClientRect().height ||
+        extent.height;
+      runLayoutAudit(
+        root,
+        auditStage,
+        Math.max(1, auditWidth),
+        Math.max(1, auditHeight),
+        extent.width,
+        extent.height,
+        extent.width,
+      );
+      return;
+    }
     if (!shell || !stage || !designWidth) return;
 
     syncChromeNoneViewportBox(root);
@@ -1473,14 +1635,14 @@
 
   function scan() {
     document
-      .querySelectorAll('[data-mei-frame-viewport="true"]')
+      .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
   }
 
   function scheduleViewportRelayout() {
     requestAnimationFrame(() => {
       document
-        .querySelectorAll('[data-mei-frame-viewport="true"]')
+        .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
         .forEach((root) => {
           if (isManagePreviewRoute(root)) invalidateManageLayout(root);
           queueUpdateViewport(root);
@@ -1549,7 +1711,6 @@
     tracked.clear();
     boot.scheduleFrameViewportRelayout = null;
   };
-})();
 
 ;
 

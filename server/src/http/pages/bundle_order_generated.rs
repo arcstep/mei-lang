@@ -21,6 +21,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "source-codemirror-mode.js",
     "vendor/codemirror-merge.js",
     "manage-tabs.js",
+    "manage-diagnostics.js",
     "asset-source-editor.js",
     "agent-panel-utils.js",
     "agent-panel-routing.js",

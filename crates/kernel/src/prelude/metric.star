@@ -4,7 +4,7 @@
 # - 固定语义槽：label / value / unit / desc
 # - source 直接接 metric_ref(...) 或静态对象
 
-def _metric_text(content, area, role, font = None, align = None, line_height = None, variant = None):
+def _metric_text(content, area, role, font = None, align = None, line_height = None, variant = None, vertical_align = None):
     props = {"content": content, "metric_role": role}
     if font != None:
         props["font"] = font
@@ -14,23 +14,25 @@ def _metric_text(content, area, role, font = None, align = None, line_height = N
         props["line_height"] = line_height
     if variant != None and str(variant).strip() != "":
         props["metric_variant"] = str(variant).strip()
+    if vertical_align != None and str(vertical_align).strip() != "":
+        props["metric_v_align"] = str(vertical_align).strip()
     return component(
         "mei.text",
         area = area,
         props = _without_empty(props),
     )
 
-def label(content, area = None, font = None, align = None, line_height = None, variant = None):
-    return _metric_text(content, area, "label", font, align, line_height, variant)
+def label(content, area = None, font = None, align = None, line_height = None, variant = None, vertical_align = None):
+    return _metric_text(content, area, "label", font, align, line_height, variant, vertical_align)
 
-def value(content, area = None, font = None, align = None, line_height = None, variant = None):
-    return _metric_text(content, area, "value", font, align, line_height, variant)
+def value(content, area = None, font = None, align = None, line_height = None, variant = None, vertical_align = None):
+    return _metric_text(content, area, "value", font, align, line_height, variant, vertical_align)
 
-def unit(content, area = None, font = None, align = None, line_height = None, variant = None):
-    return _metric_text(content, area, "unit", font, align, line_height, variant)
+def unit(content, area = None, font = None, align = None, line_height = None, variant = None, vertical_align = None):
+    return _metric_text(content, area, "unit", font, align, line_height, variant, vertical_align)
 
-def desc(content, area = None, font = None, align = None, line_height = None, variant = None):
-    return _metric_text(content, area, "desc", font, align, line_height, variant)
+def desc(content, area = None, font = None, align = None, line_height = None, variant = None, vertical_align = None):
+    return _metric_text(content, area, "desc", font, align, line_height, variant, vertical_align)
 
 def _metric_density(height_px = None, template = None):
     if height_px == None:
@@ -77,26 +79,53 @@ def _metric_default_padding(template, density):
         return "8px 5px"
     return "6px 4px"
 
-def layout_metric_stack(density = None):
+def _metric_inline_align_mode(template = None, inline_align = None):
+    raw = str(inline_align).strip().lower() if inline_align != None else ""
+    raw = raw.replace("-", "_")
+    if raw in ["between", "justify", "justified", "split", "space_between"]:
+        return "between"
+    if raw in ["compact", "compact_center", "center", "centre", "centered", "centred"]:
+        return "compact"
+    tpl = _metric_template_name(template)
+    if tpl == "row":
+        return "compact"
+    return "compact"
+
+def _metric_ratio_track(value = None, fallback = 1):
+    raw = str(value).strip() if value != None else str(fallback)
+    if raw == "":
+        raw = str(fallback)
+    return raw + "fr"
+
+def _metric_title_content_tracks(title_ratio = None, content_ratio = None):
+    return [
+        _metric_ratio_track(title_ratio, 1),
+        _metric_ratio_track(content_ratio, 1),
+    ]
+
+def layout_metric_stack(density = None, title_ratio = None, content_ratio = None):
     density = density if density != None else "normal"
     return grid(
-        rows = ["auto", "auto"],
-        columns = ["1fr", "auto"],
+        rows = _metric_title_content_tracks(title_ratio, content_ratio),
+        columns = ["auto", "auto"],
         areas = [["label", "label"], ["value", "unit"]],
         gap = _metric_default_gap("stack", density),
-        align = "center",
-        justify = "stretch",
+        align = "end",
+        justify = "center",
     )
 
-def layout_metric_row(density = None):
+def layout_metric_row(density = None, inline_align = None):
     density = density if density != None else "normal"
+    mode = _metric_inline_align_mode("row", inline_align)
+    columns = ["auto", "auto", "auto"] if mode == "compact" else ["1fr", "auto", "auto"]
+    justify = "center" if mode == "compact" else "stretch"
     return grid(
         rows = ["1fr"],
-        columns = ["1fr", "auto", "auto"],
+        columns = columns,
         areas = [["label", "value", "unit"]],
         gap = _metric_default_gap("row", density),
-        align = "center",
-        justify = "stretch",
+        align = "end",
+        justify = justify,
     )
 
 def layout_metric_column(density = None):
@@ -110,18 +139,18 @@ def layout_metric_column(density = None):
         justify = "stretch",
     )
 
-def layout_metric_stack_desc(density = None):
+def layout_metric_stack_desc(density = None, title_ratio = None, content_ratio = None):
     density = density if density != None else "normal"
     return grid(
-        rows = ["auto", "auto", "auto"],
-        columns = ["1fr", "auto"],
+        rows = _metric_title_content_tracks(title_ratio, content_ratio) + ["auto"],
+        columns = ["auto", "auto"],
         areas = [["label", "label"], ["value", "unit"], ["desc", "desc"]],
         gap = _metric_default_gap("stack_desc", density),
-        align = "center",
-        justify = "stretch",
+        align = "end",
+        justify = "center",
     )
 
-def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None):
+def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None):
     density = _metric_density(height_px, template)
     tpl = _metric_template_name(template)
     props = {
@@ -133,6 +162,7 @@ def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = No
         "__mei_metric_card": True,
         "__mei_metric_density": density,
         "__mei_metric_template": tpl,
+        "__mei_metric_inline_align": _metric_inline_align_mode(tpl, inline_align),
     }
     if height_px != None:
         props["height"] = str(height_px) + "px"
@@ -158,16 +188,16 @@ def _metric_template_name(template):
         return "stack_desc"
     return raw
 
-def _metric_layout_from_template(template, height_px = None):
+def _metric_layout_from_template(template, height_px = None, inline_align = None, title_ratio = None, content_ratio = None):
     tpl = _metric_template_name(template)
     density = _metric_density(height_px, tpl)
     if tpl == "row":
-        return layout_metric_row(density)
+        return layout_metric_row(density, inline_align)
     if tpl == "column":
         return layout_metric_column(density)
     if tpl == "stack_desc":
-        return layout_metric_stack_desc(density)
-    return layout_metric_stack(density)
+        return layout_metric_stack_desc(density, title_ratio, content_ratio)
+    return layout_metric_stack(density, title_ratio, content_ratio)
 
 def _metric_allowed_slots():
     return {
@@ -235,36 +265,50 @@ def _metric_static_slots(source, map = None, patch = None):
             values[slot] = source.get(slot)
     return _metric_patch_slots(values, patch)
 
-def _metric_slot_align(template, role):
+def _metric_slot_align(template, role, inline_align = None):
     tpl = _metric_template_name(template)
     if tpl == "column":
         return "center"
-    if role == "label" or role == "desc":
+    mode = _metric_inline_align_mode(tpl, inline_align)
+    if tpl == "row" and mode == "between" and (role == "label" or role == "desc"):
         return "left"
-    if role == "value" or role == "unit":
+    if tpl == "row" and mode == "between" and (role == "value" or role == "unit"):
         return "right"
-    return None
+    return "center"
 
-def _metric_literal_blocks(values, template = None, variant = None):
+def _metric_slot_vertical_align(template, role):
+    tpl = _metric_template_name(template)
+    if tpl == "row":
+        return "end"
+    if tpl == "column":
+        return "center"
+    if role == "value" or role == "unit":
+        return "end"
+    return "center"
+
+def _metric_literal_blocks(values, template = None, variant = None, inline_align = None):
     tpl = _metric_template_name(template)
     blocks = [
         label(
             values.get("label") if values.get("label") != None else "",
             area = "label",
-            align = _metric_slot_align(tpl, "label"),
+            align = _metric_slot_align(tpl, "label", inline_align),
             variant = variant,
+            vertical_align = _metric_slot_vertical_align(tpl, "label"),
         ),
         value(
             values.get("value") if values.get("value") != None else "",
             area = "value",
-            align = _metric_slot_align(tpl, "value"),
+            align = _metric_slot_align(tpl, "value", inline_align),
             variant = variant,
+            vertical_align = _metric_slot_vertical_align(tpl, "value"),
         ),
         unit(
             values.get("unit") if values.get("unit") != None else "",
             area = "unit",
-            align = _metric_slot_align(tpl, "unit"),
+            align = _metric_slot_align(tpl, "unit", inline_align),
             variant = variant,
+            vertical_align = _metric_slot_vertical_align(tpl, "unit"),
         ),
     ]
     if values.get("desc") != None:
@@ -272,8 +316,9 @@ def _metric_literal_blocks(values, template = None, variant = None):
             desc(
                 values.get("desc"),
                 area = "desc",
-                align = _metric_slot_align(tpl, "desc"),
+                align = _metric_slot_align(tpl, "desc", inline_align),
                 variant = variant,
+                vertical_align = _metric_slot_vertical_align(tpl, "desc"),
             ),
         )
     return blocks
@@ -300,10 +345,13 @@ def _metric_component_extra(extra):
             out[k] = v
     return out
 
-def _metric_runtime_tile_props(source, template, layout, density, variant = None, map = None, patch = None, extra = None):
+def _metric_runtime_tile_props(source, template, layout, density, variant = None, map = None, patch = None, extra = None, inline_align = None, title_ratio = None, content_ratio = None):
     props = _metric_component_extra(extra)
     props["template"] = _metric_template_name(template)
     props["metric_density"] = density
+    props["metric_inline_align"] = _metric_inline_align_mode(template, inline_align)
+    props["metric_title_ratio"] = str(title_ratio).strip() if title_ratio != None else "1"
+    props["metric_content_ratio"] = str(content_ratio).strip() if content_ratio != None else "1"
     props["width"] = "100%"
     props["height"] = "100%"
     if variant != None and str(variant).strip() != "":
@@ -340,13 +388,16 @@ def metric_card(
     blocks = None,
     layout = None,
     variant = None,
+    inline_align = None,
+    title_ratio = None,
+    content_ratio = None,
 ):
     density = _metric_density(height_px, template)
-    card_props = _metric_shell_props(bg, width_px, height_px, props, template)
+    card_props = _metric_shell_props(bg, width_px, height_px, props, template, inline_align)
     card_layout = layout
     card_blocks = blocks
     if card_layout == None:
-        card_layout = _metric_layout_from_template(template, height_px)
+        card_layout = _metric_layout_from_template(template, height_px, inline_align, title_ratio, content_ratio)
     _metric_validate_layout(card_layout)
     if source == None:
         source = _metric_legacy_source(label_text, value_text, unit_text, desc_text)
@@ -367,6 +418,9 @@ def metric_card(
                         map,
                         patch,
                         props,
+                        inline_align,
+                        title_ratio,
+                        content_ratio,
                     ),
                 ),
             ]
@@ -376,6 +430,7 @@ def metric_card(
                 _metric_static_slots(source, map, patch),
                 template,
                 variant,
+                inline_align,
             )
         else:
             fail("metric_card(source=...) expects metric_ref(...) or a static object")

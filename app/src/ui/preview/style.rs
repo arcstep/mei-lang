@@ -36,7 +36,7 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .unwrap_or_else(|| "0".to_string()),
         ),
         _ => format!(
-            "display:grid;grid-template-columns:{};grid-template-rows:{};{}{}{}gap:{};padding:{};",
+            "display:grid;grid-template-columns:{};grid-template-rows:{};{}{}{}{}gap:{};padding:{};",
             layout
                 .columns
                 .clone()
@@ -50,6 +50,7 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
             grid_template_areas_style(layout),
             layout_align_items_style(layout.align.as_deref()),
             layout_justify_items_style(layout.justify.as_deref()),
+            layout_justify_content_style(layout.justify.as_deref()),
             layout
                 .gap
                 .as_deref()
@@ -111,6 +112,16 @@ pub(super) fn panel_style(
         if let Some(area) = area {
             style.push_str(&format!("grid-area:{};", area));
             style.push_str(&container_visual_style(props));
+            if layout
+                .and_then(|value| value.justify.as_deref())
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
+                && props
+                    .as_object()
+                    .and_then(|map| map.get("width"))
+                    .is_some()
+            {
+                style.push_str("justify-self:center;");
+            }
             return style;
         }
     }
@@ -172,6 +183,11 @@ pub(super) fn panel_slot_typography_style(props: &Value) -> String {
                     } else {
                         format!("font-size:var(--mei-font-{raw},14px);")
                     }
+                })
+                .or_else(|| {
+                    value
+                        .as_i64()
+                        .map(|raw| format!("font-size:var(--mei-font-{raw},14px);"))
                 }),
             "font_family" => value
                 .as_str()
@@ -286,14 +302,18 @@ pub(super) fn panel_card_layout_style(
     let has_head = slots.iter().any(|slot| *slot == "head");
     let has_body = slots.iter().any(|slot| *slot == "body");
     let mut style = surface_layout_style(Some(layout));
-    let chrome_props = heading_chrome_props(props);
-    let heading_height = chrome_props
-        .as_object()
-        .and_then(|map| map.get("height"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if let Some(heading_height) = heading_height {
+    let heading_height = if has_head {
+        heading_chrome_props(props)
+            .as_object()
+            .and_then(|map| map.get("height"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    } else {
+        None
+    };
+    if let Some(heading_height) = heading_height.as_deref() {
         let heading_row = normalize_css_length(heading_height);
         let body_row = layout
             .rows
@@ -751,12 +771,21 @@ pub(super) fn block_style(
         if let Some(area) = area {
             if !area.trim().is_empty() && area != "auto" {
                 let fill_row = area != "head";
-                let mut style = if fill_row {
+                let centered = layout
+                    .and_then(|value| value.justify.as_deref())
+                    .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"));
+                let mut style = if fill_row && centered {
+                    format!(
+                        "grid-area:{area};min-width:0;min-height:0;width:auto;height:100%;align-self:stretch;justify-self:center;box-sizing:border-box;"
+                    )
+                } else if fill_row {
                     format!(
                         "grid-area:{area};min-width:0;min-height:0;width:100%;height:100%;align-self:stretch;box-sizing:border-box;"
                     )
                 } else {
-                    format!("grid-area:{area};min-width:0;width:100%;box-sizing:border-box;")
+                    format!(
+                        "grid-area:{area};min-width:0;width:100%;height:100%;box-sizing:border-box;"
+                    )
                 };
                 if layout
                     .and_then(|value| value.areas.as_ref())

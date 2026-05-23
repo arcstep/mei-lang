@@ -17,15 +17,16 @@ mod tests;
 use audit::emit_layout_audit_diagnostics;
 use constants::{
     DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING, LAYOUT_POLICY_METRICS_2X2,
-    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1,
-    PROP_HAS_HEAD, SLOT_BODY, SLOT_HEAD,
+    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_AUTO, LAYOUT_POLICY_METRICS_STRIP,
+    LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_HAS_HEAD, SLOT_BODY, SLOT_HEAD,
 };
 use diagnostics::emit_panel_head_diagnostics;
 use layout_policy::{
     inject_default_layout, inject_default_metric_compound_2_1_layout,
     inject_default_metrics_2_1_layout, inject_default_metrics_2x2_layout,
-    inject_default_metrics_strip_layout, layout_has_slot, should_inject_metric_compound_2_1,
-    should_inject_metrics_2_1, should_inject_metrics_2x2, should_inject_metrics_strip,
+    inject_default_metrics_auto_layout, inject_default_metrics_strip_layout, layout_has_slot,
+    should_inject_metric_compound_2_1, should_inject_metrics_2_1, should_inject_metrics_2x2,
+    should_inject_metrics_auto, should_inject_metrics_strip,
 };
 use nodes::{blocks_touch_slot, remap_block_areas_to_body};
 use slots::{
@@ -120,6 +121,23 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
                         code: "layout_policy_metrics_2x2_conflict".to_string(),
                         message: format!(
                             "panel `{}`: layout_policy=metrics_2x2 requires exactly 4 metric_card children and no head slot",
+                            panel.id
+                        ),
+                        source_path: Some(source_path.to_string()),
+                    });
+                    inject_default_layout(panel, has_head, has_body);
+                }
+            }
+            Some(LAYOUT_POLICY_METRICS_AUTO) => {
+                if should_inject_metrics_auto(panel, has_head) {
+                    inject_default_metrics_auto_layout(panel);
+                    stamp_layout_policy(panel, LAYOUT_POLICY_METRICS_AUTO);
+                } else {
+                    diagnostics.push(Diagnostic {
+                        severity: Severity::Warning,
+                        code: "layout_policy_metrics_auto_conflict".to_string(),
+                        message: format!(
+                            "panel `{}`: layout_policy=metrics_auto requires at least 2 metric-like children and no head slot",
                             panel.id
                         ),
                         source_path: Some(source_path.to_string()),
