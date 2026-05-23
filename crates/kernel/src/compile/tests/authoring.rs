@@ -1152,7 +1152,11 @@ frame(
         .expect("cloned panel");
     assert_eq!(panel.area.as_deref(), Some("left"));
     assert_eq!(panel.title.as_deref(), Some("外部标题"));
-    assert_eq!(panel.blocks.len(), 1);
+    assert_eq!(
+        panel.blocks.len(),
+        2,
+        "title materializes head block plus inherited body block"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
