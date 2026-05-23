@@ -526,7 +526,7 @@ fn compile_cockpit_metric_data_example() {
         sc.scene
             .summary
             .as_deref()
-            .is_some_and(|value| value.contains("metric_ref") || value.contains("static object")),
+            .is_some_and(|value| value.contains("static object") || value.contains("map+patch")),
         "metric-data.mei summary should describe binding demo"
     );
     fn collect_panel_ids(panels: &[crate::PanelDecl], out: &mut Vec<String>) {
@@ -569,8 +569,8 @@ fn compile_cockpit_metric_data_example() {
         .filter(|key| key.as_str() == "cockpit.qunfu-metric-tile")
         .count();
     assert_eq!(
-        tile_count, 2,
-        "metric-data.mei should use two metric_ref-driven tiles; got keys: {:?}",
+        tile_count, 0,
+        "metric-data.mei should not rely on qunfu-metric-tile; got keys: {:?}",
         use_keys
     );
 }
