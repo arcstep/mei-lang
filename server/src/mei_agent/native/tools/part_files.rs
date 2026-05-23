@@ -12,7 +12,7 @@ use super::super::super::{
     agent_scope_profile, llm, permission_policy, resource_tools::AgentResourceScope,
 };
 
-use super::super::{NativeAgent, now_ms};
+use super::super::{now_ms, NativeAgent};
 
 impl NativeAgent {
     fn read_file_requires_user_confirmation(rel: &str) -> bool {

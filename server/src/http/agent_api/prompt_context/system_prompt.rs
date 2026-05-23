@@ -2,8 +2,7 @@ use crate::{
     agent_runtime::bridge::BridgePromptRequest,
     agent_runtime::runtime::load_managed_agent_skill_meta,
     mei_agent::agent_scope_profile::resolve_resource_visibility,
-    mei_agent::mode_policy::AgentModePolicy,
-    AppState,
+    mei_agent::mode_policy::AgentModePolicy, AppState,
 };
 
 pub(crate) fn build_meilang_system_prompt(

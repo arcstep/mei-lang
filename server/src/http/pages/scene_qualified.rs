@@ -2,8 +2,8 @@
 
 use axum::http::StatusCode;
 use mei_lang_kernel::{
-    locate_dataset_resource as kernel_locate_dataset_resource, CompileOptions,
-    CompiledApp, LoadedResource, RuntimeResourceResolveError,
+    locate_dataset_resource as kernel_locate_dataset_resource, CompileOptions, CompiledApp,
+    LoadedResource, RuntimeResourceResolveError,
 };
 
 use crate::AppError;
@@ -64,10 +64,7 @@ pub fn resolved_scene_context(compiled: &CompiledApp) -> ResolvedSceneContext {
                 .map(|route| route.scene_id.clone())
         })
         .unwrap_or_else(|| "default".to_string());
-    let scene_path = compiled
-        .active_target_file
-        .trim()
-        .to_string();
+    let scene_path = compiled.active_target_file.trim().to_string();
     let scene_path = if scene_path.is_empty() {
         None
     } else {
@@ -105,8 +102,8 @@ pub fn locate_dataset_resource<'a>(
     dataset_id: &str,
     expected_scene_id: Option<&str>,
 ) -> Result<&'a LoadedResource, AppError> {
-    let resource = kernel_locate_dataset_resource(compiled, dataset_id)
-        .map_err(map_resolve_error)?;
+    let resource =
+        kernel_locate_dataset_resource(compiled, dataset_id).map_err(map_resolve_error)?;
 
     if let Some(expected) = expected_scene_id.map(str::trim).filter(|s| !s.is_empty()) {
         let active = compiled

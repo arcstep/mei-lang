@@ -38,9 +38,7 @@ pub(crate) fn read_file_allowed_for_agent(
     }
     match vis {
         ResourceVisibility::LocalOnly => paths_match_workspace_rel(&rel_cmp, target, app_id),
-        ResourceVisibility::AllowDirectRefs => {
-            scope.direct_ref_paths.contains(&rel_cmp)
-        }
+        ResourceVisibility::AllowDirectRefs => scope.direct_ref_paths.contains(&rel_cmp),
         ResourceVisibility::AllowSceneReachable => scope.scene_reachable_paths.contains(&rel_cmp),
     }
 }

@@ -43,10 +43,7 @@ impl RuntimeSceneAnchor {
     fn runtime_ref_extra(&self, kind: &str, dataset_id: &str, metric_id: Option<&str>) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("kind".to_string(), Value::String(kind.to_string()));
-        obj.insert(
-            "scene_id".to_string(),
-            Value::String(self.scene_id.clone()),
-        );
+        obj.insert("scene_id".to_string(), Value::String(self.scene_id.clone()));
         if let Some(path) = self.scene_path.as_deref().filter(|s| !s.is_empty()) {
             obj.insert("scene_path".to_string(), Value::String(path.to_string()));
         }
@@ -237,10 +234,7 @@ fn resolve_data_ref(
     let from_dataset = map.get("from_dataset").and_then(Value::as_str);
     let selector = from_dataset.unwrap_or(id);
     let dataset_id = resolve_dataset_resource_id(compiled, selector, Some(resource_index)).ok()?;
-    Some((
-        resources.get(&dataset_id)?.dataset.clone()?,
-        dataset_id,
-    ))
+    Some((resources.get(&dataset_id)?.dataset.clone()?, dataset_id))
 }
 
 fn resolve_metric_ref(
@@ -264,12 +258,7 @@ fn resolve_metric_ref(
         let dataset_id =
             resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;
         let resource = resources.get(&dataset_id)?;
-        let metric = resource
-            .dataset
-            .as_ref()?
-            .metrics
-            .get(metric_id)
-            .cloned()?;
+        let metric = resource.dataset.as_ref()?.metrics.get(metric_id).cloned()?;
         return Some((metric, dataset_id));
     }
     resources

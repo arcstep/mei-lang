@@ -25,16 +25,14 @@ pub fn query_metric_dataframe(
     metric_id: &str,
     options: DatasetQueryOptions,
 ) -> Result<DatasetQueryResult> {
-    let resource = locate_dataset_resource(compiled, dataset_id)
-        .map_err(|error| anyhow!("{error}"))?;
+    let resource =
+        locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     let dataset = resource
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow!("resource `{dataset_id}` is not a dataset"))?;
     if dataset.runtime_metric_defs.is_empty() {
-        return Err(anyhow!(
-            "dataset `{dataset_id}` has no runtime metric defs"
-        ));
+        return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
     }
     if !dataset.runtime_metric_defs.contains_key(metric_id) {
         return Err(anyhow!(
@@ -62,12 +60,7 @@ pub fn query_metric_dataframe(
     let mut datasets = compiled
         .resources
         .iter()
-        .filter_map(|entry| {
-            entry
-                .dataset
-                .clone()
-                .map(|view| (entry.id.clone(), view))
-        })
+        .filter_map(|entry| entry.dataset.clone().map(|view| (entry.id.clone(), view)))
         .collect::<BTreeMap<_, _>>();
     datasets.insert(resource.id.clone(), runtime_dataset.clone());
 
@@ -110,11 +103,7 @@ pub fn query_metric_dataframe(
         .unwrap_or(MAX_PAGE_SIZE)
         .max(default_page_size);
     let collect_all = options.collect_all;
-    let page = if collect_all {
-        1
-    } else {
-        options.page.max(1)
-    };
+    let page = if collect_all { 1 } else { options.page.max(1) };
     let page_size = if collect_all {
         0
     } else if options.page_size == 0 {
@@ -130,16 +119,14 @@ pub fn query_metric_dataframe(
         collect_all,
     };
 
-    let mut result = paginate_rows(
-        rows,
-        &columns,
-        &meta.normalize,
-        &normalized_options,
-        true,
-    );
+    let mut result = paginate_rows(rows, &columns, &meta.normalize, &normalized_options, true);
     result.perf.extend(filtered_rows.perf);
-    result.perf.insert("base_query_ms".to_string(), base_query_ms);
-    result.perf.insert("metric_eval_ms".to_string(), metric_eval_ms);
+    result
+        .perf
+        .insert("base_query_ms".to_string(), base_query_ms);
+    result
+        .perf
+        .insert("metric_eval_ms".to_string(), metric_eval_ms);
     Ok(result)
 }
 

@@ -14,8 +14,7 @@ use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
 use super::components::resolve_components_root;
 use super::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
-    SceneQueryCoords,
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
 };
 use super::util::elapsed_ms;
 
@@ -97,7 +96,10 @@ pub async fn dataset_query_api(
     let resource = locate_dataset_resource(
         &compiled,
         normalized_dataset_id,
-        coords.scene_id.as_deref().or(Some(scene_ctx.scene_id.as_str())),
+        coords
+            .scene_id
+            .as_deref()
+            .or(Some(scene_ctx.scene_id.as_str())),
     )?;
     let locate_started = Instant::now();
     let locate_dataset_ms = elapsed_ms(locate_started);
@@ -123,8 +125,14 @@ pub async fn dataset_query_api(
         .map(str::to_string);
     let query_started = Instant::now();
     let result = if let Some(metric_id) = metric_id.as_deref() {
-        query_metric_dataframe(&compiled, &app_root, normalized_dataset_id, metric_id, query)
-            .map_err(AppError::from)?
+        query_metric_dataframe(
+            &compiled,
+            &app_root,
+            normalized_dataset_id,
+            metric_id,
+            query,
+        )
+        .map_err(AppError::from)?
     } else {
         query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?
     };

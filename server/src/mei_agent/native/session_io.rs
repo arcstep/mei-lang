@@ -9,7 +9,7 @@ use crate::agent_runtime::bridge::{
 
 use super::super::workspace_snapshot_git::{WorkspaceSnapshotGit, SESSION_BASELINE_ANCHOR};
 
-use super::{diff, NativeAgent, now_ms};
+use super::{diff, now_ms, NativeAgent};
 impl NativeAgent {
     pub(super) fn capture_session_diff_snapshot(
         &self,
@@ -164,7 +164,10 @@ impl NativeAgent {
         }
     }
 
-    pub(super) fn query_session_baseline_tree(conn: &Connection, session_id: &str) -> Result<Option<String>> {
+    pub(super) fn query_session_baseline_tree(
+        conn: &Connection,
+        session_id: &str,
+    ) -> Result<Option<String>> {
         match conn.query_row(
             "SELECT tree_hash FROM workspace_tree_snapshots \
              WHERE session_id = ?1 AND anchor_message_id = ?2",

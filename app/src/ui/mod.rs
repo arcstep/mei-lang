@@ -233,12 +233,7 @@ mod tests {
     #[test]
     fn route_query_access_includes_tab_in_query() {
         assert_eq!(
-            route_query(
-                UiRouteMode::Access,
-                Some("home"),
-                None,
-                Some("source")
-            ),
+            route_query(UiRouteMode::Access, Some("home"), None, Some("source")),
             "/scene/home?tab=source"
         );
     }

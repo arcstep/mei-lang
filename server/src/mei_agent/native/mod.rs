@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 use crate::agent_runtime::{
     bridge::{
-        BridgeAbortSummary, BridgeCreateSessionRequest, BridgeHealthResponse, BridgePendingPermission,
-        BridgePermissionResponseRequest, BridgePermissionResponseSummary, BridgeSessionMessageRaw,
-        BridgeSessionSummary,
+        BridgeAbortSummary, BridgeCreateSessionRequest, BridgeHealthResponse,
+        BridgePendingPermission, BridgePermissionResponseRequest, BridgePermissionResponseSummary,
+        BridgeSessionMessageRaw, BridgeSessionSummary,
     },
     events::HostOpencodeEvent,
 };
@@ -32,9 +32,9 @@ use super::{
 
 mod diff;
 mod events;
-mod tools;
-mod session_io;
 mod prompt;
+mod session_io;
+mod tools;
 
 pub use events::{encode_host_event_line, filter_session_event};
 

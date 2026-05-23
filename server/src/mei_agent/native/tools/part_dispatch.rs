@@ -187,7 +187,9 @@ impl NativeAgent {
     ) -> String {
         let build_mode = agent_mode.trim().eq_ignore_ascii_case("build");
         match name {
-            "read_file" => self.run_read_file_tool(session_id, call_id, name, args, app_id, resource_scope),
+            "read_file" => {
+                self.run_read_file_tool(session_id, call_id, name, args, app_id, resource_scope)
+            }
             "dataset_query" | "dataset_metric" => self.inner.resource_tools.run_resource_tool(
                 &self.inner.source_root,
                 app_id,

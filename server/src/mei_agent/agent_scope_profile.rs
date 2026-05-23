@@ -26,8 +26,8 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
 
-    use super::*;
     use super::visibility::default_resource_visibility;
+    use super::*;
     use crate::agent_runtime::bridge::BridgePromptRequest;
     use crate::mei_agent::mode_policy::{AgentMode, AgentModePolicy, RouteMode};
     use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceVisibility};
@@ -90,8 +90,16 @@ mod tests {
             scene_reachable_paths: Arc::new(HashSet::new()),
             world_injection_allowed_ids: None,
         };
-        assert!(read_file_allowed_for_agent("demo/main.mei", Some("demo"), &scope));
-        assert!(!read_file_allowed_for_agent("demo/other.mei", Some("demo"), &scope));
+        assert!(read_file_allowed_for_agent(
+            "demo/main.mei",
+            Some("demo"),
+            &scope
+        ));
+        assert!(!read_file_allowed_for_agent(
+            "demo/other.mei",
+            Some("demo"),
+            &scope
+        ));
     }
 
     #[test]
@@ -107,9 +115,21 @@ mod tests {
             scene_reachable_paths: Arc::new(HashSet::new()),
             world_injection_allowed_ids: None,
         };
-        assert!(read_file_allowed_for_agent("demo/data/x.mei", Some("demo"), &scope));
-        assert!(!read_file_allowed_for_agent("demo/unlisted.mei", Some("demo"), &scope));
-        assert!(!read_file_allowed_for_agent("otherapp/x.mei", Some("demo"), &scope));
+        assert!(read_file_allowed_for_agent(
+            "demo/data/x.mei",
+            Some("demo"),
+            &scope
+        ));
+        assert!(!read_file_allowed_for_agent(
+            "demo/unlisted.mei",
+            Some("demo"),
+            &scope
+        ));
+        assert!(!read_file_allowed_for_agent(
+            "otherapp/x.mei",
+            Some("demo"),
+            &scope
+        ));
     }
 
     #[test]
@@ -124,8 +144,16 @@ mod tests {
             scene_reachable_paths: Arc::new(scene),
             world_injection_allowed_ids: None,
         };
-        assert!(read_file_allowed_for_agent("demo/panels/a.mei", Some("demo"), &scope));
-        assert!(!read_file_allowed_for_agent("demo/main.mei", Some("demo"), &scope));
+        assert!(read_file_allowed_for_agent(
+            "demo/panels/a.mei",
+            Some("demo"),
+            &scope
+        ));
+        assert!(!read_file_allowed_for_agent(
+            "demo/main.mei",
+            Some("demo"),
+            &scope
+        ));
     }
 
     #[test]
@@ -139,31 +167,27 @@ mod tests {
             scene_id: Some("s1".into()),
             target_file: Some("a.mei".into()),
         };
-        assert!(
-            validate_dataset_world_scope_merge(
-                &base,
-                &ok,
-                ResourceVisibility::LocalOnly,
-                None,
-                Some("demo")
-            )
-            .is_ok()
-        );
+        assert!(validate_dataset_world_scope_merge(
+            &base,
+            &ok,
+            ResourceVisibility::LocalOnly,
+            None,
+            Some("demo")
+        )
+        .is_ok());
 
         let bad = WorldScope {
             scene_id: Some("s1".into()),
             target_file: Some("b.mei".into()),
         };
-        assert!(
-            validate_dataset_world_scope_merge(
-                &base,
-                &bad,
-                ResourceVisibility::LocalOnly,
-                None,
-                Some("demo")
-            )
-            .is_err()
-        );
+        assert!(validate_dataset_world_scope_merge(
+            &base,
+            &bad,
+            ResourceVisibility::LocalOnly,
+            None,
+            Some("demo")
+        )
+        .is_err());
     }
 
     #[test]
@@ -187,16 +211,14 @@ mod tests {
             scene_reachable_paths: Arc::new(HashSet::new()),
             world_injection_allowed_ids: None,
         };
-        assert!(
-            validate_dataset_world_scope_merge(
-                &base,
-                &merged,
-                ResourceVisibility::AllowDirectRefs,
-                Some(&scope),
-                Some("demo")
-            )
-            .is_ok()
-        );
+        assert!(validate_dataset_world_scope_merge(
+            &base,
+            &merged,
+            ResourceVisibility::AllowDirectRefs,
+            Some(&scope),
+            Some("demo")
+        )
+        .is_ok());
 
         let bad_scope = AgentResourceScope {
             scene_id: base.scene_id.clone(),
@@ -206,31 +228,27 @@ mod tests {
             scene_reachable_paths: Arc::new(HashSet::new()),
             world_injection_allowed_ids: None,
         };
-        assert!(
-            validate_dataset_world_scope_merge(
-                &base,
-                &merged,
-                ResourceVisibility::AllowDirectRefs,
-                Some(&bad_scope),
-                Some("demo")
-            )
-            .is_err()
-        );
+        assert!(validate_dataset_world_scope_merge(
+            &base,
+            &merged,
+            ResourceVisibility::AllowDirectRefs,
+            Some(&bad_scope),
+            Some("demo")
+        )
+        .is_err());
 
         let bad_scene = WorldScope {
             scene_id: Some("s2".into()),
             target_file: Some("demo/b.mei".into()),
         };
-        assert!(
-            validate_dataset_world_scope_merge(
-                &base,
-                &bad_scene,
-                ResourceVisibility::AllowDirectRefs,
-                Some(&scope),
-                Some("demo")
-            )
-            .is_err()
-        );
+        assert!(validate_dataset_world_scope_merge(
+            &base,
+            &bad_scene,
+            ResourceVisibility::AllowDirectRefs,
+            Some(&scope),
+            Some("demo")
+        )
+        .is_err());
     }
 
     #[test]

@@ -222,8 +222,11 @@ pub(super) fn topbar_view(
         })
         .filter(|sc| {
             if route_mode == UiRouteMode::Manage {
-                canonical_scene_for_script_target(compiled, Some(compiled.active_target_file.as_str()))
-                    .is_some_and(|canon| canon == *sc)
+                canonical_scene_for_script_target(
+                    compiled,
+                    Some(compiled.active_target_file.as_str()),
+                )
+                .is_some_and(|canon| canon == *sc)
             } else {
                 compiled.active_scene.as_deref() == Some(*sc)
             }
@@ -380,8 +383,7 @@ pub(super) fn topbar_view(
     } else {
         format!("/apps/access/{}{}", active_app_path, access_entry_query)
     };
-    let presentation_suffix =
-        access_scene_route_suffix(access_scene_for_href, None, Some("none"));
+    let presentation_suffix = access_scene_route_suffix(access_scene_for_href, None, Some("none"));
     let presentation_href = format!("/apps/access/{}{}", active_app_path, presentation_suffix);
     let mode_tabs = view! {
         <div class="mode-tabs inline-flex items-center">

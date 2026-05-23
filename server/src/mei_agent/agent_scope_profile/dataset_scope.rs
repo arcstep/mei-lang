@@ -18,16 +18,14 @@ fn merged_target_norm(
     merged_target: &Option<String>,
     app_id: Option<&str>,
 ) -> Result<String, String> {
-    let m_target = norm_opt_string(merged_target).ok_or_else(|| {
-        "dataset scope: merged target_file is empty".to_string()
-    })?;
+    let m_target = norm_opt_string(merged_target)
+        .ok_or_else(|| "dataset scope: merged target_file is empty".to_string())?;
     let app = app_id.unwrap_or("").trim();
     if app.is_empty() {
         return Err("dataset scope: app_id is required for reachability checks".to_string());
     }
-    norm_workspace_rel(&m_target, app).ok_or_else(|| {
-        format!("dataset scope: invalid merged target_file `{m_target}`")
-    })
+    norm_workspace_rel(&m_target, app)
+        .ok_or_else(|| format!("dataset scope: invalid merged target_file `{m_target}`"))
 }
 
 /// 校验 `dataset_query` / `dataset_metric` 合并后的 `WorldScope` 是否仍满足 `resource_visibility` 与可达集。

@@ -10,18 +10,19 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 
 use crate::{AppError, AppState};
 
-use super::query::{
-    access_canonical_location, access_sanitized_redirect_location, parse_access_scene_path, AppQuery,
-};
-use super::scene::{canonical_scene_for_target, default_file_for_scene, manage_scene_for_render};
+use super::super::super::compile_cache::{compile_app_with_cache, CompileWithCacheFailure};
 use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
 use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
-use super::super::super::compile_cache::{compile_app_with_cache, CompileWithCacheFailure};
 use super::super::util::{
     elapsed_ms, fill_manage_wall_clock_placeholders, fill_perf_placeholders, is_script_target,
     push_manage_page_pipeline_diag,
 };
+use super::query::{
+    access_canonical_location, access_sanitized_redirect_location, parse_access_scene_path,
+    AppQuery,
+};
+use super::scene::{canonical_scene_for_target, default_file_for_scene, manage_scene_for_render};
 
 fn html_escape_min(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -74,7 +75,11 @@ pub async fn app_page(
         );
     }
     if route_mode == UiRouteMode::Access {
-        let q_scene = query.scene.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let q_scene = query
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if let Some(ref ps) = access_path_scene {
             if let Some(qs) = q_scene {
                 if qs != ps {
@@ -88,15 +93,13 @@ pub async fn app_page(
                 }
             }
         } else if let Some(qs) = q_scene {
-            return Ok(
-                Redirect::temporary(&access_canonical_location(
-                    &app_id,
-                    qs,
-                    query.tab.as_deref(),
-                    query.chrome.as_deref(),
-                ))
-                .into_response(),
-            );
+            return Ok(Redirect::temporary(&access_canonical_location(
+                &app_id,
+                qs,
+                query.tab.as_deref(),
+                query.chrome.as_deref(),
+            ))
+            .into_response());
         }
     }
     let discover_started = Instant::now();
@@ -360,7 +363,10 @@ pub async fn app_page(
     let mut compiled = compile_outcome.compiled;
     if route_mode == UiRouteMode::Access {
         if access_path_scene.is_none() {
-            let sid = compiled.active_scene.clone().filter(|s| !s.trim().is_empty());
+            let sid = compiled
+                .active_scene
+                .clone()
+                .filter(|s| !s.trim().is_empty());
             if let Some(ref s) = sid {
                 return Ok(Redirect::temporary(&access_canonical_location(
                     &app_id,

@@ -10,7 +10,12 @@ pub(super) enum DiagnosticsFilterMode {
 
 impl DiagnosticsFilterMode {
     pub fn from_query(value: Option<&str>) -> Self {
-        match value.map(str::trim).unwrap_or("").to_ascii_lowercase().as_str() {
+        match value
+            .map(str::trim)
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str()
+        {
             "all" => Self::All,
             _ => Self::CurrentFile,
         }
@@ -40,13 +45,20 @@ pub(super) fn normalize_target_path(target: &str) -> String {
         .to_string()
 }
 
-pub(super) fn normalize_diagnostic_source(app_root: &str, source_path: Option<&str>) -> Option<String> {
+pub(super) fn normalize_diagnostic_source(
+    app_root: &str,
+    source_path: Option<&str>,
+) -> Option<String> {
     let raw = source_path?.trim();
     if raw.is_empty() {
         return None;
     }
     let mut path = raw.replace('\\', "/");
-    let root = app_root.trim().replace('\\', "/").trim_end_matches('/').to_string();
+    let root = app_root
+        .trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
     if !root.is_empty() {
         if let Some(stripped) = path.strip_prefix(&root) {
             path = stripped.trim_start_matches('/').to_string();
@@ -391,10 +403,7 @@ mod tests {
 
     #[test]
     fn diagnostic_matches_target_by_relative_path() {
-        let compiled = sample_compiled(vec![diag(
-            "missing_scene",
-            "panels/shared-frame.mei",
-        )]);
+        let compiled = sample_compiled(vec![diag("missing_scene", "panels/shared-frame.mei")]);
         assert!(diagnostic_matches_target(
             &compiled,
             "panels/shared-frame.mei",
@@ -419,7 +428,10 @@ mod tests {
             DiagnosticsFilterMode::CurrentFile,
         );
         assert_eq!(current.len(), 1);
-        assert_eq!(current[0].source_path.as_deref(), Some("panels/shared-frame.mei"));
+        assert_eq!(
+            current[0].source_path.as_deref(),
+            Some("panels/shared-frame.mei")
+        );
         let all = compile_diagnostics_for_mode(
             &compiled,
             "panels/shared-frame.mei",

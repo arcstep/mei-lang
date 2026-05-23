@@ -2,8 +2,8 @@ use leptos::prelude::*;
 use mei_lang_kernel::CompiledApp;
 
 use super::compile_status::{
-    compile_status_counts, compile_status_summary, compile_status_title, compile_status_tone,
-    compile_status_counts_for_target,
+    compile_status_counts, compile_status_counts_for_target, compile_status_summary,
+    compile_status_title, compile_status_tone,
 };
 use super::manage_routing::{manage_tab_href, ManageViewTab};
 use super::SourcePanelMeta;

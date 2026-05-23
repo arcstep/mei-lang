@@ -15,8 +15,7 @@ use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{query_dataset_rows, DatasetQueryOptions};
 use super::components::resolve_components_root;
 use super::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
-    SceneQueryCoords,
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
 };
 use super::util::elapsed_ms;
 
@@ -82,7 +81,10 @@ pub async fn dataset_metric_api(
     let resource = locate_dataset_resource(
         &compiled,
         normalized_dataset_id,
-        coords.scene_id.as_deref().or(Some(scene_ctx.scene_id.as_str())),
+        coords
+            .scene_id
+            .as_deref()
+            .or(Some(scene_ctx.scene_id.as_str())),
     )?;
     let locate_started = Instant::now();
     let locate_dataset_ms = elapsed_ms(locate_started);

@@ -103,35 +103,36 @@ fn build_dynamic_mei_context(
         if let Some((target_rel, full_path)) =
             resolve_target_path_for_request(state, &app_id, request)
         {
-        match fs::read_to_string(&full_path) {
-            Ok(content) => {
-                let bytes = content.as_bytes();
-                let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
-                    (
-                        String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES]).to_string(),
-                        true,
-                    )
-                } else {
-                    (content, false)
-                };
-                lines.push("[Build mode — current target .mei snapshot]".to_string());
-                lines.push(format!("path: {target_rel}"));
-                lines.push(format!(
-                    "truncated: {} (max {} bytes)",
-                    if truncated { "yes" } else { "no" },
-                    ASK_INLINE_TARGET_MAX_BYTES
-                ));
-                lines.push("---".to_string());
-                lines.push(inlined);
-            }
-            Err(error) => {
-                lines.push(format!(
+            match fs::read_to_string(&full_path) {
+                Ok(content) => {
+                    let bytes = content.as_bytes();
+                    let (inlined, truncated) = if bytes.len() > ASK_INLINE_TARGET_MAX_BYTES {
+                        (
+                            String::from_utf8_lossy(&bytes[..ASK_INLINE_TARGET_MAX_BYTES])
+                                .to_string(),
+                            true,
+                        )
+                    } else {
+                        (content, false)
+                    };
+                    lines.push("[Build mode — current target .mei snapshot]".to_string());
+                    lines.push(format!("path: {target_rel}"));
+                    lines.push(format!(
+                        "truncated: {} (max {} bytes)",
+                        if truncated { "yes" } else { "no" },
+                        ASK_INLINE_TARGET_MAX_BYTES
+                    ));
+                    lines.push("---".to_string());
+                    lines.push(inlined);
+                }
+                Err(error) => {
+                    lines.push(format!(
                     "[Build mode — current target .mei snapshot]\npath: {target_rel}\nerror: failed to read target file ({error})"
                 ));
+                }
             }
-        }
-        lines.push(String::new());
-        lines.push(
+            lines.push(String::new());
+            lines.push(
             "Other scene/world/frame files are indexed in the injected world/runtime catalog above, not inlined; use `read_file` within allowed paths for source-focus edits."
                 .to_string(),
         );

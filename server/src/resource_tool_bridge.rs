@@ -212,11 +212,11 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .get("limit")
                     .and_then(Value::as_u64)
                     .map(|u| u as usize);
-                let mut response = match query_resource_list(source_root, app, scope_ref, kind, limit)
-                {
-                    Ok(r) => r,
-                    Err(e) => return Self::json_result::<WorldAssetListResponse>(Err(e)),
-                };
+                let mut response =
+                    match query_resource_list(source_root, app, scope_ref, kind, limit) {
+                        Ok(r) => r,
+                        Err(e) => return Self::json_result::<WorldAssetListResponse>(Err(e)),
+                    };
                 response.items.retain(|it| allowed.contains(&it.id));
                 response.total = response.items.len();
                 Self::json_result(Ok(response))
@@ -369,7 +369,11 @@ mod resource_tool_bridge_tests {
             "resource_list",
             "{}",
         );
-        assert!(out.contains("missing world snapshot"), "{}", &out[..out.len().min(200)]);
+        assert!(
+            out.contains("missing world snapshot"),
+            "{}",
+            &out[..out.len().min(200)]
+        );
     }
 
     #[test]

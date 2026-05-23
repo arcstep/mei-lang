@@ -14,7 +14,9 @@ use crate::{
             BridgeRevertSummary, BridgeSessionDiffQuery, BridgeSessionMessageRaw,
             BridgeSessionSummary, BridgeUnrevertSummary,
         },
-        events::{normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList},
+        events::{
+            normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
+        },
     },
     mei_agent::{
         agent_abort_session, agent_create_session, agent_list_sessions, agent_respond_permission,

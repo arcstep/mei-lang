@@ -6,11 +6,11 @@ use serde_json::Value;
 use super::bundle::load_world_runtime_bundle;
 use super::json_shrink::{json_serialized_len, shrink_json_for_llm, LLM_RESOURCE_GET_BUDGET_CHARS};
 use super::summaries::summarize_resource_decl;
+use super::util::{normalize_asset_kind, normalize_limit};
 use crate::http::scene_api::types::{
     WorldAssetGetResponse, WorldAssetListItem, WorldAssetListResponse, WorldRuntimeBundle,
     WorldScope,
 };
-use super::util::{normalize_asset_kind, normalize_limit};
 
 fn collect_world_asset_items(
     bundle: &WorldRuntimeBundle,

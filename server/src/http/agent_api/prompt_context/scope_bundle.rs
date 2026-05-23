@@ -32,7 +32,8 @@ impl AgentScopeBundle {
         let (app_id, _) = resolve_app_root(state, request)?;
         let policy = AgentModePolicy::from_request(request);
         let world_scope = world_scope_from_request(request);
-        let snap_res = build_world_context_snapshot_cached(state, app_id.as_str(), Some(&world_scope));
+        let snap_res =
+            build_world_context_snapshot_cached(state, app_id.as_str(), Some(&world_scope));
         let (snapshot, snapshot_error) = match snap_res {
             Ok(s) => (Some(s), None),
             Err(e) => (None, Some(e.to_string())),

@@ -265,12 +265,16 @@ pub(super) fn diagnostics_view(
         .map(manage_page_pipeline_diag_view)
         .collect_view();
     let compile_list = compile_diagnostics_for_mode(compiled, selected_target, filter_mode);
-    let (cur_e, cur_w, cur_i) = severity_counts(
-        &compile_diagnostics_for_mode(compiled, selected_target, DiagnosticsFilterMode::CurrentFile),
-    );
-    let (all_e, all_w, all_i) = severity_counts(
-        &compile_diagnostics_for_mode(compiled, selected_target, DiagnosticsFilterMode::All),
-    );
+    let (cur_e, cur_w, cur_i) = severity_counts(&compile_diagnostics_for_mode(
+        compiled,
+        selected_target,
+        DiagnosticsFilterMode::CurrentFile,
+    ));
+    let (all_e, all_w, all_i) = severity_counts(&compile_diagnostics_for_mode(
+        compiled,
+        selected_target,
+        DiagnosticsFilterMode::All,
+    ));
     let other_count = compile_diagnostics_other_file_count(compiled, selected_target);
     let compile_cards = compile_list
         .iter()
@@ -350,6 +354,8 @@ pub(super) fn diagnostics_view(
                     <code class="text-slate-200">"manage_page_pipeline"</code>
                     " 表示本页请求流水线。"
                     " 运行时见下方 "
+                    <code class="text-slate-200">"layout_audit_runtime"</code>
+                    " / "
                     <code class="text-slate-200">"runtime_query_errors"</code>
                     " / "
                     <code class="text-slate-200">"runtime_perf"</code>
@@ -376,6 +382,22 @@ pub(super) fn diagnostics_view(
                 </span>
                 {empty_compile_hint}
                 {compile_cards}
+            </div>
+            <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-cyan-500/25">
+                <strong class="text-xs font-semibold text-slate-50">"layout_audit_runtime"</strong>
+                <span class="text-xs leading-5 text-slate-300">
+                    "预览几何审计：检测画布溢出、父容器裁切、零尺寸退化盒。"
+                    " 内容由 "
+                    <code class="text-slate-200">"frame-stage.js"</code>
+                    " 上报并复用同一诊断面板。"
+                </span>
+                <div
+                    id="mei-runtime-layout-audit"
+                    data-empty-text="尚未发现布局几何问题。"
+                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                >
+                    "尚未发现布局几何问题。"
+                </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-red-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_query_errors"</strong>

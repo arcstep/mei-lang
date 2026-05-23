@@ -9,11 +9,11 @@ use crate::AppState;
 use super::bundle::{load_world_runtime_bundle, load_world_runtime_bundle_cached};
 use super::inventory::build_resource_inventory;
 use super::runtime_peek::recent_trace_messages_for_snapshot;
+use super::util::normalize_path;
 use crate::http::scene_api::types::{
     ResourceQueryToolSpec, WorldContextSnapshot, WorldRuntimeBundle, WorldRuntimeSummary,
     WorldScope, WorldSnapshotSummary,
 };
-use super::util::normalize_path;
 
 pub(super) fn build_prompt_catalog_lines(
     bundle: &WorldRuntimeBundle,

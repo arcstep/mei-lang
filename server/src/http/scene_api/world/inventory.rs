@@ -4,10 +4,10 @@ use std::path::Path;
 use mei_lang_kernel::{decode_ref_value, PanelDecl, RefKind, UiNodeDecl};
 use serde_json::Value;
 
+use super::util::normalize_path;
 use crate::http::scene_api::types::{
     ResourceInventoryItem, ResourceInventorySnapshot, WorldRuntimeBundle, WorldScope,
 };
-use super::util::normalize_path;
 
 /// 外部 capsule 绑定路径与对外 resource_type（typed 主路径，legacy 仅 compat）。
 fn external_slot_binding(value: Option<&Value>, slot: RefKind) -> Option<(String, &'static str)> {

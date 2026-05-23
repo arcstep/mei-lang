@@ -17,11 +17,13 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
     };
     match layout.layout_type.as_str() {
         "flex" => format!(
-            "display:flex;flex-direction:{};gap:{};padding:{};",
+            "display:flex;flex-direction:{};{}{}gap:{};padding:{};",
             layout
                 .direction
                 .clone()
                 .unwrap_or_else(|| "column".to_string()),
+            layout_align_items_style(layout.align.as_deref()),
+            layout_justify_content_style(layout.justify.as_deref()),
             layout
                 .gap
                 .as_deref()
@@ -34,7 +36,7 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .unwrap_or_else(|| "0".to_string()),
         ),
         _ => format!(
-            "display:grid;grid-template-columns:{};grid-template-rows:{};{}gap:{};padding:{};",
+            "display:grid;grid-template-columns:{};grid-template-rows:{};{}{}{}gap:{};padding:{};",
             layout
                 .columns
                 .clone()
@@ -46,6 +48,8 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .unwrap_or_else(|| vec!["auto".to_string()])
                 .join(" "),
             grid_template_areas_style(layout),
+            layout_align_items_style(layout.align.as_deref()),
+            layout_justify_items_style(layout.justify.as_deref()),
             layout
                 .gap
                 .as_deref()
@@ -58,6 +62,30 @@ pub(super) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>)
                 .unwrap_or_else(|| "0".to_string()),
         ),
     }
+}
+
+fn layout_align_items_style(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| format!("align-items:{raw};"))
+        .unwrap_or_default()
+}
+
+fn layout_justify_items_style(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| format!("justify-items:{raw};"))
+        .unwrap_or_default()
+}
+
+fn layout_justify_content_style(value: Option<&str>) -> String {
+    value
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+        .map(|raw| format!("justify-content:{raw};"))
+        .unwrap_or_default()
 }
 
 pub(super) fn panel_style(
@@ -117,45 +145,72 @@ pub(super) fn panel_slot_area_style(slot: &str) -> String {
         return "grid-area:head;min-width:0;min-height:0;width:100%;align-self:start;box-sizing:border-box;"
             .to_string();
     }
-    format!("grid-area:{slot};min-width:0;min-height:0;width:100%;height:100%;box-sizing:border-box;")
+    format!(
+        "grid-area:{slot};min-width:0;min-height:0;width:100%;height:100%;box-sizing:border-box;"
+    )
 }
 
-/// `panel_head` / `panel_body` / `head_props` / `body_props` 的 `font` 键 → 槽位默认字号（子组件可 `props.font` 覆盖）。
+/// `panel_head` / `panel_body` / `head_props` / `body_props` 排版键 → 槽位 inline 样式（与 theme 变量互补）。
 pub(super) fn panel_slot_typography_style(props: &Value) -> String {
     let Some(map) = props.as_object() else {
         return String::new();
     };
-    let Some(font) = map.get("font") else {
-        return String::new();
-    };
-    let key = match font {
-        Value::String(raw) => raw.trim().to_string(),
-        Value::Number(raw) => {
-            if let Some(n) = raw.as_i64() {
-                n.to_string()
-            } else if let Some(n) = raw.as_f64() {
-                if (n - n.round()).abs() < f64::EPSILON {
-                    format!("{}", n.round() as i64)
-                } else {
-                    n.to_string()
-                }
-            } else {
-                return String::new();
-            }
+    let mut style = String::new();
+    for (key, value) in map {
+        let css = match key.as_str() {
+            "font" | "font_size" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| {
+                    if raw.ends_with("px")
+                        || raw.ends_with("rem")
+                        || raw.ends_with("em")
+                        || raw.ends_with('%')
+                    {
+                        format!("font-size:{raw};")
+                    } else {
+                        format!("font-size:var(--mei-font-{raw},14px);")
+                    }
+                }),
+            "font_family" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("font-family:{raw};")),
+            "color" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("color:{raw};")),
+            "font_weight" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("font-weight:{raw};"))
+                .or_else(|| value.as_i64().map(|n| format!("font-weight:{n};"))),
+            "letter_spacing" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("letter-spacing:{raw};")),
+            "text_align" | "align" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("text-align:{raw};")),
+            "line_height" => value
+                .as_str()
+                .map(str::trim)
+                .filter(|raw| !raw.is_empty())
+                .map(|raw| format!("line-height:{raw};")),
+            _ => None,
+        };
+        if let Some(chunk) = css {
+            style.push_str(&chunk);
         }
-        _ => return String::new(),
-    };
-    if key.is_empty() {
-        return String::new();
     }
-    if key.ends_with("px")
-        || key.ends_with("rem")
-        || key.ends_with("em")
-        || key.ends_with('%')
-    {
-        return format!("font-size:{key};");
-    }
-    format!("font-size:var(--mei-font-{key},14px);")
+    style
 }
 
 /// `head_props.carets`：单张图右侧原图、左侧 `left_rotate`（默认 180deg），由 CSS 伪元素绘制。
@@ -218,6 +273,18 @@ pub(super) fn panel_card_layout_style(
     let Some(layout) = layout else {
         return String::new();
     };
+    let slots: Vec<&str> = layout
+        .areas
+        .as_ref()
+        .map(|areas| {
+            areas
+                .iter()
+                .flat_map(|row| row.iter().map(String::as_str))
+                .collect()
+        })
+        .unwrap_or_default();
+    let has_head = slots.iter().any(|slot| *slot == "head");
+    let has_body = slots.iter().any(|slot| *slot == "body");
     let mut style = surface_layout_style(Some(layout));
     let chrome_props = heading_chrome_props(props);
     let heading_height = chrome_props
@@ -232,13 +299,14 @@ pub(super) fn panel_card_layout_style(
             .rows
             .as_ref()
             .and_then(|rows| rows.get(1).map(String::as_str))
-            .or_else(|| layout.rows.as_ref().and_then(|rows| rows.first().map(String::as_str)));
+            .or_else(|| {
+                layout
+                    .rows
+                    .as_ref()
+                    .and_then(|rows| rows.first().map(String::as_str))
+            });
         if let Some(body_row) = body_row {
-            if layout
-                .areas
-                .as_ref()
-                .is_some_and(|areas| areas.iter().flatten().any(|cell| cell == "body"))
-            {
+            if has_body {
                 style.push_str(&format!(
                     "grid-template-rows:{} {};",
                     heading_row,
@@ -253,7 +321,9 @@ pub(super) fn panel_card_layout_style(
     } else {
         patch_default_head_body_grid_rows(&mut style, layout);
     }
-    style.push_str("gap:0;");
+    if has_head || has_body {
+        style.push_str("gap:0;");
+    }
     style
 }
 
@@ -264,7 +334,12 @@ fn patch_default_head_body_grid_rows(style: &mut String, layout: &mei_lang_kerne
     let slots: Vec<&str> = layout
         .areas
         .as_ref()
-        .map(|areas| areas.iter().flat_map(|row| row.iter().map(String::as_str)).collect())
+        .map(|areas| {
+            areas
+                .iter()
+                .flat_map(|row| row.iter().map(String::as_str))
+                .collect()
+        })
         .unwrap_or_default();
     let has_head = slots.iter().any(|slot| *slot == "head");
     let has_body = slots.iter().any(|slot| *slot == "body");
@@ -365,7 +440,9 @@ pub(super) fn panel_heading_style(head_props: &Value) -> String {
 }
 
 /// 无标题槽、且 `layout.areas` 不含 `head`/`body`（如 `m0 m1 m2`）时，grid 应落在 `panel-body-cell` 上。
-pub(super) fn panel_layout_content_on_body_slot(layout: Option<&mei_lang_kernel::LayoutDecl>) -> bool {
+pub(super) fn panel_layout_content_on_body_slot(
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+) -> bool {
     let Some(layout) = layout else {
         return false;
     };
@@ -375,7 +452,10 @@ pub(super) fn panel_layout_content_on_body_slot(layout: Option<&mei_lang_kernel:
     if areas.is_empty() {
         return false;
     }
-    !areas.iter().flatten().any(|cell| cell == "head" || cell == "body")
+    !areas
+        .iter()
+        .flatten()
+        .any(|cell| cell == "head" || cell == "body")
 }
 
 pub(super) fn panel_body_layout_centered(layout: &mei_lang_kernel::LayoutDecl) -> bool {
@@ -508,7 +588,8 @@ pub(super) fn has_frame_backdrop(props: &Value) -> bool {
                 bg.get("color")
                     .and_then(Value::as_str)
                     .is_some_and(|value| !value.trim().is_empty())
-                    || bg.get("image")
+                    || bg
+                        .get("image")
                         .and_then(Value::as_str)
                         .is_some_and(|value| !value.trim().is_empty())
             }
@@ -627,7 +708,10 @@ pub(super) fn normalize_css_length(raw: &str) -> String {
     if value.is_empty() {
         return value.to_string();
     }
-    if value.chars().any(|ch| ch.is_ascii_alphabetic() || ch == '%') {
+    if value
+        .chars()
+        .any(|ch| ch.is_ascii_alphabetic() || ch == '%')
+    {
         return value.to_string();
     }
     if value.ends_with("px") {
@@ -672,16 +756,13 @@ pub(super) fn block_style(
                         "grid-area:{area};min-width:0;min-height:0;width:100%;height:100%;align-self:stretch;box-sizing:border-box;"
                     )
                 } else {
-                    format!(
-                        "grid-area:{area};min-width:0;width:100%;box-sizing:border-box;"
-                    )
+                    format!("grid-area:{area};min-width:0;width:100%;box-sizing:border-box;")
                 };
                 if layout
                     .and_then(|value| value.areas.as_ref())
                     .is_some_and(|rows| {
-                        rows.first().is_some_and(|row| {
-                            row.len() > 1 && row.iter().all(|cell| cell == area)
-                        })
+                        rows.first()
+                            .is_some_and(|row| row.len() > 1 && row.iter().all(|cell| cell == area))
                     })
                 {
                     style.push_str("grid-column:1 / -1;");

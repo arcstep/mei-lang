@@ -1,12 +1,12 @@
 use mei_lang_kernel::LayoutDecl;
 use serde_json::Value;
 
-use crate::ui::route::UiRouteMode;
 use super::style::{
     container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
     frame_stage_content_bounds, surface_layout_style, FrameStageContentBounds,
 };
 use super::theme::{theme_css_vars_style, ThemeResolved};
+use crate::ui::route::UiRouteMode;
 
 #[derive(Debug, Clone)]
 pub(super) struct FrameViewportConfig {
@@ -56,7 +56,10 @@ fn parse_overflow_token(value: Option<&Value>, default: &str) -> String {
 }
 
 /// 管理端固定调试溢出（显示裁切外内容）；访问态固定裁切。不读 `edit_overflow` / `overflow`。
-pub(super) fn effective_viewport_overflow(_viewport: &FrameViewportConfig, route: UiRouteMode) -> String {
+pub(super) fn effective_viewport_overflow(
+    _viewport: &FrameViewportConfig,
+    route: UiRouteMode,
+) -> String {
     match route {
         UiRouteMode::Manage => "debug".to_string(),
         UiRouteMode::Access => "clip".to_string(),
@@ -399,10 +402,7 @@ pub(super) fn frame_stage_content_bounds_for_viewport(
 }
 
 /// 舞台可用宽度：`frame.max_width` 等上限与 `design_width` 取较小值，避免设计画布宽于实际布局。
-pub(super) fn effective_canvas_width(
-    props: &Value,
-    viewport: &FrameViewportConfig,
-) -> f64 {
+pub(super) fn effective_canvas_width(props: &Value, viewport: &FrameViewportConfig) -> f64 {
     let bounds = frame_stage_content_bounds_for_viewport(props, viewport);
     match bounds.max_width {
         Some(cap) => cap.min(viewport.design_width),

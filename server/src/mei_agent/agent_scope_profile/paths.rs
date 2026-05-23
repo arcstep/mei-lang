@@ -27,7 +27,11 @@ pub(crate) fn norm_workspace_rel(path: &str, app_id: &str) -> Option<String> {
 }
 
 pub(crate) fn norm_rel_for_read_compare(rel: &str, app_id: Option<&str>) -> String {
-    let rel = rel.trim().replace('\\', "/").trim_start_matches('/').to_string();
+    let rel = rel
+        .trim()
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_string();
     let Some(app) = app_id.map(str::trim).filter(|s| !s.is_empty()) else {
         return rel;
     };
@@ -36,7 +40,10 @@ pub(crate) fn norm_rel_for_read_compare(rel: &str, app_id: Option<&str>) -> Stri
 
 pub(crate) fn paths_match_workspace_rel(rel: &str, target: &str, app_id: Option<&str>) -> bool {
     let rel = rel.replace('\\', "/").trim_start_matches('/').to_string();
-    let target = target.replace('\\', "/").trim_start_matches('/').to_string();
+    let target = target
+        .replace('\\', "/")
+        .trim_start_matches('/')
+        .to_string();
     if rel == target {
         return true;
     }

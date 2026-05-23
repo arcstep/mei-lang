@@ -11,8 +11,8 @@ use crate::{
     AppState,
 };
 
-use crate::http::scene_api::types::{WorldRuntimeBundle, WorldScope};
 use super::util::{app_relative_mei_for_preview, normalize_path, normalize_world_scope};
+use crate::http::scene_api::types::{WorldRuntimeBundle, WorldScope};
 
 fn is_mei_target(target: &str) -> bool {
     target.to_lowercase().ends_with(".mei")
@@ -97,7 +97,9 @@ where
                     let nt = normalize_path(t);
                     if nt == normalize_path(route.target_file.as_str()) {
                         None
-                    } else if app_root.join(app_relative_mei_for_preview(app_id, t).unwrap_or(nt)).is_file()
+                    } else if app_root
+                        .join(app_relative_mei_for_preview(app_id, t).unwrap_or(nt))
+                        .is_file()
                     {
                         resolve_preview_target(app_id, t)
                     } else {

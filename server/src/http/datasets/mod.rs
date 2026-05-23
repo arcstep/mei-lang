@@ -254,9 +254,6 @@ mod tests {
             true,
         );
         assert_eq!(result.columns, vec!["id", "source"]);
-        assert_eq!(
-            result.rows[0].get("id").and_then(|v| v.as_str()),
-            Some("1")
-        );
+        assert_eq!(result.rows[0].get("id").and_then(|v| v.as_str()), Some("1"));
     }
 }

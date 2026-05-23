@@ -122,10 +122,62 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "variant": "plain",
                 "accent": false,
                 "flair": false,
-                "dots": false
+                "dots": false,
+                "height": "44px",
+                "align": "center"
             },
-            "panel_body": {},
+            "panel_body": {
+                "min_height": "0"
+            },
             "heading": {},
+            "metric_label": {
+                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "16px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "400",
+                "text_align": "center",
+                "line_height": "1.15"
+            },
+            "metric_value": {
+                "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "28px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "700",
+                "text_align": "right",
+                "line_height": "1.05"
+            },
+            "metric_unit": {
+                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "16px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "400",
+                "text_align": "center",
+                "line_height": "1.05"
+            },
+            "metric_sub_label": {
+                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "12px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "400",
+                "text_align": "center",
+                "line_height": "1.05"
+            },
+            "metric_sub_value": {
+                "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "18px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "700",
+                "text_align": "right",
+                "line_height": "1.05"
+            },
+            "metric_sub_unit": {
+                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
+                "font_size": "12px",
+                "color": "rgba(255,255,255,0.80)",
+                "font_weight": "400",
+                "text_align": "center",
+                "line_height": "1.05"
+            },
             "font": {
                 "1": "12px",
                 "2": "14px",
@@ -174,9 +226,13 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "variant": "compact",
                 "accent": true,
                 "flair": false,
-                "dots": false
+                "dots": false,
+                "height": "40px",
+                "align": "center"
             },
-            "panel_body": {},
+            "panel_body": {
+                "min_height": "0"
+            },
             "heading": {},
             "font": {
                 "1": "12px",
@@ -218,9 +274,13 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "variant": "plain",
                 "accent": false,
                 "flair": false,
-                "dots": false
+                "dots": false,
+                "height": "40px",
+                "align": "center"
             },
-            "panel_body": {},
+            "panel_body": {
+                "min_height": "0"
+            },
             "heading": {},
             "font": {
                 "1": "12px",
@@ -254,6 +314,19 @@ fn theme_decl_value(theme: &ThemeDecl) -> Value {
     map.insert("panel_body".to_string(), theme.panel_body.clone());
     map.insert("heading".to_string(), theme.heading.clone());
     map.insert("font".to_string(), theme.font.clone());
+    map.insert("metric_label".to_string(), theme.metric_label.clone());
+    map.insert("metric_value".to_string(), theme.metric_value.clone());
+    map.insert("metric_unit".to_string(), theme.metric_unit.clone());
+    map.insert("metric_desc".to_string(), theme.metric_desc.clone());
+    map.insert(
+        "metric_sub_label".to_string(),
+        theme.metric_sub_label.clone(),
+    );
+    map.insert(
+        "metric_sub_value".to_string(),
+        theme.metric_sub_value.clone(),
+    );
+    map.insert("metric_sub_unit".to_string(), theme.metric_sub_unit.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
     if !theme.components.is_null() {
         map.insert("components".to_string(), theme.components.clone());
@@ -329,8 +402,17 @@ fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
     for role in ["label", "value", "unit", "desc"] {
         let key = format!("metric_{role}");
         if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
-            push_metric_role_font_var(entry, role, &mut vars);
+            push_typography_vars(entry, &format!("mei-metric-{role}"), &mut vars);
         }
+    }
+    for role in ["label", "value", "unit"] {
+        let key = format!("metric_sub_{role}");
+        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
+            push_typography_vars(entry, &format!("mei-metric-sub-{role}"), &mut vars);
+        }
+    }
+    if let Some(panel_head) = theme.as_object().and_then(|map| map.get("panel_head")) {
+        push_typography_vars(panel_head, "mei-panel-head", &mut vars);
     }
     if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
         flatten_tokens(tokens, "mei", &mut vars);
@@ -338,17 +420,25 @@ fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
     vars
 }
 
-fn push_metric_role_font_var(entry: &Value, role: &str, vars: &mut Vec<(String, String)>) {
-    let Some(font_key) = entry
-        .as_object()
-        .and_then(|map| map.get("font"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return;
-    };
-    let resolved = if font_key.ends_with("px")
+fn typography_css_suffix(key: &str) -> Option<&'static str> {
+    match key {
+        "font" | "font_size" => Some("font-size"),
+        "font_family" => Some("font-family"),
+        "color" => Some("color"),
+        "font_weight" => Some("font-weight"),
+        "letter_spacing" => Some("letter-spacing"),
+        "text_align" | "align" => Some("text-align"),
+        "line_height" => Some("line-height"),
+        _ => None,
+    }
+}
+
+fn resolve_font_size_value(raw: &str) -> String {
+    let font_key = raw.trim();
+    if font_key.is_empty() {
+        return String::new();
+    }
+    if font_key.ends_with("px")
         || font_key.ends_with("rem")
         || font_key.ends_with("em")
         || font_key.ends_with('%')
@@ -356,8 +446,33 @@ fn push_metric_role_font_var(entry: &Value, role: &str, vars: &mut Vec<(String, 
         font_key.to_string()
     } else {
         format!("var(--mei-font-{font_key}, 14px)")
+    }
+}
+
+fn push_typography_vars(entry: &Value, var_prefix: &str, vars: &mut Vec<(String, String)>) {
+    let Some(map) = entry.as_object() else {
+        return;
     };
-    vars.push((format!("--mei-metric-{role}-font-size"), resolved));
+    for (key, value) in map {
+        let Some(suffix) = typography_css_suffix(key) else {
+            continue;
+        };
+        let resolved = match value {
+            Value::String(raw) if !raw.trim().is_empty() => {
+                if suffix == "font-size" {
+                    resolve_font_size_value(raw)
+                } else {
+                    raw.trim().to_string()
+                }
+            }
+            Value::Number(raw) if suffix == "font-size" => raw.to_string(),
+            _ => continue,
+        };
+        if resolved.is_empty() {
+            continue;
+        }
+        vars.push((format!("--{var_prefix}-{suffix}"), resolved));
+    }
 }
 
 fn flatten_tokens(value: &Value, prefix: &str, vars: &mut Vec<(String, String)>) {
@@ -388,4 +503,46 @@ pub(super) fn theme_css_vars_style(theme: &ThemeResolved) -> String {
         style.push_str(&format!("{key}:{value};"));
     }
     style
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::ThemeDecl;
+    use serde_json::json;
+
+    #[test]
+    fn theme_decl_value_preserves_metric_role_fonts() {
+        let decl = ThemeDecl {
+            kind: "theme".to_string(),
+            id: "cockpit".to_string(),
+            frame: json!({}),
+            panel: json!({}),
+            panel_bare: json!({}),
+            panel_head: json!({}),
+            panel_body: json!({}),
+            heading: json!({}),
+            font: json!({"4": "20px"}),
+            metric_label: json!({"font": "2"}),
+            metric_value: json!({"font": "4"}),
+            metric_unit: json!({"font": "1"}),
+            metric_desc: json!({}),
+            metric_sub_label: json!({"font_size": "12px"}),
+            metric_sub_value: json!({"font_size": "18px", "text_align": "right"}),
+            metric_sub_unit: json!({}),
+            tokens: json!({}),
+            components: json!({}),
+        };
+        let merged = theme_decl_value(&decl);
+        let vars = collect_theme_css_vars(&merged);
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-metric-value-font-size" && v.contains("--mei-font-4")));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-metric-sub-value-font-size" && v == "18px"));
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-metric-sub-value-text-align" && v == "right"));
+    }
 }

@@ -44,7 +44,10 @@ impl ScopeReachabilitySets {
     }
 
     /// 无快照时的保守回退：优先 scene 锚点，再纳入 source-focus `target_file`。
-    pub(crate) fn fallback_from_request_target(request: &BridgePromptRequest, app_id: &str) -> Self {
+    pub(crate) fn fallback_from_request_target(
+        request: &BridgePromptRequest,
+        app_id: &str,
+    ) -> Self {
         let mut direct = HashSet::new();
         let mut scene = HashSet::new();
         let app = app_id.trim();

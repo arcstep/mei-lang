@@ -9,8 +9,8 @@ use serde_json::{json, Value};
 use crate::{
     agent_runtime::bridge::{BridgePromptRequest, BridgePromptSummary},
     mei_agent::{
-        agent_scope_profile::resolve_resource_visibility, agent_send_prompt, mode_policy::AgentModePolicy,
-        resolve_agent_conn, resource_tools,
+        agent_scope_profile::resolve_resource_visibility, agent_send_prompt,
+        mode_policy::AgentModePolicy, resolve_agent_conn, resource_tools,
     },
     AppState,
 };
@@ -39,14 +39,24 @@ fn enrich_resource_inventory_preview_value(
         for elem in arr.iter_mut() {
             if let Some(obj) = elem.as_object_mut() {
                 let item = ResourceInventoryItem {
-                    id: obj.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    id: obj
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                     resource_type: obj
                         .get("resource_type")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string(),
-                    title: obj.get("title").and_then(|v| v.as_str()).map(|s| s.to_string()),
-                    summary: obj.get("summary").and_then(|v| v.as_str()).map(|s| s.to_string()),
+                    title: obj
+                        .get("title")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    summary: obj
+                        .get("summary")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
                     source_path: obj
                         .get("source_path")
                         .and_then(|v| v.as_str())
@@ -157,13 +167,9 @@ pub async fn api_agent_context_preview(
         );
         e.to_string()
     });
-    let session_context = build_dynamic_session_context_preview(
-        &state,
-        &request,
-        snapshot_ref,
-        preview_error,
-    )
-    .unwrap_or_else(|| String::new());
+    let session_context =
+        build_dynamic_session_context_preview(&state, &request, snapshot_ref, preview_error)
+            .unwrap_or_else(|| String::new());
     request = enrich_prompt_request(&state, Some(&session_context), request);
     let profile_summary = bundle
         .as_ref()
@@ -185,18 +191,16 @@ pub async fn api_agent_context_preview(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .unwrap_or("build");
-    let native_tool_names: Vec<String> = resource_tools::tool_definitions_for_profile(
-        mode_for_tools,
-        vis,
-    )
-    .into_iter()
-    .filter_map(|item| {
-        item.get("function")
-            .and_then(|f| f.get("name"))
-            .and_then(|n| n.as_str())
-            .map(str::to_string)
-    })
-    .collect();
+    let native_tool_names: Vec<String> =
+        resource_tools::tool_definitions_for_profile(mode_for_tools, vis)
+            .into_iter()
+            .filter_map(|item| {
+                item.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(str::to_string)
+            })
+            .collect();
     let (tools, resource_inventory) = match bundle.as_ref() {
         Some(b) => {
             if let Some(snapshot) = b.snapshot.as_ref() {
@@ -295,21 +299,15 @@ mod agent_http_tests {
         let state = test_support::test_app_state().expect("app state");
         let app = http::router().with_state(state);
         let uri = "/api/agent/context/preview?app_id=examples%2Fcore%2F01-single-file-doc&mode=ask&resourceVisibility=allow_direct_refs";
-        let req = Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(
-            v.get("scope_digest")
-                .and_then(|s| s.as_str())
-                .is_some_and(|s| !s.is_empty())
-        );
+        assert!(v
+            .get("scope_digest")
+            .and_then(|s| s.as_str())
+            .is_some_and(|s| !s.is_empty()));
         let names = v["native_tool_names"].as_array().expect("names");
         let set: std::collections::HashSet<_> = names.iter().filter_map(|x| x.as_str()).collect();
         assert!(set.contains("resource_list"));
@@ -337,15 +335,10 @@ mod agent_http_tests {
         let state = test_support::test_app_state().expect("app state");
         let app = http::router().with_state(state);
         let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=build&resourceVisibility=allow_direct_refs";
-        let req = Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(v["scene_id"], "home");
         assert_eq!(v["target_file"], "main.mei");
@@ -356,15 +349,10 @@ mod agent_http_tests {
         let state = test_support::test_app_state().expect("app state");
         let app = http::router().with_state(state);
         let uri = "/api/agent/context/preview?app_id=___not_an_app___&mode=ask&resourceVisibility=allow_direct_refs";
-        let req = Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(v.get("resource_inventory").is_none() || v["resource_inventory"].is_null());
     }
@@ -374,15 +362,10 @@ mod agent_http_tests {
         let state = test_support::test_app_state().expect("app state");
         let app = http::router().with_state(state);
         let uri = "/api/agent/context/preview?app_id=examples%2Fcore%2F_invalid%2F07-app-missing-scene&target_file=main.mei&mode=ask&resourceVisibility=allow_direct_refs";
-        let req = Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap();
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let pe = v
             .get("preview_error")

@@ -28,7 +28,9 @@ impl ResourceVisibility {
             "allow_direct_refs" | "allowdirectrefs" | "direct_refs" | "refs" => {
                 Some(Self::AllowDirectRefs)
             }
-            "allow_scene_reachable" | "scene_reachable" | "scene" => Some(Self::AllowSceneReachable),
+            "allow_scene_reachable" | "scene_reachable" | "scene" => {
+                Some(Self::AllowSceneReachable)
+            }
             _ => None,
         }
     }
@@ -359,7 +361,13 @@ mod tests {
     #[test]
     fn local_only_hides_scope_overrides_on_resource_tools() {
         let defs = tool_definitions_for_profile("ask", ResourceVisibility::LocalOnly);
-        for name in ["dataset_query", "dataset_metric", "resource_list", "resource_get", "resource_runtime_peek"] {
+        for name in [
+            "dataset_query",
+            "dataset_metric",
+            "resource_list",
+            "resource_get",
+            "resource_runtime_peek",
+        ] {
             let dq = defs
                 .iter()
                 .find(|d| {

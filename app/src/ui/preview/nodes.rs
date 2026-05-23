@@ -2,10 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{BlockDecl, CompiledApp, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
-use super::{
-    resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor},
-    PreviewRuntimeContext,
-};
+use super::style::container_visual_style;
 use super::style::{
     block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
     panel_head_caret_style, panel_head_carets_enabled, panel_heading_config, panel_heading_style,
@@ -15,7 +12,10 @@ use super::style::{
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
 };
-use super::style::container_visual_style;
+use super::{
+    resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor},
+    PreviewRuntimeContext,
+};
 
 const SLOT_HEAD: &str = "head";
 const SLOT_BODY: &str = "body";
@@ -98,10 +98,7 @@ pub(super) fn panel_view(
     if content_grid_on_body {
         card_style.push_str("display:grid;gap:0;");
     } else {
-        card_style.push_str(&panel_card_layout_style(
-            panel.layout.as_ref(),
-            &head_props,
-        ));
+        card_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &head_props));
     }
 
     let card_class = if chrome_bare {
@@ -170,7 +167,10 @@ pub(super) fn panel_view(
     .into_any()
 }
 
-fn partition_panel_blocks(blocks: &[UiNodeDecl], has_head: bool) -> (Vec<&UiNodeDecl>, Vec<&UiNodeDecl>) {
+fn partition_panel_blocks(
+    blocks: &[UiNodeDecl],
+    has_head: bool,
+) -> (Vec<&UiNodeDecl>, Vec<&UiNodeDecl>) {
     let mut head = Vec::new();
     let mut body = Vec::new();
     for node in blocks {

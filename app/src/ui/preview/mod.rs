@@ -94,20 +94,13 @@ pub(super) fn preview_view(
                     )
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
-                let content_max_width = content_bounds
-                    .max_width
-                    .unwrap_or(0.0)
-                    .to_string();
+                let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
                 let content_height = if fluid_width {
                     "0".to_string()
                 } else {
                     content_bounds.height.to_string()
                 };
-                let content_fluid_width = if fluid_width {
-                    "true"
-                } else {
-                    "false"
-                };
+                let content_fluid_width = if fluid_width { "true" } else { "false" };
                 let content_fluid_height = if fluid_height { "true" } else { "false" };
                 let viewport_class = if is_manage {
                     if fluid_width {
@@ -145,10 +138,14 @@ pub(super) fn preview_view(
                 let canvas_width_attr = effective_canvas_width.to_string();
                 let chrome_label = format!(
                     "{} × {}{}{}",
-                    canvas_width, chrome_height.round() as i64, chrome_height_suffix, chrome_aspect
+                    canvas_width,
+                    chrome_height.round() as i64,
+                    chrome_height_suffix,
+                    chrome_aspect
                 );
                 if is_manage && effective_canvas_width + 0.5 < vp.design_width {
-                    viewport_style = viewport_style.replace("justify-items:center", "justify-items:start");
+                    viewport_style =
+                        viewport_style.replace("justify-items:center", "justify-items:start");
                 }
                 return view! {
                     <section
@@ -171,6 +168,7 @@ pub(super) fn preview_view(
                         data-edit-safe-right=vp.edit_safe_right.to_string()
                         data-edit-safe-bottom=vp.edit_safe_bottom.to_string()
                         data-edit-safe-left=vp.edit_safe_left.to_string()
+                        data-source-path=selected_target.to_string()
                         data-route-mode=route_mode.slug()
                         data-overflow-mode=overflow_mode.clone()
                         data-show-design-bounds="true"
@@ -228,12 +226,10 @@ pub(super) fn preview_view(
         let error_items = blocking_errors
             .into_iter()
             .map(|diag| {
-                let source = normalize_diagnostic_source(
-                    &compiled.app_root,
-                    diag.source_path.as_deref(),
-                )
-                .map(|path| format!(" · {path}"))
-                .unwrap_or_default();
+                let source =
+                    normalize_diagnostic_source(&compiled.app_root, diag.source_path.as_deref())
+                        .map(|path| format!(" · {path}"))
+                        .unwrap_or_default();
                 view! {
                     <li class="rounded-xl border border-red-400/25 bg-red-950/30 px-3 py-2">
                         <div class="text-xs font-semibold uppercase tracking-[0.02em] text-red-200">
@@ -279,19 +275,17 @@ mod tests {
     use super::theme::{
         resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, ThemeResolved,
     };
-    use mei_lang_kernel::PanelDecl;
-    use crate::ui::route::UiRouteMode;
     use super::viewport::{
-        effective_viewport_overflow, effective_viewport_safe_inset,
-        effective_canvas_width, frame_stage_content_bounds_for_viewport, frame_stage_style,
-        frame_viewport_config,
-        frame_viewport_style_for_route,
-        viewport_overflow_is_debug,
+        effective_canvas_width, effective_viewport_overflow, effective_viewport_safe_inset,
+        frame_stage_content_bounds_for_viewport, frame_stage_style, frame_viewport_config,
+        frame_viewport_style_for_route, viewport_overflow_is_debug,
     };
+    use crate::ui::route::UiRouteMode;
+    use mei_lang_kernel::PanelDecl;
     use mei_lang_kernel::{
         build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
-        DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape,
-        SceneContract, SceneDecl, SourceDecl,
+        DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract,
+        SceneDecl, SourceDecl,
     };
     use serde_json::{json, Value};
 
@@ -345,6 +339,32 @@ mod tests {
         layout.gap = Some("5".to_string());
         let style = panel_card_layout_style(Some(&layout), &json!({}));
         assert!(style.contains("gap:5px;"));
+    }
+
+    #[test]
+    fn panel_card_layout_style_preserves_gap_for_content_only_grid() {
+        let mut layout = grid_layout();
+        layout.gap = Some("8px".to_string());
+        let style = panel_card_layout_style(Some(&layout), &json!({}));
+        assert!(style.contains("gap:8px;"));
+        assert!(!style.contains("gap:0;"));
+    }
+
+    #[test]
+    fn panel_card_layout_style_zeroes_gap_for_head_body_layout() {
+        let layout = LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["auto".to_string(), "1fr".to_string()]),
+            areas: Some(vec![vec!["head".to_string()], vec!["body".to_string()]]),
+            gap: Some("8px".to_string()),
+            padding: Some("0".to_string()),
+            align: Some("stretch".to_string()),
+            justify: None,
+        };
+        let style = panel_card_layout_style(Some(&layout), &json!({}));
+        assert!(style.contains("gap:0;"));
     }
 
     #[test]
@@ -407,10 +427,7 @@ mod tests {
 
     #[test]
     fn normalize_background_image_none_is_not_wrapped_as_url() {
-        assert_eq!(
-            normalize_background_image("none"),
-            "none".to_string()
-        );
+        assert_eq!(normalize_background_image("none"), "none".to_string());
     }
 
     #[test]
@@ -708,10 +725,7 @@ mod tests {
         let style = frame_stage_style(None, &props, &vp, &theme, "debug");
         assert!(style.contains("width:972px;"));
         assert!(!style.contains("width:1000px;"));
-        assert_eq!(
-            effective_canvas_width(&props, &vp),
-            972.0
-        );
+        assert_eq!(effective_canvas_width(&props, &vp), 972.0);
     }
 
     #[test]
@@ -740,8 +754,7 @@ mod tests {
         assert!(style.contains("min-height:1080px;"));
         assert!(style.contains("height:auto;"));
         assert!(style.contains("transform:none;"));
-        let debug_style =
-            frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
+        let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
         assert!(debug_style.contains("overflow-x:auto;"));
         assert!(viewport_overflow_is_debug("debug"));
         assert!(viewport_overflow_is_debug("scroll"));
@@ -759,8 +772,7 @@ mod tests {
             }
         }))
         .expect("viewport config");
-        let debug_style =
-            frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
+        let debug_style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
         assert!(debug_style.contains("justify-items:start;"));
         assert!(debug_style.contains("align-items:start;"));
         assert!(debug_style.contains("padding:18px 18px 18px 18px;"));

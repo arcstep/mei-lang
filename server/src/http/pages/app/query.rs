@@ -33,9 +33,7 @@ fn percent_encode_query_component(value: &str) -> String {
 /// 从 `/apps/access/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
 /// `scene_id` 必须为单路径段（不含未编码的 `/`）；路径不含 `/scene/` 时返回 `None`。
 /// 含 `/scene/` 但格式非法时返回 `Some(Err)` 以便与「普通 app 路径」区分。
-pub(crate) fn parse_access_scene_path(
-    raw_app_path: &str,
-) -> Result<Option<(String, String)>, ()> {
+pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(String, String)>, ()> {
     let raw = raw_app_path.trim_start_matches('/');
     if !raw.contains(ACCESS_SCENE_PATH_MARK) {
         return Ok(None);
@@ -44,7 +42,9 @@ pub(crate) fn parse_access_scene_path(
         return Ok(None);
     };
     let app = raw[..idx].trim_end_matches('/').to_string();
-    let scene = raw[idx + ACCESS_SCENE_PATH_MARK.len()..].trim_matches('/').to_string();
+    let scene = raw[idx + ACCESS_SCENE_PATH_MARK.len()..]
+        .trim_matches('/')
+        .to_string();
     if app.is_empty() || scene.is_empty() || scene.contains('/') {
         return Err(());
     }
@@ -86,7 +86,12 @@ pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery)
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        return access_canonical_location(app_id, scene, query.tab.as_deref(), query.chrome.as_deref());
+        return access_canonical_location(
+            app_id,
+            scene,
+            query.tab.as_deref(),
+            query.chrome.as_deref(),
+        );
     }
     let mut parts = Vec::new();
     if let Some(tab) = query

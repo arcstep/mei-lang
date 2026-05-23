@@ -4,8 +4,8 @@ use anyhow::Result;
 use mei_lang_kernel::RuntimeState;
 
 use super::bundle::load_world_runtime_bundle;
-use crate::http::scene_api::types::{WorldRuntimePeekResponse, WorldScope};
 use super::util::normalize_limit;
+use crate::http::scene_api::types::{WorldRuntimePeekResponse, WorldScope};
 
 fn recent_trace_messages(state: &RuntimeState, trace_limit: usize) -> Vec<String> {
     state
@@ -20,7 +20,10 @@ fn recent_trace_messages(state: &RuntimeState, trace_limit: usize) -> Vec<String
         .collect()
 }
 
-pub(super) fn recent_trace_messages_for_snapshot(state: &RuntimeState, trace_limit: usize) -> Vec<String> {
+pub(super) fn recent_trace_messages_for_snapshot(
+    state: &RuntimeState,
+    trace_limit: usize,
+) -> Vec<String> {
     recent_trace_messages(state, trace_limit)
 }
 

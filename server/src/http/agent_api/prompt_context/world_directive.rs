@@ -154,7 +154,10 @@ pub(crate) fn truncate_world_json(rendered: String) -> String {
     if rendered.len() <= WORLD_DIRECTIVE_MAX_JSON_CHARS {
         return rendered;
     }
-    let preview: String = rendered.chars().take(WORLD_DIRECTIVE_MAX_JSON_CHARS).collect();
+    let preview: String = rendered
+        .chars()
+        .take(WORLD_DIRECTIVE_MAX_JSON_CHARS)
+        .collect();
     format!(
         "{{\"truncated\":true,\"original_chars\":{},\"preview\":{}}}",
         rendered.len(),
@@ -184,7 +187,9 @@ pub(crate) fn apply_world_directive_to_prompt(
         )
     })?;
 
-    if bundle.profile.resource_visibility == crate::mei_agent::resource_tools::ResourceVisibility::LocalOnly {
+    if bundle.profile.resource_visibility
+        == crate::mei_agent::resource_tools::ResourceVisibility::LocalOnly
+    {
         return Err(AppError::status(
             StatusCode::FORBIDDEN,
             "当前 resource_visibility=local_only，不允许使用 /world 注入大块 world 数据（与 read_file/dataset 的收敛策略一致）。\
@@ -205,7 +210,10 @@ pub(crate) fn apply_world_directive_to_prompt(
                     .snapshot_error
                     .clone()
                     .unwrap_or_else(|| "world 上下文不可用".to_string());
-                AppError::status(StatusCode::BAD_REQUEST, format!("world context 不可用：{msg}"))
+                AppError::status(
+                    StatusCode::BAD_REQUEST,
+                    format!("world context 不可用：{msg}"),
+                )
             })?;
             let filtered = filter_world_context_snapshot_for_injection(snap, vis, rs, app_id);
             serde_json::to_string_pretty(&filtered).unwrap_or_else(|_| "{}".to_string())
@@ -278,15 +286,13 @@ pub(crate) fn apply_world_directive_to_prompt(
                     "scope_denied: 缺少 world snapshot，无法按 resource_visibility 验证 world runtime 摘要",
                 )
             })?;
-            let response =
-                query_world_runtime(&state.source_root, app_id, scope_ref, trace_limit).map_err(
-                    |error| {
-                        AppError::status(
-                            StatusCode::BAD_REQUEST,
-                            format!("world runtime 查询失败：{}", error),
-                        )
-                    },
-                )?;
+            let response = query_world_runtime(&state.source_root, app_id, scope_ref, trace_limit)
+                .map_err(|error| {
+                    AppError::status(
+                        StatusCode::BAD_REQUEST,
+                        format!("world runtime 查询失败：{}", error),
+                    )
+                })?;
             serde_json::to_string_pretty(&response).unwrap_or_else(|_| "{}".to_string())
         }
     };
@@ -432,7 +438,9 @@ mod tests {
 
     #[test]
     fn parse_world_context() {
-        let (d, follow) = parse_world_directive("/world context\nhi").unwrap().unwrap();
+        let (d, follow) = parse_world_directive("/world context\nhi")
+            .unwrap()
+            .unwrap();
         assert!(follow.contains("hi"));
         match d {
             WorldDirective::Context => {}

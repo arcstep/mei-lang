@@ -95,9 +95,7 @@ pub(crate) fn query_geojson_rows(
     result
         .perf
         .insert("geojson_read_parse_ms".to_string(), read_parse_ms);
-    result
-        .perf
-        .insert("geojson_load_ms".to_string(), load_ms);
+    result.perf.insert("geojson_load_ms".to_string(), load_ms);
     result.perf.insert(
         "geojson_paginate_ms".to_string(),
         elapsed_ms(paginate_started),

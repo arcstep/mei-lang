@@ -17,7 +17,10 @@ pub(super) fn shrink_json_for_llm(v: &Value, max_total: usize) -> Value {
             for (k, val) in m.iter().take(48) {
                 let elen = json_serialized_len(val);
                 if elen > 2_000 {
-                    out.insert(k.clone(), serde_json::json!({ "_omitted": true, "approx_chars": elen }));
+                    out.insert(
+                        k.clone(),
+                        serde_json::json!({ "_omitted": true, "approx_chars": elen }),
+                    );
                 } else {
                     out.insert(k.clone(), val.clone());
                 }

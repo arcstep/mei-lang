@@ -23,7 +23,10 @@ impl NativeAgent {
         )
     }
 
-    pub(crate) fn tool_display_fields(name: &str, args: &Value) -> (Option<String>, Option<String>) {
+    pub(crate) fn tool_display_fields(
+        name: &str,
+        args: &Value,
+    ) -> (Option<String>, Option<String>) {
         match name {
             "read_file" => {
                 let p = args.get("path").and_then(Value::as_str).unwrap_or("");

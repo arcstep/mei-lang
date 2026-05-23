@@ -13,8 +13,7 @@ use crate::{
     },
     http::agent_api::prompt_context::scope_bundle::AgentScopeBundle,
     mei_agent::{
-        agent_scope_profile::agent_resource_scope_from_request,
-        mode_policy::AgentModePolicy,
+        agent_scope_profile::agent_resource_scope_from_request, mode_policy::AgentModePolicy,
     },
     AppState,
 };
@@ -96,12 +95,8 @@ pub(crate) async fn agent_send_prompt(
     session_id: &str,
     request: BridgePromptRequest,
 ) -> Result<BridgePromptSummary> {
-    let scope_meta = AgentScopeBundle::resolve(state, &request).map(|b| {
-        (
-            b.scope_digest_token(),
-            b.profile.summary_line(),
-        )
-    });
+    let scope_meta = AgentScopeBundle::resolve(state, &request)
+        .map(|b| (b.scope_digest_token(), b.profile.summary_line()));
     let resource_scope = build_execution_resource_scope(state, &request);
     conn.send_prompt(session_id, request, resource_scope, scope_meta)
         .await

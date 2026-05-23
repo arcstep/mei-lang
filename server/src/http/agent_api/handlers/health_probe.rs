@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     agent_runtime::bridge::{BridgeHealthResponse, BridgeModelRef},
     mei_agent::{
-        agent_health, agent_project_worktree, agent_vcs_summary, llm_config,
-        resolve_agent_conn,
+        agent_health, agent_project_worktree, agent_vcs_summary, llm_config, resolve_agent_conn,
     },
     AppState,
 };

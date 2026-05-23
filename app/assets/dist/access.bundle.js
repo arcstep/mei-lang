@@ -428,6 +428,171 @@
     };
   }
 
+  function nodeAuditLabel(node) {
+    if (!node) return "unknown";
+    const id = node.id ? `#${node.id}` : "";
+    if (id) return id;
+    const area =
+      node.getAttribute("data-area") || node.getAttribute("area") || node.dataset?.area;
+    if (area) return `${node.tagName.toLowerCase()}[area=${area}]`;
+    const klass = String(node.className || "")
+      .split(/\s+/)
+      .map((item) => item.trim())
+      .filter(Boolean)[0];
+    if (klass) return `${node.tagName.toLowerCase()}.${klass}`;
+    return node.tagName.toLowerCase();
+  }
+
+  function detectDegenerateBoxes(stage, limit = 8) {
+    const hits = [];
+    stage
+      .querySelectorAll(
+        ".preview-card, .preview-panel-body, .panel-body-cell, .panel-head-cell, .panel-heading",
+      )
+      .forEach((node) => {
+        if (hits.length >= limit) return;
+        if (node.offsetWidth > 0 && node.offsetHeight > 0) return;
+        hits.push(nodeAuditLabel(node));
+      });
+    return hits;
+  }
+
+  function detectClippedNodes(stage, limit = 8) {
+    const hits = [];
+    stage
+      .querySelectorAll(
+        ".preview-card, .preview-panel-body, .panel-body-cell, .panel-head-cell, .panel-heading",
+      )
+      .forEach((node) => {
+        if (hits.length >= limit) return;
+        const style = getComputedStyle(node);
+        const clipsY = /hidden|clip/.test(style.overflowY || style.overflow || "");
+        const clipsX = /hidden|clip/.test(style.overflowX || style.overflow || "");
+        const yOverflow = node.scrollHeight - node.clientHeight > 1;
+        const xOverflow = node.scrollWidth - node.clientWidth > 1;
+        if ((clipsY && yOverflow) || (clipsX && xOverflow)) {
+          hits.push(nodeAuditLabel(node));
+        }
+      });
+    return hits;
+  }
+
+  function detectHeadMetricSpacing(stage, limit = 6) {
+    const hits = [];
+    stage.querySelectorAll(".preview-card").forEach((panel) => {
+      if (hits.length >= limit) return;
+      const head = panel.querySelector(":scope > .panel-head-cell");
+      const body = panel.querySelector(":scope > .panel-body-cell");
+      if (!head || !body) return;
+      const first = body.querySelector(
+        ":scope > .preview-card, :scope > .component-card, :scope > .mei-text, :scope > [data-metric-role]",
+      );
+      if (!first) return;
+      const gap = first.getBoundingClientRect().top - body.getBoundingClientRect().top;
+      if (gap > 28) {
+        hits.push(`${nodeAuditLabel(panel)}(+${Math.round(gap)}px)`);
+      }
+    });
+    return hits;
+  }
+
+  function detectBottomClipRisk(stage, limit = 6) {
+    const hits = [];
+    stage.querySelectorAll(".preview-card").forEach((panel) => {
+      if (hits.length >= limit) return;
+      const body = panel.querySelector(":scope > .panel-body-cell");
+      if (!body) return;
+      const panelStyle = getComputedStyle(panel);
+      const bodyStyle = getComputedStyle(body);
+      const panelClips = /hidden|clip/.test(panelStyle.overflowY || panelStyle.overflow || "");
+      const bodyClips = /hidden|clip/.test(bodyStyle.overflowY || bodyStyle.overflow || "");
+      if (!panelClips && !bodyClips) return;
+      const bodyRect = body.getBoundingClientRect();
+      let maxBottom = bodyRect.top;
+      body
+        .querySelectorAll(":scope > .preview-card, :scope > .component-card, :scope > *")
+        .forEach((node) => {
+          const rect = node.getBoundingClientRect();
+          if (rect.height < 1) return;
+          if (rect.bottom > maxBottom) maxBottom = rect.bottom;
+        });
+      if (maxBottom > bodyRect.bottom + 1) {
+        hits.push(
+          `${nodeAuditLabel(panel)}(+${Math.round(maxBottom - bodyRect.bottom)}px)`,
+        );
+      }
+    });
+    return hits;
+  }
+
+  function publishLayoutAudit(root, diagnostics) {
+    const payload = {
+      sourcePath: String(root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"),
+      diagnostics: Array.isArray(diagnostics) ? diagnostics : [],
+    };
+    document.dispatchEvent(new CustomEvent("mei:layout-audit", { detail: payload }));
+  }
+
+  function runLayoutAudit(
+    root,
+    stage,
+    designWidth,
+    designHeight,
+    contentWidth,
+    contentHeight,
+    extentWidth,
+  ) {
+    if (!root || !stage) return;
+    const diagnostics = [];
+    if (extentWidth > designWidth + 1) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_audit_canvas_overflow_x",
+        message: `横向内容超出设计宽度：实测 ${Math.round(extentWidth)}px / 设计 ${Math.round(designWidth)}px`,
+      });
+    }
+    if (contentHeight > designHeight + 1) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_audit_canvas_overflow_y",
+        message: `纵向内容超出设计高度：实测 ${Math.round(contentHeight)}px / 设计 ${Math.round(designHeight)}px`,
+      });
+    }
+    const clipped = detectClippedNodes(stage);
+    if (clipped.length) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_audit_clipped_content",
+        message: `检测到父容器裁切风险：${clipped.join("、")}`,
+      });
+    }
+    const degenerate = detectDegenerateBoxes(stage);
+    if (degenerate.length) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_audit_degenerate_box",
+        message: `检测到零尺寸/退化盒：${degenerate.join("、")}`,
+      });
+    }
+    const spacing = detectHeadMetricSpacing(stage);
+    if (spacing.length) {
+      diagnostics.push({
+        severity: "info",
+        code: "layout_audit_head_body_spacing_loose",
+        message: `检测到标题与指标区起始距离偏大：${spacing.join("、")}`,
+      });
+    }
+    const bottomClip = detectBottomClipRisk(stage);
+    if (bottomClip.length) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_audit_panel_bottom_clip_risk",
+        message: `检测到 panel 底部裁切风险：${bottomClip.join("、")}`,
+      });
+    }
+    publishLayoutAudit(root, diagnostics);
+  }
+
   function shouldShowHorizontalOverflowVeil(canvasWidth, extentWidth, contentMaxWidth) {
     const cap = contentMaxWidth > 0 ? contentMaxWidth : 0;
     if (cap > 0) {
@@ -692,6 +857,15 @@
         fluidHeight,
       );
       updateManageZoomToolbar(root);
+      runLayoutAudit(
+        root,
+        stage,
+        canvasWidth,
+        designHeight,
+        contentWidth,
+        contentHeight,
+        extentWidth,
+      );
       return;
     }
     root.dataset.meiLayoutKey = layoutKey;
@@ -749,6 +923,15 @@
       contentMaxWidth,
     );
     updateManageZoomToolbar(root);
+    runLayoutAudit(
+      root,
+      stage,
+      canvasWidth,
+      designHeight,
+      contentWidth,
+      contentHeight,
+      extentWidth,
+    );
 
     scheduleManageViewportRelayout(root, contentHeight);
   }
@@ -876,6 +1059,16 @@
 
     if (contentMaxWidth > 0 && !fluidHeight) {
       applyFluidWidthLayout(shell, stage, contentMaxWidth, hostWidth);
+      const extent = measureStageContentExtent(stage, contentMaxWidth);
+      runLayoutAudit(
+        root,
+        stage,
+        designWidth,
+        designHeight || contentHeight,
+        extent.width,
+        extent.height,
+        extent.width,
+      );
       return;
     }
 
@@ -889,6 +1082,16 @@
       hostHeight,
       designWidth,
       designHeight || contentHeight,
+    );
+    const extent = measureStageContentExtent(stage, contentMaxWidth);
+    runLayoutAudit(
+      root,
+      stage,
+      designWidth,
+      designHeight || contentHeight,
+      extent.width,
+      extent.height,
+      extent.width,
     );
   }
 

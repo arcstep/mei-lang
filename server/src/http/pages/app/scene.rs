@@ -1,7 +1,10 @@
 use mei_lang_kernel::CompiledApp;
 
 /// 若 URL `scene` 在应用路由表中不存在（编译已回退并带 `unknown_scene` 警告），用 `compiled.active_scene` 生成管理壳链接，避免把无效 id 写进 href。
-pub(super) fn manage_scene_for_render(compiled: &CompiledApp, query_scene: Option<&str>) -> Option<String> {
+pub(super) fn manage_scene_for_render(
+    compiled: &CompiledApp,
+    query_scene: Option<&str>,
+) -> Option<String> {
     let q = query_scene?.trim();
     if q.is_empty() {
         return None;
