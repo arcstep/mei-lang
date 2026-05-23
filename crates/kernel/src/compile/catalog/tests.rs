@@ -90,8 +90,5 @@ fn extract_metric_ref_tokens_supports_positional_and_named_id() {
         "#;
     let tokens = super::scan::extract_metric_ref_tokens(src);
     assert!(tokens.contains(&("sales_total".to_string(), None)));
-    assert!(tokens.contains(&(
-        "alerts_total".to_string(),
-        Some("warning_view".to_string())
-    )));
+    assert!(tokens.contains(&("alerts_total".to_string(), Some("warning_view".to_string()))));
 }

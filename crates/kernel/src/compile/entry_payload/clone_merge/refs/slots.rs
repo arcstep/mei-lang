@@ -5,11 +5,11 @@ use serde_json::Value;
 use crate::model::{Diagnostic, FrameDecl, PanelDecl, Severity, WorldDecl};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
-use super::merge_decl::{merge_frame_decl, merge_panel_decl, merge_world_decl};
-use super::resolve::{resolve_frame_ref, resolve_panel_ref, resolve_world_ref};
 use super::super::normalize::{
     normalize_entity_list, normalize_metric_list, normalize_resource_list, normalize_ui_nodes,
 };
+use super::merge_decl::{merge_frame_decl, merge_panel_decl, merge_world_decl};
+use super::resolve::{resolve_frame_ref, resolve_panel_ref, resolve_world_ref};
 
 pub(crate) fn resolve_panel_slot(
     app_root: &Path,
@@ -225,4 +225,3 @@ pub(crate) fn normalize_world_decl(
     merged.base = None;
     Some(merged)
 }
-

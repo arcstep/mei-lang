@@ -1,8 +1,6 @@
 use leptos::prelude::*;
 
-use super::{
-    build_preview_runtime_context, nodes, style, theme, viewport,
-};
+use super::{build_preview_runtime_context, nodes, style, theme, viewport};
 use crate::ui::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::CompiledApp;
@@ -230,4 +228,3 @@ pub(super) fn preview_view(
 
     view! { <div class="empty-preview rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4 text-slate-300">"当前入口还没有可渲染的 frame 或 scene。"</div> }.into_any()
 }
-

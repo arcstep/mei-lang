@@ -4,9 +4,8 @@ use super::resolve::resolve_value;
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
     frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
-    has_frame_backdrop, normalize_background_image, panel_card_layout_style,
-    panel_heading_config, panel_show_heading, panel_slot_typography_style, panel_style,
-    surface_layout_style,
+    has_frame_backdrop, normalize_background_image, panel_card_layout_style, panel_heading_config,
+    panel_show_heading, panel_slot_typography_style, panel_style, surface_layout_style,
 };
 use super::theme::{
     resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, ThemeResolved,
@@ -20,8 +19,8 @@ use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::PanelDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
-    DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract,
-    SceneDecl, SourceDecl,
+    DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract, SceneDecl,
+    SourceDecl,
 };
 use serde_json::{json, Value};
 
@@ -740,8 +739,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         Some("sales_metrics")
     );
 
-    let metric_ref =
-        json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
+    let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
     let resolved_metric = resolve_value(
         &metric_ref,
         &scene_contract,

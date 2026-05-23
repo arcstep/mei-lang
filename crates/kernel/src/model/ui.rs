@@ -1,4 +1,3 @@
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -233,4 +232,3 @@ pub struct ThemeDecl {
     #[serde(default)]
     pub components: Value,
 }
-

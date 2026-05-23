@@ -720,4 +720,3 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         "park_inspection_total should be enterprise-matched inspections on preview rows, got {total}"
     );
 }
-

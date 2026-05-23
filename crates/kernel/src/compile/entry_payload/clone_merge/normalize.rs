@@ -5,18 +5,12 @@ use std::path::Path;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::model::{
-    Diagnostic, EntityDecl, FlowDecl, ResourceDecl, Severity,
-    UiNodeDecl,
-};
+use crate::model::{Diagnostic, EntityDecl, FlowDecl, ResourceDecl, Severity, UiNodeDecl};
 use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 
-
-
 use super::refs::{
-    merge_block_value, merge_entity_decl, merge_flow_decl,
-    merge_resource_decl, merge_scene_decl, resolve_component_ref,
-    resolve_entity_ref, resolve_flow_ref, resolve_panel_slot,
+    merge_block_value, merge_entity_decl, merge_flow_decl, merge_resource_decl, merge_scene_decl,
+    resolve_component_ref, resolve_entity_ref, resolve_flow_ref, resolve_panel_slot,
     resolve_resource_ref, resolve_scene_ref, resource_ref_kind,
 };
 

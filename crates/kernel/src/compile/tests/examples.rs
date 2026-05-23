@@ -374,8 +374,8 @@ fn compile_cockpit_panel_example() {
     );
     assert!(
         compiled.diagnostics.iter().all(|diag| {
-            diag.code != "layout_audit_row_budget_overflow"
-                && diag.code != "layout_audit_column_budget_overflow"
+            diag.code != "layout_eval_row_budget_overflow"
+                && diag.code != "layout_eval_column_budget_overflow"
         }),
         "05-panel should not trigger fixed-track overflow audit: {:?}",
         compiled.diagnostics
@@ -385,6 +385,14 @@ fn compile_cockpit_panel_example() {
         "05-panel should produce a scene contract"
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert!(
+        compiled.diagnostics.iter().all(|diag| {
+            !(diag.code.starts_with("layout_eval_")
+                && matches!(diag.severity, crate::Severity::Error))
+        }),
+        "05-panel should not produce blocking layout eval diagnostics: {:?}",
+        compiled.diagnostics
+    );
     assert!(
         sc.panels.iter().any(|p| p.id == "block_title_metrics_bg"),
         "panel block_title_metrics_bg must compile; got ids: {:?}",
@@ -522,6 +530,14 @@ fn compile_cockpit_metric_data_example() {
         compiled.diagnostics
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert!(
+        compiled.diagnostics.iter().all(|diag| {
+            !(diag.code.starts_with("layout_eval_")
+                && matches!(diag.severity, crate::Severity::Error))
+        }),
+        "metric-data.mei should not produce blocking layout eval diagnostics: {:?}",
+        compiled.diagnostics
+    );
     assert!(
         sc.scene
             .summary

@@ -3,8 +3,7 @@ mod resolve;
 mod slots;
 
 pub(super) use merge_decl::{
-    merge_block_value, merge_entity_decl, merge_flow_decl,
-    merge_resource_decl, merge_scene_decl,
+    merge_block_value, merge_entity_decl, merge_flow_decl, merge_resource_decl, merge_scene_decl,
 };
 pub(super) use resolve::{
     resolve_component_ref, resolve_entity_ref, resolve_flow_ref, resolve_resource_ref,

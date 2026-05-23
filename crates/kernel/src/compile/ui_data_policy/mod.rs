@@ -16,9 +16,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{
-    Diagnostic, LoadedResource, SceneContract, UiNodeDecl,
-};
+use crate::model::{Diagnostic, LoadedResource, SceneContract, UiNodeDecl};
 
 use binding_scan::{
     scan_deprecated_embed_nodes, scan_panel_props, scan_ui_node, validate_embed_capsule_ui_bindings,

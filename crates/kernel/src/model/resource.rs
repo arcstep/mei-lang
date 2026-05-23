@@ -64,4 +64,3 @@ pub struct LoadedResource {
     #[serde(default)]
     pub dataset: Option<super::dataset::DatasetView>,
 }
-

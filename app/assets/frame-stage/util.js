@@ -116,4 +116,4 @@
     ].join(":");
   }
 
-  function queueUpdateViewport(root) {
+

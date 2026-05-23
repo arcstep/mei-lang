@@ -8,9 +8,11 @@ use crate::model::{
     BlockDecl, Diagnostic, LoadedResource, PanelDecl, PanelRefEmbedDecl, Severity, UiNodeDecl,
 };
 
-use crate::compile::entry_payload::helpers::{insert_resource_if_absent, load_resources_from_capsule_file};
 use super::resource_refs::collect_resource_ref_issues;
 use super::rules::collect_forbidden_paths;
+use crate::compile::entry_payload::helpers::{
+    insert_resource_if_absent, load_resources_from_capsule_file,
+};
 
 pub(super) fn validate_embed_capsule_ui_bindings(
     app_root: &Path,
@@ -176,4 +178,3 @@ pub(super) fn push_violations(
         });
     }
 }
-

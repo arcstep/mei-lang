@@ -8,29 +8,29 @@ mod css_util;
 mod diagnostics;
 mod layout_policy;
 mod nodes;
-mod spacing;
 mod slots;
+mod spacing;
 
 #[cfg(test)]
 mod tests;
 
 use audit::emit_layout_audit_diagnostics;
 use constants::{
-    DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING, LAYOUT_POLICY_METRIC_COMPOUND_2_1,
-    LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, PROP_HAS_HEAD,
-    SLOT_BODY, SLOT_HEAD,
+    DEFAULT_METRICS_STRIP_GAP, DEFAULT_METRICS_STRIP_PADDING, LAYOUT_POLICY_METRICS_2X2,
+    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1,
+    PROP_HAS_HEAD, SLOT_BODY, SLOT_HEAD,
 };
 use diagnostics::emit_panel_head_diagnostics;
 use layout_policy::{
-    inject_default_layout, inject_default_metric_compound_2_1_layout, inject_default_metrics_2x2_layout,
-    inject_default_metrics_2_1_layout, inject_default_metrics_strip_layout, layout_has_slot,
-    should_inject_metric_compound_2_1, should_inject_metrics_2x2, should_inject_metrics_2_1,
-    should_inject_metrics_strip,
+    inject_default_layout, inject_default_metric_compound_2_1_layout,
+    inject_default_metrics_2_1_layout, inject_default_metrics_2x2_layout,
+    inject_default_metrics_strip_layout, layout_has_slot, should_inject_metric_compound_2_1,
+    should_inject_metrics_2_1, should_inject_metrics_2x2, should_inject_metrics_strip,
 };
 use nodes::{blocks_touch_slot, remap_block_areas_to_body};
 use slots::{
-    hoist_heading_to_head_props, materialize_title_head_block, merge_head_slot, panel_has_body_blocks,
-    resolve_has_head,
+    hoist_heading_to_head_props, materialize_title_head_block, merge_head_slot,
+    panel_has_body_blocks, resolve_has_head,
 };
 use spacing::{panel_layout_policy, policy_spacing, stamp_has_head_prop, stamp_layout_policy};
 

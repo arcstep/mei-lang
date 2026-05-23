@@ -120,4 +120,3 @@ pub struct MetricPackContract {
     #[serde(default)]
     pub metrics: BTreeMap<String, MetricContract>,
 }
-

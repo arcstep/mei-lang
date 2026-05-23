@@ -261,4 +261,3 @@ pub(crate) fn merge_block_value(base: Value, overlay_value: &Value) -> Value {
     merged.remove("base");
     Value::Object(merged)
 }
-

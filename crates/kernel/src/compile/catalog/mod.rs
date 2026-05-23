@@ -1,10 +1,7 @@
 mod merge;
 mod scan;
 
-use std::{
-    collections::BTreeMap,
-    path::Path,
-};
+use std::{collections::BTreeMap, path::Path};
 
 use serde_json::Value;
 
@@ -13,10 +10,11 @@ use crate::typed_refs::SceneRegistry;
 
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
-pub use scan::{build_dataset_catalog_filter, DatasetCatalogFilter};
 use merge::upsert_catalog_dataset_resource;
+pub use scan::{build_dataset_catalog_filter, DatasetCatalogFilter};
 use scan::{
-    build_dataset_id_to_scene_file_map, collect_dataset_catalog_mei_files, dataset_file_matches_filter,
+    build_dataset_id_to_scene_file_map, collect_dataset_catalog_mei_files,
+    dataset_file_matches_filter,
 };
 
 /// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
@@ -93,7 +91,6 @@ pub(super) fn merge_resource_catalog(
     }
     by_id.into_values().collect()
 }
-
 
 #[cfg(test)]
 mod tests;

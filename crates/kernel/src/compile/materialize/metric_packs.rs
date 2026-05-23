@@ -4,7 +4,8 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::model::{
-    ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape, SourceDecl,
+    ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape,
+    SourceDecl,
 };
 
 use super::super::{

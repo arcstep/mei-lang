@@ -54,6 +54,12 @@
     return "text-cyan-200 border-cyan-300/30 bg-cyan-950/20";
   }
 
+  function layoutEvalStatus(detail) {
+    if (detail?.blocking) return "阻塞";
+    if (Array.isArray(detail?.diagnostics) && detail.diagnostics.length) return "警告";
+    return "通过";
+  }
+
   function renderLayoutAudit(detail) {
     const node = layoutAuditRoot();
     if (!node) return;
@@ -61,26 +67,46 @@
     const emptyText =
       String(node.getAttribute("data-empty-text") || "").trim() ||
       "尚未发现布局几何问题。";
+    const metrics = detail?.metrics && typeof detail.metrics === "object" ? detail.metrics : {};
+    const worstPanels = Array.isArray(detail?.worstPanels) ? detail.worstPanels : [];
     if (!diagnostics.length) {
       node.textContent = emptyText;
       return;
     }
+    const summary = `
+      <div class="rounded-lg border border-slate-700/70 bg-slate-950/40 px-2.5 py-2">
+        <div class="flex flex-wrap items-center gap-2 text-[11px]">
+          <strong class="text-slate-50">状态：${escapeHtml(layoutEvalStatus(detail))}</strong>
+          <span class="text-slate-300">score=${escapeHtml(detail?.score ?? 0)}</span>
+          <span class="text-slate-400">error ${escapeHtml(metrics.errors ?? 0)} / warning ${escapeHtml(metrics.warnings ?? 0)} / info ${escapeHtml(metrics.infos ?? 0)}</span>
+        </div>
+        ${
+          worstPanels.length
+            ? `<div class="mt-1 text-[10px] text-slate-400">worstPanels: ${worstPanels
+                .map((panel) => `${escapeHtml(panel.panelId || "unknown")}(${escapeHtml(panel.score || 0)})`)
+                .join("、")}</div>`
+            : ""
+        }
+      </div>
+    `;
     const items = diagnostics
       .map((diag) => {
-        const code = escapeHtml(diag?.code || "layout_audit_runtime");
+        const code = escapeHtml(diag?.code || "layout_eval_runtime");
         const message = escapeHtml(diag?.message || "检测到布局问题");
         const source = escapeHtml(diag?.source_path || detail?.sourcePath || "当前预览");
         const severity = severityClass(diag?.severity || "warning");
+        const panelId = escapeHtml(diag?.panelId || "");
         return `
           <div class="mt-2 grid gap-1 rounded-lg border px-2.5 py-2 ${severity}">
             <strong class="text-[11px] font-semibold">${code}</strong>
             <span class="text-[11px] leading-5 text-slate-100">${message}</span>
+            ${panelId ? `<span class="text-[10px] font-mono text-slate-300">panel：${panelId}</span>` : ""}
             <span class="text-[10px] font-mono text-slate-400">来源：${source}</span>
           </div>
         `;
       })
       .join("");
-    node.innerHTML = items;
+    node.innerHTML = summary + items;
   }
 
   syncFilterLinks();

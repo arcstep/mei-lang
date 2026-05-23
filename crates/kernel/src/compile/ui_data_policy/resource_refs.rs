@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
-
 use super::rules::has_external_locator;
 
 pub(super) fn collect_resource_ref_issues(
@@ -20,7 +19,10 @@ pub(super) fn collect_resource_ref_issues(
             for (key, child) in map {
                 let next = format!("{path}.{key}");
                 out.extend(collect_resource_ref_issues(
-                    child, &next, resource_ids, metric_ids,
+                    child,
+                    &next,
+                    resource_ids,
+                    metric_ids,
                 ));
             }
         }
@@ -28,7 +30,10 @@ pub(super) fn collect_resource_ref_issues(
             for (idx, child) in items.iter().enumerate() {
                 let next = format!("{path}[{idx}]");
                 out.extend(collect_resource_ref_issues(
-                    child, &next, resource_ids, metric_ids,
+                    child,
+                    &next,
+                    resource_ids,
+                    metric_ids,
                 ));
             }
         }

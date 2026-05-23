@@ -3,9 +3,10 @@ use serde_json::Value;
 use crate::model::PanelDecl;
 
 use super::constants::{
-    COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_PANEL_PADDING_MAX, COCKPIT_PANEL_PADDING_MIN,
-    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_STRIP, PROP_HAS_HEAD,
-    PROP_LAYOUT_GAP, PROP_LAYOUT_PADDING, PROP_LAYOUT_POLICY, PolicySpacing,
+    PolicySpacing, COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_PANEL_PADDING_MAX,
+    COCKPIT_PANEL_PADDING_MIN, LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1,
+    LAYOUT_POLICY_METRICS_STRIP, PROP_HAS_HEAD, PROP_LAYOUT_GAP, PROP_LAYOUT_PADDING,
+    PROP_LAYOUT_POLICY,
 };
 use super::css_util::{first_css_scalar_px, parse_px, px_track};
 
@@ -36,7 +37,11 @@ pub(super) fn panel_layout_policy(panel: &PanelDecl) -> Option<String> {
         .filter(|value| !value.is_empty())
         .map(str::to_string)
 }
-pub(super) fn policy_spacing(panel: &PanelDecl, default_gap: &str, default_padding: &str) -> PolicySpacing {
+pub(super) fn policy_spacing(
+    panel: &PanelDecl,
+    default_gap: &str,
+    default_padding: &str,
+) -> PolicySpacing {
     let raw_gap = panel
         .props
         .as_object()

@@ -3,7 +3,7 @@ use serde_json::Value;
 use crate::model::{PanelDecl, UiNodeDecl};
 
 use super::constants::{LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_METRIC_CARD, SLOT_BODY};
-use super::css_util::{value_as_px, px_track};
+use super::css_util::{px_track, value_as_px};
 use super::spacing::panel_layout_policy;
 
 pub(super) fn remap_block_areas_to_body(blocks: &mut [UiNodeDecl]) {

@@ -1,6 +1,4 @@
-
 use serde::{Deserialize, Serialize};
-
 
 use super::layout::FrameDecl;
 use super::panel::PanelDecl;

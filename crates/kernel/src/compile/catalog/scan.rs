@@ -496,7 +496,11 @@ pub(crate) fn extract_metric_ref_tokens(content: &str) -> Vec<(String, Option<St
     out
 }
 
-pub(crate) fn dataset_file_matches_filter(app_root: &Path, rel: &str, filter: &DatasetCatalogFilter) -> bool {
+pub(crate) fn dataset_file_matches_filter(
+    app_root: &Path,
+    rel: &str,
+    filter: &DatasetCatalogFilter,
+) -> bool {
     if filter.dataset_paths.contains(rel) {
         return true;
     }

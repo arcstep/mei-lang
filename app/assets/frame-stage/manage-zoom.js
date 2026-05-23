@@ -1,14 +1,3 @@
-    const gapBudget = detectCardGapBudget(stage);
-    if (gapBudget.length) {
-      diagnostics.push({
-        severity: "info",
-        code: "layout_audit_card_gap_budget_runtime",
-        message: `检测到卡组 gap/留白偏离预算：${gapBudget.join("、")}`,
-      });
-    }
-    publishLayoutAudit(root, diagnostics);
-  }
-
   function shouldShowHorizontalOverflowVeil(canvasWidth, extentWidth, contentMaxWidth) {
     const cap = contentMaxWidth > 0 ? contentMaxWidth : 0;
     if (cap > 0) {
@@ -268,3 +257,86 @@
         root,
         canvasWidth,
         designHeight,
+        aspectRatio,
+        contentHeight,
+        fluidHeight,
+      );
+      updateManageZoomToolbar(root);
+      runLayoutAudit(
+        root,
+        stage,
+        canvasWidth,
+        designHeight,
+        contentWidth,
+        contentHeight,
+        extentWidth,
+      );
+      return;
+    }
+    root.dataset.meiLayoutKey = layoutKey;
+    root.dataset.meiFitScale = String(round(fitScale));
+    root.dataset.meiAppliedZoom = String(round(appliedZoom));
+    root.dataset.meiFrameScale = String(round(appliedZoom));
+
+    inner.style.width = `${round(contentWidth)}px`;
+    inner.style.height = `${round(contentHeight)}px`;
+    inner.style.transformOrigin = "top left";
+    inner.style.transform =
+      Math.abs(appliedZoom - 1) > 0.001 ? `scale(${appliedZoom})` : "none";
+
+    const shellWidth = round(contentWidth * appliedZoom);
+    const shellHeight = round(contentHeight * appliedZoom);
+
+    wrap.style.display = "block";
+    wrap.style.position = "relative";
+    wrap.style.overflow = "visible";
+    wrap.style.width = `${shellWidth}px`;
+    wrap.style.height = `${shellHeight}px`;
+    wrap.style.margin = "0";
+
+    shell.style.display = "block";
+    shell.style.overflow = "visible";
+    shell.style.maxHeight = "none";
+    shell.style.position = "relative";
+    shell.style.margin = "0";
+    shell.style.justifyContent = "";
+    shell.style.alignItems = "";
+    shell.style.width = `${shellWidth}px`;
+    shell.style.height = `${shellHeight}px`;
+
+    root.dataset.meiContentWidth = String(Math.round(contentWidth));
+    root.dataset.meiContentHeight = String(Math.round(contentHeight));
+
+    ensureViewportChrome(
+      root,
+      canvasWidth,
+      designHeight,
+      aspectRatio,
+      contentHeight,
+      fluidHeight,
+    );
+    const boundsHeight = fluidHeight ? contentHeight : designHeight;
+    ensureDesignBounds(inner, canvasWidth, boundsHeight, 1);
+    ensureOverflowVeil(
+      inner,
+      canvasWidth,
+      designHeight,
+      1,
+      contentWidth,
+      contentHeight,
+      extentWidth,
+      contentMaxWidth,
+    );
+    updateManageZoomToolbar(root);
+    runLayoutAudit(
+      root,
+      stage,
+      canvasWidth,
+      designHeight,
+      contentWidth,
+      contentHeight,
+      extentWidth,
+    );
+
+    scheduleManageViewportRelayout(root, contentHeight);
+  }

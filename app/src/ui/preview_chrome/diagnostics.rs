@@ -354,7 +354,7 @@ pub(super) fn diagnostics_view(
                     <code class="text-slate-200">"manage_page_pipeline"</code>
                     " 表示本页请求流水线。"
                     " 运行时见下方 "
-                    <code class="text-slate-200">"layout_audit_runtime"</code>
+                    <code class="text-slate-200">"layout_eval_runtime"</code>
                     " / "
                     <code class="text-slate-200">"runtime_query_errors"</code>
                     " / "
@@ -384,9 +384,9 @@ pub(super) fn diagnostics_view(
                 {compile_cards}
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-cyan-500/25">
-                <strong class="text-xs font-semibold text-slate-50">"layout_audit_runtime"</strong>
+                <strong class="text-xs font-semibold text-slate-50">"layout_eval_runtime"</strong>
                 <span class="text-xs leading-5 text-slate-300">
-                    "预览几何审计：检测画布溢出、父容器裁切、零尺寸退化盒。"
+                    "预览评估报告：检测画布溢出、裁切、重叠、留白/gap 偏离与对齐漂移，并给出 score/blocking/worstPanels。"
                     " 内容由 "
                     <code class="text-slate-200">"frame-stage.js"</code>
                     " 上报并复用同一诊断面板。"

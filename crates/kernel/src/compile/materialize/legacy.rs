@@ -4,9 +4,7 @@ use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 
 use crate::geojson::rows_from_geojson_value;
-use crate::model::{
-    DatasetView, LoadedResource, SourceDecl,
-};
+use crate::model::{DatasetView, LoadedResource, SourceDecl};
 
 use super::super::{
     analysis::{
@@ -19,8 +17,8 @@ use super::super::{
     resources::csv_record_to_json,
 };
 
-use super::metric_packs::materialize_legacy_metric_map;
 use super::super::materialize_cache::LegacyRowsSnapshot;
+use super::metric_packs::materialize_legacy_metric_map;
 
 const DEFAULT_PREVIEW_ROWS: usize = 1000;
 const DEFAULT_PAGE_SIZE: usize = 20;

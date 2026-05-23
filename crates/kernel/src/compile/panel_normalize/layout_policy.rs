@@ -3,16 +3,17 @@ use serde_json::Value;
 use crate::model::{LayoutDecl, PanelDecl};
 
 use super::constants::{
-    DEFAULT_METRIC_COMPOUND_2_1_GAP, DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP,
+    PolicySpacing, DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP,
     DEFAULT_METRICS_2X2_PADDING, DEFAULT_METRICS_2_1_COLUMNS, DEFAULT_METRICS_2_1_GAP,
-    DEFAULT_METRICS_2_1_PADDING, PROP_LAYOUT_COLUMNS, SLOT_BODY, SLOT_HEAD, PolicySpacing,
+    DEFAULT_METRICS_2_1_PADDING, DEFAULT_METRIC_COMPOUND_2_1_GAP, PROP_LAYOUT_COLUMNS, SLOT_BODY,
+    SLOT_HEAD,
 };
 use super::css_util::px_track;
+use super::nodes::panel_head_height_track;
 use super::nodes::{
     node_height_track, node_is_metric_card_like, node_is_metrics_2_1_item_like, set_node_area,
 };
 use super::spacing::policy_spacing;
-use super::nodes::panel_head_height_track;
 
 pub(super) fn inject_default_layout(panel: &mut PanelDecl, has_head: bool, has_body: bool) {
     panel.layout = match (has_head, has_body) {

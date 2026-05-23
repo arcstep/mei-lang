@@ -5,628 +5,632 @@ use serde_json::json;
 use super::nodes::node_area;
 
 fn panel_with_title(title: &str) -> PanelDecl {
-        PanelDecl {
-            kind: "panel".to_string(),
-            id: "p".to_string(),
-            title: Some(title.to_string()),
-            head: None::<Box<UiNodeDecl>>,
+    PanelDecl {
+        kind: "panel".to_string(),
+        id: "p".to_string(),
+        title: Some(title.to_string()),
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: None,
+            title: None,
             area: Some("auto".to_string()),
+            props: json!({ "content": "body" }),
+            base: None,
             layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
-                kind: "block".to_string(),
-                use_key: "mei.text".to_string(),
-                id: None,
-                title: None,
-                area: Some("auto".to_string()),
-                props: json!({ "content": "body" }),
-                base: None,
-                layout: None,
-                blocks: vec![],
-                component: None,
-                placement: None,
-                interactions: vec![],
-                lifecycle: None,
-                constraints: None,
-                data: None,
-            })],
-            props: json!({}),
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }
+}
+
+fn metric_card_panel(id: &str) -> UiNodeDecl {
+    metric_card_panel_with_height(id, None)
+}
+
+fn metric_card_panel_with_height(id: &str, height: Option<&str>) -> UiNodeDecl {
+    UiNodeDecl::Panel(PanelDecl {
+        kind: "panel".to_string(),
+        id: id.to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![],
+        props: json!({
+            "__mei_metric_card": true,
+            "chrome": "bare",
+            "height": height,
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    })
+}
+
+#[test]
+fn normalize_injects_head_block_from_title_and_default_layout() {
+    let mut panels = vec![panel_with_title("标题")];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    assert!(panel_resolved_has_head(panel));
+    assert!(
+        blocks_touch_slot(&panel.blocks, SLOT_HEAD),
+        "expected synthetic head block"
+    );
+    let head = panel.blocks.first().expect("head block");
+    if let UiNodeDecl::Block(block) = head {
+        assert_eq!(block.area.as_deref(), Some(SLOT_HEAD));
+        assert_eq!(
+            block.props.get("content").and_then(Value::as_str),
+            Some("标题")
+        );
+    } else {
+        panic!("expected block head");
+    }
+    let layout = panel.layout.as_ref().expect("layout");
+    assert!(layout_has_slot(Some(layout), SLOT_HEAD));
+    assert!(layout_has_slot(Some(layout), SLOT_BODY));
+    let body = panel.blocks.get(1).expect("body block");
+    if let UiNodeDecl::Block(block) = body {
+        assert_eq!(block.area.as_deref(), Some(SLOT_BODY));
+    } else {
+        panic!("expected body block");
+    }
+}
+
+#[test]
+fn normalize_uses_head_height_track_in_default_layout() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "p".to_string(),
+        title: Some("标题".to_string()),
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: None,
+            title: None,
+            area: Some("auto".to_string()),
+            props: json!({ "content": "body" }),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })],
+        props: json!({ "height": "230px" }),
+        head_props: json!({ "height": "54px" }),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let rows = panels[0]
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.rows.as_ref())
+        .expect("rows");
+    assert_eq!(rows[0], "54px");
+}
+
+#[test]
+fn normalize_hoists_props_heading_to_head_props() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "p".to_string(),
+        title: None,
+        head: None,
+        area: None,
+        layout: None,
+        blocks: vec![],
+        props: json!({"heading": {"variant": "screen", "height": "40px"}}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    assert!(panel
+        .props
+        .as_object()
+        .and_then(|m| m.get("heading"))
+        .is_none());
+    assert_eq!(
+        panel.head_props.get("variant").and_then(Value::as_str),
+        Some("screen")
+    );
+    assert_eq!(
+        panel.head_props.get("height").and_then(Value::as_str),
+        Some("40px")
+    );
+}
+
+#[test]
+fn normalize_no_head_without_title() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "p".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(!panel_resolved_has_head(&panels[0]));
+    assert!(!blocks_touch_slot(&panels[0].blocks, SLOT_HEAD));
+}
+
+#[test]
+fn normalize_injects_metrics_strip_layout_for_metric_children() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "metrics".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel("a"),
+            metric_card_panel("b"),
+            metric_card_panel("c"),
+        ],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    let layout = panel.layout.as_ref().expect("metrics strip layout");
+    assert_eq!(
+        layout.areas.as_ref(),
+        Some(&vec![vec![
+            "m0".to_string(),
+            "m1".to_string(),
+            "m2".to_string()
+        ]])
+    );
+    assert_eq!(
+        layout.columns.as_ref(),
+        Some(&vec![
+            "1fr".to_string(),
+            "1fr".to_string(),
+            "1fr".to_string()
+        ])
+    );
+    assert_eq!(layout.gap.as_deref(), Some("8px"));
+    assert_eq!(layout.padding.as_deref(), Some("12px"));
+    assert_eq!(
+        panel
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_strip")
+    );
+    for (idx, node) in panel.blocks.iter().enumerate() {
+        assert_eq!(
+            node_area(node),
+            Some(match idx {
+                0 => "m0",
+                1 => "m1",
+                _ => "m2",
+            })
+        );
+    }
+}
+
+#[test]
+fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "metrics_2_1".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel("a"),
+            metric_card_panel("b"),
+            metric_card_panel("c"),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metrics_2_1",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    let layout = panel.layout.as_ref().expect("metrics 2+1 layout");
+    assert_eq!(
+        layout.columns.as_ref(),
+        Some(&vec![
+            "114px".to_string(),
+            "114px".to_string(),
+            "234px".to_string()
+        ])
+    );
+    assert_eq!(layout.gap.as_deref(), Some("8px"));
+    assert_eq!(layout.padding.as_deref(), Some("12px 14px"));
+    assert_eq!(
+        panel
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_2_1")
+    );
+}
+
+#[test]
+fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "metrics_2x2".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel_with_height("a", Some("102px")),
+            metric_card_panel_with_height("b", Some("102px")),
+            metric_card_panel_with_height("c", Some("102px")),
+            metric_card_panel_with_height("d", Some("102px")),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metrics_2x2",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    let layout = panel.layout.as_ref().expect("metrics 2x2 layout");
+    assert_eq!(
+        layout.areas.as_ref(),
+        Some(&vec![
+            vec!["m0".to_string(), "m1".to_string()],
+            vec!["m2".to_string(), "m3".to_string()],
+        ])
+    );
+    assert_eq!(
+        layout.rows.as_ref(),
+        Some(&vec!["102px".to_string(), "102px".to_string()])
+    );
+    assert_eq!(layout.gap.as_deref(), Some("8px"));
+    assert_eq!(layout.padding.as_deref(), Some("12px"));
+    assert_eq!(
+        panel
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_2x2")
+    );
+}
+
+#[test]
+fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "invalid".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![metric_card_panel("a"), metric_card_panel("b")],
+        props: json!({
+            "__mei_layout_policy": "metrics_2_1",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(diagnostics
+        .iter()
+        .any(|diag| diag.code == "layout_policy_metrics_2_1_conflict"));
+    assert!(
+        panels[0].layout.is_some(),
+        "fallback layout should still be injected"
+    );
+}
+
+#[test]
+fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "invalid_2x2".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel("a"),
+            metric_card_panel("b"),
+            metric_card_panel("c"),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metrics_2x2",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(diagnostics
+        .iter()
+        .any(|diag| diag.code == "layout_policy_metrics_2x2_conflict"));
+}
+
+#[test]
+fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "compound".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel_with_height("top", Some("68px")),
+            metric_card_panel_with_height("b0", Some("54px")),
+            metric_card_panel_with_height("b1", Some("54px")),
+            metric_card_panel_with_height("b2", Some("54px")),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metric_compound_2_1",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let panel = &panels[0];
+    let layout = panel.layout.as_ref().expect("compound layout");
+    assert_eq!(
+        layout.areas.as_ref(),
+        Some(&vec![
+            vec!["top".to_string(), "top".to_string(), "top".to_string()],
+            vec!["b0".to_string(), "b1".to_string(), "b2".to_string()]
+        ])
+    );
+    assert_eq!(
+        layout.rows.as_ref(),
+        Some(&vec!["68px".to_string(), "54px".to_string()])
+    );
+    assert_eq!(layout.gap.as_deref(), Some("2px"));
+}
+
+#[test]
+fn normalize_warns_when_metric_compound_2_1_policy_shape_is_invalid() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "compound_invalid".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel("top"),
+            metric_card_panel("b0"),
+            metric_card_panel("b1"),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metric_compound_2_1",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(diagnostics
+        .iter()
+        .any(|diag| diag.code == "layout_policy_metric_compound_2_1_conflict"));
+}
+
+#[test]
+fn normalize_emits_layout_eval_for_unknown_block_area() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "audit".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["20px".to_string()]),
+            areas: Some(vec![vec!["body".to_string()]]),
+            gap: Some("0".to_string()),
+            padding: Some("0".to_string()),
+            align: None,
+            justify: None,
+        }),
+        blocks: vec![UiNodeDecl::Block(BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: None,
+            title: None,
+            area: Some("ghost".to_string()),
+            props: json!({"content": "x"}),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(diagnostics
+        .iter()
+        .any(|diag| diag.code == "layout_eval_unknown_block_area"));
+}
+
+#[test]
+fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "outer".to_string(),
+        title: Some("标题".to_string()),
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Panel(PanelDecl {
+            kind: "panel".to_string(),
+            id: "body".to_string(),
+            title: None,
+            head: None::<Box<UiNodeDecl>>,
+            area: Some("body".to_string()),
+            layout: None,
+            blocks: vec![
+                metric_card_panel_with_height("m0", Some("128px")),
+                metric_card_panel_with_height("m1", Some("128px")),
+                metric_card_panel_with_height("m2", Some("128px")),
+            ],
+            props: json!({
+                "__mei_layout_policy": "metrics_2_1",
+                "__mei_layout_padding": "24px 21px",
+            }),
             head_props: json!({}),
             body_props: json!({}),
             base: None,
-        }
-    }
+        })],
+        props: json!({ "height": "180px" }),
+        head_props: json!({ "height": "54px" }),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diag| diag.code == "layout_eval_body_clip_risk"),
+        "expected body clip risk diagnostic, got: {:?}",
+        diagnostics
+    );
+}
 
-    fn metric_card_panel(id: &str) -> UiNodeDecl {
-        metric_card_panel_with_height(id, None)
-    }
+#[test]
+fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "strip".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![
+            metric_card_panel("a"),
+            metric_card_panel("b"),
+            metric_card_panel("c"),
+            metric_card_panel("d"),
+        ],
+        props: json!({
+            "__mei_layout_policy": "metrics_strip",
+            "__mei_layout_gap": "20px",
+            "__mei_layout_padding": "40px 40px",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let layout = panels[0].layout.as_ref().expect("strip layout");
+    assert_eq!(layout.gap.as_deref(), Some("12px"));
+    assert_eq!(layout.padding.as_deref(), Some("24px 24px"));
+}
 
-    fn metric_card_panel_with_height(id: &str, height: Option<&str>) -> UiNodeDecl {
-        UiNodeDecl::Panel(PanelDecl {
+#[test]
+fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "metrics".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: Some(LayoutDecl {
+            layout_type: "grid".to_string(),
+            direction: None,
+            columns: Some(vec!["1fr".to_string()]),
+            rows: Some(vec!["auto".to_string()]),
+            areas: Some(vec![vec!["m0".to_string()]]),
+            gap: Some("8px".to_string()),
+            padding: Some("12px".to_string()),
+            align: Some("stretch".to_string()),
+            justify: Some("stretch".to_string()),
+        }),
+        blocks: vec![UiNodeDecl::Panel(PanelDecl {
             kind: "panel".to_string(),
-            id: id.to_string(),
+            id: "m0".to_string(),
             title: None,
             head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
+            area: Some("m0".to_string()),
             layout: None,
             blocks: vec![],
             props: json!({
                 "__mei_metric_card": true,
-                "chrome": "bare",
-                "height": height,
+                "__mei_metric_template": "stack_desc",
+                "height": "88px",
             }),
             head_props: json!({}),
             body_props: json!({}),
             base: None,
-        })
-    }
-
-    #[test]
-    fn normalize_injects_head_block_from_title_and_default_layout() {
-        let mut panels = vec![panel_with_title("标题")];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        assert!(panel_resolved_has_head(panel));
-        assert!(
-            blocks_touch_slot(&panel.blocks, SLOT_HEAD),
-            "expected synthetic head block"
-        );
-        let head = panel.blocks.first().expect("head block");
-        if let UiNodeDecl::Block(block) = head {
-            assert_eq!(block.area.as_deref(), Some(SLOT_HEAD));
-            assert_eq!(
-                block.props.get("content").and_then(Value::as_str),
-                Some("标题")
-            );
-        } else {
-            panic!("expected block head");
-        }
-        let layout = panel.layout.as_ref().expect("layout");
-        assert!(layout_has_slot(Some(layout), SLOT_HEAD));
-        assert!(layout_has_slot(Some(layout), SLOT_BODY));
-        let body = panel.blocks.get(1).expect("body block");
-        if let UiNodeDecl::Block(block) = body {
-            assert_eq!(block.area.as_deref(), Some(SLOT_BODY));
-        } else {
-            panic!("expected body block");
-        }
-    }
-
-    #[test]
-    fn normalize_uses_head_height_track_in_default_layout() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "p".to_string(),
-            title: Some("标题".to_string()),
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
-                kind: "block".to_string(),
-                use_key: "mei.text".to_string(),
-                id: None,
-                title: None,
-                area: Some("auto".to_string()),
-                props: json!({ "content": "body" }),
-                base: None,
-                layout: None,
-                blocks: vec![],
-                component: None,
-                placement: None,
-                interactions: vec![],
-                lifecycle: None,
-                constraints: None,
-                data: None,
-            })],
-            props: json!({ "height": "230px" }),
-            head_props: json!({ "height": "54px" }),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let rows = panels[0]
-            .layout
-            .as_ref()
-            .and_then(|layout| layout.rows.as_ref())
-            .expect("rows");
-        assert_eq!(rows[0], "54px");
-    }
-
-    #[test]
-    fn normalize_hoists_props_heading_to_head_props() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "p".to_string(),
-            title: None,
-            head: None,
-            area: None,
-            layout: None,
-            blocks: vec![],
-            props: json!({"heading": {"variant": "screen", "height": "40px"}}),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        assert!(panel
-            .props
-            .as_object()
-            .and_then(|m| m.get("heading"))
-            .is_none());
-        assert_eq!(
-            panel.head_props.get("variant").and_then(Value::as_str),
-            Some("screen")
-        );
-        assert_eq!(
-            panel.head_props.get("height").and_then(Value::as_str),
-            Some("40px")
-        );
-    }
-
-    #[test]
-    fn normalize_no_head_without_title() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "p".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![],
-            props: json!({}),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(!panel_resolved_has_head(&panels[0]));
-        assert!(!blocks_touch_slot(&panels[0].blocks, SLOT_HEAD));
-    }
-
-    #[test]
-    fn normalize_injects_metrics_strip_layout_for_metric_children() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "metrics".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel("a"),
-                metric_card_panel("b"),
-                metric_card_panel("c"),
-            ],
-            props: json!({}),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        let layout = panel.layout.as_ref().expect("metrics strip layout");
-        assert_eq!(
-            layout.areas.as_ref(),
-            Some(&vec![vec![
-                "m0".to_string(),
-                "m1".to_string(),
-                "m2".to_string()
-            ]])
-        );
-        assert_eq!(
-            layout.columns.as_ref(),
-            Some(&vec![
-                "1fr".to_string(),
-                "1fr".to_string(),
-                "1fr".to_string()
-            ])
-        );
-        assert_eq!(layout.gap.as_deref(), Some("8px"));
-        assert_eq!(layout.padding.as_deref(), Some("12px"));
-        assert_eq!(
-            panel
-                .props
-                .get("__mei_layout_policy")
-                .and_then(Value::as_str),
-            Some("metrics_strip")
-        );
-        for (idx, node) in panel.blocks.iter().enumerate() {
-            assert_eq!(
-                node_area(node),
-                Some(match idx {
-                    0 => "m0",
-                    1 => "m1",
-                    _ => "m2",
-                })
-            );
-        }
-    }
-
-    #[test]
-    fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "metrics_2_1".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel("a"),
-                metric_card_panel("b"),
-                metric_card_panel("c"),
-            ],
-            props: json!({
-                "__mei_layout_policy": "metrics_2_1",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        let layout = panel.layout.as_ref().expect("metrics 2+1 layout");
-        assert_eq!(
-            layout.columns.as_ref(),
-            Some(&vec![
-                "114px".to_string(),
-                "114px".to_string(),
-                "234px".to_string()
-            ])
-        );
-        assert_eq!(layout.gap.as_deref(), Some("8px"));
-        assert_eq!(layout.padding.as_deref(), Some("12px 14px"));
-        assert_eq!(
-            panel
-                .props
-                .get("__mei_layout_policy")
-                .and_then(Value::as_str),
-            Some("metrics_2_1")
-        );
-    }
-
-    #[test]
-    fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "metrics_2x2".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel_with_height("a", Some("102px")),
-                metric_card_panel_with_height("b", Some("102px")),
-                metric_card_panel_with_height("c", Some("102px")),
-                metric_card_panel_with_height("d", Some("102px")),
-            ],
-            props: json!({
-                "__mei_layout_policy": "metrics_2x2",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        let layout = panel.layout.as_ref().expect("metrics 2x2 layout");
-        assert_eq!(
-            layout.areas.as_ref(),
-            Some(&vec![
-                vec!["m0".to_string(), "m1".to_string()],
-                vec!["m2".to_string(), "m3".to_string()],
-            ])
-        );
-        assert_eq!(
-            layout.rows.as_ref(),
-            Some(&vec!["102px".to_string(), "102px".to_string()])
-        );
-        assert_eq!(layout.gap.as_deref(), Some("8px"));
-        assert_eq!(layout.padding.as_deref(), Some("12px"));
-        assert_eq!(
-            panel
-                .props
-                .get("__mei_layout_policy")
-                .and_then(Value::as_str),
-            Some("metrics_2x2")
-        );
-    }
-
-    #[test]
-    fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "invalid".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![metric_card_panel("a"), metric_card_panel("b")],
-            props: json!({
-                "__mei_layout_policy": "metrics_2_1",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(diagnostics
-            .iter()
-            .any(|diag| diag.code == "layout_policy_metrics_2_1_conflict"));
-        assert!(
-            panels[0].layout.is_some(),
-            "fallback layout should still be injected"
-        );
-    }
-
-    #[test]
-    fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "invalid_2x2".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![metric_card_panel("a"), metric_card_panel("b"), metric_card_panel("c")],
-            props: json!({
-                "__mei_layout_policy": "metrics_2x2",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(diagnostics
-            .iter()
-            .any(|diag| diag.code == "layout_policy_metrics_2x2_conflict"));
-    }
-
-    #[test]
-    fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "compound".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel_with_height("top", Some("68px")),
-                metric_card_panel_with_height("b0", Some("54px")),
-                metric_card_panel_with_height("b1", Some("54px")),
-                metric_card_panel_with_height("b2", Some("54px")),
-            ],
-            props: json!({
-                "__mei_layout_policy": "metric_compound_2_1",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let panel = &panels[0];
-        let layout = panel.layout.as_ref().expect("compound layout");
-        assert_eq!(
-            layout.areas.as_ref(),
-            Some(&vec![
-                vec!["top".to_string(), "top".to_string(), "top".to_string()],
-                vec!["b0".to_string(), "b1".to_string(), "b2".to_string()]
-            ])
-        );
-        assert_eq!(
-            layout.rows.as_ref(),
-            Some(&vec!["68px".to_string(), "54px".to_string()])
-        );
-        assert_eq!(layout.gap.as_deref(), Some("2px"));
-    }
-
-    #[test]
-    fn normalize_warns_when_metric_compound_2_1_policy_shape_is_invalid() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "compound_invalid".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel("top"),
-                metric_card_panel("b0"),
-                metric_card_panel("b1"),
-            ],
-            props: json!({
-                "__mei_layout_policy": "metric_compound_2_1",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(diagnostics
-            .iter()
-            .any(|diag| diag.code == "layout_policy_metric_compound_2_1_conflict"));
-    }
-
-    #[test]
-    fn normalize_emits_layout_audit_for_unknown_block_area() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "audit".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: Some(LayoutDecl {
-                layout_type: "grid".to_string(),
-                direction: None,
-                columns: Some(vec!["1fr".to_string()]),
-                rows: Some(vec!["20px".to_string()]),
-                areas: Some(vec![vec!["body".to_string()]]),
-                gap: Some("0".to_string()),
-                padding: Some("0".to_string()),
-                align: None,
-                justify: None,
-            }),
-            blocks: vec![UiNodeDecl::Block(BlockDecl {
-                kind: "block".to_string(),
-                use_key: "mei.text".to_string(),
-                id: None,
-                title: None,
-                area: Some("ghost".to_string()),
-                props: json!({"content": "x"}),
-                base: None,
-                layout: None,
-                blocks: vec![],
-                component: None,
-                placement: None,
-                interactions: vec![],
-                lifecycle: None,
-                constraints: None,
-                data: None,
-            })],
-            props: json!({}),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(diagnostics
-            .iter()
-            .any(|diag| diag.code == "layout_audit_unknown_block_area"));
-    }
-
-    #[test]
-    fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "outer".to_string(),
-            title: Some("标题".to_string()),
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![UiNodeDecl::Panel(PanelDecl {
-                kind: "panel".to_string(),
-                id: "body".to_string(),
-                title: None,
-                head: None::<Box<UiNodeDecl>>,
-                area: Some("body".to_string()),
-                layout: None,
-                blocks: vec![
-                    metric_card_panel_with_height("m0", Some("128px")),
-                    metric_card_panel_with_height("m1", Some("128px")),
-                    metric_card_panel_with_height("m2", Some("128px")),
-                ],
-                props: json!({
-                    "__mei_layout_policy": "metrics_2_1",
-                    "__mei_layout_padding": "24px 21px",
-                }),
-                head_props: json!({}),
-                body_props: json!({}),
-                base: None,
-            })],
-            props: json!({ "height": "180px" }),
-            head_props: json!({ "height": "54px" }),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(
-            diagnostics
-                .iter()
-                .any(|diag| diag.code == "layout_audit_body_clip_risk"),
-            "expected body clip risk diagnostic, got: {:?}",
-            diagnostics
-        );
-    }
-
-    #[test]
-    fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "strip".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: None,
-            blocks: vec![
-                metric_card_panel("a"),
-                metric_card_panel("b"),
-                metric_card_panel("c"),
-                metric_card_panel("d"),
-            ],
-            props: json!({
-                "__mei_layout_policy": "metrics_strip",
-                "__mei_layout_gap": "20px",
-                "__mei_layout_padding": "40px 40px",
-            }),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        let layout = panels[0].layout.as_ref().expect("strip layout");
-        assert_eq!(layout.gap.as_deref(), Some("12px"));
-        assert_eq!(layout.padding.as_deref(), Some("24px 24px"));
-    }
-
-    #[test]
-    fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
-        let mut panels = vec![PanelDecl {
-            kind: "panel".to_string(),
-            id: "metrics".to_string(),
-            title: None,
-            head: None::<Box<UiNodeDecl>>,
-            area: Some("auto".to_string()),
-            layout: Some(LayoutDecl {
-                layout_type: "grid".to_string(),
-                direction: None,
-                columns: Some(vec!["1fr".to_string()]),
-                rows: Some(vec!["auto".to_string()]),
-                areas: Some(vec![vec!["m0".to_string()]]),
-                gap: Some("8px".to_string()),
-                padding: Some("12px".to_string()),
-                align: Some("stretch".to_string()),
-                justify: Some("stretch".to_string()),
-            }),
-            blocks: vec![UiNodeDecl::Panel(PanelDecl {
-                kind: "panel".to_string(),
-                id: "m0".to_string(),
-                title: None,
-                head: None::<Box<UiNodeDecl>>,
-                area: Some("m0".to_string()),
-                layout: None,
-                blocks: vec![],
-                props: json!({
-                    "__mei_metric_card": true,
-                    "__mei_metric_template": "stack_desc",
-                    "height": "88px",
-                }),
-                head_props: json!({}),
-                body_props: json!({}),
-                base: None,
-            })],
-            props: json!({}),
-            head_props: json!({}),
-            body_props: json!({}),
-            base: None,
-        }];
-        let mut diagnostics = Vec::new();
-        normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-        assert!(diagnostics.iter().any(|diag| {
-            diag.code == "layout_audit_metric_stack_desc_overlap_risk"
-        }));
-    }
+        })],
+        props: json!({}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    assert!(diagnostics
+        .iter()
+        .any(|diag| { diag.code == "layout_eval_metric_stack_desc_overlap_risk" }));
+}

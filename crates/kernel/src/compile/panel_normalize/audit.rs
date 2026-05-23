@@ -6,8 +6,8 @@ use crate::model::{Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl};
 
 use super::constants::{
     COCKPIT_CARD_GAP_MAX, COCKPIT_CARD_GAP_MIN, COCKPIT_CARD_GAP_TARGET, COCKPIT_PANEL_PADDING_MAX,
-    COCKPIT_PANEL_PADDING_MIN, LAYOUT_POLICY_METRIC_COMPOUND_2_1, LAYOUT_POLICY_METRICS_2X2,
-    LAYOUT_POLICY_METRICS_2_1, LAYOUT_POLICY_METRICS_STRIP, SLOT_BODY, SLOT_HEAD,
+    COCKPIT_PANEL_PADDING_MIN, LAYOUT_POLICY_METRICS_2X2, LAYOUT_POLICY_METRICS_2_1,
+    LAYOUT_POLICY_METRICS_STRIP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, SLOT_BODY, SLOT_HEAD,
 };
 use super::css_util::{
     css_scalar_numbers, first_css_scalar_px, is_degenerate_track, layout_gap_y_px,
@@ -15,17 +15,85 @@ use super::css_util::{
     sum_fixed_px_tracks,
 };
 use super::layout_policy::layout_has_slot;
+use super::nodes::panel_head_height_track;
 use super::nodes::{
     node_area, node_has_explicit_area, node_height_track, node_is_metric_card_like, panel_px_prop,
 };
-use super::nodes::panel_head_height_track;
 use super::spacing::panel_layout_policy;
+
+const LAYOUT_EVAL_PREFIX: &str = "layout_eval_";
+
+fn eval_weight(severity: &Severity) -> u32 {
+    match severity {
+        Severity::Error => 100,
+        Severity::Warning => 40,
+        Severity::Info => 10,
+    }
+}
+
+fn is_layout_eval_diag(diag: &Diagnostic) -> bool {
+    diag.code.starts_with(LAYOUT_EVAL_PREFIX)
+}
+
+fn emit_panel_eval_summary(
+    panel: &PanelDecl,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+    start_idx: usize,
+) {
+    let eval_diags: Vec<&Diagnostic> = diagnostics[start_idx..]
+        .iter()
+        .filter(|diag| is_layout_eval_diag(diag))
+        .collect();
+    if eval_diags.is_empty() {
+        return;
+    }
+    let score: u32 = eval_diags
+        .iter()
+        .map(|diag| eval_weight(&diag.severity))
+        .sum();
+    let blocking = eval_diags
+        .iter()
+        .any(|diag| matches!(diag.severity, Severity::Error));
+    let findings_count = eval_diags.len();
+    if !blocking && score < 80 {
+        return;
+    }
+    let worst_codes = eval_diags
+        .iter()
+        .take(3)
+        .map(|diag| diag.code.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    diagnostics.push(Diagnostic {
+        severity: if blocking {
+            Severity::Error
+        } else {
+            Severity::Warning
+        },
+        code: "layout_eval_panel_summary".to_string(),
+        message: format!(
+            "panel `{}`: layout eval {} (score={}, findings={}){}",
+            panel.id,
+            if blocking { "blocking" } else { "warning" },
+            score,
+            findings_count,
+            if worst_codes.is_empty() {
+                String::new()
+            } else {
+                format!("; worst={worst_codes}")
+            }
+        ),
+        source_path: Some(source_path.to_string()),
+    });
+}
 
 pub(super) fn emit_layout_audit_diagnostics(
     panel: &PanelDecl,
     diagnostics: &mut Vec<Diagnostic>,
     source_path: &str,
 ) {
+    let start_idx = diagnostics.len();
     let Some(layout) = panel.layout.as_ref() else {
         return;
     };
@@ -37,6 +105,8 @@ pub(super) fn emit_layout_audit_diagnostics(
     audit_policy_spacing_budget(panel, layout, diagnostics, source_path);
     audit_panel_whitespace_budget(panel, layout, diagnostics, source_path);
     audit_metric_card_internal_budget(panel, diagnostics, source_path);
+    audit_strategy_bypass_risk(panel, layout, diagnostics, source_path);
+    emit_panel_eval_summary(panel, diagnostics, source_path, start_idx);
 }
 
 pub(super) fn audit_layout_matrix(
@@ -49,7 +119,7 @@ pub(super) fn audit_layout_matrix(
         if panel.blocks.iter().any(node_has_explicit_area) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
-                code: "layout_audit_missing_areas".to_string(),
+                code: "layout_eval_missing_areas".to_string(),
                 message: format!(
                     "panel `{}`: blocks declare explicit area but layout.areas is missing",
                     panel.id
@@ -62,7 +132,7 @@ pub(super) fn audit_layout_matrix(
     if areas.is_empty() {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
-            code: "layout_audit_empty_areas".to_string(),
+            code: "layout_eval_empty_areas".to_string(),
             message: format!("panel `{}`: layout.areas is empty", panel.id),
             source_path: Some(source_path.to_string()),
         });
@@ -72,7 +142,7 @@ pub(super) fn audit_layout_matrix(
     if width == 0 {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
-            code: "layout_audit_empty_area_row".to_string(),
+            code: "layout_eval_empty_area_row".to_string(),
             message: format!("panel `{}`: first areas row has zero columns", panel.id),
             source_path: Some(source_path.to_string()),
         });
@@ -82,7 +152,7 @@ pub(super) fn audit_layout_matrix(
         if row.len() != width {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_irregular_area_matrix".to_string(),
+                code: "layout_eval_irregular_area_matrix".to_string(),
                 message: format!(
                     "panel `{}`: areas row {} has {} columns, expected {}",
                     panel.id,
@@ -99,7 +169,7 @@ pub(super) fn audit_layout_matrix(
         if !columns.is_empty() && columns.len() != width {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
-                code: "layout_audit_columns_area_mismatch".to_string(),
+                code: "layout_eval_columns_area_mismatch".to_string(),
                 message: format!(
                     "panel `{}`: columns count ({}) differs from area columns ({width})",
                     panel.id,
@@ -113,7 +183,7 @@ pub(super) fn audit_layout_matrix(
         if !rows.is_empty() && rows.len() != areas.len() {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
-                code: "layout_audit_rows_area_mismatch".to_string(),
+                code: "layout_eval_rows_area_mismatch".to_string(),
                 message: format!(
                     "panel `{}`: rows count ({}) differs from area rows ({})",
                     panel.id,
@@ -159,7 +229,7 @@ pub(super) fn audit_layout_area_mapping(
         if !declared.contains(area) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_unknown_block_area".to_string(),
+                code: "layout_eval_unknown_block_area".to_string(),
                 message: format!(
                     "panel `{}`: block area `{area}` not declared in layout.areas",
                     panel.id
@@ -181,7 +251,7 @@ pub(super) fn audit_layout_spacing(
         if numbers.iter().any(|value| *value < 0.0) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_negative_gap".to_string(),
+                code: "layout_eval_negative_gap".to_string(),
                 message: format!(
                     "panel `{}`: layout.gap has negative value `{gap}`",
                     panel.id
@@ -195,7 +265,7 @@ pub(super) fn audit_layout_spacing(
         if numbers.iter().any(|value| *value < 0.0) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_negative_padding".to_string(),
+                code: "layout_eval_negative_padding".to_string(),
                 message: format!(
                     "panel `{}`: layout.padding has negative value `{padding}`",
                     panel.id
@@ -208,7 +278,7 @@ pub(super) fn audit_layout_spacing(
         if rows.iter().any(|row| is_degenerate_track(row)) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_degenerate_rows".to_string(),
+                code: "layout_eval_degenerate_rows".to_string(),
                 message: format!(
                     "panel `{}`: layout.rows contains zero-sized track",
                     panel.id
@@ -221,7 +291,7 @@ pub(super) fn audit_layout_spacing(
         if columns.iter().any(|col| is_degenerate_track(col)) {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_degenerate_columns".to_string(),
+                code: "layout_eval_degenerate_columns".to_string(),
                 message: format!(
                     "panel `{}`: layout.columns contains zero-sized track",
                     panel.id
@@ -251,8 +321,8 @@ pub(super) fn audit_fixed_track_budget(
     if let (Some(height), Some(rows_px)) = (panel_height, row_budget) {
         if rows_px > height + 1.0 {
             diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
-                code: "layout_audit_row_budget_overflow".to_string(),
+                severity: Severity::Error,
+                code: "layout_eval_row_budget_overflow".to_string(),
                 message: format!(
                     "panel `{}`: fixed rows {}px exceed panel height {}px",
                     panel.id,
@@ -266,8 +336,8 @@ pub(super) fn audit_fixed_track_budget(
     if let (Some(width), Some(cols_px)) = (panel_width, col_budget) {
         if cols_px > width + 1.0 {
             diagnostics.push(Diagnostic {
-                severity: Severity::Warning,
-                code: "layout_audit_column_budget_overflow".to_string(),
+                severity: Severity::Error,
+                code: "layout_eval_column_budget_overflow".to_string(),
                 message: format!(
                     "panel `{}`: fixed columns {}px exceed panel width {}px",
                     panel.id,
@@ -298,8 +368,8 @@ pub(super) fn audit_head_body_balance(
     };
     if panel_height <= head_height + 1.0 {
         diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
-            code: "layout_audit_head_body_height_conflict".to_string(),
+            severity: Severity::Error,
+            code: "layout_eval_head_body_height_conflict".to_string(),
             message: format!(
                 "panel `{}`: panel height {}px is not enough for head height {}px",
                 panel.id,
@@ -316,8 +386,8 @@ pub(super) fn audit_head_body_balance(
     };
     if required_body > available_body + 1.0 {
         diagnostics.push(Diagnostic {
-            severity: Severity::Warning,
-            code: "layout_audit_body_clip_risk".to_string(),
+            severity: Severity::Error,
+            code: "layout_eval_body_clip_risk".to_string(),
             message: format!(
                 "panel `{}`: body available {}px is smaller than inferred content {}px (may clip)",
                 panel.id,
@@ -332,7 +402,7 @@ pub(super) fn audit_head_body_balance(
     if slack > 24.0 {
         diagnostics.push(Diagnostic {
             severity: Severity::Info,
-            code: "layout_audit_body_spacing_loose".to_string(),
+            code: "layout_eval_body_spacing_loose".to_string(),
             message: format!(
                 "panel `{}`: body has {}px extra slack over inferred content (may look too loose)",
                 panel.id,
@@ -363,7 +433,7 @@ pub(super) fn audit_policy_spacing_budget(
         if gap < COCKPIT_CARD_GAP_MIN - 0.1 || gap > COCKPIT_CARD_GAP_MAX + 0.1 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_card_gap_out_of_budget".to_string(),
+                code: "layout_eval_card_gap_out_of_budget".to_string(),
                 message: format!(
                     "panel `{}`: card gap {}px is outside cockpit budget [{}, {}]px",
                     panel.id,
@@ -376,7 +446,7 @@ pub(super) fn audit_policy_spacing_budget(
         } else if (gap - COCKPIT_CARD_GAP_TARGET).abs() > 3.0 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
-                code: "layout_audit_card_gap_off_target".to_string(),
+                code: "layout_eval_card_gap_off_target".to_string(),
                 message: format!(
                     "panel `{}`: card gap {}px deviates from cockpit target {}px",
                     panel.id,
@@ -392,11 +462,13 @@ pub(super) fn audit_policy_spacing_budget(
         let too_small = values
             .iter()
             .any(|value| *value > 0.0 && *value < COCKPIT_PANEL_PADDING_MIN - 0.1);
-        let too_large = values.iter().any(|value| *value > COCKPIT_PANEL_PADDING_MAX + 0.1);
+        let too_large = values
+            .iter()
+            .any(|value| *value > COCKPIT_PANEL_PADDING_MAX + 0.1);
         if too_small || too_large {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
-                code: "layout_audit_panel_padding_out_of_budget".to_string(),
+                code: "layout_eval_panel_padding_out_of_budget".to_string(),
                 message: format!(
                     "panel `{}`: layout padding `{padding}` is outside cockpit budget {}-{}px",
                     panel.id, COCKPIT_PANEL_PADDING_MIN, COCKPIT_PANEL_PADDING_MAX
@@ -429,7 +501,7 @@ pub(super) fn audit_panel_whitespace_budget(
     if free_width > 0.25 || free_height > 0.25 {
         diagnostics.push(Diagnostic {
             severity: Severity::Info,
-            code: "layout_audit_panel_whitespace_loose".to_string(),
+            code: "layout_eval_panel_whitespace_loose".to_string(),
             message: format!(
                 "panel `{}`: horizontal/vertical whitespace ratio is {:.0}%/{:.0}%, content may look too sparse",
                 panel.id,
@@ -463,7 +535,7 @@ pub(super) fn audit_metric_card_internal_budget(
         if template == "stack_desc" && height > 0.0 && height < 94.0 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
-                code: "layout_audit_metric_stack_desc_overlap_risk".to_string(),
+                code: "layout_eval_metric_stack_desc_overlap_risk".to_string(),
                 message: format!(
                     "metric_card `{}`: stack_desc height {}px is tight and may overlap label/value/desc rows",
                     card.id,
@@ -483,7 +555,7 @@ pub(super) fn audit_metric_card_internal_budget(
             if padding_h > 8.0 {
                 diagnostics.push(Diagnostic {
                     severity: Severity::Info,
-                    code: "layout_audit_metric_row_padding_loose".to_string(),
+                    code: "layout_eval_metric_row_padding_loose".to_string(),
                     message: format!(
                         "metric_card `{}`: row padding `{}` may cause label/value/unit spacing to look loose",
                         card.id, padding
@@ -493,6 +565,44 @@ pub(super) fn audit_metric_card_internal_budget(
             }
         }
     }
+}
+
+pub(super) fn audit_strategy_bypass_risk(
+    panel: &PanelDecl,
+    layout: &LayoutDecl,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
+    if panel_layout_policy(panel).is_some() || panel.blocks.is_empty() {
+        return;
+    }
+    let metric_cards: Vec<&UiNodeDecl> = panel
+        .blocks
+        .iter()
+        .filter(|node| node_is_metric_card_like(node))
+        .collect();
+    if metric_cards.len() != panel.blocks.len() {
+        return;
+    }
+    let areas = layout.areas.as_ref();
+    let rows = areas.map(Vec::len).unwrap_or(0);
+    let cols = areas
+        .and_then(|grid| grid.first())
+        .map(Vec::len)
+        .unwrap_or(0);
+    let looks_like_strategy_shape = metric_cards.len() == 4 || metric_cards.len() == 3;
+    if !looks_like_strategy_shape {
+        return;
+    }
+    diagnostics.push(Diagnostic {
+        severity: Severity::Warning,
+        code: "layout_eval_strategy_bypass_risk".to_string(),
+        message: format!(
+            "panel `{}`: explicit layout ({rows}x{cols}) is hand-authoring a metric group shape that cockpit policy could own",
+            panel.id
+        ),
+        source_path: Some(source_path.to_string()),
+    });
 }
 
 pub(super) fn estimate_body_required_height(panel: &PanelDecl) -> Option<f64> {
@@ -547,4 +657,3 @@ pub(super) fn estimate_body_required_height(panel: &PanelDecl) -> Option<f64> {
     }
     None
 }
-

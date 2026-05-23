@@ -1,3 +1,4 @@
+  function queueUpdateViewport(root) {
     if (viewportUpdateQueued.get(root)) return;
     viewportUpdateQueued.set(root, true);
     requestAnimationFrame(() => {
@@ -310,6 +311,82 @@
     return node.tagName.toLowerCase();
   }
 
+  function closestPanelId(node) {
+    const panel = node?.closest?.(".preview-card[data-mei-panel-id]");
+    const id = String(panel?.getAttribute?.("data-mei-panel-id") || "").trim();
+    return id || null;
+  }
+
+  function closestPanelLabel(node) {
+    const panel = node?.closest?.(".preview-card[data-mei-panel-id]");
+    return panel ? nodeAuditLabel(panel) : nodeAuditLabel(node);
+  }
+
+  function parsePropsPayload(node) {
+    const raw = String(node?.getAttribute?.("data-props") || "").trim();
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function metricRoleNodes(card) {
+    return Array.from(card.querySelectorAll("[data-props]"))
+      .map((node) => ({ node, props: parsePropsPayload(node) }))
+      .filter((entry) => String(entry.props?.metric_role || "").trim());
+  }
+
+  function widthBucket(width) {
+    return Math.round(Number(width || 0) / 16) * 16;
+  }
+
+  function buildRuntimeEvalReport(diagnostics) {
+    const items = Array.isArray(diagnostics) ? diagnostics : [];
+    const severityWeight = {
+      error: 100,
+      warning: 40,
+      info: 10,
+    };
+    const metrics = {
+      total: items.length,
+      errors: 0,
+      warnings: 0,
+      infos: 0,
+      countsByCode: {},
+    };
+    const panelScores = new Map();
+    let score = 0;
+    items.forEach((diag) => {
+      const severity = String(diag?.severity || "info").trim().toLowerCase();
+      if (severity === "error") metrics.errors += 1;
+      else if (severity === "warning") metrics.warnings += 1;
+      else metrics.infos += 1;
+      const weight = severityWeight[severity] || 0;
+      score += weight;
+      const code = String(diag?.code || "layout_eval_runtime_unknown").trim();
+      metrics.countsByCode[code] = (metrics.countsByCode[code] || 0) + 1;
+      const panelId = String(diag?.panelId || "").trim();
+      if (panelId) {
+        panelScores.set(panelId, (panelScores.get(panelId) || 0) + weight);
+      }
+    });
+    const worstPanels = Array.from(panelScores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([panelId, panelScore]) => ({
+        panelId,
+        score: panelScore,
+      }));
+    return {
+      score,
+      blocking: metrics.errors > 0,
+      worstPanels,
+      metrics,
+    };
+  }
+
   function detectDegenerateBoxes(stage, limit = 8) {
     const hits = [];
     stage
@@ -319,7 +396,10 @@
       .forEach((node) => {
         if (hits.length >= limit) return;
         if (node.offsetWidth > 0 && node.offsetHeight > 0) return;
-        hits.push(nodeAuditLabel(node));
+        hits.push({
+          panelId: closestPanelId(node),
+          label: nodeAuditLabel(node),
+        });
       });
     return hits;
   }
@@ -338,7 +418,10 @@
         const yOverflow = node.scrollHeight - node.clientHeight > 1;
         const xOverflow = node.scrollWidth - node.clientWidth > 1;
         if ((clipsY && yOverflow) || (clipsX && xOverflow)) {
-          hits.push(nodeAuditLabel(node));
+          hits.push({
+            panelId: closestPanelId(node),
+            label: nodeAuditLabel(node),
+          });
         }
       });
     return hits;
@@ -357,7 +440,11 @@
       if (!first) return;
       const gap = first.getBoundingClientRect().top - body.getBoundingClientRect().top;
       if (gap > 28) {
-        hits.push(`${nodeAuditLabel(panel)}(+${Math.round(gap)}px)`);
+        hits.push({
+          panelId: String(panel.getAttribute("data-mei-panel-id") || "").trim() || null,
+          label: nodeAuditLabel(panel),
+          gap,
+        });
       }
     });
     return hits;
@@ -384,9 +471,11 @@
           if (rect.bottom > maxBottom) maxBottom = rect.bottom;
         });
       if (maxBottom > bodyRect.bottom + 1) {
-        hits.push(
-          `${nodeAuditLabel(panel)}(+${Math.round(maxBottom - bodyRect.bottom)}px)`,
-        );
+        hits.push({
+          panelId: String(panel.getAttribute("data-mei-panel-id") || "").trim() || null,
+          label: nodeAuditLabel(panel),
+          overflowPx: maxBottom - bodyRect.bottom,
+        });
       }
     });
     return hits;
@@ -405,6 +494,8 @@
     const hits = [];
     stage.querySelectorAll(".panel-body-cell").forEach((body) => {
       if (hits.length >= limit) return;
+      const groupPanelId = closestPanelId(body);
+      const groupLabel = closestPanelLabel(body);
       const cards = Array.from(
         body.querySelectorAll(':scope > .preview-card[data-mei-panel-id]'),
       );
@@ -418,9 +509,11 @@
           const b = cards[j].getBoundingClientRect();
           if (b.width < 1 || b.height < 1) continue;
           if (rectsOverlap(a, b)) {
-            hits.push(
-              `${nodeAuditLabel(cards[i])} x ${nodeAuditLabel(cards[j])}`,
-            );
+            hits.push({
+              panelId: groupPanelId,
+              label: groupLabel,
+              pair: [nodeAuditLabel(cards[i]), nodeAuditLabel(cards[j])],
+            });
           }
         }
       }
@@ -432,6 +525,8 @@
     const hits = [];
     stage.querySelectorAll(".panel-body-cell").forEach((body) => {
       if (hits.length >= limit) return;
+      const groupPanelId = closestPanelId(body);
+      const groupLabel = closestPanelLabel(body);
       const cards = Array.from(
         body.querySelectorAll(':scope > .preview-card[data-mei-panel-id]'),
       );
@@ -444,7 +539,12 @@
       if (horizontal.length >= 2) {
         const gap = horizontal[1].left - horizontal[0].right;
         if (gap < 4 || gap > 12) {
-          hits.push(`${nodeAuditLabel(body)}(横向 gap≈${Math.round(gap)}px)`);
+          hits.push({
+            panelId: groupPanelId,
+            label: groupLabel,
+            axis: "horizontal",
+            gap,
+          });
         }
       }
       const vertical = cards
@@ -454,7 +554,12 @@
       if (vertical.length >= 2) {
         const gap = vertical[1].top - vertical[0].bottom;
         if (gap < 4 || gap > 16) {
-          hits.push(`${nodeAuditLabel(body)}(纵向 gap≈${Math.round(gap)}px)`);
+          hits.push({
+            panelId: groupPanelId,
+            label: groupLabel,
+            axis: "vertical",
+            gap,
+          });
         }
       }
       const leftPad = Math.max(0, horizontal[0]?.left - bodyRect.left || 0);
@@ -469,17 +574,92 @@
       );
       const maxPad = Math.max(leftPad, rightPad, topPad, bottomPad);
       if (maxPad > 24) {
-        hits.push(`${nodeAuditLabel(body)}(四周留白≈${Math.round(maxPad)}px)`);
+        hits.push({
+          panelId: groupPanelId,
+          label: groupLabel,
+          axis: "padding",
+          gap: maxPad,
+        });
       }
     });
     return hits;
   }
 
-  function publishLayoutAudit(root, diagnostics) {
+  function detectMetricAlignmentDrift(stage, limit = 6) {
+    const hits = [];
+    stage.querySelectorAll(".panel-body-cell").forEach((body) => {
+      if (hits.length >= limit) return;
+      const groupPanelId = closestPanelId(body);
+      const groupLabel = closestPanelLabel(body);
+      const cards = Array.from(
+        body.querySelectorAll(':scope > .preview-card[data-mei-panel-id]'),
+      )
+        .map((card) => {
+          const rect = card.getBoundingClientRect();
+          const roles = metricRoleNodes(card);
+          const slotRects = {
+            label: roles
+              .filter((entry) => entry.props.metric_role === "label")
+              .map((entry) => entry.node.getBoundingClientRect()),
+            value: roles
+              .filter((entry) => entry.props.metric_role === "value")
+              .map((entry) => entry.node.getBoundingClientRect()),
+            unit: roles
+              .filter((entry) => entry.props.metric_role === "unit")
+              .map((entry) => entry.node.getBoundingClientRect()),
+          };
+          return { rect, slotRects };
+        })
+        .filter((entry) => entry.rect.width > 1 && entry.rect.height > 1);
+      if (cards.length < 2) return;
+      const buckets = new Map();
+      cards.forEach((card) => {
+        const bucket = widthBucket(card.rect.width);
+        if (!buckets.has(bucket)) buckets.set(bucket, []);
+        buckets.get(bucket).push(card);
+      });
+      buckets.forEach((bucketCards) => {
+        if (bucketCards.length < 2 || hits.length >= limit) return;
+        const labelLefts = bucketCards
+          .flatMap((item) => item.slotRects.label.map((rect) => rect.left));
+        const valueRights = bucketCards
+          .flatMap((item) => item.slotRects.value.map((rect) => rect.right));
+        const unitRights = bucketCards
+          .flatMap((item) => item.slotRects.unit.map((rect) => rect.right));
+        const spreads = [];
+        if (labelLefts.length >= 2) {
+          spreads.push({ role: "label", spread: Math.max(...labelLefts) - Math.min(...labelLefts) });
+        }
+        if (valueRights.length >= 2) {
+          spreads.push({ role: "value", spread: Math.max(...valueRights) - Math.min(...valueRights) });
+        }
+        if (unitRights.length >= 2) {
+          spreads.push({ role: "unit", spread: Math.max(...unitRights) - Math.min(...unitRights) });
+        }
+        const worst = spreads.sort((a, b) => b.spread - a.spread)[0];
+        if (worst && worst.spread > 8) {
+          hits.push({
+            panelId: groupPanelId,
+            label: groupLabel,
+            role: worst.role,
+            spread: worst.spread,
+          });
+        }
+      });
+    });
+    return hits;
+  }
+
+  function publishLayoutAudit(root, diagnostics, report = {}) {
     const payload = {
       sourcePath: String(root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"),
       diagnostics: Array.isArray(diagnostics) ? diagnostics : [],
+      score: Number(report?.score || 0),
+      blocking: report?.blocking === true,
+      worstPanels: Array.isArray(report?.worstPanels) ? report.worstPanels : [],
+      metrics: report?.metrics && typeof report.metrics === "object" ? report.metrics : {},
     };
+    window.__meiLastLayoutEval = payload;
     document.dispatchEvent(new CustomEvent("mei:layout-audit", { detail: payload }));
   }
 
@@ -496,55 +676,94 @@
     const diagnostics = [];
     if (extentWidth > designWidth + 1) {
       diagnostics.push({
-        severity: "warning",
-        code: "layout_audit_canvas_overflow_x",
+        severity: "error",
+        code: "layout_eval_canvas_overflow_x",
         message: `横向内容超出设计宽度：实测 ${Math.round(extentWidth)}px / 设计 ${Math.round(designWidth)}px`,
       });
     }
     if (contentHeight > designHeight + 1) {
       diagnostics.push({
         severity: "warning",
-        code: "layout_audit_canvas_overflow_y",
+        code: "layout_eval_canvas_overflow_y",
         message: `纵向内容超出设计高度：实测 ${Math.round(contentHeight)}px / 设计 ${Math.round(designHeight)}px`,
       });
     }
     const clipped = detectClippedNodes(stage);
     if (clipped.length) {
       diagnostics.push({
-        severity: "warning",
-        code: "layout_audit_clipped_content",
-        message: `检测到父容器裁切风险：${clipped.join("、")}`,
+        severity: "error",
+        code: "layout_eval_clipped_content",
+        panelId: clipped[0]?.panelId || null,
+        message: `检测到父容器裁切风险：${clipped.map((hit) => hit.label).join("、")}`,
       });
     }
     const degenerate = detectDegenerateBoxes(stage);
     if (degenerate.length) {
       diagnostics.push({
-        severity: "warning",
-        code: "layout_audit_degenerate_box",
-        message: `检测到零尺寸/退化盒：${degenerate.join("、")}`,
+        severity: "error",
+        code: "layout_eval_degenerate_box",
+        panelId: degenerate[0]?.panelId || null,
+        message: `检测到零尺寸/退化盒：${degenerate.map((hit) => hit.label).join("、")}`,
       });
     }
     const spacing = detectHeadMetricSpacing(stage);
     if (spacing.length) {
       diagnostics.push({
         severity: "info",
-        code: "layout_audit_head_body_spacing_loose",
-        message: `检测到标题与指标区起始距离偏大：${spacing.join("、")}`,
+        code: "layout_eval_head_body_spacing_loose",
+        panelId: spacing[0]?.panelId || null,
+        message: `检测到标题与指标区起始距离偏大：${spacing
+          .map((hit) => `${hit.label}(+${Math.round(hit.gap)}px)`)
+          .join("、")}`,
       });
     }
     const bottomClip = detectBottomClipRisk(stage);
     if (bottomClip.length) {
       diagnostics.push({
-        severity: "warning",
-        code: "layout_audit_panel_bottom_clip_risk",
-        message: `检测到 panel 底部裁切风险：${bottomClip.join("、")}`,
+        severity: "error",
+        code: "layout_eval_panel_bottom_clip_risk",
+        panelId: bottomClip[0]?.panelId || null,
+        message: `检测到 panel 底部裁切风险：${bottomClip
+          .map((hit) => `${hit.label}(+${Math.round(hit.overflowPx)}px)`)
+          .join("、")}`,
       });
     }
     const overlap = detectCardOverlap(stage);
     if (overlap.length) {
       diagnostics.push({
-        severity: "warning",
-        code: "layout_audit_card_overlap",
-        message: `检测到卡片重叠：${overlap.join("、")}`,
+        severity: "error",
+        code: "layout_eval_card_overlap",
+        panelId: overlap[0]?.panelId || null,
+        message: `检测到卡片重叠：${overlap
+          .map((hit) => `${hit.label}(${hit.pair.join(" x ")})`)
+          .join("、")}`,
       });
     }
+    const gapBudget = detectCardGapBudget(stage);
+    if (gapBudget.length) {
+      diagnostics.push({
+        severity: gapBudget.some((hit) => hit.axis === "padding") ? "warning" : "info",
+        code: "layout_eval_card_gap_budget_runtime",
+        panelId: gapBudget[0]?.panelId || null,
+        message: `检测到卡组 gap/留白偏离预算：${gapBudget
+          .map((hit) => {
+            if (hit.axis === "padding") return `${hit.label}(四周留白≈${Math.round(hit.gap)}px)`;
+            const axis = hit.axis === "vertical" ? "纵向" : "横向";
+            return `${hit.label}(${axis} gap≈${Math.round(hit.gap)}px)`;
+          })
+          .join("、")}`,
+      });
+    }
+    const alignment = detectMetricAlignmentDrift(stage);
+    if (alignment.length) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_eval_metric_alignment_drift",
+        panelId: alignment[0]?.panelId || null,
+        message: `检测到指标参考线漂移：${alignment
+          .map((hit) => `${hit.label}(${hit.role} 偏移≈${Math.round(hit.spread)}px)`)
+          .join("、")}`,
+      });
+    }
+    publishLayoutAudit(root, diagnostics, buildRuntimeEvalReport(diagnostics));
+  }

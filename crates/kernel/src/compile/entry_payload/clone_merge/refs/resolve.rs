@@ -13,8 +13,8 @@ use crate::model::{
 };
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
-use super::merge_decl::merge_panel_decl;
 use super::super::normalize::normalize_ui_nodes;
+use super::merge_decl::merge_panel_decl;
 
 pub(crate) fn resolve_ref_path(
     expr: &RefExpr,
@@ -463,4 +463,3 @@ pub(crate) fn resolve_component_ref(
         }
     }
 }
-
