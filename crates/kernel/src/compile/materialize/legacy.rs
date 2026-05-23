@@ -5,29 +5,28 @@ use serde_json::Value;
 
 use crate::geojson::rows_from_geojson_value;
 use crate::model::{
-    ColumnSchema, DataTransform, DatasetView, LoadedResource, MetricContract, MetricShape,
-    SourceDecl,
+    DatasetView, LoadedResource, SourceDecl,
 };
 
-use super::{
+use super::super::{
     analysis::{
         rowset::eval_rowset,
-        scalar::eval_scalar_value,
         schema::{infer_columns, infer_schema_from_rows},
     },
-    decls::{LegacyDatasetDecl, LegacyMetricPackDecl, LegacySourceDecl},
+    decls::{LegacyDatasetDecl, LegacySourceDecl},
     loaders::load_legacy_xlsx_rows,
     materialize_cache::cached_load_legacy_rows_from_source,
     resources::csv_record_to_json,
 };
 
+use super::metric_packs::materialize_legacy_metric_map;
+use super::super::materialize_cache::LegacyRowsSnapshot;
+
 const DEFAULT_PREVIEW_ROWS: usize = 1000;
 const DEFAULT_PAGE_SIZE: usize = 20;
 const DEFAULT_MAX_PAGE_SIZE: usize = 1000;
 
-use super::materialize_cache::LegacyRowsSnapshot;
-
-pub(super) fn materialize_legacy_datasets(
+pub(crate) fn materialize_legacy_datasets(
     app_root: &Path,
     resources: &[LoadedResource],
     decls: &[LegacyDatasetDecl],
@@ -358,265 +357,4 @@ fn apply_legacy_normalize(rows: Vec<Value>, normalize: &BTreeMap<String, String>
             Value::Object(out)
         })
         .collect()
-}
-
-pub(super) fn materialize_metric_packs(
-    resources: &[LoadedResource],
-    packs: &[LegacyMetricPackDecl],
-) -> Result<Vec<LoadedResource>> {
-    let mut datasets = BTreeMap::<String, DatasetView>::new();
-    for resource in resources {
-        if let Some(dataset) = &resource.dataset {
-            datasets.insert(resource.id.clone(), dataset.clone());
-        }
-    }
-
-    let mut compiled = Vec::new();
-    for pack in packs {
-        let metrics = materialize_legacy_metric_map(&pack.metrics, &[], &datasets)
-            .with_context(|| format!("failed to compile metric_pack `{}`", pack.metric_pack.id))?;
-        let dataset = DatasetView {
-            id: pack.metric_pack.id.clone(),
-            title: pack.metric_pack.purpose.clone(),
-            purpose: pack.metric_pack.purpose.clone(),
-            schema: Vec::new(),
-            stage_schema: Vec::new(),
-            columns: Vec::new(),
-            rows: Vec::new(),
-            source: SourceDecl {
-                kind: "derived".to_string(),
-                path: format!("legacy.metric_pack:{}", pack.metric_pack.id),
-                sheet: None,
-                header_row: None,
-                preview_rows: None,
-                page_size: None,
-                max_page_size: None,
-                table: None,
-                query: None,
-                connection: None,
-                content: None,
-            },
-            sources: Vec::new(),
-            metrics,
-            runtime_metric_defs: pack.metrics.clone(),
-        };
-        datasets.insert(pack.metric_pack.id.clone(), dataset.clone());
-        compiled.push(LoadedResource {
-            id: pack.metric_pack.id.clone(),
-            kind: "dataset".to_string(),
-            title: pack.metric_pack.purpose.clone(),
-            document: None,
-            dataset: Some(dataset),
-        });
-    }
-    Ok(compiled)
-}
-
-pub const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
-
-/// 将 `world(metrics=...)` / `world.add_metric(...)` 物化为可被 runtime API 定位的 dataset 资源。
-pub(super) fn append_world_metrics_dataset_resource(
-    resources: &mut Vec<LoadedResource>,
-    ledger: &BTreeMap<String, crate::model::WorldMetricLedgerEntry>,
-    raw_metric_values: &[Value],
-) {
-    if resources
-        .iter()
-        .any(|resource| resource.id == WORLD_METRICS_RESOURCE_ID)
-    {
-        return;
-    }
-    let mut metrics = BTreeMap::<String, MetricContract>::new();
-    let mut runtime_metric_defs = BTreeMap::<String, Value>::new();
-    for value in raw_metric_values {
-        let Some(key) = value
-            .get("key")
-            .or_else(|| value.get("id"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            continue;
-        };
-        runtime_metric_defs.insert(key.to_string(), value.clone());
-    }
-    for entry in ledger.values() {
-        if entry.owner_resource_id != WORLD_METRICS_RESOURCE_ID {
-            continue;
-        }
-        metrics.insert(entry.id.clone(), entry.metric.clone());
-    }
-    if metrics.is_empty() {
-        return;
-    }
-    resources.push(LoadedResource {
-        id: WORLD_METRICS_RESOURCE_ID.to_string(),
-        kind: "dataset".to_string(),
-        title: Some("world metrics".to_string()),
-        document: None,
-        dataset: Some(DatasetView {
-            id: WORLD_METRICS_RESOURCE_ID.to_string(),
-            title: Some("world metrics".to_string()),
-            purpose: Some("direct world metrics ledger".to_string()),
-            schema: Vec::new(),
-            stage_schema: Vec::new(),
-            columns: Vec::new(),
-            rows: Vec::new(),
-            source: SourceDecl {
-                kind: "world_metrics".to_string(),
-                path: String::new(),
-                sheet: None,
-                header_row: None,
-                preview_rows: None,
-                page_size: None,
-                max_page_size: None,
-                table: None,
-                query: None,
-                connection: None,
-                content: None,
-            },
-            sources: Vec::new(),
-            metrics,
-            runtime_metric_defs,
-        }),
-    });
-}
-
-pub(super) fn materialize_world_metrics(
-    resources: &[LoadedResource],
-    metric_values: &[Value],
-) -> Result<BTreeMap<String, MetricContract>> {
-    let mut datasets = BTreeMap::<String, DatasetView>::new();
-    for resource in resources {
-        if let Some(dataset) = &resource.dataset {
-            datasets.insert(resource.id.clone(), dataset.clone());
-        }
-    }
-    let mut raw_metrics = BTreeMap::<String, Value>::new();
-    for value in metric_values {
-        let Some(key) = value
-            .get("key")
-            .or_else(|| value.get("id"))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        else {
-            continue;
-        };
-        raw_metrics.insert(key.to_string(), value.clone());
-    }
-    materialize_legacy_metric_map(&raw_metrics, &[], &datasets)
-}
-
-pub(super) fn evaluate_runtime_metric_defs(
-    metric_defs: &BTreeMap<String, Value>,
-    base_rows: &[Value],
-    datasets: &BTreeMap<String, DatasetView>,
-    metric_ids: Option<&[String]>,
-) -> Result<BTreeMap<String, MetricContract>> {
-    if let Some(ids) = metric_ids {
-        let selected = ids
-            .iter()
-            .filter_map(|id| {
-                metric_defs
-                    .get(id)
-                    .cloned()
-                    .map(|value| (id.clone(), value))
-            })
-            .collect::<BTreeMap<_, _>>();
-        return materialize_legacy_metric_map(&selected, base_rows, datasets);
-    }
-    materialize_legacy_metric_map(metric_defs, base_rows, datasets)
-}
-
-fn materialize_legacy_metric_map(
-    decls: &BTreeMap<String, Value>,
-    base_rows: &[Value],
-    datasets: &BTreeMap<String, DatasetView>,
-) -> Result<BTreeMap<String, MetricContract>> {
-    let mut metrics = BTreeMap::new();
-    for (metric_id, raw) in decls {
-        let Some(map) = raw.as_object() else {
-            continue;
-        };
-        let shape_name = map.get("shape").and_then(Value::as_str).unwrap_or_else(|| {
-            if map.get("values").is_some() {
-                "scalar_map"
-            } else {
-                "dataframe"
-            }
-        });
-        let shape = match shape_name {
-            "scalar_map" | "scalar" => MetricShape::Scalar,
-            "series" => MetricShape::Series,
-            "table" => MetricShape::Table,
-            _ => MetricShape::Dataframe,
-        };
-        let schema = map
-            .get("schema")
-            .and_then(|value| serde_json::from_value::<Vec<ColumnSchema>>(value.clone()).ok())
-            .unwrap_or_default();
-        let value = if let Some(values) = map.get("values").and_then(Value::as_object) {
-            let mut out = serde_json::Map::new();
-            for (entry_key, entry_value) in values {
-                let resolved = eval_scalar_value(entry_value, base_rows, datasets)
-                    .with_context(|| format!("legacy metric `{metric_id}` field `{entry_key}`"))?;
-                out.insert(entry_key.clone(), resolved);
-            }
-            Value::Object(out)
-        } else if let Some(rowset) = map
-            .get("series")
-            .or_else(|| map.get("list"))
-            .or_else(|| map.get("value"))
-        {
-            if let Ok(rows) = eval_rowset(rowset, datasets) {
-                Value::Array(rows)
-            } else {
-                eval_scalar_value(rowset, base_rows, datasets).unwrap_or_else(|_| rowset.clone())
-            }
-        } else {
-            Value::Null
-        };
-        metrics.insert(
-            metric_id.clone(),
-            MetricContract {
-                id: metric_id.clone(),
-                label: map
-                    .get("label")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
-                unit: map
-                    .get("unit")
-                    .and_then(Value::as_str)
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty()),
-                purpose: None,
-                shape,
-                schema,
-                dataset: map
-                    .get("dataset")
-                    .and_then(Value::as_str)
-                    .map(ToString::to_string),
-                transforms: map
-                    .get("transforms")
-                    .and_then(Value::as_array)
-                    .map(|items| {
-                        items
-                            .iter()
-                            .map(|item| DataTransform {
-                                transform_type: item
-                                    .get("type")
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("legacy")
-                                    .to_string(),
-                                config: item.clone(),
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default(),
-                value,
-            },
-        );
-    }
-    Ok(metrics)
 }
