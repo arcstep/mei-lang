@@ -93,10 +93,45 @@ pub async fn dataset_metric_api(
         )
     })?;
     if dataset.runtime_metric_defs.is_empty() {
-        return Err(AppError::status(
-            StatusCode::BAD_REQUEST,
-            format!("dataset `{}` has no runtime metric defs", resource.id),
-        ));
+        if dataset.metrics.is_empty() {
+            return Err(AppError::status(
+                StatusCode::BAD_REQUEST,
+                format!("dataset `{}` has no runtime metric defs", resource.id),
+            ));
+        }
+        let metrics = if request.metric_ids.is_empty() {
+            dataset.metrics.values().cloned().collect::<Vec<_>>()
+        } else {
+            request
+                .metric_ids
+                .iter()
+                .filter_map(|metric_id| dataset.metrics.get(metric_id).cloned())
+                .collect::<Vec<_>>()
+        };
+        let mut perf = BTreeMap::new();
+        perf.insert("compile_ms".to_string(), compile_ms);
+        perf.insert(
+            "compile_cache_hit".to_string(),
+            u64::from(compile_outcome.cache_hit),
+        );
+        perf.insert(
+            "compile_cache_lookup_ms".to_string(),
+            compile_outcome.cache_lookup_ms,
+        );
+        perf.insert(
+            "compile_cache_lock_wait_ms".to_string(),
+            compile_outcome.compile_cache_lock_wait_ms,
+        );
+        perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
+        perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+        return Ok(Json(MetricQueryResponse {
+            scene_id: scene_ctx.scene_id,
+            scene_path: scene_ctx.scene_path,
+            dataset_id: resource.id.clone(),
+            total_rows: 0,
+            metrics,
+            perf,
+        }));
     }
     let app_root = state.source_root.join(&app_id);
     let query = DatasetQueryOptions {

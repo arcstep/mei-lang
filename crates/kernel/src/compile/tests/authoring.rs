@@ -177,6 +177,25 @@ frame.add_panel(
             .and_then(|entry| entry.metric.label.as_deref()),
         Some("监督事项")
     );
+    let world_metrics_resource = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .expect("world metrics should materialize as dataset resource");
+    let world_metrics_dataset = world_metrics_resource
+        .dataset
+        .as_ref()
+        .expect("world metrics resource payload");
+    assert!(
+        world_metrics_dataset
+            .metrics
+            .contains_key("warning_supervision")
+    );
+    assert!(
+        world_metrics_dataset
+            .metrics
+            .contains_key("warning_models")
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -898,7 +917,7 @@ frame.add_panel(
 }
 
 #[test]
-fn compile_refs_scenario2_metric_pack_from_local_dataset_view() {
+fn compile_refs_scenario2_world_metrics_from_local_dataset_view() {
     let root = temp_root("refs-scenario-2");
     let app_root = root.join("refs-02");
     write_file(
@@ -912,23 +931,22 @@ world.add_dataset_view(
     id = "sales_view",
     rowset = rows,
     schema = [ds.column("label", "string"), ds.column("value", "number")],
-    metrics = [
-        ds.scalar_map(
-            id = "overview",
-            schema = [ds.column("total_rows", "number")],
-            values = {"total_rows": ds.count(rows)},
-        ),
-    ],
 )
-world.add_metric_pack(
-    id = "sales_pack",
-    metrics = [ds.computed_metric(key = "row_count", dataset = "sales_view", op = ds.count_rows(), fallback = 0)],
+world.add_metric(
+    ds.scalar_map(
+        id = "overview",
+        schema = [ds.column("total_rows", "number")],
+        values = {"total_rows": ds.count(rows)},
+    ),
+)
+world.add_metric(
+    ds.computed_metric(key = "row_count", dataset = "sales_view", op = ds.count_rows(), fallback = 0),
 )
 frame()
 frame.add_panel(
     id = "summary",
     area = "auto",
-    blocks = [doc.markdown(area = "auto", resource = resource_ref("sales_pack"))],
+    blocks = [doc.markdown(area = "auto", resource = metric_ref("row_count"))],
 )
 "#,
     );
@@ -942,10 +960,20 @@ frame.add_panel(
         "scenario 2 should compile without errors: {:?}",
         compiled.diagnostics
     );
-    let resources = &compiled.resources;
     assert!(
-        resources.iter().any(|item| item.id == "sales_pack"),
-        "metric pack should materialize into scene resources"
+        compiled.world_metrics.contains_key("overview"),
+        "world ledger should include scalar_map metric"
+    );
+    assert!(
+        compiled.world_metrics.contains_key("row_count"),
+        "world ledger should include computed metric"
+    );
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|item| item.id == "sales_view"),
+        "dataset view should materialize for computed_metric dataset="
     );
     let _ = fs::remove_dir_all(&root);
 }
