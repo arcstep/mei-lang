@@ -114,7 +114,7 @@ pub(super) fn resolve_value(
         Value::Object(map) => {
             if matches!(
                 map.get("__ref").and_then(Value::as_str),
-                Some("dataset") | Some("metric") | Some("resource") | Some("entity")
+                Some("dataset") | Some("resource") | Some("entity")
             ) {
                 if let Some(canonical_id) =
                     resolve_dataset_selector_value(compiled, value, resource_index)
@@ -250,6 +250,16 @@ fn resolve_metric_ref(
     resource_index: &RuntimeResourceIndex,
 ) -> Option<(mei_lang_kernel::MetricContract, String)> {
     let metric_id = map.get("id").and_then(Value::as_str)?;
+    if let Some(entry) = compiled.world_metrics.get(metric_id) {
+        if let Some(from_dataset) = map.get("from_dataset").and_then(Value::as_str) {
+            let dataset_id =
+                resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;
+            if dataset_id != entry.owner_resource_id {
+                return None;
+            }
+        }
+        return Some((entry.metric.clone(), entry.owner_resource_id.clone()));
+    }
     if let Some(from_dataset) = map.get("from_dataset").and_then(Value::as_str) {
         let dataset_id =
             resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;

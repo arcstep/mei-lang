@@ -633,6 +633,14 @@ pub struct MetricRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldMetricLedgerEntry {
+    pub id: String,
+    pub owner_resource_id: String,
+    pub order: usize,
+    pub metric: MetricContract,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricPackContract {
     pub id: String,
     #[serde(default)]
@@ -709,6 +717,8 @@ pub struct CompiledApp {
     pub scene_contract: Option<SceneContract>,
     #[serde(default)]
     pub resources: Vec<LoadedResource>,
+    #[serde(default)]
+    pub world_metrics: BTreeMap<String, WorldMetricLedgerEntry>,
     #[serde(default)]
     pub component_assets: Vec<ComponentAsset>,
     #[serde(default)]

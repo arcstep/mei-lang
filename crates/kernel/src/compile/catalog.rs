@@ -67,16 +67,17 @@ fn upsert_catalog_dataset_resource(
 use super::scene_payload_cache::compile_scene_payload_for_target;
 use crate::typed_refs::SceneRegistry;
 
-/// 管理页预览 scene/widget 时，仅物化脚本里 `from_dataset` 引用到的数据集，避免扫全库 xlsx。
+/// 管理页预览 scene/widget 时，仅物化脚本里通过 `metric_ref` / `data_ref` 可追溯到的数据集，避免扫全库 xlsx。
 #[derive(Debug, Default)]
 pub struct DatasetCatalogFilter {
     pub resource_ids: HashSet<String>,
+    pub metric_ids: HashSet<String>,
     pub dataset_paths: HashSet<String>,
 }
 
 impl DatasetCatalogFilter {
     pub fn is_active(&self) -> bool {
-        !self.resource_ids.is_empty() || !self.dataset_paths.is_empty()
+        !self.resource_ids.is_empty() || !self.metric_ids.is_empty() || !self.dataset_paths.is_empty()
     }
 }
 
@@ -216,6 +217,21 @@ pub fn build_dataset_catalog_filter(
         let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
+        for (metric_id, from_dataset) in extract_metric_ref_tokens(&content) {
+            if let Some(token) = from_dataset {
+                if token.contains('/') {
+                    let path = normalize_rel_path(&token);
+                    filter.dataset_paths.insert(path.clone());
+                    if queued.insert(path.clone()) {
+                        queue.push(path);
+                    }
+                } else {
+                    filter.resource_ids.insert(token);
+                }
+            } else if !metric_id.is_empty() {
+                filter.metric_ids.insert(metric_id);
+            }
+        }
         for token in extract_from_dataset_tokens(&content) {
             if token.contains('/') {
                 let path = normalize_rel_path(&token);
@@ -480,11 +496,76 @@ fn file_declares_resource_id(content: &str, id: &str) -> bool {
         || content.contains(&format!("id=\"{id}\""))
 }
 
+fn file_declares_metric_id(content: &str, id: &str) -> bool {
+    content.contains(&format!("scalar_map(id = \"{id}\""))
+        || content.contains(&format!("scalar_map(id=\"{id}\""))
+        || content.contains(&format!("metric(id = \"{id}\""))
+        || content.contains(&format!("metric(id=\"{id}\""))
+}
+
+fn parse_named_arg_string(raw: &str, name: &str) -> Option<String> {
+    let needle = format!("{name}");
+    let mut rest = raw;
+    while let Some(idx) = rest.find(&needle) {
+        let before = rest[..idx].chars().last();
+        let after = rest[idx + needle.len()..].chars().next();
+        let invalid_before = before.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+        let invalid_after = after.is_some_and(|ch| ch.is_ascii_alphanumeric() || ch == '_');
+        if invalid_before || invalid_after {
+            rest = &rest[idx + needle.len()..];
+            continue;
+        }
+        let tail = &rest[idx + needle.len()..];
+        let Some(eq_idx) = tail.find('=') else {
+            return None;
+        };
+        let after_eq = tail[eq_idx + 1..].trim_start();
+        return parse_quoted_string(after_eq).map(|s| s.trim().to_string());
+    }
+    None
+}
+
+fn parse_metric_ref_call(raw_args: &str) -> Option<(String, Option<String>)> {
+    let trimmed = raw_args.trim_start();
+    let metric_id = if let Some(id) = parse_quoted_string(trimmed) {
+        id.trim().to_string()
+    } else if let Some(id) = parse_named_arg_string(trimmed, "id") {
+        id.trim().to_string()
+    } else {
+        String::new()
+    };
+    if metric_id.is_empty() {
+        return None;
+    }
+    let from_dataset = parse_named_arg_string(trimmed, "from_dataset")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    Some((metric_id, from_dataset))
+}
+
+fn extract_metric_ref_tokens(content: &str) -> Vec<(String, Option<String>)> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    const NEEDLE: &str = "metric_ref(";
+    while let Some(idx) = rest.find(NEEDLE) {
+        let tail = &rest[idx + NEEDLE.len()..];
+        let Some(end_idx) = tail.find(')') else {
+            break;
+        };
+        let args = &tail[..end_idx];
+        if let Some(parsed) = parse_metric_ref_call(args) {
+            out.push(parsed);
+        }
+        rest = &tail[end_idx + 1..];
+    }
+    out
+}
+
 fn dataset_file_matches_filter(app_root: &Path, rel: &str, filter: &DatasetCatalogFilter) -> bool {
     if filter.dataset_paths.contains(rel) {
         return true;
     }
-    if filter.resource_ids.is_empty() {
+    if filter.resource_ids.is_empty() && filter.metric_ids.is_empty() {
         return false;
     }
     let path = app_root.join(rel);
@@ -495,6 +576,10 @@ fn dataset_file_matches_filter(app_root: &Path, rel: &str, filter: &DatasetCatal
         .resource_ids
         .iter()
         .any(|id| file_declares_resource_id(&content, id))
+        || filter
+            .metric_ids
+            .iter()
+            .any(|metric_id| file_declares_metric_id(&content, metric_id))
 }
 
 /// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
@@ -653,5 +738,19 @@ frame.add_panel(id = "child_panel", area = "auto", blocks = [])
         let tokens = extract_from_dataset_tokens(src);
         assert!(tokens.contains(&"typical_cases".to_string()));
         assert!(tokens.iter().any(|t| t.contains("监督典型案例.mei")));
+    }
+
+    #[test]
+    fn extract_metric_ref_tokens_supports_positional_and_named_id() {
+        let src = r#"
+            component("x", props = {"metric": metric_ref("sales_total")})
+            component("x", props = {"metric": metric_ref(id = "alerts_total", from_dataset = "warning_view")})
+        "#;
+        let tokens = extract_metric_ref_tokens(src);
+        assert!(tokens.contains(&("sales_total".to_string(), None)));
+        assert!(tokens.contains(&(
+            "alerts_total".to_string(),
+            Some("warning_view".to_string())
+        )));
     }
 }

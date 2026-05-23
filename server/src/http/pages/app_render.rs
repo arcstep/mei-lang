@@ -60,6 +60,7 @@ pub(crate) fn compile_error_fallback_app(
         file_tree: source_tree(&app_root).unwrap_or_default(),
         scene_contract: None,
         resources: Vec::new(),
+        world_metrics: std::collections::BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: vec![Diagnostic {
             severity: Severity::Error,

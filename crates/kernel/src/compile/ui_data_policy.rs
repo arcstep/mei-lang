@@ -202,10 +202,15 @@ pub(super) fn validate_scene_ui_data_bindings(
         .iter()
         .map(|resource| resource.id.clone())
         .collect::<BTreeSet<_>>();
+    let metric_ids = resources
+        .iter()
+        .filter_map(|resource| resource.dataset.as_ref())
+        .flat_map(|dataset| dataset.metrics.keys().cloned())
+        .collect::<BTreeSet<_>>();
     for panel in &contract.panels {
-        scan_panel_props(panel, &resource_ids, target_file, diagnostics);
+        scan_panel_props(panel, &resource_ids, &metric_ids, target_file, diagnostics);
         for node in &panel.blocks {
-            scan_ui_node(node, &resource_ids, target_file, diagnostics);
+            scan_ui_node(node, &resource_ids, &metric_ids, target_file, diagnostics);
             scan_deprecated_embed_nodes(node, target_file, diagnostics);
             if let UiNodeDecl::PanelRefEmbed(embed) = node {
                 validate_embed_capsule_ui_bindings(
@@ -242,6 +247,11 @@ fn validate_embed_capsule_ui_bindings(
         .iter()
         .map(|r| r.id.clone())
         .collect();
+    let metric_ids: BTreeSet<String> = effective_resources
+        .iter()
+        .filter_map(|resource| resource.dataset.as_ref())
+        .flat_map(|dataset| dataset.metrics.keys().cloned())
+        .collect();
     let Ok(decls) = evaluate_mei_file(app_root.join(path)) else {
         return;
     };
@@ -251,9 +261,9 @@ fn validate_embed_capsule_ui_bindings(
     for value in values {
         if value.get("kind").and_then(Value::as_str) == Some("panel") {
             if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
-                scan_panel_props(&panel, &resource_ids, path, diagnostics);
+                scan_panel_props(&panel, &resource_ids, &metric_ids, path, diagnostics);
                 for node in &panel.blocks {
-                    scan_ui_node(node, &resource_ids, path, diagnostics);
+                    scan_ui_node(node, &resource_ids, &metric_ids, path, diagnostics);
                 }
             }
         }
@@ -262,6 +272,7 @@ fn validate_embed_capsule_ui_bindings(
                 push_violations(
                     &block.props,
                     &resource_ids,
+                    &metric_ids,
                     &format!("block `{}` props", block.id.as_deref().unwrap_or("?")),
                     path,
                     diagnostics,
@@ -307,12 +318,14 @@ fn scan_deprecated_embed_nodes(
 fn scan_panel_props(
     panel: &PanelDecl,
     resource_ids: &BTreeSet<String>,
+    metric_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     push_violations(
         &panel.props,
         resource_ids,
+        metric_ids,
         &format!("panel `{}` props", panel.id),
         target_file,
         diagnostics,
@@ -322,20 +335,22 @@ fn scan_panel_props(
 fn scan_ui_node(
     node: &UiNodeDecl,
     resource_ids: &BTreeSet<String>,
+    metric_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node {
         UiNodeDecl::Panel(panel) => {
-            scan_panel_props(panel, resource_ids, target_file, diagnostics);
+            scan_panel_props(panel, resource_ids, metric_ids, target_file, diagnostics);
             for child in &panel.blocks {
-                scan_ui_node(child, resource_ids, target_file, diagnostics);
+                scan_ui_node(child, resource_ids, metric_ids, target_file, diagnostics);
             }
         }
         UiNodeDecl::Block(block) => {
             push_violations(
                 &block.props,
                 resource_ids,
+                metric_ids,
                 &format!(
                     "block `{}` (use `{}`) props",
                     block.id.as_deref().unwrap_or("?"),
@@ -352,6 +367,7 @@ fn scan_ui_node(
 fn push_violations(
     value: &Value,
     resource_ids: &BTreeSet<String>,
+    metric_ids: &BTreeSet<String>,
     context: &str,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
@@ -367,7 +383,7 @@ fn push_violations(
             source_path: Some(target_file.to_string()),
         });
     }
-    let ref_issues = collect_resource_ref_issues(value, "$", resource_ids);
+    let ref_issues = collect_resource_ref_issues(value, "$", resource_ids, metric_ids);
     for (path, code, message) in ref_issues {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
@@ -428,22 +444,33 @@ fn collect_resource_ref_issues(
     value: &Value,
     path: &str,
     resource_ids: &BTreeSet<String>,
+    metric_ids: &BTreeSet<String>,
 ) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     match value {
         Value::Object(map) => {
-            if let Some((code, message)) = resource_ref_issue(map, resource_ids) {
+            if let Some((code, message)) = resource_ref_issue(map, resource_ids, metric_ids) {
                 out.push((path.to_string(), code, message));
             }
             for (key, child) in map {
                 let next = format!("{path}.{key}");
-                out.extend(collect_resource_ref_issues(child, &next, resource_ids));
+                out.extend(collect_resource_ref_issues(
+                    child,
+                    &next,
+                    resource_ids,
+                    metric_ids,
+                ));
             }
         }
         Value::Array(items) => {
             for (idx, child) in items.iter().enumerate() {
                 let next = format!("{path}[{idx}]");
-                out.extend(collect_resource_ref_issues(child, &next, resource_ids));
+                out.extend(collect_resource_ref_issues(
+                    child,
+                    &next,
+                    resource_ids,
+                    metric_ids,
+                ));
             }
         }
         _ => {}
@@ -454,6 +481,7 @@ fn collect_resource_ref_issues(
 fn resource_ref_issue(
     map: &serde_json::Map<String, Value>,
     resource_ids: &BTreeSet<String>,
+    metric_ids: &BTreeSet<String>,
 ) -> Option<(String, String)> {
     let ref_kind = map.get("__ref").and_then(Value::as_str)?;
     if ref_kind == "world" {
@@ -471,16 +499,6 @@ fn resource_ref_issue(
             "不得在 frame/component props 中直接跨文件引用；请先在 world 中引入该对象".to_string(),
         ));
     }
-    if ref_kind == "metric"
-        && map
-            .get("from_dataset")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .is_some()
-    {
-        return None;
-    }
     let id = map
         .get("id")
         .and_then(Value::as_str)
@@ -497,6 +515,15 @@ fn resource_ref_issue(
             "invalid_resource_ref".to_string(),
             format!("资源 id `{id}` 已禁用；请使用稳定显式 id"),
         ));
+    }
+    if ref_kind == "metric" {
+        if !metric_ids.contains(id) {
+            return Some((
+                "invalid_resource_ref".to_string(),
+                format!("metric id `{id}` 未在当前 scene world metric 账本中可见"),
+            ));
+        }
+        return None;
     }
     if !resource_ids.contains(id) {
         return Some((
@@ -739,6 +766,101 @@ mod tests {
             dataset: None,
         }];
         validate_scene_ui_data_bindings(&contract, &resources, Path::new("."), "entry.mei", &mut diagnostics);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
+        let contract = SceneContract {
+            scene: sample_scene(),
+            themes: vec![],
+            world: None,
+            flow: None,
+            frame: None,
+            panels: vec![PanelDecl {
+                kind: "panel".to_string(),
+                id: "p1".to_string(),
+                title: None,
+                head: None,
+                area: None,
+                layout: None,
+                blocks: vec![UiNodeDecl::Block(BlockDecl {
+                    kind: "block".to_string(),
+                    use_key: "chart.kpi".to_string(),
+                    id: None,
+                    title: None,
+                    area: None,
+                    props: serde_json::json!({
+                        "metric": {"__ref": "metric", "id": "warnings_total"}
+                    }),
+                    base: None,
+                    layout: None,
+                    blocks: vec![],
+                    component: None,
+                    placement: None,
+                    interactions: vec![],
+                    lifecycle: None,
+                    constraints: None,
+                    data: None,
+                })],
+                props: Value::Object(serde_json::Map::new()),
+                head_props: Value::Object(serde_json::Map::new()),
+                body_props: Value::Object(serde_json::Map::new()),
+                base: None,
+            }],
+        };
+        let resources = vec![LoadedResource {
+            id: "warning_view".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(crate::model::DatasetView {
+                id: "warning_view".to_string(),
+                title: None,
+                purpose: None,
+                schema: vec![],
+                stage_schema: vec![],
+                columns: vec![],
+                rows: vec![],
+                source: crate::model::SourceDecl {
+                    kind: "derived".to_string(),
+                    path: "dataset_view:warning_view".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: vec![],
+                metrics: std::collections::BTreeMap::from([(
+                    "warnings_total".to_string(),
+                    crate::model::MetricContract {
+                        id: "warnings_total".to_string(),
+                        label: Some("预警总量".to_string()),
+                        unit: Some("条".to_string()),
+                        purpose: None,
+                        shape: crate::model::MetricShape::Scalar,
+                        schema: vec![],
+                        dataset: None,
+                        transforms: vec![],
+                        value: serde_json::json!({"value": 1}),
+                    },
+                )]),
+                runtime_metric_defs: std::collections::BTreeMap::new(),
+            }),
+        }];
+        let mut diagnostics = Vec::new();
+        validate_scene_ui_data_bindings(
+            &contract,
+            &resources,
+            Path::new("."),
+            "entry.mei",
+            &mut diagnostics,
+        );
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 }

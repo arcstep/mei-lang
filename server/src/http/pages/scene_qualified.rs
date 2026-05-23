@@ -180,6 +180,7 @@ mod tests {
                 sample_dataset_resource("warning_list"),
                 sample_dataset_resource("home"),
             ],
+            world_metrics: std::collections::BTreeMap::new(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,

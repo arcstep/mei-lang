@@ -1,4 +1,4 @@
-//! Runtime 消费链：将 world resource id、scene 路由路径、`from_dataset` 路径与 typed ref
+//! Runtime 消费链：将 world resource id、scene 路由路径、兼容 `from_dataset` 路径与 typed ref
 //! 归一为 canonical `LoadedResource.id`，供 preview SSR 与 server dataset/metric API 共用。
 
 use std::collections::BTreeMap;
@@ -300,6 +300,7 @@ mod tests {
                 sample_dataset_resource("warning_list"),
                 sample_dataset_resource("home"),
             ],
+            world_metrics: BTreeMap::new(),
             scene_routes: vec![crate::model::CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,

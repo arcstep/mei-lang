@@ -383,6 +383,7 @@ mod tests {
             file_tree: Vec::new(),
             scene_contract: None,
             resources: Vec::new(),
+            world_metrics: std::collections::BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: diags,
         }

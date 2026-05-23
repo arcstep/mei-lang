@@ -10,7 +10,10 @@ use walkdir::WalkDir;
 
 use crate::{
     eval::evaluate_mei_file,
-    model::{CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, Severity},
+    model::{
+        CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, Severity,
+        WorldMetricLedgerEntry,
+    },
     typed_refs::SceneRegistry,
     workspace::{load_component_assets, source_tree},
 };
@@ -107,6 +110,35 @@ fn is_manage_entry_preview(options: &CompileOptions) -> bool {
 
 fn is_manage_preview_only_compile(options: &CompileOptions) -> bool {
     is_dataset_manage_preview(options) || is_manage_entry_preview(options)
+}
+
+fn build_world_metric_ledger(
+    resources: &[LoadedResource],
+) -> BTreeMap<String, WorldMetricLedgerEntry> {
+    let mut ledger = BTreeMap::new();
+    let mut order = 0usize;
+    for resource in resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        for (metric_id, metric) in &dataset.metrics {
+            let id = metric_id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            order += 1;
+            ledger.insert(
+                id.to_string(),
+                WorldMetricLedgerEntry {
+                    id: id.to_string(),
+                    owner_resource_id: resource.id.clone(),
+                    order,
+                    metric: metric.clone(),
+                },
+            );
+        }
+    }
+    ledger
 }
 
 fn inject_discovered_entry_scene_routes(
@@ -486,6 +518,7 @@ pub fn compile_app_from_root_with_options(
     };
     let scene_resources = active_payload.resources.clone();
     let resources = merge_resource_catalog(dataset_catalog, scene_resources);
+    let world_metrics = build_world_metric_ledger(&resources);
     if let Some(contract) = active_payload.scene_contract.as_ref() {
         validate_imported_catalog_world_refs(
             contract,
@@ -506,6 +539,7 @@ pub fn compile_app_from_root_with_options(
         file_tree: source_tree(app_root)?,
         scene_contract: active_payload.scene_contract,
         resources,
+        world_metrics,
         component_assets: active_payload.component_assets,
         diagnostics,
     })
