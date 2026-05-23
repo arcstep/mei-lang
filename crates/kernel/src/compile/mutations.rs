@@ -50,12 +50,14 @@ pub(super) fn apply_world_mutations(
     world_default: &mut Option<crate::model::WorldDecl>,
     resources: &[ResourceDecl],
     entities: &[EntityDecl],
+    metrics: &[serde_json::Value],
     topology: Option<WorldGridDecl>,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
     world_decl_count: usize,
 ) {
-    let has_mutations = !resources.is_empty() || !entities.is_empty() || topology.is_some();
+    let has_mutations =
+        !resources.is_empty() || !entities.is_empty() || !metrics.is_empty() || topology.is_some();
     if !has_mutations {
         return;
     }
@@ -70,11 +72,11 @@ pub(super) fn apply_world_mutations(
         }
         1 => {
             if let Some(world_decl) = world_default.as_mut() {
-                apply_world_mutations_to_decl(world_decl, resources, entities, topology);
+                apply_world_mutations_to_decl(world_decl, resources, entities, metrics, topology);
                 return;
             }
             if let Some((_id, world_decl)) = worlds.iter_mut().next() {
-                apply_world_mutations_to_decl(world_decl, resources, entities, topology);
+                apply_world_mutations_to_decl(world_decl, resources, entities, metrics, topology);
             }
         }
         _ => {
@@ -92,6 +94,7 @@ pub(super) fn apply_world_mutations_to_decl(
     world_decl: &mut crate::model::WorldDecl,
     resources: &[ResourceDecl],
     entities: &[EntityDecl],
+    metrics: &[serde_json::Value],
     topology: Option<WorldGridDecl>,
 ) {
     for resource in resources {
@@ -112,6 +115,9 @@ pub(super) fn apply_world_mutations_to_decl(
             world_decl.entities.push(entity.clone());
         }
     }
+    for metric in metrics {
+        upsert_metric(&mut world_decl.metrics, metric);
+    }
     if let Some(topology) = topology {
         world_decl.topology = Some(topology);
     }
@@ -122,5 +128,27 @@ fn upsert_resource(target: &mut Vec<ResourceDecl>, resource: &ResourceDecl) {
         *existing = resource.clone();
     } else {
         target.push(resource.clone());
+    }
+}
+
+fn metric_key(metric: &serde_json::Value) -> Option<String> {
+    metric
+        .get("key")
+        .or_else(|| metric.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+}
+
+fn upsert_metric(target: &mut Vec<serde_json::Value>, metric: &serde_json::Value) {
+    let Some(key) = metric_key(metric) else {
+        target.push(metric.clone());
+        return;
+    };
+    if let Some(existing) = target.iter_mut().find(|item| metric_key(item).as_deref() == Some(key.as_str())) {
+        *existing = metric.clone();
+    } else {
+        target.push(metric.clone());
     }
 }

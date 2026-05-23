@@ -123,6 +123,65 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_supports_world_metrics_as_independent_assets() {
+    let root = temp_root("world-metrics-authoring");
+    let app_root = root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "demo", default_scene = "home")
+
+scene(id = "home", profile = "page")
+
+world(
+    id = "home_world",
+    metrics = [
+        ds.scalar_map(id = "warning_supervision", label = "监督事项", values = {"value": "2000"}, unit = "项"),
+    ],
+)
+
+world.add_metric(
+    ds.scalar_map(id = "warning_models", label = "预警模型", values = {"value": "15"}, unit = "个"),
+)
+
+frame(layout = flex(direction = "column"))
+frame.add_panel(
+    id = "summary",
+    area = "auto",
+    blocks = [
+        component("chart.kpi", area = "auto", props = {"metric": metric_ref("warning_supervision")}),
+        component("chart.kpi", area = "auto", props = {"metric": metric_ref("warning_models")}),
+    ],
+)
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile world metrics app");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "world metrics authoring should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    let contract = compiled.scene_contract.expect("scene contract");
+    let world = contract.world.expect("world");
+    assert_eq!(world.metrics.len(), 2);
+    assert!(compiled.world_metrics.contains_key("warning_supervision"));
+    assert!(compiled.world_metrics.contains_key("warning_models"));
+    assert_eq!(
+        compiled
+            .world_metrics
+            .get("warning_supervision")
+            .and_then(|entry| entry.metric.label.as_deref()),
+        Some("监督事项")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_supports_incremental_frame_authoring() {
     let root = temp_root("incremental-frame-authoring");
     let app_root = root.join("demo");

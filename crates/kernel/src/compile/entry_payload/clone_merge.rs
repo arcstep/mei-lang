@@ -528,6 +528,9 @@ pub(super) fn merge_world_decl(base: WorldDecl, overlay_value: &Value) -> Result
     if value_has_key(overlay_value, "datasets") {
         merged.datasets = overlay.datasets;
     }
+    if value_has_key(overlay_value, "metrics") {
+        merged.metrics = overlay.metrics;
+    }
     if value_has_key(overlay_value, "metric_packs") {
         merged.metric_packs = overlay.metric_packs;
     }
@@ -864,6 +867,7 @@ pub(super) fn normalize_world_decl(
             diagnostics,
             target_file,
         );
+        merged.metrics = normalize_metric_list(&merged.metrics);
         merged.metric_packs = normalize_resource_list(
             app_root,
             &merged.metric_packs,
@@ -895,6 +899,7 @@ pub(super) fn normalize_world_decl(
         diagnostics,
         target_file,
     );
+    merged.metrics = normalize_metric_list(&merged.metrics);
     merged.metric_packs = normalize_resource_list(
         app_root,
         &merged.metric_packs,
@@ -911,6 +916,34 @@ pub(super) fn normalize_world_decl(
     );
     merged.base = None;
     Some(merged)
+}
+
+fn normalize_metric_list(items: &[Value]) -> Vec<Value> {
+    let mut merged = Vec::<Value>::new();
+    for item in items {
+        let key = item
+            .get("key")
+            .or_else(|| item.get("id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string);
+        if let Some(key) = key {
+            if let Some(existing) = merged.iter_mut().find(|current| {
+                current
+                    .get("key")
+                    .or_else(|| current.get("id"))
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    == Some(key.as_str())
+            }) {
+                *existing = item.clone();
+                continue;
+            }
+        }
+        merged.push(item.clone());
+    }
+    merged
 }
 
 pub(super) fn normalize_flow_decl(
@@ -1227,7 +1260,7 @@ pub(super) fn collect_ref_scene_files(value: &Value, out: &mut std::collections:
         }
         Value::Object(map) => {
             for (key, item) in map {
-                if matches!(key.as_str(), "blocks" | "panels" | "resources" | "datasets" | "metric_packs" | "entities") {
+                if matches!(key.as_str(), "blocks" | "panels" | "resources" | "datasets" | "metrics" | "metric_packs" | "entities") {
                     collect_ref_scene_files(item, out);
                 }
             }

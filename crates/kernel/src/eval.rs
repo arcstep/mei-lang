@@ -119,6 +119,7 @@ fn rewrite_namespaces(source: &str) -> String {
         .replace("world.add_resource(", "world_add_resource(")
         .replace("world.add_dataset(", "world_add_dataset(")
         .replace("world.add_dataset_view(", "world_add_dataset_view(")
+        .replace("world.add_metric(", "world_add_metric(")
         .replace("world.add_metric_pack(", "world_add_metric_pack(")
         .replace("world.add_entity(", "world_add_entity(")
         .replace("world.set_topology(", "world_set_topology(")

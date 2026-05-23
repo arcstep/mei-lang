@@ -414,6 +414,32 @@ pub(super) fn materialize_metric_packs(
     Ok(compiled)
 }
 
+pub(super) fn materialize_world_metrics(
+    resources: &[LoadedResource],
+    metric_values: &[Value],
+) -> Result<BTreeMap<String, MetricContract>> {
+    let mut datasets = BTreeMap::<String, DatasetView>::new();
+    for resource in resources {
+        if let Some(dataset) = &resource.dataset {
+            datasets.insert(resource.id.clone(), dataset.clone());
+        }
+    }
+    let mut raw_metrics = BTreeMap::<String, Value>::new();
+    for value in metric_values {
+        let Some(key) = value
+            .get("key")
+            .or_else(|| value.get("id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        raw_metrics.insert(key.to_string(), value.clone());
+    }
+    materialize_legacy_metric_map(&raw_metrics, &[], &datasets)
+}
+
 pub(super) fn evaluate_runtime_metric_defs(
     metric_defs: &BTreeMap<String, Value>,
     base_rows: &[Value],

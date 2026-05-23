@@ -144,7 +144,7 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         access_export = access_export,
     )
 
-def world(id = None, topology = None, resources = None, entities = None, datasets = None, metric_packs = None, base = None):
+def world(id = None, topology = None, resources = None, entities = None, datasets = None, metrics = None, metric_packs = None, base = None):
     payload = {
         "kind": "world",
         "id": id,
@@ -152,6 +152,7 @@ def world(id = None, topology = None, resources = None, entities = None, dataset
         "resources": resources if resources != None else [],
         "entities": entities if entities != None else [],
         "datasets": datasets if datasets != None else [],
+        "metrics": metrics if metrics != None else [],
         "metric_packs": metric_packs if metric_packs != None else [],
     }
     if base != None:
@@ -168,6 +169,12 @@ def world_add_entity(item):
     return _declare({
         "kind": "world_add_entity",
         "entity": item,
+    })
+
+def world_add_metric(item):
+    return _declare({
+        "kind": "world_add_metric",
+        "metric": item,
     })
 
 def world_set_topology(rows, cols, cells = None):

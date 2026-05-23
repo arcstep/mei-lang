@@ -386,7 +386,10 @@ pub struct WorldDecl {
     /// 一等 dataset 集合（`world(datasets=[...])` / `world.add_dataset(...)` 账本归一）。
     #[serde(default)]
     pub datasets: Vec<ResourceDecl>,
-    /// 一等 metric_pack 集合。
+    /// 一等 world metric 集合（`world(metrics=[...])` / `world.add_metric(...)` 账本归一）。
+    #[serde(default)]
+    pub metrics: Vec<Value>,
+    /// 一等 metric_pack 集合（兼容旧写法）。
     #[serde(default)]
     pub metric_packs: Vec<ResourceDecl>,
     #[serde(default)]

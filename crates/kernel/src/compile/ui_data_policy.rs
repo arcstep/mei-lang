@@ -206,6 +206,22 @@ pub(super) fn validate_scene_ui_data_bindings(
         .iter()
         .filter_map(|resource| resource.dataset.as_ref())
         .flat_map(|dataset| dataset.metrics.keys().cloned())
+        .chain(
+            contract
+                .world
+                .as_ref()
+                .into_iter()
+                .flat_map(|world| world.metrics.iter())
+                .filter_map(|metric| {
+                    metric
+                        .get("key")
+                        .or_else(|| metric.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(ToString::to_string)
+                }),
+        )
         .collect::<BTreeSet<_>>();
     for panel in &contract.panels {
         scan_panel_props(panel, &resource_ids, &metric_ids, target_file, diagnostics);

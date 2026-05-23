@@ -52,6 +52,7 @@ mod tests {
                 }),
                 resources: Vec::new(),
                 datasets: Vec::new(),
+                metrics: Vec::new(),
                 metric_packs: Vec::new(),
                 entities: vec![
                     EntityDecl {
@@ -175,6 +176,7 @@ mod tests {
                 }),
                 resources: Vec::new(),
                 datasets: Vec::new(),
+                metrics: Vec::new(),
                 metric_packs: Vec::new(),
                 entities: vec![EntityDecl {
                     id: "extinguisher_1".to_string(),

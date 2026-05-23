@@ -44,6 +44,12 @@ pub(super) struct WorldAddEntityDecl {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub(super) struct WorldAddMetricDecl {
+    pub kind: String,
+    pub metric: Value,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub(super) struct WorldSetTopologyDecl {
     pub kind: String,
     pub topology: WorldGridDecl,

@@ -11,7 +11,7 @@ use crate::model::{
 
 use super::super::decls::{
     FrameSetLayoutDecl, LegacyDatasetDecl, LegacyMetricPackDecl, WorldAddEntityDecl,
-    WorldAddResourceDecl, WorldSetTopologyDecl,
+    WorldAddMetricDecl, WorldAddResourceDecl, WorldSetTopologyDecl,
 };
 use super::super::load_external::{
     load_flow_from_file, load_frame_from_file, load_world_from_file,
@@ -59,6 +59,7 @@ pub(super) fn compile_scene_payload(
     let mut flow_default: Option<FlowDecl> = None;
     let mut pending_world_resources = Vec::new();
     let mut pending_world_entities = Vec::new();
+    let mut pending_world_metrics = Vec::new();
     let mut pending_world_topology: Option<crate::model::WorldGridDecl> = None;
     let mut pending_frame_layout: Option<crate::model::LayoutDecl> = None;
     let mut themes: Vec<ThemeDecl> = Vec::new();
@@ -229,6 +230,21 @@ pub(super) fn compile_scene_payload(
                         }
                     }
                 }
+                "world_add_metric" => {
+                    if !seen_world_decl {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "world_mutation_before_world_decl".to_string(),
+                            message: "`world.add_*` / `world.set_topology(...)` must appear after `world(...)` in the same file (_declare order)"
+                                .to_string(),
+                            source_path: Some(target_file.to_string()),
+                        });
+                    }
+                    let decl = serde_json::from_value::<WorldAddMetricDecl>(value.clone())?;
+                    if decl.kind == "world_add_metric" {
+                        pending_world_metrics.push(decl.metric);
+                    }
+                }
                 "world_set_topology" => {
                     if !seen_world_decl {
                         diagnostics.push(Diagnostic {
@@ -335,6 +351,7 @@ pub(super) fn compile_scene_payload(
         || frame_layout_set_count > 0
         || !pending_world_resources.is_empty()
         || !pending_world_entities.is_empty()
+        || !pending_world_metrics.is_empty()
         || had_pending_topology
         || had_pending_frame_layout;
     let dataset_library_only =
@@ -377,6 +394,7 @@ pub(super) fn compile_scene_payload(
         &mut world_default,
         &pending_world_resources,
         &pending_world_entities,
+        &pending_world_metrics,
         pending_world_topology,
         &mut diagnostics,
         target_file,

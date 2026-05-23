@@ -43,6 +43,7 @@ use catalog::{
     DatasetCatalogFilter,
 };
 use entry_payload::CompiledScenePayload;
+use materialize::materialize_world_metrics;
 use scene_payload_cache::compile_scene_payload_for_target;
 use scene::{find_scene_route, resolve_scene_routes};
 
@@ -114,7 +115,8 @@ fn is_manage_preview_only_compile(options: &CompileOptions) -> bool {
 
 fn build_world_metric_ledger(
     resources: &[LoadedResource],
-) -> BTreeMap<String, WorldMetricLedgerEntry> {
+    world_metric_values: &[Value],
+) -> Result<BTreeMap<String, WorldMetricLedgerEntry>> {
     let mut ledger = BTreeMap::new();
     let mut order = 0usize;
     for resource in resources {
@@ -138,7 +140,20 @@ fn build_world_metric_ledger(
             );
         }
     }
-    ledger
+    let direct_metrics = materialize_world_metrics(resources, world_metric_values)?;
+    for (metric_id, metric) in direct_metrics {
+        order += 1;
+        ledger.insert(
+            metric_id.clone(),
+            WorldMetricLedgerEntry {
+                id: metric_id,
+                owner_resource_id: "__world_metrics__".to_string(),
+                order,
+                metric,
+            },
+        );
+    }
+    Ok(ledger)
 }
 
 fn inject_discovered_entry_scene_routes(
@@ -518,7 +533,13 @@ pub fn compile_app_from_root_with_options(
     };
     let scene_resources = active_payload.resources.clone();
     let resources = merge_resource_catalog(dataset_catalog, scene_resources);
-    let world_metrics = build_world_metric_ledger(&resources);
+    let direct_world_metrics = active_payload
+        .scene_contract
+        .as_ref()
+        .and_then(|contract| contract.world.as_ref())
+        .map(|world| world.metrics.as_slice())
+        .unwrap_or(&[]);
+    let world_metrics = build_world_metric_ledger(&resources, direct_world_metrics)?;
     if let Some(contract) = active_payload.scene_contract.as_ref() {
         validate_imported_catalog_world_refs(
             contract,

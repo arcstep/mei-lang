@@ -7,7 +7,8 @@ use crate::eval::evaluate_mei_file;
 use crate::model::{EntityDecl, FlowDecl, FrameDecl, PanelDecl, ResourceDecl, SceneDecl};
 
 use super::decls::{
-    FrameSetLayoutDecl, WorldAddEntityDecl, WorldAddResourceDecl, WorldSetTopologyDecl,
+    FrameSetLayoutDecl, WorldAddEntityDecl, WorldAddMetricDecl, WorldAddResourceDecl,
+    WorldSetTopologyDecl,
 };
 use super::mutations::apply_world_mutations_to_decl;
 
@@ -21,6 +22,7 @@ pub(super) fn load_world_from_file(
     let mut worlds = Vec::new();
     let mut pending_resources = Vec::new();
     let mut pending_entities = Vec::new();
+    let mut pending_metrics = Vec::new();
     let mut pending_topology = None;
     let mut world_topology_set_count = 0usize;
     let mut seen_world_decl = false;
@@ -51,6 +53,15 @@ pub(super) fn load_world_from_file(
                     let decl = serde_json::from_value::<WorldAddEntityDecl>(value.clone())?;
                     pending_entities.push(decl.entity);
                 }
+                Some("world_add_metric") => {
+                    if !seen_world_decl {
+                        return Err(anyhow!(
+                            "world_file_ref `{relative_path}`: `world.add_*` / `world.set_topology(...)` must appear after `world(...)` (_declare order)"
+                        ));
+                    }
+                    let decl = serde_json::from_value::<WorldAddMetricDecl>(value.clone())?;
+                    pending_metrics.push(decl.metric);
+                }
                 Some("world_set_topology") => {
                     if !seen_world_decl {
                         return Err(anyhow!(
@@ -72,7 +83,11 @@ pub(super) fn load_world_from_file(
             "world_file_ref `{relative_path}` declared multiple world.set_topology(...) blocks"
         ));
     }
-    if !pending_resources.is_empty() || !pending_entities.is_empty() || pending_topology.is_some() {
+    if !pending_resources.is_empty()
+        || !pending_entities.is_empty()
+        || !pending_metrics.is_empty()
+        || pending_topology.is_some()
+    {
         match worlds.len() {
             0 => {
                 return Err(anyhow!(
@@ -85,6 +100,7 @@ pub(super) fn load_world_from_file(
                         world_decl,
                         &pending_resources,
                         &pending_entities,
+                        &pending_metrics,
                         pending_topology,
                     );
                 }
