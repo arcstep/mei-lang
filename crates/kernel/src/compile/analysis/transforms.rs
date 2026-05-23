@@ -21,8 +21,7 @@ pub(super) fn trend_rows_by_month(
     latest_month_window(anchor, months)
         .into_iter()
         .map(|(year, month)| {
-            let value =
-                aggregate_month_value(rows, date_field, value_field, agg, year, month);
+            let value = aggregate_month_value(rows, date_field, value_field, agg, year, month);
             let mut row = serde_json::Map::new();
             row.insert(
                 label_field.to_string(),
@@ -180,16 +179,12 @@ mod tests {
             json!({"做出处罚日期": "2024-05-10", "罚款金额": 100}),
             json!({"做出处罚日期": "2024-06-10", "罚款金额": 200}),
         ];
-        let trend = trend_rows_by_month(
-            &rows,
-            "做出处罚日期",
-            Some("罚款金额"),
-            "sum",
-            6,
-            "month",
-        );
+        let trend = trend_rows_by_month(&rows, "做出处罚日期", Some("罚款金额"), "sum", 6, "month");
         assert_eq!(trend.len(), 6);
-        assert_eq!(trend[0].get("month").and_then(|v| v.as_str()), Some("2024-01"));
+        assert_eq!(
+            trend[0].get("month").and_then(|v| v.as_str()),
+            Some("2024-01")
+        );
         assert_eq!(trend[0].get("value").and_then(|v| v.as_f64()), Some(0.0));
         assert_eq!(trend[4].get("value").and_then(|v| v.as_f64()), Some(100.0));
         assert_eq!(trend[5].get("value").and_then(|v| v.as_f64()), Some(200.0));

@@ -14,9 +14,7 @@ use crate::model::{
     UiNodeDecl,
 };
 
-use super::entry_payload::helpers::{
-    insert_resource_if_absent, load_resources_from_capsule_file,
-};
+use super::entry_payload::helpers::{insert_resource_if_absent, load_resources_from_capsule_file};
 
 const IMPORTED_RESOURCE_DOC: &str =
     "see docs/mei-lang/implementation/syntax/12-public-scene-capsule-migration-and-diagnostics.md";
@@ -85,7 +83,13 @@ fn scan_ui_node_imported_refs(
         UiNodeDecl::Panel(panel) => {
             scan_panel_imported_refs(panel, authorized_ids, merged_ids, target_file, diagnostics);
             for child in &panel.blocks {
-                scan_ui_node_imported_refs(child, authorized_ids, merged_ids, target_file, diagnostics);
+                scan_ui_node_imported_refs(
+                    child,
+                    authorized_ids,
+                    merged_ids,
+                    target_file,
+                    diagnostics,
+                );
             }
         }
         UiNodeDecl::Block(block) => {
@@ -171,7 +175,11 @@ fn imported_world_ref_id(
     merged_ids: &BTreeSet<String>,
 ) -> Option<String> {
     let ref_kind = map.get("__ref").and_then(Value::as_str)?;
-    if ref_kind != "dataset" && ref_kind != "metric" && ref_kind != "resource" && ref_kind != "entity" {
+    if ref_kind != "dataset"
+        && ref_kind != "metric"
+        && ref_kind != "resource"
+        && ref_kind != "entity"
+    {
         return None;
     }
     let id = map
@@ -253,16 +261,12 @@ fn validate_embed_capsule_ui_bindings(
         return;
     }
     let mut effective_resources = host_resources.to_vec();
-    if let Ok(mut capsule_resources) = load_resources_from_capsule_file(app_root, path)
-    {
+    if let Ok(mut capsule_resources) = load_resources_from_capsule_file(app_root, path) {
         for resource in capsule_resources.drain(..) {
             insert_resource_if_absent(&mut effective_resources, resource);
         }
     }
-    let resource_ids: BTreeSet<String> = effective_resources
-        .iter()
-        .map(|r| r.id.clone())
-        .collect();
+    let resource_ids: BTreeSet<String> = effective_resources.iter().map(|r| r.id.clone()).collect();
     let metric_ids: BTreeSet<String> = effective_resources
         .iter()
         .filter_map(|resource| resource.dataset.as_ref())
@@ -506,7 +510,11 @@ fn resource_ref_issue(
             "误用 `world_ref` 作资源选择器；`world_ref` 仅用于 scene.world 单例槽位，资源消费请用 dataset_ref/resource_ref/metric_ref".to_string(),
         ));
     }
-    if ref_kind != "dataset" && ref_kind != "metric" && ref_kind != "resource" && ref_kind != "entity" {
+    if ref_kind != "dataset"
+        && ref_kind != "metric"
+        && ref_kind != "resource"
+        && ref_kind != "entity"
+    {
         return None;
     }
     if has_external_locator(map) {
@@ -605,7 +613,13 @@ mod tests {
             }],
         };
         let mut diagnostics = Vec::new();
-        validate_scene_ui_data_bindings(&contract, &[], Path::new("."), "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(
+            &contract,
+            &[],
+            Path::new("."),
+            "entry.mei",
+            &mut diagnostics,
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "forbidden_direct_ui_data_binding");
     }
@@ -728,7 +742,13 @@ mod tests {
             document: None,
             dataset: None,
         }];
-        validate_scene_ui_data_bindings(&contract, &resources, Path::new("."), "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(
+            &contract,
+            &resources,
+            Path::new("."),
+            "entry.mei",
+            &mut diagnostics,
+        );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].code, "misused_world_ref_in_props");
     }
@@ -781,7 +801,13 @@ mod tests {
             document: None,
             dataset: None,
         }];
-        validate_scene_ui_data_bindings(&contract, &resources, Path::new("."), "entry.mei", &mut diagnostics);
+        validate_scene_ui_data_bindings(
+            &contract,
+            &resources,
+            Path::new("."),
+            "entry.mei",
+            &mut diagnostics,
+        );
         assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 

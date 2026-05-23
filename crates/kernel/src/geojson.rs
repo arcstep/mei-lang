@@ -25,10 +25,7 @@ fn feature_values(root: &Value) -> Vec<Value> {
             .cloned()
             .unwrap_or_default(),
         Some("Feature") => vec![root.clone()],
-        _ => root
-            .as_array()
-            .cloned()
-            .unwrap_or_default(),
+        _ => root.as_array().cloned().unwrap_or_default(),
     }
 }
 

@@ -1,5 +1,5 @@
-mod cache;
 mod authoring;
+mod cache;
 mod entries;
 mod examples;
 mod features;

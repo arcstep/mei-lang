@@ -111,11 +111,7 @@ fn materialize_one_legacy_dataset(
         stage_schema: Vec::new(),
         columns,
         rows,
-        source: legacy_dataset_source_decl(
-            &decl.source,
-            &decl.dataset.normalize,
-            source_truncated,
-        ),
+        source: legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, source_truncated),
         sources: Vec::new(),
         metrics,
         runtime_metric_defs: decl.metrics.clone(),
@@ -134,7 +130,9 @@ fn load_legacy_rows_from_source(
     app_root: &Path,
     source: &LegacySourceDecl,
 ) -> Result<LegacyRowsSnapshot> {
-    cached_load_legacy_rows_from_source(app_root, source, || load_legacy_rows_from_source_inner(app_root, source))
+    cached_load_legacy_rows_from_source(app_root, source, || {
+        load_legacy_rows_from_source_inner(app_root, source)
+    })
 }
 
 fn load_legacy_rows_from_source_inner(

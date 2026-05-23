@@ -38,8 +38,7 @@ pub(super) fn compile_scene_payload_for_target_uncached(
                 &entry_decls,
                 route_meta,
                 scene_registry,
-            )
-            {
+            ) {
                 Ok(payload) => payload,
                 Err(error) => CompiledScenePayload {
                     diagnostics: vec![Diagnostic {

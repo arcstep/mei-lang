@@ -186,16 +186,10 @@ frame.add_panel(
         .dataset
         .as_ref()
         .expect("world metrics resource payload");
-    assert!(
-        world_metrics_dataset
-            .metrics
-            .contains_key("warning_supervision")
-    );
-    assert!(
-        world_metrics_dataset
-            .metrics
-            .contains_key("warning_models")
-    );
+    assert!(world_metrics_dataset
+        .metrics
+        .contains_key("warning_supervision"));
+    assert!(world_metrics_dataset.metrics.contains_key("warning_models"));
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -489,7 +483,8 @@ frame.add_panel(id = "p1", area = "auto", blocks = [doc.markdown(area = "auto", 
 "#,
     );
 
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile app_add_scene scene_ref");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile app_add_scene scene_ref");
     assert!(
         compiled
             .scene_routes
@@ -776,7 +771,8 @@ frame.add_panel(id = "inner", area = "auto", blocks = [])
 "#,
     );
 
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile panel_ref in frame.panels");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile panel_ref in frame.panels");
     assert!(
         compiled
             .diagnostics
@@ -816,7 +812,8 @@ exports.append({"component": {
 "#,
     );
 
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile top-level panel_ref embed");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile top-level panel_ref embed");
     assert!(
         compiled.diagnostics.iter().any(|diag| {
             (diag.code == "panel_ref_embed_removed" || diag.code == "top_level_panel_ref_embed")
@@ -865,7 +862,8 @@ frame()
 "#,
     );
 
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile legacy panel_capsule_ref");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile legacy panel_capsule_ref");
     assert!(
         compiled.diagnostics.iter().any(|diag| {
             diag.code == "deprecated_panel_capsule_ref"
@@ -1243,7 +1241,11 @@ frame(
     let contract = compiled.scene_contract.expect("contract");
     assert_eq!(contract.panels.len(), 2);
     let row1 = contract.panels.iter().find(|p| p.id == "r1").expect("r1");
-    assert_eq!(row1.blocks.len(), 3, "row should have 3 horizontal nested panels");
+    assert_eq!(
+        row1.blocks.len(),
+        3,
+        "row should have 3 horizontal nested panels"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 
@@ -1316,7 +1318,10 @@ frame(
     );
     let compiled = compile_app_from_root(&root, &app_root).expect("compile bad panel base");
     assert!(
-        compiled.diagnostics.iter().any(|d| d.code == "invalid_panel_base_ref_kind"),
+        compiled
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "invalid_panel_base_ref_kind"),
         "expected invalid_panel_base_ref_kind: {:?}",
         compiled.diagnostics
     );

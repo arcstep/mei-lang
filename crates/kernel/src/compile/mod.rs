@@ -29,10 +29,10 @@ mod materialize;
 mod materialize_cache;
 mod mutations;
 mod panel_normalize;
-mod scene_payload_cache;
 mod resources;
 mod scene;
 mod scene_binding;
+mod scene_payload_cache;
 mod ui_data_policy;
 
 use ui_data_policy::validate_imported_catalog_world_refs;
@@ -44,8 +44,8 @@ use catalog::{
 };
 use entry_payload::CompiledScenePayload;
 use materialize::{append_world_metrics_dataset_resource, materialize_world_metrics};
-use scene_payload_cache::compile_scene_payload_for_target;
 use scene::{find_scene_route, resolve_scene_routes};
+use scene_payload_cache::compile_scene_payload_for_target;
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
 /// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
@@ -81,7 +81,10 @@ fn try_push_discovered_entry_route(
 }
 
 fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str>) -> bool {
-    let Some(preview) = preview_target.map(str::trim).filter(|target| !target.is_empty()) else {
+    let Some(preview) = preview_target
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+    else {
         return false;
     };
     route.target_file == preview
@@ -99,9 +102,8 @@ fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
 
 /// Manage 态打开 dataset 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
 fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
-    manage_preview_target(options).is_some_and(|preview| {
-        preview.starts_with("data/") || preview.contains("/datasets/")
-    })
+    manage_preview_target(options)
+        .is_some_and(|preview| preview.starts_with("data/") || preview.contains("/datasets/"))
 }
 
 /// Manage 态按 `?file=scenes/...` 预览 widget/layout 等：只编译该入口 scene，不编译 home 与其它路由。
@@ -392,17 +394,73 @@ pub fn compile_app_from_root_with_options(
         .filter(|target| !target.is_empty())
         .map(|value| value.to_string());
 
-    let (active_scene, active_target_file, mut active_payload) = if let Some(target_file) =
-        selected_target
-    {
-        if let Some(scene_route) = route_registry
-            .routes
-            .iter()
-            .find(|route| route.target_file == target_file)
-            .cloned()
-        {
+    let (active_scene, active_target_file, mut active_payload) =
+        if let Some(target_file) = selected_target {
+            if let Some(scene_route) = route_registry
+                .routes
+                .iter()
+                .find(|route| route.target_file == target_file)
+                .cloned()
+            {
+                let payload = official_results
+                    .get(&scene_route.scene_id)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        compile_scene_payload_for_target(
+                            app_root,
+                            source_root,
+                            &app_decls,
+                            &asset_map,
+                            target_file.as_str(),
+                            Some(&scene_route),
+                            &scene_registry,
+                        )
+                    });
+                (Some(scene_route.scene_id), target_file, payload)
+            } else {
+                let payload = compile_scene_payload_for_target(
+                    app_root,
+                    source_root,
+                    &app_decls,
+                    &asset_map,
+                    target_file.as_str(),
+                    None,
+                    &scene_registry,
+                );
+                if target_file == "main.mei" && payload.scene_contract.is_none() {
+                    let fallback_route = active_route_meta.clone().or_else(|| {
+                        route_registry
+                            .default_scene_id
+                            .as_deref()
+                            .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+                            .cloned()
+                    });
+                    if let Some(route_meta) = fallback_route {
+                        let fallback_payload = official_results
+                            .get(&route_meta.scene_id)
+                            .cloned()
+                            .unwrap_or_else(|| {
+                                compile_scene_payload_for_target(
+                                    app_root,
+                                    source_root,
+                                    &app_decls,
+                                    &asset_map,
+                                    route_meta.target_file.as_str(),
+                                    Some(&route_meta),
+                                    &scene_registry,
+                                )
+                            });
+                        (Some(route_meta.scene_id), target_file, fallback_payload)
+                    } else {
+                        (None, target_file, payload)
+                    }
+                } else {
+                    (None, target_file, payload)
+                }
+            }
+        } else if let Some(route_meta) = active_route_meta {
             let payload = official_results
-                .get(&scene_route.scene_id)
+                .get(&route_meta.scene_id)
                 .cloned()
                 .unwrap_or_else(|| {
                     compile_scene_payload_for_target(
@@ -410,84 +468,27 @@ pub fn compile_app_from_root_with_options(
                         source_root,
                         &app_decls,
                         &asset_map,
-                        target_file.as_str(),
-                        Some(&scene_route),
+                        route_meta.target_file.as_str(),
+                        Some(&route_meta),
                         &scene_registry,
                     )
                 });
-            (Some(scene_route.scene_id), target_file, payload)
+            (Some(route_meta.scene_id), route_meta.target_file, payload)
         } else {
-            let payload = compile_scene_payload_for_target(
-                app_root,
-                source_root,
-                &app_decls,
-                &asset_map,
-                target_file.as_str(),
+            (
                 None,
-                &scene_registry,
-            );
-            if target_file == "main.mei" && payload.scene_contract.is_none() {
-                let fallback_route = active_route_meta.clone().or_else(|| {
-                    route_registry
-                        .default_scene_id
-                        .as_deref()
-                        .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-                        .cloned()
-                });
-                if let Some(route_meta) = fallback_route {
-                    let fallback_payload = official_results
-                        .get(&route_meta.scene_id)
-                        .cloned()
-                        .unwrap_or_else(|| {
-                            compile_scene_payload_for_target(
-                                app_root,
-                                source_root,
-                                &app_decls,
-                                &asset_map,
-                                route_meta.target_file.as_str(),
-                                Some(&route_meta),
-                                &scene_registry,
-                            )
-                        });
-                    (Some(route_meta.scene_id), target_file, fallback_payload)
-                } else {
-                    (None, target_file, payload)
-                }
-            } else {
-                (None, target_file, payload)
-            }
-        }
-    } else if let Some(route_meta) = active_route_meta {
-        let payload = official_results
-            .get(&route_meta.scene_id)
-            .cloned()
-            .unwrap_or_else(|| {
+                "main.mei".to_string(),
                 compile_scene_payload_for_target(
                     app_root,
                     source_root,
                     &app_decls,
                     &asset_map,
-                    route_meta.target_file.as_str(),
-                    Some(&route_meta),
+                    "main.mei",
+                    None,
                     &scene_registry,
-                )
-            });
-        (Some(route_meta.scene_id), route_meta.target_file, payload)
-    } else {
-        (
-            None,
-            "main.mei".to_string(),
-            compile_scene_payload_for_target(
-                app_root,
-                source_root,
-                &app_decls,
-                &asset_map,
-                "main.mei",
-                None,
-                &scene_registry,
-            ),
-        )
-    };
+                ),
+            )
+        };
 
     diagnostics.append(&mut active_payload.diagnostics);
 

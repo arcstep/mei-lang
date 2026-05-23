@@ -220,7 +220,8 @@ pub fn deserialize_ui_node_value(value: Value) -> Result<UiNodeDecl, String> {
             .map(UiNodeDecl::Panel)
             .map_err(|error| error.to_string());
     }
-    if value.get("use_key").is_some() || value.get("kind").and_then(Value::as_str) == Some("block") {
+    if value.get("use_key").is_some() || value.get("kind").and_then(Value::as_str) == Some("block")
+    {
         return serde_json::from_value::<BlockDecl>(value)
             .map(UiNodeDecl::Block)
             .map_err(|error| error.to_string());
@@ -327,6 +328,20 @@ pub struct ThemeDecl {
     pub heading: Value,
     #[serde(default)]
     pub font: Value,
+    #[serde(default)]
+    pub metric_label: Value,
+    #[serde(default)]
+    pub metric_value: Value,
+    #[serde(default)]
+    pub metric_unit: Value,
+    #[serde(default)]
+    pub metric_desc: Value,
+    #[serde(default)]
+    pub metric_sub_label: Value,
+    #[serde(default)]
+    pub metric_sub_value: Value,
+    #[serde(default)]
+    pub metric_sub_unit: Value,
     #[serde(default)]
     pub tokens: Value,
     /// 组件级默认配置（如 `dataset_table.cell_preview_max_chars`），由预览 `_mei.components` 下发。

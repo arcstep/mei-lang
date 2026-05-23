@@ -61,7 +61,10 @@ fn components_revision(source_root: &Path) -> u128 {
 }
 
 fn normalize_target_file(target_file: &str) -> String {
-    target_file.trim().trim_start_matches("./").replace('\\', "/")
+    target_file
+        .trim()
+        .trim_start_matches("./")
+        .replace('\\', "/")
 }
 
 pub(crate) fn scene_payload_cache_key(

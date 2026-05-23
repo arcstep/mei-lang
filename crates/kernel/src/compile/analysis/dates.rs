@@ -10,17 +10,13 @@ pub(super) fn parse_row_date(row: &Value, field: &str) -> Option<(i32, u32, u32)
 
 pub(super) fn parse_date_value(value: &Value) -> Option<(i32, u32, u32)> {
     match value {
-        Value::String(raw) => {
-            parse_date_text(raw).or_else(|| {
-                raw.trim()
-                    .parse::<f64>()
-                    .ok()
-                    .and_then(parse_excel_serial_date)
-            })
-        }
-        Value::Number(number) => number
-            .as_f64()
-            .and_then(parse_excel_serial_date),
+        Value::String(raw) => parse_date_text(raw).or_else(|| {
+            raw.trim()
+                .parse::<f64>()
+                .ok()
+                .and_then(parse_excel_serial_date)
+        }),
+        Value::Number(number) => number.as_f64().and_then(parse_excel_serial_date),
         _ => None,
     }
 }
@@ -58,7 +54,9 @@ fn parse_excel_serial_date(serial: f64) -> Option<(i32, u32, u32)> {
         return None;
     }
     let days = serial.floor() as i32;
-    Some(civil_ymd_from_days(civil_days_from_ymd(1899, 12, 30) + days))
+    Some(civil_ymd_from_days(
+        civil_days_from_ymd(1899, 12, 30) + days,
+    ))
 }
 
 /// Proleptic Gregorian civil days (Howard Hinnant).
@@ -223,11 +221,9 @@ mod tests {
         ];
         let filtered = filter_rows_in_latest_days(&rows, "检查日期", 7);
         assert_eq!(filtered.len(), 2);
-        assert!(
-            filtered
-                .iter()
-                .all(|row| row.get("检查日期").and_then(|v| v.as_f64()) != Some(45950.0))
-        );
+        assert!(filtered
+            .iter()
+            .all(|row| row.get("检查日期").and_then(|v| v.as_f64()) != Some(45950.0)));
     }
 
     #[test]
@@ -243,6 +239,9 @@ mod tests {
     fn parse_common_date_strings() {
         assert_eq!(parse_date_text("2024-06-15"), Some((2024, 6, 15)));
         assert_eq!(parse_date_text("2024/6/15"), Some((2024, 6, 15)));
-        assert_eq!(parse_date_value(&json!("2024年6月15日")), Some((2024, 6, 15)));
+        assert_eq!(
+            parse_date_value(&json!("2024年6月15日")),
+            Some((2024, 6, 15))
+        );
     }
 }

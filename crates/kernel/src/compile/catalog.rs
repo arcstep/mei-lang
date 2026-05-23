@@ -25,7 +25,9 @@ fn merge_dataset_resource(existing: &mut LoadedResource, incoming: LoadedResourc
         return;
     };
     for (metric_id, metric) in &incoming_ds.metrics {
-        existing_ds.metrics.insert(metric_id.clone(), metric.clone());
+        existing_ds
+            .metrics
+            .insert(metric_id.clone(), metric.clone());
     }
     for (metric_id, raw) in &incoming_ds.runtime_metric_defs {
         existing_ds
@@ -77,7 +79,9 @@ pub struct DatasetCatalogFilter {
 
 impl DatasetCatalogFilter {
     pub fn is_active(&self) -> bool {
-        !self.resource_ids.is_empty() || !self.metric_ids.is_empty() || !self.dataset_paths.is_empty()
+        !self.resource_ids.is_empty()
+            || !self.metric_ids.is_empty()
+            || !self.dataset_paths.is_empty()
     }
 }
 
@@ -271,18 +275,15 @@ fn collect_dataset_catalog_mei_files(app_root: &Path) -> Vec<String> {
         if !root.is_dir() {
             continue;
         }
-        for entry in WalkDir::new(&root)
-            .into_iter()
-            .filter_entry(|entry| {
-                let name = entry.file_name().to_string_lossy();
-                if entry.depth() > 0 {
-                    if matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".mei") {
-                        return false;
-                    }
+        for entry in WalkDir::new(&root).into_iter().filter_entry(|entry| {
+            let name = entry.file_name().to_string_lossy();
+            if entry.depth() > 0 {
+                if matches!(name.as_ref(), ".git" | "node_modules" | "target" | ".mei") {
+                    return false;
                 }
-                true
-            })
-        {
+            }
+            true
+        }) {
             let Ok(entry) = entry else { continue };
             if !entry.file_type().is_file() {
                 continue;
@@ -486,14 +487,11 @@ fn parse_quoted_string(input: &str) -> Option<String> {
 }
 
 fn normalize_rel_path(path: &str) -> String {
-    path.trim()
-        .trim_start_matches("./")
-        .replace('\\', "/")
+    path.trim().trim_start_matches("./").replace('\\', "/")
 }
 
 fn file_declares_resource_id(content: &str, id: &str) -> bool {
-    content.contains(&format!("id = \"{id}\""))
-        || content.contains(&format!("id=\"{id}\""))
+    content.contains(&format!("id = \"{id}\"")) || content.contains(&format!("id=\"{id}\""))
 }
 
 fn file_declares_metric_id(content: &str, id: &str) -> bool {
@@ -666,10 +664,8 @@ mod tests {
     fn inactive_filter_compiles_no_catalog_files() {
         let filter = DatasetCatalogFilter::default();
         assert!(!filter.is_active());
-        let root = std::env::temp_dir().join(format!(
-            "mei-catalog-inactive-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("mei-catalog-inactive-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("scenes")).unwrap();
         fs::write(
@@ -677,8 +673,16 @@ mod tests {
             r#"app(id = "t") scene = scene_ref(scene_file = "scenes/a.mei")"#,
         )
         .unwrap();
-        fs::write(root.join("scenes/a.mei"), r#"scene(id="a") world() frame()"#).unwrap();
-        fs::write(root.join("scenes/b.mei"), r#"scene(id="b") world() frame()"#).unwrap();
+        fs::write(
+            root.join("scenes/a.mei"),
+            r#"scene(id="a") world() frame()"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("scenes/b.mei"),
+            r#"scene(id="b") world() frame()"#,
+        )
+        .unwrap();
         let out = compile_dataset_catalog_resources(
             &root,
             &root,
@@ -692,10 +696,7 @@ mod tests {
 
     #[test]
     fn build_filter_never_returns_none_and_expands_panel_ref() {
-        let root = std::env::temp_dir().join(format!(
-            "mei-catalog-embed-{}",
-            std::process::id()
-        ));
+        let root = std::env::temp_dir().join(format!("mei-catalog-embed-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("scenes/layouts")).unwrap();
         fs::write(
@@ -748,9 +749,6 @@ frame.add_panel(id = "child_panel", area = "auto", blocks = [])
         "#;
         let tokens = extract_metric_ref_tokens(src);
         assert!(tokens.contains(&("sales_total".to_string(), None)));
-        assert!(tokens.contains(&(
-            "alerts_total".to_string(),
-            Some("warning_view".to_string())
-        )));
+        assert!(tokens.contains(&("alerts_total".to_string(), Some("warning_view".to_string()))));
     }
 }

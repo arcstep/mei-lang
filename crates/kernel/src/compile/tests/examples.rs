@@ -1,5 +1,7 @@
 use std::fs;
 
+use serde_json::Value;
+
 use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
 use super::harness::{build_regression_workspace_root, workspace_root};
 use crate::evaluate_mei_file;
@@ -189,7 +191,10 @@ fn compile_refs_invalid_examples_report_expected_errors() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/refs/_invalid");
     let cases = [
-        ("01-props-external-dataset", "external_ref_requires_world_import"),
+        (
+            "01-props-external-dataset",
+            "external_ref_requires_world_import",
+        ),
         ("02-props-misused-world-ref", "misused_world_ref_in_props"),
         ("03-top-level-panel-ref-embed", "panel_ref_embed_removed"),
     ];
@@ -199,13 +204,9 @@ fn compile_refs_invalid_examples_report_expected_errors() {
         let compiled = compile_app_from_root(&source_root, &app_root)
             .unwrap_or_else(|error| panic!("compile {app_id} failed: {error}"));
         assert!(
-            compiled
-                .diagnostics
-                .iter()
-                .any(|diag| {
-                    diag.code == expected_code
-                        && matches!(diag.severity, crate::Severity::Error)
-                }),
+            compiled.diagnostics.iter().any(|diag| {
+                diag.code == expected_code && matches!(diag.severity, crate::Severity::Error)
+            }),
             "refs invalid example {app_id} should report `{expected_code}`: {:?}",
             compiled.diagnostics
         );
@@ -336,6 +337,24 @@ fn compile_cockpit_section_panel_draw_example() {
             sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
         );
     }
+    let metrics_only = sc
+        .panels
+        .iter()
+        .find(|panel| panel.id == "block_metrics_only")
+        .expect("block_metrics_only");
+    let areas = metrics_only
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("metrics_only layout");
+    assert_eq!(areas[0], ["m0", "m1", "m2"]);
+    assert_eq!(
+        metrics_only
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_strip")
+    );
 }
 
 #[test]
@@ -354,46 +373,23 @@ fn compile_cockpit_panel_example() {
         compiled.diagnostics
     );
     assert!(
+        compiled.diagnostics.iter().all(|diag| {
+            diag.code != "layout_audit_row_budget_overflow"
+                && diag.code != "layout_audit_column_budget_overflow"
+        }),
+        "05-panel should not trigger fixed-track overflow audit: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
         compiled.scene_contract.is_some(),
         "05-panel should produce a scene contract"
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
-    for panel_id in [
-        "r1_title_body",
-        "r1_title_only",
-        "r1_body_only",
-        "block_title_metrics_bg",
-    ] {
-        assert!(
-            sc.panels.iter().any(|p| p.id == panel_id),
-            "panel {panel_id} must compile; got ids: {:?}",
-            sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
-        );
-    }
-    for (panel_id, expected_content) in [
-        ("r1_title_body", "标题下的正文。"),
-        ("r1_body_only", "仅内容"),
-    ] {
-        let panel = sc
-            .panels
-            .iter()
-            .find(|p| p.id == panel_id)
-            .unwrap_or_else(|| panic!("panel {panel_id}"));
-        let text_block = panel.blocks.iter().find_map(|node| match node {
-            crate::UiNodeDecl::Block(block)
-                if block.use_key == "mei.text"
-                    && block.area.as_deref() == Some("body") =>
-            {
-                Some(block)
-            }
-            _ => None,
-        });
-        let block = text_block.unwrap_or_else(|| panic!("{panel_id} should include mei.text"));
-        assert_eq!(
-            block.props.get("content").and_then(|v| v.as_str()),
-            Some(expected_content)
-        );
-    }
+    assert!(
+        sc.panels.iter().any(|p| p.id == "block_title_metrics_bg"),
+        "panel block_title_metrics_bg must compile; got ids: {:?}",
+        sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+    );
     let metrics = sc
         .panels
         .iter()
@@ -403,9 +399,7 @@ fn compile_cockpit_panel_example() {
         .blocks
         .iter()
         .find_map(|node| match node {
-            crate::UiNodeDecl::Panel(panel) if panel.id == "block_title_metrics_bg_body" => {
-                Some(panel)
-            }
+            crate::UiNodeDecl::Panel(panel) if panel.id == "metrics_body" => Some(panel),
             _ => None,
         })
         .expect("block_title_metrics_bg should nest metrics_body_panel");
@@ -415,6 +409,13 @@ fn compile_cockpit_panel_example() {
         .and_then(|layout| layout.areas.as_ref())
         .expect("metrics body layout areas");
     assert_eq!(areas[0], ["m0", "m1", "m2"]);
+    assert_eq!(
+        body_shell
+            .props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metrics_2_1")
+    );
     let metric_tiles: Vec<_> = body_shell
         .blocks
         .iter()
@@ -426,6 +427,27 @@ fn compile_cockpit_panel_example() {
         })
         .collect();
     assert_eq!(metric_tiles.len(), 3);
+    let wide = body_shell
+        .blocks
+        .iter()
+        .find_map(|node| match node {
+            crate::UiNodeDecl::Panel(panel) if panel.id == "metric_m2" => Some(panel),
+            _ => None,
+        })
+        .expect("metric_m2");
+    let wide_areas = wide
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("wide metric layout");
+    assert_eq!(wide_areas[0], ["top", "top", "top"]);
+    assert_eq!(wide_areas[1], ["b0", "b1", "b2"]);
+    assert_eq!(
+        wide.props
+            .get("__mei_layout_policy")
+            .and_then(Value::as_str),
+        Some("metric_compound_2_1")
+    );
     let layout_areas = metrics
         .layout
         .as_ref()

@@ -269,9 +269,7 @@ pub(super) fn load_panel_from_scene_file(
     panels
         .into_iter()
         .find(|panel| panel.id == panel_id)
-        .ok_or_else(|| {
-            anyhow!("panel_ref `{relative_path}` did not contain panel id `{panel_id}`")
-        })
+        .ok_or_else(|| anyhow!("panel_ref `{relative_path}` did not contain panel id `{panel_id}`"))
 }
 
 pub(super) fn load_scene_from_file(
@@ -380,13 +378,10 @@ pub(super) fn load_block_from_scene_file(
         }
     }
     if let Some(id) = block_id.map(str::trim).filter(|id| !id.is_empty()) {
-        if let Some(block) = candidates.iter().find(|block| {
-            block
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                == Some(id)
-        }) {
+        if let Some(block) = candidates
+            .iter()
+            .find(|block| block.get("id").and_then(Value::as_str).map(str::trim) == Some(id))
+        {
             return Ok(block.clone());
         }
         return Err(anyhow!(
@@ -397,11 +392,7 @@ pub(super) fn load_block_from_scene_file(
         let matches: Vec<&Value> = candidates
             .iter()
             .filter(|block| {
-                block
-                    .get("use_key")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    == Some(use_key)
+                block.get("use_key").and_then(Value::as_str).map(str::trim) == Some(use_key)
             })
             .collect();
         return match matches.len() {
@@ -420,8 +411,7 @@ pub(super) fn load_block_from_scene_file(
 }
 
 fn collect_block_candidates(value: &Value, out: &mut Vec<Value>) {
-    if value.get("kind").and_then(Value::as_str) == Some("block")
-        || value.get("use_key").is_some()
+    if value.get("kind").and_then(Value::as_str) == Some("block") || value.get("use_key").is_some()
     {
         out.push(value.clone());
     }

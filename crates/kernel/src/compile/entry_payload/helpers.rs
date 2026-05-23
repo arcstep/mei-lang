@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::model::{
-    Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
-};
+use crate::model::{Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl};
 
 use super::super::decls::{
     LegacyDatasetDecl, LegacyDatasetNodeDecl, LegacyMetricPackDecl, LegacyMetricPackMetaDecl,
@@ -131,7 +129,10 @@ pub(super) fn insert_resource_checked(
 }
 
 /// Panel-ref source imports: only fill ids not already present (host scene world wins on conflict).
-pub(crate) fn insert_resource_if_absent(resources: &mut Vec<LoadedResource>, resource: LoadedResource) {
+pub(crate) fn insert_resource_if_absent(
+    resources: &mut Vec<LoadedResource>,
+    resource: LoadedResource,
+) {
     if resources.iter().any(|item| item.id == resource.id) {
         return;
     }
@@ -244,7 +245,10 @@ pub(crate) fn load_resources_from_capsule_file(
     Ok(resources)
 }
 
-pub(super) fn collect_asset_keys_from_nodes(nodes: &[UiNodeDecl], asset_keys: &mut BTreeSet<String>) {
+pub(super) fn collect_asset_keys_from_nodes(
+    nodes: &[UiNodeDecl],
+    asset_keys: &mut BTreeSet<String>,
+) {
     for node in nodes {
         match node {
             UiNodeDecl::Panel(panel) => collect_asset_keys_from_nodes(&panel.blocks, asset_keys),

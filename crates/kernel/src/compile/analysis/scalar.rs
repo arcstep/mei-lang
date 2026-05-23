@@ -207,10 +207,7 @@ pub(crate) fn eval_scalar_value(
             for rowset in rowsets {
                 total += eval_rowset(&rowset, datasets)?.len();
             }
-            let fallback = object
-                .get("fallback")
-                .and_then(parse_number)
-                .unwrap_or(0.0);
+            let fallback = object.get("fallback").and_then(parse_number).unwrap_or(0.0);
             Ok(json!(total as f64 + fallback))
         }
         "number" => {
@@ -238,7 +235,11 @@ pub(crate) fn eval_scalar_value(
                 .or_else(|| object.get("rowset"))
                 .ok_or_else(|| anyhow!("yoy expression missing series"))?;
             let rows = eval_rowset(series_expr, datasets)?;
-            let offset = if rows.len() > 12 { 12 } else { rows.len().saturating_sub(1).max(1) };
+            let offset = if rows.len() > 12 {
+                12
+            } else {
+                rows.len().saturating_sub(1).max(1)
+            };
             Ok(json!(period_over_period_rate(
                 &rows,
                 series_value_field(object),

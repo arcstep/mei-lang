@@ -146,7 +146,10 @@ fn upsert_metric(target: &mut Vec<serde_json::Value>, metric: &serde_json::Value
         target.push(metric.clone());
         return;
     };
-    if let Some(existing) = target.iter_mut().find(|item| metric_key(item).as_deref() == Some(key.as_str())) {
+    if let Some(existing) = target
+        .iter_mut()
+        .find(|item| metric_key(item).as_deref() == Some(key.as_str()))
+    {
         *existing = metric.clone();
     } else {
         target.push(metric.clone());

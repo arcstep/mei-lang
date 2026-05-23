@@ -59,7 +59,8 @@ fn l2_scene_payload_reused_for_catalog_and_official() {
         scene: None,
         preview_target: Some("scenes/layouts/left.mei".to_string()),
     };
-    let _ = compile_app_from_root_with_options(&root, &root, options.clone()).expect("first compile");
+    let _ =
+        compile_app_from_root_with_options(&root, &root, options.clone()).expect("first compile");
     let after_first = scene_payload_cache_len_for_tests();
     assert!(after_first >= 1, "expected L2 entries after first compile");
     let _ = compile_app_from_root_with_options(&root, &root, options).expect("second compile");
@@ -82,11 +83,13 @@ fn l3_rows_cache_invalidates_on_data_file_change() {
         scene: None,
         preview_target: Some("scenes/child/page.mei".to_string()),
     };
-    let _ = compile_app_from_root_with_options(&root, &root, options.clone()).expect("compile child");
+    let _ =
+        compile_app_from_root_with_options(&root, &root, options.clone()).expect("compile child");
     let rows_after_first = legacy_rows_cache_len_for_tests();
     assert!(rows_after_first >= 1);
 
-    let _ = compile_app_from_root_with_options(&root, &root, options.clone()).expect("compile again");
+    let _ =
+        compile_app_from_root_with_options(&root, &root, options.clone()).expect("compile again");
     assert!(
         legacy_rows_cache_len_for_tests() >= rows_after_first,
         "repeat compile should not shrink L3 rows cache"
@@ -95,7 +98,8 @@ fn l3_rows_cache_invalidates_on_data_file_change() {
     std::thread::sleep(std::time::Duration::from_millis(20));
     fs::write(root.join("data/sample.csv"), "name\nb\n").unwrap();
     clear_scene_payload_cache_for_tests();
-    let _ = compile_app_from_root_with_options(&root, &root, options).expect("compile after data change");
+    let _ = compile_app_from_root_with_options(&root, &root, options)
+        .expect("compile after data change");
     assert!(
         legacy_rows_cache_len_for_tests() >= rows_after_first,
         "data mtime change should produce new L3 row entry"

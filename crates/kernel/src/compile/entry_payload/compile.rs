@@ -18,12 +18,12 @@ use super::super::load_external::{
 };
 use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
 use super::super::mutations::{apply_frame_mutations, apply_world_mutations};
+use super::super::panel_normalize::normalize_panel_slots;
 use super::super::resources::load_resources;
 use super::super::scene_binding::{
     decode_scene_decl, parse_flow_binding, parse_frame_binding, parse_world_binding,
     pick_only_frame, pick_only_world, SceneBinding,
 };
-use super::super::panel_normalize::normalize_panel_slots;
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::clone_merge::{
     normalize_flow_decl, normalize_frame_decl, normalize_world_decl, resolve_entity_slot,
@@ -34,8 +34,8 @@ use super::helpers::{
     decode_world_metric_pack_decl, insert_resource_checked, merge_panel_ref_source_resources,
     partition_world_resources,
 };
-use crate::typed_refs::SceneRegistry;
 use super::CompiledScenePayload;
+use crate::typed_refs::SceneRegistry;
 pub(super) fn compile_scene_payload(
     app_root: &Path,
     asset_map: &std::collections::BTreeMap<String, ComponentAsset>,
@@ -572,8 +572,7 @@ pub(super) fn compile_scene_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_frame".to_string(),
-            message: "scene route requires a frame(...) declaration or frame_ref(...)"
-                .to_string(),
+            message: "scene route requires a frame(...) declaration or frame_ref(...)".to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
@@ -639,8 +638,7 @@ pub(super) fn compile_scene_payload(
         diagnostics.push(Diagnostic {
             severity: Severity::Error,
             code: "missing_world".to_string(),
-            message: "scene entry requires a world(...) declaration or world_ref(...)"
-                .to_string(),
+            message: "scene entry requires a world(...) declaration or world_ref(...)".to_string(),
             source_path: Some(target_file.to_string()),
         });
     }
@@ -853,13 +851,9 @@ fn merge_frame_panel_slots(
     }
     for frame in sources {
         for slot in &frame.panels {
-            if let Some(panel) = resolve_panel_slot(
-                app_root,
-                slot,
-                scene_registry,
-                diagnostics,
-                target_file,
-            ) {
+            if let Some(panel) =
+                resolve_panel_slot(app_root, slot, scene_registry, diagnostics, target_file)
+            {
                 upsert_panel(panels, panel);
             }
         }

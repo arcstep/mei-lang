@@ -82,9 +82,7 @@ fn push_invalid_base_kind(
     diagnostics.push(Diagnostic {
         severity: Severity::Error,
         code: format!("invalid_{kind_label}_base_ref_kind"),
-        message: format!(
-            "{kind_label}(base=...) requires `{expected:?}` ref, got `{got:?}` ref"
-        ),
+        message: format!("{kind_label}(base=...) requires `{expected:?}` ref, got `{got:?}` ref"),
         source_path: Some(target_file.to_string()),
     });
 }
@@ -110,8 +108,13 @@ pub(super) fn resolve_panel_ref(
         });
         return None;
     }
-    let Some(path) = resolve_ref_path(expr, scene_registry, diagnostics, target_file, "panel_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "panel_base_not_resolved",
+    ) else {
         return None;
     };
     let panel = match load_panel_from_scene_file(app_root, path.as_str(), panel_id) {
@@ -129,16 +132,17 @@ pub(super) fn resolve_panel_ref(
     let Some(panel_value) = serde_json::to_value(&panel).ok() else {
         return Some(panel);
     };
-    if let Some(base_value) = panel_value
-        .get("base")
-        .filter(|value| !value.is_null())
-    {
+    if let Some(base_value) = panel_value.get("base").filter(|value| !value.is_null()) {
         let Some(base_expr) = decode_ref_value(base_value) else {
             return Some(panel);
         };
-        let Some(base_panel) =
-            resolve_panel_ref(app_root, &base_expr, scene_registry, diagnostics, target_file)
-        else {
+        let Some(base_panel) = resolve_panel_ref(
+            app_root,
+            &base_expr,
+            scene_registry,
+            diagnostics,
+            target_file,
+        ) else {
             return None;
         };
         let mut overlay = panel_value.clone();
@@ -177,8 +181,13 @@ pub(super) fn resolve_frame_ref(
         push_invalid_base_kind(diagnostics, target_file, "frame", RefKind::Frame, expr.kind);
         return None;
     }
-    let Some(path) = resolve_ref_path(expr, scene_registry, diagnostics, target_file, "frame_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "frame_base_not_resolved",
+    ) else {
         return None;
     };
     let frame_id = expr
@@ -211,8 +220,13 @@ fn resolve_world_ref(
         push_invalid_base_kind(diagnostics, target_file, "world", RefKind::World, expr.kind);
         return None;
     }
-    let Some(path) = resolve_ref_path(expr, scene_registry, diagnostics, target_file, "world_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "world_base_not_resolved",
+    ) else {
         return None;
     };
     let world_id = expr
@@ -245,8 +259,13 @@ fn resolve_flow_ref(
         push_invalid_base_kind(diagnostics, target_file, "flow", RefKind::Flow, expr.kind);
         return None;
     }
-    let Some(path) = resolve_ref_path(expr, scene_registry, diagnostics, target_file, "flow_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "flow_base_not_resolved",
+    ) else {
         return None;
     };
     let flow_id = expr
@@ -279,8 +298,13 @@ fn resolve_scene_ref(
         push_invalid_base_kind(diagnostics, target_file, "scene", RefKind::Scene, expr.kind);
         return None;
     }
-    let Some(path) = resolve_ref_path(expr, scene_registry, diagnostics, target_file, "scene_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "scene_base_not_resolved",
+    ) else {
         return None;
     };
     let scene_id = expr
@@ -338,9 +362,13 @@ fn resolve_resource_ref(
         });
         return None;
     }
-    let Some(path) =
-        resolve_ref_path(expr, scene_registry, diagnostics, target_file, "resource_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "resource_base_not_resolved",
+    ) else {
         return None;
     };
     let expected_kind = overlay_kind.or_else(|| match ref_kind {
@@ -370,7 +398,13 @@ fn resolve_entity_ref(
     target_file: &str,
 ) -> Option<EntityDecl> {
     if expr.kind != RefKind::Entity {
-        push_invalid_base_kind(diagnostics, target_file, "entity", RefKind::Entity, expr.kind);
+        push_invalid_base_kind(
+            diagnostics,
+            target_file,
+            "entity",
+            RefKind::Entity,
+            expr.kind,
+        );
         return None;
     }
     let entity_id = expr.id.as_deref().unwrap_or_default().trim();
@@ -383,9 +417,13 @@ fn resolve_entity_ref(
         });
         return None;
     }
-    let Some(path) =
-        resolve_ref_path(expr, scene_registry, diagnostics, target_file, "entity_base_not_resolved")
-    else {
+    let Some(path) = resolve_ref_path(
+        expr,
+        scene_registry,
+        diagnostics,
+        target_file,
+        "entity_base_not_resolved",
+    ) else {
         return None;
     };
     match load_entity_from_world_file(app_root, path.as_str(), entity_id) {
@@ -608,7 +646,10 @@ pub(super) fn merge_scene_decl(base: SceneDecl, overlay_value: &Value) -> Result
     Ok(merged)
 }
 
-pub(super) fn merge_resource_decl(base: ResourceDecl, overlay_value: &Value) -> Result<ResourceDecl> {
+pub(super) fn merge_resource_decl(
+    base: ResourceDecl,
+    overlay_value: &Value,
+) -> Result<ResourceDecl> {
     let overlay: ResourceDecl = serde_json::from_value(overlay_value.clone())?;
     let mut merged = base;
     if value_has_key(overlay_value, "id") {
@@ -681,7 +722,10 @@ pub(super) fn merge_block_value(base: Value, overlay_value: &Value) -> Value {
             continue;
         }
         if key == "props" {
-            let base_props = merged.get("props").cloned().unwrap_or(Value::Object(Default::default()));
+            let base_props = merged
+                .get("props")
+                .cloned()
+                .unwrap_or(Value::Object(Default::default()));
             merged.insert(key, deep_merge_json(&base_props, &value));
             continue;
         }
@@ -690,10 +734,7 @@ pub(super) fn merge_block_value(base: Value, overlay_value: &Value) -> Value {
                 (merged.get("component"), Some(&value))
             {
                 if base_component.is_object() && overlay_component.is_object() {
-                    merged.insert(
-                        key,
-                        deep_merge_json(base_component, overlay_component),
-                    );
+                    merged.insert(key, deep_merge_json(base_component, overlay_component));
                     continue;
                 }
             }
@@ -712,7 +753,8 @@ pub(super) fn resolve_panel_slot(
     target_file: &str,
 ) -> Option<PanelDecl> {
     if let Some(expr) = decode_ref_value(slot) {
-        if slot.get("kind").and_then(Value::as_str) != Some("panel") && expr.kind == RefKind::Panel {
+        if slot.get("kind").and_then(Value::as_str) != Some("panel") && expr.kind == RefKind::Panel
+        {
             return resolve_panel_ref(app_root, &expr, scene_registry, diagnostics, target_file);
         }
     }
@@ -1015,7 +1057,9 @@ pub(super) fn resolve_resource_slot(
     target_file: &str,
 ) -> Option<ResourceDecl> {
     if let Some(expr) = decode_ref_value(slot) {
-        if resource_ref_kind(&expr).is_some() && !slot.as_object().is_some_and(|m| m.contains_key("id")) {
+        if resource_ref_kind(&expr).is_some()
+            && !slot.as_object().is_some_and(|m| m.contains_key("id"))
+        {
             return resolve_resource_ref(
                 app_root,
                 &expr,
@@ -1061,7 +1105,8 @@ pub(super) fn resolve_entity_slot(
     target_file: &str,
 ) -> Option<EntityDecl> {
     if let Some(expr) = decode_ref_value(slot) {
-        if expr.kind == RefKind::Entity && !slot.as_object().is_some_and(|m| m.contains_key("kind")) {
+        if expr.kind == RefKind::Entity && !slot.as_object().is_some_and(|m| m.contains_key("kind"))
+        {
             return resolve_entity_ref(app_root, &expr, scene_registry, diagnostics, target_file);
         }
     }
@@ -1162,7 +1207,9 @@ pub(super) fn normalize_ui_nodes(
 ) -> Vec<UiNodeDecl> {
     nodes
         .iter()
-        .filter_map(|node| normalize_ui_node(app_root, node, scene_registry, diagnostics, target_file))
+        .filter_map(|node| {
+            normalize_ui_node(app_root, node, scene_registry, diagnostics, target_file)
+        })
         .collect()
 }
 
@@ -1177,8 +1224,14 @@ fn normalize_ui_node(
         UiNodeDecl::Panel(panel) => {
             let value = serde_json::to_value(panel.clone()).ok()?;
             if panel.base.is_some() || value.get("base").is_some() {
-                return resolve_panel_slot(app_root, &value, scene_registry, diagnostics, target_file)
-                    .map(UiNodeDecl::Panel);
+                return resolve_panel_slot(
+                    app_root,
+                    &value,
+                    scene_registry,
+                    diagnostics,
+                    target_file,
+                )
+                .map(UiNodeDecl::Panel);
             }
             let mut panel = panel.clone();
             panel.blocks = normalize_ui_nodes(
@@ -1196,13 +1249,8 @@ fn normalize_ui_node(
                 return Some(node.clone());
             }
             let value = serde_json::to_value(node).ok()?;
-            let normalized = resolve_block_slot(
-                app_root,
-                &value,
-                scene_registry,
-                diagnostics,
-                target_file,
-            )?;
+            let normalized =
+                resolve_block_slot(app_root, &value, scene_registry, diagnostics, target_file)?;
             deserialize_ui_node_value(normalized).ok()
         }
         UiNodeDecl::PanelRefEmbed(embed) => {
@@ -1260,7 +1308,16 @@ pub(super) fn collect_ref_scene_files(value: &Value, out: &mut std::collections:
         }
         Value::Object(map) => {
             for (key, item) in map {
-                if matches!(key.as_str(), "blocks" | "panels" | "resources" | "datasets" | "metrics" | "metric_packs" | "entities") {
+                if matches!(
+                    key.as_str(),
+                    "blocks"
+                        | "panels"
+                        | "resources"
+                        | "datasets"
+                        | "metrics"
+                        | "metric_packs"
+                        | "entities"
+                ) {
                     collect_ref_scene_files(item, out);
                 }
             }

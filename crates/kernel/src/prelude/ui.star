@@ -152,7 +152,7 @@ def _merge_dict(base, overlay):
             out[k] = v
     return out
 
-def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, tokens = None):
+def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, metric_sub_label = None, metric_sub_value = None, metric_sub_unit = None, tokens = None):
     resolved_panel_head = _merge_dict(panel_head, heading)
     return _declare(_clean({
         "kind": "theme",
@@ -168,6 +168,9 @@ def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, 
         "metric_value": metric_value if metric_value != None else {},
         "metric_unit": metric_unit if metric_unit != None else {},
         "metric_desc": metric_desc if metric_desc != None else {},
+        "metric_sub_label": metric_sub_label if metric_sub_label != None else {},
+        "metric_sub_value": metric_sub_value if metric_sub_value != None else {},
+        "metric_sub_unit": metric_sub_unit if metric_sub_unit != None else {},
         "tokens": tokens if tokens != None else {},
     }))
 
@@ -197,7 +200,7 @@ def _merge_head_props(head_props = None, heading = None, heading_variant = None)
         merged["variant"] = heading_variant
     return merged
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""
     else:
@@ -220,6 +223,22 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         panel_props["chrome"] = chrome
     if show_heading != None:
         panel_props["show_heading"] = show_heading
+    if layout_policy != None and str(layout_policy).strip() != "":
+        panel_props["__mei_layout_policy"] = str(layout_policy).strip()
+    if layout_gap != None and str(layout_gap).strip() != "":
+        panel_props["__mei_layout_gap"] = str(layout_gap).strip()
+    if layout_padding != None and str(layout_padding).strip() != "":
+        panel_props["__mei_layout_padding"] = str(layout_padding).strip()
+    if type(layout_columns) == "list" and len(layout_columns) > 0:
+        panel_props["__mei_layout_columns"] = layout_columns
+    if title_background != None:
+        panel_head_props["background"] = title_background
+    if title_decor != None:
+        panel_head_props["carets"] = title_decor
+    if title_height != None:
+        panel_head_props["height"] = title_height
+    if title_align != None:
+        panel_head_props["align"] = title_align
     variant_key = variant
     if type(variant_key) == "string":
         variant_norm = variant_key.strip().lower()
@@ -245,7 +264,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         payload["blocks"] = blocks
     return _clean(payload)
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
     return _panel_node(
         id = id,
         title = title,
@@ -263,10 +282,18 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        title_background = title_background,
+        title_decor = title_decor,
+        title_height = title_height,
+        title_align = title_align,
+        layout_policy = layout_policy,
+        layout_gap = layout_gap,
+        layout_padding = layout_padding,
+        layout_columns = layout_columns,
         base = base,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, base = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -284,10 +311,18 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        title_background = title_background,
+        title_decor = title_decor,
+        title_height = title_height,
+        title_align = title_align,
+        layout_policy = layout_policy,
+        layout_gap = layout_gap,
+        layout_padding = layout_padding,
+        layout_columns = layout_columns,
         base = base,
     ))
 
-def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
+def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None):
     return panel(
         id = id,
         title = title,
@@ -302,9 +337,17 @@ def box(id = None, title = None, area = None, layout = None, blocks = [], data =
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        title_background = title_background,
+        title_decor = title_decor,
+        title_height = title_height,
+        title_align = title_align,
+        layout_policy = layout_policy,
+        layout_gap = layout_gap,
+        layout_padding = layout_padding,
+        layout_columns = layout_columns,
     )
 
-def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None):
+def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None):
     return panel_decl(
         id = id,
         title = title,
@@ -319,6 +362,14 @@ def box_decl(id = None, title = None, area = None, layout = None, blocks = [], d
         show_heading = show_heading,
         heading = heading,
         heading_variant = heading_variant,
+        title_background = title_background,
+        title_decor = title_decor,
+        title_height = title_height,
+        title_align = title_align,
+        layout_policy = layout_policy,
+        layout_gap = layout_gap,
+        layout_padding = layout_padding,
+        layout_columns = layout_columns,
     )
 
 def component(use = None, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = None, interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None, base = None):

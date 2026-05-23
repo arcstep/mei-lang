@@ -132,8 +132,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     );
     assert!(
         compiled.scene_routes.iter().any(|r| {
-            r.scene_id == "typical_cases"
-                && r.target_file == "scenes/5_典型案例/监督典型案例.mei"
+            r.scene_id == "typical_cases" && r.target_file == "scenes/5_典型案例/监督典型案例.mei"
         }),
         "expected typical_cases in app route registry for access/manage deep links, got: {:?}",
         compiled
@@ -251,7 +250,10 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
     )
     .expect("compile spbjw whitelist with filename-like scene query");
     assert_eq!(compiled.active_target_file, target);
-    assert_eq!(compiled.active_scene.as_deref(), Some("enterprise_whitelist"));
+    assert_eq!(
+        compiled.active_scene.as_deref(),
+        Some("enterprise_whitelist")
+    );
     assert!(
         !compiled
             .diagnostics
@@ -277,7 +279,10 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
         },
     )
     .expect("compile spbjw whitelist scene+focus");
-    assert_eq!(compiled.active_scene.as_deref(), Some("enterprise_whitelist"));
+    assert_eq!(
+        compiled.active_scene.as_deref(),
+        Some("enterprise_whitelist")
+    );
     assert_eq!(compiled.active_target_file, target);
     assert!(
         !compiled
@@ -764,6 +769,9 @@ theme(
         "1": "12px",
         "2": "14px",
     },
+    metric_label = {"font": "2"},
+    metric_value = {"font": "4"},
+    metric_unit = {"font": "1"},
     tokens = {
         "color": {
             "text_primary": "#e2e8f0",
@@ -807,6 +815,13 @@ frame.add_panel(
             .get("1")
             .and_then(|value| value.as_str()),
         Some("12px")
+    );
+    assert_eq!(
+        contract.themes[0]
+            .metric_value
+            .get("font")
+            .and_then(|value| value.as_str()),
+        Some("4")
     );
     assert_eq!(
         contract.panels[0]
@@ -865,7 +880,10 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .iter()
         .find(|p| p.id == "enforcement_elements_stats")
         .expect("enforcement stats panel from panel_ref");
-    let panel_layout = stats.layout.as_ref().expect("panel_ref must preserve panel.layout from source");
+    let panel_layout = stats
+        .layout
+        .as_ref()
+        .expect("panel_ref must preserve panel.layout from source");
     assert_eq!(panel_layout.layout_type, "grid");
     assert!(
         !stats.blocks.is_empty(),
@@ -877,7 +895,11 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
             .iter()
             .any(|resource| resource.dataset.is_some()),
         "layout left preview needs selective dataset catalog, got ids: {:?}",
-        compiled.resources.iter().map(|r| r.id.as_str()).collect::<Vec<_>>()
+        compiled
+            .resources
+            .iter()
+            .map(|r| r.id.as_str())
+            .collect::<Vec<_>>()
     );
     let dataset_resources: Vec<_> = compiled
         .resources
@@ -919,7 +941,11 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         .iter()
         .filter(|d| matches!(d.severity, crate::Severity::Error))
         .collect();
-    assert!(errors.is_empty(), "metrics widget preview errors: {:?}", errors);
+    assert!(
+        errors.is_empty(),
+        "metrics widget preview errors: {:?}",
+        errors
+    );
     assert_eq!(
         compiled.active_target_file,
         "scenes/4_监督和问题办理/预警模型.mei"
@@ -970,10 +996,7 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
         "layout right panels should carry blocks from external panel lookup"
     );
     assert!(
-        compiled
-            .resources
-            .iter()
-            .any(|r| r.dataset.is_some()),
+        compiled.resources.iter().any(|r| r.dataset.is_some()),
         "layout right preview should materialize datasets from referenced panels, got: {:?}",
         compiled
             .resources
@@ -1109,11 +1132,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         .iter()
         .filter(|d| matches!(d.severity, crate::Severity::Error))
         .collect();
-    assert!(
-        errors.is_empty(),
-        "home preview errors: {:?}",
-        errors
-    );
+    assert!(errors.is_empty(), "home preview errors: {:?}", errors);
     let contract = compiled
         .scene_contract
         .as_ref()
@@ -1158,7 +1177,10 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     );
     let resource_ids: Vec<_> = compiled.resources.iter().map(|r| r.id.as_str()).collect();
     assert!(
-        compiled.resources.iter().any(|r| r.id == "enforcement_units"),
+        compiled
+            .resources
+            .iter()
+            .any(|r| r.id == "enforcement_units"),
         "home preview catalog should materialize panel_ref datasets, got {resource_ids:?}"
     );
     let viewport = frame
@@ -1207,7 +1229,9 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
         .and_then(|r| r.dataset.as_ref())
         .expect("administrative_inspection");
     assert!(inspection.metrics.contains_key("inspections_total_count"));
-    assert!(inspection.metrics.contains_key("inspections_6m_count_trend"));
+    assert!(inspection
+        .metrics
+        .contains_key("inspections_6m_count_trend"));
     let penalty = compiled
         .resources
         .iter()
@@ -1283,7 +1307,12 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
     let by_park_rows = inspection_by_park
         .value
         .as_array()
-        .or_else(|| inspection_by_park.value.get("value").and_then(|v| v.as_array()))
+        .or_else(|| {
+            inspection_by_park
+                .value
+                .get("value")
+                .and_then(|v| v.as_array())
+        })
         .unwrap_or_else(|| {
             panic!(
                 "dataframe metric rows expected array, got: {}",
@@ -1479,38 +1508,26 @@ frame.add_panel(
 }
 "#,
     );
-    write_file(
-        &root.join("_components/mei/text.js"),
-        "// stub",
-    );
+    write_file(&root.join("_components/mei/text.js"), "// stub");
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile panel head");
     let contract = compiled.scene_contract.expect("scene contract");
     let panel = contract.panels.iter().find(|p| p.id == "p").expect("panel");
     assert!(crate::panel_resolved_has_head(panel));
     let layout = panel.layout.as_ref().expect("layout");
-    assert!(
-        layout
-            .areas
-            .as_ref()
-            .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "head"))
-    );
-    assert!(
-        panel
-            .blocks
-            .iter()
-            .any(|node| matches!(
-                node,
-                crate::UiNodeDecl::Block(block)
-                    if block.area.as_deref() == Some("head")
-                        && block.props.get("content").and_then(|v| v.as_str()) == Some("标题")
-            ))
-    );
-    assert!(
-        panel.blocks.iter().any(|node| matches!(
-            node,
-            crate::UiNodeDecl::Block(block) if block.area.as_deref() == Some("body")
-        ))
-    );
+    assert!(layout
+        .areas
+        .as_ref()
+        .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "head")));
+    assert!(panel.blocks.iter().any(|node| matches!(
+        node,
+        crate::UiNodeDecl::Block(block)
+            if block.area.as_deref() == Some("head")
+                && block.props.get("content").and_then(|v| v.as_str()) == Some("标题")
+    )));
+    assert!(panel.blocks.iter().any(|node| matches!(
+        node,
+        crate::UiNodeDecl::Block(block) if block.area.as_deref() == Some("body")
+    )));
     let _ = fs::remove_dir_all(&root);
 }

@@ -20,13 +20,22 @@ impl std::fmt::Display for RuntimeResourceResolveError {
         match self {
             Self::EmptySelector => write!(f, "dataset selector is required"),
             Self::ForbiddenLegacyId => {
-                write!(f, "dataset selector must be an explicit stable world resource id")
+                write!(
+                    f,
+                    "dataset selector must be an explicit stable world resource id"
+                )
             }
             Self::NotFound { selector } => {
-                write!(f, "dataset `{selector}` not found in active scene resources")
+                write!(
+                    f,
+                    "dataset `{selector}` not found in active scene resources"
+                )
             }
             Self::Ambiguous { selector } => {
-                write!(f, "dataset `{selector}` is ambiguous across scene resources")
+                write!(
+                    f,
+                    "dataset `{selector}` is ambiguous across scene resources"
+                )
             }
             Self::NotDataset { resource_id } => {
                 write!(f, "resource `{resource_id}` is not a dataset")
@@ -99,9 +108,7 @@ pub fn build_runtime_resource_index(compiled: &CompiledApp) -> RuntimeResourceIn
     RuntimeResourceIndex { aliases }
 }
 
-pub fn build_runtime_resource_map(
-    compiled: &CompiledApp,
-) -> BTreeMap<String, LoadedResource> {
+pub fn build_runtime_resource_map(compiled: &CompiledApp) -> BTreeMap<String, LoadedResource> {
     let index = build_runtime_resource_index(compiled);
     let mut map = compiled
         .resources
@@ -175,7 +182,9 @@ pub fn locate_dataset_resource<'a>(
         .filter(|resource| resource.id == canonical)
         .collect();
     match matches.len() {
-        0 => Err(RuntimeResourceResolveError::NotFound { selector: canonical }),
+        0 => Err(RuntimeResourceResolveError::NotFound {
+            selector: canonical,
+        }),
         1 => {
             let resource = matches[0];
             if resource.dataset.is_none() {

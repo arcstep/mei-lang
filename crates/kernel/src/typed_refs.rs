@@ -28,7 +28,10 @@ pub struct SceneLocator {
 
 impl SceneLocator {
     pub fn new(scene_id: Option<String>, scene_file: Option<String>) -> Self {
-        Self { scene_id, scene_file }
+        Self {
+            scene_id,
+            scene_file,
+        }
     }
 
     pub fn with_file(path: impl Into<String>) -> Self {
@@ -69,7 +72,11 @@ impl RefExpr {
     }
 
     pub fn scene(scene_id: Option<String>, scene_file: Option<String>) -> Self {
-        Self::new(RefKind::Scene, None, SceneLocator::new(scene_id, scene_file))
+        Self::new(
+            RefKind::Scene,
+            None,
+            SceneLocator::new(scene_id, scene_file),
+        )
     }
 
     pub fn world(id: Option<String>, locator: SceneLocator) -> Self {
@@ -104,11 +111,7 @@ impl RefExpr {
         Self::new(RefKind::Entity, Some(id.into()), locator)
     }
 
-    pub fn component(
-        id: Option<String>,
-        use_key: Option<String>,
-        locator: SceneLocator,
-    ) -> Self {
+    pub fn component(id: Option<String>, use_key: Option<String>, locator: SceneLocator) -> Self {
         Self {
             kind: RefKind::Component,
             id,
@@ -213,7 +216,10 @@ fn decode_locator(obj: &serde_json::Map<String, Value>) -> SceneLocator {
     SceneLocator::new(scene_id, scene_file)
 }
 
-fn decode_legacy_file_ref(expected_kind: &str, obj: &serde_json::Map<String, Value>) -> Option<RefExpr> {
+fn decode_legacy_file_ref(
+    expected_kind: &str,
+    obj: &serde_json::Map<String, Value>,
+) -> Option<RefExpr> {
     let path = obj.get("path").and_then(Value::as_str)?.trim();
     if path.is_empty() {
         return None;
@@ -342,7 +348,10 @@ impl SceneRegistry {
 }
 
 pub fn normalize_rel_path(path: &str) -> String {
-    path.trim().replace('\\', "/").trim_start_matches("./").to_string()
+    path.trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .to_string()
 }
 
 #[cfg(test)]
@@ -358,7 +367,10 @@ mod tests {
         });
         let expr = decode_ref_value(&value).expect("frame ref");
         assert_eq!(expr.kind, RefKind::Frame);
-        assert_eq!(expr.locator.scene_file.as_deref(), Some("dashboard_base.mei"));
+        assert_eq!(
+            expr.locator.scene_file.as_deref(),
+            Some("dashboard_base.mei")
+        );
     }
 
     #[test]

@@ -1,80 +1,146 @@
 # 指标卡 DSL：
 # - 单卡：metric_card(template|layout, source, map?, patch?)
-# - 组合卡：metric_group(layout, blocks)
+# - 宽卡/组合：panel(layout, blocks=[metric_card(...), ...])
 # - 固定语义槽：label / value / unit / desc
 # - source 直接接 metric_ref(...) 或静态对象
 
-def _metric_text(content, area, role, font = None, align = "center"):
+def _metric_text(content, area, role, font = None, align = None, line_height = None, variant = None):
     props = {"content": content, "metric_role": role}
     if font != None:
         props["font"] = font
     if align != None:
         props["align"] = align
+    if line_height != None:
+        props["line_height"] = line_height
+    if variant != None and str(variant).strip() != "":
+        props["metric_variant"] = str(variant).strip()
     return component(
         "mei.text",
         area = area,
         props = _without_empty(props),
     )
 
-def label(content, area = None, font = None, align = "center"):
-    return _metric_text(content, area, "label", font, align)
+def label(content, area = None, font = None, align = None, line_height = None, variant = None):
+    return _metric_text(content, area, "label", font, align, line_height, variant)
 
-def value(content, area = None, font = None, align = "center"):
-    return _metric_text(content, area, "value", font, align)
+def value(content, area = None, font = None, align = None, line_height = None, variant = None):
+    return _metric_text(content, area, "value", font, align, line_height, variant)
 
-def unit(content, area = None, font = None, align = "center"):
-    return _metric_text(content, area, "unit", font, align)
+def unit(content, area = None, font = None, align = None, line_height = None, variant = None):
+    return _metric_text(content, area, "unit", font, align, line_height, variant)
 
-def desc(content, area = None, font = None, align = "center"):
-    return _metric_text(content, area, "desc", font, align)
+def desc(content, area = None, font = None, align = None, line_height = None, variant = None):
+    return _metric_text(content, area, "desc", font, align, line_height, variant)
 
-def layout_metric_stack():
+def _metric_density(height_px = None, template = None):
+    if height_px == None:
+        return "normal"
+    h = height_px
+    tpl = _metric_template_name(template)
+    if h <= 84:
+        return "compact"
+    if tpl == "row" and h >= 120:
+        return "roomy"
+    if h >= 132:
+        return "roomy"
+    return "normal"
+
+def _metric_default_gap(template, density):
+    tpl = _metric_template_name(template)
+    if tpl == "row":
+        if density == "compact":
+            return "4px"
+        if density == "roomy":
+            return "8px"
+        return "6px"
+    if tpl == "column":
+        if density == "compact":
+            return "4px"
+        if density == "roomy":
+            return "8px"
+        return "6px"
+    if tpl == "stack_desc":
+        if density == "compact":
+            return "3px 2px"
+        if density == "roomy":
+            return "5px 3px"
+        return "4px 2px"
+    if density == "compact":
+        return "3px 2px"
+    if density == "roomy":
+        return "5px 3px"
+    return "4px 2px"
+
+def _metric_default_padding(template, density):
+    tpl = _metric_template_name(template)
+    if tpl == "row":
+        if density == "compact":
+            return "0 6px"
+        if density == "roomy":
+            return "0 10px"
+        return "0 8px"
+    if density == "compact":
+        return "4px 3px"
+    if density == "roomy":
+        return "10px 6px"
+    return "8px 4px"
+
+def layout_metric_stack(density = None):
+    density = density if density != None else "normal"
     return grid(
         rows = ["auto", "auto"],
         columns = ["1fr", "auto"],
         areas = [["label", "label"], ["value", "unit"]],
-        gap = "4px 2px",
+        gap = _metric_default_gap("stack", density),
         align = "center",
         justify = "center",
     )
 
-def layout_metric_row():
+def layout_metric_row(density = None):
+    density = density if density != None else "normal"
     return grid(
         rows = ["1fr"],
         columns = ["1fr", "auto", "auto"],
         areas = [["label", "value", "unit"]],
-        gap = "2px",
+        gap = _metric_default_gap("row", density),
         align = "center",
         justify = "center",
     )
 
-def layout_metric_column():
+def layout_metric_column(density = None):
+    density = density if density != None else "normal"
     return grid(
         rows = ["auto", "auto", "auto"],
         columns = ["1fr"],
         areas = [["label"], ["value"], ["unit"]],
-        gap = "6px",
+        gap = _metric_default_gap("column", density),
         align = "center",
         justify = "center",
     )
 
-def layout_metric_stack_desc():
+def layout_metric_stack_desc(density = None):
+    density = density if density != None else "normal"
     return grid(
         rows = ["auto", "auto", "auto"],
         columns = ["1fr", "auto"],
         areas = [["label", "label"], ["value", "unit"], ["desc", "desc"]],
-        gap = "4px 2px",
+        gap = _metric_default_gap("stack_desc", density),
         align = "center",
         justify = "center",
     )
 
-def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, default_padding = "8px 4px"):
+def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None):
+    density = _metric_density(height_px, template)
+    tpl = _metric_template_name(template)
     props = {
         "chrome": "bare",
-        "padding": default_padding,
+        "padding": _metric_default_padding(tpl, density),
         "width": "100%",
         "box_sizing": "border-box",
         "overflow": "hidden",
+        "__mei_metric_card": True,
+        "__mei_metric_density": density,
+        "__mei_metric_template": tpl,
     }
     if height_px != None:
         props["height"] = str(height_px) + "px"
@@ -100,15 +166,16 @@ def _metric_template_name(template):
         return "stack_desc"
     return raw
 
-def _metric_layout_from_template(template):
+def _metric_layout_from_template(template, height_px = None):
     tpl = _metric_template_name(template)
+    density = _metric_density(height_px, tpl)
     if tpl == "row":
-        return layout_metric_row()
+        return layout_metric_row(density)
     if tpl == "column":
-        return layout_metric_column()
+        return layout_metric_column(density)
     if tpl == "stack_desc":
-        return layout_metric_stack_desc()
-    return layout_metric_stack()
+        return layout_metric_stack_desc(density)
+    return layout_metric_stack(density)
 
 def _metric_allowed_slots():
     return {
@@ -176,14 +243,14 @@ def _metric_static_slots(source, map = None, patch = None):
             values[slot] = source.get(slot)
     return _metric_patch_slots(values, patch)
 
-def _metric_literal_blocks(values):
+def _metric_literal_blocks(values, variant = None):
     blocks = [
-        label(values.get("label") if values.get("label") != None else "", area = "label"),
-        value(values.get("value") if values.get("value") != None else "", area = "value"),
-        unit(values.get("unit") if values.get("unit") != None else "", area = "unit"),
+        label(values.get("label") if values.get("label") != None else "", area = "label", variant = variant),
+        value(values.get("value") if values.get("value") != None else "", area = "value", variant = variant),
+        unit(values.get("unit") if values.get("unit") != None else "", area = "unit", variant = variant),
     ]
     if values.get("desc") != None:
-        blocks.append(desc(values.get("desc"), area = "desc"))
+        blocks.append(desc(values.get("desc"), area = "desc", variant = variant))
     return blocks
 
 def _metric_component_extra(extra):
@@ -208,11 +275,14 @@ def _metric_component_extra(extra):
             out[k] = v
     return out
 
-def _metric_runtime_tile_props(source, template, layout, map = None, patch = None, extra = None):
+def _metric_runtime_tile_props(source, template, layout, density, variant = None, map = None, patch = None, extra = None):
     props = _metric_component_extra(extra)
     props["template"] = _metric_template_name(template)
+    props["metric_density"] = density
     props["width"] = "100%"
     props["height"] = "100%"
+    if variant != None and str(variant).strip() != "":
+        props["metric_variant"] = str(variant).strip()
     if layout != None:
         props["metric_layout"] = layout
     if map != None and _is_dict(map):
@@ -225,29 +295,6 @@ def _metric_runtime_tile_props(source, template, layout, map = None, patch = Non
 
 def _metric_is_metric_ref(source):
     return _is_dict(source) and source.get("__ref") == "metric"
-
-def metric_group(
-    id = None,
-    area = None,
-    bg = None,
-    width_px = None,
-    height_px = None,
-    props = None,
-    body_props = None,
-    blocks = None,
-    layout = None,
-):
-    return panel(
-        id = id,
-        area = area,
-        show_heading = False,
-        chrome = "bare",
-        variant = "container",
-        props = _metric_shell_props(bg, width_px, height_px, props, default_padding = "0"),
-        body_props = body_props,
-        layout = layout,
-        blocks = blocks if blocks != None else [],
-    )
 
 def metric_card(
     id = None,
@@ -267,12 +314,14 @@ def metric_card(
     body_props = None,
     blocks = None,
     layout = None,
+    variant = None,
 ):
-    card_props = _metric_shell_props(bg, width_px, height_px, props)
+    density = _metric_density(height_px, template)
+    card_props = _metric_shell_props(bg, width_px, height_px, props, template)
     card_layout = layout
     card_blocks = blocks
     if card_layout == None:
-        card_layout = _metric_layout_from_template(template)
+        card_layout = _metric_layout_from_template(template, height_px)
     _metric_validate_layout(card_layout)
     if source == None:
         source = _metric_legacy_source(label_text, value_text, unit_text, desc_text)
@@ -288,6 +337,8 @@ def metric_card(
                         source,
                         template,
                         card_layout,
+                        density,
+                        variant,
                         map,
                         patch,
                         props,
@@ -296,7 +347,7 @@ def metric_card(
             ]
             card_layout = None
         elif _is_dict(source):
-            card_blocks = _metric_literal_blocks(_metric_static_slots(source, map, patch))
+            card_blocks = _metric_literal_blocks(_metric_static_slots(source, map, patch), variant)
         else:
             fail("metric_card(source=...) expects metric_ref(...) or a static object")
     return panel(
@@ -310,3 +361,4 @@ def metric_card(
         layout = card_layout,
         blocks = card_blocks,
     )
+
