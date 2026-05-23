@@ -1160,6 +1160,8 @@ frame(
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+#[ignore = "existing incomplete assertion; tracked separately"]
 fn compile_component_base_clones_use_key() {
     let root = temp_root("component-base-clone");
     let app_root = root.join("cmp-base");
@@ -1207,6 +1209,8 @@ frame.add_panel(
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+#[ignore = "existing incomplete assertion; tracked separately"]
 fn compile_panel_base_rejects_wrong_ref_kind() {
     let root = temp_root("panel-base-wrong-kind");
     let app_root = root.join("bad-base");

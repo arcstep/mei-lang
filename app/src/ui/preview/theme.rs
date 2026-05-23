@@ -326,10 +326,38 @@ fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
             }
         }
     }
+    for role in ["label", "value", "unit", "desc"] {
+        let key = format!("metric_{role}");
+        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
+            push_metric_role_font_var(entry, role, &mut vars);
+        }
+    }
     if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
         flatten_tokens(tokens, "mei", &mut vars);
     }
     vars
+}
+
+fn push_metric_role_font_var(entry: &Value, role: &str, vars: &mut Vec<(String, String)>) {
+    let Some(font_key) = entry
+        .as_object()
+        .and_then(|map| map.get("font"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    let resolved = if font_key.ends_with("px")
+        || font_key.ends_with("rem")
+        || font_key.ends_with("em")
+        || font_key.ends_with('%')
+    {
+        font_key.to_string()
+    } else {
+        format!("var(--mei-font-{font_key}, 14px)")
+    };
+    vars.push((format!("--mei-metric-{role}-font-size"), resolved));
 }
 
 fn flatten_tokens(value: &Value, prefix: &str, vars: &mut Vec<(String, String)>) {

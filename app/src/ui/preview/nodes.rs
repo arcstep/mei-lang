@@ -9,7 +9,8 @@ use super::{
 use super::style::{
     block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
     panel_head_caret_style, panel_head_carets_enabled, panel_heading_config, panel_heading_style,
-    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
+    panel_layout_content_on_body_slot, panel_show_heading, panel_slot_area_style,
+    panel_slot_typography_style, panel_style,
 };
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
@@ -44,12 +45,21 @@ pub(super) fn panel_view(
         heading_cell_style.push_str(&panel_head_caret_style(&head_props));
     }
     heading_cell_style.push_str(&container_visual_style(&head_props));
-    let mut body_cell_style = panel_slot_area_style(SLOT_BODY);
-    body_cell_style.push_str(&panel_slot_typography_style(&body_props));
-    body_cell_style.push_str(&container_visual_style(&body_props));
-
     let (head_nodes, body_nodes) = partition_panel_blocks(&panel.blocks, has_head);
     let has_body_slot = !body_nodes.is_empty();
+    let content_grid_on_body =
+        !has_head && has_body_slot && panel_layout_content_on_body_slot(panel.layout.as_ref());
+
+    let mut body_cell_style = if content_grid_on_body {
+        String::new()
+    } else {
+        panel_slot_area_style(SLOT_BODY)
+    };
+    body_cell_style.push_str(&panel_slot_typography_style(&body_props));
+    body_cell_style.push_str(&container_visual_style(&body_props));
+    if content_grid_on_body {
+        body_cell_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &head_props));
+    }
 
     let head_blocks = head_nodes
         .into_iter()
@@ -85,10 +95,14 @@ pub(super) fn panel_view(
         .collect_view();
 
     let mut card_style = panel_style(panel.area.as_deref(), frame_layout, &card_props);
-    card_style.push_str(&panel_card_layout_style(
-        panel.layout.as_ref(),
-        &head_props,
-    ));
+    if content_grid_on_body {
+        card_style.push_str("display:grid;gap:0;");
+    } else {
+        card_style.push_str(&panel_card_layout_style(
+            panel.layout.as_ref(),
+            &head_props,
+        ));
+    }
 
     let card_class = if chrome_bare {
         "preview-card preview-card-bare"

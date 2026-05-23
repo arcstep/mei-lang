@@ -364,6 +364,20 @@ pub(super) fn panel_heading_style(head_props: &Value) -> String {
     style
 }
 
+/// 无标题槽、且 `layout.areas` 不含 `head`/`body`（如 `m0 m1 m2`）时，grid 应落在 `panel-body-cell` 上。
+pub(super) fn panel_layout_content_on_body_slot(layout: Option<&mei_lang_kernel::LayoutDecl>) -> bool {
+    let Some(layout) = layout else {
+        return false;
+    };
+    let Some(areas) = layout.areas.as_ref() else {
+        return false;
+    };
+    if areas.is_empty() {
+        return false;
+    }
+    !areas.iter().flatten().any(|cell| cell == "head" || cell == "body")
+}
+
 pub(super) fn panel_body_layout_centered(layout: &mei_lang_kernel::LayoutDecl) -> bool {
     layout
         .align

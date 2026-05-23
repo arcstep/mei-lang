@@ -1,6 +1,6 @@
 use std::fs;
 
-use super::super::compile_app_from_root;
+use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
 use super::harness::{build_regression_workspace_root, workspace_root};
 use crate::evaluate_mei_file;
 
@@ -358,7 +358,12 @@ fn compile_cockpit_panel_example() {
         "05-panel should produce a scene contract"
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
-    for panel_id in ["demo_title_and_body", "demo_title_only", "demo_body_only"] {
+    for panel_id in [
+        "r1_title_body",
+        "r1_title_only",
+        "r1_body_only",
+        "block_title_metrics_bg",
+    ] {
         assert!(
             sc.panels.iter().any(|p| p.id == panel_id),
             "panel {panel_id} must compile; got ids: {:?}",
@@ -366,26 +371,186 @@ fn compile_cockpit_panel_example() {
         );
     }
     for (panel_id, expected_content) in [
-        ("demo_title_and_body", "标题下的正文。"),
-        ("demo_body_only", "仅内容"),
+        ("r1_title_body", "标题下的正文。"),
+        ("r1_body_only", "仅内容"),
     ] {
         let panel = sc
             .panels
             .iter()
             .find(|p| p.id == panel_id)
             .unwrap_or_else(|| panic!("panel {panel_id}"));
-        assert_eq!(panel.blocks.len(), 1);
-        match &panel.blocks[0] {
-            crate::UiNodeDecl::Block(block) => {
-                assert_eq!(block.use_key, "mei.text");
-                assert_eq!(
-                    block.props.get("content").and_then(|v| v.as_str()),
-                    Some(expected_content)
-                );
+        let text_block = panel.blocks.iter().find_map(|node| match node {
+            crate::UiNodeDecl::Block(block)
+                if block.use_key == "mei.text"
+                    && block.area.as_deref() == Some("body") =>
+            {
+                Some(block)
             }
-            other => panic!("{panel_id} block should be mei.text, got {other:?}"),
+            _ => None,
+        });
+        let block = text_block.unwrap_or_else(|| panic!("{panel_id} should include mei.text"));
+        assert_eq!(
+            block.props.get("content").and_then(|v| v.as_str()),
+            Some(expected_content)
+        );
+    }
+    let metrics = sc
+        .panels
+        .iter()
+        .find(|p| p.id == "block_title_metrics_bg")
+        .expect("block_title_metrics_bg");
+    let body_shell = metrics
+        .blocks
+        .iter()
+        .find_map(|node| match node {
+            crate::UiNodeDecl::Panel(panel) if panel.id == "block_title_metrics_bg_body" => {
+                Some(panel)
+            }
+            _ => None,
+        })
+        .expect("block_title_metrics_bg should nest metrics_body_panel");
+    let areas = body_shell
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("metrics body layout areas");
+    assert_eq!(areas[0], ["m0", "m1", "m2"]);
+    let metric_tiles: Vec<_> = body_shell
+        .blocks
+        .iter()
+        .filter(|node| {
+            matches!(
+                node,
+                crate::UiNodeDecl::Panel(panel) if panel.id.starts_with("metric_")
+            )
+        })
+        .collect();
+    assert_eq!(metric_tiles.len(), 3);
+    let layout_areas = metrics
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("title+metrics shell layout");
+    assert_eq!(layout_areas[0], ["head"]);
+    assert_eq!(layout_areas[1], ["body"]);
+}
+
+#[test]
+fn compile_cockpit_metric_gallery_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("05-panel");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: Some("metric.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile 05-panel/metric.mei failed: {error}"));
+    assert_eq!(compiled.active_target_file, "metric.mei");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "metric.mei should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert_eq!(sc.scene.id, "home");
+    assert!(
+        sc.scene
+            .summary
+            .as_deref()
+            .is_some_and(|value| value.contains("stack_desc") || value.contains("metric_card")),
+        "metric.mei scene summary should describe metric_card gallery"
+    );
+    for panel_id in ["demo_row", "demo_column", "demo_stack", "demo_stack_desc"] {
+        assert!(
+            sc.panels.iter().any(|p| p.id == panel_id),
+            "panel {panel_id} missing; got {:?}",
+            sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compile_cockpit_metric_data_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/cockpit");
+    let app_root = source_root.join("05-panel");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("home".to_string()),
+            preview_target: Some("metric-data.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile 05-panel/metric-data.mei failed: {error}"));
+    assert_eq!(compiled.active_target_file, "metric-data.mei");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "metric-data.mei should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert!(
+        sc.scene
+            .summary
+            .as_deref()
+            .is_some_and(|value| value.contains("metric_ref") || value.contains("static object")),
+        "metric-data.mei summary should describe binding demo"
+    );
+    fn collect_panel_ids(panels: &[crate::PanelDecl], out: &mut Vec<String>) {
+        for panel in panels {
+            out.push(panel.id.clone());
+            for node in &panel.blocks {
+                if let crate::UiNodeDecl::Panel(nested) = node {
+                    collect_panel_ids(&[nested.clone()], out);
+                }
+            }
         }
     }
+    let mut panel_ids = Vec::new();
+    collect_panel_ids(&sc.panels, &mut panel_ids);
+    assert!(
+        panel_ids.iter().any(|id| id == "binding_demo"),
+        "binding_demo panel missing; got {:?}",
+        panel_ids
+    );
+    assert!(
+        panel_ids.iter().any(|id| id == "static_demo"),
+        "static_demo missing; got {:?}",
+        panel_ids
+    );
+    fn collect_use_keys(nodes: &[crate::UiNodeDecl], out: &mut Vec<String>) {
+        for node in nodes {
+            match node {
+                crate::UiNodeDecl::Block(block) => out.push(block.use_key.clone()),
+                crate::UiNodeDecl::Panel(panel) => collect_use_keys(&panel.blocks, out),
+                _ => {}
+            }
+        }
+    }
+    let mut use_keys = Vec::new();
+    for panel in &sc.panels {
+        collect_use_keys(&panel.blocks, &mut use_keys);
+    }
+    let tile_count = use_keys
+        .iter()
+        .filter(|key| key.as_str() == "cockpit.qunfu-metric-tile")
+        .count();
+    assert_eq!(
+        tile_count, 2,
+        "metric-data.mei should use two metric_ref-driven tiles; got keys: {:?}",
+        use_keys
+    );
 }
 
 #[test]

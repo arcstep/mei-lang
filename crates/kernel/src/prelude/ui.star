@@ -152,7 +152,7 @@ def _merge_dict(base, overlay):
             out[k] = v
     return out
 
-def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, tokens = None):
+def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, tokens = None):
     resolved_panel_head = _merge_dict(panel_head, heading)
     return _declare(_clean({
         "kind": "theme",
@@ -164,6 +164,10 @@ def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, 
         "panel_body": panel_body if panel_body != None else {},
         "heading": heading if heading != None else {},
         "font": font if font != None else {},
+        "metric_label": metric_label if metric_label != None else {},
+        "metric_value": metric_value if metric_value != None else {},
+        "metric_unit": metric_unit if metric_unit != None else {},
+        "metric_desc": metric_desc if metric_desc != None else {},
         "tokens": tokens if tokens != None else {},
     }))
 
