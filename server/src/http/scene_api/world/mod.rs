@@ -96,6 +96,7 @@ scene(kind="scene", id="s1", world=world_file_ref(path="worlds/s1-world.mei"))
             dataset: Some(dataset),
             metrics: None,
             filters: None,
+            base: None,
         };
         let v = summarize_resource_decl(&item);
         let preview = v
@@ -146,6 +147,7 @@ scene(kind="scene", id="s1", world=world_file_ref(path="worlds/s1-world.mei"))
             dataset: Some(huge),
             metrics: None,
             filters: None,
+            base: None,
         };
         let v = summarize_resource_decl(&item);
         let s = serde_json::to_string(&v).expect("json");
