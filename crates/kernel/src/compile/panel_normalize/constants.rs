@@ -24,6 +24,12 @@ pub(crate) const DEFAULT_METRICS_2_1_PADDING: &str = "12px 14px";
 pub(crate) const DEFAULT_METRICS_2X2_COLUMNS: [&str; 2] = ["1fr", "1fr"];
 pub(crate) const DEFAULT_METRICS_2_1_COLUMNS: [&str; 3] = ["114px", "114px", "234px"];
 pub(crate) const DEFAULT_METRIC_COMPOUND_2_1_GAP: &str = "2px";
+/// 宽卡 compound：首子卡为上横条，其余为底行；底行最多列数。
+pub(crate) const METRIC_COMPOUND_BOTTOM_MAX: usize = 6;
+/// 无作者覆写时的默认上区占比（metric-bg-target@3x 横线约 y=56/128）。
+pub(crate) const PROP_COMPOUND_TOP_BAND_RATIO: &str = "__mei_compound_top_band_ratio";
+pub(crate) const PROP_COMPOUND_TOP_RATIO: &str = "__mei_compound_top_ratio";
+pub(crate) const PROP_COMPOUND_BOTTOM_RATIO: &str = "__mei_compound_bottom_ratio";
 pub(crate) const COCKPIT_PANEL_PADDING_MIN: f64 = 12.0;
 pub(crate) const COCKPIT_PANEL_PADDING_MAX: f64 = 24.0;
 pub(crate) const COCKPIT_CARD_GAP_TARGET: f64 = 8.0;

@@ -7,6 +7,7 @@ mod constants;
 mod css_util;
 mod diagnostics;
 mod layout_policy;
+mod metric_card_layout;
 mod nodes;
 mod slots;
 mod spacing;
@@ -28,6 +29,9 @@ use layout_policy::{
     should_inject_metric_compound_2_1, should_inject_metrics_2_1, should_inject_metrics_2x2,
     should_inject_metrics_auto, should_inject_metrics_strip,
 };
+use metric_card_layout::{audit_metric_vertical_bands, normalize_panel_metric_cards};
+
+pub(crate) use metric_card_layout::seed_metric_slot_vertical_align_defaults_from_base;
 use nodes::{blocks_touch_slot, remap_block_areas_to_body};
 use slots::{
     hoist_heading_to_head_props, materialize_title_head_block, merge_head_slot,
@@ -171,7 +175,7 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
                         severity: Severity::Warning,
                         code: "layout_policy_metric_compound_2_1_conflict".to_string(),
                         message: format!(
-                            "panel `{}`: layout_policy=metric_compound_2_1 requires exactly 4 metric_card children and no head slot",
+                            "panel `{}`: layout_policy=metric_compound_2_1 requires 1 top metric_card + 1..6 bottom metric_cards and no head slot",
                             panel.id
                         ),
                         source_path: Some(source_path.to_string()),
@@ -215,6 +219,8 @@ fn normalize_panel(panel: &mut PanelDecl, diagnostics: &mut Vec<Diagnostic>, sou
     {
         remap_block_areas_to_body(&mut panel.blocks);
     }
+    normalize_panel_metric_cards(panel);
+    audit_metric_vertical_bands(panel, diagnostics, source_path);
     emit_layout_audit_diagnostics(panel, diagnostics, source_path);
 
     hoist_heading_to_head_props(panel, diagnostics, source_path);

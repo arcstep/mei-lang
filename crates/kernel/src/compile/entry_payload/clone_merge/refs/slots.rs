@@ -8,6 +8,8 @@ use crate::typed_refs::{decode_ref_value, RefKind, SceneRegistry};
 use super::super::normalize::{
     normalize_entity_list, normalize_metric_list, normalize_resource_list, normalize_ui_nodes,
 };
+use crate::compile::panel_normalize::seed_metric_slot_vertical_align_defaults_from_base;
+
 use super::merge_decl::{merge_frame_decl, merge_panel_decl, merge_world_decl};
 use super::resolve::{resolve_frame_ref, resolve_panel_ref, resolve_world_ref};
 
@@ -51,7 +53,8 @@ pub(crate) fn resolve_panel_slot(
         else {
             return None;
         };
-        let mut merged = merge_panel_decl(base_panel, slot).ok()?;
+        let mut merged = merge_panel_decl(base_panel.clone(), slot).ok()?;
+        seed_metric_slot_vertical_align_defaults_from_base(&base_panel, &mut merged, slot);
         merged.blocks = normalize_ui_nodes(
             app_root,
             &merged.blocks,

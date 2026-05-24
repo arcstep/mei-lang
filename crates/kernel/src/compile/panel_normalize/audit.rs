@@ -24,6 +24,10 @@ use super::spacing::panel_layout_policy;
 
 const LAYOUT_EVAL_PREFIX: &str = "layout_eval_";
 const METRICS_AUTO_EXPANDED_GAP_MAX: f64 = 36.0;
+/// 宽卡 compound 内层需贴背景横线，允许比 metrics_auto 更紧的 gap/padding。
+const METRIC_COMPOUND_GAP_MIN: f64 = 2.0;
+const METRIC_COMPOUND_PADDING_MIN: f64 = 2.0;
+const METRIC_COMPOUND_PADDING_MAX: f64 = 12.0;
 
 fn eval_weight(severity: &Severity) -> u32 {
     match severity {
@@ -107,6 +111,7 @@ pub(super) fn emit_layout_audit_diagnostics(
     audit_policy_spacing_budget(panel, layout, diagnostics, source_path);
     audit_panel_whitespace_budget(panel, layout, diagnostics, source_path);
     audit_metric_group_balance(panel, layout, diagnostics, source_path);
+    audit_metric_compound_row_budget(panel, layout, diagnostics, source_path);
     audit_metric_card_internal_budget(panel, diagnostics, source_path);
     audit_strategy_bypass_risk(panel, layout, diagnostics, source_path);
     emit_panel_eval_summary(panel, diagnostics, source_path, start_idx);
@@ -442,13 +447,19 @@ pub(super) fn audit_policy_spacing_budget(
             .as_ref()
             .and_then(|tracks| sum_fixed_px_tracks(tracks))
             .is_some();
+    let compound_shell = policy == LAYOUT_POLICY_METRIC_COMPOUND_2_1;
+    let gap_min = if compound_shell {
+        METRIC_COMPOUND_GAP_MIN
+    } else {
+        COCKPIT_CARD_GAP_MIN
+    };
     let gap_budget_max = if fixed_width_auto {
         METRICS_AUTO_EXPANDED_GAP_MAX
     } else {
         COCKPIT_CARD_GAP_MAX
     };
     if let Some(gap) = layout.gap.as_deref().and_then(first_css_scalar_px) {
-        if gap < COCKPIT_CARD_GAP_MIN - 0.1 || gap > gap_budget_max + 0.1 {
+        if gap < gap_min - 0.1 || gap > gap_budget_max + 0.1 {
             diagnostics.push(Diagnostic {
                 severity: Severity::Warning,
                 code: "layout_eval_card_gap_out_of_budget".to_string(),
@@ -456,12 +467,15 @@ pub(super) fn audit_policy_spacing_budget(
                     "panel `{}`: card gap {}px is outside cockpit budget [{}, {}]px",
                     panel.id,
                     gap.round(),
-                    COCKPIT_CARD_GAP_MIN,
+                    gap_min,
                     gap_budget_max
                 ),
                 source_path: Some(source_path.to_string()),
             });
-        } else if !fixed_width_auto && (gap - COCKPIT_CARD_GAP_TARGET).abs() > 3.0 {
+        } else if !fixed_width_auto
+            && !compound_shell
+            && (gap - COCKPIT_CARD_GAP_TARGET).abs() > 3.0
+        {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
                 code: "layout_eval_card_gap_off_target".to_string(),
@@ -477,14 +491,16 @@ pub(super) fn audit_policy_spacing_budget(
     }
     if let Some(padding) = layout.padding.as_deref() {
         let values = css_scalar_numbers(padding);
-        let padding_budget_max = if fixed_width_auto {
-            METRICS_AUTO_EXPANDED_GAP_MAX * 2.0 + 4.0
+        let (padding_min, padding_budget_max) = if compound_shell {
+            (METRIC_COMPOUND_PADDING_MIN, METRIC_COMPOUND_PADDING_MAX)
+        } else if fixed_width_auto {
+            (COCKPIT_PANEL_PADDING_MIN, METRICS_AUTO_EXPANDED_GAP_MAX * 2.0 + 4.0)
         } else {
-            COCKPIT_PANEL_PADDING_MAX
+            (COCKPIT_PANEL_PADDING_MIN, COCKPIT_PANEL_PADDING_MAX)
         };
         let too_small = values
             .iter()
-            .any(|value| *value > 0.0 && *value < COCKPIT_PANEL_PADDING_MIN - 0.1);
+            .any(|value| *value > 0.0 && *value < padding_min - 0.1);
         let too_large = values
             .iter()
             .any(|value| *value > padding_budget_max + 0.1);
@@ -494,11 +510,77 @@ pub(super) fn audit_policy_spacing_budget(
                 code: "layout_eval_panel_padding_out_of_budget".to_string(),
                 message: format!(
                     "panel `{}`: layout padding `{padding}` is outside cockpit budget {}-{}px",
-                    panel.id, COCKPIT_PANEL_PADDING_MIN, padding_budget_max
+                    panel.id, padding_min, padding_budget_max
                 ),
                 source_path: Some(source_path.to_string()),
             });
         }
+    }
+}
+
+pub(super) fn audit_metric_compound_row_budget(
+    panel: &PanelDecl,
+    layout: &LayoutDecl,
+    diagnostics: &mut Vec<Diagnostic>,
+    source_path: &str,
+) {
+    let Some(policy) = panel_layout_policy(panel) else {
+        return;
+    };
+    if policy != LAYOUT_POLICY_METRIC_COMPOUND_2_1 {
+        return;
+    }
+    let Some(shell_h) = panel_px_prop(panel, "height") else {
+        return;
+    };
+    let padding_v = layout_padding_vertical_px(layout);
+    let gap = layout_gap_y_px(layout);
+    let available = shell_h - padding_v - gap;
+    let Some(row_sum) = layout
+        .rows
+        .as_ref()
+        .and_then(|tracks| sum_fixed_px_tracks(tracks))
+    else {
+        return;
+    };
+    if row_sum > available + 1.0 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "layout_eval_compound_row_clip_risk".to_string(),
+            message: format!(
+                "panel `{}`: compound rows {}px exceed content budget {}px (padding/gap included); bottom cards may be clipped",
+                panel.id,
+                row_sum.round(),
+                available.round()
+            ),
+            source_path: Some(source_path.to_string()),
+        });
+    }
+    let hinted_sum = panel
+        .blocks
+        .first()
+        .and_then(node_height_track)
+        .into_iter()
+        .chain(
+            panel
+                .blocks
+                .iter()
+                .skip(1)
+                .filter_map(node_height_track),
+        )
+        .sum::<f64>();
+    if hinted_sum > available + 1.0 {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "layout_eval_compound_height_scaled".to_string(),
+            message: format!(
+                "panel `{}`: child height_px sum {}px exceeds shell content budget {}px; row tracks were scaled to fit",
+                panel.id,
+                hinted_sum.round(),
+                available.round()
+            ),
+            source_path: Some(source_path.to_string()),
+        });
     }
 }
 
@@ -622,7 +704,7 @@ pub(super) fn audit_metric_card_internal_budget(
             });
         }
         let layout = card.layout.as_ref();
-        if matches!(template, "row" | "stack" | "stack_desc")
+        if template == "row"
             && layout
                 .and_then(|value| value.align.as_deref())
                 .is_some_and(|value| !value.trim().eq_ignore_ascii_case("end"))
@@ -631,7 +713,7 @@ pub(super) fn audit_metric_card_internal_budget(
                 severity: Severity::Warning,
                 code: "layout_eval_metric_inline_baseline_risk".to_string(),
                 message: format!(
-                    "metric_card `{}`: horizontal slots should align to the bottom baseline (`align = end`)",
+                    "metric_card `{}`: row template slots should align to the bottom baseline (`align = end`)",
                     card.id
                 ),
                 source_path: Some(source_path.to_string()),

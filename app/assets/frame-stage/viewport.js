@@ -669,6 +669,46 @@
     return hits;
   }
 
+  function detectMetricVerticalBandDrift(stage, limit = 6) {
+    const hits = [];
+    stage.querySelectorAll(".preview-card[data-mei-panel-id]").forEach((card) => {
+      if (hits.length >= limit) return;
+      const rect = card.getBoundingClientRect();
+      if (rect.width < 8 || rect.height < 24) return;
+      const roles = metricRoleNodes(card);
+      const labelNode = roles.find((entry) => entry.props.metric_role === "label");
+      const valueNode = roles.find((entry) => entry.props.metric_role === "value");
+      if (!labelNode || !valueNode) return;
+      const labelRect = labelNode.node.getBoundingClientRect();
+      const valueRect = valueNode.node.getBoundingClientRect();
+      const midY = rect.top + rect.height * 0.5;
+      const labelCenterY = (labelRect.top + labelRect.bottom) / 2;
+      const valueBottomY = valueRect.bottom;
+      const panelId = closestPanelId(card);
+      const label = closestPanelLabel(card);
+      if (labelCenterY > midY + 6) {
+        hits.push({
+          panelId,
+          label,
+          role: "label",
+          spread: labelCenterY - midY,
+          detail: "label_below_midline",
+        });
+        return;
+      }
+      if (valueBottomY < midY - 4) {
+        hits.push({
+          panelId,
+          label,
+          role: "value",
+          spread: midY - valueBottomY,
+          detail: "value_above_midline",
+        });
+      }
+    });
+    return hits;
+  }
+
   function detectMetricAlignmentDrift(stage, limit = 6) {
     const hits = [];
     stage.querySelectorAll(".panel-body-cell").forEach((body) => {
@@ -882,6 +922,23 @@
         panelId: alignment[0]?.panelId || null,
         message: `检测到指标参考线漂移：${alignment
           .map((hit) => `${hit.label}(${hit.role} 偏移≈${Math.round(hit.spread)}px)`)
+          .join("、")}`,
+      });
+    }
+    const verticalBands = detectMetricVerticalBandDrift(stage);
+    if (verticalBands.length) {
+      diagnostics.push({
+        severity: "warning",
+        code: "layout_eval_metric_vertical_band_drift",
+        panelId: verticalBands[0]?.panelId || null,
+        message: `检测到指标垂直分区落点偏离：${verticalBands
+          .map((hit) => {
+            const hint =
+              hit.detail === "label_below_midline"
+                ? "标题区落入下半区"
+                : "数值区落在上半区";
+            return `${hit.label}(${hint}，≈${Math.round(hit.spread)}px)`;
+          })
           .join("、")}`,
       });
     }

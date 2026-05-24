@@ -167,6 +167,7 @@ fn compile_refs_examples_baselines() {
         "07-world-collection-base-clone",
         "08-component-base-clone",
         "09-nine-grid-panel-clone",
+        "10-metric-card-template-clone",
     ] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)

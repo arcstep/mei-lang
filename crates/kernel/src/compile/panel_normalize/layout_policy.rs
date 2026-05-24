@@ -6,10 +6,14 @@ use super::constants::{
     PolicySpacing, DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP,
     DEFAULT_METRICS_2X2_PADDING, DEFAULT_METRICS_2_1_COLUMNS, DEFAULT_METRICS_2_1_GAP,
     DEFAULT_METRICS_2_1_PADDING, DEFAULT_METRICS_AUTO_GAP, DEFAULT_METRICS_AUTO_PADDING,
-    DEFAULT_METRIC_COMPOUND_2_1_GAP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, PROP_LAYOUT_COLUMNS,
+    DEFAULT_METRIC_COMPOUND_2_1_GAP, LAYOUT_POLICY_METRIC_COMPOUND_2_1,
+    METRIC_COMPOUND_BOTTOM_MAX, PROP_COMPOUND_BOTTOM_RATIO, PROP_COMPOUND_TOP_BAND_RATIO,
+    PROP_COMPOUND_TOP_RATIO, PROP_LAYOUT_COLUMNS,
     PROP_LAYOUT_COLUMNS_PREFER, PROP_LAYOUT_SPAN, SLOT_BODY, SLOT_HEAD,
 };
-use super::css_util::{first_css_scalar_px, parse_px, px_track, sum_fixed_px_tracks};
+use super::css_util::{
+    first_css_scalar_px, padding_vertical_px, parse_px, px_track, sum_fixed_px_tracks,
+};
 use super::nodes::panel_head_height_track;
 use super::nodes::{
     node_height_track, node_is_metric_card_like, node_is_metrics_2_1_item_like, node_width_track,
@@ -19,6 +23,8 @@ use super::spacing::{panel_layout_policy, policy_spacing};
 
 const METRICS_AUTO_MAX_COLUMNS: usize = 6;
 const METRICS_AUTO_GAP_EXPAND_MAX: f64 = 36.0;
+/// `metric-bg-target@3x` 横向分割线在 viewBox 128 高中约 y=56（无 props 覆写时的默认值）。
+const DEFAULT_METRIC_COMPOUND_TOP_BAND_RATIO: f64 = 56.0 / 128.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MetricSpanHint {
@@ -595,38 +601,144 @@ pub(super) fn default_metrics_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
     }
 }
 
-pub(super) fn default_metric_compound_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
-    let spacing = policy_spacing(panel, DEFAULT_METRIC_COMPOUND_2_1_GAP, "0");
-    let top_row = panel
+pub(super) fn metric_compound_bottom_count(panel: &PanelDecl) -> usize {
+    panel.blocks.len().saturating_sub(1)
+}
+
+fn parse_compound_band_fraction(raw: &str) -> Option<f64> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return None;
+    }
+    if let Some(stripped) = value.strip_suffix('%') {
+        let pct = parse_px(stripped)?;
+        return Some((pct / 100.0).clamp(0.05, 0.95));
+    }
+    if value.contains('/') {
+        let mut parts = value.split('/');
+        let top = parse_px(parts.next()?.trim())?;
+        let bottom = parse_px(parts.next()?.trim())?;
+        let denom = top + bottom;
+        if denom > 0.0 {
+            return Some((top / denom).clamp(0.05, 0.95));
+        }
+        return None;
+    }
+    if let Ok(scalar) = value.parse::<f64>() {
+        if scalar > 1.0 {
+            // 形如 "56"：按 128px 设计稿壳高归一化，便于与 SVG 标注对齐。
+            return Some((scalar / 128.0).clamp(0.05, 0.95));
+        }
+        return Some(scalar.clamp(0.05, 0.95));
+    }
+    parse_px(value).map(|scalar| {
+        if scalar > 1.0 {
+            (scalar / 128.0).clamp(0.05, 0.95)
+        } else {
+            scalar.clamp(0.05, 0.95)
+        }
+    })
+}
+
+fn metric_compound_top_band_fraction(panel: &PanelDecl) -> f64 {
+    let map = panel.props.as_object();
+    if let Some(map) = map {
+        if let Some(raw) = map
+            .get(PROP_COMPOUND_TOP_BAND_RATIO)
+            .and_then(Value::as_str)
+        {
+            if let Some(fraction) = parse_compound_band_fraction(raw) {
+                return fraction;
+            }
+        }
+        let top_weight = map
+            .get(PROP_COMPOUND_TOP_RATIO)
+            .and_then(metric_ratio_weight);
+        let bottom_weight = map
+            .get(PROP_COMPOUND_BOTTOM_RATIO)
+            .and_then(metric_ratio_weight);
+        if let (Some(top), Some(bottom)) = (top_weight, bottom_weight) {
+            let denom = top + bottom;
+            if denom > 0.0 {
+                return (top / denom).clamp(0.05, 0.95);
+            }
+        }
+    }
+    DEFAULT_METRIC_COMPOUND_TOP_BAND_RATIO
+}
+
+fn metric_ratio_weight(value: &Value) -> Option<f64> {
+    if let Some(raw) = value.as_str() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        return parse_px(trimmed).filter(|n| *n > 0.0);
+    }
+    value.as_f64().filter(|n| *n > 0.0).or_else(|| {
+        value
+            .as_i64()
+            .filter(|n| *n > 0)
+            .map(|n| n as f64)
+    })
+}
+
+fn metric_compound_content_budget(panel: &PanelDecl, spacing: &PolicySpacing) -> Option<f64> {
+    let shell_h = panel_px_prop(panel, "height")?;
+    let padding_v = padding_vertical_px(&spacing.padding);
+    let gap = first_css_scalar_px(&spacing.gap).unwrap_or(0.0);
+    Some((shell_h - padding_v - gap).max(1.0))
+}
+
+fn metric_compound_row_heights(panel: &PanelDecl, spacing: &PolicySpacing) -> (String, String) {
+    let top_band = metric_compound_top_band_fraction(panel);
+    let available = metric_compound_content_budget(panel, spacing).unwrap_or(122.0);
+    let top_hint = panel
         .blocks
         .first()
         .and_then(node_height_track)
-        .map(px_track)
-        .unwrap_or_else(|| "auto".to_string());
-    let bottom_row = panel
+        .unwrap_or(available * top_band);
+    let bottom_hint = panel
         .blocks
         .iter()
         .skip(1)
         .filter_map(node_height_track)
-        .fold(None, |acc: Option<f64>, value| match acc {
-            Some(existing) => Some(existing.max(value)),
-            None => Some(value),
-        })
-        .map(px_track)
-        .unwrap_or_else(|| "auto".to_string());
+        .fold(0.0_f64, f64::max);
+    let bottom_hint = if bottom_hint > 0.0 {
+        bottom_hint
+    } else {
+        available - top_hint
+    };
+    let sum = top_hint + bottom_hint;
+    let (top_px, bottom_px) = if sum > available + 0.5 {
+        let top_px = available * top_hint / sum;
+        (top_px, available - top_px)
+    } else if (sum - available).abs() <= 0.5 {
+        (top_hint, bottom_hint)
+    } else {
+        let top_px = available * top_band;
+        (top_px, available - top_px)
+    };
+    (px_track(top_px), px_track(bottom_px))
+}
+
+pub(super) fn default_metric_compound_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
+    let spacing = policy_spacing(panel, DEFAULT_METRIC_COMPOUND_2_1_GAP, "0");
+    let bottom_cols = metric_compound_bottom_count(panel).max(1);
+    let (top_row, bottom_row) = metric_compound_row_heights(panel, &spacing);
+    let columns = (0..bottom_cols)
+        .map(|_| "1fr".to_string())
+        .collect::<Vec<_>>();
+    let top_areas = vec!["top".to_string(); bottom_cols];
+    let bottom_areas = (0..bottom_cols)
+        .map(|idx| format!("b{idx}"))
+        .collect::<Vec<_>>();
     LayoutDecl {
         layout_type: "grid".to_string(),
         direction: None,
-        columns: Some(vec![
-            "1fr".to_string(),
-            "1fr".to_string(),
-            "1fr".to_string(),
-        ]),
+        columns: Some(columns),
         rows: Some(vec![top_row, bottom_row]),
-        areas: Some(vec![
-            vec!["top".to_string(), "top".to_string(), "top".to_string()],
-            vec!["b0".to_string(), "b1".to_string(), "b2".to_string()],
-        ]),
+        areas: Some(vec![top_areas, bottom_areas]),
         gap: Some(spacing.gap),
         padding: Some(spacing.padding),
         align: Some("stretch".to_string()),
@@ -671,7 +783,11 @@ pub(super) fn should_inject_metrics_2_1(panel: &PanelDecl, has_head: bool) -> bo
 }
 
 pub(super) fn should_inject_metric_compound_2_1(panel: &PanelDecl, has_head: bool) -> bool {
-    if has_head || panel.blocks.len() != 4 {
+    if has_head {
+        return false;
+    }
+    let bottom = metric_compound_bottom_count(panel);
+    if bottom < 1 || bottom > METRIC_COMPOUND_BOTTOM_MAX {
         return false;
     }
     panel.blocks.iter().all(node_is_metric_card_like)
@@ -706,9 +822,13 @@ pub(super) fn inject_default_metrics_2_1_layout(panel: &mut PanelDecl) {
 }
 
 pub(super) fn inject_default_metric_compound_2_1_layout(panel: &mut PanelDecl) {
-    let areas = ["top", "b0", "b1", "b2"];
     for (idx, node) in panel.blocks.iter_mut().enumerate() {
-        set_node_area(node, areas[idx]);
+        let area = if idx == 0 {
+            "top".to_string()
+        } else {
+            format!("b{}", idx - 1)
+        };
+        set_node_area(node, &area);
     }
     panel.layout = Some(default_metric_compound_2_1_layout(panel));
 }

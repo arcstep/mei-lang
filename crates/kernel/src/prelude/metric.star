@@ -110,7 +110,7 @@ def layout_metric_stack(density = None, title_ratio = None, content_ratio = None
         columns = ["auto", "auto"],
         areas = [["label", "label"], ["value", "unit"]],
         gap = _metric_default_gap("stack", density),
-        align = "end",
+        align = "stretch",
         justify = "center",
     )
 
@@ -146,11 +146,11 @@ def layout_metric_stack_desc(density = None, title_ratio = None, content_ratio =
         columns = ["auto", "auto"],
         areas = [["label", "label"], ["value", "unit"], ["desc", "desc"]],
         gap = _metric_default_gap("stack_desc", density),
-        align = "end",
+        align = "stretch",
         justify = "center",
     )
 
-def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None):
+def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None, title_ratio = None, content_ratio = None):
     density = _metric_density(height_px, template)
     tpl = _metric_template_name(template)
     props = {
@@ -163,6 +163,8 @@ def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = No
         "__mei_metric_density": density,
         "__mei_metric_template": tpl,
         "__mei_metric_inline_align": _metric_inline_align_mode(tpl, inline_align),
+        "__mei_metric_title_ratio": str(title_ratio).strip() if title_ratio != None else "1",
+        "__mei_metric_content_ratio": str(content_ratio).strip() if content_ratio != None else "1",
     }
     if height_px != None:
         props["height"] = str(height_px) + "px"
@@ -181,6 +183,33 @@ def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = No
         for k, v in extra.items():
             props[k] = v
     return props
+
+# panel(base=...) 克隆时只写入显式覆写字段，避免用默认壳冲掉模板 background/width。
+def _metric_shell_overlay(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None, title_ratio = None, content_ratio = None):
+    density = _metric_density(height_px, template)
+    tpl = _metric_template_name(template)
+    props = {
+        "__mei_metric_density": density,
+        "__mei_metric_template": tpl,
+        "__mei_metric_inline_align": _metric_inline_align_mode(tpl, inline_align),
+        "__mei_metric_title_ratio": str(title_ratio).strip() if title_ratio != None else "1",
+        "__mei_metric_content_ratio": str(content_ratio).strip() if content_ratio != None else "1",
+    }
+    if height_px != None:
+        props["height"] = str(height_px) + "px"
+    if width_px != None:
+        props["width"] = str(width_px) + "px"
+    if bg != None and str(bg).strip() != "":
+        props["background"] = {
+            "image": "url(" + str(bg) + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        }
+    if extra != None and _is_dict(extra):
+        for k, v in extra.items():
+            props[k] = v
+    return _without_empty(props)
 
 def _metric_template_name(template):
     raw = str(template).strip().lower() if template != None else "stack"
@@ -286,29 +315,57 @@ def _metric_slot_vertical_align(template, role):
         return "end"
     return "center"
 
-def _metric_literal_blocks(values, template = None, variant = None, inline_align = None):
+def _metric_slot_vertical_align_key(role):
+    return "__mei_metric_" + str(role).strip() + "_v_align"
+
+def _metric_slot_vertical_align_for_props(shell_props, template, role):
+    if _is_dict(shell_props):
+        raw = shell_props.get(_metric_slot_vertical_align_key(role))
+        if raw != None and str(raw).strip() != "":
+            return str(raw).strip()
+    return _metric_slot_vertical_align(template, role)
+
+def _metric_stamp_slot_vertical_align(shell_props, label_vertical_align = None, value_vertical_align = None, unit_vertical_align = None, desc_vertical_align = None):
+    if not _is_dict(shell_props):
+        shell_props = {}
+    pairs = [
+        ("label", label_vertical_align),
+        ("value", value_vertical_align),
+        ("unit", unit_vertical_align),
+        ("desc", desc_vertical_align),
+    ]
+    for role, raw in pairs:
+        if raw != None and str(raw).strip() != "":
+            shell_props[_metric_slot_vertical_align_key(role)] = str(raw).strip()
+    return shell_props
+
+def _metric_literal_blocks(values, template = None, variant = None, inline_align = None, shell_props = None, defer_slot_vertical_align = False):
     tpl = _metric_template_name(template)
+    def _slot_v_align(role):
+        if defer_slot_vertical_align:
+            return None
+        return _metric_slot_vertical_align_for_props(shell_props, tpl, role)
     blocks = [
         label(
             values.get("label") if values.get("label") != None else "",
             area = "label",
             align = _metric_slot_align(tpl, "label", inline_align),
             variant = variant,
-            vertical_align = _metric_slot_vertical_align(tpl, "label"),
+            vertical_align = _slot_v_align("label"),
         ),
         value(
             values.get("value") if values.get("value") != None else "",
             area = "value",
             align = _metric_slot_align(tpl, "value", inline_align),
             variant = variant,
-            vertical_align = _metric_slot_vertical_align(tpl, "value"),
+            vertical_align = _slot_v_align("value"),
         ),
         unit(
             values.get("unit") if values.get("unit") != None else "",
             area = "unit",
             align = _metric_slot_align(tpl, "unit", inline_align),
             variant = variant,
-            vertical_align = _metric_slot_vertical_align(tpl, "unit"),
+            vertical_align = _slot_v_align("unit"),
         ),
     ]
     if values.get("desc") != None:
@@ -318,7 +375,7 @@ def _metric_literal_blocks(values, template = None, variant = None, inline_align
                 area = "desc",
                 align = _metric_slot_align(tpl, "desc", inline_align),
                 variant = variant,
-                vertical_align = _metric_slot_vertical_align(tpl, "desc"),
+                vertical_align = _slot_v_align("desc"),
             ),
         )
     return blocks
@@ -364,14 +421,27 @@ def _metric_runtime_tile_props(source, template, layout, density, variant = None
         props["metric_patch"] = patch
     if _metric_is_metric_ref(source):
         props["value"] = source
+    if _is_dict(extra):
+        for role in ["label", "value", "unit", "desc"]:
+            key = _metric_slot_vertical_align_key(role)
+            if extra.get(key) != None:
+                props[key] = extra.get(key)
     return props
 
 def _metric_is_metric_ref(source):
     return _is_dict(source) and source.get("__ref") == "metric"
 
+# Pure reference value: metric_card(base=metric_card_ref(...)) clones an external panel template.
+# Equivalent to panel_ref(...); metric_card(...) lowers to panel(...).
+def metric_card_ref(id = None, scene_file = None, scene_id = None):
+    if id == None or str(id).strip() == "":
+        fail("metric_card_ref requires `id` (target metric panel template id in scene_file)")
+    return panel_ref(id = id, scene_file = scene_file, scene_id = scene_id)
+
 def metric_card(
     id = None,
     area = None,
+    base = None,
     bg = None,
     label_text = None,
     value_text = None,
@@ -391,9 +461,43 @@ def metric_card(
     inline_align = None,
     title_ratio = None,
     content_ratio = None,
+    label_vertical_align = None,
+    value_vertical_align = None,
+    unit_vertical_align = None,
+    desc_vertical_align = None,
 ):
+    has_source_content = (
+        source != None
+        or label_text != None
+        or value_text != None
+        or unit_text != None
+        or desc_text != None
+        or blocks != None
+    )
+    has_shell_override = (
+        bg != None
+        or width_px != None
+        or height_px != None
+        or props != None
+        or body_props != None
+    )
+    has_layout_override = layout != None
+    if base != None and not has_source_content and not has_shell_override and not has_layout_override:
+        return panel(id = id, area = area, base = base)
     density = _metric_density(height_px, template)
-    card_props = _metric_shell_props(bg, width_px, height_px, props, template, inline_align)
+    # base= 克隆模板时只用 overlay，避免 _metric_shell_props 的 background: transparent / width:100% 冲掉模板壳。
+    card_props = (
+        _metric_shell_overlay(bg, width_px, height_px, props, template, inline_align, title_ratio, content_ratio)
+        if base != None
+        else _metric_shell_props(bg, width_px, height_px, props, template, inline_align, title_ratio, content_ratio)
+    )
+    card_props = _metric_stamp_slot_vertical_align(
+        card_props,
+        label_vertical_align,
+        value_vertical_align,
+        unit_vertical_align,
+        desc_vertical_align,
+    )
     card_layout = layout
     card_blocks = blocks
     if card_layout == None:
@@ -417,7 +521,7 @@ def metric_card(
                         variant,
                         map,
                         patch,
-                        props,
+                        card_props,
                         inline_align,
                         title_ratio,
                         content_ratio,
@@ -431,9 +535,34 @@ def metric_card(
                 template,
                 variant,
                 inline_align,
+                card_props,
+                base != None,
             )
         else:
             fail("metric_card(source=...) expects metric_ref(...) or a static object")
+    if base != None:
+        if has_shell_override:
+            return panel(
+                id = id,
+                area = area,
+                base = base,
+                show_heading = False,
+                chrome = "bare",
+                variant = "container",
+                props = card_props,
+                body_props = body_props,
+                layout = card_layout,
+                blocks = card_blocks,
+            )
+        return panel(
+            id = id,
+            area = area,
+            base = base,
+            props = card_props,
+            body_props = body_props,
+            layout = card_layout,
+            blocks = card_blocks,
+        )
     return panel(
         id = id,
         area = area,

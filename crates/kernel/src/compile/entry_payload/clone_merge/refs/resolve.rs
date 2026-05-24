@@ -2,6 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
+use crate::compile::panel_normalize::seed_metric_slot_vertical_align_defaults_from_base;
 use crate::compile::load_external::{
     load_block_from_scene_file, load_entity_from_world_file, load_flow_from_file,
     load_frame_from_file, load_panel_from_scene_file, load_resource_from_world_file,
@@ -130,7 +131,8 @@ pub(crate) fn resolve_panel_ref(
             }
             obj.remove("base");
         }
-        let mut merged = merge_panel_decl(base_panel, &overlay).ok()?;
+        let mut merged = merge_panel_decl(base_panel.clone(), &overlay).ok()?;
+        seed_metric_slot_vertical_align_defaults_from_base(&base_panel, &mut merged, &overlay);
         merged.blocks = normalize_ui_nodes(
             app_root,
             &merged.blocks,
