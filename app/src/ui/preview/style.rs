@@ -631,6 +631,16 @@ pub(super) fn container_visual_style_without_background(props: &Value) -> String
     append_string_style(&mut style, map.get("min_height"), "min-height");
     append_string_style(&mut style, map.get("height"), "height");
     append_string_style(&mut style, map.get("width"), "width");
+    append_string_style(&mut style, map.get("position"), "position");
+    append_string_style(
+        &mut style,
+        map.get("z_index").or_else(|| map.get("z-index")),
+        "z-index",
+    );
+    append_string_style(&mut style, map.get("top"), "top");
+    append_string_style(&mut style, map.get("left"), "left");
+    append_string_style(&mut style, map.get("right"), "right");
+    append_string_style(&mut style, map.get("bottom"), "bottom");
     append_string_style(&mut style, map.get("max_width"), "max-width");
     append_string_style(&mut style, map.get("min_width"), "min-width");
     append_string_style(&mut style, map.get("box_sizing"), "box-sizing");
