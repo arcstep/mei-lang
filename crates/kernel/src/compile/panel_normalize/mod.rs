@@ -32,7 +32,8 @@ use layout_policy::{
 use metric_card_layout::{audit_metric_vertical_bands, normalize_panel_metric_cards};
 
 pub(crate) use metric_card_layout::{
-    seed_metric_desc_runtime_from_shell, seed_metric_slot_vertical_align_defaults_from_base,
+    seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
+    seed_metric_slot_vertical_align_defaults_from_base,
 };
 use nodes::{blocks_touch_slot, remap_block_areas_to_body};
 use slots::{

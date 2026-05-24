@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde_json::Value;
 
 use crate::model::{BlockDecl, Diagnostic, LayoutDecl, PanelDecl, Severity, UiNodeDecl};
@@ -139,34 +141,125 @@ fn overlay_props_has_slot_v_align(overlay_value: &Value, role: &str) -> bool {
         .is_some_and(|value| !value.is_empty())
 }
 
+fn block_metric_role<'a>(block: &'a BlockDecl) -> Option<&'a str> {
+    block
+        .props
+        .as_object()
+        .and_then(|map| map.get("metric_role"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            block
+                .area
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| METRIC_SLOT_ROLES.contains(value))
+        })
+}
+
+fn block_metric_v_align(block: &BlockDecl) -> Option<String> {
+    block
+        .props
+        .as_object()
+        .and_then(|map| map.get(PROP_METRIC_V_ALIGN))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn metric_v_align_from_base_block(base: &PanelDecl, role: &str) -> Option<String> {
     for node in &base.blocks {
         let UiNodeDecl::Block(block) = node else {
             continue;
         };
-        let Some(block_role) = block
-            .props
-            .as_object()
-            .and_then(|map| map.get("metric_role"))
+        if block_metric_role(block) != Some(role) {
+            continue;
+        }
+        return block_metric_v_align(block);
+    }
+    None
+}
+
+fn metric_v_align_defaults_from_base_blocks(base: &PanelDecl) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for node in &base.blocks {
+        let UiNodeDecl::Block(block) = node else {
+            continue;
+        };
+        let Some(role) = block_metric_role(block) else {
+            continue;
+        };
+        if let Some(raw) = block_metric_v_align(block) {
+            out.insert(role.to_string(), raw);
+        }
+    }
+    out
+}
+
+fn metric_v_align_defaults_from_shell_props(card: &PanelDecl) -> BTreeMap<String, String> {
+    let Some(shell) = card.props.as_object() else {
+        return BTreeMap::new();
+    };
+    let mut out = BTreeMap::new();
+    for role in METRIC_SLOT_ROLES {
+        let Some(raw) = shell
+            .get(&slot_vertical_align_prop_key(role))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
         else {
             continue;
         };
-        if block_role != role {
+        out.insert(role.to_string(), raw.to_string());
+    }
+    out
+}
+
+/// `metric_card(base=..., source=...)` 覆写 blocks 时写入各槽 `metric_v_align`。
+/// 优先级：槽位显式 `vertical_align` > shell `__mei_metric_*_v_align`（来自 label_vertical_align 等）> 模板 base blocks。
+pub(crate) fn seed_metric_block_vertical_align_from_base(base: &PanelDecl, merged: &mut PanelDecl) {
+    if !merged
+        .props
+        .as_object()
+        .and_then(|map| map.get(PROP_METRIC_CARD))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return;
+    }
+    let shell_defaults = metric_v_align_defaults_from_shell_props(merged);
+    let base_defaults = metric_v_align_defaults_from_base_blocks(base);
+    if shell_defaults.is_empty() && base_defaults.is_empty() {
+        return;
+    }
+    for node in &mut merged.blocks {
+        let UiNodeDecl::Block(block) = node else {
+            continue;
+        };
+        let Some(role) = block_metric_role(block) else {
+            continue;
+        };
+        if block_has_metric_v_align(block) {
             continue;
         }
-        let raw = block
-            .props
-            .as_object()
-            .and_then(|map| map.get(PROP_METRIC_V_ALIGN))
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())?;
-        return Some(raw.to_string());
+        let Some(raw) = shell_defaults
+            .get(role)
+            .or_else(|| base_defaults.get(role))
+        else {
+            continue;
+        };
+        if !block.props.is_object() {
+            block.props = Value::Object(Default::default());
+        }
+        if let Some(block_props) = block.props.as_object_mut() {
+            block_props.insert(
+                PROP_METRIC_V_ALIGN.to_string(),
+                Value::String(raw.clone()),
+            );
+        }
     }
-    None
 }
 
 /// 将模板 panel 上 `label(..., vertical_align=...)` 等槽位默认值写入 shell props（仅当调用方未显式覆写）。

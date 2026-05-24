@@ -1266,3 +1266,85 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
         Some("center")
     );
 }
+
+#[test]
+fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
+    let base = PanelDecl {
+        kind: "panel".to_string(),
+        id: "card_plain".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(crate::BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: Some("label".to_string()),
+            title: None,
+            area: Some("label".to_string()),
+            props: json!({
+                "content": "·",
+                "metric_role": "label",
+                "metric_v_align": "end",
+            }),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })],
+        props: json!({"__mei_metric_card": true}),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    };
+    let mut merged = PanelDecl {
+        kind: "panel".to_string(),
+        id: "live".to_string(),
+        title: None,
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![UiNodeDecl::Block(crate::BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: Some("label".to_string()),
+            title: None,
+            area: Some("label".to_string()),
+            props: json!({"content": "执法对象", "metric_role": "label"}),
+            base: None,
+            layout: None,
+            blocks: vec![],
+            component: None,
+            placement: None,
+            interactions: vec![],
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        })],
+        props: json!({
+            "__mei_metric_card": true,
+            "__mei_metric_label_v_align": "center",
+        }),
+        head_props: json!({}),
+        body_props: json!({}),
+        base: None,
+    };
+    seed_metric_block_vertical_align_from_base(&base, &mut merged);
+    let block = match &merged.blocks[0] {
+        UiNodeDecl::Block(block) => block,
+        other => panic!("expected block, got {other:?}"),
+    };
+    assert_eq!(
+        block
+            .props
+            .get("metric_v_align")
+            .and_then(Value::as_str),
+        Some("center"),
+        "shell label_vertical_align must win over card_plain label end default"
+    );
+}

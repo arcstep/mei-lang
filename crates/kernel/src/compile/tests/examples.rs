@@ -445,6 +445,29 @@ fn compile_cockpit_templates_preview() {
         find_panel_by_id(&sc.panels, "preview_progress").is_some(),
         "templates preview should include progress metric card section"
     );
+    let long = find_panel_by_id(&sc.panels, "preview_long").expect("preview_long");
+    let long_layout = long.layout.as_ref().expect("preview_long layout");
+    assert_eq!(
+        long_layout.areas.as_ref(),
+        Some(&vec![
+            vec!["main".to_string(), "rtop".to_string()],
+            vec!["main".to_string(), "rbottom".to_string()],
+        ]),
+        "long compound must use left stack + right top/bottom rows"
+    );
+    assert_eq!(
+        long_layout.columns.as_deref(),
+        Some(&["1fr".to_string(), "2fr".to_string()][..]),
+    );
+    assert!(
+        long
+            .props
+            .get("background")
+            .and_then(|v| v.get("image"))
+            .and_then(|v| v.as_str())
+            .is_some_and(|url| url.contains("metric-bg-long")),
+        "long compound shell should use metric-bg-long asset"
+    );
     let progress_patch =
         find_panel_by_id(&sc.panels, "preview_progress_patch").expect("preview_progress_patch");
     let has_progress_block = progress_patch.blocks.iter().any(|node| {
@@ -456,11 +479,78 @@ fn compile_cockpit_templates_preview() {
                 .props
                 .get("value")
                 .and_then(|v| v.as_str())
-                == Some("65")
+                .is_some_and(|value| value == "65" || value == "65%")
     });
     assert!(
         has_progress_block,
         "cloned progress template + patch.desc should lower desc slot to metric-progress"
+    );
+    let patch_layout = progress_patch.layout.as_ref().expect("progress_patch layout");
+    assert!(
+        patch_layout
+            .areas
+            .as_ref()
+            .is_some_and(|rows| rows.iter().flatten().any(|cell| cell == "desc")),
+        "cloned progress template + source must keep template stack_desc grid with desc area"
+    );
+    fn block_v_align(panel: &crate::PanelDecl, role: &str) -> Option<String> {
+        for node in &panel.blocks {
+            let crate::UiNodeDecl::Block(block) = node else {
+                continue;
+            };
+            if block
+                .props
+                .get("metric_role")
+                .and_then(|v| v.as_str())
+                != Some(role)
+            {
+                continue;
+            }
+            return block
+                .props
+                .get("metric_v_align")
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+        }
+        None
+    }
+    assert_eq!(block_v_align(&progress_patch, "label").as_deref(), Some("center"));
+    assert_eq!(block_v_align(&progress_patch, "value").as_deref(), Some("end"));
+    assert_eq!(block_v_align(&progress_patch, "unit").as_deref(), Some("end"));
+    let compound_top =
+        find_panel_by_id(&sc.panels, "compound_top").expect("compound_top metric card");
+    assert_eq!(
+        block_v_align(compound_top, "label").as_deref(),
+        Some("center"),
+        "label_vertical_align on metric_card must reach mei-text, not card_plain defaults"
+    );
+    assert_eq!(block_v_align(compound_top, "value").as_deref(), Some("center"));
+    let long_main = find_panel_by_id(&sc.panels, "long_main").expect("long_main metric card");
+    assert_eq!(block_v_align(long_main, "label").as_deref(), Some("center"));
+    assert_eq!(block_v_align(long_main, "value").as_deref(), Some("end"));
+    assert_eq!(block_v_align(long_main, "unit").as_deref(), Some("end"));
+    assert_eq!(
+        progress_patch
+            .props
+            .get("__mei_metric_template")
+            .and_then(|v| v.as_str()),
+        Some("stack_desc"),
+        "base clone + source must not overwrite template stack_desc with default stack"
+    );
+    let patch_rows = patch_layout
+        .rows
+        .as_ref()
+        .expect("progress_patch rows");
+    assert!(
+        patch_rows.iter().any(|track| track.contains("18px")),
+        "progress_patch must keep template fixed label row track, not 1fr 1fr stack bands: {:?}",
+        patch_rows
+    );
+    assert!(
+        !patch_rows.iter().any(|track| track == "1fr")
+            || patch_rows.len() > 2,
+        "progress_patch should not collapse to two-band 1fr stack rows: {:?}",
+        patch_rows
     );
 }
 

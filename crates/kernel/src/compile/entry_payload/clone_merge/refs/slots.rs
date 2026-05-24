@@ -9,7 +9,8 @@ use super::super::normalize::{
     normalize_entity_list, normalize_metric_list, normalize_resource_list, normalize_ui_nodes,
 };
 use crate::compile::panel_normalize::{
-    seed_metric_desc_runtime_from_shell, seed_metric_slot_vertical_align_defaults_from_base,
+    seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
+    seed_metric_slot_vertical_align_defaults_from_base,
 };
 
 use super::merge_decl::{merge_frame_decl, merge_panel_decl, merge_world_decl};
@@ -58,6 +59,7 @@ pub(crate) fn resolve_panel_slot(
         let mut merged = merge_panel_decl(base_panel.clone(), slot).ok()?;
         seed_metric_slot_vertical_align_defaults_from_base(&base_panel, &mut merged, slot);
         seed_metric_desc_runtime_from_shell(&mut merged);
+        seed_metric_block_vertical_align_from_base(&base_panel, &mut merged);
         merged.blocks = normalize_ui_nodes(
             app_root,
             &merged.blocks,

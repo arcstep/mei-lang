@@ -114,17 +114,20 @@ def layout_metric_stack(density = None, title_ratio = None, content_ratio = None
         justify = "center",
     )
 
-def layout_metric_row(density = None, inline_align = None):
+def layout_metric_row(density = None, inline_align = None, slot_align = None):
     density = density if density != None else "normal"
     mode = _metric_inline_align_mode("row", inline_align)
     columns = ["auto", "auto", "auto"] if mode == "compact" else ["1fr", "auto", "auto"]
     justify = "center" if mode == "compact" else "stretch"
+    row_align = "end"
+    if slot_align != None and str(slot_align).strip() != "":
+        row_align = str(slot_align).strip().lower()
     return grid(
         rows = ["1fr"],
         columns = columns,
         areas = [["label", "value", "unit"]],
         gap = _metric_default_gap("row", density),
-        align = "end",
+        align = row_align,
         justify = justify,
     )
 
@@ -185,16 +188,18 @@ def _metric_shell_props(bg = None, width_px = None, height_px = None, extra = No
     return props
 
 # panel(base=...) 克隆时只写入显式覆写字段，避免用默认壳冲掉模板 background/width。
-def _metric_shell_overlay(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None, title_ratio = None, content_ratio = None):
+# stamp_template_meta=False：保留模板上的 __mei_metric_template / inline_align（勿用默认 template=stack 盖掉 stack_desc）。
+def _metric_shell_overlay(bg = None, width_px = None, height_px = None, extra = None, template = None, inline_align = None, title_ratio = None, content_ratio = None, stamp_template_meta = True):
     density = _metric_density(height_px, template)
     tpl = _metric_template_name(template)
     props = {
         "__mei_metric_density": density,
-        "__mei_metric_template": tpl,
-        "__mei_metric_inline_align": _metric_inline_align_mode(tpl, inline_align),
         "__mei_metric_title_ratio": str(title_ratio).strip() if title_ratio != None else "1",
         "__mei_metric_content_ratio": str(content_ratio).strip() if content_ratio != None else "1",
     }
+    if stamp_template_meta:
+        props["__mei_metric_template"] = tpl
+        props["__mei_metric_inline_align"] = _metric_inline_align_mode(tpl, inline_align)
     if height_px != None:
         props["height"] = str(height_px) + "px"
     if width_px != None:
@@ -527,7 +532,17 @@ def metric_card(
     density = _metric_density(height_px, template)
     # base= 克隆模板时只用 overlay，避免 _metric_shell_props 的 background: transparent / width:100% 冲掉模板壳。
     card_props = (
-        _metric_shell_overlay(bg, width_px, height_px, props, template, inline_align, title_ratio, content_ratio)
+        _metric_shell_overlay(
+            bg,
+            width_px,
+            height_px,
+            props,
+            template,
+            inline_align,
+            title_ratio,
+            content_ratio,
+            stamp_template_meta = False,
+        )
         if base != None
         else _metric_shell_props(bg, width_px, height_px, props, template, inline_align, title_ratio, content_ratio)
     )
@@ -540,9 +555,18 @@ def metric_card(
     )
     card_layout = layout
     card_blocks = blocks
-    if card_layout == None:
+    # base= 克隆模板时 layout 由模板 panel 提供；勿用默认 template=stack 生成布局覆盖 stack_desc/desc 区。
+    if card_layout == None and base == None:
         card_layout = _metric_layout_from_template(template, height_px, inline_align, title_ratio, content_ratio)
-    _metric_validate_layout(card_layout)
+    effective_layout = card_layout
+    if base != None and not has_layout_override:
+        effective_layout = None
+    if effective_layout != None:
+        _metric_validate_layout(effective_layout)
+    if base != None and _is_dict(props):
+        for key in ["metric_desc_mode", "__mei_metric_desc_mode", "metric_desc_shell"]:
+            if props.get(key) != None:
+                card_props[key] = props.get(key)
     if source == None:
         source = _metric_legacy_source(label_text, value_text, unit_text, desc_text)
     if card_blocks == None:
@@ -568,7 +592,7 @@ def metric_card(
                     ),
                 ),
             ]
-            card_layout = None
+            effective_layout = None
         elif _is_dict(source):
             card_blocks = _metric_literal_blocks(
                 _metric_static_slots(source, map, patch),
@@ -591,7 +615,7 @@ def metric_card(
                 variant = "container",
                 props = card_props,
                 body_props = body_props,
-                layout = card_layout,
+                layout = effective_layout,
                 blocks = card_blocks,
             )
         return panel(
@@ -600,7 +624,7 @@ def metric_card(
             base = base,
             props = card_props,
             body_props = body_props,
-            layout = card_layout,
+            layout = effective_layout,
             blocks = card_blocks,
         )
     return panel(
