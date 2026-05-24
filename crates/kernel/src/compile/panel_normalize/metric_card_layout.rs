@@ -165,14 +165,7 @@ pub(crate) fn seed_metric_slot_vertical_align_defaults_from_base(
             continue;
         }
         let key = slot_vertical_align_prop_key(role);
-        if merged_props
-            .get(&key)
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty())
-        {
-            continue;
-        }
+        // 模板 blocks 上的 vertical_align 优先于 props.__mei_metric_*（作者按槽位微调）。
         if let Some(raw) = metric_v_align_from_base_block(base, role) {
             merged_props.insert(key, Value::String(raw));
         }

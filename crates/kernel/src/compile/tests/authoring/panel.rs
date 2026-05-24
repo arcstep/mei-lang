@@ -629,8 +629,8 @@ frame.add_panel(
     layout = layout_metric_stack(),
     blocks = [
         label("模板", area = "label", vertical_align = "center"),
-        value("--", area = "value", vertical_align = "end"),
-        unit("", area = "unit", vertical_align = "end"),
+        value("--", area = "value"),
+        unit("", area = "unit"),
     ],
 )
 "#,
@@ -686,6 +686,94 @@ frame.add_panel(
         Some("end"),
         "value_vertical_align= on metric_card should override template default"
     );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_metric_card_base_prefers_template_block_vertical_align_over_props() {
+    let root = temp_root("metric-card-base-block-v-align");
+    let app_root = root.join("metric-card-base-block-v-align");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "t", default_scene = "home")
+scene(id = "home", profile = "cockpit", theme = "cockpit")
+world(resources = [])
+frame(
+    panels = [
+        panel(
+            id = "row",
+            show_heading = False,
+            blocks = [
+                metric_card(
+                    base = metric_card_ref(id = "shell", scene_file = "templates/shell.mei"),
+                    id = "live",
+                    source = {"label": "L", "value": "V", "unit": "U"},
+                ),
+            ],
+        ),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("templates/shell.mei"),
+        r#"
+scene(id = "shell_tpl", profile = "cockpit", theme = "cockpit")
+world(resources = [])
+frame()
+frame.add_panel(
+    id = "shell",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    props = {
+        "__mei_metric_card": True,
+        "__mei_metric_template": "stack",
+        "__mei_metric_label_v_align": "center",
+        "__mei_metric_value_v_align": "center",
+    },
+    layout = layout_metric_stack(),
+    blocks = [
+        label("·", area = "label", vertical_align = "end"),
+        value("--", area = "value", vertical_align = "top"),
+        unit("", area = "unit", vertical_align = "top"),
+    ],
+)
+"#,
+    );
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile");
+    let contract = compiled.scene_contract.expect("contract");
+    fn find_panel<'a>(panels: &'a [crate::PanelDecl], id: &str) -> Option<&'a crate::PanelDecl> {
+        for panel in panels {
+            if panel.id == id {
+                return Some(panel);
+            }
+            for node in &panel.blocks {
+                if let crate::UiNodeDecl::Panel(nested) = node {
+                    if let Some(found) = find_panel(std::slice::from_ref(nested), id) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        None
+    }
+    fn role_v_align<'a>(panel: &'a crate::PanelDecl, role: &str) -> Option<&'a str> {
+        panel.blocks.iter().find_map(|node| {
+            let crate::UiNodeDecl::Block(block) = node else {
+                return None;
+            };
+            if block.props.get("metric_role").and_then(|v| v.as_str()) != Some(role) {
+                return None;
+            }
+            block.props.get("metric_v_align").and_then(|v| v.as_str())
+        })
+    }
+    let live = find_panel(&contract.panels, "live").expect("live");
+    assert_eq!(role_v_align(live, "label"), Some("end"));
+    assert_eq!(role_v_align(live, "value"), Some("top"));
+    assert_eq!(role_v_align(live, "unit"), Some("top"));
     let _ = fs::remove_dir_all(&root);
 }
 
