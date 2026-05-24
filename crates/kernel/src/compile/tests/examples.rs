@@ -359,23 +359,61 @@ fn compile_cockpit_section_panel_draw_example() {
 }
 
 #[test]
+fn compile_cockpit_panel_screen_header_preview() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("templates/cockpit");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("panel/panel-screen-header.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile panel-screen-header failed: {error}"));
+    assert_eq!(
+        compiled.active_target_file, "panel/panel-screen-header.mei"
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    assert_eq!(sc.panels.len(), 1, "single header shell panel");
+    assert_eq!(sc.panels[0].id, "screen_header_shell");
+    let frame = sc.frame.as_ref().expect("frame");
+    let frame_props = frame.props.as_object().expect("frame props");
+    assert!(
+        frame_props.get("viewport").is_some(),
+        "panel-screen-header should declare 1920 viewport for manage preview; layout={:?} props={:?}",
+        frame.layout,
+        frame_props
+    );
+}
+
+#[test]
 fn compile_cockpit_templates_preview() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("templates/cockpit");
-    let compiled = compile_app_from_root(&source_root, &app_root)
-        .unwrap_or_else(|error| panic!("compile templates/cockpit failed: {error}"));
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("metric".to_string()),
+            preview_target: None,
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile templates/cockpit failed: {error}"));
+    assert_eq!(compiled.active_target_file, "metric-card.mei");
     assert!(
         compiled
             .diagnostics
             .iter()
             .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
-        "templates/cockpit preview should not produce error diagnostics: {:?}",
+        "templates/cockpit metric scene should not produce error diagnostics: {:?}",
         compiled.diagnostics
     );
     assert!(
         compiled.scene_contract.is_some(),
-        "templates/cockpit preview should produce a scene contract"
+        "templates/cockpit metric scene should produce a scene contract"
     );
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
     fn find_panel_by_id<'a>(
@@ -526,9 +564,9 @@ fn compile_cockpit_templates_preview() {
     );
     assert_eq!(block_v_align(compound_top, "value").as_deref(), Some("center"));
     let long_main = find_panel_by_id(&sc.panels, "long_main").expect("long_main metric card");
-    assert_eq!(block_v_align(long_main, "label").as_deref(), Some("center"));
-    assert_eq!(block_v_align(long_main, "value").as_deref(), Some("end"));
-    assert_eq!(block_v_align(long_main, "unit").as_deref(), Some("end"));
+    assert_eq!(block_v_align(long_main, "label").as_deref(), Some("end"));
+    assert_eq!(block_v_align(long_main, "value").as_deref(), Some("center"));
+    assert_eq!(block_v_align(long_main, "unit").as_deref(), Some("center"));
     assert_eq!(
         progress_patch
             .props

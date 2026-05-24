@@ -329,11 +329,22 @@ fn block_view(
         .map(|asset| asset.tag.clone())
         .unwrap_or_else(|| "mei-missing-component".to_string());
     let html = component_html(tag.as_str(), &props);
-    let slot_v_class = metric_slot_vertical_host_class(&props);
+    let is_header_brand = block.use_key == "cockpit.header-brand";
+    let slot_v_class = if is_header_brand {
+        String::new()
+    } else {
+        metric_slot_vertical_host_class(&props).to_string()
+    };
+    let card_class = if slot_v_class.is_empty() {
+        "component-card".to_string()
+    } else {
+        format!("component-card {slot_v_class}")
+    };
+    let block_layout = if is_header_brand { None } else { panel_layout };
     view! {
         <section
-            class=format!("component-card {slot_v_class}")
-            style=block_style(block.area.as_deref(), panel_layout)
+            class=card_class
+            style=block_style(block.area.as_deref(), block_layout)
         >
             <div class="component-host" inner_html=html></div>
         </section>

@@ -1059,9 +1059,26 @@ a.status-chip-link:focus-visible {
 }
 .preview-card > .panel-body-cell {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
   overflow: visible;
+}
+/* bare 单组件（如 cockpit.header-brand）：避免 remap 的 grid-area:body 在嵌套 grid 里挤成右半列 */
+.preview-card-bare > .panel-body-cell > .component-card {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+.preview-card-bare > .panel-body-cell > .component-card > .component-host {
+  width: 100%;
+  min-height: 0;
+}
+.preview-card-bare > .panel-body-cell > .component-card > .component-host > mei-cockpit-header-brand {
+  display: block;
+  width: 100%;
+  min-width: 0;
 }
 .preview-card > .panel-body-cell.panel-body-slot-center > .component-card {
   display: flex;
