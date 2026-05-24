@@ -20,6 +20,7 @@ use mei_lang_kernel::CompiledApp;
 use std::time::Instant;
 
 mod agent_runtime;
+mod gis_config;
 mod http;
 mod mei_agent;
 mod resource_tool_bridge;
@@ -95,6 +96,7 @@ pub(crate) struct AppState {
     agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
     pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
+    pub(crate) gis_tiles: Arc<gis_config::GisTilesConfig>,
 }
 
 #[derive(Clone)]
@@ -167,6 +169,13 @@ async fn serve(args: ServeArgs) -> Result<()> {
         package_root.clone(),
         std::sync::Arc::new(resource_tool_bridge::SceneResourceToolExecutor::default()),
     )?);
+    let gis_tiles = Arc::new(gis_config::GisTilesConfig::resolve());
+    tracing::info!(
+        tiles_base_url = %gis_tiles.base_url,
+        tiles_json_path = %gis_tiles.json_path,
+        tilejson_url = %gis_tiles.tilejson_url(),
+        "GIS basemap (Martin) — start tiles separately; see mei-projects/scripts/start_martin_docker.sh"
+    );
     let state = AppState {
         package_root: Arc::new(package_root.clone()),
         source_root: Arc::new(source_root.clone()),
@@ -177,6 +186,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: gis_tiles.clone(),
     };
     tracing::info!(
         cwd = ?std::env::current_dir(),
@@ -378,6 +388,7 @@ pub(crate) mod test_support {
             agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
+            gis_tiles: Arc::new(super::gis_config::GisTilesConfig::resolve()),
         })
     }
 }

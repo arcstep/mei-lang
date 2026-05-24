@@ -208,3 +208,13 @@ pub(crate) fn fill_manage_wall_clock_placeholders(
     html = html.replace("__MEI_HANDLER_HTML_READY_MS__", ready.as_str());
     html
 }
+
+/// 将 Martin 瓦片服务地址写入 HTML（`meta[name=mei-tiles-*]`），供 `map.maplibre` 读取。
+pub(crate) fn fill_gis_tiles_placeholders(
+    mut html: String,
+    cfg: &crate::gis_config::GisTilesConfig,
+) -> String {
+    html = html.replace("__MEI_TILES_BASE_URL__", cfg.base_url.as_str());
+    html = html.replace("__MEI_TILES_JSON_PATH__", cfg.json_path.as_str());
+    html
+}

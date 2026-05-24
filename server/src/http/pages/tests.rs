@@ -132,6 +132,7 @@ async fn app_bundle_returns_merged_javascript() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_bundle(State(state), AxumPath("manage.js".to_string()))
@@ -169,6 +170,7 @@ async fn app_bundle_supports_shoelace_mode() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_bundle(State(state), AxumPath("shoelace.js".to_string()))
@@ -196,6 +198,7 @@ async fn app_bundle_supports_styles_mode() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
     let response = app_bundle(State(state), AxumPath("styles.css".to_string()))
         .await
@@ -235,6 +238,7 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -286,6 +290,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -344,6 +349,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = index(State(state))

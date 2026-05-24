@@ -133,6 +133,8 @@ pub fn render_page(
             <head>
                 <meta charset="utf-8"/>
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
+                <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
                 <title>{format!("{} - MeiLang", compiled.title)}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>

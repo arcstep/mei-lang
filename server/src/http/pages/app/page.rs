@@ -15,7 +15,8 @@ use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
 use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
 use super::super::util::{
-    elapsed_ms, fill_manage_wall_clock_placeholders, fill_perf_placeholders, is_script_target,
+    elapsed_ms, fill_gis_tiles_placeholders, fill_manage_wall_clock_placeholders,
+    fill_perf_placeholders, is_script_target,
     push_manage_page_pipeline_diag,
 };
 use super::query::{
@@ -342,6 +343,7 @@ pub async fn app_page(
                     );
                     let handler_ms = elapsed_ms(app_started);
                     let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+                    let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
                     (h, last_pass_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
@@ -630,6 +632,7 @@ pub async fn app_page(
         );
         let handler_ms = elapsed_ms(app_started);
         let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+        let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
         (h, last_pass_ms, handler_ms)
     };
     let mut res = Html(html).into_response();

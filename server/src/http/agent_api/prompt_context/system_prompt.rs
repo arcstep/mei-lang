@@ -159,6 +159,7 @@ mod tests {
             agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
+            gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
         };
         let sys = build_meilang_system_prompt(
             &state,
