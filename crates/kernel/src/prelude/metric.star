@@ -339,6 +339,37 @@ def _metric_stamp_slot_vertical_align(shell_props, label_vertical_align = None, 
             shell_props[_metric_slot_vertical_align_key(role)] = str(raw).strip()
     return shell_props
 
+def _metric_desc_mode(shell_props):
+    if not _is_dict(shell_props):
+        return ""
+    raw = shell_props.get("metric_desc_mode")
+    if raw == None:
+        raw = shell_props.get("__mei_metric_desc_mode")
+    return str(raw).strip().lower() if raw != None else ""
+
+def _metric_desc_shell(shell_props):
+    if not _is_dict(shell_props):
+        return None
+    shell = shell_props.get("metric_desc_shell")
+    return shell if _is_dict(shell) else None
+
+def _metric_desc_progress_block(value, shell_props = None, vertical_align = None):
+    props = {
+        "value": value if value != None else "",
+        "metric_role": "desc",
+        "align": "center",
+    }
+    shell = _metric_desc_shell(shell_props)
+    if shell != None:
+        props["progress_shell"] = shell
+    if vertical_align != None and str(vertical_align).strip() != "":
+        props["metric_v_align"] = str(vertical_align).strip()
+    return component(
+        "cockpit.metric-progress",
+        area = "desc",
+        props = _without_empty(props),
+    )
+
 def _metric_literal_blocks(values, template = None, variant = None, inline_align = None, shell_props = None, defer_slot_vertical_align = False):
     tpl = _metric_template_name(template)
     def _slot_v_align(role):
@@ -369,15 +400,24 @@ def _metric_literal_blocks(values, template = None, variant = None, inline_align
         ),
     ]
     if values.get("desc") != None:
-        blocks.append(
-            desc(
-                values.get("desc"),
-                area = "desc",
-                align = _metric_slot_align(tpl, "desc", inline_align),
-                variant = variant,
-                vertical_align = _slot_v_align("desc"),
-            ),
-        )
+        if _metric_desc_mode(shell_props) == "progress":
+            blocks.append(
+                _metric_desc_progress_block(
+                    values.get("desc"),
+                    shell_props = shell_props,
+                    vertical_align = _slot_v_align("desc"),
+                ),
+            )
+        else:
+            blocks.append(
+                desc(
+                    values.get("desc"),
+                    area = "desc",
+                    align = _metric_slot_align(tpl, "desc", inline_align),
+                    variant = variant,
+                    vertical_align = _slot_v_align("desc"),
+                ),
+            )
     return blocks
 
 def _metric_component_extra(extra):

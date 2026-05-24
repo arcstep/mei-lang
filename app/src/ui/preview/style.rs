@@ -771,10 +771,12 @@ pub(super) fn block_style(
         if let Some(area) = area {
             if !area.trim().is_empty() && area != "auto" {
                 let fill_row = area != "head";
+                // desc 槽常放进度条/角标条，须占满行宽；width:auto 会使 shadow 内组件坍缩为 0。
+                let span_row_width = area == "desc";
                 let centered = layout
                     .and_then(|value| value.justify.as_deref())
                     .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"));
-                let mut style = if fill_row && centered {
+                let mut style = if fill_row && centered && !span_row_width {
                     format!(
                         "grid-area:{area};min-width:0;min-height:0;width:auto;height:100%;align-self:stretch;justify-self:center;box-sizing:border-box;"
                     )

@@ -1256,6 +1256,8 @@ a.status-chip-link:focus-visible {
 .preview-card-bare .component-host > mei-cockpit-qunfu-park-donut-trio,
 .preview-card-bare .component-host > mei-cockpit-qunfu-park-amount-list,
 .preview-card-bare .component-host > mei-cockpit-scroll-list,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-metric-progress,
+.preview-card-bare .component-host > mei-cockpit-metric-progress,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-donut-trio,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-amount-list,

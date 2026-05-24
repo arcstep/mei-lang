@@ -396,24 +396,20 @@ fn compile_cockpit_templates_preview() {
         }
         None
     }
-    let row_solid = find_panel_by_id(&sc.panels, "row_solid_body").expect("row_solid_body");
+    let solid_row = find_panel_by_id(&sc.panels, "solid_row_body").expect("solid_row_body");
     assert_eq!(
-        row_solid
+        solid_row
             .props
             .get("__mei_layout_policy")
             .and_then(|v| v.as_str()),
         Some("metrics_strip")
     );
-    let layout = row_solid.layout.as_ref().expect("row_solid_body layout");
+    let layout = solid_row.layout.as_ref().expect("solid_row_body layout");
     assert_eq!(
         layout.areas.as_ref(),
-        Some(&vec![vec![
-            "m0".to_string(),
-            "m1".to_string(),
-            "m2".to_string()
-        ]])
+        Some(&vec![vec!["m0".to_string(), "m1".to_string()]])
     );
-    let accent = find_panel_by_id(&sc.panels, "preview_accent").expect("preview_accent");
+    let accent = find_panel_by_id(&sc.panels, "preview_row_accent").expect("preview_row_accent");
     let accent_layout = accent.layout.as_ref().expect("accent layout");
     assert_eq!(
         accent_layout.areas.as_ref(),
@@ -427,6 +423,44 @@ fn compile_cockpit_templates_preview() {
         accent_layout.justify.as_deref(),
         Some("start"),
         "row solid cards should use justify=start for inner label/value/unit grid"
+    );
+    let stack_desc =
+        find_panel_by_id(&sc.panels, "preview_stack_desc").expect("preview_stack_desc");
+    let stack_desc_layout = stack_desc.layout.as_ref().expect("stack_desc layout");
+    assert_eq!(
+        stack_desc_layout.rows.as_deref(),
+        Some(
+            &[
+                "14px".to_string(),
+                "auto".to_string(),
+                "54px".to_string(),
+                "6px".to_string(),
+                "20px".to_string(),
+                "14px".to_string(),
+            ][..]
+        ),
+        "stack_desc mid card must keep 14px top band and 54px value band (value bottom 40px from card)"
+    );
+    assert!(
+        find_panel_by_id(&sc.panels, "preview_progress").is_some(),
+        "templates preview should include progress metric card section"
+    );
+    let progress_patch =
+        find_panel_by_id(&sc.panels, "preview_progress_patch").expect("preview_progress_patch");
+    let has_progress_block = progress_patch.blocks.iter().any(|node| {
+        let crate::UiNodeDecl::Block(block) = node else {
+            return false;
+        };
+        block.use_key == "cockpit.metric-progress"
+            && block
+                .props
+                .get("value")
+                .and_then(|v| v.as_str())
+                == Some("65")
+    });
+    assert!(
+        has_progress_block,
+        "cloned progress template + patch.desc should lower desc slot to metric-progress"
     );
 }
 

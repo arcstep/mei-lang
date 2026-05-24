@@ -94,6 +94,15 @@ fn block_style_centers_content_for_centered_grid_items() {
 }
 
 #[test]
+fn block_style_desc_slot_spans_full_width_when_grid_is_centered() {
+    let mut layout = grid_layout();
+    layout.justify = Some("center".to_string());
+    let style = block_style(Some("desc"), Some(&layout));
+    assert!(style.contains("width:100%;"));
+    assert!(!style.contains("width:auto;"));
+}
+
+#[test]
 fn panel_card_layout_style_preserves_gap_for_content_only_grid() {
     let mut layout = grid_layout();
     layout.gap = Some("8px".to_string());
