@@ -1263,6 +1263,34 @@ a.status-chip-link:focus-visible {
   min-height: 0;
   overflow: hidden;
 }
+/* 指标槽垂直对齐：在 component-card 层定位（label 行较矮时 mei-text 内部 justify-content 无行程） */
+.preview-panel-body > .component-card.component-card--slot-v-start > .component-host,
+.preview-card-bare .component-card.component-card--slot-v-start > .component-host {
+  flex: 0 0 auto;
+  height: auto;
+}
+.preview-panel-body > .component-card.component-card--slot-v-center > .component-host,
+.preview-card-bare .component-card.component-card--slot-v-center > .component-host {
+  flex: 0 0 auto;
+  height: auto;
+}
+.preview-panel-body > .component-card.component-card--slot-v-end > .component-host,
+.preview-card-bare .component-card.component-card--slot-v-end > .component-host {
+  flex: 0 0 auto;
+  height: auto;
+}
+.preview-panel-body > .component-card.component-card--slot-v-start,
+.preview-card-bare .component-card.component-card--slot-v-start {
+  justify-content: flex-start;
+}
+.preview-panel-body > .component-card.component-card--slot-v-center,
+.preview-card-bare .component-card.component-card--slot-v-center {
+  justify-content: center;
+}
+.preview-panel-body > .component-card.component-card--slot-v-end,
+.preview-card-bare .component-card.component-card--slot-v-end {
+  justify-content: flex-end;
+}
 .preview-panel-body > .component-card > .component-host > mei-cockpit-metric-progress,
 .preview-card-bare .component-host > mei-cockpit-metric-progress,
 .preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile,

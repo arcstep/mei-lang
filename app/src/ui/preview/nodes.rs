@@ -4,10 +4,10 @@ use serde_json::Value;
 
 use super::style::container_visual_style;
 use super::style::{
-    block_style, panel_body_layout_centered, panel_card_layout_style, panel_chrome_bare,
-    panel_head_caret_style, panel_head_carets_enabled, panel_heading_config, panel_heading_style,
-    panel_layout_content_on_body_slot, panel_show_heading, panel_slot_area_style,
-    panel_slot_typography_style, panel_style,
+    block_style, metric_slot_vertical_host_class, panel_body_layout_centered,
+    panel_card_layout_style, panel_chrome_bare, panel_head_caret_style, panel_head_carets_enabled,
+    panel_heading_config, panel_heading_style, panel_layout_content_on_body_slot,
+    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
 };
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
@@ -329,8 +329,12 @@ fn block_view(
         .map(|asset| asset.tag.clone())
         .unwrap_or_else(|| "mei-missing-component".to_string());
     let html = component_html(tag.as_str(), &props);
+    let slot_v_class = metric_slot_vertical_host_class(&props);
     view! {
-        <section class="component-card" style=block_style(block.area.as_deref(), panel_layout)>
+        <section
+            class=format!("component-card {slot_v_class}")
+            style=block_style(block.area.as_deref(), panel_layout)
+        >
             <div class="component-host" inner_html=html></div>
         </section>
     }

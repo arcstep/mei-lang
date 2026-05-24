@@ -752,6 +752,24 @@ pub(super) fn normalize_background_image(value: &str) -> String {
     }
 }
 
+/// 指标槽 `metric_v_align` → component-card 上的垂直定位 class（host 缩为内容高，由 card 的 justify-content 落位）。
+pub(super) fn metric_slot_vertical_host_class(props: &Value) -> &'static str {
+    let Some(raw) = props
+        .as_object()
+        .and_then(|map| map.get("metric_v_align"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return "component-card--slot-v-center";
+    };
+    match raw.to_ascii_lowercase().as_str() {
+        "start" | "top" => "component-card--slot-v-start",
+        "end" | "bottom" | "baseline" => "component-card--slot-v-end",
+        _ => "component-card--slot-v-center",
+    }
+}
+
 pub(super) fn block_style(
     area: Option<&str>,
     layout: Option<&mei_lang_kernel::LayoutDecl>,
