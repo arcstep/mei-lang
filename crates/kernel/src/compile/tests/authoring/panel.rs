@@ -570,6 +570,15 @@ frame.add_panel(
         width.contains("120"),
         "metric_card(base=...) should inherit shell width from template, got {width}"
     );
+    let areas = live
+        .layout
+        .as_ref()
+        .and_then(|layout| layout.areas.as_ref())
+        .expect("metric_card(base=...) should inherit template layout");
+    assert!(
+        areas.iter().flatten().any(|cell| cell == "label"),
+        "template stack layout areas should survive base clone merge, got {areas:?}"
+    );
     let _ = fs::remove_dir_all(&root);
 }
 

@@ -22,7 +22,8 @@ pub(crate) fn merge_panel_decl(base: PanelDecl, overlay_value: &Value) -> Result
     if value_has_key(overlay_value, "area") {
         merged.area = overlay.area;
     }
-    if value_has_key(overlay_value, "layout") {
+    // metric_card(base=...) lowers to panel(...) without layout; do not wipe template grid.
+    if value_has_key(overlay_value, "layout") && overlay.layout.is_some() {
         merged.layout = overlay.layout;
     }
     if value_has_key(overlay_value, "blocks") {

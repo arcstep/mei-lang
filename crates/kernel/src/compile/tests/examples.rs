@@ -359,6 +359,78 @@ fn compile_cockpit_section_panel_draw_example() {
 }
 
 #[test]
+fn compile_cockpit_templates_preview() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("templates/cockpit");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile templates/cockpit failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "templates/cockpit preview should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "templates/cockpit preview should produce a scene contract"
+    );
+    let sc = compiled.scene_contract.as_ref().expect("scene contract");
+    fn find_panel_by_id<'a>(
+        panels: &'a [crate::PanelDecl],
+        target: &str,
+    ) -> Option<&'a crate::PanelDecl> {
+        for panel in panels {
+            if panel.id == target {
+                return Some(panel);
+            }
+            for node in &panel.blocks {
+                if let crate::UiNodeDecl::Panel(nested) = node {
+                    if let Some(found) = find_panel_by_id(std::slice::from_ref(nested), target) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        None
+    }
+    let row_solid = find_panel_by_id(&sc.panels, "row_solid_body").expect("row_solid_body");
+    assert_eq!(
+        row_solid
+            .props
+            .get("__mei_layout_policy")
+            .and_then(|v| v.as_str()),
+        Some("metrics_strip")
+    );
+    let layout = row_solid.layout.as_ref().expect("row_solid_body layout");
+    assert_eq!(
+        layout.areas.as_ref(),
+        Some(&vec![vec![
+            "m0".to_string(),
+            "m1".to_string(),
+            "m2".to_string()
+        ]])
+    );
+    let accent = find_panel_by_id(&sc.panels, "preview_accent").expect("preview_accent");
+    let accent_layout = accent.layout.as_ref().expect("accent layout");
+    assert_eq!(
+        accent_layout.areas.as_ref(),
+        Some(&vec![vec![
+            "label".to_string(),
+            "value".to_string(),
+            "unit".to_string()
+        ]])
+    );
+    assert_eq!(
+        accent_layout.justify.as_deref(),
+        Some("start"),
+        "row solid cards should use justify=start for inner label/value/unit grid"
+    );
+}
+
+#[test]
 fn compile_cockpit_panel_example() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/cockpit");
