@@ -791,13 +791,80 @@
     targetDocument.dispatchEvent(new CustomEvent(LAYOUT_AUDIT_EVENT, { detail: payload }));
   }
 
-  function publishLayoutAudit(root, diagnostics, report = {}) {
+  function sceneIdFromLocation() {
+    try {
+      const url = new URL(window.location.href);
+      const scene = String(url.searchParams.get("scene") || "").trim();
+      if (scene) return scene;
+      const match = String(url.pathname || "").match(/\/scene\/([^/?#]+)/i);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  function collectPanelMeta(stage) {
+    const map = new Map();
+    if (!stage || !stage.querySelectorAll) return map;
+    stage.querySelectorAll("[data-mei-panel-id]").forEach((panel) => {
+      const panelId = String(panel.getAttribute("data-mei-panel-id") || "").trim();
+      if (!panelId || map.has(panelId)) return;
+      const label =
+        String(panel.querySelector?.("[data-mei-panel-head]")?.getAttribute?.("aria-label") || "").trim() ||
+        panelId;
+      map.set(panelId, {
+        panelId,
+        panelLabel: label,
+        componentLabel: label,
+      });
+    });
+    return map;
+  }
+
+  function enrichLayoutDiagnostics(diagnostics, panelMeta, sceneId, targetFile) {
+    const list = Array.isArray(diagnostics) ? diagnostics : [];
+    return list.map((diag) => {
+      const panelId = String(diag?.panelId || "").trim();
+      const panel = panelId ? panelMeta.get(panelId) : null;
+      const panelLabel = String(diag?.panelLabel || diag?.label || panel?.panelLabel || "").trim();
+      const componentLabel = String(diag?.component_label || panelLabel || panel?.componentLabel || "").trim();
+      return {
+        ...diag,
+        panelId: panelId || undefined,
+        panelLabel: panelLabel || undefined,
+        component_label: componentLabel || undefined,
+        scene_id: sceneId || undefined,
+        target_file: targetFile || undefined,
+        source_path: String(diag?.source_path || targetFile || "").trim() || undefined,
+      };
+    });
+  }
+
+  function publishLayoutAudit(root, stage, diagnostics, report = {}) {
+    const targetFile = String(
+      root?.dataset?.targetFile || root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"
+    ).trim();
+    const sceneId = String(root?.dataset?.sceneId || "").trim() || sceneIdFromLocation();
+    const panelMeta = collectPanelMeta(stage);
+    const normalizedDiagnostics = enrichLayoutDiagnostics(diagnostics, panelMeta, sceneId, targetFile);
+    const normalizedWorstPanels = (Array.isArray(report?.worstPanels) ? report.worstPanels : []).map((entry) => {
+      const panelId = String(entry?.panelId || "").trim();
+      const panel = panelId ? panelMeta.get(panelId) : null;
+      return {
+        ...entry,
+        panelId: panelId || entry?.panelId,
+        panelLabel: String(entry?.panelLabel || panel?.panelLabel || "").trim() || undefined,
+      };
+    });
     const payload = {
-      sourcePath: String(root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"),
-      diagnostics: Array.isArray(diagnostics) ? diagnostics : [],
+      sourcePath: targetFile || "main.mei",
+      targetFile: targetFile || "main.mei",
+      sceneId: sceneId || undefined,
+      diagnostics: normalizedDiagnostics,
       score: Number(report?.score || 0),
       blocking: report?.blocking === true,
-      worstPanels: Array.isArray(report?.worstPanels) ? report.worstPanels : [],
+      worstPanels: normalizedWorstPanels,
       metrics: report?.metrics && typeof report.metrics === "object" ? report.metrics : {},
     };
     window.__meiLastLayoutEval = payload;
@@ -942,5 +1009,5 @@
           .join("、")}`,
       });
     }
-    publishLayoutAudit(root, diagnostics, buildRuntimeEvalReport(diagnostics));
+    publishLayoutAudit(root, stage, diagnostics, buildRuntimeEvalReport(diagnostics));
   }

@@ -932,13 +932,80 @@
     targetDocument.dispatchEvent(new CustomEvent(LAYOUT_AUDIT_EVENT, { detail: payload }));
   }
 
-  function publishLayoutAudit(root, diagnostics, report = {}) {
+  function sceneIdFromLocation() {
+    try {
+      const url = new URL(window.location.href);
+      const scene = String(url.searchParams.get("scene") || "").trim();
+      if (scene) return scene;
+      const match = String(url.pathname || "").match(/\/scene\/([^/?#]+)/i);
+      if (match && match[1]) {
+        return decodeURIComponent(match[1]);
+      }
+    } catch (_) {}
+    return "";
+  }
+
+  function collectPanelMeta(stage) {
+    const map = new Map();
+    if (!stage || !stage.querySelectorAll) return map;
+    stage.querySelectorAll("[data-mei-panel-id]").forEach((panel) => {
+      const panelId = String(panel.getAttribute("data-mei-panel-id") || "").trim();
+      if (!panelId || map.has(panelId)) return;
+      const label =
+        String(panel.querySelector?.("[data-mei-panel-head]")?.getAttribute?.("aria-label") || "").trim() ||
+        panelId;
+      map.set(panelId, {
+        panelId,
+        panelLabel: label,
+        componentLabel: label,
+      });
+    });
+    return map;
+  }
+
+  function enrichLayoutDiagnostics(diagnostics, panelMeta, sceneId, targetFile) {
+    const list = Array.isArray(diagnostics) ? diagnostics : [];
+    return list.map((diag) => {
+      const panelId = String(diag?.panelId || "").trim();
+      const panel = panelId ? panelMeta.get(panelId) : null;
+      const panelLabel = String(diag?.panelLabel || diag?.label || panel?.panelLabel || "").trim();
+      const componentLabel = String(diag?.component_label || panelLabel || panel?.componentLabel || "").trim();
+      return {
+        ...diag,
+        panelId: panelId || undefined,
+        panelLabel: panelLabel || undefined,
+        component_label: componentLabel || undefined,
+        scene_id: sceneId || undefined,
+        target_file: targetFile || undefined,
+        source_path: String(diag?.source_path || targetFile || "").trim() || undefined,
+      };
+    });
+  }
+
+  function publishLayoutAudit(root, stage, diagnostics, report = {}) {
+    const targetFile = String(
+      root?.dataset?.targetFile || root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"
+    ).trim();
+    const sceneId = String(root?.dataset?.sceneId || "").trim() || sceneIdFromLocation();
+    const panelMeta = collectPanelMeta(stage);
+    const normalizedDiagnostics = enrichLayoutDiagnostics(diagnostics, panelMeta, sceneId, targetFile);
+    const normalizedWorstPanels = (Array.isArray(report?.worstPanels) ? report.worstPanels : []).map((entry) => {
+      const panelId = String(entry?.panelId || "").trim();
+      const panel = panelId ? panelMeta.get(panelId) : null;
+      return {
+        ...entry,
+        panelId: panelId || entry?.panelId,
+        panelLabel: String(entry?.panelLabel || panel?.panelLabel || "").trim() || undefined,
+      };
+    });
     const payload = {
-      sourcePath: String(root?.dataset?.sourcePath || root?.dataset?.activeTarget || "main.mei"),
-      diagnostics: Array.isArray(diagnostics) ? diagnostics : [],
+      sourcePath: targetFile || "main.mei",
+      targetFile: targetFile || "main.mei",
+      sceneId: sceneId || undefined,
+      diagnostics: normalizedDiagnostics,
       score: Number(report?.score || 0),
       blocking: report?.blocking === true,
-      worstPanels: Array.isArray(report?.worstPanels) ? report.worstPanels : [],
+      worstPanels: normalizedWorstPanels,
       metrics: report?.metrics && typeof report.metrics === "object" ? report.metrics : {},
     };
     window.__meiLastLayoutEval = payload;
@@ -1083,7 +1150,7 @@
           .join("、")}`,
       });
     }
-    publishLayoutAudit(root, diagnostics, buildRuntimeEvalReport(diagnostics));
+    publishLayoutAudit(root, stage, diagnostics, buildRuntimeEvalReport(diagnostics));
   }
 
 ;
@@ -7560,6 +7627,95 @@
   let loadingTimer = null;
   let loadingVisibleAt = 0;
 
+  function currentMainPane() {
+    return document.querySelector("#workspace-root main.main");
+  }
+
+  function clearManageWorkspaceLoadingState() {
+    const currentMain = currentMainPane();
+    if (!currentMain) return;
+    currentMain.removeAttribute("aria-busy");
+    const overlay = currentMain.querySelector('[data-mei-manage-nav-loading="true"]');
+    if (overlay) overlay.remove();
+  }
+
+  function navigationTargetLabel(url) {
+    try {
+      const parsed = new URL(url, window.location.href);
+      const file = String(parsed.searchParams.get("file") || "").trim();
+      if (file) return file;
+      const scene = String(parsed.searchParams.get("scene") || "").trim();
+      if (scene) return `scene:${scene}`;
+    } catch (_) {}
+    return "目标预览";
+  }
+
+  function showManageWorkspaceLoadingState(url) {
+    const currentUrl = new URL(window.location.href);
+    const nextUrl = new URL(url, window.location.href);
+    const isSameManageRoute =
+      currentUrl.pathname === nextUrl.pathname &&
+      currentUrl.pathname.startsWith("/apps/manage/");
+    if (!isSameManageRoute) {
+      clearManageWorkspaceLoadingState();
+      return;
+    }
+    const currentMain = currentMainPane();
+    if (!currentMain) return;
+    currentMain.setAttribute("aria-busy", "true");
+    let overlay = currentMain.querySelector('[data-mei-manage-nav-loading="true"]');
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.setAttribute("data-mei-manage-nav-loading", "true");
+      overlay.style.cssText = [
+        "position:absolute",
+        "inset:0",
+        "z-index:40",
+        "display:grid",
+        "place-items:center",
+        "padding:24px",
+        "background:linear-gradient(180deg, rgba(8,15,30,.42), rgba(8,15,30,.70))",
+        "backdrop-filter:blur(2px)",
+        "pointer-events:none",
+      ].join(";");
+      const card = document.createElement("div");
+      card.style.cssText = [
+        "display:grid",
+        "gap:8px",
+        "min-width:220px",
+        "padding:16px 18px",
+        "border-radius:14px",
+        "border:1px solid rgba(96,165,250,.35)",
+        "background:rgba(15,23,42,.88)",
+        "box-shadow:0 12px 40px rgba(2,6,23,.28)",
+        "color:#e2e8f0",
+        "text-align:center",
+      ].join(";");
+      const title = document.createElement("strong");
+      title.textContent = "正在切换预览";
+      title.style.cssText = "font-size:14px;font-weight:700;color:#f8fafc;";
+      const detail = document.createElement("span");
+      detail.setAttribute("data-mei-manage-nav-target", "true");
+      detail.style.cssText =
+        "font-size:12px;line-height:1.5;color:#93c5fd;font-family:ui-monospace,SFMono-Regular,monospace;";
+      const hint = document.createElement("span");
+      hint.textContent = "旧画面将被替换，请稍候...";
+      hint.style.cssText = "font-size:11px;line-height:1.5;color:#94a3b8;";
+      card.appendChild(title);
+      card.appendChild(detail);
+      card.appendChild(hint);
+      overlay.appendChild(card);
+      if (getComputedStyle(currentMain).position === "static") {
+        currentMain.style.position = "relative";
+      }
+      currentMain.appendChild(overlay);
+    }
+    const detail = overlay.querySelector('[data-mei-manage-nav-target="true"]');
+    if (detail) {
+      detail.textContent = navigationTargetLabel(url);
+    }
+  }
+
   function createLoadingOverlay() {
     if (document.getElementById("mei-spa-loading")) return;
     const overlay = document.createElement("div");
@@ -7671,6 +7827,20 @@
       ) {
         return true;
       }
+      if (
+        item instanceof HTMLElement &&
+        item.matches &&
+        item.matches(".sidebar.left a.tree-link[href]")
+      ) {
+        return true;
+      }
+      if (
+        item instanceof HTMLElement &&
+        item.closest &&
+        item.closest("header.topbar-shell")
+      ) {
+        return true;
+      }
     }
     return false;
   }
@@ -7681,6 +7851,17 @@
       return parsed.pathname;
     } catch (_) {
       return "";
+    }
+  }
+
+  function routePreserveKey(url) {
+    try {
+      const parsed = new URL(url, window.location.href);
+      const file = String(parsed.searchParams.get("file") || "").trim();
+      const scene = String(parsed.searchParams.get("scene") || "").trim();
+      return `${file}::${scene}`;
+    } catch (_) {
+      return "::";
     }
   }
 
@@ -7727,6 +7908,7 @@
       "disposeManageTabs",
       "disposeWorkspaceSplitters",
       "disposeFrameStage",
+      "disposeSourceTreeControls",
       "disposeSourceHighlight",
     ];
     names.forEach((name) => {
@@ -7735,6 +7917,7 @@
       if (opts.preserveManageTabs && name === "disposeManageTabs") return;
       if (opts.preserveWorkspaceSplitters && name === "disposeWorkspaceSplitters") return;
       if (opts.preserveFrameStage && name === "disposeFrameStage") return;
+      if (opts.preserveSourceTreeControls && name === "disposeSourceTreeControls") return;
       if (opts.preserveSourceHighlight && name === "disposeSourceHighlight") return;
       const hook = boot[name];
       if (typeof hook === "function") {
@@ -7935,10 +8118,25 @@
     });
   }
 
+  function syncElementAttributes(currentEl, nextEl, options) {
+    if (!currentEl || !nextEl) return;
+    const opts = options || {};
+    const preserve = new Set(opts.preserve || []);
+    Array.from(currentEl.attributes).forEach((attr) => {
+      if (preserve.has(attr.name)) return;
+      currentEl.removeAttribute(attr.name);
+    });
+    Array.from(nextEl.attributes).forEach((attr) => {
+      if (preserve.has(attr.name) && currentEl.hasAttribute(attr.name)) return;
+      currentEl.setAttribute(attr.name, attr.value);
+    });
+  }
+
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/")
+      currentUrl.pathname.startsWith("/apps/manage/") &&
+      routePreserveKey(currentUrl) === routePreserveKey(nextUrl)
     );
   }
 
@@ -8022,7 +8220,7 @@
     }
 
     currentShell.className = nextShell.className;
-    currentWorkspace.className = nextWorkspace.className;
+    syncElementAttributes(currentWorkspace, nextWorkspace, { preserve: ["id"] });
     syncSidebarLinkState(currentLeftSidebar, nextLeftSidebar);
     currentRightSidebar.className = nextRightSidebar.className;
     const preparedMain = cloneNodeOrNull(nextMain);
@@ -8070,6 +8268,7 @@
       preserveManageTabs: preserveManageWorkspace,
       preserveWorkspaceSplitters: preserveManageWorkspace,
       preserveFrameStage: preserveManageWorkspace,
+      preserveSourceTreeControls: preserveManageWorkspace,
       preserveSourceHighlight: preserveManageWorkspace,
     });
     if (preserveManageWorkspace && typeof window.__meiClearRuntimePerfDiagnostics === "function") {
@@ -8126,6 +8325,7 @@
       } catch (_) {}
     }
     activeController = new AbortController();
+    showManageWorkspaceLoadingState(url);
     showLoading();
     try {
       await loadAndSwap(url, replaceHistory, navigationId, activeController);
@@ -8134,11 +8334,16 @@
       console.error("[spa-navigation] fallback to hard reload", error);
       window.location.assign(url);
     } finally {
+      clearManageWorkspaceLoadingState();
       if (navigationId === currentNavigationId) {
         hideLoading();
       }
     }
   }
+
+  boot.navigateSpa = function (url, replaceHistory) {
+    return navigate(url, !!replaceHistory);
+  };
 
   tagExistingBodyScripts();
 

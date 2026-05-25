@@ -130,14 +130,29 @@
       .map((diag) => {
         const code = escapeHtml(diag?.code || "layout_eval_runtime");
         const message = escapeHtml(diag?.message || "检测到布局问题");
-        const source = escapeHtml(diag?.source_path || detail?.sourcePath || "当前预览");
+        const source = escapeHtml(
+          diag?.target_file || diag?.source_path || detail?.targetFile || detail?.sourcePath || "当前预览"
+        );
+        const sceneId = escapeHtml(diag?.scene_id || detail?.sceneId || "");
         const severity = severityClass(diag?.severity || "warning");
         const panelId = escapeHtml(diag?.panelId || "");
+        const panelLabel = escapeHtml(diag?.panelLabel || "");
+        const componentLabel = escapeHtml(diag?.component_label || "");
         return `
           <div class="mt-2 grid gap-1 rounded-lg border px-2.5 py-2 ${severity}">
             <strong class="text-[11px] font-semibold">${code}</strong>
             <span class="text-[11px] leading-5 text-slate-100">${message}</span>
-            ${panelId ? `<span class="text-[10px] font-mono text-slate-300">panel：${panelId}</span>` : ""}
+            ${
+              panelId
+                ? `<span class="text-[10px] font-mono text-slate-300">panel：${panelId}${panelLabel ? ` · ${panelLabel}` : ""}</span>`
+                : ""
+            }
+            ${
+              componentLabel
+                ? `<span class="text-[10px] font-mono text-slate-300">component：${componentLabel}</span>`
+                : ""
+            }
+            ${sceneId ? `<span class="text-[10px] font-mono text-slate-400">scene：${sceneId}</span>` : ""}
             <span class="text-[10px] font-mono text-slate-400">来源：${source}</span>
           </div>
         `;
