@@ -138,6 +138,8 @@ pub(super) fn preview_view(
                         data-edit-safe-bottom=vp.edit_safe_bottom.to_string()
                         data-edit-safe-left=vp.edit_safe_left.to_string()
                         data-source-path=selected_target.to_string()
+                        data-target-file=selected_target.to_string()
+                        data-scene-id=scene_contract.scene.id.clone()
                         data-route-mode=route_mode.slug()
                         data-overflow-mode=overflow_mode.clone()
                         data-show-design-bounds="true"
@@ -175,6 +177,8 @@ pub(super) fn preview_view(
                     style=viewport::frame_style(frame.layout.as_ref(), &frame_props, &resolved_theme)
                     data-mei-layout-audit-root="true"
                     data-source-path=selected_target.to_string()
+                    data-target-file=selected_target.to_string()
+                    data-scene-id=scene_contract.scene.id.clone()
                     data-route-mode=route_mode.slug()
                 >
                     {panels}

@@ -13,16 +13,9 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "vendor/marked.umd.js",
     "vendor/dompurify.min.js",
     "vendor/diff-match-patch.js",
-    "vendor/codemirror.js",
-    "vendor/codemirror-mode-javascript.js",
-    "vendor/codemirror-mode-xml.js",
-    "vendor/codemirror-mode-css.js",
-    "vendor/codemirror-mode-python.js",
-    "source-codemirror-mode.js",
-    "vendor/codemirror-merge.js",
     "manage-tabs.js",
+    "manage-source-lazy.js",
     "manage-diagnostics.js",
-    "asset-source-editor.js",
     "agent-panel-utils.js",
     "agent-panel-routing.js",
     "agent-panel-access-float.js",
@@ -37,9 +30,20 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "agent-panel-bindings.js",
     "agent-panel.js",
     "workspace-splitters.js",
+    "spa-navigation.js",
+];
+
+pub(super) const BUNDLE_MANAGE_SOURCE_SCRIPTS: &[&str] = &[
+    "vendor/codemirror.js",
+    "vendor/codemirror-mode-javascript.js",
+    "vendor/codemirror-mode-xml.js",
+    "vendor/codemirror-mode-css.js",
+    "vendor/codemirror-mode-python.js",
+    "source-codemirror-mode.js",
+    "vendor/codemirror-merge.js",
+    "asset-source-editor.js",
     "source-tree-controls.js",
     "source-highlight.js",
-    "spa-navigation.js",
 ];
 
 pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[

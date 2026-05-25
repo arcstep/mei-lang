@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::Context;
 use axum::{
     extract::{Path as AxumPath, State},
-    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderName, HeaderValue, StatusCode},
     response::Response,
 };
 
@@ -63,6 +63,10 @@ pub async fn app_bundle(
             CONTENT_TYPE,
             HeaderValue::from_static("text/css; charset=utf-8"),
         );
+        response.headers_mut().insert(
+            HeaderName::from_static("cache-control"),
+            HeaderValue::from_static("no-store"),
+        );
         return Ok(response);
     }
     let scripts = app_bundle_scripts(&mode).ok_or_else(|| {
@@ -89,6 +93,10 @@ pub async fn app_bundle(
         CONTENT_TYPE,
         HeaderValue::from_static("text/javascript; charset=utf-8"),
     );
+    response.headers_mut().insert(
+        HeaderName::from_static("cache-control"),
+        HeaderValue::from_static("no-store"),
+    );
     Ok(response)
 }
 
@@ -105,6 +113,7 @@ pub async fn workspace_app_asset(
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
     match mode {
         "manage.js" | "manage" => Some(BUNDLE_MANAGE_SCRIPTS),
+        "manage-source.js" | "manage-source" => Some(BUNDLE_MANAGE_SOURCE_SCRIPTS),
         "access.js" | "access" => Some(BUNDLE_ACCESS_SCRIPTS),
         _ => None,
     }
@@ -113,6 +122,7 @@ fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
 fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
     match mode {
         "manage.js" | "manage" => Some("dist/manage.bundle.js"),
+        "manage-source.js" | "manage-source" => Some("dist/manage-source.bundle.js"),
         "access.js" | "access" => Some("dist/access.bundle.js"),
         "shoelace.js" | "shoelace" => Some("dist/shoelace.bundle.js"),
         "styles.css" | "styles" => Some("dist/styles.bundle.css"),

@@ -58,6 +58,40 @@ pub async fn dataset_metric_api(
             "missing app id in route",
         ));
     }
+    let requested_scene_id = request
+        .scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let requested_target = request
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let requested_dataset_id = request.dataset_id.trim().to_string();
+    let requested_metric_ids = if request.metric_ids.is_empty() {
+        "-".to_string()
+    } else {
+        request
+            .metric_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let request_span = tracing::info_span!(
+        "dataset_metric_api",
+        app_id = %app_id,
+        scene_id = %requested_scene_id,
+        target = %requested_target,
+        dataset_id = %requested_dataset_id,
+        metric_ids = %requested_metric_ids
+    );
+    let _request_span_guard = request_span.enter();
+    tracing::info!("metric query started");
     let coords = SceneQueryCoords::from_parts(request.scene_id.clone(), request.target.clone());
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
@@ -66,6 +100,11 @@ pub async fn dataset_metric_api(
             .map_err(|failure| {
                 tracing::warn!(
                     app_id = %app_id,
+                    scene_id = %requested_scene_id,
+                    target = %requested_target,
+                    dataset_id = %requested_dataset_id,
+                    metric_ids = %requested_metric_ids,
+                    phase = "compile",
                     error = %failure.error,
                     cache_lookup_ms = failure.cache_lookup_ms,
                     compile_cache_lock_wait_ms = failure.compile_cache_lock_wait_ms,
@@ -85,7 +124,20 @@ pub async fn dataset_metric_api(
             .scene_id
             .as_deref()
             .or(Some(scene_ctx.scene_id.as_str())),
-    )?;
+    )
+    .map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %requested_scene_id,
+            target = %requested_target,
+            dataset_id = %requested_dataset_id,
+            metric_ids = %requested_metric_ids,
+            phase = "locate_dataset",
+            error = ?error,
+            "metric query locate failed"
+        );
+        AppError::from(error)
+    })?;
     let locate_started = Instant::now();
     let locate_dataset_ms = elapsed_ms(locate_started);
     let dataset = resource.dataset.as_ref().ok_or_else(|| {
@@ -96,6 +148,15 @@ pub async fn dataset_metric_api(
     })?;
     if dataset.runtime_metric_defs.is_empty() {
         if dataset.metrics.is_empty() {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %scene_ctx.scene_id,
+                target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+                dataset_id = %resource.id,
+                metric_ids = %requested_metric_ids,
+                phase = "metric_defs",
+                "metric query dataset has no runtime metric defs"
+            );
             return Err(AppError::status(
                 StatusCode::BAD_REQUEST,
                 format!("dataset `{}` has no runtime metric defs", resource.id),
@@ -125,7 +186,20 @@ pub async fn dataset_metric_api(
             compile_outcome.compile_cache_lock_wait_ms,
         );
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-        perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+        let total_ms = elapsed_ms(request_started);
+        perf.insert("total_ms".to_string(), total_ms);
+        tracing::info!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %resource.id,
+            metric_ids = %requested_metric_ids,
+            compile_cache_hit = compile_outcome.cache_hit,
+            compile_ms,
+            total_rows = 0,
+            total_ms,
+            "metric query finished (dataset static metrics fallback)"
+        );
         return Ok(Json(MetricQueryResponse {
             scene_id: scene_ctx.scene_id,
             scene_path: scene_ctx.scene_path,
@@ -144,7 +218,19 @@ pub async fn dataset_metric_api(
         collect_all: true,
     };
     let query_started = Instant::now();
-    let filtered_rows = query_dataset_rows(&app_root, dataset, query).map_err(AppError::from)?;
+    let filtered_rows = query_dataset_rows(&app_root, dataset, query).map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %resource.id,
+            metric_ids = %requested_metric_ids,
+            phase = "query_dataset_rows",
+            error = %error,
+            "metric query rows failed"
+        );
+        AppError::from(error)
+    })?;
     let query_ms = elapsed_ms(query_started);
     let mut runtime_dataset = dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
@@ -174,7 +260,19 @@ pub async fn dataset_metric_api(
         &datasets,
         metric_ids,
     )
-    .map_err(AppError::from)?;
+    .map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %resource.id,
+            metric_ids = %requested_metric_ids,
+            phase = "metric_eval",
+            error = %error,
+            "metric query evaluate runtime metric defs failed"
+        );
+        AppError::from(error)
+    })?;
     let metric_eval_ms = elapsed_ms(metric_started);
     let metrics = if request.metric_ids.is_empty() {
         metrics_map.into_values().collect::<Vec<_>>()
@@ -202,7 +300,22 @@ pub async fn dataset_metric_api(
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
     perf.insert("metric_eval_ms".to_string(), metric_eval_ms);
-    perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+    let total_ms = elapsed_ms(request_started);
+    perf.insert("total_ms".to_string(), total_ms);
+    tracing::info!(
+        app_id = %app_id,
+        scene_id = %scene_ctx.scene_id,
+        target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+        dataset_id = %resource.id,
+        metric_ids = %requested_metric_ids,
+        compile_cache_hit = compile_outcome.cache_hit,
+        compile_ms,
+        query_api_ms = query_ms,
+        metric_eval_ms,
+        total_rows = runtime_dataset.rows.len(),
+        total_ms,
+        "metric query finished"
+    );
     Ok(Json(MetricQueryResponse {
         scene_id: scene_ctx.scene_id,
         scene_path: scene_ctx.scene_path,

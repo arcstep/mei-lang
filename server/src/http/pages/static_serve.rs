@@ -2,7 +2,7 @@ use std::{fs, path::Path};
 
 use anyhow::Context;
 use axum::{
-    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderName, HeaderValue, StatusCode},
     response::Response,
 };
 
@@ -25,6 +25,10 @@ pub(crate) fn serve_static_asset(
     response.headers_mut().insert(
         CONTENT_TYPE,
         HeaderValue::from_static(content_type_for_path(&asset_path)),
+    );
+    response.headers_mut().insert(
+        HeaderName::from_static("cache-control"),
+        HeaderValue::from_static("no-store"),
     );
     Ok(response)
 }

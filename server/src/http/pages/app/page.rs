@@ -63,6 +63,15 @@ pub async fn app_page(
             "missing app id in route",
         ));
     }
+    tracing::info!(
+        app_id = %app_id,
+        route_mode = route_mode.slug(),
+        request_scene = %query.scene.as_deref().unwrap_or("-"),
+        request_file = %query.file.as_deref().unwrap_or("-"),
+        request_tab = %query.tab.as_deref().unwrap_or("-"),
+        phase = "start",
+        "app page request started"
+    );
     if route_mode == UiRouteMode::Access
         && query
             .file
@@ -199,7 +208,6 @@ pub async fn app_page(
                     );
                     (html, elapsed_ms(t))
                 };
-                let (_, ssr_baseline_ms) = render(&compiled);
                 push_manage_page_pipeline_diag(
                     &mut compiled,
                     &app_id,
@@ -209,142 +217,24 @@ pub async fn app_page(
                     false,
                     cache_lookup_ms,
                     source_read_ms,
-                    ssr_baseline_ms,
                     0,
                     0,
-                    None,
-                    None,
-                    None,
-                    elapsed_ms(app_started),
-                );
-                let (_, ssr_publish_ms) = render(&compiled);
-                compiled
-                    .diagnostics
-                    .retain(|d| d.code != "manage_page_pipeline");
-                push_manage_page_pipeline_diag(
-                    &mut compiled,
-                    &app_id,
-                    target.as_str(),
-                    discover_ms,
-                    compile_ms,
-                    false,
-                    cache_lookup_ms,
-                    source_read_ms,
-                    ssr_baseline_ms,
-                    ssr_publish_ms,
                     0,
                     None,
                     None,
                     None,
                     elapsed_ms(app_started),
-                );
-                let (_, ssr_final_emit_ms) = render(&compiled);
-                compiled
-                    .diagnostics
-                    .retain(|d| d.code != "manage_page_pipeline");
-                let total_ms = elapsed_ms(app_started);
-                push_manage_page_pipeline_diag(
-                    &mut compiled,
-                    &app_id,
-                    target.as_str(),
-                    discover_ms,
-                    compile_ms,
-                    false,
-                    cache_lookup_ms,
-                    source_read_ms,
-                    ssr_baseline_ms,
-                    ssr_publish_ms,
-                    ssr_final_emit_ms,
-                    None,
-                    None,
-                    None,
-                    total_ms,
-                );
-                let (_probe_response_html, ssr_response_probe_ms) = render(&compiled);
-                compiled
-                    .diagnostics
-                    .retain(|d| d.code != "manage_page_pipeline");
-                push_manage_page_pipeline_diag(
-                    &mut compiled,
-                    &app_id,
-                    target.as_str(),
-                    discover_ms,
-                    compile_ms,
-                    false,
-                    cache_lookup_ms,
-                    source_read_ms,
-                    ssr_baseline_ms,
-                    ssr_publish_ms,
-                    ssr_final_emit_ms,
-                    Some(ssr_response_probe_ms),
-                    None,
-                    None,
-                    elapsed_ms(app_started),
-                );
-                let (_html_serve_pass, ssr_serve_ms) = render(&compiled);
-                let wall_after_serve = elapsed_ms(app_started);
-                compiled
-                    .diagnostics
-                    .retain(|d| d.code != "manage_page_pipeline");
-                push_manage_page_pipeline_diag(
-                    &mut compiled,
-                    &app_id,
-                    target.as_str(),
-                    discover_ms,
-                    compile_ms,
-                    false,
-                    cache_lookup_ms,
-                    source_read_ms,
-                    ssr_baseline_ms,
-                    ssr_publish_ms,
-                    ssr_final_emit_ms,
-                    Some(ssr_response_probe_ms),
-                    Some(ssr_serve_ms),
-                    None,
-                    wall_after_serve,
-                );
-                let (_html, ssr_emit_ms) = render(&compiled);
-                let total_ms = elapsed_ms(app_started);
-                compiled
-                    .diagnostics
-                    .retain(|d| d.code != "manage_page_pipeline");
-                push_manage_page_pipeline_diag(
-                    &mut compiled,
-                    &app_id,
-                    target.as_str(),
-                    discover_ms,
-                    compile_ms,
-                    false,
-                    cache_lookup_ms,
-                    source_read_ms,
-                    ssr_baseline_ms,
-                    ssr_publish_ms,
-                    ssr_final_emit_ms,
-                    Some(ssr_response_probe_ms),
-                    Some(ssr_serve_ms),
-                    Some(ssr_emit_ms),
-                    total_ms,
                 );
                 let (html, ssr_http_response_body_ms, handler_html_ready_ms) = {
                     let t = Instant::now();
                     let h = render(&compiled).0;
-                    let last_pass_ms = elapsed_ms(t);
+                    let ssr_emit_ms = elapsed_ms(t);
                     let total_wall = elapsed_ms(app_started);
-                    let h = fill_perf_placeholders(
-                        h,
-                        ssr_baseline_ms
-                            .saturating_add(ssr_publish_ms)
-                            .saturating_add(ssr_final_emit_ms)
-                            .saturating_add(ssr_response_probe_ms)
-                            .saturating_add(ssr_serve_ms)
-                            .saturating_add(ssr_emit_ms)
-                            .saturating_add(last_pass_ms),
-                        total_wall,
-                    );
+                    let h = fill_perf_placeholders(h, ssr_emit_ms, total_wall);
                     let handler_ms = elapsed_ms(app_started);
-                    let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+                    let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
                     let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
-                    (h, last_pass_ms, handler_ms)
+                    (h, ssr_emit_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
                 if route_mode == UiRouteMode::Manage {
@@ -359,6 +249,20 @@ pub async fn app_page(
                         );
                     }
                 }
+                tracing::info!(
+                    app_id = %app_id,
+                    route_mode = route_mode.slug(),
+                    target = %target,
+                    compile_cache_hit = false,
+                    compile_ms,
+                    compile_cache_lookup_ms = cache_lookup_ms,
+                    source_read_ms,
+                    handler_html_ready_ms,
+                    ssr_http_response_body_ms,
+                    total_ms = elapsed_ms(app_started),
+                    phase = "finish_compile_fallback",
+                    "app page request finished with compile fallback"
+                );
                 return Ok(res);
             }
         };
@@ -447,19 +351,31 @@ pub async fn app_page(
         .iter()
         .any(|d| d.severity == Severity::Error)
     {
-        let mut lines = Vec::new();
-        for d in compiled
+        let error_diagnostics = compiled
             .diagnostics
             .iter()
             .filter(|d| d.severity == Severity::Error)
-        {
-            let path = d.source_path.as_deref().unwrap_or("(unknown)");
-            lines.push(format!("{} [{}] {}", path, d.code, d.message));
+            .collect::<Vec<_>>();
+        for diag in error_diagnostics.iter().take(20) {
+            tracing::warn!(
+                app_id = %app_id,
+                route_mode = route_mode.slug(),
+                target = %target,
+                diagnostic_code = %diag.code,
+                diagnostic_source = %diag.source_path.as_deref().unwrap_or("(unknown)"),
+                diagnostic_message = %diag.message,
+                phase = "compile_diagnostics",
+                "compile completed with error diagnostic"
+            );
         }
+        let omitted_count = error_diagnostics.len().saturating_sub(20);
         tracing::warn!(
             app_id = %app_id,
+            route_mode = route_mode.slug(),
             target = %target,
-            error_diagnostics = %lines.join(" | "),
+            error_diagnostic_count = error_diagnostics.len(),
+            omitted_count,
+            phase = "compile_diagnostics_summary",
             "compile completed with error diagnostics"
         );
     }
@@ -488,7 +404,6 @@ pub async fn app_page(
         );
         (html, elapsed_ms(t))
     };
-    let (_, ssr_baseline_ms) = render(&compiled);
     push_manage_page_pipeline_diag(
         &mut compiled,
         &app_id,
@@ -498,142 +413,24 @@ pub async fn app_page(
         compile_cache_hit,
         compile_cache_lookup_ms,
         source_read_ms,
-        ssr_baseline_ms,
         0,
         0,
-        None,
-        None,
-        None,
-        elapsed_ms(app_started),
-    );
-    let (_, ssr_publish_ms) = render(&compiled);
-    compiled
-        .diagnostics
-        .retain(|d| d.code != "manage_page_pipeline");
-    push_manage_page_pipeline_diag(
-        &mut compiled,
-        &app_id,
-        target.as_str(),
-        discover_ms,
-        compile_ms,
-        compile_cache_hit,
-        compile_cache_lookup_ms,
-        source_read_ms,
-        ssr_baseline_ms,
-        ssr_publish_ms,
         0,
         None,
         None,
         None,
         elapsed_ms(app_started),
-    );
-    let (_, ssr_final_emit_ms) = render(&compiled);
-    compiled
-        .diagnostics
-        .retain(|d| d.code != "manage_page_pipeline");
-    let total_ms = elapsed_ms(app_started);
-    push_manage_page_pipeline_diag(
-        &mut compiled,
-        &app_id,
-        target.as_str(),
-        discover_ms,
-        compile_ms,
-        compile_cache_hit,
-        compile_cache_lookup_ms,
-        source_read_ms,
-        ssr_baseline_ms,
-        ssr_publish_ms,
-        ssr_final_emit_ms,
-        None,
-        None,
-        None,
-        total_ms,
-    );
-    let (_probe_response_html, ssr_response_probe_ms) = render(&compiled);
-    compiled
-        .diagnostics
-        .retain(|d| d.code != "manage_page_pipeline");
-    push_manage_page_pipeline_diag(
-        &mut compiled,
-        &app_id,
-        target.as_str(),
-        discover_ms,
-        compile_ms,
-        compile_cache_hit,
-        compile_cache_lookup_ms,
-        source_read_ms,
-        ssr_baseline_ms,
-        ssr_publish_ms,
-        ssr_final_emit_ms,
-        Some(ssr_response_probe_ms),
-        None,
-        None,
-        elapsed_ms(app_started),
-    );
-    let (_html_serve_pass, ssr_serve_ms) = render(&compiled);
-    let wall_after_serve = elapsed_ms(app_started);
-    compiled
-        .diagnostics
-        .retain(|d| d.code != "manage_page_pipeline");
-    push_manage_page_pipeline_diag(
-        &mut compiled,
-        &app_id,
-        target.as_str(),
-        discover_ms,
-        compile_ms,
-        compile_cache_hit,
-        compile_cache_lookup_ms,
-        source_read_ms,
-        ssr_baseline_ms,
-        ssr_publish_ms,
-        ssr_final_emit_ms,
-        Some(ssr_response_probe_ms),
-        Some(ssr_serve_ms),
-        None,
-        wall_after_serve,
-    );
-    let (_html, ssr_emit_ms) = render(&compiled);
-    let total_ms = elapsed_ms(app_started);
-    compiled
-        .diagnostics
-        .retain(|d| d.code != "manage_page_pipeline");
-    push_manage_page_pipeline_diag(
-        &mut compiled,
-        &app_id,
-        target.as_str(),
-        discover_ms,
-        compile_ms,
-        compile_cache_hit,
-        compile_cache_lookup_ms,
-        source_read_ms,
-        ssr_baseline_ms,
-        ssr_publish_ms,
-        ssr_final_emit_ms,
-        Some(ssr_response_probe_ms),
-        Some(ssr_serve_ms),
-        Some(ssr_emit_ms),
-        total_ms,
     );
     let (html, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let h = render(&compiled).0;
-        let last_pass_ms = elapsed_ms(t);
+        let ssr_emit_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);
-        let h = fill_perf_placeholders(
-            h,
-            ssr_baseline_ms
-                .saturating_add(ssr_publish_ms)
-                .saturating_add(ssr_final_emit_ms)
-                .saturating_add(ssr_response_probe_ms)
-                .saturating_add(ssr_serve_ms)
-                .saturating_add(ssr_emit_ms)
-                .saturating_add(last_pass_ms),
-            total_wall,
-        );
+        let h = fill_perf_placeholders(h, ssr_emit_ms, total_wall);
         let handler_ms = elapsed_ms(app_started);
-        let h = fill_manage_wall_clock_placeholders(h, last_pass_ms, handler_ms);
+        let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
         let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
-        (h, last_pass_ms, handler_ms)
+        (h, ssr_emit_ms, handler_ms)
     };
     let mut res = Html(html).into_response();
     if route_mode == UiRouteMode::Manage {
@@ -648,5 +445,19 @@ pub async fn app_page(
             );
         }
     }
+    tracing::info!(
+        app_id = %app_id,
+        route_mode = route_mode.slug(),
+        target = %target,
+        compile_cache_hit,
+        compile_ms,
+        compile_cache_lookup_ms,
+        source_read_ms,
+        handler_html_ready_ms,
+        ssr_http_response_body_ms,
+        total_ms = elapsed_ms(app_started),
+        phase = "finish",
+        "app page request finished"
+    );
     Ok(res)
 }

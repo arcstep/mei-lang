@@ -3,14 +3,17 @@ use std::{
     fs,
     net::SocketAddr,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use anyhow::{Context, Result};
 use axum::{
     body::Body,
     http::StatusCode,
-    http::{Method, Request, Uri},
+    http::{HeaderName, HeaderValue, Method, Request, Uri},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     Router,
@@ -18,12 +21,15 @@ use axum::{
 use clap::{Parser, Subcommand};
 use mei_lang_kernel::CompiledApp;
 use std::time::Instant;
+use tracing::Instrument;
 
 mod agent_runtime;
 mod gis_config;
 mod http;
 mod mei_agent;
 mod resource_tool_bridge;
+
+static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Parser)]
 #[command(name = "mei")]
@@ -283,16 +289,63 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
         || path.contains("/messages")
 }
 
+fn next_request_id() -> String {
+    let id = REQUEST_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    format!("req-{id:08x}")
+}
+
+fn route_kind_and_app_id(method: &Method, uri: &Uri) -> (&'static str, String) {
+    let path = uri.path();
+    let app_tail = |prefix: &str| {
+        path.strip_prefix(prefix)
+            .unwrap_or_default()
+            .trim_start_matches('/')
+            .to_string()
+    };
+    if *method == Method::GET && path.starts_with("/apps/manage/") {
+        return ("manage_page", app_tail("/apps/manage/"));
+    }
+    if *method == Method::GET && path.starts_with("/apps/access/") {
+        return ("access_page", app_tail("/apps/access/"));
+    }
+    if *method == Method::POST && path.starts_with("/api/datasets/query/") {
+        return ("dataset_query", app_tail("/api/datasets/query/"));
+    }
+    if *method == Method::POST && path.starts_with("/api/datasets/metrics/") {
+        return ("metric_query", app_tail("/api/datasets/metrics/"));
+    }
+    ("http_request", String::new())
+}
+
 async fn log_request(request: Request<Body>, next: Next) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
+    let request_id = next_request_id();
+    let (route_kind, app_id) = route_kind_and_app_id(&method, &uri);
+    let span = tracing::info_span!(
+        "http_request",
+        request_id = %request_id,
+        route_kind = route_kind,
+        app_id = %app_id,
+        method = %method,
+        uri = %uri
+    );
     let started_at = Instant::now();
-    let response = next.run(request).await;
+    let mut response = next.run(request).instrument(span).await;
     let status = response.status();
     let latency_ms = started_at.elapsed().as_millis();
+    if let Ok(value) = HeaderValue::from_str(&request_id) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-request-id"),
+            value,
+        );
+    }
 
     if status.is_server_error() || status.is_client_error() {
         tracing::error!(
+            request_id = %request_id,
+            route_kind = route_kind,
+            app_id = %app_id,
             status = %status,
             latency_ms,
             method = %method,
@@ -301,6 +354,9 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
         );
     } else if !is_noisy_success_request(&method, &uri) {
         tracing::info!(
+            request_id = %request_id,
+            route_kind = route_kind,
+            app_id = %app_id,
             status = %status,
             latency_ms,
             method = %method,
@@ -342,7 +398,11 @@ impl From<anyhow::Error> for AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        tracing::error!(status = %self.status, error = %self.message, "request failed");
+        if self.status.is_server_error() {
+            tracing::error!(status = %self.status, error = %self.message, "request failed");
+        } else {
+            tracing::warn!(status = %self.status, error = %self.message, "request failed");
+        }
         (self.status, self.message).into_response()
     }
 }

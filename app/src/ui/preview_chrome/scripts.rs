@@ -7,14 +7,14 @@ pub(super) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     if route_mode == UiRouteMode::Manage {
         view! {
             <>
-                <script src="/app-bundles/manage.js"></script>
+                <script defer src="/app-bundles/manage.js"></script>
             </>
         }
         .into_any()
     } else {
         view! {
             <>
-                <script src="/app-bundles/access.js"></script>
+                <script defer src="/app-bundles/access.js"></script>
             </>
         }
         .into_any()
