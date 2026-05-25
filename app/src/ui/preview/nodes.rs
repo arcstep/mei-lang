@@ -7,7 +7,8 @@ use super::style::{
     block_style, metric_slot_vertical_host_class, panel_body_layout_centered,
     panel_card_layout_style, panel_chrome_bare, panel_head_caret_style, panel_head_carets_enabled,
     panel_heading_config, panel_heading_style, panel_layout_content_on_body_slot,
-    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
+    panel_scale_factor, panel_scaled_outer_style, panel_show_heading, panel_slot_area_style,
+    panel_slot_typography_style, panel_style,
 };
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
@@ -61,39 +62,6 @@ pub(super) fn panel_view(
         body_cell_style.push_str(&panel_card_layout_style(panel.layout.as_ref(), &head_props));
     }
 
-    let head_blocks = head_nodes
-        .into_iter()
-        .map(|node| {
-            node_view(
-                node,
-                panel.layout.as_ref(),
-                compiled,
-                app_path,
-                scene_contract,
-                runtime_ctx,
-                theme,
-                embed_depth,
-                preview_scene_path,
-            )
-        })
-        .collect_view();
-    let body_blocks = body_nodes
-        .into_iter()
-        .map(|node| {
-            node_view(
-                node,
-                panel.layout.as_ref(),
-                compiled,
-                app_path,
-                scene_contract,
-                runtime_ctx,
-                theme,
-                embed_depth,
-                preview_scene_path,
-            )
-        })
-        .collect_view();
-
     let mut card_style = panel_style(panel.area.as_deref(), frame_layout, &card_props);
     if content_grid_on_body {
         card_style.push_str("display:grid;gap:0;");
@@ -123,10 +91,47 @@ pub(super) fn panel_view(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panel.id.clone());
 
-    view! {
+    let render_head_blocks = || {
+        head_nodes
+            .iter()
+            .map(|node| {
+                node_view(
+                    node,
+                    panel.layout.as_ref(),
+                    compiled,
+                    app_path,
+                    scene_contract,
+                    runtime_ctx,
+                    theme,
+                    embed_depth,
+                    preview_scene_path,
+                )
+            })
+            .collect_view()
+    };
+    let render_body_blocks = || {
+        body_nodes
+            .iter()
+            .map(|node| {
+                node_view(
+                    node,
+                    panel.layout.as_ref(),
+                    compiled,
+                    app_path,
+                    scene_contract,
+                    runtime_ctx,
+                    theme,
+                    embed_depth,
+                    preview_scene_path,
+                )
+            })
+            .collect_view()
+    };
+
+    let section = view! {
         <section
             class=card_class
-            style=card_style
+            style=card_style.clone()
             data-mei-panel-id=panel.id.clone()
         >
             {if has_head {
@@ -142,7 +147,7 @@ pub(super) fn panel_view(
                     >
                         {heading_chrome_decorations(&heading)}
                         <div class="panel-head-slot">
-                            {head_blocks}
+                            {render_head_blocks()}
                         </div>
                     </div>
                 }.into_any()
@@ -156,15 +161,73 @@ pub(super) fn panel_view(
                         style=body_cell_style.clone()
                         data-mei-panel-body="true"
                     >
-                        {body_blocks}
+                        {render_body_blocks()}
                     </div>
                 }.into_any()
             } else {
                 view! { <></> }.into_any()
             }}
         </section>
+    };
+    if let Some(scale) = panel_scale_factor(&card_props) {
+        let outer_style = panel_scaled_outer_style(
+            panel.area.as_deref(),
+            frame_layout,
+            &card_props,
+            scale,
+        );
+        let scaled_section_style = format!(
+            "{}transform:scale({});transform-origin:top left;",
+            card_style,
+            scale
+        );
+        view! {
+            <div class="preview-card-scale-wrap" style=outer_style>
+                <section
+                    class=card_class
+                    style=scaled_section_style
+                    data-mei-panel-id=panel.id.clone()
+                >
+                    {if has_head {
+                        let head_carets_attr = head_carets.then_some("true");
+                        view! {
+                            <div
+                                class=format!("panel-head-cell {heading_class}")
+                                style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
+                                data-mei-panel-head="true"
+                                data-mei-head-carets=head_carets_attr
+                                data-heading-variant=heading.variant.clone()
+                                aria-label=label.clone()
+                            >
+                                {heading_chrome_decorations(&heading)}
+                                <div class="panel-head-slot">
+                                    {render_head_blocks()}
+                                </div>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! { <></> }.into_any()
+                    }}
+                    {if has_body_slot {
+                        view! {
+                            <div
+                                class=body_slot_class
+                                style=body_cell_style.clone()
+                                data-mei-panel-body="true"
+                            >
+                                {render_body_blocks()}
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! { <></> }.into_any()
+                    }}
+                </section>
+            </div>
+        }
+        .into_any()
+    } else {
+        section.into_any()
     }
-    .into_any()
 }
 
 fn partition_panel_blocks(

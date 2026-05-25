@@ -6,7 +6,8 @@ use super::style::{
     metric_slot_vertical_host_class,
     frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
     has_frame_backdrop, normalize_background_image, panel_card_layout_style, panel_heading_config,
-    panel_show_heading, panel_slot_typography_style, panel_style, surface_layout_style,
+    panel_scale_factor, panel_scaled_outer_style, panel_show_heading, panel_slot_typography_style,
+    panel_style, surface_layout_style,
 };
 use super::theme::{
     resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, ThemeResolved,
@@ -263,6 +264,48 @@ fn container_visual_style_supports_background_image_shorthand() {
     assert!(style.contains("background-image:url(\"/workspace-components/demo.png\")"));
     assert!(style.contains("background-size:cover;"));
     assert!(style.contains("background-repeat:no-repeat;"));
+}
+
+#[test]
+fn panel_style_grid_area_applies_background_once() {
+    let style = panel_style(
+        Some("doc"),
+        Some(&grid_layout()),
+        &json!({
+            "background": {
+                "color": "#001122",
+            }
+        }),
+    );
+    assert_eq!(style.matches("background-color:#001122;").count(), 1);
+}
+
+#[test]
+fn panel_scale_factor_parses_numeric_and_percent_values() {
+    assert_eq!(panel_scale_factor(&json!({"scale": 0.75})), Some(0.75));
+    assert_eq!(panel_scale_factor(&json!({"scale": "82%"})), Some(0.82));
+    assert_eq!(panel_scale_factor(&json!({"scale": 1})), None);
+    assert_eq!(panel_scale_factor(&json!({})), None);
+}
+
+#[test]
+fn panel_scaled_outer_style_scales_fixed_dimensions() {
+    let style = panel_scaled_outer_style(
+        Some("doc"),
+        Some(&grid_layout()),
+        &json!({
+            "width": "234px",
+            "height": "128px",
+            "min_height": "128px",
+        }),
+        0.75,
+    );
+    assert!(style.contains("grid-area:doc;"));
+    assert!(style.contains("justify-self:center;"));
+    assert!(style.contains("align-self:center;"));
+    assert!(style.contains("width:175.5px;"));
+    assert!(style.contains("height:96px;"));
+    assert!(style.contains("min-height:96px;"));
 }
 
 #[test]

@@ -94,12 +94,21 @@ pub(super) fn panel_style(
     layout: Option<&mei_lang_kernel::LayoutDecl>,
     props: &Value,
 ) -> String {
+    let mut style = panel_position_style(area, layout, props);
+    style.push_str(&container_visual_style(props));
+    style
+}
+
+pub(super) fn panel_position_style(
+    area: Option<&str>,
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+) -> String {
     let mut style = String::new();
     if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid"))
         && area == Some("full")
     {
         style.push_str("grid-column:1 / -1;");
-        style.push_str(&container_visual_style(props));
         return style;
     }
 
@@ -111,7 +120,6 @@ pub(super) fn panel_style(
     {
         if let Some(area) = area {
             style.push_str(&format!("grid-area:{};", area));
-            style.push_str(&container_visual_style(props));
             if layout
                 .and_then(|value| value.justify.as_deref())
                 .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
@@ -125,7 +133,78 @@ pub(super) fn panel_style(
             return style;
         }
     }
-    style.push_str(&container_visual_style(props));
+    style
+}
+
+fn scale_factor_from_value(value: &Value) -> Option<f64> {
+    let raw = if let Some(number) = value.as_f64() {
+        return (number > 0.0 && (number - 1.0).abs() > f64::EPSILON).then_some(number);
+    } else if let Some(number) = value.as_i64() {
+        let scale = number as f64;
+        return (scale > 0.0 && (scale - 1.0).abs() > f64::EPSILON).then_some(scale);
+    } else {
+        value.as_str()?.trim().to_string()
+    };
+    if raw.is_empty() {
+        return None;
+    }
+    if let Some(percent) = raw.strip_suffix('%') {
+        let numeric = percent.trim().parse::<f64>().ok()?;
+        let scale = numeric / 100.0;
+        return (scale > 0.0 && (scale - 1.0).abs() > f64::EPSILON).then_some(scale);
+    }
+    let scale = raw.parse::<f64>().ok()?;
+    (scale > 0.0 && (scale - 1.0).abs() > f64::EPSILON).then_some(scale)
+}
+
+pub(super) fn panel_scale_factor(props: &Value) -> Option<f64> {
+    props
+        .as_object()
+        .and_then(|map| map.get("scale"))
+        .and_then(scale_factor_from_value)
+}
+
+fn scaled_length_style(props: &Value, key: &str, css_name: &str, scale: f64) -> String {
+    let Some(map) = props.as_object() else {
+        return String::new();
+    };
+    let Some(value) = map.get(key).and_then(length_px_from_value) else {
+        return String::new();
+    };
+    format!("{css_name}:{}px;", trim_float(value * scale))
+}
+
+fn trim_float(value: f64) -> String {
+    let rounded = (value * 1000.0).round() / 1000.0;
+    let mut text = rounded.to_string();
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    text
+}
+
+pub(super) fn panel_scaled_outer_style(
+    area: Option<&str>,
+    layout: Option<&mei_lang_kernel::LayoutDecl>,
+    props: &Value,
+    scale: f64,
+) -> String {
+    let mut style = panel_position_style(area, layout, props);
+    style.push_str("overflow:visible;box-sizing:border-box;");
+    if matches!(layout.map(|value| value.layout_type.as_str()), Some("grid")) {
+        style.push_str("justify-self:center;align-self:center;");
+    }
+    style.push_str(&scaled_length_style(props, "width", "width", scale));
+    style.push_str(&scaled_length_style(props, "height", "height", scale));
+    style.push_str(&scaled_length_style(props, "min_width", "min-width", scale));
+    style.push_str(&scaled_length_style(props, "max_width", "max-width", scale));
+    style.push_str(&scaled_length_style(props, "min_height", "min-height", scale));
+    style.push_str(&scaled_length_style(props, "max_height", "max-height", scale));
     style
 }
 
