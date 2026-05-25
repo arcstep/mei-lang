@@ -24,7 +24,10 @@ pub(super) fn preview_view(
     if let Some(scene_contract) = &compiled.scene_contract {
         let resolved_theme = theme::resolve_theme(scene_contract);
         if let Some(frame) = &scene_contract.frame {
-            let frame_props = theme::deep_merge_value(&resolved_theme.frame, &frame.props);
+            let frame_props = theme::resolve_shared_refs(
+                &theme::deep_merge_value(&resolved_theme.frame, &frame.props),
+                &resolved_theme.shared,
+            );
             let panels = scene_contract
                 .panels
                 .iter()

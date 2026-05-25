@@ -12,6 +12,8 @@ pub(super) struct ThemeResolved {
     /// 兼容：`theme.heading` 已合并进 `panel_head`（保留字段供调试/后续消费）。
     #[allow(dead_code)]
     pub(super) heading: Value,
+    /// scene/profile/theme 合并后的只读共享参数。
+    pub(super) shared: Value,
     /// 合并后的 `theme.components`，供宿主组件通过 `_mei.components` 读取。
     pub(super) components: Value,
     pub(super) css_vars: Vec<(String, String)>,
@@ -41,19 +43,26 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
             theme_id = custom.id.clone();
         }
     }
-    let frame = theme_field(&theme, "frame");
-    let panel = theme_field(&theme, "panel");
-    let panel_bare = theme_field(&theme, "panel_bare");
-    let panel_head = merge_panel_head_theme(&theme);
-    let panel_body = theme_field(&theme, "panel_body");
-    let heading = theme_field(&theme, "heading");
+    let mut shared = theme_field(&theme, "shared");
+    if !scene_contract.shared.is_null() {
+        shared = deep_merge_value(&shared, &scene_contract.shared);
+    }
+    let frame = resolve_shared_refs(&theme_field(&theme, "frame"), &shared);
+    let panel = resolve_shared_refs(&theme_field(&theme, "panel"), &shared);
+    let panel_bare = resolve_shared_refs(&theme_field(&theme, "panel_bare"), &shared);
+    let panel_head = resolve_shared_refs(&merge_panel_head_theme(&theme), &shared);
+    let panel_body = resolve_shared_refs(&theme_field(&theme, "panel_body"), &shared);
+    let heading = resolve_shared_refs(&theme_field(&theme, "heading"), &shared);
     let css_vars = collect_theme_css_vars(&theme);
-    let components = theme
+    let components = resolve_shared_refs(
+        &theme
         .as_object()
         .and_then(|map| map.get("components"))
         .cloned()
         .filter(|value| !value.is_null())
-        .unwrap_or_else(|| serde_json::json!({}));
+        .unwrap_or_else(|| serde_json::json!({})),
+        &shared,
+    );
     ThemeResolved {
         id: theme_id,
         frame,
@@ -62,6 +71,7 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
         panel_head,
         panel_body,
         heading,
+        shared,
         components,
         css_vars,
     }
@@ -199,7 +209,8 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "dataset_table": {
                     "cell_preview_max_chars": 30
                 }
-            }
+            },
+            "shared": {}
         }),
         "game" => serde_json::json!({
             "frame": {
@@ -251,7 +262,8 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "dataset_table": {
                     "cell_preview_max_chars": 30
                 }
-            }
+            },
+            "shared": {}
         }),
         _ => serde_json::json!({
             "frame": {
@@ -299,7 +311,8 @@ fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "dataset_table": {
                     "cell_preview_max_chars": 30
                 }
-            }
+            },
+            "shared": {}
         }),
     };
     Some(value)
@@ -328,10 +341,57 @@ fn theme_decl_value(theme: &ThemeDecl) -> Value {
     );
     map.insert("metric_sub_unit".to_string(), theme.metric_sub_unit.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
+    if !theme.shared.is_null() {
+        map.insert("shared".to_string(), theme.shared.clone());
+    }
     if !theme.components.is_null() {
         map.insert("components".to_string(), theme.components.clone());
     }
     Value::Object(map)
+}
+
+pub(super) fn resolve_shared_refs(value: &Value, shared: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            if map.get("__ref").and_then(Value::as_str) == Some("shared") {
+                return resolve_shared_ref(map, shared);
+            }
+            let mut out = serde_json::Map::new();
+            for (key, entry) in map {
+                out.insert(key.clone(), resolve_shared_refs(entry, shared));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|item| resolve_shared_refs(item, shared)).collect())
+        }
+        _ => value.clone(),
+    }
+}
+
+fn resolve_shared_ref(map: &serde_json::Map<String, Value>, shared: &Value) -> Value {
+    let key = map
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let resolved = key.and_then(|path| read_shared_path(shared, path));
+    resolved
+        .cloned()
+        .or_else(|| map.get("default").cloned())
+        .unwrap_or(Value::Null)
+}
+
+fn read_shared_path<'a>(shared: &'a Value, path: &str) -> Option<&'a Value> {
+    let mut current = shared;
+    for segment in path.split('.') {
+        let key = segment.trim();
+        if key.is_empty() {
+            return None;
+        }
+        current = current.as_object()?.get(key)?;
+    }
+    Some(current)
 }
 
 /// 整卡 panel：theme.panel + `props`（剥离槽位键）。
@@ -531,6 +591,7 @@ mod tests {
             metric_sub_value: json!({"font_size": "18px", "text_align": "right"}),
             metric_sub_unit: json!({}),
             tokens: json!({}),
+            shared: json!({}),
             components: json!({}),
         };
         let merged = theme_decl_value(&decl);
@@ -544,5 +605,38 @@ mod tests {
         assert!(vars
             .iter()
             .any(|(k, v)| k == "--mei-metric-sub-value-text-align" && v == "right"));
+    }
+
+    #[test]
+    fn resolve_shared_refs_replaces_nested_shared_refs() {
+        let shared = json!({
+            "layout": {
+                "rail_width": "520px",
+                "table": {"preview_chars": 18}
+            }
+        });
+        let value = json!({
+            "width": {"__ref": "shared", "id": "layout.rail_width"},
+            "components": {
+                "dataset_table": {
+                    "cell_preview_max_chars": {"__ref": "shared", "id": "layout.table.preview_chars"},
+                }
+            }
+        });
+        let resolved = resolve_shared_refs(&value, &shared);
+        assert_eq!(
+            resolved.get("width").and_then(Value::as_str),
+            Some("520px")
+        );
+        assert_eq!(
+            resolved
+                .get("components")
+                .and_then(Value::as_object)
+                .and_then(|map| map.get("dataset_table"))
+                .and_then(Value::as_object)
+                .and_then(|map| map.get("cell_preview_max_chars"))
+                .and_then(Value::as_i64),
+            Some(18)
+        );
     }
 }

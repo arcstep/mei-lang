@@ -11,7 +11,8 @@ use super::style::{
     panel_slot_typography_style, panel_style,
 };
 use super::theme::{
-    resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props, ThemeResolved,
+    resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props,
+    resolve_shared_refs, ThemeResolved,
 };
 use super::{
     resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor},
@@ -32,9 +33,9 @@ pub(super) fn panel_view(
     embed_depth: u8,
     preview_scene_path: &str,
 ) -> AnyView {
-    let card_props = resolve_panel_card_props(theme, panel);
-    let head_props = resolve_panel_head_props(theme, panel);
-    let body_props = resolve_panel_body_props(theme, panel);
+    let card_props = resolve_shared_refs(&resolve_panel_card_props(theme, panel), &theme.shared);
+    let head_props = resolve_shared_refs(&resolve_panel_head_props(theme, panel), &theme.shared);
+    let body_props = resolve_shared_refs(&resolve_panel_body_props(theme, panel), &theme.shared);
     let chrome_bare = panel_chrome_bare(&card_props);
     let has_head = panel_show_heading(&card_props);
     let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
@@ -374,6 +375,7 @@ fn block_view(
     let props = attach_host_meta(
         resolve_value(
             &block.props,
+            &theme.shared,
             scene_contract,
             &runtime_ctx.resources,
             &scene_anchor,
@@ -383,6 +385,7 @@ fn block_view(
         compiled,
         app_path,
         &theme.components,
+        &theme.shared,
         Some(preview_scene_path),
     );
     let tag = compiled

@@ -6,6 +6,8 @@ use mei_lang_kernel::{
 };
 use serde_json::{json, Value};
 
+use super::theme::resolve_shared_refs;
+
 /// Scene anchor injected into `__mei_runtime_ref` for scene-qualified runtime APIs.
 #[derive(Debug, Clone)]
 pub(super) struct RuntimeSceneAnchor {
@@ -75,6 +77,7 @@ pub(super) fn attach_host_meta(
     compiled: &CompiledApp,
     app_path: &str,
     theme_components: &serde_json::Value,
+    shared_context: &serde_json::Value,
     preview_scene_path: Option<&str>,
 ) -> Value {
     let mut anchor = RuntimeSceneAnchor::from_compiled(compiled);
@@ -105,6 +108,7 @@ pub(super) fn attach_host_meta(
                 "dataset_query_api": format!("/api/datasets/query/{}", app_path),
                 "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
                 "components": theme_components.clone(),
+                "shared": shared_context.clone(),
             }),
         );
     }
@@ -113,6 +117,7 @@ pub(super) fn attach_host_meta(
 
 pub(super) fn resolve_value(
     value: &Value,
+    shared_context: &Value,
     scene_contract: &SceneContract,
     resources: &BTreeMap<String, LoadedResource>,
     scene_anchor: &RuntimeSceneAnchor,
@@ -121,6 +126,9 @@ pub(super) fn resolve_value(
 ) -> Value {
     match value {
         Value::Object(map) => {
+            if map.get("__ref").and_then(Value::as_str) == Some("shared") {
+                return resolve_shared_refs(value, shared_context);
+            }
             if matches!(
                 map.get("__ref").and_then(Value::as_str),
                 Some("dataset") | Some("resource") | Some("entity")
@@ -221,6 +229,7 @@ pub(super) fn resolve_value(
                     key.clone(),
                     resolve_value(
                         entry,
+                        shared_context,
                         scene_contract,
                         resources,
                         scene_anchor,
@@ -237,6 +246,7 @@ pub(super) fn resolve_value(
                 .map(|item| {
                     resolve_value(
                         item,
+                        shared_context,
                         scene_contract,
                         resources,
                         scene_anchor,
