@@ -44,6 +44,14 @@
     }
   }
 
+  function scriptAlreadyLoaded(scriptEl) {
+    if (!scriptEl) return false;
+    if (scriptEl.readyState === "complete" || scriptEl.readyState === "loaded") {
+      return true;
+    }
+    return scriptEl.complete === true;
+  }
+
   function loadManageSourceBundle() {
     if (boot.manageSourceBundleLoaded === true) {
       return Promise.resolve();
@@ -54,6 +62,11 @@
     loadingPromise = new Promise((resolve, reject) => {
       const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
       if (existing) {
+        if (scriptAlreadyLoaded(existing)) {
+          boot.manageSourceBundleLoaded = true;
+          resolve();
+          return;
+        }
         existing.addEventListener(
           "load",
           () => {
@@ -97,6 +110,23 @@
   }
 
   boot.ensureManageSourceBundle = loadManageSourceBundle;
+
+  boot.remountManageSourceAfterSpa = async function remountManageSourceAfterSpa() {
+    if (!boot.manageSourceBundleLoaded) {
+      return;
+    }
+    if (typeof boot.mountSourceTreeControls === "function") {
+      boot.mountSourceTreeControls();
+      return;
+    }
+    const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
+    if (existing) {
+      existing.remove();
+    }
+    boot.manageSourceBundleLoaded = false;
+    loadingPromise = null;
+    await loadManageSourceBundle();
+  };
 
   document.addEventListener("mei:manage-tab-change", (event) => {
     maybeLoadForTab(event?.detail?.tab);

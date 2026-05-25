@@ -32,6 +32,8 @@
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
   const LOADING_DELAY_MS = 140;
   const LOADING_MIN_VISIBLE_MS = 180;
+  const SCRIPT_LOAD_TIMEOUT_MS = 15000;
+  const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
@@ -558,7 +560,7 @@
     },
   };
   let currentNavigationId = 0;
-  let activeController = null;
+  let spaNavigationInFlight = 0;
   let loadingTimer = null;
   let loadingVisibleAt = 0;
   let drilldownContextRetryTimer = null;
@@ -1001,7 +1003,10 @@
   function hideLoading() {
     clearLoadingTimer();
     const overlay = document.getElementById("mei-spa-loading");
-    if (!overlay || !overlay.classList.contains("is-visible")) return;
+    if (!overlay) return;
+    if (!overlay.classList.contains("is-visible")) {
+      return;
+    }
     const elapsed = Date.now() - loadingVisibleAt;
     const finish = () => {
       overlay.classList.remove("is-visible");
@@ -1011,6 +1016,53 @@
     } else {
       finish();
     }
+  }
+
+  function forceHideLoading() {
+    clearLoadingTimer();
+    const overlay = document.getElementById("mei-spa-loading");
+    if (overlay) {
+      overlay.classList.remove("is-visible");
+    }
+  }
+
+  function finishNavigationUi(navigationId) {
+    clearManageWorkspaceLoadingState();
+    if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
+      return;
+    }
+    forceHideLoading();
+    clearManageWorkspaceLoadingState();
+  }
+
+  function isManageSamePathNavigation(currentUrl, nextUrl) {
+    return (
+      currentUrl.pathname === nextUrl.pathname &&
+      currentUrl.pathname.startsWith("/apps/manage/")
+    );
+  }
+
+  function shouldReloadHostBundle(path, currentUrl, nextUrl) {
+    if (path === "/app-bundles/manage.js") {
+      const cur = currentUrl.pathname.startsWith("/apps/manage/");
+      const next = nextUrl.pathname.startsWith("/apps/manage/");
+      return cur !== next;
+    }
+    if (path === "/app-bundles/access.js") {
+      const cur = currentUrl.pathname.startsWith("/apps/access/");
+      const next = nextUrl.pathname.startsWith("/apps/access/");
+      return cur !== next;
+    }
+    return false;
+  }
+
+  function syncManageTabFromUrl(url) {
+    try {
+      const tab = new URL(url, window.location.href).searchParams.get("tab");
+      if (typeof boot.switchManageTab === "function") {
+        boot.switchManageTab(tab || "preview", { updateUrl: false, emit: true });
+      }
+    } catch (_) {}
   }
 
   function sameOrigin(url) {
@@ -1057,8 +1109,13 @@
         item.tagName === "SL-BUTTON" &&
         item.hasAttribute("href")
       ) {
+        const rawHref = item.getAttribute("href") || "";
+        let absolute = rawHref;
+        try {
+          absolute = new URL(rawHref, window.location.href).href;
+        } catch (_) {}
         return {
-          url: item.getAttribute("href"),
+          url: absolute,
           target: item.getAttribute("target") || "",
           download: item.hasAttribute("download"),
         };
@@ -1067,6 +1124,7 @@
     return null;
   }
 
+  /** 仅管理视图 Tab 走客户端切换；顶栏、资源树与其它 /apps/ 链路由全局 SPA 拦截。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
@@ -1074,20 +1132,6 @@
         item instanceof HTMLElement &&
         item.matches &&
         item.matches("a.manage-view-tab[data-manage-tab]")
-      ) {
-        return true;
-      }
-      if (
-        item instanceof HTMLElement &&
-        item.matches &&
-        item.matches(".sidebar.left a.tree-link[href]")
-      ) {
-        return true;
-      }
-      if (
-        item instanceof HTMLElement &&
-        item.closest &&
-        item.closest("header.topbar-shell")
       ) {
         return true;
       }
@@ -1101,17 +1145,6 @@
       return parsed.pathname;
     } catch (_) {
       return "";
-    }
-  }
-
-  function routePreserveKey(url) {
-    try {
-      const parsed = new URL(url, window.location.href);
-      const file = String(parsed.searchParams.get("file") || "").trim();
-      const scene = String(parsed.searchParams.get("scene") || "").trim();
-      return `${file}::${scene}`;
-    } catch (_) {
-      return "::";
     }
   }
 
@@ -1194,6 +1227,21 @@
         .forEach((node) => node.remove());
     }
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        if (opts.softFail) {
+          console.warn("[spa-navigation] script load timeout", rawSrc);
+          finish(resolve);
+          return;
+        }
+        finish(() => reject(new Error("script load timeout: " + rawSrc)));
+      }, SCRIPT_LOAD_TIMEOUT_MS);
       const script = document.createElement("script");
       if (opts.module) script.type = "module";
       script.src = absolute;
@@ -1204,20 +1252,118 @@
       if (opts.reloadKey) {
         script.setAttribute("data-mei-reload-script", opts.reloadKey);
       }
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("failed to load script: " + rawSrc));
+      script.onload = () => finish(resolve);
+      script.onerror = () => {
+        if (opts.softFail) {
+          console.warn("[spa-navigation] script load skipped", rawSrc);
+          finish(resolve);
+          return;
+        }
+        finish(() => reject(new Error("failed to load script: " + rawSrc)));
+      };
       document.body.appendChild(script);
     });
   }
 
+  function publishManagePreviewFromDoc(doc) {
+    const panelRoot =
+      document.querySelector("#meilang-author-panel") ||
+      (doc && doc.querySelector("#meilang-author-panel"));
+    dispatchManageContextChange(extractManagePanelContext(panelRoot));
+    window.dispatchEvent(new Event("meilang:preview-updated"));
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("meilang:preview-updated"));
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+    });
+  }
+
+  function replaceShellFromDoc(doc, url, replaceHistory) {
+    const currentShell = document.querySelector(".shell");
+    const nextShell = doc.querySelector(".shell");
+    if (!currentShell || !nextShell) return false;
+    currentShell.className = nextShell.className;
+    currentShell.replaceChildren(
+      ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
+    );
+    if (replaceHistory) {
+      window.history.replaceState({}, "", url);
+    } else {
+      window.history.pushState({}, "", url);
+    }
+    return true;
+  }
+
+  async function syncMissingWorkspaceModulesOnly(doc, navigationId) {
+    const scripts = collectBodyScripts(doc).filter((src) => {
+      const path = normalizePath(src);
+      return path.startsWith("/workspace-components/");
+    });
+    for (const src of scripts) {
+      if (navigationId !== currentNavigationId) return false;
+      const path = normalizePath(src);
+      if (
+        document.querySelector(
+          'script[data-mei-persistent-script="' + path + '"]',
+        )
+      ) {
+        continue;
+      }
+      await loadScript(src, { module: true, persistentKey: path, softFail: true });
+    }
+    return true;
+  }
+
+  async function ensureHostBundlesFromDoc(doc, navigationId, currentUrl, nextUrl) {
+    for (const src of collectBodyScripts(doc)) {
+      if (navigationId !== currentNavigationId) return false;
+      const path = normalizePath(src);
+      if (path !== "/app-bundles/manage.js" && path !== "/app-bundles/access.js") {
+        continue;
+      }
+      const alreadyLoaded =
+        document.querySelector('script[data-mei-persistent-script="' + path + '"]') ||
+        document.querySelector('script[data-mei-reload-script="' + path + '"]');
+      if (alreadyLoaded) {
+        if (currentUrl && nextUrl && shouldReloadHostBundle(path, currentUrl, nextUrl)) {
+          await loadScript(path + "?spa=" + Date.now(), {
+            reloadKey: path,
+            softFail: true,
+          });
+        }
+        continue;
+      }
+      await loadScript(src, { persistentKey: path, softFail: true });
+    }
+    return true;
+  }
+
   async function syncScriptsFromDocument(doc, navigationId, options) {
     const opts = options || {};
+    const currentUrl = opts.currentUrl;
+    const nextUrl = opts.nextUrl;
     const scripts = collectBodyScripts(doc);
     for (const src of scripts) {
-      if (navigationId !== currentNavigationId) return;
+      if (navigationId !== currentNavigationId) return false;
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
+      if (
+        path === "/app-bundles/manage.js" ||
+        path === "/app-bundles/access.js"
+      ) {
+        if (
+          currentUrl &&
+          nextUrl &&
+          !shouldReloadHostBundle(path, currentUrl, nextUrl)
+        ) {
+          await loadScript(src, { persistentKey: path });
+          continue;
+        }
+      }
       if (
         opts.preserveManageWorkspace &&
         path === "/app-bundles/manage.js"
@@ -1247,28 +1393,29 @@
         continue;
       }
       if (path.startsWith("/workspace-components/")) {
-        await loadScript(src, { module: true, persistentKey: path });
+        await loadScript(src, { module: true, persistentKey: path, softFail: true });
         continue;
       }
       if (path.startsWith("/app-assets/")) {
         if (RELOAD_APP_SCRIPTS.has(path)) {
           const withBuster = path + "?spa=" + Date.now();
-          await loadScript(withBuster, { reloadKey: path });
+          await loadScript(withBuster, { reloadKey: path, softFail: true });
           continue;
         }
-        await loadScript(src, { persistentKey: path });
+        await loadScript(src, { persistentKey: path, softFail: true });
         continue;
       }
       if (path.startsWith("/app-bundles/")) {
         if (RELOAD_BUNDLE_SCRIPTS.has(path)) {
           const withBuster = path + "?spa=" + Date.now();
-          await loadScript(withBuster, { reloadKey: path });
+          await loadScript(withBuster, { reloadKey: path, softFail: true });
           continue;
         }
-        await loadScript(src, { persistentKey: path });
+        await loadScript(src, { persistentKey: path, softFail: true });
         continue;
       }
     }
+    return true;
   }
 
   function cloneNodeOrNull(node) {
@@ -1382,11 +1529,11 @@
     });
   }
 
+  /** 同一 manage 路径下换 file/scene/tab 只换工作区，避免整页重载 manage bundle。 */
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/") &&
-      routePreserveKey(currentUrl) === routePreserveKey(nextUrl)
+      currentUrl.pathname.startsWith("/apps/manage/")
     );
   }
 
@@ -1488,26 +1635,69 @@
     } else {
       window.history.pushState({}, "", url);
     }
-    dispatchManageContextChange(nextPanelContext);
-    window.dispatchEvent(new Event("meilang:preview-updated"));
     return true;
   }
 
-  async function loadAndSwap(url, replaceHistory, navigationId, controller) {
-    const response = await fetch(url, {
-      credentials: "same-origin",
-      headers: { "x-mei-spa-nav": "1" },
-      signal: controller.signal,
-    });
+  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
+    void (async () => {
+      try {
+        if (navigationId !== currentNavigationId) return;
+        if (!preserveManageWorkspaceFromUrls(currentUrl, nextUrl)) {
+          const bundlesReady = await ensureHostBundlesFromDoc(
+            doc,
+            navigationId,
+            currentUrl,
+            nextUrl,
+          );
+          if (!bundlesReady || navigationId !== currentNavigationId) return;
+        }
+        if (navigationId !== currentNavigationId) return;
+        await syncMissingWorkspaceModulesOnly(doc, navigationId);
+        if (navigationId !== currentNavigationId) return;
+        if (nextUrl.pathname.startsWith("/apps/manage/")) {
+          if (typeof boot.installManageTabs === "function") {
+            boot.installManageTabs();
+          }
+          if (typeof boot.mountSourceTreeControls === "function") {
+            boot.mountSourceTreeControls();
+          }
+          syncManageTabFromUrl(url);
+        }
+        installDrilldownOverlayHost();
+        applyDrilldownContextFromQuery();
+      } catch (err) {
+        console.warn("[spa-navigation] post-spa work failed", err);
+      }
+    })();
+  }
+
+  function preserveManageWorkspaceFromUrls(currentUrl, nextUrl) {
+    return shouldPreserveManageWorkspace(currentUrl, nextUrl);
+  }
+
+  async function loadAndSwap(url, replaceHistory, navigationId) {
+    const fetchController = new AbortController();
+    const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "x-mei-spa-nav": "1" },
+        signal: fetchController.signal,
+      });
+    } finally {
+      clearTimeout(fetchTimer);
+    }
     if (!response.ok) throw new Error("navigation failed: " + response.status);
     const html = await response.text();
-    if (navigationId !== currentNavigationId) return;
+    if (navigationId !== currentNavigationId) return false;
     const doc = new DOMParser().parseFromString(html, "text/html");
     const nextShell = doc.querySelector(".shell");
     const currentShell = document.querySelector(".shell");
     if (!nextShell || !currentShell) {
-      window.location.assign(url);
-      return;
+      const err = new Error("spa shell missing in response");
+      err.meiSpaHardNav = true;
+      throw err;
     }
     const currentUrl = new URL(window.location.href);
     const nextUrl = new URL(url, window.location.href);
@@ -1533,69 +1723,61 @@
     if (preserveManageWorkspace) {
       const swapped = swapManageWorkspace(doc, url, replaceHistory);
       if (!swapped) {
-        currentShell.className = nextShell.className;
-        const nextNodes = Array.from(nextShell.childNodes).map((node) =>
-          node.cloneNode(true),
-        );
-        currentShell.replaceChildren(...nextNodes);
-        if (replaceHistory) {
-          window.history.replaceState({}, "", url);
-        } else {
-          window.history.pushState({}, "", url);
-        }
+        replaceShellFromDoc(doc, url, replaceHistory);
       }
     } else {
-      currentShell.className = nextShell.className;
-      const nextNodes = Array.from(nextShell.childNodes).map((node) =>
-        node.cloneNode(true),
-      );
-      currentShell.replaceChildren(...nextNodes);
-      if (replaceHistory) {
-        window.history.replaceState({}, "", url);
-      } else {
-        window.history.pushState({}, "", url);
-      }
+      replaceShellFromDoc(doc, url, replaceHistory);
     }
-    await syncScriptsFromDocument(doc, navigationId, {
-      preserveManageWorkspace,
-      preserveAgentPanel: preserveManageWorkspace,
-      preserveStatusBar: preserveManageWorkspace,
-      preserveManageTabs: preserveManageWorkspace,
-      preserveWorkspaceSplitters: preserveManageWorkspace,
-      preserveSourceTreeControls: preserveManageWorkspace,
-    });
-    installDrilldownOverlayHost();
-    applyDrilldownContextFromQuery();
+    if (navigationId !== currentNavigationId) return false;
+    publishManagePreviewFromDoc(doc);
+    runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
+    return true;
   }
 
-  async function navigate(url, replaceHistory) {
+  async function navigateInternal(url, replaceHistory) {
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
+    spaNavigationInFlight += 1;
+    boot._spaInFlight = spaNavigationInFlight;
     closeDrilldownOverlay();
-    if (activeController) {
-      try {
-        activeController.abort();
-      } catch (_) {}
-    }
-    activeController = new AbortController();
-    showManageWorkspaceLoadingState(url);
-    showLoading();
+    let currentUrl = null;
+    let nextUrl = null;
     try {
-      await loadAndSwap(url, replaceHistory, navigationId, activeController);
-    } catch (error) {
-      if (error && error.name === "AbortError") return;
-      console.error("[spa-navigation] fallback to hard reload", error);
-      window.location.assign(url);
-    } finally {
-      clearManageWorkspaceLoadingState();
-      if (navigationId === currentNavigationId) {
-        hideLoading();
+      currentUrl = new URL(window.location.href);
+      nextUrl = new URL(url, window.location.href);
+    } catch (_) {}
+    const manageSamePath =
+      currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
+    if (manageSamePath) {
+      showManageWorkspaceLoadingState(url);
+    } else {
+      showManageWorkspaceLoadingState(url);
+      showLoading();
+    }
+    try {
+      const completed = await loadAndSwap(url, replaceHistory, navigationId);
+      if (!completed && navigationId === currentNavigationId) {
+        console.warn("[spa-navigation] navigation superseded", url);
       }
+    } catch (error) {
+      console.error("[spa-navigation] navigation failed", error);
+      if (error && error.name === "AbortError") {
+        console.warn("[spa-navigation] fetch timeout", url);
+        return;
+      }
+      if (error && error.meiSpaHardNav) {
+        window.location.assign(url);
+        return;
+      }
+    } finally {
+      spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
+      boot._spaInFlight = spaNavigationInFlight;
+      finishNavigationUi(navigationId);
     }
   }
 
   boot.navigateSpa = function (url, replaceHistory) {
-    return navigate(url, !!replaceHistory);
+    return navigateInternal(url, !!replaceHistory);
   };
 
   tagExistingBodyScripts();
@@ -1619,7 +1801,7 @@
         return;
       }
       event.preventDefault();
-      void navigate(target.url, false);
+      void navigateInternal(target.url, false);
     },
     true,
   );
@@ -1627,7 +1809,7 @@
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
-      void navigate(window.location.href, true);
+      void navigateInternal(window.location.href, true);
     }
   });
 })();

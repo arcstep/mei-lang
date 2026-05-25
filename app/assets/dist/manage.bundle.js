@@ -4276,12 +4276,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 /* ===== manage-tabs.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  if (typeof boot.disposeManageTabs === "function") {
-    try {
-      boot.disposeManageTabs();
-    } catch (_) {}
-    boot.disposeManageTabs = null;
-  }
 
   function listTabs() {
     return Array.from(
@@ -4289,187 +4283,220 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     ).filter((node) => !node.hidden);
   }
 
-  if (!listTabs().length) return;
-
-  function getPanels() {
-    return {
-      preview: document.querySelector('[data-manage-tab-panel="preview"]'),
-      source: document.querySelector('[data-manage-tab-panel="source"]'),
-      diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
-    };
-  }
-
-  const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
-  let currentTab = "preview";
-
-  function normalizeTab(raw) {
-    const value = String(raw || "").trim().toLowerCase();
-    if (value === "source" || value === "diff" || value === "diagnostics") return value;
-    return "preview";
-  }
-
-  function resolveRenderableTab(tab) {
-    const active = normalizeTab(tab);
-    if (active === "diff") {
-      const diffTab = document.getElementById("manage-tab-diff");
-      if (diffTab && diffTab.hidden) return "preview";
-    }
-    const panels = getPanels();
-    if ((active === "source" || active === "diff") && !panels.source) {
-      return "preview";
-    }
-    if (active === "diagnostics" && !panels.diagnostics) {
-      return "preview";
-    }
-    return active;
-  }
-
-  function tabFromUrl() {
-    try {
-      const url = new URL(window.location.href);
-      return normalizeTab(url.searchParams.get("tab"));
-    } catch (_) {
-      return "preview";
-    }
-  }
-
-  function panelVisibility(tab) {
-    const panels = getPanels();
-    const active = resolveRenderableTab(tab);
-    if (panels.preview) panels.preview.hidden = active !== "preview";
-    if (panels.source) panels.source.hidden = !(active === "source" || active === "diff");
-    if (panels.diagnostics) panels.diagnostics.hidden = active !== "diagnostics";
-  }
-
-  function tabVisual(tab) {
-    const active = resolveRenderableTab(tab);
-    listTabs().forEach((node) => {
-      const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
-      const isActive = nodeTab === active;
-      node.classList.toggle("is-active", isActive);
-      node.setAttribute("aria-selected", isActive ? "true" : "false");
-      if (isActive) {
-        node.setAttribute("aria-current", "page");
-      } else {
-        node.removeAttribute("aria-current");
-      }
+  function clearManageTabLoadingOverlay() {
+    const main = document.querySelector("#workspace-root main.main");
+    if (!main) return;
+    main.removeAttribute("aria-busy");
+    main.querySelectorAll('[data-mei-manage-nav-loading="true"]').forEach((node) => {
+      node.remove();
     });
+    const globalOverlay = document.getElementById("mei-spa-loading");
+    if (globalOverlay) {
+      globalOverlay.classList.remove("is-visible");
+    }
   }
 
-  function tabLink(tab) {
-    const active = resolveRenderableTab(tab);
-    const visible = listTabs();
-    return (
-      visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
-      visible[0]
-    );
-  }
+  function installManageTabs() {
+    if (typeof boot.disposeManageTabs === "function") {
+      try {
+        boot.disposeManageTabs();
+      } catch (_) {}
+      boot.disposeManageTabs = null;
+    }
 
-  function updateUrl(nextTab) {
-    const link = tabLink(nextTab);
-    if (!link || !link.href) return;
-    const nextHref = new URL(link.href, window.location.href).toString();
-    const currentHref = window.location.href;
-    if (nextHref === currentHref) return;
-    window.history.replaceState(window.history.state, "", nextHref);
-  }
+    if (!listTabs().length) return;
 
-  function syncDatasets(nextTab) {
-    const active = resolveRenderableTab(nextTab);
-    viewTabNodes.forEach((node) => {
-      if (node && node.dataset) {
-        node.dataset.viewTab = active;
+    const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
+    let currentTab = "preview";
+
+    function getPanels() {
+      return {
+        preview: document.querySelector('[data-manage-tab-panel="preview"]'),
+        source: document.querySelector('[data-manage-tab-panel="source"]'),
+        diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
+      };
+    }
+
+    function normalizeTab(raw) {
+      const value = String(raw || "").trim().toLowerCase();
+      if (value === "source" || value === "diff" || value === "diagnostics") return value;
+      return "preview";
+    }
+
+    function resolveRenderableTab(tab) {
+      const active = normalizeTab(tab);
+      if (active === "diff") {
+        const diffTab = document.getElementById("manage-tab-diff");
+        if (diffTab && diffTab.hidden) return "preview";
       }
-    });
-  }
-
-  function emitTabChange(nextTab) {
-    document.dispatchEvent(
-      new CustomEvent("mei:manage-tab-change", {
-        detail: { tab: resolveRenderableTab(nextTab) },
-      }),
-    );
-  }
-
-  function switchManageTab(nextTab, options) {
-    const opts = options || {};
-    const active = resolveRenderableTab(nextTab);
-    currentTab = active;
-    tabVisual(active);
-    panelVisibility(active);
-    if (opts.updateUrl !== false) {
-      updateUrl(active);
+      const panels = getPanels();
+      if ((active === "source" || active === "diff") && !panels.source) {
+        return "preview";
+      }
+      if (active === "diagnostics" && !panels.diagnostics) {
+        return "preview";
+      }
+      return active;
     }
-    syncDatasets(active);
-    if (opts.emit !== false) {
-      emitTabChange(active);
+
+    function tabFromUrl() {
+      try {
+        const url = new URL(window.location.href);
+        return normalizeTab(url.searchParams.get("tab"));
+      } catch (_) {
+        return "preview";
+      }
     }
-    if (active === "preview") {
-      window.dispatchEvent(new Event("meilang:preview-updated"));
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new Event("meilang:preview-updated"));
+
+    function panelVisibility(tab) {
+      const panels = getPanels();
+      const active = resolveRenderableTab(tab);
+      if (panels.preview) panels.preview.hidden = active !== "preview";
+      if (panels.source) panels.source.hidden = !(active === "source" || active === "diff");
+      if (panels.diagnostics) panels.diagnostics.hidden = active !== "diagnostics";
+    }
+
+    function tabVisual(tab) {
+      const active = resolveRenderableTab(tab);
+      listTabs().forEach((node) => {
+        const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
+        const isActive = nodeTab === active;
+        node.classList.toggle("is-active", isActive);
+        node.setAttribute("aria-selected", isActive ? "true" : "false");
+        if (isActive) {
+          node.setAttribute("aria-current", "page");
+        } else {
+          node.removeAttribute("aria-current");
+        }
       });
     }
-    return active;
-  }
 
-  function maybeRewriteManageNavigation(target) {
-    if (!target || !(target instanceof HTMLAnchorElement)) return;
-    if (!target.href) return;
-    if (target.dataset.preserveManageTab !== "1") return;
-    try {
-      const url = new URL(target.href, window.location.href);
-      if (url.origin !== window.location.origin) return;
-      if (!url.pathname.startsWith("/apps/manage/")) return;
-      url.searchParams.set("tab", resolveRenderableTab(currentTab));
-      target.href = url.toString();
-    } catch (_) {}
-  }
-
-  function onClick(event) {
-    if (event.defaultPrevented) return;
-    if (event.button !== 0) return;
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const target =
-      event.target instanceof Element
-        ? event.target.closest("a.manage-view-tab[data-manage-tab]")
-        : null;
-    if (!target) return;
-    if (target.hidden) return;
-    event.preventDefault();
-    switchManageTab(target.getAttribute("data-manage-tab"), {
-      updateUrl: true,
-      emit: true,
-    });
-  }
-
-  function onNavClick(event) {
-    if (event.defaultPrevented) return;
-    if (event.button !== 0) return;
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-    const target =
-      event.target instanceof Element ? event.target.closest("a[href]") : null;
-    if (!target) return;
-    if (target.matches("a.manage-view-tab[data-manage-tab]")) return;
-    maybeRewriteManageNavigation(target);
-  }
-
-  document.addEventListener("click", onClick, true);
-  document.addEventListener("click", onNavClick, true);
-
-  boot.switchManageTab = function (tab) {
-    return switchManageTab(tab, { updateUrl: true, emit: true });
-  };
-
-  switchManageTab(tabFromUrl(), { updateUrl: false, emit: false });
-
-  boot.disposeManageTabs = function () {
-    document.removeEventListener("click", onClick, true);
-    document.removeEventListener("click", onNavClick, true);
-    if (boot.switchManageTab) {
-      boot.switchManageTab = null;
+    function tabLink(tab) {
+      const active = resolveRenderableTab(tab);
+      const visible = listTabs();
+      return (
+        visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
+        visible[0]
+      );
     }
-  };
+
+    function updateUrl(nextTab) {
+      const link = tabLink(nextTab);
+      if (!link || !link.href) return;
+      const nextHref = new URL(link.href, window.location.href).toString();
+      const currentHref = window.location.href;
+      if (nextHref === currentHref) return;
+      window.history.replaceState(window.history.state, "", nextHref);
+    }
+
+    function syncDatasets(nextTab) {
+      const active = resolveRenderableTab(nextTab);
+      viewTabNodes.forEach((node) => {
+        if (node && node.dataset) {
+          node.dataset.viewTab = active;
+        }
+      });
+    }
+
+    function emitTabChange(nextTab) {
+      document.dispatchEvent(
+        new CustomEvent("mei:manage-tab-change", {
+          detail: { tab: resolveRenderableTab(nextTab) },
+        }),
+      );
+    }
+
+    function switchManageTab(nextTab, options) {
+      const opts = options || {};
+      const active = resolveRenderableTab(nextTab);
+      currentTab = active;
+      clearManageTabLoadingOverlay();
+      tabVisual(active);
+      panelVisibility(active);
+      if (opts.updateUrl !== false) {
+        updateUrl(active);
+      }
+      syncDatasets(active);
+      if (opts.emit !== false) {
+        emitTabChange(active);
+      }
+      if (active === "preview") {
+        window.dispatchEvent(new Event("meilang:preview-updated"));
+        requestAnimationFrame(() => {
+          window.dispatchEvent(new Event("meilang:preview-updated"));
+          if (typeof boot.scheduleFrameViewportRelayout === "function") {
+            try {
+              boot.scheduleFrameViewportRelayout();
+            } catch (_) {}
+          }
+        });
+      }
+      return active;
+    }
+
+    function maybeRewriteManageNavigation(target) {
+      if (!target || !(target instanceof HTMLAnchorElement)) return;
+      if (!target.href) return;
+      if (target.dataset.preserveManageTab !== "1") return;
+      try {
+        const url = new URL(target.href, window.location.href);
+        if (url.origin !== window.location.origin) return;
+        if (!url.pathname.startsWith("/apps/manage/")) return;
+        url.searchParams.set("tab", resolveRenderableTab(currentTab));
+        target.href = url.toString();
+      } catch (_) {}
+    }
+
+    const onClick = (event) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target =
+        event.target instanceof Element
+          ? event.target.closest("a.manage-view-tab[data-manage-tab]")
+          : null;
+      if (!target) return;
+      if (target.hidden) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      switchManageTab(target.getAttribute("data-manage-tab"), {
+        updateUrl: true,
+        emit: true,
+      });
+    };
+
+    const onNavClick = (event) => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target =
+        event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!target) return;
+      if (target.matches("a.manage-view-tab[data-manage-tab]")) return;
+      maybeRewriteManageNavigation(target);
+    };
+
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("click", onNavClick, true);
+
+    boot.switchManageTab = function (tab) {
+      return switchManageTab(tab, { updateUrl: true, emit: true });
+    };
+
+    boot.disposeManageTabs = function () {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("click", onNavClick, true);
+      if (boot.switchManageTab) {
+        boot.switchManageTab = null;
+      }
+      boot.disposeManageTabs = null;
+    };
+
+    switchManageTab(tabFromUrl(), { updateUrl: false, emit: false });
+  }
+
+  boot.installManageTabs = installManageTabs;
+  installManageTabs();
 })();
 
 ;
@@ -4521,6 +4548,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     }
   }
 
+  function scriptAlreadyLoaded(scriptEl) {
+    if (!scriptEl) return false;
+    if (scriptEl.readyState === "complete" || scriptEl.readyState === "loaded") {
+      return true;
+    }
+    return scriptEl.complete === true;
+  }
+
   function loadManageSourceBundle() {
     if (boot.manageSourceBundleLoaded === true) {
       return Promise.resolve();
@@ -4531,6 +4566,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     loadingPromise = new Promise((resolve, reject) => {
       const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
       if (existing) {
+        if (scriptAlreadyLoaded(existing)) {
+          boot.manageSourceBundleLoaded = true;
+          resolve();
+          return;
+        }
         existing.addEventListener(
           "load",
           () => {
@@ -4574,6 +4614,23 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   boot.ensureManageSourceBundle = loadManageSourceBundle;
+
+  boot.remountManageSourceAfterSpa = async function remountManageSourceAfterSpa() {
+    if (!boot.manageSourceBundleLoaded) {
+      return;
+    }
+    if (typeof boot.mountSourceTreeControls === "function") {
+      boot.mountSourceTreeControls();
+      return;
+    }
+    const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
+    if (existing) {
+      existing.remove();
+    }
+    boot.manageSourceBundleLoaded = false;
+    loadingPromise = null;
+    await loadManageSourceBundle();
+  };
 
   document.addEventListener("mei:manage-tab-change", (event) => {
     maybeLoadForTab(event?.detail?.tab);
@@ -10330,6 +10387,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
   const LOADING_DELAY_MS = 140;
   const LOADING_MIN_VISIBLE_MS = 180;
+  const SCRIPT_LOAD_TIMEOUT_MS = 15000;
+  const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
@@ -10856,7 +10915,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     },
   };
   let currentNavigationId = 0;
-  let activeController = null;
+  let spaNavigationInFlight = 0;
   let loadingTimer = null;
   let loadingVisibleAt = 0;
   let drilldownContextRetryTimer = null;
@@ -11299,7 +11358,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   function hideLoading() {
     clearLoadingTimer();
     const overlay = document.getElementById("mei-spa-loading");
-    if (!overlay || !overlay.classList.contains("is-visible")) return;
+    if (!overlay) return;
+    if (!overlay.classList.contains("is-visible")) {
+      return;
+    }
     const elapsed = Date.now() - loadingVisibleAt;
     const finish = () => {
       overlay.classList.remove("is-visible");
@@ -11309,6 +11371,53 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     } else {
       finish();
     }
+  }
+
+  function forceHideLoading() {
+    clearLoadingTimer();
+    const overlay = document.getElementById("mei-spa-loading");
+    if (overlay) {
+      overlay.classList.remove("is-visible");
+    }
+  }
+
+  function finishNavigationUi(navigationId) {
+    clearManageWorkspaceLoadingState();
+    if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
+      return;
+    }
+    forceHideLoading();
+    clearManageWorkspaceLoadingState();
+  }
+
+  function isManageSamePathNavigation(currentUrl, nextUrl) {
+    return (
+      currentUrl.pathname === nextUrl.pathname &&
+      currentUrl.pathname.startsWith("/apps/manage/")
+    );
+  }
+
+  function shouldReloadHostBundle(path, currentUrl, nextUrl) {
+    if (path === "/app-bundles/manage.js") {
+      const cur = currentUrl.pathname.startsWith("/apps/manage/");
+      const next = nextUrl.pathname.startsWith("/apps/manage/");
+      return cur !== next;
+    }
+    if (path === "/app-bundles/access.js") {
+      const cur = currentUrl.pathname.startsWith("/apps/access/");
+      const next = nextUrl.pathname.startsWith("/apps/access/");
+      return cur !== next;
+    }
+    return false;
+  }
+
+  function syncManageTabFromUrl(url) {
+    try {
+      const tab = new URL(url, window.location.href).searchParams.get("tab");
+      if (typeof boot.switchManageTab === "function") {
+        boot.switchManageTab(tab || "preview", { updateUrl: false, emit: true });
+      }
+    } catch (_) {}
   }
 
   function sameOrigin(url) {
@@ -11355,8 +11464,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         item.tagName === "SL-BUTTON" &&
         item.hasAttribute("href")
       ) {
+        const rawHref = item.getAttribute("href") || "";
+        let absolute = rawHref;
+        try {
+          absolute = new URL(rawHref, window.location.href).href;
+        } catch (_) {}
         return {
-          url: item.getAttribute("href"),
+          url: absolute,
           target: item.getAttribute("target") || "",
           download: item.hasAttribute("download"),
         };
@@ -11365,6 +11479,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return null;
   }
 
+  /** 仅管理视图 Tab 走客户端切换；顶栏、资源树与其它 /apps/ 链路由全局 SPA 拦截。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
@@ -11372,20 +11487,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         item instanceof HTMLElement &&
         item.matches &&
         item.matches("a.manage-view-tab[data-manage-tab]")
-      ) {
-        return true;
-      }
-      if (
-        item instanceof HTMLElement &&
-        item.matches &&
-        item.matches(".sidebar.left a.tree-link[href]")
-      ) {
-        return true;
-      }
-      if (
-        item instanceof HTMLElement &&
-        item.closest &&
-        item.closest("header.topbar-shell")
       ) {
         return true;
       }
@@ -11399,17 +11500,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return parsed.pathname;
     } catch (_) {
       return "";
-    }
-  }
-
-  function routePreserveKey(url) {
-    try {
-      const parsed = new URL(url, window.location.href);
-      const file = String(parsed.searchParams.get("file") || "").trim();
-      const scene = String(parsed.searchParams.get("scene") || "").trim();
-      return `${file}::${scene}`;
-    } catch (_) {
-      return "::";
     }
   }
 
@@ -11492,6 +11582,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         .forEach((node) => node.remove());
     }
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (fn) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        if (opts.softFail) {
+          console.warn("[spa-navigation] script load timeout", rawSrc);
+          finish(resolve);
+          return;
+        }
+        finish(() => reject(new Error("script load timeout: " + rawSrc)));
+      }, SCRIPT_LOAD_TIMEOUT_MS);
       const script = document.createElement("script");
       if (opts.module) script.type = "module";
       script.src = absolute;
@@ -11502,20 +11607,118 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       if (opts.reloadKey) {
         script.setAttribute("data-mei-reload-script", opts.reloadKey);
       }
-      script.onload = () => resolve();
-      script.onerror = () => reject(new Error("failed to load script: " + rawSrc));
+      script.onload = () => finish(resolve);
+      script.onerror = () => {
+        if (opts.softFail) {
+          console.warn("[spa-navigation] script load skipped", rawSrc);
+          finish(resolve);
+          return;
+        }
+        finish(() => reject(new Error("failed to load script: " + rawSrc)));
+      };
       document.body.appendChild(script);
     });
   }
 
+  function publishManagePreviewFromDoc(doc) {
+    const panelRoot =
+      document.querySelector("#meilang-author-panel") ||
+      (doc && doc.querySelector("#meilang-author-panel"));
+    dispatchManageContextChange(extractManagePanelContext(panelRoot));
+    window.dispatchEvent(new Event("meilang:preview-updated"));
+    requestAnimationFrame(() => {
+      window.dispatchEvent(new Event("meilang:preview-updated"));
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+    });
+  }
+
+  function replaceShellFromDoc(doc, url, replaceHistory) {
+    const currentShell = document.querySelector(".shell");
+    const nextShell = doc.querySelector(".shell");
+    if (!currentShell || !nextShell) return false;
+    currentShell.className = nextShell.className;
+    currentShell.replaceChildren(
+      ...Array.from(nextShell.childNodes).map((node) => node.cloneNode(true)),
+    );
+    if (replaceHistory) {
+      window.history.replaceState({}, "", url);
+    } else {
+      window.history.pushState({}, "", url);
+    }
+    return true;
+  }
+
+  async function syncMissingWorkspaceModulesOnly(doc, navigationId) {
+    const scripts = collectBodyScripts(doc).filter((src) => {
+      const path = normalizePath(src);
+      return path.startsWith("/workspace-components/");
+    });
+    for (const src of scripts) {
+      if (navigationId !== currentNavigationId) return false;
+      const path = normalizePath(src);
+      if (
+        document.querySelector(
+          'script[data-mei-persistent-script="' + path + '"]',
+        )
+      ) {
+        continue;
+      }
+      await loadScript(src, { module: true, persistentKey: path, softFail: true });
+    }
+    return true;
+  }
+
+  async function ensureHostBundlesFromDoc(doc, navigationId, currentUrl, nextUrl) {
+    for (const src of collectBodyScripts(doc)) {
+      if (navigationId !== currentNavigationId) return false;
+      const path = normalizePath(src);
+      if (path !== "/app-bundles/manage.js" && path !== "/app-bundles/access.js") {
+        continue;
+      }
+      const alreadyLoaded =
+        document.querySelector('script[data-mei-persistent-script="' + path + '"]') ||
+        document.querySelector('script[data-mei-reload-script="' + path + '"]');
+      if (alreadyLoaded) {
+        if (currentUrl && nextUrl && shouldReloadHostBundle(path, currentUrl, nextUrl)) {
+          await loadScript(path + "?spa=" + Date.now(), {
+            reloadKey: path,
+            softFail: true,
+          });
+        }
+        continue;
+      }
+      await loadScript(src, { persistentKey: path, softFail: true });
+    }
+    return true;
+  }
+
   async function syncScriptsFromDocument(doc, navigationId, options) {
     const opts = options || {};
+    const currentUrl = opts.currentUrl;
+    const nextUrl = opts.nextUrl;
     const scripts = collectBodyScripts(doc);
     for (const src of scripts) {
-      if (navigationId !== currentNavigationId) return;
+      if (navigationId !== currentNavigationId) return false;
       const path = normalizePath(src);
       if (!path) continue;
       if (path === SPA_NAV_SCRIPT) continue;
+      if (
+        path === "/app-bundles/manage.js" ||
+        path === "/app-bundles/access.js"
+      ) {
+        if (
+          currentUrl &&
+          nextUrl &&
+          !shouldReloadHostBundle(path, currentUrl, nextUrl)
+        ) {
+          await loadScript(src, { persistentKey: path });
+          continue;
+        }
+      }
       if (
         opts.preserveManageWorkspace &&
         path === "/app-bundles/manage.js"
@@ -11545,28 +11748,29 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         continue;
       }
       if (path.startsWith("/workspace-components/")) {
-        await loadScript(src, { module: true, persistentKey: path });
+        await loadScript(src, { module: true, persistentKey: path, softFail: true });
         continue;
       }
       if (path.startsWith("/app-assets/")) {
         if (RELOAD_APP_SCRIPTS.has(path)) {
           const withBuster = path + "?spa=" + Date.now();
-          await loadScript(withBuster, { reloadKey: path });
+          await loadScript(withBuster, { reloadKey: path, softFail: true });
           continue;
         }
-        await loadScript(src, { persistentKey: path });
+        await loadScript(src, { persistentKey: path, softFail: true });
         continue;
       }
       if (path.startsWith("/app-bundles/")) {
         if (RELOAD_BUNDLE_SCRIPTS.has(path)) {
           const withBuster = path + "?spa=" + Date.now();
-          await loadScript(withBuster, { reloadKey: path });
+          await loadScript(withBuster, { reloadKey: path, softFail: true });
           continue;
         }
-        await loadScript(src, { persistentKey: path });
+        await loadScript(src, { persistentKey: path, softFail: true });
         continue;
       }
     }
+    return true;
   }
 
   function cloneNodeOrNull(node) {
@@ -11680,11 +11884,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     });
   }
 
+  /** 同一 manage 路径下换 file/scene/tab 只换工作区，避免整页重载 manage bundle。 */
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/") &&
-      routePreserveKey(currentUrl) === routePreserveKey(nextUrl)
+      currentUrl.pathname.startsWith("/apps/manage/")
     );
   }
 
@@ -11786,26 +11990,69 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     } else {
       window.history.pushState({}, "", url);
     }
-    dispatchManageContextChange(nextPanelContext);
-    window.dispatchEvent(new Event("meilang:preview-updated"));
     return true;
   }
 
-  async function loadAndSwap(url, replaceHistory, navigationId, controller) {
-    const response = await fetch(url, {
-      credentials: "same-origin",
-      headers: { "x-mei-spa-nav": "1" },
-      signal: controller.signal,
-    });
+  function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
+    void (async () => {
+      try {
+        if (navigationId !== currentNavigationId) return;
+        if (!preserveManageWorkspaceFromUrls(currentUrl, nextUrl)) {
+          const bundlesReady = await ensureHostBundlesFromDoc(
+            doc,
+            navigationId,
+            currentUrl,
+            nextUrl,
+          );
+          if (!bundlesReady || navigationId !== currentNavigationId) return;
+        }
+        if (navigationId !== currentNavigationId) return;
+        await syncMissingWorkspaceModulesOnly(doc, navigationId);
+        if (navigationId !== currentNavigationId) return;
+        if (nextUrl.pathname.startsWith("/apps/manage/")) {
+          if (typeof boot.installManageTabs === "function") {
+            boot.installManageTabs();
+          }
+          if (typeof boot.mountSourceTreeControls === "function") {
+            boot.mountSourceTreeControls();
+          }
+          syncManageTabFromUrl(url);
+        }
+        installDrilldownOverlayHost();
+        applyDrilldownContextFromQuery();
+      } catch (err) {
+        console.warn("[spa-navigation] post-spa work failed", err);
+      }
+    })();
+  }
+
+  function preserveManageWorkspaceFromUrls(currentUrl, nextUrl) {
+    return shouldPreserveManageWorkspace(currentUrl, nextUrl);
+  }
+
+  async function loadAndSwap(url, replaceHistory, navigationId) {
+    const fetchController = new AbortController();
+    const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
+    let response;
+    try {
+      response = await fetch(url, {
+        credentials: "same-origin",
+        headers: { "x-mei-spa-nav": "1" },
+        signal: fetchController.signal,
+      });
+    } finally {
+      clearTimeout(fetchTimer);
+    }
     if (!response.ok) throw new Error("navigation failed: " + response.status);
     const html = await response.text();
-    if (navigationId !== currentNavigationId) return;
+    if (navigationId !== currentNavigationId) return false;
     const doc = new DOMParser().parseFromString(html, "text/html");
     const nextShell = doc.querySelector(".shell");
     const currentShell = document.querySelector(".shell");
     if (!nextShell || !currentShell) {
-      window.location.assign(url);
-      return;
+      const err = new Error("spa shell missing in response");
+      err.meiSpaHardNav = true;
+      throw err;
     }
     const currentUrl = new URL(window.location.href);
     const nextUrl = new URL(url, window.location.href);
@@ -11831,69 +12078,61 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (preserveManageWorkspace) {
       const swapped = swapManageWorkspace(doc, url, replaceHistory);
       if (!swapped) {
-        currentShell.className = nextShell.className;
-        const nextNodes = Array.from(nextShell.childNodes).map((node) =>
-          node.cloneNode(true),
-        );
-        currentShell.replaceChildren(...nextNodes);
-        if (replaceHistory) {
-          window.history.replaceState({}, "", url);
-        } else {
-          window.history.pushState({}, "", url);
-        }
+        replaceShellFromDoc(doc, url, replaceHistory);
       }
     } else {
-      currentShell.className = nextShell.className;
-      const nextNodes = Array.from(nextShell.childNodes).map((node) =>
-        node.cloneNode(true),
-      );
-      currentShell.replaceChildren(...nextNodes);
-      if (replaceHistory) {
-        window.history.replaceState({}, "", url);
-      } else {
-        window.history.pushState({}, "", url);
-      }
+      replaceShellFromDoc(doc, url, replaceHistory);
     }
-    await syncScriptsFromDocument(doc, navigationId, {
-      preserveManageWorkspace,
-      preserveAgentPanel: preserveManageWorkspace,
-      preserveStatusBar: preserveManageWorkspace,
-      preserveManageTabs: preserveManageWorkspace,
-      preserveWorkspaceSplitters: preserveManageWorkspace,
-      preserveSourceTreeControls: preserveManageWorkspace,
-    });
-    installDrilldownOverlayHost();
-    applyDrilldownContextFromQuery();
+    if (navigationId !== currentNavigationId) return false;
+    publishManagePreviewFromDoc(doc);
+    runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
+    return true;
   }
 
-  async function navigate(url, replaceHistory) {
+  async function navigateInternal(url, replaceHistory) {
     currentNavigationId += 1;
     const navigationId = currentNavigationId;
+    spaNavigationInFlight += 1;
+    boot._spaInFlight = spaNavigationInFlight;
     closeDrilldownOverlay();
-    if (activeController) {
-      try {
-        activeController.abort();
-      } catch (_) {}
-    }
-    activeController = new AbortController();
-    showManageWorkspaceLoadingState(url);
-    showLoading();
+    let currentUrl = null;
+    let nextUrl = null;
     try {
-      await loadAndSwap(url, replaceHistory, navigationId, activeController);
-    } catch (error) {
-      if (error && error.name === "AbortError") return;
-      console.error("[spa-navigation] fallback to hard reload", error);
-      window.location.assign(url);
-    } finally {
-      clearManageWorkspaceLoadingState();
-      if (navigationId === currentNavigationId) {
-        hideLoading();
+      currentUrl = new URL(window.location.href);
+      nextUrl = new URL(url, window.location.href);
+    } catch (_) {}
+    const manageSamePath =
+      currentUrl && nextUrl && isManageSamePathNavigation(currentUrl, nextUrl);
+    if (manageSamePath) {
+      showManageWorkspaceLoadingState(url);
+    } else {
+      showManageWorkspaceLoadingState(url);
+      showLoading();
+    }
+    try {
+      const completed = await loadAndSwap(url, replaceHistory, navigationId);
+      if (!completed && navigationId === currentNavigationId) {
+        console.warn("[spa-navigation] navigation superseded", url);
       }
+    } catch (error) {
+      console.error("[spa-navigation] navigation failed", error);
+      if (error && error.name === "AbortError") {
+        console.warn("[spa-navigation] fetch timeout", url);
+        return;
+      }
+      if (error && error.meiSpaHardNav) {
+        window.location.assign(url);
+        return;
+      }
+    } finally {
+      spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
+      boot._spaInFlight = spaNavigationInFlight;
+      finishNavigationUi(navigationId);
     }
   }
 
   boot.navigateSpa = function (url, replaceHistory) {
-    return navigate(url, !!replaceHistory);
+    return navigateInternal(url, !!replaceHistory);
   };
 
   tagExistingBodyScripts();
@@ -11917,7 +12156,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         return;
       }
       event.preventDefault();
-      void navigate(target.url, false);
+      void navigateInternal(target.url, false);
     },
     true,
   );
@@ -11925,7 +12164,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   window.addEventListener("popstate", () => {
     closeDrilldownOverlay();
     if (shouldHandleUrl(window.location.href)) {
-      void navigate(window.location.href, true);
+      void navigateInternal(window.location.href, true);
     }
   });
 })();
