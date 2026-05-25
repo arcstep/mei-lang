@@ -28,6 +28,33 @@ fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>)
 use super::helpers::load_resources_from_capsule_file;
 use super::super::materialize::imported_world_metrics_resource_id;
 
+fn namespaced_metric_key(capsule_path: &str, local_key: &str) -> String {
+    if local_key.contains("::") {
+        local_key.to_string()
+    } else {
+        namespaced_import_id(capsule_path, local_key)
+    }
+}
+
+fn rewrite_metric_def_id_fields(value: &mut Value, namespaced_key: &str) {
+    let Value::Object(map) = value else {
+        return;
+    };
+    for field in ["id", "key"] {
+        let Some(id) = map
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        if !id.contains("::") {
+            map.insert(field.to_string(), Value::String(namespaced_key.to_string()));
+        }
+    }
+}
+
 fn rename_dataset_metric_keys(dataset: &mut DatasetView, capsule_path: &str) {
     let keys: Vec<String> = dataset.metrics.keys().cloned().collect();
     let mut renamed = BTreeMap::new();
@@ -35,14 +62,21 @@ fn rename_dataset_metric_keys(dataset: &mut DatasetView, capsule_path: &str) {
         let Some(metric) = dataset.metrics.remove(&key) else {
             continue;
         };
-        let namespaced = if key.contains("::") {
-            key
-        } else {
-            namespaced_import_id(capsule_path, key.as_str())
-        };
-        renamed.insert(namespaced, metric);
+        renamed.insert(namespaced_metric_key(capsule_path, key.as_str()), metric);
     }
     dataset.metrics = renamed;
+
+    let def_keys: Vec<String> = dataset.runtime_metric_defs.keys().cloned().collect();
+    let mut renamed_defs = BTreeMap::new();
+    for key in def_keys {
+        let Some(mut value) = dataset.runtime_metric_defs.remove(&key) else {
+            continue;
+        };
+        let namespaced = namespaced_metric_key(capsule_path, key.as_str());
+        rewrite_metric_def_id_fields(&mut value, &namespaced);
+        renamed_defs.insert(namespaced, value);
+    }
+    dataset.runtime_metric_defs = renamed_defs;
 }
 
 /// 编译期私有 id：`{capsule_path}::{local_id}`（不进入作者态 DSL）。
@@ -79,17 +113,48 @@ pub(crate) fn load_namespaced_capsule_resources(
         if let Some(dataset) = resource.dataset.as_mut() {
             dataset.id = resource.id.clone();
             rename_dataset_metric_keys(dataset, capsule_path);
+            for def in dataset.runtime_metric_defs.values_mut() {
+                rewrite_value_refs(def, capsule_path);
+            }
         }
         out.push(resource);
     }
     Ok(out)
 }
 
+fn rewrite_local_dataset_token(map: &mut serde_json::Map<String, Value>, field: &str, capsule_path: &str) {
+    let Some(token) = map
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    else {
+        return;
+    };
+    if token.contains("::") || token.ends_with(".mei") || token == "__source_path__" {
+        return;
+    }
+    let stripped = token
+        .strip_prefix("dataset.")
+        .unwrap_or(token)
+        .trim();
+    if stripped.is_empty() {
+        return;
+    }
+    map.insert(
+        field.to_string(),
+        Value::String(namespaced_import_id(capsule_path, stripped)),
+    );
+}
+
 fn rewrite_value_refs(value: &mut Value, capsule_path: &str) {
     match value {
         Value::Object(map) => {
             if let Some(ref_kind) = map.get("__ref").and_then(Value::as_str) {
-                if matches!(ref_kind, "dataset" | "metric" | "resource" | "entity") {
+                if matches!(
+                    ref_kind,
+                    "dataset" | "metric" | "resource" | "entity" | "data"
+                ) {
                     if let Some(id) = map
                         .get("id")
                         .and_then(Value::as_str)
@@ -104,6 +169,15 @@ fn rewrite_value_refs(value: &mut Value, capsule_path: &str) {
                         }
                     }
                 }
+            }
+            rewrite_local_dataset_token(map, "from_dataset", capsule_path);
+            rewrite_local_dataset_token(map, "from", capsule_path);
+            if map
+                .get("__kind")
+                .and_then(Value::as_str)
+                .is_some_and(|k| k == "analysis_expr")
+            {
+                rewrite_local_dataset_token(map, "dataset", capsule_path);
             }
             let keys: Vec<String> = map.keys().cloned().collect();
             for key in keys {
