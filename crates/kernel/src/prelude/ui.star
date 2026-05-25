@@ -200,7 +200,7 @@ def _merge_head_props(head_props = None, heading = None, heading_variant = None)
         merged["variant"] = heading_variant
     return merged
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""
     else:
@@ -229,6 +229,8 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         panel_props["__mei_layout_gap"] = str(layout_gap).strip()
     if layout_padding != None and str(layout_padding).strip() != "":
         panel_props["__mei_layout_padding"] = str(layout_padding).strip()
+    if scale != None and str(scale).strip() != "":
+        panel_props["scale"] = scale
     if type(layout_columns) == "list" and len(layout_columns) > 0:
         panel_props["__mei_layout_columns"] = layout_columns
     if title_background != None:
@@ -264,7 +266,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         payload["blocks"] = blocks
     return _clean(payload)
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     return _panel_node(
         id = id,
         title = title,
@@ -291,9 +293,10 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         layout_padding = layout_padding,
         layout_columns = layout_columns,
         base = base,
+        scale = scale,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -320,9 +323,10 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         layout_padding = layout_padding,
         layout_columns = layout_columns,
         base = base,
+        scale = scale,
     ))
 
-def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None):
+def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, scale = None):
     return panel(
         id = id,
         title = title,
@@ -345,9 +349,10 @@ def box(id = None, title = None, area = None, layout = None, blocks = [], data =
         layout_gap = layout_gap,
         layout_padding = layout_padding,
         layout_columns = layout_columns,
+        scale = scale,
     )
 
-def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None):
+def box_decl(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, scale = None):
     return panel_decl(
         id = id,
         title = title,
@@ -370,6 +375,7 @@ def box_decl(id = None, title = None, area = None, layout = None, blocks = [], d
         layout_gap = layout_gap,
         layout_padding = layout_padding,
         layout_columns = layout_columns,
+        scale = scale,
     )
 
 def component(use = None, id = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = None, interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None, base = None):

@@ -9,15 +9,43 @@ use super::metric_packs::materialize_legacy_metric_map;
 
 pub const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
+pub(crate) fn imported_world_metrics_resource_id(relative_path: &str) -> String {
+    let path = relative_path.trim();
+    if path.is_empty() {
+        return WORLD_METRICS_RESOURCE_ID.to_string();
+    }
+    format!("{WORLD_METRICS_RESOURCE_ID}::{path}::metrics")
+}
+
 /// 将 `world(metrics=...)` / `world.add_metric(...)` 物化为可被 runtime API 定位的 dataset 资源。
 pub(crate) fn append_world_metrics_dataset_resource(
     resources: &mut Vec<LoadedResource>,
     ledger: &BTreeMap<String, crate::model::WorldMetricLedgerEntry>,
     raw_metric_values: &[Value],
 ) {
+    append_world_metrics_dataset_resource_with_id(
+        resources,
+        ledger,
+        raw_metric_values,
+        WORLD_METRICS_RESOURCE_ID,
+    );
+}
+
+pub(crate) fn append_world_metrics_dataset_resource_with_id(
+    resources: &mut Vec<LoadedResource>,
+    ledger: &BTreeMap<String, crate::model::WorldMetricLedgerEntry>,
+    raw_metric_values: &[Value],
+    resource_id: &str,
+) {
+    let resource_id = resource_id.trim();
+    let resource_id = if resource_id.is_empty() {
+        WORLD_METRICS_RESOURCE_ID
+    } else {
+        resource_id
+    };
     if resources
         .iter()
-        .any(|resource| resource.id == WORLD_METRICS_RESOURCE_ID)
+        .any(|resource| resource.id == resource_id)
     {
         return;
     }
@@ -36,7 +64,7 @@ pub(crate) fn append_world_metrics_dataset_resource(
         runtime_metric_defs.insert(key.to_string(), value.clone());
     }
     for entry in ledger.values() {
-        if entry.owner_resource_id != WORLD_METRICS_RESOURCE_ID {
+        if entry.owner_resource_id != resource_id {
             continue;
         }
         metrics.insert(entry.id.clone(), entry.metric.clone());
@@ -45,12 +73,12 @@ pub(crate) fn append_world_metrics_dataset_resource(
         return;
     }
     resources.push(LoadedResource {
-        id: WORLD_METRICS_RESOURCE_ID.to_string(),
+        id: resource_id.to_string(),
         kind: "dataset".to_string(),
         title: Some("world metrics".to_string()),
         document: None,
         dataset: Some(DatasetView {
-            id: WORLD_METRICS_RESOURCE_ID.to_string(),
+            id: resource_id.to_string(),
             title: Some("world metrics".to_string()),
             purpose: Some("direct world metrics ledger".to_string()),
             schema: Vec::new(),

@@ -3,7 +3,8 @@
 //! 覆盖 route 发现、official 编译、catalog、embed 预览等全部调用方，避免同一 `.mei` 在单次 compile 内被重复编译。
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
@@ -36,28 +37,117 @@ pub(crate) fn file_mtime_ms(path: &Path) -> u128 {
         .unwrap_or(0)
 }
 
-fn directory_latest_mtime_ms(path: &Path) -> u128 {
+#[derive(Clone, Copy)]
+enum RevisionScope {
+    App,
+    Components,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RevisionMode {
+    Relevant,
+    Full,
+}
+
+fn compile_revision_mode() -> RevisionMode {
+    let raw = env::var("MEI_COMPILE_REVISION_MODE").unwrap_or_default();
+    if raw.trim().eq_ignore_ascii_case("full") {
+        RevisionMode::Full
+    } else {
+        RevisionMode::Relevant
+    }
+}
+
+fn directory_latest_full_mtime_ms(path: &Path) -> u128 {
     if !path.exists() {
         return 0;
     }
     let mut latest = file_mtime_ms(path);
-    for entry in WalkDir::new(path).into_iter().flatten() {
-        let name = entry.file_name().to_string_lossy();
-        if entry.depth() > 0
-            && matches!(
-                name.as_ref(),
-                ".git" | "node_modules" | "target" | ".mei" | "__pycache__"
-            )
-        {
-            continue;
-        }
+    for entry in WalkDir::new(path)
+        .into_iter()
+        .filter_entry(|entry| entry.depth() == 0 || !should_skip_dir(entry.path()))
+        .flatten()
+    {
         latest = latest.max(file_mtime_ms(entry.path()));
     }
     latest
 }
 
+fn directory_latest_relevant_mtime_ms(path: &Path, scope: RevisionScope) -> u128 {
+    if !path.exists() {
+        return 0;
+    }
+    let mut latest = file_mtime_ms(path);
+    for entry in WalkDir::new(path)
+        .into_iter()
+        .filter_entry(|entry| entry.depth() == 0 || !should_skip_dir(entry.path()))
+        .flatten()
+    {
+        if entry.file_type().is_file() && is_revision_relevant(entry.path(), scope) {
+            latest = latest.max(file_mtime_ms(entry.path()));
+        }
+    }
+    latest
+}
+
+fn resolve_components_root(source_root: &Path) -> PathBuf {
+    let local = source_root.join("_components");
+    if local.exists() {
+        return local;
+    }
+    if let Some(parent) = source_root.parent() {
+        let shared = parent.join("_components");
+        if shared.exists() {
+            return shared;
+        }
+    }
+    local
+}
+
 fn components_revision(source_root: &Path) -> u128 {
-    directory_latest_mtime_ms(source_root)
+    if compile_revision_mode() == RevisionMode::Full {
+        return directory_latest_full_mtime_ms(&resolve_components_root(source_root));
+    }
+    directory_latest_relevant_mtime_ms(&resolve_components_root(source_root), RevisionScope::Components)
+}
+
+fn app_revision(app_root: &Path) -> u128 {
+    if compile_revision_mode() == RevisionMode::Full {
+        return directory_latest_full_mtime_ms(app_root);
+    }
+    directory_latest_relevant_mtime_ms(app_root, RevisionScope::App)
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .is_some_and(|name| {
+            matches!(
+                name,
+                ".git" | "node_modules" | "target" | ".mei" | "__pycache__" | "dist" | "build"
+            )
+        })
+}
+
+fn is_revision_relevant(path: &Path, scope: RevisionScope) -> bool {
+    match scope {
+        RevisionScope::App => path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mei")),
+        RevisionScope::Components => is_component_manifest(path),
+    }
+}
+
+fn is_component_manifest(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    if !name.eq_ignore_ascii_case("component.manifest.json") {
+        return false;
+    }
+    let normalized = path.to_string_lossy().replace('\\', "/");
+    normalized.contains("/_components/")
 }
 
 fn normalize_target_file(target_file: &str) -> String {
@@ -86,7 +176,7 @@ pub(crate) fn scene_payload_cache_key(
         app_root.display(),
         file_mtime_ms(&target_path),
         file_mtime_ms(&main_path),
-        components_revision(source_root),
+        app_revision(app_root).max(components_revision(source_root)),
     ))
 }
 

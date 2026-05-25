@@ -26,8 +26,8 @@ use super::super::scene_binding::{
 };
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::clone_merge::{
-    normalize_flow_decl, normalize_frame_decl, normalize_world_decl, resolve_entity_slot,
-    resolve_panel_slot, resolve_resource_slot,
+    collect_ref_scene_files, normalize_flow_decl, normalize_frame_decl, normalize_world_decl,
+    resolve_entity_slot, resolve_panel_slot, resolve_resource_slot,
 };
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
@@ -67,12 +67,14 @@ pub(super) fn compile_scene_payload(
     let mut top_level_legacy_dataset_count = 0usize;
     let mut top_level_legacy_dataset_view_count = 0usize;
     let mut top_level_legacy_metric_pack_count = 0usize;
+    let mut ref_scene_files = BTreeSet::new();
     let mut seen_world_decl = false;
     let mut first_scene_decl_index: Option<usize> = None;
     let mut first_world_decl_index: Option<usize> = None;
 
     if let Some(values) = entry_decls.as_array() {
         for (decl_index, value) in values.iter().enumerate() {
+            collect_ref_scene_files(value, &mut ref_scene_files);
             if value.get("dataset").is_some() && value.get("schema_version").is_some() {
                 top_level_legacy_dataset_count += 1;
                 continue;
@@ -732,6 +734,7 @@ pub(super) fn compile_scene_payload(
         app_root,
         &frames,
         frame_default.as_ref(),
+        &ref_scene_files,
         &mut resources,
         target_file,
         &mut diagnostics,

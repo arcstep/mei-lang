@@ -425,6 +425,91 @@ def _metric_literal_blocks(values, template = None, variant = None, inline_align
             )
     return blocks
 
+def _metric_runtime_slot_block(source, role, area, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, defer_slot_vertical_align = False):
+    tpl = _metric_template_name(template)
+    props = {
+        "content": source,
+        "metric_role": role,
+        "align": _metric_slot_align(tpl, role, inline_align),
+    }
+    if variant != None and str(variant).strip() != "":
+        props["metric_variant"] = str(variant).strip()
+    if not defer_slot_vertical_align:
+        v_align = _metric_slot_vertical_align_for_props(shell_props, tpl, role)
+        if v_align != None and str(v_align).strip() != "":
+            props["metric_v_align"] = str(v_align).strip()
+    if map != None and _is_dict(map):
+        props["metric_map"] = map
+    if patch != None and _is_dict(patch):
+        props["metric_patch"] = patch
+    return component(
+        "mei.text",
+        area = area,
+        props = _without_empty(props),
+    )
+
+def _metric_runtime_blocks(source, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, defer_slot_vertical_align = False):
+    tpl = _metric_template_name(template)
+    blocks = [
+        _metric_runtime_slot_block(
+            source,
+            "label",
+            "label",
+            template = tpl,
+            variant = variant,
+            inline_align = inline_align,
+            shell_props = shell_props,
+            map = map,
+            patch = patch,
+            defer_slot_vertical_align = defer_slot_vertical_align,
+        ),
+        _metric_runtime_slot_block(
+            source,
+            "value",
+            "value",
+            template = tpl,
+            variant = variant,
+            inline_align = inline_align,
+            shell_props = shell_props,
+            map = map,
+            patch = patch,
+            defer_slot_vertical_align = defer_slot_vertical_align,
+        ),
+        _metric_runtime_slot_block(
+            source,
+            "unit",
+            "unit",
+            template = tpl,
+            variant = variant,
+            inline_align = inline_align,
+            shell_props = shell_props,
+            map = map,
+            patch = patch,
+            defer_slot_vertical_align = defer_slot_vertical_align,
+        ),
+    ]
+    wants_desc = tpl == "stack_desc"
+    if not wants_desc and _is_dict(map) and map.get("desc") != None:
+        wants_desc = True
+    if not wants_desc and _is_dict(patch) and patch.get("desc") != None:
+        wants_desc = True
+    if wants_desc:
+        blocks.append(
+            _metric_runtime_slot_block(
+                source,
+                "desc",
+                "desc",
+                template = tpl,
+                variant = variant,
+                inline_align = inline_align,
+                shell_props = shell_props,
+                map = map,
+                patch = patch,
+                defer_slot_vertical_align = defer_slot_vertical_align,
+            ),
+        )
+    return blocks
+
 def _metric_component_extra(extra):
     out = {}
     if _is_dict(extra):
@@ -506,11 +591,15 @@ def metric_card(
     inline_align = None,
     title_ratio = None,
     content_ratio = None,
+    scale = None,
     label_vertical_align = None,
     value_vertical_align = None,
     unit_vertical_align = None,
     desc_vertical_align = None,
 ):
+    effective_props = _clone_props(props)
+    if scale != None and str(scale).strip() != "":
+        effective_props["scale"] = scale
     has_source_content = (
         source != None
         or label_text != None
@@ -536,7 +625,7 @@ def metric_card(
             bg,
             width_px,
             height_px,
-            props,
+            effective_props,
             template,
             inline_align,
             title_ratio,
@@ -544,7 +633,7 @@ def metric_card(
             stamp_template_meta = False,
         )
         if base != None
-        else _metric_shell_props(bg, width_px, height_px, props, template, inline_align, title_ratio, content_ratio)
+        else _metric_shell_props(bg, width_px, height_px, effective_props, template, inline_align, title_ratio, content_ratio)
     )
     card_props = _metric_stamp_slot_vertical_align(
         card_props,
@@ -563,36 +652,26 @@ def metric_card(
         effective_layout = None
     if effective_layout != None:
         _metric_validate_layout(effective_layout)
-    if base != None and _is_dict(props):
+    if base != None and _is_dict(effective_props):
         for key in ["metric_desc_mode", "__mei_metric_desc_mode", "metric_desc_shell"]:
-            if props.get(key) != None:
-                card_props[key] = props.get(key)
+            if effective_props.get(key) != None:
+                card_props[key] = effective_props.get(key)
     if source == None:
         source = _metric_legacy_source(label_text, value_text, unit_text, desc_text)
     if card_blocks == None:
         if source == None:
             source = {}
         if _metric_is_metric_ref(source):
-            card_blocks = [
-                component(
-                    "cockpit.qunfu-metric-tile",
-                    area = "auto",
-                    props = _metric_runtime_tile_props(
-                        source,
-                        template,
-                        card_layout,
-                        density,
-                        variant,
-                        map,
-                        patch,
-                        card_props,
-                        inline_align,
-                        title_ratio,
-                        content_ratio,
-                    ),
-                ),
-            ]
-            effective_layout = None
+            card_blocks = _metric_runtime_blocks(
+                source,
+                template,
+                variant,
+                inline_align,
+                card_props,
+                map,
+                patch,
+                base != None,
+            )
         elif _is_dict(source):
             card_blocks = _metric_literal_blocks(
                 _metric_static_slots(source, map, patch),

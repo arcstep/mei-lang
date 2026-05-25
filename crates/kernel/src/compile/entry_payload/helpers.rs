@@ -1,7 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::model::{Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl};
+use crate::eval::evaluate_mei_file;
+use crate::model::{
+    Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
+    WorldMetricLedgerEntry,
+};
 
 use super::super::decls::{
     LegacyDatasetDecl, LegacyDatasetNodeDecl, LegacyMetricPackDecl, LegacyMetricPackMetaDecl,
@@ -143,12 +147,13 @@ pub(crate) fn merge_panel_ref_source_resources(
     app_root: &Path,
     frames: &BTreeMap<String, FrameDecl>,
     frame_default: Option<&FrameDecl>,
+    extra_scene_files: &BTreeSet<String>,
     resources: &mut Vec<LoadedResource>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let mut seen_paths = BTreeSet::new();
-    collect_panel_ref_scene_files_from_frames(frames, frame_default, &mut seen_paths);
+    collect_panel_ref_scene_files(frames, frame_default, extra_scene_files, &mut seen_paths);
     for path in seen_paths {
         match load_resources_from_capsule_file(app_root, path.as_str()) {
             Ok(capsule_resources) => {
@@ -170,9 +175,10 @@ pub(crate) fn merge_panel_ref_source_resources(
     }
 }
 
-fn collect_panel_ref_scene_files_from_frames(
+fn collect_panel_ref_scene_files(
     frames: &BTreeMap<String, FrameDecl>,
     frame_default: Option<&FrameDecl>,
+    extra_scene_files: &BTreeSet<String>,
     out: &mut BTreeSet<String>,
 ) {
     use super::clone_merge::collect_ref_scene_files;
@@ -189,15 +195,38 @@ fn collect_panel_ref_scene_files_from_frames(
             collect_ref_scene_files(&frame_value, out);
         }
     }
+    for path in extra_scene_files {
+        if !path.trim().is_empty() {
+            out.insert(path.clone());
+        }
+    }
 }
 
 pub(crate) fn load_resources_from_capsule_file(
     app_root: &Path,
     relative_path: &str,
 ) -> anyhow::Result<Vec<LoadedResource>> {
+    let mut visited_paths = BTreeSet::new();
+    load_resources_from_capsule_file_recursive(app_root, relative_path, &mut visited_paths)
+}
+
+fn load_resources_from_capsule_file_recursive(
+    app_root: &Path,
+    relative_path: &str,
+    visited_paths: &mut BTreeSet<String>,
+) -> anyhow::Result<Vec<LoadedResource>> {
     use super::super::load_external::load_world_from_file;
-    use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
+    use super::super::materialize::{
+        append_world_metrics_dataset_resource_with_id, imported_world_metrics_resource_id,
+        materialize_legacy_datasets, materialize_metric_packs, materialize_world_metrics,
+    };
     use super::super::resources::load_resources;
+    use super::clone_merge::collect_ref_scene_files;
+
+    let relative_path = relative_path.trim();
+    if relative_path.is_empty() || !visited_paths.insert(relative_path.to_string()) {
+        return Ok(Vec::new());
+    }
 
     let world_decl = match load_world_from_file(app_root, relative_path, None) {
         Ok(decl) => decl,
@@ -240,6 +269,46 @@ pub(crate) fn load_resources_from_capsule_file(
         for resource in derived {
             insert_resource_if_absent(&mut resources, resource);
         }
+    }
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file(&source_path)?;
+    let mut nested_paths = BTreeSet::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            collect_ref_scene_files(value, &mut nested_paths);
+        }
+    }
+    for path in nested_paths {
+        let nested_resources =
+            load_resources_from_capsule_file_recursive(app_root, path.as_str(), visited_paths)?;
+        for resource in nested_resources {
+            insert_resource_if_absent(&mut resources, resource);
+        }
+    }
+    if !world_decl.metrics.is_empty() {
+        let owner_resource_id = imported_world_metrics_resource_id(relative_path);
+        let world_metrics = materialize_world_metrics(&resources, &world_decl.metrics)?;
+        let ledger = world_metrics
+            .into_iter()
+            .enumerate()
+            .map(|(idx, (metric_id, metric))| {
+                (
+                    metric_id.clone(),
+                    WorldMetricLedgerEntry {
+                        id: metric_id,
+                        owner_resource_id: owner_resource_id.clone(),
+                        order: idx + 1,
+                        metric,
+                    },
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        append_world_metrics_dataset_resource_with_id(
+            &mut resources,
+            &ledger,
+            &world_decl.metrics,
+            &owner_resource_id,
+        );
     }
 
     Ok(resources)
