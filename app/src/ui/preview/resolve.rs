@@ -40,7 +40,13 @@ impl RuntimeSceneAnchor {
         }
     }
 
-    fn runtime_ref_extra(&self, kind: &str, dataset_id: &str, metric_id: Option<&str>) -> Value {
+    fn runtime_ref_extra(
+        &self,
+        kind: &str,
+        dataset_id: &str,
+        metric_id: Option<&str>,
+        drilldown_scene: Option<&str>,
+    ) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("kind".to_string(), Value::String(kind.to_string()));
         obj.insert("scene_id".to_string(), Value::String(self.scene_id.clone()));
@@ -53,6 +59,12 @@ impl RuntimeSceneAnchor {
         );
         if let Some(mid) = metric_id.filter(|s| !s.is_empty()) {
             obj.insert("metric_id".to_string(), Value::String(mid.to_string()));
+        }
+        if let Some(scene) = drilldown_scene.filter(|s| !s.is_empty()) {
+            obj.insert(
+                "drilldown_scene".to_string(),
+                Value::String(scene.to_string()),
+            );
         }
         Value::Object(obj)
     }
@@ -120,7 +132,7 @@ pub(super) fn resolve_value(
                         if let Some(dataset) = resource.dataset.as_ref() {
                             return with_runtime_ref(
                                 serde_json::to_value(dataset).unwrap_or(Value::Null),
-                                scene_anchor.runtime_ref_extra("data", &canonical_id, None),
+                                scene_anchor.runtime_ref_extra("data", &canonical_id, None, None),
                             );
                         }
                         return serde_json::to_value(resource).unwrap_or(Value::Null);
@@ -136,7 +148,7 @@ pub(super) fn resolve_value(
                 {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
-                        scene_anchor.runtime_ref_extra("data", &dataset_id, None),
+                        scene_anchor.runtime_ref_extra("data", &dataset_id, None, None),
                     );
                 }
                 return Value::Null;
@@ -146,9 +158,16 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(map, resources, compiled, resource_index)
                 {
                     let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
+                    let drilldown_scene =
+                        resolve_metric_drilldown_scene(resources, &dataset_id, metric_id);
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
-                        scene_anchor.runtime_ref_extra("metric", &dataset_id, Some(metric_id)),
+                        scene_anchor.runtime_ref_extra(
+                            "metric",
+                            &dataset_id,
+                            Some(metric_id),
+                            drilldown_scene.as_deref(),
+                        ),
                     );
                 }
                 return Value::Null;
@@ -170,9 +189,16 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(&compat, resources, compiled, resource_index)
                 {
                     let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
+                    let drilldown_scene =
+                        resolve_metric_drilldown_scene(resources, &dataset_id, metric_id);
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
-                        scene_anchor.runtime_ref_extra("metric", &dataset_id, Some(metric_id)),
+                        scene_anchor.runtime_ref_extra(
+                            "metric",
+                            &dataset_id,
+                            Some(metric_id),
+                            drilldown_scene.as_deref(),
+                        ),
                     );
                 }
             }
@@ -184,7 +210,7 @@ pub(super) fn resolve_value(
                 {
                     return with_runtime_ref(
                         serde_json::to_value(dataset).unwrap_or(Value::Null),
-                        scene_anchor.runtime_ref_extra("data", &dataset_id, None),
+                        scene_anchor.runtime_ref_extra("data", &dataset_id, None, None),
                     );
                 }
                 return Value::Null;
@@ -292,4 +318,25 @@ fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
         map.insert("__mei_runtime_ref".to_string(), runtime_ref);
     }
     value
+}
+
+fn resolve_metric_drilldown_scene(
+    resources: &BTreeMap<String, LoadedResource>,
+    dataset_id: &str,
+    metric_id: &str,
+) -> Option<String> {
+    let dataset = resources.get(dataset_id)?.dataset.as_ref()?;
+    let definition = dataset.runtime_metric_defs.get(metric_id)?;
+    metric_drilldown_from_definition(definition)
+}
+
+fn metric_drilldown_from_definition(definition: &Value) -> Option<String> {
+    let map = definition.as_object()?;
+    for key in ["drilldown_dataset", "drilldown"] {
+        let value = map.get(key).and_then(Value::as_str).map(str::trim);
+        if let Some(scene) = value.filter(|v| !v.is_empty()) {
+            return Some(scene.to_string());
+        }
+    }
+    None
 }

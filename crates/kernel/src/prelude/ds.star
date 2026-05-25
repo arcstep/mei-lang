@@ -440,6 +440,22 @@ def between(field, lower, upper):
 def in_values(field, values):
     return _analysis("in_values", field = field, values = values)
 
+def is_verified(field = "是否查实"):
+    """Spreadsheet variants that mean verified (yes) for 是否查实-style columns."""
+    return in_values(field, ["是", "查实", "已查实"])
+
+def is_yes(field):
+    """Spreadsheet yes/no columns where affirmative is 是."""
+    return in_values(field, ["是"])
+
+def has_party_gov_sanction(field = "处理处分"):
+    """党纪政务处分：处理处分含第二/三/四种等形态关键词。"""
+    return or_(
+        contains(field, "第二种"),
+        contains(field, "第三种"),
+        contains(field, "第四种"),
+    )
+
 def not_empty(field):
     return _analysis("not_empty", field = field)
 
