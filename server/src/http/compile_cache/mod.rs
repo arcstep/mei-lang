@@ -3,7 +3,7 @@ mod revision;
 use std::collections::HashMap;
 use std::env;
 use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use mei_lang_kernel::{compile_app_with_options, CompileOptions, CompiledApp};
 
@@ -30,6 +30,35 @@ struct CompileInflight {
     ready: Condvar,
 }
 
+fn compile_failure_latch() -> &'static StdMutex<HashMap<String, Instant>> {
+    static COMPILE_FAILURE_LATCH: OnceLock<StdMutex<HashMap<String, Instant>>> = OnceLock::new();
+    COMPILE_FAILURE_LATCH.get_or_init(|| StdMutex::new(HashMap::new()))
+}
+
+const COMPILE_FAILURE_LATCH_TTL: Duration = Duration::from_secs(45);
+
+fn record_compile_failure(cache_key: &str) {
+    if let Ok(mut guard) = compile_failure_latch().lock() {
+        guard.insert(cache_key.to_string(), Instant::now());
+    }
+}
+
+fn clear_compile_failure(cache_key: &str) {
+    if let Ok(mut guard) = compile_failure_latch().lock() {
+        guard.remove(cache_key);
+    }
+}
+
+pub(crate) fn recent_compile_failure(app_id: &str, options: &CompileOptions) -> bool {
+    let cache_key = compile_cache_key(app_id, options);
+    let Ok(guard) = compile_failure_latch().lock() else {
+        return false;
+    };
+    guard
+        .get(&cache_key)
+        .is_some_and(|at| at.elapsed() < COMPILE_FAILURE_LATCH_TTL)
+}
+
 fn compile_inflight_map() -> &'static StdMutex<HashMap<String, Arc<CompileInflight>>> {
     static COMPILE_INFLIGHT: OnceLock<StdMutex<HashMap<String, Arc<CompileInflight>>>> =
         OnceLock::new();
@@ -43,7 +72,7 @@ fn compile_singleflight_enabled() -> bool {
     !env_list_contains("MEI_PERF_DISABLE", "compile_singleflight")
 }
 
-fn env_flag_enabled(name: &str) -> bool {
+pub(crate) fn env_flag_enabled(name: &str) -> bool {
     env::var(name)
         .ok()
         .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
@@ -111,13 +140,18 @@ pub(crate) fn compile_app_with_cache(
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
     let cache_key = compile_cache_key(app_id, &options);
     if !compile_singleflight_enabled() {
-        return compile_app_with_cache_uncached_path(
+        let outcome = compile_app_with_cache_uncached_path(
             state,
             app_id,
             &cache_key,
             options,
             components_root,
         );
+        match &outcome {
+            Ok(_) => clear_compile_failure(&cache_key),
+            Err(_) => record_compile_failure(&cache_key),
+        }
+        return outcome;
     }
     let singleflight_started = Instant::now();
     let Some((inflight, is_leader)) = register_compile_inflight(&cache_key) else {
@@ -153,12 +187,18 @@ pub(crate) fn compile_app_with_cache(
     let outcome =
         compile_app_with_cache_uncached_path(state, app_id, &cache_key, options, components_root);
     match &outcome {
-        Ok(value) => finish_compile_inflight(&cache_key, &inflight, Ok(value.compiled.clone())),
-        Err(error) => finish_compile_inflight(
-            &cache_key,
-            &inflight,
-            Err(error.error.to_string()),
-        ),
+        Ok(value) => {
+            clear_compile_failure(&cache_key);
+            finish_compile_inflight(&cache_key, &inflight, Ok(value.compiled.clone()))
+        }
+        Err(error) => {
+            record_compile_failure(&cache_key);
+            finish_compile_inflight(
+                &cache_key,
+                &inflight,
+                Err(error.error.to_string()),
+            )
+        }
     }
     outcome
 }
@@ -237,6 +277,48 @@ fn compile_app_with_cache_uncached_path(
         compile_cache_lock_wait_ms,
         compile_ms,
     })
+}
+
+pub(crate) fn peek_compile_cache(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &std::path::Path,
+) -> Option<CompiledApp> {
+    let cache_key = compile_cache_key(app_id, options);
+    let app_revision = revision::compile_revision(state, app_id, components_root);
+    let cache = state.compile_cache.lock().ok()?;
+    let entry = cache.get(&cache_key)?;
+    if entry.app_latest_modified_ms == app_revision {
+        Some(entry.compiled.clone())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn is_compile_inflight(app_id: &str, options: &CompileOptions) -> bool {
+    let cache_key = compile_cache_key(app_id, options);
+    compile_inflight_map()
+        .lock()
+        .ok()
+        .is_some_and(|guard| guard.contains_key(&cache_key))
+}
+
+pub(crate) fn start_compile_in_background_if_needed(
+    state: AppState,
+    app_id: String,
+    options: CompileOptions,
+    components_root: std::path::PathBuf,
+) {
+    if peek_compile_cache(&state, &app_id, &options, components_root.as_path()).is_some() {
+        return;
+    }
+    if is_compile_inflight(&app_id, &options) {
+        return;
+    }
+    tokio::task::spawn_blocking(move || {
+        let _ = compile_app_with_cache(&state, &app_id, options, components_root.as_path());
+    });
 }
 
 fn compile_cache_key(app_id: &str, options: &CompileOptions) -> String {

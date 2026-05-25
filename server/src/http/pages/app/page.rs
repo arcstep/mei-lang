@@ -10,7 +10,11 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 
 use crate::{AppError, AppState};
 
-use super::super::super::compile_cache::{compile_app_with_cache, CompileWithCacheFailure};
+use super::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
+use super::super::super::compile_cache::{
+    compile_app_with_cache, peek_compile_cache, recent_compile_failure,
+    start_compile_in_background_if_needed, CompileWithCacheFailure, CompileWithCacheOutcome,
+};
 use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
 use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
@@ -147,10 +151,47 @@ pub async fn app_page(
     };
     let components_root = resolve_components_root(&state.source_root);
     let compile_options = CompileOptions {
-        scene: compile_scene,
+        scene: compile_scene.clone(),
         preview_target: normalized_preview_target.clone(),
     };
-    let compile_outcome =
+    let compile_outcome = if compile_bootstrap_enabled()
+        && !recent_compile_failure(&app_id, &compile_options)
+    {
+        let peek_started = Instant::now();
+        match peek_compile_cache(
+            &state,
+            &app_id,
+            &compile_options,
+            components_root.as_path(),
+        ) {
+            Some(compiled) => CompileWithCacheOutcome {
+                compiled,
+                cache_hit: true,
+                cache_lookup_ms: elapsed_ms(peek_started),
+                compile_cache_lock_wait_ms: 0,
+                compile_ms: 0,
+            },
+            None => {
+                start_compile_in_background_if_needed(
+                    state.clone(),
+                    app_id.clone(),
+                    compile_options.clone(),
+                    components_root.clone(),
+                );
+                let scene_hint = compile_scene
+                    .as_deref()
+                    .or(access_path_scene.as_deref());
+                let shell = render_compiling_shell(route_mode, &app_id, scene_hint);
+                tracing::info!(
+                    app_id = %app_id,
+                    route_mode = route_mode.slug(),
+                    phase = "compile_bootstrap_shell",
+                    "serving compile bootstrap shell while compile runs in background"
+                );
+                return Ok(Html(shell).into_response());
+            }
+        }
+    } else {
         match compile_app_with_cache(&state, &app_id, compile_options, components_root.as_path()) {
             Ok(outcome) => outcome,
             Err(failure) => {
@@ -265,7 +306,8 @@ pub async fn app_page(
                 );
                 return Ok(res);
             }
-        };
+        }
+    };
     let mut compiled = compile_outcome.compiled;
     if route_mode == UiRouteMode::Access {
         if access_path_scene.is_none() {

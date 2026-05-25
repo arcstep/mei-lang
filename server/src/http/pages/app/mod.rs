@@ -1,3 +1,4 @@
+mod compiling_shell;
 mod page;
 mod query;
 mod scene;
