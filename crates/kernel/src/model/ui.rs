@@ -184,6 +184,9 @@ pub struct SceneDecl {
     pub goal: Option<String>,
     #[serde(default)]
     pub state: Value,
+    /// Scene 级只读共享参数；供 theme/components/props 通过 `shared_ref(...)` 消费。
+    #[serde(default)]
+    pub shared: Value,
     /// Access 态是否允许导出该 scene（默认 true，保持兼容）。
     #[serde(default = "default_access_export")]
     pub access_export: bool,
@@ -228,6 +231,9 @@ pub struct ThemeDecl {
     pub metric_sub_unit: Value,
     #[serde(default)]
     pub tokens: Value,
+    /// 与 CSS tokens 分轨的只读共享参数默认值。
+    #[serde(default)]
+    pub shared: Value,
     /// 组件级默认配置（如 `dataset_table.cell_preview_max_chars`），由预览 `_mei.components` 下发。
     #[serde(default)]
     pub components: Value,

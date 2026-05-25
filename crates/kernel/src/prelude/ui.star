@@ -152,7 +152,7 @@ def _merge_dict(base, overlay):
             out[k] = v
     return out
 
-def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, metric_sub_label = None, metric_sub_value = None, metric_sub_unit = None, tokens = None):
+def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, metric_sub_label = None, metric_sub_value = None, metric_sub_unit = None, tokens = None, shared = None, components = None):
     resolved_panel_head = _merge_dict(panel_head, heading)
     return _declare(_clean({
         "kind": "theme",
@@ -172,6 +172,8 @@ def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, 
         "metric_sub_value": metric_sub_value if metric_sub_value != None else {},
         "metric_sub_unit": metric_sub_unit if metric_sub_unit != None else {},
         "tokens": tokens if tokens != None else {},
+        "shared": shared if shared != None else {},
+        "components": components if components != None else {},
     }))
 
 def _clone_props(value):

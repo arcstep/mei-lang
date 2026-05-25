@@ -157,6 +157,9 @@ pub(crate) fn merge_scene_decl(base: SceneDecl, overlay_value: &Value) -> Result
     if value_has_key(overlay_value, "state") {
         merged.state = overlay.state;
     }
+    if value_has_key(overlay_value, "shared") {
+        merged.shared = deep_merge_json(&merged.shared, &overlay.shared);
+    }
     if value_has_key(overlay_value, "access_export") {
         merged.access_export = overlay.access_export;
     }

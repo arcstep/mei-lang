@@ -97,7 +97,7 @@ def frame_file_ref(path, id = None):
         "id": id,
     })
 
-def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None):
+def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None):
     if scene != None:
         return _declare({
             "kind": "app_scene_ref",
@@ -110,9 +110,10 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         summary = summary,
         goal = goal,
         state = state,
+        shared = shared,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None, base = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, access_export = None, base = None):
     payload = {
         "kind": "scene",
         "id": id,
@@ -124,13 +125,14 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "summary": summary,
         "goal": goal,
         "state": state if state != None else {},
+        "shared": shared if shared != None else {},
         "access_export": access_export,
     }
     if base != None:
         payload["base"] = base
     return _declare(_clean(payload))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, access_export = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, access_export = None):
     return scene_decl(
         id = id,
         world = world,
@@ -141,8 +143,16 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         summary = summary,
         goal = goal,
         state = state,
+        shared = shared,
         access_export = access_export,
     )
+
+def shared_ref(id, default = None):
+    return _without_empty({
+        "__ref": "shared",
+        "id": id,
+        "default": default,
+    })
 
 def world(id = None, topology = None, resources = None, entities = None, datasets = None, metrics = None, metric_packs = None, base = None):
     payload = {

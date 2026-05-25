@@ -29,6 +29,7 @@ use super::clone_merge::{
     collect_ref_scene_files, normalize_flow_decl, normalize_frame_decl, normalize_world_decl,
     resolve_entity_slot, resolve_panel_slot, resolve_resource_slot,
 };
+use super::clone_merge::merge::deep_merge_json;
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
     decode_world_metric_pack_decl, insert_resource_checked,
@@ -145,8 +146,14 @@ pub(super) fn compile_scene_payload(
                         first_scene_decl_index = Some(decl_index);
                     }
                     scene_decl_count += 1;
-                    let scene_decl =
+                    let mut scene_decl =
                         decode_scene_decl(app_root, value, target_file, Some(scene_registry))?;
+                    normalize_shared_context(
+                        &mut scene_decl.shared,
+                        "scene.shared",
+                        target_file,
+                        &mut diagnostics,
+                    );
                     scenes.insert(scene_decl.id.clone(), scene_decl);
                 }
                 "world" => {
@@ -303,7 +310,16 @@ pub(super) fn compile_scene_payload(
                         flow_default = Some(flow_decl);
                     }
                 }
-                "theme" => themes.push(serde_json::from_value(value.clone())?),
+                "theme" => {
+                    let mut theme_decl = serde_json::from_value::<ThemeDecl>(value.clone())?;
+                    normalize_shared_context(
+                        &mut theme_decl.shared,
+                        &format!("theme `{}`.shared", theme_decl.id),
+                        target_file,
+                        &mut diagnostics,
+                    );
+                    themes.push(theme_decl);
+                }
                 "panel" => {
                     if let Some(panel) = resolve_panel_slot(
                         app_root,
@@ -740,13 +756,20 @@ pub(super) fn compile_scene_payload(
     );
     resources.append(&mut imported_runtime);
 
-    let scene_contract = selected_scene.map(|scene_decl| SceneContract {
-        scene: scene_decl,
-        themes,
-        world,
-        flow,
-        frame,
-        panels,
+    let scene_contract = selected_scene.map(|scene_decl| {
+        let shared = deep_merge_json(
+            &selected_custom_theme_shared(&scene_decl, &themes),
+            &scene_decl.shared,
+        );
+        SceneContract {
+            scene: scene_decl,
+            themes,
+            shared,
+            world,
+            flow,
+            frame,
+            panels,
+        }
     });
     if let Some(ref contract) = scene_contract {
         validate_scene_ui_data_bindings(
@@ -869,4 +892,97 @@ fn upsert_panel(panels: &mut Vec<PanelDecl>, panel: PanelDecl) {
         return;
     }
     panels.push(panel);
+}
+
+fn selected_custom_theme_shared(scene: &SceneDecl, themes: &[ThemeDecl]) -> Value {
+    let theme_id = scene
+        .theme
+        .clone()
+        .or_else(|| scene.profile.clone())
+        .unwrap_or_else(|| "page".to_string());
+    themes
+        .iter()
+        .find(|item| item.id == theme_id)
+        .or_else(|| themes.first())
+        .map(|theme| theme.shared.clone())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn normalize_shared_context(
+    value: &mut Value,
+    context: &str,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if value.is_null() {
+        *value = serde_json::json!({});
+        return;
+    }
+    if !value.is_object() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "invalid_shared_context_value".to_string(),
+            message: format!("{context} 必须是对象（dict），不能是数组、标量或 null"),
+            source_path: Some(target_file.to_string()),
+        });
+        *value = serde_json::json!({});
+        return;
+    }
+    let mut invalid_paths = Vec::new();
+    collect_invalid_shared_paths(value, "$", &mut invalid_paths);
+    if invalid_paths.is_empty() {
+        return;
+    }
+    for path in invalid_paths {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "invalid_shared_context_value".to_string(),
+            message: format!(
+                "{context} 只允许字面量 JSON 值；`{path}` 处检测到 ref 或分析表达式，请改为显式常量"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+    *value = strip_invalid_shared_entries(value);
+}
+
+fn collect_invalid_shared_paths(value: &Value, path: &str, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("__ref").is_some()
+                || (map.get("__kind").and_then(Value::as_str) == Some("analysis_expr"))
+            {
+                out.push(path.to_string());
+                return;
+            }
+            for (key, child) in map {
+                collect_invalid_shared_paths(child, &format!("{path}.{key}"), out);
+            }
+        }
+        Value::Array(items) => {
+            for (idx, child) in items.iter().enumerate() {
+                collect_invalid_shared_paths(child, &format!("{path}[{idx}]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn strip_invalid_shared_entries(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            if map.get("__ref").is_some()
+                || (map.get("__kind").and_then(Value::as_str) == Some("analysis_expr"))
+            {
+                return Value::Null;
+            }
+            let mut out = serde_json::Map::new();
+            for (key, child) in map {
+                out.insert(key.clone(), strip_invalid_shared_entries(child));
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(strip_invalid_shared_entries).collect()),
+        _ => value.clone(),
+    }
 }
