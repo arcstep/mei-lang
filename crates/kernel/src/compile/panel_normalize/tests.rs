@@ -33,6 +33,7 @@ fn panel_with_title(title: &str) -> PanelDecl {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }
 }
 
@@ -57,6 +58,7 @@ fn metric_card_panel_with_height(id: &str, height: Option<&str>) -> UiNodeDecl {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     })
 }
 
@@ -87,6 +89,7 @@ fn metric_card_panel_with_extra_props(
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     })
 }
 
@@ -152,6 +155,7 @@ fn normalize_uses_head_height_track_in_default_layout() {
         head_props: json!({ "height": "54px" }),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -177,6 +181,7 @@ fn normalize_hoists_props_heading_to_head_props() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -210,6 +215,7 @@ fn normalize_no_head_without_title() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -235,6 +241,7 @@ fn normalize_injects_metrics_strip_layout_for_metric_children() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -297,6 +304,7 @@ fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -342,6 +350,7 @@ fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -393,6 +402,7 @@ fn normalize_injects_metrics_auto_layout_for_six_cards() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -436,6 +446,7 @@ fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -468,6 +479,7 @@ fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -492,6 +504,7 @@ fn normalize_warns_when_metrics_auto_policy_shape_is_invalid() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -526,6 +539,7 @@ fn normalize_injects_metrics_auto_layout_for_full_span_footer() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -587,6 +601,7 @@ fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -653,6 +668,7 @@ fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
                 head_props: json!({}),
                 body_props: json!({}),
                 base: None,
+                import_scope: None,
             }),
         ],
         props: json!({
@@ -661,6 +677,7 @@ fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -727,11 +744,13 @@ fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_align
             head_props: json!({}),
             body_props: json!({}),
             base: None,
+            import_scope: None,
         })],
         props: json!({}),
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -761,6 +780,7 @@ fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -800,6 +820,7 @@ fn normalize_injects_metric_compound_2_1_with_variable_bottom_count() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -841,6 +862,7 @@ fn normalize_metric_compound_respects_top_band_ratio_props() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -869,6 +891,7 @@ fn normalize_warns_when_metric_compound_2_1_policy_shape_is_invalid() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -917,6 +940,7 @@ fn normalize_emits_layout_eval_for_unknown_block_area() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -953,11 +977,13 @@ fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
             head_props: json!({}),
             body_props: json!({}),
             base: None,
+            import_scope: None,
         })],
         props: json!({ "height": "180px" }),
         head_props: json!({ "height": "54px" }),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -993,6 +1019,7 @@ fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1024,6 +1051,7 @@ fn normalize_clamps_metrics_auto_spacing_into_cockpit_budget() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1080,6 +1108,7 @@ fn normalize_audits_metric_group_off_center_rows() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1123,11 +1152,13 @@ fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
             head_props: json!({}),
             body_props: json!({}),
             base: None,
+            import_scope: None,
         })],
         props: json!({}),
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1174,11 +1205,13 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
             head_props: json!({}),
             body_props: json!({}),
             base: None,
+            import_scope: None,
         })],
         props: json!({}),
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1242,11 +1275,13 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
             head_props: json!({}),
             body_props: json!({}),
             base: None,
+            import_scope: None,
         })],
         props: json!({}),
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
@@ -1301,6 +1336,7 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     };
     let mut merged = PanelDecl {
         kind: "panel".to_string(),
@@ -1333,6 +1369,7 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     };
     seed_metric_block_vertical_align_from_base(&base, &mut merged);
     let block = match &merged.blocks[0] {

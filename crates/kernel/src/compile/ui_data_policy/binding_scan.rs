@@ -10,14 +10,14 @@ use crate::model::{
 
 use super::resource_refs::collect_resource_ref_issues;
 use super::rules::collect_forbidden_paths;
-use crate::compile::entry_payload::helpers::{
-    insert_resource_if_absent, load_resources_from_capsule_file,
+use crate::compile::entry_payload::import_scope::{
+    load_namespaced_capsule_resources, rewrite_panel_import_refs,
 };
 
 pub(super) fn validate_embed_capsule_ui_bindings(
     app_root: &Path,
     embed: &PanelRefEmbedDecl,
-    host_resources: &[LoadedResource],
+    _host_resources: &[LoadedResource],
     _target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -25,18 +25,12 @@ pub(super) fn validate_embed_capsule_ui_bindings(
     if path.is_empty() {
         return;
     }
-    let mut effective_resources = host_resources.to_vec();
-    if let Ok(mut capsule_resources) = load_resources_from_capsule_file(app_root, path) {
-        for resource in capsule_resources.drain(..) {
-            insert_resource_if_absent(&mut effective_resources, resource);
-        }
-    }
-    let resource_ids: BTreeSet<String> = effective_resources.iter().map(|r| r.id.clone()).collect();
-    let metric_ids: BTreeSet<String> = effective_resources
-        .iter()
-        .filter_map(|resource| resource.dataset.as_ref())
-        .flat_map(|dataset| dataset.metrics.keys().cloned())
-        .collect();
+    let capsule_resources = load_namespaced_capsule_resources(app_root, path).unwrap_or_default();
+    let (resource_ids, metric_ids) =
+        crate::compile::entry_payload::import_scope::resource_and_metric_ids_for_scope(
+            &capsule_resources,
+            path,
+        );
     let Ok(decls) = evaluate_mei_file(app_root.join(path)) else {
         return;
     };
@@ -45,10 +39,27 @@ pub(super) fn validate_embed_capsule_ui_bindings(
     };
     for value in values {
         if value.get("kind").and_then(Value::as_str) == Some("panel") {
-            if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
-                scan_panel_props(&panel, &resource_ids, &metric_ids, path, diagnostics);
+            if let Ok(mut panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+                rewrite_panel_import_refs(&mut panel, path);
+                scan_panel_props(
+                    &panel,
+                    &resource_ids,
+                    &metric_ids,
+                    &resource_ids,
+                    &metric_ids,
+                    path,
+                    diagnostics,
+                );
                 for node in &panel.blocks {
-                    scan_ui_node(node, &resource_ids, &metric_ids, path, diagnostics);
+                    scan_ui_node(
+                        node,
+                        &resource_ids,
+                        &metric_ids,
+                        &resource_ids,
+                        &metric_ids,
+                        path,
+                        diagnostics,
+                    );
                 }
             }
         }
@@ -56,6 +67,8 @@ pub(super) fn validate_embed_capsule_ui_bindings(
             if let Ok(block) = serde_json::from_value::<BlockDecl>(value.clone()) {
                 push_violations(
                     &block.props,
+                    &resource_ids,
+                    &metric_ids,
                     &resource_ids,
                     &metric_ids,
                     &format!("block `{}` props", block.id.as_deref().unwrap_or("?")),
@@ -102,15 +115,19 @@ pub(super) fn scan_deprecated_embed_nodes(
 
 pub(super) fn scan_panel_props(
     panel: &PanelDecl,
-    resource_ids: &BTreeSet<String>,
-    metric_ids: &BTreeSet<String>,
+    host_resource_ids: &BTreeSet<String>,
+    host_metric_ids: &BTreeSet<String>,
+    merged_resource_ids: &BTreeSet<String>,
+    merged_metric_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     push_violations(
         &panel.props,
-        resource_ids,
-        metric_ids,
+        host_resource_ids,
+        host_metric_ids,
+        merged_resource_ids,
+        merged_metric_ids,
         &format!("panel `{}` props", panel.id),
         target_file,
         diagnostics,
@@ -119,23 +136,43 @@ pub(super) fn scan_panel_props(
 
 pub(super) fn scan_ui_node(
     node: &UiNodeDecl,
-    resource_ids: &BTreeSet<String>,
-    metric_ids: &BTreeSet<String>,
+    host_resource_ids: &BTreeSet<String>,
+    host_metric_ids: &BTreeSet<String>,
+    merged_resource_ids: &BTreeSet<String>,
+    merged_metric_ids: &BTreeSet<String>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match node {
         UiNodeDecl::Panel(panel) => {
-            scan_panel_props(panel, resource_ids, metric_ids, target_file, diagnostics);
+            scan_panel_props(
+                panel,
+                host_resource_ids,
+                host_metric_ids,
+                merged_resource_ids,
+                merged_metric_ids,
+                target_file,
+                diagnostics,
+            );
             for child in &panel.blocks {
-                scan_ui_node(child, resource_ids, metric_ids, target_file, diagnostics);
+                scan_ui_node(
+                    child,
+                    host_resource_ids,
+                    host_metric_ids,
+                    merged_resource_ids,
+                    merged_metric_ids,
+                    target_file,
+                    diagnostics,
+                );
             }
         }
         UiNodeDecl::Block(block) => {
             push_violations(
                 &block.props,
-                resource_ids,
-                metric_ids,
+                host_resource_ids,
+                host_metric_ids,
+                merged_resource_ids,
+                merged_metric_ids,
                 &format!(
                     "block `{}` (use `{}`) props",
                     block.id.as_deref().unwrap_or("?"),
@@ -151,8 +188,10 @@ pub(super) fn scan_ui_node(
 
 pub(super) fn push_violations(
     value: &Value,
-    resource_ids: &BTreeSet<String>,
-    metric_ids: &BTreeSet<String>,
+    host_resource_ids: &BTreeSet<String>,
+    host_metric_ids: &BTreeSet<String>,
+    merged_resource_ids: &BTreeSet<String>,
+    merged_metric_ids: &BTreeSet<String>,
     context: &str,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
@@ -168,7 +207,14 @@ pub(super) fn push_violations(
             source_path: Some(target_file.to_string()),
         });
     }
-    let ref_issues = collect_resource_ref_issues(value, "$", resource_ids, metric_ids);
+    let ref_issues = collect_resource_ref_issues(
+        value,
+        "$",
+        host_resource_ids,
+        host_metric_ids,
+        merged_resource_ids,
+        merged_metric_ids,
+    );
     for (path, code, message) in ref_issues {
         diagnostics.push(Diagnostic {
             severity: Severity::Error,

@@ -300,17 +300,40 @@ frame.add_panel(
         !panel.blocks.is_empty(),
         "panel(base=panel_ref) should inherit blocks from base panel"
     );
-    let shared = compiled
+    let host_shared = compiled
         .resources
         .iter()
         .find(|item| item.id == "shared_doc")
-        .expect("shared_doc");
+        .expect("host shared_doc");
     assert!(
-        shared
+        host_shared
             .document
             .as_deref()
             .is_some_and(|content| content.contains("host wins")),
-        "host world should override external capsule resource on same id"
+        "host world keeps its own shared_doc"
+    );
+    let imported_shared = compiled
+        .resources
+        .iter()
+        .find(|item| item.id == "panels/base.mei::shared_doc")
+        .expect("namespaced imported shared_doc");
+    assert!(
+        imported_shared
+            .document
+            .as_deref()
+            .is_some_and(|content| content.contains("external loses")),
+        "imported panel must bind to private capsule resource, not host shared_doc"
+    );
+    assert_eq!(
+        panel.import_scope.as_deref(),
+        Some("panels/base.mei"),
+        "panel_ref panel should carry import_scope"
+    );
+    assert!(
+        compiled.diagnostics.iter().any(|diag| {
+            diag.code == "host_world_shadows_imported_panel_resource"
+        }),
+        "expected shadowing warning when host declares same local id as imported panel"
     );
     let _ = fs::remove_dir_all(&root);
 }
@@ -768,12 +791,16 @@ frame.add_panel(
         compiled.diagnostics
     );
     assert!(
-        compiled.world_metrics.contains_key("warning_models"),
-        "host scene should see warning_models from imported panel source"
+        compiled
+            .world_metrics
+            .contains_key("panels/a.mei::warning_models"),
+        "panel a metrics are namespaced"
     );
     assert!(
-        compiled.world_metrics.contains_key("warning_supervision"),
-        "host scene should see warning_supervision from imported panel source"
+        compiled
+            .world_metrics
+            .contains_key("panels/b.mei::warning_supervision"),
+        "panel b metrics are namespaced"
     );
     let resource_ids = compiled
         .resources
@@ -873,8 +900,14 @@ frame.add_panel(
         compiled.diagnostics
     );
     assert!(
-        compiled.world_metrics.contains_key("warning_supervision"),
-        "host scene should see warning_supervision from nested imported panel source"
+        compiled
+            .world_metrics
+            .contains_key("panels/detail.mei::warning_supervision"),
+        "imported panel metrics are namespaced by capsule path"
+    );
+    assert!(
+        !compiled.world_metrics.contains_key("warning_supervision"),
+        "flat metric id must not leak into host world_metrics ledger"
     );
     let resource_ids = compiled
         .resources

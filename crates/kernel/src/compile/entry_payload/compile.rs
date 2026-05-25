@@ -31,7 +31,7 @@ use super::clone_merge::{
 };
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
-    decode_world_metric_pack_decl, insert_resource_checked, merge_panel_ref_source_resources,
+    decode_world_metric_pack_decl, insert_resource_checked,
     partition_world_resources,
 };
 use super::CompiledScenePayload;
@@ -730,15 +730,15 @@ pub(super) fn compile_scene_payload(
         }
     }
 
-    merge_panel_ref_source_resources(
+    let host_local_ids = super::import_scope::host_local_resource_ids(&resources);
+    let mut imported_runtime = super::import_scope::finalize_private_import_world(
         app_root,
-        &frames,
-        frame_default.as_ref(),
-        &ref_scene_files,
-        &mut resources,
+        &panels,
+        &host_local_ids,
         target_file,
         &mut diagnostics,
     );
+    resources.append(&mut imported_runtime);
 
     let scene_contract = selected_scene.map(|scene_decl| SceneContract {
         scene: scene_decl,

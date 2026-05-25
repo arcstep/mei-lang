@@ -17,6 +17,7 @@ use crate::model::{
 };
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
+use crate::compile::entry_payload::import_scope::rewrite_panel_import_refs;
 use super::super::normalize::normalize_ui_nodes;
 use super::merge_decl::merge_panel_decl;
 
@@ -134,6 +135,30 @@ pub(crate) fn resolve_panel_ref(
             }
             obj.remove("base");
         }
+        if let Ok(mut overlay_panel) = serde_json::from_value::<PanelDecl>(overlay.clone()) {
+            rewrite_panel_import_refs(&mut overlay_panel, &path);
+            if let Ok(rewritten) = serde_json::to_value(&overlay_panel) {
+                if let Ok(mut merged) = merge_panel_decl(base_panel.clone(), &rewritten) {
+                    seed_metric_slot_vertical_align_defaults_from_base(
+                        &base_panel,
+                        &mut merged,
+                        &rewritten,
+                    );
+                    seed_metric_desc_runtime_from_shell(&mut merged);
+                    seed_metric_block_vertical_align_from_base(&base_panel, &mut merged);
+                    merged.blocks = normalize_ui_nodes(
+                        app_root,
+                        &merged.blocks,
+                        scene_registry,
+                        diagnostics,
+                        target_file,
+                    );
+                    merged.base = None;
+                    merged.import_scope = Some(path.clone());
+                    return Some(merged);
+                }
+            }
+        }
         let mut merged = merge_panel_decl(base_panel.clone(), &overlay).ok()?;
         seed_metric_slot_vertical_align_defaults_from_base(&base_panel, &mut merged, &overlay);
         seed_metric_desc_runtime_from_shell(&mut merged);
@@ -146,8 +171,12 @@ pub(crate) fn resolve_panel_ref(
             target_file,
         );
         merged.base = None;
+        merged.import_scope = Some(path.clone());
         return Some(merged);
     }
+    let mut panel = panel;
+    rewrite_panel_import_refs(&mut panel, &path);
+    panel.import_scope = Some(path);
     Some(panel)
 }
 

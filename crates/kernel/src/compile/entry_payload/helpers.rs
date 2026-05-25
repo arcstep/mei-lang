@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::eval::evaluate_mei_file;
 use crate::model::{
-    Diagnostic, FrameDecl, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
+    Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
     WorldMetricLedgerEntry,
 };
 
@@ -132,7 +132,7 @@ pub(super) fn insert_resource_checked(
     }
 }
 
-/// Panel-ref source imports: only fill ids not already present (host scene world wins on conflict).
+/// Capsule 内部递归合并（非 panel_ref 扁平并账）；imported UI 私有 world 见 `import_scope`。
 pub(crate) fn insert_resource_if_absent(
     resources: &mut Vec<LoadedResource>,
     resource: LoadedResource,
@@ -141,65 +141,6 @@ pub(crate) fn insert_resource_if_absent(
         return;
     }
     resources.push(resource);
-}
-
-pub(crate) fn merge_panel_ref_source_resources(
-    app_root: &Path,
-    frames: &BTreeMap<String, FrameDecl>,
-    frame_default: Option<&FrameDecl>,
-    extra_scene_files: &BTreeSet<String>,
-    resources: &mut Vec<LoadedResource>,
-    target_file: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let mut seen_paths = BTreeSet::new();
-    collect_panel_ref_scene_files(frames, frame_default, extra_scene_files, &mut seen_paths);
-    for path in seen_paths {
-        match load_resources_from_capsule_file(app_root, path.as_str()) {
-            Ok(capsule_resources) => {
-                for resource in capsule_resources {
-                    insert_resource_if_absent(resources, resource);
-                }
-            }
-            Err(error) => {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Warning,
-                    code: "panel_ref_resources_load_failed".to_string(),
-                    message: format!(
-                        "failed to load world resources from panel_ref source `{path}`: {error}"
-                    ),
-                    source_path: Some(target_file.to_string()),
-                });
-            }
-        }
-    }
-}
-
-fn collect_panel_ref_scene_files(
-    frames: &BTreeMap<String, FrameDecl>,
-    frame_default: Option<&FrameDecl>,
-    extra_scene_files: &BTreeSet<String>,
-    out: &mut BTreeSet<String>,
-) {
-    use super::clone_merge::collect_ref_scene_files;
-
-    let mut sources: Vec<&FrameDecl> = frames.values().collect();
-    if let Some(frame) = frame_default {
-        sources.push(frame);
-    }
-    for frame in sources {
-        for slot in &frame.panels {
-            collect_ref_scene_files(slot, out);
-        }
-        if let Ok(frame_value) = serde_json::to_value(frame) {
-            collect_ref_scene_files(&frame_value, out);
-        }
-    }
-    for path in extra_scene_files {
-        if !path.trim().is_empty() {
-            out.insert(path.clone());
-        }
-    }
 }
 
 pub(crate) fn load_resources_from_capsule_file(

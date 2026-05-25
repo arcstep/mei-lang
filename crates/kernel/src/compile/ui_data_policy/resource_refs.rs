@@ -7,13 +7,17 @@ use super::rules::has_external_locator;
 pub(super) fn collect_resource_ref_issues(
     value: &Value,
     path: &str,
-    resource_ids: &BTreeSet<String>,
-    metric_ids: &BTreeSet<String>,
+    host_resource_ids: &BTreeSet<String>,
+    host_metric_ids: &BTreeSet<String>,
+    merged_resource_ids: &BTreeSet<String>,
+    merged_metric_ids: &BTreeSet<String>,
 ) -> Vec<(String, String, String)> {
     let mut out = Vec::new();
     match value {
         Value::Object(map) => {
-            if let Some((code, message)) = resource_ref_issue(map, resource_ids, metric_ids) {
+            if let Some((code, message)) =
+                resource_ref_issue(map, host_resource_ids, host_metric_ids, merged_resource_ids, merged_metric_ids)
+            {
                 out.push((path.to_string(), code, message));
             }
             for (key, child) in map {
@@ -21,8 +25,10 @@ pub(super) fn collect_resource_ref_issues(
                 out.extend(collect_resource_ref_issues(
                     child,
                     &next,
-                    resource_ids,
-                    metric_ids,
+                    host_resource_ids,
+                    host_metric_ids,
+                    merged_resource_ids,
+                    merged_metric_ids,
                 ));
             }
         }
@@ -32,8 +38,10 @@ pub(super) fn collect_resource_ref_issues(
                 out.extend(collect_resource_ref_issues(
                     child,
                     &next,
-                    resource_ids,
-                    metric_ids,
+                    host_resource_ids,
+                    host_metric_ids,
+                    merged_resource_ids,
+                    merged_metric_ids,
                 ));
             }
         }
@@ -42,10 +50,16 @@ pub(super) fn collect_resource_ref_issues(
     out
 }
 
+fn is_namespaced_import_id(id: &str) -> bool {
+    id.contains("::") && !id.contains("::metrics")
+}
+
 pub(super) fn resource_ref_issue(
     map: &serde_json::Map<String, Value>,
-    resource_ids: &BTreeSet<String>,
-    metric_ids: &BTreeSet<String>,
+    host_resource_ids: &BTreeSet<String>,
+    host_metric_ids: &BTreeSet<String>,
+    merged_resource_ids: &BTreeSet<String>,
+    merged_metric_ids: &BTreeSet<String>,
 ) -> Option<(String, String)> {
     let ref_kind = map.get("__ref").and_then(Value::as_str)?;
     if ref_kind == "world" {
@@ -84,6 +98,11 @@ pub(super) fn resource_ref_issue(
             format!("资源 id `{id}` 已禁用；请使用稳定显式 id"),
         ));
     }
+    let (resource_ids, metric_ids) = if is_namespaced_import_id(id) {
+        (merged_resource_ids, merged_metric_ids)
+    } else {
+        (host_resource_ids, host_metric_ids)
+    };
     if ref_kind == "metric" {
         if !metric_ids.contains(id) {
             return Some((

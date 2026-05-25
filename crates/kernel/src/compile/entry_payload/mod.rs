@@ -10,6 +10,7 @@ use crate::typed_refs::SceneRegistry;
 pub(super) mod clone_merge;
 mod compile;
 pub(super) mod helpers;
+pub(super) mod import_scope;
 
 use compile::compile_scene_payload;
 

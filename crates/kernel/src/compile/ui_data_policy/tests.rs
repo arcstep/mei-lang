@@ -53,6 +53,7 @@ fn flags_analysis_expr_rows_in_block_props() {
             head_props: Value::Object(serde_json::Map::new()),
             body_props: Value::Object(serde_json::Map::new()),
             base: None,
+            import_scope: None,
         }],
     };
     let mut diagnostics = Vec::new();
@@ -105,6 +106,7 @@ fn flags_imported_catalog_resource_ref_as_warning() {
             head_props: Value::Object(serde_json::Map::new()),
             body_props: Value::Object(serde_json::Map::new()),
             base: None,
+            import_scope: None,
         }],
     };
     let authorized = vec![LoadedResource {
@@ -175,6 +177,7 @@ fn flags_misused_world_ref_in_props() {
             head_props: Value::Object(serde_json::Map::new()),
             body_props: Value::Object(serde_json::Map::new()),
             base: None,
+            import_scope: None,
         }],
     };
     let mut diagnostics = Vec::new();
@@ -234,6 +237,7 @@ fn allows_resource_ref_in_props_when_authorized() {
             head_props: Value::Object(serde_json::Map::new()),
             body_props: Value::Object(serde_json::Map::new()),
             base: None,
+            import_scope: None,
         }],
     };
     let mut diagnostics = Vec::new();
@@ -292,6 +296,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
             head_props: Value::Object(serde_json::Map::new()),
             body_props: Value::Object(serde_json::Map::new()),
             base: None,
+            import_scope: None,
         }],
     };
     let resources = vec![LoadedResource {

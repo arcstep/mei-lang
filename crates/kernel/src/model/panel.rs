@@ -4,7 +4,7 @@ use serde_json::Value;
 use super::layout::LayoutDecl;
 use super::ui::UiNodeDecl;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PanelDecl {
     pub kind: String,
     pub id: String,
@@ -30,4 +30,7 @@ pub struct PanelDecl {
     /// Authoring-only：`panel(base = panel_ref(...))` 克隆源；编译归一后清除。
     #[serde(default)]
     pub base: Option<Value>,
+    /// 编译归一：`panel_ref` 来源 capsule 路径；该 panel 内 `*_ref` 走私有 import scope。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_scope: Option<String>,
 }

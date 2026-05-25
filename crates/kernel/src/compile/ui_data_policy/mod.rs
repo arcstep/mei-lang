@@ -8,6 +8,8 @@ mod imported_refs;
 mod resource_refs;
 mod rules;
 
+use crate::compile::entry_payload::import_scope;
+
 #[cfg(test)]
 mod tests;
 
@@ -68,12 +70,10 @@ pub(super) fn validate_scene_ui_data_bindings(
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let resource_ids = resources
+    let host_resource_ids = import_scope::host_local_resource_ids(resources);
+    let host_metric_ids: BTreeSet<String> = resources
         .iter()
-        .map(|resource| resource.id.clone())
-        .collect::<BTreeSet<_>>();
-    let metric_ids = resources
-        .iter()
+        .filter(|resource| !resource.id.contains("::"))
         .filter_map(|resource| resource.dataset.as_ref())
         .flat_map(|dataset| dataset.metrics.keys().cloned())
         .chain(
@@ -92,11 +92,34 @@ pub(super) fn validate_scene_ui_data_bindings(
                         .map(ToString::to_string)
                 }),
         )
-        .collect::<BTreeSet<_>>();
+        .collect();
+    let merged_resource_ids: BTreeSet<String> =
+        resources.iter().map(|resource| resource.id.clone()).collect();
+    let merged_metric_ids: BTreeSet<String> = resources
+        .iter()
+        .filter_map(|resource| resource.dataset.as_ref())
+        .flat_map(|dataset| dataset.metrics.keys().cloned())
+        .collect();
     for panel in &contract.panels {
-        scan_panel_props(panel, &resource_ids, &metric_ids, target_file, diagnostics);
+        scan_panel_props(
+            panel,
+            &host_resource_ids,
+            &host_metric_ids,
+            &merged_resource_ids,
+            &merged_metric_ids,
+            target_file,
+            diagnostics,
+        );
         for node in &panel.blocks {
-            scan_ui_node(node, &resource_ids, &metric_ids, target_file, diagnostics);
+            scan_ui_node(
+                node,
+                &host_resource_ids,
+                &host_metric_ids,
+                &merged_resource_ids,
+                &merged_metric_ids,
+                target_file,
+                diagnostics,
+            );
             scan_deprecated_embed_nodes(node, target_file, diagnostics);
             if let UiNodeDecl::PanelRefEmbed(embed) = node {
                 validate_embed_capsule_ui_bindings(
