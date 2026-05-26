@@ -171,16 +171,11 @@ pub(super) fn panel_view(
         </section>
     };
     if let Some(scale) = panel_scale_factor(&card_props) {
-        let outer_style = panel_scaled_outer_style(
-            panel.area.as_deref(),
-            frame_layout,
-            &card_props,
-            scale,
-        );
+        let outer_style =
+            panel_scaled_outer_style(panel.area.as_deref(), frame_layout, &card_props, scale);
         let scaled_section_style = format!(
             "{}transform:scale({});transform-origin:top left;",
-            card_style,
-            scale
+            card_style, scale
         );
         view! {
             <div class="preview-card-scale-wrap" style=outer_style>

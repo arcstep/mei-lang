@@ -180,9 +180,7 @@ fn is_table_separator(line: &str) -> bool {
         && cells.iter().all(|cell| {
             let cell = cell.trim();
             !cell.is_empty()
-                && cell
-                    .chars()
-                    .all(|ch| ch == '-' || ch == ':' || ch == ' ')
+                && cell.chars().all(|ch| ch == '-' || ch == ':' || ch == ' ')
                 && cell.contains('-')
         })
 }

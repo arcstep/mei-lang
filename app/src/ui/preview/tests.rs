@@ -3,11 +3,10 @@ use std::collections::BTreeMap;
 use super::resolve::{attach_host_meta, resolve_value};
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
-    metric_slot_vertical_host_class,
     frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
-    has_frame_backdrop, normalize_background_image, panel_card_layout_style, panel_heading_config,
-    panel_scale_factor, panel_scaled_outer_style, panel_show_heading, panel_slot_typography_style,
-    panel_style, surface_layout_style,
+    has_frame_backdrop, metric_slot_vertical_host_class, normalize_background_image,
+    panel_card_layout_style, panel_heading_config, panel_scale_factor, panel_scaled_outer_style,
+    panel_show_heading, panel_slot_typography_style, panel_style, surface_layout_style,
 };
 use super::theme::{
     resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, resolve_theme,
@@ -859,7 +858,8 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         Some("scenes/home.mei"),
     );
     assert_eq!(
-        props.get("_mei")
+        props
+            .get("_mei")
             .and_then(|value| value.get("shared"))
             .and_then(|value| value.get("layout"))
             .and_then(|value| value.get("rail_width"))

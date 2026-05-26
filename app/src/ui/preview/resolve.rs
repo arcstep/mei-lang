@@ -153,7 +153,10 @@ impl RuntimeSceneAnchor {
                 );
             }
             if let Some(note) = meta.drilldown_note.as_deref().filter(|s| !s.is_empty()) {
-                obj.insert("drilldown_note".to_string(), Value::String(note.to_string()));
+                obj.insert(
+                    "drilldown_note".to_string(),
+                    Value::String(note.to_string()),
+                );
             }
             if let Some(metric_id) = meta
                 .drilldown_table_metric_id
@@ -658,7 +661,10 @@ fn resolve_metric_drilldown_meta(
     fallback.or(primary)
 }
 
-fn metric_drilldown_from_definition(definition: &Value, compiled: &CompiledApp) -> MetricDrilldownMeta {
+fn metric_drilldown_from_definition(
+    definition: &Value,
+    compiled: &CompiledApp,
+) -> MetricDrilldownMeta {
     let mut meta = MetricDrilldownMeta::default();
     let Some(map) = definition.as_object() else {
         return meta;
@@ -688,7 +694,11 @@ fn metric_drilldown_from_definition(definition: &Value, compiled: &CompiledApp) 
         meta.drilldown_enabled = Some(enabled);
     }
     if meta.explain_kind.is_none() {
-        if let Some(kind) = map.get("explain_kind").and_then(Value::as_str).map(str::trim) {
+        if let Some(kind) = map
+            .get("explain_kind")
+            .and_then(Value::as_str)
+            .map(str::trim)
+        {
             if !kind.is_empty() {
                 meta.explain_kind = Some(kind.to_string());
             }
@@ -867,7 +877,14 @@ fn apply_drilldown_object(
         }
     }
     if meta.drilldown_scene.is_none() {
-        for key in ["scene_file", "scene", "scene_path", "drilldown_scene", "path", "file"] {
+        for key in [
+            "scene_file",
+            "scene",
+            "scene_path",
+            "drilldown_scene",
+            "path",
+            "file",
+        ] {
             let Some(value) = map.get(key).and_then(Value::as_str).map(str::trim) else {
                 continue;
             };
@@ -884,10 +901,7 @@ fn apply_drilldown_object(
         }
     }
     if meta.drilldown_title.is_none() {
-        meta.drilldown_title = first_non_empty_string(
-            map,
-            &["title", "drilldown_title", "label"],
-        );
+        meta.drilldown_title = first_non_empty_string(map, &["title", "drilldown_title", "label"]);
     }
     if meta.drilldown_note.is_none() {
         meta.drilldown_note = first_non_empty_string(map, &["note", "desc", "description"]);
@@ -895,14 +909,16 @@ fn apply_drilldown_object(
     if meta.drilldown_table_metric_id.is_none() {
         meta.drilldown_table_metric_id = first_non_empty_string(
             map,
-            &["table_metric_id", "tableMetricId", "drilldown_table_metric_id"],
+            &[
+                "table_metric_id",
+                "tableMetricId",
+                "drilldown_table_metric_id",
+            ],
         );
     }
     if meta.drilldown_dataset_id.is_none() {
-        meta.drilldown_dataset_id = first_non_empty_string(
-            map,
-            &["dataset_id", "datasetId", "drilldown_dataset_id"],
-        );
+        meta.drilldown_dataset_id =
+            first_non_empty_string(map, &["dataset_id", "datasetId", "drilldown_dataset_id"]);
     }
     if meta.drilldown_layout_preset.is_none() {
         meta.drilldown_layout_preset =
@@ -1065,10 +1081,7 @@ fn apply_ratio_parts(value: &Value, meta: &mut MetricDrilldownMeta) {
     }
 }
 
-fn first_non_empty_string(
-    map: &serde_json::Map<String, Value>,
-    keys: &[&str],
-) -> Option<String> {
+fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
     for key in keys {
         let Some(value) = map.get(*key).and_then(Value::as_str).map(str::trim) else {
             continue;

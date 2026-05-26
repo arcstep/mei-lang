@@ -123,10 +123,7 @@ pub(super) fn panel_position_style(
             if layout
                 .and_then(|value| value.justify.as_deref())
                 .is_some_and(|value| value.trim().eq_ignore_ascii_case("center"))
-                && props
-                    .as_object()
-                    .and_then(|map| map.get("width"))
-                    .is_some()
+                && props.as_object().and_then(|map| map.get("width")).is_some()
             {
                 style.push_str("justify-self:center;");
             }
@@ -203,8 +200,18 @@ pub(super) fn panel_scaled_outer_style(
     style.push_str(&scaled_length_style(props, "height", "height", scale));
     style.push_str(&scaled_length_style(props, "min_width", "min-width", scale));
     style.push_str(&scaled_length_style(props, "max_width", "max-width", scale));
-    style.push_str(&scaled_length_style(props, "min_height", "min-height", scale));
-    style.push_str(&scaled_length_style(props, "max_height", "max-height", scale));
+    style.push_str(&scaled_length_style(
+        props,
+        "min_height",
+        "min-height",
+        scale,
+    ));
+    style.push_str(&scaled_length_style(
+        props,
+        "max_height",
+        "max-height",
+        scale,
+    ));
     style
 }
 

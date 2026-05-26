@@ -56,11 +56,11 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
     let css_vars = collect_theme_css_vars(&theme);
     let components = resolve_shared_refs(
         &theme
-        .as_object()
-        .and_then(|map| map.get("components"))
-        .cloned()
-        .filter(|value| !value.is_null())
-        .unwrap_or_else(|| serde_json::json!({})),
+            .as_object()
+            .and_then(|map| map.get("components"))
+            .cloned()
+            .filter(|value| !value.is_null())
+            .unwrap_or_else(|| serde_json::json!({})),
         &shared,
     );
     ThemeResolved {
@@ -362,9 +362,12 @@ pub(super) fn resolve_shared_refs(value: &Value, shared: &Value) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(items) => {
-            Value::Array(items.iter().map(|item| resolve_shared_refs(item, shared)).collect())
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(|item| resolve_shared_refs(item, shared))
+                .collect(),
+        ),
         _ => value.clone(),
     }
 }
@@ -624,10 +627,7 @@ mod tests {
             }
         });
         let resolved = resolve_shared_refs(&value, &shared);
-        assert_eq!(
-            resolved.get("width").and_then(Value::as_str),
-            Some("520px")
-        );
+        assert_eq!(resolved.get("width").and_then(Value::as_str), Some("520px"));
         assert_eq!(
             resolved
                 .get("components")
