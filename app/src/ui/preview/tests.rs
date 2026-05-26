@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::resolve::resolve_value;
+use super::resolve::{attach_host_meta, resolve_value};
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
     metric_slot_vertical_host_class,
@@ -10,7 +10,8 @@ use super::style::{
     panel_style, surface_layout_style,
 };
 use super::theme::{
-    resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, ThemeResolved,
+    resolve_panel_card_props, resolve_panel_head_props, resolve_panel_props, resolve_theme,
+    ThemeResolved,
 };
 use super::viewport::{
     effective_canvas_width, effective_viewport_overflow, effective_viewport_safe_inset,
@@ -22,7 +23,7 @@ use mei_lang_kernel::PanelDecl;
 use mei_lang_kernel::{
     build_runtime_resource_index, build_runtime_resource_map, ColumnSchema, CompiledApp,
     DatasetView, LayoutDecl, LoadedResource, MetricContract, MetricShape, SceneContract, SceneDecl,
-    SourceDecl,
+    SourceDecl, ThemeDecl,
 };
 use serde_json::{json, Value};
 
@@ -373,6 +374,7 @@ fn resolve_panel_card_props_strips_heading_from_card() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -388,6 +390,7 @@ fn resolve_panel_card_props_strips_heading_from_card() {
         head_props: json!({}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     };
     let card = resolve_panel_card_props(&theme, &panel);
     assert!(card.get("heading").is_none());
@@ -424,6 +427,7 @@ fn resolve_panel_head_props_merges_theme_and_panel() {
         panel_head: json!({"variant": "plain"}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -439,6 +443,7 @@ fn resolve_panel_head_props_merges_theme_and_panel() {
         head_props: json!({"height": "54px"}),
         body_props: json!({}),
         base: None,
+        import_scope: None,
     };
     let head = resolve_panel_head_props(&theme, &panel);
     assert_eq!(head.get("variant").and_then(Value::as_str), Some("plain"));
@@ -461,6 +466,7 @@ fn resolve_panel_props_merges_theme_panel_defaults() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -494,6 +500,7 @@ fn resolve_panel_props_prefers_bare_theme_when_chrome_is_bare() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -602,6 +609,7 @@ fn frame_stage_style_debug_caps_canvas_width_to_frame_max_width() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -629,6 +637,7 @@ fn frame_stage_style_debug_uses_full_canvas_without_css_scale() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -730,6 +739,7 @@ fn frame_stage_style_uses_max_width_cap_not_fixed_canvas_width() {
         panel_head: json!({}),
         panel_body: json!({}),
         heading: json!({}),
+        shared: json!({}),
         components: json!({}),
         css_vars: Vec::new(),
     };
@@ -739,6 +749,181 @@ fn frame_stage_style_uses_max_width_cap_not_fixed_canvas_width() {
     assert!(style.contains("height:auto;"));
     assert!(style.contains("transform:none;"));
     assert!(!style.contains("width:1920px;"));
+}
+
+#[test]
+fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "home".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: Some("cockpit".to_string()),
+            theme: Some("cockpit".to_string()),
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({
+                "layout": {"rail_width": "520px"},
+                "table": {"preview_chars": 18},
+            }),
+            access_export: true,
+        },
+        themes: vec![ThemeDecl {
+            kind: "theme".to_string(),
+            id: "cockpit".to_string(),
+            frame: json!({
+                "max_width": {"__ref": "shared", "id": "layout.rail_width"},
+            }),
+            panel: json!({}),
+            panel_bare: json!({}),
+            panel_head: json!({}),
+            panel_body: json!({}),
+            heading: json!({}),
+            font: json!({}),
+            metric_label: json!({}),
+            metric_value: json!({}),
+            metric_unit: json!({}),
+            metric_desc: json!({}),
+            metric_sub_label: json!({}),
+            metric_sub_value: json!({}),
+            metric_sub_unit: json!({}),
+            tokens: json!({}),
+            shared: json!({
+                "layout": {"rail_width": "480px", "header_height": "72px"},
+                "table": {"preview_chars": 30},
+            }),
+            components: json!({
+                "dataset_table": {
+                    "cell_preview_max_chars": {"__ref": "shared", "id": "table.preview_chars"},
+                }
+            }),
+        }],
+        shared: json!({
+            "layout": {"rail_width": "520px", "header_height": "72px"},
+            "table": {"preview_chars": 18},
+        }),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+
+    let resolved = resolve_theme(&scene_contract);
+    assert_eq!(
+        resolved
+            .shared
+            .get("layout")
+            .and_then(|value| value.get("rail_width"))
+            .and_then(Value::as_str),
+        Some("520px")
+    );
+    assert_eq!(
+        resolved.frame.get("max_width").and_then(Value::as_str),
+        Some("520px")
+    );
+    assert_eq!(
+        resolved
+            .components
+            .get("dataset_table")
+            .and_then(|value| value.get("cell_preview_max_chars"))
+            .and_then(Value::as_i64),
+        Some(18)
+    );
+}
+
+#[test]
+fn attach_host_meta_exposes_shared_context_to_components() {
+    let compiled = CompiledApp {
+        app_id: "preview-shared".to_string(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "scenes/home.mei".to_string(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview-shared".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let props = attach_host_meta(
+        json!({"value": 1}),
+        &compiled,
+        "apps/preview-shared",
+        &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
+        &json!({"layout": {"rail_width": "520px"}}),
+        Some("scenes/home.mei"),
+    );
+    assert_eq!(
+        props.get("_mei")
+            .and_then(|value| value.get("shared"))
+            .and_then(|value| value.get("layout"))
+            .and_then(|value| value.get("rail_width"))
+            .and_then(Value::as_str),
+        Some("520px")
+    );
+}
+
+#[test]
+fn resolve_value_supports_shared_refs() {
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "home".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: None,
+            theme: None,
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({}),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+    let compiled = CompiledApp {
+        app_id: "preview-shared-ref".to_string(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "scenes/home.mei".to_string(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview-shared-ref".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let scene_anchor = super::resolve::RuntimeSceneAnchor {
+        scene_id: "home".to_string(),
+        scene_path: Some("scenes/home.mei".to_string()),
+    };
+    let resolved = resolve_value(
+        &json!({
+            "width": {"__ref": "shared", "id": "layout.rail_width"},
+            "height": {"__ref": "shared", "id": "layout.card_height", "default": 74},
+        }),
+        &json!({"layout": {"rail_width": "520px"}}),
+        &scene_contract,
+        &BTreeMap::new(),
+        &scene_anchor,
+        &build_runtime_resource_index(&compiled),
+        &compiled,
+    );
+    assert_eq!(resolved.get("width").and_then(Value::as_str), Some("520px"));
+    assert_eq!(resolved.get("height").and_then(Value::as_i64), Some(74));
 }
 
 #[test]
@@ -755,9 +940,11 @@ fn resolve_value_supports_data_and_metric_refs() {
             summary: None,
             goal: None,
             state: json!({}),
+            shared: json!({}),
             access_export: true,
         },
         themes: vec![],
+        shared: json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -869,6 +1056,7 @@ fn resolve_value_supports_data_and_metric_refs() {
     let data_ref = json!({"__ref":"data","id":"sales_metrics"});
     let resolved_data = resolve_value(
         &data_ref,
+        &json!({}),
         &scene_contract,
         &resources,
         &scene_anchor,
@@ -890,6 +1078,7 @@ fn resolve_value_supports_data_and_metric_refs() {
     let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
     let resolved_metric = resolve_value(
         &metric_ref,
+        &json!({}),
         &scene_contract,
         &resources,
         &scene_anchor,
@@ -911,6 +1100,7 @@ fn resolve_value_supports_data_and_metric_refs() {
     let dataset_ref = json!({"__ref": "dataset", "id": "sales_metrics"});
     let resolved_dataset = resolve_value(
         &dataset_ref,
+        &json!({}),
         &scene_contract,
         &resources,
         &scene_anchor,
@@ -954,9 +1144,11 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
             summary: None,
             goal: None,
             state: json!({}),
+            shared: json!({}),
             access_export: true,
         },
         themes: vec![],
+        shared: json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -1057,6 +1249,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
     });
     let resolved = resolve_value(
         &metric_ref,
+        &json!({}),
         &scene_contract,
         &build_runtime_resource_map(&compiled),
         &scene_anchor,
@@ -1088,9 +1281,11 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             summary: None,
             goal: None,
             state: json!({}),
+            shared: json!({}),
             access_export: true,
         },
         themes: vec![],
+        shared: json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -1216,6 +1411,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
 
     let resolved = resolve_value(
         &json!({"__ref":"metric","id":"same_metric"}),
+        &json!({}),
         &scene_contract,
         &resources,
         &scene_anchor,

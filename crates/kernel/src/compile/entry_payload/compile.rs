@@ -26,10 +26,9 @@ use super::super::scene_binding::{
 };
 use super::super::ui_data_policy::validate_scene_ui_data_bindings;
 use super::clone_merge::{
-    collect_ref_scene_files, normalize_flow_decl, normalize_frame_decl, normalize_world_decl,
-    resolve_entity_slot, resolve_panel_slot, resolve_resource_slot,
+    collect_ref_scene_files, deep_merge_json, normalize_flow_decl, normalize_frame_decl,
+    normalize_world_decl, resolve_entity_slot, resolve_panel_slot, resolve_resource_slot,
 };
-use super::clone_merge::merge::deep_merge_json;
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
     decode_world_metric_pack_decl, insert_resource_checked,

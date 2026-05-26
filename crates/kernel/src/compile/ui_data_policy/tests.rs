@@ -20,6 +20,7 @@ fn flags_analysis_expr_rows_in_block_props() {
     let contract = SceneContract {
         scene: sample_scene(),
         themes: vec![],
+        shared: serde_json::json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -73,6 +74,7 @@ fn flags_imported_catalog_resource_ref_as_warning() {
     let contract = SceneContract {
         scene: sample_scene(),
         themes: vec![],
+        shared: serde_json::json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -144,6 +146,7 @@ fn flags_misused_world_ref_in_props() {
     let contract = SceneContract {
         scene: sample_scene(),
         themes: vec![],
+        shared: serde_json::json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -204,6 +207,7 @@ fn allows_resource_ref_in_props_when_authorized() {
     let contract = SceneContract {
         scene: sample_scene(),
         themes: vec![],
+        shared: serde_json::json!({}),
         world: None,
         flow: None,
         frame: None,
@@ -263,6 +267,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
     let contract = SceneContract {
         scene: sample_scene(),
         themes: vec![],
+        shared: serde_json::json!({}),
         world: None,
         flow: None,
         frame: None,

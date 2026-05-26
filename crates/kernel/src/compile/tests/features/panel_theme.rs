@@ -195,6 +195,144 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_merges_theme_and_scene_shared_context() {
+    let root = temp_root("shared-context");
+    let app_root = root.join("shared-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r##"
+app(id = "shared-app", default_scene = "home")
+
+scene(
+    id = "home",
+    profile = "cockpit",
+    theme = "cockpit",
+    shared = {
+        "layout": {"rail_width": 520},
+        "table": {"preview_chars": 18},
+    },
+)
+
+world(resources = [])
+
+theme(
+    id = "cockpit",
+    shared = {
+        "layout": {"rail_width": 480, "header_height": 72},
+        "table": {"preview_chars": 30},
+    },
+    components = {
+        "dataset_table": {
+            "cell_preview_max_chars": shared_ref("table.preview_chars"),
+        },
+    },
+)
+
+frame(layout = flex(direction = "column"))
+
+frame.add_panel(
+    id = "body",
+    area = "auto",
+    variant = "container",
+    blocks = [
+        component("markdown", area = "auto", props = {"content": "hello"}),
+    ],
+)
+"##,
+    );
+    write_file(
+        &root.join("_components/manifest.json"),
+        r#"
+{
+  "components": {
+    "markdown": { "tag": "mei-doc-markdown", "script": "doc-markdown.js" }
+  }
+}
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile shared app");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(
+        contract
+            .themes[0]
+            .shared
+            .get("layout")
+            .and_then(|value| value.get("header_height"))
+            .and_then(|value| value.as_i64()),
+        Some(72)
+    );
+    assert_eq!(
+        contract
+            .scene
+            .shared
+            .get("layout")
+            .and_then(|value| value.get("rail_width"))
+            .and_then(|value| value.as_i64()),
+        Some(520)
+    );
+    assert_eq!(
+        contract
+            .shared
+            .get("layout")
+            .and_then(|value| value.get("rail_width"))
+            .and_then(|value| value.as_i64()),
+        Some(520)
+    );
+    assert_eq!(
+        contract
+            .shared
+            .get("layout")
+            .and_then(|value| value.get("header_height"))
+            .and_then(|value| value.as_i64()),
+        Some(72)
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_rejects_non_object_or_ref_shared_context_values() {
+    let root = temp_root("invalid-shared-context");
+    let app_root = root.join("invalid-shared-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r##"
+app(id = "invalid-shared-app", default_scene = "home")
+
+scene(
+    id = "home",
+    profile = "page",
+    shared = [],
+)
+
+world(resources = [])
+
+theme(
+    id = "page",
+    shared = {
+        "bad": dataset_ref("orders"),
+    },
+)
+
+frame(layout = flex(direction = "column"))
+"##,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile invalid shared app");
+    assert!(compiled
+        .diagnostics
+        .iter()
+        .any(|diag| diag.code == "invalid_shared_context_value"));
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(contract.scene.shared, serde_json::json!({}));
+    assert_eq!(
+        contract.themes[0].shared.get("bad"),
+        Some(&serde_json::Value::Null)
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_panel_normalizes_title_to_head_slot() {
     let root = temp_root("panel-head-slot");
     let app_root = root.join("head-app");

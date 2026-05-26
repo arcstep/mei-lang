@@ -39,9 +39,11 @@ mod tests {
                 summary: Some("test".to_string()),
                 goal: Some("灭火".to_string()),
                 state: json!({"phase": "ready", "countdown": 3}),
+                shared: json!({}),
                 access_export: true,
             },
             themes: Vec::new(),
+            shared: json!({}),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
                 id: None,
@@ -152,9 +154,11 @@ mod tests {
                 summary: Some("cell timer test".to_string()),
                 goal: Some("扑灭火格".to_string()),
                 state: json!({"phase": "ready", "countdown": 5}),
+                shared: json!({}),
                 access_export: true,
             },
             themes: Vec::new(),
+            shared: json!({}),
             world: Some(WorldDecl {
                 kind: "world".to_string(),
                 id: None,
