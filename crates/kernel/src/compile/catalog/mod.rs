@@ -14,7 +14,7 @@ use super::scene_payload_cache::compile_scene_payload_for_target;
 use merge::upsert_catalog_dataset_resource;
 #[cfg(test)]
 pub(crate) use scan::clear_dataset_catalog_index_cache_for_tests;
-use scan::resolve_dataset_catalog_compile_rels;
+pub(super) use scan::resolve_dataset_catalog_compile_rels;
 pub use scan::{build_dataset_catalog_filter, DatasetCatalogFilter};
 pub(crate) use scan::{
     dataset_catalog_index_cache_metrics_snapshot, extract_from_dataset_tokens,

@@ -15,7 +15,10 @@ use crate::compile::{
 };
 use crate::eval::evaluate_mei_file;
 use crate::model::CompiledSceneRoute;
-use crate::{compile_app_from_root_with_options, CompileOptions};
+use crate::{
+    compile_app_from_root_with_options, compile_revision_token_from_root_with_options,
+    CompileOptions,
+};
 
 fn write_spbjw_like_app(root: &Path) {
     fs::create_dir_all(root.join("scenes/layouts")).unwrap();
@@ -55,6 +58,40 @@ frame.add_panel(id = "child_panel", area = "main", blocks = [])
     )
     .unwrap();
     fs::write(root.join("data/sample.csv"), "name\na\n").unwrap();
+}
+
+fn write_multi_route_app(root: &Path) {
+    fs::create_dir_all(root.join("scenes")).unwrap();
+    fs::write(
+        root.join("main.mei"),
+        r#"
+app(
+    id = "revision-test",
+    default_scene = "left",
+    scene = scene_ref(scene_file = "scenes/left.mei")
+)
+app.add_scene(scene_ref(id = "right", scene_file = "scenes/right.mei"))
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("scenes/left.mei"),
+        r#"
+scene(id = "left")
+world()
+frame()
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("scenes/right.mei"),
+        r#"
+scene(id = "right")
+world()
+frame()
+"#,
+    )
+    .unwrap();
 }
 
 #[test]
@@ -254,6 +291,37 @@ frame.add_panel(id = "child_panel", area = "main", blocks = [text("changed")])
     assert_ne!(
         first, second,
         "transitive file content change should change fingerprint"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_revision_token_ignores_unrelated_scene_changes() {
+    let root = std::env::temp_dir().join(format!("mei-revision-token-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_multi_route_app(&root);
+    let options = CompileOptions {
+        scene: Some("left".to_string()),
+        preview_target: None,
+    };
+    let first =
+        compile_revision_token_from_root_with_options(&root, &root, &options).expect("first token");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    fs::write(
+        root.join("scenes/right.mei"),
+        r#"
+scene(id = "right")
+world()
+frame()
+frame.add_panel(id = "right_panel", area = "main", blocks = [text("changed")])
+"#,
+    )
+    .unwrap();
+    let second = compile_revision_token_from_root_with_options(&root, &root, &options)
+        .expect("second token");
+    assert_eq!(
+        first, second,
+        "selected scene revision token should ignore unrelated route changes"
     );
     let _ = fs::remove_dir_all(&root);
 }

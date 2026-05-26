@@ -107,7 +107,7 @@ pub(crate) struct AppState {
 
 #[derive(Clone)]
 pub(crate) struct CachedCompiledApp {
-    pub app_latest_modified_ms: u128,
+    pub compile_revision: String,
     pub compiled: CompiledApp,
 }
 
@@ -335,10 +335,9 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
     let status = response.status();
     let latency_ms = started_at.elapsed().as_millis();
     if let Ok(value) = HeaderValue::from_str(&request_id) {
-        response.headers_mut().insert(
-            HeaderName::from_static("x-mei-request-id"),
-            value,
-        );
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("x-mei-request-id"), value);
     }
 
     if status.is_server_error() || status.is_client_error() {

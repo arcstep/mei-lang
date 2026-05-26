@@ -110,6 +110,25 @@ fn route_matches_preview_scope(
     route_targets_preview(route, preview_target)
 }
 
+fn catalog_focus_target<'a>(
+    options: &'a CompileOptions,
+    active_target_file: Option<&'a str>,
+) -> Option<&'a str> {
+    options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .or_else(|| {
+            options
+                .scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|scene| !scene.is_empty())
+                .and(active_target_file)
+        })
+}
+
 fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
     // scene-first：Manage 可同时带 scene 锚与 preview_target（source-focus）；
     // 单文件预览裁剪仍由 preview_target 决定，不得因 scene 已设置而退回全量 compile。
@@ -319,6 +338,118 @@ pub fn compile_app_with_options(
 
 pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<CompiledApp> {
     compile_app_from_root_with_options(source_root, app_root, CompileOptions::default())
+}
+
+pub fn compile_revision_token_from_root_with_options(
+    source_root: &Path,
+    app_root: &Path,
+    options: &CompileOptions,
+) -> Result<String> {
+    let app_main = app_root.join("main.mei");
+    let app_decls = evaluate_mei_file(&app_main)?;
+    let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
+    let app_decl =
+        app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+    let mut route_registry =
+        resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
+    let asset_map = load_component_assets(source_root)?;
+    let preview_only = is_manage_preview_only_compile(options);
+    let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    inject_discovered_entry_scene_routes(
+        app_root,
+        source_root,
+        &app_decls,
+        &asset_map,
+        &mut route_registry.routes,
+        &scene_registry,
+        options.preview_target.as_deref(),
+        options.scene.as_deref(),
+        preview_only,
+    );
+    let dependency_graph =
+        DependencyGraph::build_cached(app_root, &app_decls, &route_registry.routes);
+
+    let active_route_meta = if let Some(requested) = options.scene.as_deref() {
+        let selected = find_scene_route(&route_registry.routes, requested).cloned();
+        if selected.is_none() {
+            let preview_route = options
+                .preview_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|target| !target.is_empty())
+                .and_then(|target| {
+                    route_registry
+                        .routes
+                        .iter()
+                        .find(|route| route.target_file == target)
+                        .cloned()
+                });
+            preview_route.or_else(|| {
+                route_registry
+                    .default_scene_id
+                    .as_deref()
+                    .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+                    .cloned()
+                    .or_else(|| route_registry.routes.first().cloned())
+            })
+        } else {
+            selected
+        }
+    } else {
+        route_registry
+            .default_scene_id
+            .as_deref()
+            .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+            .cloned()
+            .or_else(|| route_registry.routes.first().cloned())
+    };
+
+    let selected_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(|value| value.to_string());
+    let primary_target = selected_target
+        .or_else(|| {
+            active_route_meta
+                .as_ref()
+                .map(|route| route.target_file.clone())
+        })
+        .unwrap_or_else(|| "main.mei".to_string());
+
+    let dataset_manage_preview = is_dataset_manage_preview(options);
+    let catalog_focus = catalog_focus_target(options, Some(primary_target.as_str()));
+    let catalog_filter = if dataset_manage_preview {
+        DatasetCatalogFilter::default()
+    } else {
+        build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
+    };
+
+    let mut token_parts = BTreeMap::<String, String>::new();
+    if let Some(main_token) =
+        dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, "main.mei")
+    {
+        token_parts.insert("main".to_string(), main_token);
+    }
+    if let Some(primary_token) =
+        dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &primary_target)
+    {
+        token_parts.insert(format!("target:{primary_target}"), primary_token);
+    }
+    if !dataset_manage_preview {
+        for rel in catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter) {
+            if let Some(token) =
+                dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &rel)
+            {
+                token_parts.insert(format!("catalog:{rel}"), token);
+            }
+        }
+    }
+
+    let components_revision = scene_payload_cache::components_revision(source_root);
+    token_parts.insert("components".to_string(), components_revision.to_string());
+    Ok(token_parts.into_values().collect::<Vec<_>>().join("||"))
 }
 
 pub fn compile_app_from_root_with_options(
@@ -587,20 +718,13 @@ pub fn compile_app_from_root_with_options(
         .unwrap_or_else(|| app_decl.id.clone());
 
     let dataset_manage_preview = is_dataset_manage_preview(&options);
-    let catalog_seed_files = dependency_graph.catalog_seed_files(
-        app_root,
-        &app_decls,
-        options.preview_target.as_deref(),
-    );
+    let catalog_focus = catalog_focus_target(&options, Some(active_target_file.as_str()));
+    let catalog_seed_files =
+        dependency_graph.catalog_seed_files(app_root, &app_decls, catalog_focus);
     let catalog_filter = if dataset_manage_preview {
         DatasetCatalogFilter::default()
     } else {
-        build_dataset_catalog_filter(
-            app_root,
-            &app_decls,
-            &dependency_graph,
-            options.preview_target.as_deref(),
-        )
+        build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
     };
     let dataset_catalog = if dataset_manage_preview {
         Vec::new()

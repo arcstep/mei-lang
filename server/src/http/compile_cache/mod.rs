@@ -73,20 +73,21 @@ fn compile_singleflight_enabled() -> bool {
 }
 
 pub(crate) fn env_flag_enabled(name: &str) -> bool {
-    env::var(name)
-        .ok()
-        .is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+    env::var(name).ok().is_some_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 fn env_list_contains(name: &str, needle: &str) -> bool {
-    env::var(name)
-        .ok()
-        .is_some_and(|value| {
-            value
-                .split(',')
-                .map(|item| item.trim().to_ascii_lowercase())
-                .any(|item| item == needle)
-        })
+    env::var(name).ok().is_some_and(|value| {
+        value
+            .split(',')
+            .map(|item| item.trim().to_ascii_lowercase())
+            .any(|item| item == needle)
+    })
 }
 
 fn register_compile_inflight(cache_key: &str) -> Option<(Arc<CompileInflight>, bool)> {
@@ -193,11 +194,7 @@ pub(crate) fn compile_app_with_cache(
         }
         Err(error) => {
             record_compile_failure(&cache_key);
-            finish_compile_inflight(
-                &cache_key,
-                &inflight,
-                Err(error.error.to_string()),
-            )
+            finish_compile_inflight(&cache_key, &inflight, Err(error.error.to_string()))
         }
     }
     outcome
@@ -210,7 +207,7 @@ fn compile_app_with_cache_uncached_path(
     options: CompileOptions,
     components_root: &std::path::Path,
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
-    let app_revision = revision::compile_revision(state, app_id, components_root);
+    let app_revision = revision::compile_revision(state, app_id, &options, components_root);
     let lookup_lock_started = Instant::now();
     let cache_lookup_ms;
     let mut compile_cache_lock_wait_ms = 0u64;
@@ -218,7 +215,7 @@ fn compile_app_with_cache_uncached_path(
         compile_cache_lock_wait_ms += elapsed_ms(lookup_lock_started);
         let lookup_started = Instant::now();
         if let Some(entry) = cache.get(cache_key) {
-            if entry.app_latest_modified_ms == app_revision {
+            if entry.compile_revision == app_revision {
                 cache_lookup_ms = elapsed_ms(lookup_started);
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
@@ -259,7 +256,7 @@ fn compile_app_with_cache_uncached_path(
         cache.insert(
             cache_key.to_string(),
             CachedCompiledApp {
-                app_latest_modified_ms: app_revision,
+                compile_revision: app_revision,
                 compiled: compiled.clone(),
             },
         );
@@ -286,10 +283,10 @@ pub(crate) fn peek_compile_cache(
     components_root: &std::path::Path,
 ) -> Option<CompiledApp> {
     let cache_key = compile_cache_key(app_id, options);
-    let app_revision = revision::compile_revision(state, app_id, components_root);
+    let app_revision = revision::compile_revision(state, app_id, options, components_root);
     let cache = state.compile_cache.lock().ok()?;
     let entry = cache.get(&cache_key)?;
-    if entry.app_latest_modified_ms == app_revision {
+    if entry.compile_revision == app_revision {
         Some(entry.compiled.clone())
     } else {
         None

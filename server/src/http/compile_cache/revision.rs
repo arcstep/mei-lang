@@ -1,25 +1,39 @@
 use std::{
-    env,
-    fs,
+    env, fs,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use mei_lang_kernel::{compile_revision_token_from_root_with_options, CompileOptions};
 use walkdir::WalkDir;
 
 use crate::AppState;
 
-pub(crate) fn compile_revision(state: &AppState, app_id: &str, components_root: &Path) -> u128 {
+pub(crate) fn compile_revision(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> String {
     let app_root = state.source_root.join(app_id);
+    if let Ok(token) =
+        compile_revision_token_from_root_with_options(&state.source_root, &app_root, options)
+    {
+        return token;
+    }
+    compile_revision_fallback(&app_root, components_root)
+}
+
+fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> String {
     if compile_revision_mode() == RevisionMode::Full {
         let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);
         let components_mtime = directory_latest_full_modified_ms(components_root).unwrap_or(0);
-        return app_mtime.max(components_mtime);
+        return app_mtime.max(components_mtime).to_string();
     }
     let app_mtime = directory_latest_modified_ms(&app_root, RevisionScope::App).unwrap_or(0);
     let components_mtime =
         directory_latest_modified_ms(components_root, RevisionScope::Components).unwrap_or(0);
-    app_mtime.max(components_mtime)
+    app_mtime.max(components_mtime).to_string()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -129,9 +143,7 @@ fn is_component_manifest(path: &Path) -> bool {
 }
 
 fn normalize_path(path: &Path) -> String {
-    PathBuf::from(path)
-        .to_string_lossy()
-        .replace('\\', "/")
+    PathBuf::from(path).to_string_lossy().replace('\\', "/")
 }
 
 fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
