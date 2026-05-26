@@ -3,8 +3,7 @@ use std::path::Path;
 
 use crate::eval::evaluate_mei_file;
 use crate::model::{
-    Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl,
-    WorldMetricLedgerEntry,
+    Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl, WorldMetricLedgerEntry,
 };
 
 use super::super::decls::{

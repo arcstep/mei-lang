@@ -244,20 +244,14 @@ pub(crate) fn seed_metric_block_vertical_align_from_base(base: &PanelDecl, merge
         if block_has_metric_v_align(block) {
             continue;
         }
-        let Some(raw) = shell_defaults
-            .get(role)
-            .or_else(|| base_defaults.get(role))
-        else {
+        let Some(raw) = shell_defaults.get(role).or_else(|| base_defaults.get(role)) else {
             continue;
         };
         if !block.props.is_object() {
             block.props = Value::Object(Default::default());
         }
         if let Some(block_props) = block.props.as_object_mut() {
-            block_props.insert(
-                PROP_METRIC_V_ALIGN.to_string(),
-                Value::String(raw.clone()),
-            );
+            block_props.insert(PROP_METRIC_V_ALIGN.to_string(), Value::String(raw.clone()));
         }
     }
 }
@@ -534,7 +528,9 @@ fn audit_one_metric_card_vertical_bands(
         return;
     }
     let layout = card.layout.as_ref();
-    let rows = layout.and_then(|value| value.rows.as_deref()).unwrap_or_default();
+    let rows = layout
+        .and_then(|value| value.rows.as_deref())
+        .unwrap_or_default();
     if !rows_use_fractional_tracks(rows) {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,

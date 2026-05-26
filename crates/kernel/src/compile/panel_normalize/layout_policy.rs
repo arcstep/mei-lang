@@ -6,10 +6,9 @@ use super::constants::{
     PolicySpacing, DEFAULT_METRICS_2X2_COLUMNS, DEFAULT_METRICS_2X2_GAP,
     DEFAULT_METRICS_2X2_PADDING, DEFAULT_METRICS_2_1_COLUMNS, DEFAULT_METRICS_2_1_GAP,
     DEFAULT_METRICS_2_1_PADDING, DEFAULT_METRICS_AUTO_GAP, DEFAULT_METRICS_AUTO_PADDING,
-    DEFAULT_METRIC_COMPOUND_2_1_GAP, LAYOUT_POLICY_METRIC_COMPOUND_2_1,
-    METRIC_COMPOUND_BOTTOM_MAX, PROP_COMPOUND_BOTTOM_RATIO, PROP_COMPOUND_TOP_BAND_RATIO,
-    PROP_COMPOUND_TOP_RATIO, PROP_LAYOUT_COLUMNS,
-    PROP_LAYOUT_COLUMNS_PREFER, PROP_LAYOUT_SPAN, SLOT_BODY, SLOT_HEAD,
+    DEFAULT_METRIC_COMPOUND_2_1_GAP, LAYOUT_POLICY_METRIC_COMPOUND_2_1, METRIC_COMPOUND_BOTTOM_MAX,
+    PROP_COMPOUND_BOTTOM_RATIO, PROP_COMPOUND_TOP_BAND_RATIO, PROP_COMPOUND_TOP_RATIO,
+    PROP_LAYOUT_COLUMNS, PROP_LAYOUT_COLUMNS_PREFER, PROP_LAYOUT_SPAN, SLOT_BODY, SLOT_HEAD,
 };
 use super::css_util::{
     first_css_scalar_px, padding_vertical_px, parse_px, px_track, sum_fixed_px_tracks,
@@ -300,8 +299,8 @@ fn metric_auto_candidate_score(
         }
         let all_narrow = row.placements.iter().all(|(_, span)| *span == 1);
         if all_narrow && item_count > 3 {
-            let honors_prefer = metric_auto_columns_prefer(panel)
-                .is_some_and(|prefer| prefer == columns);
+            let honors_prefer =
+                metric_auto_columns_prefer(panel).is_some_and(|prefer| prefer == columns);
             if !honors_prefer {
                 score += (item_count.saturating_sub(3) as f64) * 40.0;
             }
@@ -675,12 +674,10 @@ fn metric_ratio_weight(value: &Value) -> Option<f64> {
         }
         return parse_px(trimmed).filter(|n| *n > 0.0);
     }
-    value.as_f64().filter(|n| *n > 0.0).or_else(|| {
-        value
-            .as_i64()
-            .filter(|n| *n > 0)
-            .map(|n| n as f64)
-    })
+    value
+        .as_f64()
+        .filter(|n| *n > 0.0)
+        .or_else(|| value.as_i64().filter(|n| *n > 0).map(|n| n as f64))
 }
 
 fn metric_compound_content_budget(panel: &PanelDecl, spacing: &PolicySpacing) -> Option<f64> {

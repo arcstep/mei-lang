@@ -494,16 +494,17 @@ pub(super) fn audit_policy_spacing_budget(
         let (padding_min, padding_budget_max) = if compound_shell {
             (METRIC_COMPOUND_PADDING_MIN, METRIC_COMPOUND_PADDING_MAX)
         } else if fixed_width_auto {
-            (COCKPIT_PANEL_PADDING_MIN, METRICS_AUTO_EXPANDED_GAP_MAX * 2.0 + 4.0)
+            (
+                COCKPIT_PANEL_PADDING_MIN,
+                METRICS_AUTO_EXPANDED_GAP_MAX * 2.0 + 4.0,
+            )
         } else {
             (COCKPIT_PANEL_PADDING_MIN, COCKPIT_PANEL_PADDING_MAX)
         };
         let too_small = values
             .iter()
             .any(|value| *value > 0.0 && *value < padding_min - 0.1);
-        let too_large = values
-            .iter()
-            .any(|value| *value > padding_budget_max + 0.1);
+        let too_large = values.iter().any(|value| *value > padding_budget_max + 0.1);
         if too_small || too_large {
             diagnostics.push(Diagnostic {
                 severity: Severity::Info,
@@ -561,13 +562,7 @@ pub(super) fn audit_metric_compound_row_budget(
         .first()
         .and_then(node_height_track)
         .into_iter()
-        .chain(
-            panel
-                .blocks
-                .iter()
-                .skip(1)
-                .filter_map(node_height_track),
-        )
+        .chain(panel.blocks.iter().skip(1).filter_map(node_height_track))
         .sum::<f64>();
     if hinted_sum > available + 1.0 {
         diagnostics.push(Diagnostic {

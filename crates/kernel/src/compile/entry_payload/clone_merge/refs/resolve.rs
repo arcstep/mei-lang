@@ -2,14 +2,14 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::compile::panel_normalize::{
-    seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
-    seed_metric_slot_vertical_align_defaults_from_base,
-};
 use crate::compile::load_external::{
     load_block_from_scene_file, load_entity_from_world_file, load_flow_from_file,
     load_frame_from_file, load_panel_from_scene_file, load_resource_from_world_file,
     load_scene_from_file, load_world_from_file,
+};
+use crate::compile::panel_normalize::{
+    seed_metric_block_vertical_align_from_base, seed_metric_desc_runtime_from_shell,
+    seed_metric_slot_vertical_align_defaults_from_base,
 };
 use crate::model::{
     Diagnostic, EntityDecl, FlowDecl, FrameDecl, PanelDecl, ResourceDecl, SceneDecl, Severity,
@@ -17,9 +17,9 @@ use crate::model::{
 };
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
-use crate::compile::entry_payload::import_scope::rewrite_panel_import_refs;
 use super::super::normalize::normalize_ui_nodes;
 use super::merge_decl::merge_panel_decl;
+use crate::compile::entry_payload::import_scope::rewrite_panel_import_refs;
 
 pub(crate) fn resolve_ref_path(
     expr: &RefExpr,

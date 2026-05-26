@@ -25,8 +25,8 @@ fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>)
     }
 }
 
-use super::helpers::load_resources_from_capsule_file;
 use super::super::materialize::imported_world_metrics_resource_id;
+use super::helpers::load_resources_from_capsule_file;
 
 fn namespaced_metric_key(capsule_path: &str, local_key: &str) -> String {
     if local_key.contains("::") {
@@ -122,7 +122,11 @@ pub(crate) fn load_namespaced_capsule_resources(
     Ok(out)
 }
 
-fn rewrite_local_dataset_token(map: &mut serde_json::Map<String, Value>, field: &str, capsule_path: &str) {
+fn rewrite_local_dataset_token(
+    map: &mut serde_json::Map<String, Value>,
+    field: &str,
+    capsule_path: &str,
+) {
     let Some(token) = map
         .get(field)
         .and_then(Value::as_str)
@@ -134,10 +138,7 @@ fn rewrite_local_dataset_token(map: &mut serde_json::Map<String, Value>, field: 
     if token.contains("::") || token.ends_with(".mei") || token == "__source_path__" {
         return;
     }
-    let stripped = token
-        .strip_prefix("dataset.")
-        .unwrap_or(token)
-        .trim();
+    let stripped = token.strip_prefix("dataset.").unwrap_or(token).trim();
     if stripped.is_empty() {
         return;
     }

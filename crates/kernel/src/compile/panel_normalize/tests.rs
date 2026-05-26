@@ -605,7 +605,10 @@ fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
     }];
     let mut diagnostics = Vec::new();
     normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
-    let layout = panels[0].layout.as_ref().expect("metrics auto fixed layout");
+    let layout = panels[0]
+        .layout
+        .as_ref()
+        .expect("metrics auto fixed layout");
     assert_eq!(
         layout.columns.as_ref(),
         Some(&vec![
@@ -722,7 +725,11 @@ fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_align
             layout: Some(LayoutDecl {
                 layout_type: "grid".to_string(),
                 direction: None,
-                columns: Some(vec!["auto".to_string(), "auto".to_string(), "auto".to_string()]),
+                columns: Some(vec![
+                    "auto".to_string(),
+                    "auto".to_string(),
+                    "auto".to_string(),
+                ]),
                 rows: Some(vec!["1fr".to_string()]),
                 areas: Some(vec![vec![
                     "label".to_string(),
@@ -871,7 +878,10 @@ fn normalize_metric_compound_respects_top_band_ratio_props() {
     assert_eq!(rows.len(), 2);
     let top_px = rows[0].trim_end_matches("px").parse::<f64>().unwrap();
     let bottom_px = rows[1].trim_end_matches("px").parse::<f64>().unwrap();
-    assert!((top_px - 49.0).abs() < 1.5, "top row should be ~half of 100-2 gap, got {top_px}");
+    assert!(
+        (top_px - 49.0).abs() < 1.5,
+        "top row should be ~half of 100-2 gap, got {top_px}"
+    );
     assert!((bottom_px - 49.0).abs() < 1.5, "bottom row got {bottom_px}");
 }
 
@@ -1294,10 +1304,7 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
         other => panic!("expected mei.text block, got {other:?}"),
     };
     assert_eq!(
-        block
-            .props
-            .get("metric_v_align")
-            .and_then(Value::as_str),
+        block.props.get("metric_v_align").and_then(Value::as_str),
         Some("center")
     );
 }
@@ -1377,10 +1384,7 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
         other => panic!("expected block, got {other:?}"),
     };
     assert_eq!(
-        block
-            .props
-            .get("metric_v_align")
-            .and_then(Value::as_str),
+        block.props.get("metric_v_align").and_then(Value::as_str),
         Some("center"),
         "shell label_vertical_align must win over card_plain label end default"
     );

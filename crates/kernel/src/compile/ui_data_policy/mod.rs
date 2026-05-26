@@ -93,8 +93,10 @@ pub(super) fn validate_scene_ui_data_bindings(
                 }),
         )
         .collect();
-    let merged_resource_ids: BTreeSet<String> =
-        resources.iter().map(|resource| resource.id.clone()).collect();
+    let merged_resource_ids: BTreeSet<String> = resources
+        .iter()
+        .map(|resource| resource.id.clone())
+        .collect();
     let merged_metric_ids: BTreeSet<String> = resources
         .iter()
         .filter_map(|resource| resource.dataset.as_ref())

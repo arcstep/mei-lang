@@ -15,9 +15,13 @@ pub(super) fn collect_resource_ref_issues(
     let mut out = Vec::new();
     match value {
         Value::Object(map) => {
-            if let Some((code, message)) =
-                resource_ref_issue(map, host_resource_ids, host_metric_ids, merged_resource_ids, merged_metric_ids)
-            {
+            if let Some((code, message)) = resource_ref_issue(
+                map,
+                host_resource_ids,
+                host_metric_ids,
+                merged_resource_ids,
+                merged_metric_ids,
+            ) {
                 out.push((path.to_string(), code, message));
             }
             for (key, child) in map {

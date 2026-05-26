@@ -43,10 +43,7 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
     } else {
         resource_id
     };
-    if resources
-        .iter()
-        .any(|resource| resource.id == resource_id)
-    {
+    if resources.iter().any(|resource| resource.id == resource_id) {
         return;
     }
     let mut metrics = BTreeMap::<String, MetricContract>::new();

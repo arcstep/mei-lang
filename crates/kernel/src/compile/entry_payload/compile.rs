@@ -31,8 +31,7 @@ use super::clone_merge::{
 };
 use super::helpers::{
     all_world_resource_decls, collect_asset_keys_from_nodes, decode_world_dataset_decl,
-    decode_world_metric_pack_decl, insert_resource_checked,
-    partition_world_resources,
+    decode_world_metric_pack_decl, insert_resource_checked, partition_world_resources,
 };
 use super::CompiledScenePayload;
 use crate::typed_refs::SceneRegistry;
@@ -981,7 +980,9 @@ fn strip_invalid_shared_entries(value: &Value) -> Value {
             }
             Value::Object(out)
         }
-        Value::Array(items) => Value::Array(items.iter().map(strip_invalid_shared_entries).collect()),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(strip_invalid_shared_entries).collect())
+        }
         _ => value.clone(),
     }
 }
