@@ -19,7 +19,7 @@ use axum::{
     Router,
 };
 use clap::{Parser, Subcommand};
-use mei_lang_kernel::CompiledApp;
+use mei_lang_kernel::{CompileWatchedFile, CompiledApp};
 use std::time::Instant;
 use tracing::Instrument;
 
@@ -107,7 +107,10 @@ pub(crate) struct AppState {
 
 #[derive(Clone)]
 pub(crate) struct CachedCompiledApp {
+    pub coarse_revision: u128,
     pub compile_revision: String,
+    pub watched_files: Vec<CompileWatchedFile>,
+    pub components_revision: u128,
     pub compiled: CompiledApp,
 }
 

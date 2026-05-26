@@ -4,7 +4,9 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use mei_lang_kernel::{compile_revision_token_from_root_with_options, CompileOptions};
+use mei_lang_kernel::{
+    compile_revision_plan_from_root_with_options, CompileOptions, CompileWatchedFile,
+};
 use walkdir::WalkDir;
 
 use crate::AppState;
@@ -13,6 +15,32 @@ use crate::AppState;
 pub(crate) struct CompileRevisionStamp {
     pub token: String,
     pub scope: &'static str,
+    pub watched_files: Vec<CompileWatchedFile>,
+    pub components_revision: u128,
+}
+
+pub(crate) fn coarse_compile_revision(
+    state: &AppState,
+    app_id: &str,
+    components_root: &Path,
+) -> u128 {
+    let app_root = state.source_root.join(app_id);
+    if compile_revision_mode() == RevisionMode::Full {
+        let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);
+        let components_mtime = directory_latest_full_modified_ms(components_root).unwrap_or(0);
+        return app_mtime.max(components_mtime);
+    }
+    let app_mtime = directory_latest_modified_ms(&app_root, RevisionScope::App).unwrap_or(0);
+    let components_mtime =
+        directory_latest_modified_ms(components_root, RevisionScope::Components).unwrap_or(0);
+    app_mtime.max(components_mtime)
+}
+
+pub(crate) fn components_revision(components_root: &Path) -> u128 {
+    if compile_revision_mode() == RevisionMode::Full {
+        return directory_latest_full_modified_ms(components_root).unwrap_or(0);
+    }
+    directory_latest_modified_ms(components_root, RevisionScope::Components).unwrap_or(0)
 }
 
 pub(crate) fn compile_revision(
@@ -22,12 +50,14 @@ pub(crate) fn compile_revision(
     components_root: &Path,
 ) -> CompileRevisionStamp {
     let app_root = state.source_root.join(app_id);
-    if let Ok(token) =
-        compile_revision_token_from_root_with_options(&state.source_root, &app_root, options)
+    if let Ok(plan) =
+        compile_revision_plan_from_root_with_options(&state.source_root, &app_root, options)
     {
         return CompileRevisionStamp {
-            token,
+            token: plan.token,
             scope: "focused_graph",
+            watched_files: plan.watched_files,
+            components_revision: plan.components_revision,
         };
     }
     compile_revision_fallback(&app_root, components_root)
@@ -40,6 +70,8 @@ fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> Compile
         return CompileRevisionStamp {
             token: app_mtime.max(components_mtime).to_string(),
             scope: "full_mtime",
+            watched_files: Vec::new(),
+            components_revision: components_mtime,
         };
     }
     let app_mtime = directory_latest_modified_ms(&app_root, RevisionScope::App).unwrap_or(0);
@@ -48,6 +80,8 @@ fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> Compile
     CompileRevisionStamp {
         token: app_mtime.max(components_mtime).to_string(),
         scope: "relevant_mtime",
+        watched_files: Vec::new(),
+        components_revision: components_mtime,
     }
 }
 

@@ -204,6 +204,23 @@ fn take_scene_payload_cache(key: &str) -> Option<CompiledScenePayload> {
         .and_then(|cache| cache.get(key).cloned())
 }
 
+pub(super) fn scene_payload_cache_has_entry(
+    app_root: &Path,
+    source_root: &Path,
+    target_file: &str,
+    dependency_fingerprint: Option<&str>,
+) -> bool {
+    let Some(key) =
+        scene_payload_cache_key(app_root, source_root, target_file, dependency_fingerprint)
+    else {
+        return false;
+    };
+    SCENE_PAYLOAD_CACHE
+        .lock()
+        .ok()
+        .is_some_and(|cache| cache.contains_key(&key))
+}
+
 /// 带 L2 缓存的 scene payload 编译入口；所有内核路径应经此函数调用。
 pub(super) fn compile_scene_payload_for_target(
     app_root: &Path,

@@ -16,8 +16,8 @@ use crate::compile::{
 use crate::eval::evaluate_mei_file;
 use crate::model::CompiledSceneRoute;
 use crate::{
-    compile_app_from_root_with_options, compile_revision_token_from_root_with_options,
-    CompileOptions,
+    compile_app_from_root_with_options, compile_revision_plan_from_root_with_options,
+    compile_revision_token_from_root_with_options, CompileOptions,
 };
 
 fn write_spbjw_like_app(root: &Path) {
@@ -322,6 +322,37 @@ frame.add_panel(id = "right_panel", area = "main", blocks = [text("changed")])
     assert_eq!(
         first, second,
         "selected scene revision token should ignore unrelated route changes"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_revision_plan_tracks_only_relevant_watch_files() {
+    let root = std::env::temp_dir().join(format!("mei-revision-plan-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_multi_route_app(&root);
+    let options = CompileOptions {
+        scene: Some("left".to_string()),
+        preview_target: None,
+    };
+    let plan = compile_revision_plan_from_root_with_options(&root, &root, &options)
+        .expect("revision plan");
+    let watched: Vec<&str> = plan
+        .watched_files
+        .iter()
+        .map(|item| item.rel_path.as_str())
+        .collect();
+    assert!(
+        watched.contains(&"main.mei"),
+        "revision plan should always watch main.mei"
+    );
+    assert!(
+        watched.contains(&"scenes/left.mei"),
+        "selected route should stay in watch set"
+    );
+    assert!(
+        !watched.contains(&"scenes/right.mei"),
+        "unrelated route should not enter focused watch set"
     );
     let _ = fs::remove_dir_all(&root);
 }

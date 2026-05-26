@@ -6,7 +6,10 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use mei_lang_app::{render_page, UiRouteMode};
-use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledApp, Severity};
+use mei_lang_kernel::{
+    discover_apps, read_source_file, resolve_default_scene_from_root, CompileOptions, CompiledApp,
+    Severity,
+};
 
 use crate::{AppError, AppState};
 
@@ -72,6 +75,10 @@ fn insert_manage_compile_request_headers(res: &mut Response, outcome: &CompileWi
         (
             "x-mei-compile-revision-scope",
             outcome.revision_scope.clone(),
+        ),
+        (
+            "x-mei-compile-cache-validation",
+            outcome.cache_validation.clone(),
         ),
         ("x-mei-compile-ms", outcome.compile_ms.to_string()),
         (
@@ -164,6 +171,16 @@ pub async fn app_page(
                 query.chrome.as_deref(),
             ))
             .into_response());
+        } else if let Ok(Some(default_scene)) =
+            resolve_default_scene_from_root(&state.source_root.join(&app_id))
+        {
+            return Ok(Redirect::temporary(&access_canonical_location(
+                &app_id,
+                &default_scene,
+                query.tab.as_deref(),
+                query.chrome.as_deref(),
+            ))
+            .into_response());
         }
     }
     let discover_started = Instant::now();
@@ -213,6 +230,7 @@ pub async fn app_page(
                 compiled: hit.compiled,
                 cache_hit: true,
                 revision_scope: hit.revision_scope,
+                cache_validation: hit.cache_validation,
                 cache_lookup_ms: elapsed_ms(peek_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
@@ -242,6 +260,7 @@ pub async fn app_page(
                 let CompileWithCacheFailure {
                     error,
                     revision_scope,
+                    cache_validation,
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms,
@@ -250,6 +269,7 @@ pub async fn app_page(
                     app_id = %app_id,
                     %error,
                     revision_scope,
+                    cache_validation,
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms,
@@ -357,6 +377,7 @@ pub async fn app_page(
     };
     let compile_cache_hit = compile_outcome.cache_hit;
     let compile_revision_scope = compile_outcome.revision_scope.clone();
+    let compile_cache_validation = compile_outcome.cache_validation.clone();
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let mut compiled = compile_outcome.compiled;
@@ -523,28 +544,27 @@ pub async fn app_page(
         (h, ssr_emit_ms, handler_ms)
     };
     let mut res = Html(html).into_response();
-    if route_mode == UiRouteMode::Manage {
-        if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
-            res.headers_mut()
-                .insert(HeaderName::from_static("x-mei-handler-html-ready-ms"), v);
-        }
-        if let Ok(v) = HeaderValue::from_str(&ssr_http_response_body_ms.to_string()) {
-            res.headers_mut().insert(
-                HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
-                v,
-            );
-        }
-        insert_manage_compile_observability_headers(&mut res, &compiled);
-        let request_meta = CompileWithCacheOutcome {
-            compiled: compiled.clone(),
-            cache_hit: compile_cache_hit,
-            revision_scope: compile_revision_scope.clone(),
-            cache_lookup_ms: compile_cache_lookup_ms,
-            compile_cache_lock_wait_ms: 0,
-            compile_ms,
-        };
-        insert_manage_compile_request_headers(&mut res, &request_meta);
+    if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
+        res.headers_mut()
+            .insert(HeaderName::from_static("x-mei-handler-html-ready-ms"), v);
     }
+    if let Ok(v) = HeaderValue::from_str(&ssr_http_response_body_ms.to_string()) {
+        res.headers_mut().insert(
+            HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
+            v,
+        );
+    }
+    insert_manage_compile_observability_headers(&mut res, &compiled);
+    let request_meta = CompileWithCacheOutcome {
+        compiled: compiled.clone(),
+        cache_hit: compile_cache_hit,
+        revision_scope: compile_revision_scope.clone(),
+        cache_validation: compile_cache_validation.clone(),
+        cache_lookup_ms: compile_cache_lookup_ms,
+        compile_cache_lock_wait_ms: 0,
+        compile_ms,
+    };
+    insert_manage_compile_request_headers(&mut res, &request_meta);
     tracing::info!(
         app_id = %app_id,
         route_mode = route_mode.slug(),

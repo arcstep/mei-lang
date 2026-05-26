@@ -2,6 +2,7 @@ mod revision;
 
 use std::collections::HashMap;
 use std::env;
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,7 @@ pub(crate) struct CompileWithCacheOutcome {
     pub(crate) compiled: CompiledApp,
     pub(crate) cache_hit: bool,
     pub(crate) revision_scope: String,
+    pub(crate) cache_validation: String,
     pub(crate) cache_lookup_ms: u64,
     /// 等待 `compile_cache` Mutex 的累计时间（lookup + 写入各一次，不含锁外编译）。
     pub(crate) compile_cache_lock_wait_ms: u64,
@@ -22,6 +24,7 @@ pub(crate) struct CompileWithCacheOutcome {
 pub(crate) struct CompileWithCacheFailure {
     pub(crate) error: anyhow::Error,
     pub(crate) revision_scope: String,
+    pub(crate) cache_validation: String,
     pub(crate) cache_lookup_ms: u64,
     pub(crate) compile_cache_lock_wait_ms: u64,
     pub(crate) compile_ms: u64,
@@ -30,6 +33,7 @@ pub(crate) struct CompileWithCacheFailure {
 pub(crate) struct PeekCompileCacheHit {
     pub(crate) compiled: CompiledApp,
     pub(crate) revision_scope: String,
+    pub(crate) cache_validation: String,
 }
 
 struct CompileInflight {
@@ -181,6 +185,7 @@ pub(crate) fn compile_app_with_cache(
                 compiled,
                 cache_hit: true,
                 revision_scope: "singleflight_wait".to_string(),
+                cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
@@ -188,6 +193,7 @@ pub(crate) fn compile_app_with_cache(
             Err(message) => Err(CompileWithCacheFailure {
                 error: anyhow::anyhow!(message),
                 revision_scope: "singleflight_wait".to_string(),
+                cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
@@ -216,7 +222,6 @@ fn compile_app_with_cache_uncached_path(
     options: CompileOptions,
     components_root: &std::path::Path,
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
-    let revision_stamp = revision::compile_revision(state, app_id, &options, components_root);
     let lookup_lock_started = Instant::now();
     let cache_lookup_ms;
     let mut compile_cache_lock_wait_ms = 0u64;
@@ -224,12 +229,40 @@ fn compile_app_with_cache_uncached_path(
         compile_cache_lock_wait_ms += elapsed_ms(lookup_lock_started);
         let lookup_started = Instant::now();
         if let Some(entry) = cache.get(cache_key) {
+            if watched_files_are_fresh(&state.source_root, app_id, entry, components_root) {
+                cache_lookup_ms = elapsed_ms(lookup_started);
+                return Ok(CompileWithCacheOutcome {
+                    compiled: entry.compiled.clone(),
+                    cache_hit: true,
+                    revision_scope: "watch_set".to_string(),
+                    cache_validation: "watch_set".to_string(),
+                    cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
+                    compile_ms: 0,
+                });
+            }
+            let coarse_revision = revision::coarse_compile_revision(state, app_id, components_root);
+            if entry.coarse_revision == coarse_revision {
+                cache_lookup_ms = elapsed_ms(lookup_started);
+                return Ok(CompileWithCacheOutcome {
+                    compiled: entry.compiled.clone(),
+                    cache_hit: true,
+                    revision_scope: "coarse_fast_path".to_string(),
+                    cache_validation: "coarse_fast_path".to_string(),
+                    cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
+                    compile_ms: 0,
+                });
+            }
+            let revision_stamp =
+                revision::compile_revision(state, app_id, &options, components_root);
             if entry.compile_revision == revision_stamp.token {
                 cache_lookup_ms = elapsed_ms(lookup_started);
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
                     revision_scope: revision_stamp.scope.to_string(),
+                    cache_validation: "focused_token".to_string(),
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms: 0,
@@ -244,6 +277,9 @@ fn compile_app_with_cache_uncached_path(
         );
         cache_lookup_ms = elapsed_ms(lookup_lock_started);
     }
+    let revision_stamp = revision::compile_revision(state, app_id, &options, components_root);
+    let coarse_revision = revision::coarse_compile_revision(state, app_id, components_root);
+    let alias_options = options.clone();
     let compile_started = Instant::now();
     let compiled = match compile_app_with_options(&state.source_root, app_id, options) {
         Ok(compiled) => compiled,
@@ -251,6 +287,7 @@ fn compile_app_with_cache_uncached_path(
             return Err(CompileWithCacheFailure {
                 error,
                 revision_scope: revision_stamp.scope.to_string(),
+                cache_validation: "miss".to_string(),
                 cache_lookup_ms,
                 compile_cache_lock_wait_ms,
                 compile_ms: elapsed_ms(compile_started),
@@ -264,13 +301,17 @@ fn compile_app_with_cache_uncached_path(
         if cache.len() >= 128 {
             cache.clear();
         }
-        cache.insert(
-            cache_key.to_string(),
-            CachedCompiledApp {
-                compile_revision: revision_stamp.token,
-                compiled: compiled.clone(),
-            },
-        );
+        let cache_entry = CachedCompiledApp {
+            coarse_revision,
+            compile_revision: revision_stamp.token,
+            watched_files: revision_stamp.watched_files,
+            components_revision: revision_stamp.components_revision,
+            compiled: compiled.clone(),
+        };
+        cache.insert(cache_key.to_string(), cache_entry.clone());
+        for alias_key in default_scene_alias_keys(app_id, &alias_options, &compiled) {
+            cache.insert(alias_key, cache_entry.clone());
+        }
     } else {
         tracing::warn!(
             app_id = %app_id,
@@ -282,6 +323,7 @@ fn compile_app_with_cache_uncached_path(
         compiled,
         cache_hit: false,
         revision_scope: revision_stamp.scope.to_string(),
+        cache_validation: "miss".to_string(),
         cache_lookup_ms,
         compile_cache_lock_wait_ms,
         compile_ms,
@@ -295,13 +337,21 @@ pub(crate) fn peek_compile_cache(
     components_root: &std::path::Path,
 ) -> Option<CompiledApp> {
     let cache_key = compile_cache_key(app_id, options);
-    let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
     let cache = state.compile_cache.lock().ok()?;
     let entry = cache.get(&cache_key)?;
-    if entry.compile_revision == revision_stamp.token {
+    if watched_files_are_fresh(&state.source_root, app_id, entry, components_root) {
+        Some(entry.compiled.clone())
+    } else if entry.coarse_revision
+        == revision::coarse_compile_revision(state, app_id, components_root)
+    {
         Some(entry.compiled.clone())
     } else {
-        None
+        let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
+        if entry.compile_revision == revision_stamp.token {
+            Some(entry.compiled.clone())
+        } else {
+            None
+        }
     }
 }
 
@@ -312,16 +362,33 @@ pub(crate) fn peek_compile_cache_hit(
     components_root: &std::path::Path,
 ) -> Option<PeekCompileCacheHit> {
     let cache_key = compile_cache_key(app_id, options);
-    let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
     let cache = state.compile_cache.lock().ok()?;
     let entry = cache.get(&cache_key)?;
-    if entry.compile_revision == revision_stamp.token {
+    if watched_files_are_fresh(&state.source_root, app_id, entry, components_root) {
         Some(PeekCompileCacheHit {
             compiled: entry.compiled.clone(),
-            revision_scope: revision_stamp.scope.to_string(),
+            revision_scope: "watch_set".to_string(),
+            cache_validation: "watch_set".to_string(),
+        })
+    } else if entry.coarse_revision
+        == revision::coarse_compile_revision(state, app_id, components_root)
+    {
+        Some(PeekCompileCacheHit {
+            compiled: entry.compiled.clone(),
+            revision_scope: "coarse_fast_path".to_string(),
+            cache_validation: "coarse_fast_path".to_string(),
         })
     } else {
-        None
+        let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
+        if entry.compile_revision == revision_stamp.token {
+            Some(PeekCompileCacheHit {
+                compiled: entry.compiled.clone(),
+                revision_scope: revision_stamp.scope.to_string(),
+                cache_validation: "focused_token".to_string(),
+            })
+        } else {
+            None
+        }
     }
 }
 
@@ -360,4 +427,78 @@ fn compile_cache_key(app_id: &str, options: &CompileOptions) -> String {
 
 fn elapsed_ms(started: Instant) -> u64 {
     started.elapsed().as_millis() as u64
+}
+
+fn watched_files_are_fresh(
+    source_root: &Path,
+    app_id: &str,
+    entry: &CachedCompiledApp,
+    components_root: &Path,
+) -> bool {
+    if entry.watched_files.is_empty() {
+        return false;
+    }
+    if entry.components_revision != revision::components_revision(components_root) {
+        return false;
+    }
+    let app_root = source_root.join(app_id);
+    entry.watched_files.iter().all(|watched| {
+        let path = app_root.join(&watched.rel_path);
+        let Ok(metadata) = std::fs::metadata(&path) else {
+            return false;
+        };
+        let modified_ms = metadata
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|dur| dur.as_millis())
+            .unwrap_or(0);
+        metadata.len() == watched.size_bytes && modified_ms == watched.modified_ms
+    })
+}
+
+fn default_scene_alias_keys(
+    app_id: &str,
+    options: &CompileOptions,
+    compiled: &CompiledApp,
+) -> Vec<String> {
+    if options.preview_target.is_some() {
+        return Vec::new();
+    }
+    let active_scene = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+    let default_scene = compiled
+        .scene_routes
+        .iter()
+        .find(|route| route.is_default)
+        .map(|route| route.scene_id.trim())
+        .filter(|scene| !scene.is_empty());
+    let (Some(active_scene), Some(default_scene)) = (active_scene, default_scene) else {
+        return Vec::new();
+    };
+    if active_scene != default_scene {
+        return Vec::new();
+    }
+    let primary_key = compile_cache_key(app_id, options);
+    let default_key = compile_cache_key(
+        app_id,
+        &CompileOptions {
+            scene: None,
+            preview_target: None,
+        },
+    );
+    let explicit_default_key = compile_cache_key(
+        app_id,
+        &CompileOptions {
+            scene: Some(default_scene.to_string()),
+            preview_target: None,
+        },
+    );
+    [default_key, explicit_default_key]
+        .into_iter()
+        .filter(|candidate| candidate != &primary_key)
+        .collect()
 }

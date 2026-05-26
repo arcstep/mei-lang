@@ -1,7 +1,8 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    sync::{Arc, Mutex},
+    time::{Instant, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Result};
@@ -52,7 +53,10 @@ use entry_payload::CompiledScenePayload;
 use materialize::{append_world_metrics_dataset_resource, materialize_world_metrics};
 use materialize_cache::dataset_materialize_cache_metrics_snapshot;
 use scene::{find_scene_route, resolve_scene_routes};
-use scene_payload_cache::{compile_scene_payload_for_target, scene_payload_cache_metrics_snapshot};
+use scene_payload_cache::{
+    compile_scene_payload_for_target, scene_payload_cache_has_entry,
+    scene_payload_cache_metrics_snapshot,
+};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
 /// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
@@ -323,6 +327,216 @@ pub struct CompileOptions {
     pub preview_target: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompileWatchedFile {
+    pub rel_path: String,
+    pub modified_ms: u128,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileRevisionPlan {
+    pub token: String,
+    pub watched_files: Vec<CompileWatchedFile>,
+    pub components_revision: u128,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct RoutePrecompileStats {
+    attempted: usize,
+    l2_hits: usize,
+    l2_misses: usize,
+    parallelism: usize,
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis() as u64
+}
+
+fn route_compile_parallelism(max_jobs: usize) -> usize {
+    if max_jobs == 0 {
+        return 0;
+    }
+    let default_workers = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1)
+        .clamp(1, 8);
+    let configured = std::env::var("MEI_ROUTE_COMPILE_PARALLELISM")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_workers);
+    configured.clamp(1, max_jobs)
+}
+
+fn resolve_active_route_meta(
+    routes: &[CompiledSceneRoute],
+    default_scene_id: Option<&str>,
+    scene_selector: Option<&str>,
+    preview_target: Option<&str>,
+) -> (Option<CompiledSceneRoute>, bool) {
+    if let Some(requested) = scene_selector {
+        let requested = requested.trim();
+        if requested.is_empty() {
+            let selected = default_scene_id
+                .and_then(|scene_id| find_scene_route(routes, scene_id))
+                .cloned()
+                .or_else(|| routes.first().cloned());
+            return (selected, false);
+        }
+        let selected = find_scene_route(routes, requested).cloned();
+        if selected.is_some() {
+            return (selected, false);
+        }
+        let preview_route = preview_target
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .and_then(|target| routes.iter().find(|route| route.target_file == target))
+            .cloned();
+        let fallback = preview_route
+            .or_else(|| {
+                default_scene_id
+                    .and_then(|scene_id| find_scene_route(routes, scene_id))
+                    .cloned()
+            })
+            .or_else(|| routes.first().cloned());
+        return (fallback, true);
+    }
+    (
+        default_scene_id
+            .and_then(|scene_id| find_scene_route(routes, scene_id))
+            .cloned()
+            .or_else(|| routes.first().cloned()),
+        false,
+    )
+}
+
+fn precompile_route_payloads(
+    app_root: &Path,
+    source_root: &Path,
+    app_decls: &Value,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    scene_registry: &SceneRegistry,
+    dependency_graph: &DependencyGraph,
+    routes: &[CompiledSceneRoute],
+    official_results: &mut BTreeMap<String, CompiledScenePayload>,
+) -> RoutePrecompileStats {
+    if routes.is_empty() {
+        return RoutePrecompileStats::default();
+    }
+    let parallelism = route_compile_parallelism(routes.len());
+    if parallelism <= 1 || routes.len() <= 1 {
+        let mut stats = RoutePrecompileStats {
+            attempted: 0,
+            l2_hits: 0,
+            l2_misses: 0,
+            parallelism: 1,
+        };
+        for route in routes {
+            let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+                app_root,
+                app_decls,
+                route.target_file.as_str(),
+            );
+            let cache_hit = scene_payload_cache_has_entry(
+                app_root,
+                source_root,
+                route.target_file.as_str(),
+                dependency_fingerprint.as_deref(),
+            );
+            let payload = compile_scene_payload_for_target(
+                app_root,
+                source_root,
+                app_decls,
+                asset_map,
+                route.target_file.as_str(),
+                Some(route),
+                scene_registry,
+                dependency_fingerprint.as_deref(),
+            );
+            official_results.insert(route.scene_id.clone(), payload);
+            stats.attempted += 1;
+            if cache_hit {
+                stats.l2_hits += 1;
+            } else {
+                stats.l2_misses += 1;
+            }
+        }
+        return stats;
+    }
+
+    let queue = Arc::new(Mutex::new(VecDeque::from(routes.to_vec())));
+    let output: Arc<Mutex<Vec<(CompiledSceneRoute, CompiledScenePayload, bool)>>> =
+        Arc::new(Mutex::new(Vec::with_capacity(routes.len())));
+    std::thread::scope(|scope| {
+        for _ in 0..parallelism {
+            let queue = Arc::clone(&queue);
+            let output = Arc::clone(&output);
+            scope.spawn(move || loop {
+                let route = match queue.lock() {
+                    Ok(mut guard) => guard.pop_front(),
+                    Err(_) => None,
+                };
+                let Some(route) = route else {
+                    break;
+                };
+                let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+                    app_root,
+                    app_decls,
+                    route.target_file.as_str(),
+                );
+                let cache_hit = scene_payload_cache_has_entry(
+                    app_root,
+                    source_root,
+                    route.target_file.as_str(),
+                    dependency_fingerprint.as_deref(),
+                );
+                let payload = compile_scene_payload_for_target(
+                    app_root,
+                    source_root,
+                    app_decls,
+                    asset_map,
+                    route.target_file.as_str(),
+                    Some(&route),
+                    scene_registry,
+                    dependency_fingerprint.as_deref(),
+                );
+                if let Ok(mut guard) = output.lock() {
+                    guard.push((route, payload, cache_hit));
+                }
+            });
+        }
+    });
+
+    let mut rows = output.lock().map(|guard| guard.clone()).unwrap_or_default();
+    let route_order = routes
+        .iter()
+        .enumerate()
+        .map(|(index, route)| ((route.scene_id.clone(), route.target_file.clone()), index))
+        .collect::<BTreeMap<_, _>>();
+    rows.sort_by_key(|(route, _, _)| {
+        route_order
+            .get(&(route.scene_id.clone(), route.target_file.clone()))
+            .copied()
+            .unwrap_or(usize::MAX)
+    });
+    let mut stats = RoutePrecompileStats {
+        attempted: rows.len(),
+        l2_hits: 0,
+        l2_misses: 0,
+        parallelism,
+    };
+    for (route, payload, cache_hit) in rows {
+        official_results.insert(route.scene_id.clone(), payload);
+        if cache_hit {
+            stats.l2_hits += 1;
+        } else {
+            stats.l2_misses += 1;
+        }
+    }
+    stats
+}
+
 pub fn compile_app(source_root: &Path, app_id: &str) -> Result<CompiledApp> {
     compile_app_with_options(source_root, app_id, CompileOptions::default())
 }
@@ -340,11 +554,30 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
     compile_app_from_root_with_options(source_root, app_root, CompileOptions::default())
 }
 
-pub fn compile_revision_token_from_root_with_options(
+pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
+    let app_main = app_root.join("main.mei");
+    let app_decls = evaluate_mei_file(&app_main)?;
+    let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
+    let app_decl =
+        app_decl.ok_or_else(|| anyhow!("{} missing app(...) declaration", app_main.display()))?;
+    let route_registry = resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
+    Ok(route_registry
+        .default_scene_id
+        .or_else(|| {
+            route_registry
+                .routes
+                .first()
+                .map(|route| route.scene_id.clone())
+        })
+        .map(|scene_id| scene_id.trim().to_string())
+        .filter(|scene_id| !scene_id.is_empty()))
+}
+
+pub fn compile_revision_plan_from_root_with_options(
     source_root: &Path,
     app_root: &Path,
     options: &CompileOptions,
-) -> Result<String> {
+) -> Result<CompileRevisionPlan> {
     let app_main = app_root.join("main.mei");
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
@@ -427,15 +660,23 @@ pub fn compile_revision_token_from_root_with_options(
     };
 
     let mut token_parts = BTreeMap::<String, String>::new();
+    let mut watched_paths = BTreeSet::<String>::new();
+    watched_paths.insert("main.mei".to_string());
     if let Some(main_token) =
         dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, "main.mei")
     {
         token_parts.insert("main".to_string(), main_token);
+        watched_paths.extend(dependency_graph.closure_for_target(app_root, &app_decls, "main.mei"));
     }
     if let Some(primary_token) =
         dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &primary_target)
     {
         token_parts.insert(format!("target:{primary_target}"), primary_token);
+        watched_paths.extend(dependency_graph.closure_for_target(
+            app_root,
+            &app_decls,
+            &primary_target,
+        ));
     }
     if !dataset_manage_preview {
         for rel in catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter) {
@@ -443,13 +684,39 @@ pub fn compile_revision_token_from_root_with_options(
                 dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &rel)
             {
                 token_parts.insert(format!("catalog:{rel}"), token);
+                watched_paths
+                    .extend(dependency_graph.closure_for_target(app_root, &app_decls, &rel));
             }
         }
     }
 
     let components_revision = scene_payload_cache::components_revision(source_root);
     token_parts.insert("components".to_string(), components_revision.to_string());
-    Ok(token_parts.into_values().collect::<Vec<_>>().join("||"))
+    let watched_files = watched_paths
+        .into_iter()
+        .map(|rel_path| {
+            let path = app_root.join(&rel_path);
+            let metadata = std::fs::metadata(&path).ok();
+            CompileWatchedFile {
+                rel_path,
+                modified_ms: scene_payload_cache::file_mtime_ms(&path),
+                size_bytes: metadata.map(|meta| meta.len()).unwrap_or(0),
+            }
+        })
+        .collect();
+    Ok(CompileRevisionPlan {
+        token: token_parts.into_values().collect::<Vec<_>>().join("||"),
+        watched_files,
+        components_revision,
+    })
+}
+
+pub fn compile_revision_token_from_root_with_options(
+    source_root: &Path,
+    app_root: &Path,
+    options: &CompileOptions,
+) -> Result<String> {
+    Ok(compile_revision_plan_from_root_with_options(source_root, app_root, options)?.token)
 }
 
 pub fn compile_app_from_root_with_options(
@@ -488,85 +755,85 @@ pub fn compile_app_from_root_with_options(
         preview_only,
     );
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    let dependency_graph_started = Instant::now();
     let dependency_graph =
         DependencyGraph::build_cached(app_root, &app_decls, &route_registry.routes);
+    let dependency_graph_build_ms = elapsed_ms(dependency_graph_started);
     let preview_affected_targets = options
         .preview_target
         .as_deref()
         .map(str::trim)
         .filter(|target| !target.is_empty())
         .map(|target| dependency_graph.dependent_targets_for_file(target));
+    let (active_route_meta, unknown_scene_requested) = resolve_active_route_meta(
+        &route_registry.routes,
+        route_registry.default_scene_id.as_deref(),
+        options.scene.as_deref(),
+        options.preview_target.as_deref(),
+    );
+    if unknown_scene_requested {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Warning,
+            code: "unknown_scene".to_string(),
+            message: format!(
+                "scene `{}` not found, fallback to default scene",
+                options.scene.as_deref().unwrap_or("")
+            ),
+            source_path: Some(app_main.to_string_lossy().to_string()),
+        });
+    }
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
-    for route in &route_registry.routes {
-        if preview_only
-            && !route_matches_preview_scope(
+    let mut precompile_routes = Vec::<CompiledSceneRoute>::new();
+    if preview_only {
+        for route in &route_registry.routes {
+            if route_matches_preview_scope(
                 route,
                 options.preview_target.as_deref(),
                 preview_affected_targets.as_ref(),
-            )
-        {
-            continue;
-        }
-        let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
-            app_root,
-            &app_decls,
-            route.target_file.as_str(),
-        );
-        let result = compile_scene_payload_for_target(
-            app_root,
-            source_root,
-            &app_decls,
-            &asset_map,
-            route.target_file.as_str(),
-            Some(route),
-            &scene_registry,
-            dependency_fingerprint.as_deref(),
-        );
-        official_results.insert(route.scene_id.clone(), result);
-    }
-
-    let active_route_meta = if let Some(requested) = options.scene.as_deref() {
-        let selected = find_scene_route(&route_registry.routes, requested).cloned();
-        if selected.is_none() {
-            let preview_route = options
-                .preview_target
-                .as_deref()
-                .map(str::trim)
-                .filter(|target| !target.is_empty())
-                .and_then(|target| {
-                    route_registry
-                        .routes
-                        .iter()
-                        .find(|route| route.target_file == target)
-                        .cloned()
-                });
-            if preview_route.is_none() {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Warning,
-                    code: "unknown_scene".to_string(),
-                    message: format!("scene `{requested}` not found, fallback to default scene"),
-                    source_path: Some(app_main.to_string_lossy().to_string()),
-                });
+            ) {
+                precompile_routes.push(route.clone());
             }
-            preview_route.or_else(|| {
-                route_registry
-                    .default_scene_id
-                    .as_deref()
-                    .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-                    .cloned()
-                    .or_else(|| route_registry.routes.first().cloned())
-            })
-        } else {
-            selected
         }
     } else {
-        route_registry
+        let mut route_by_target = BTreeMap::<String, CompiledSceneRoute>::new();
+        if let Some(route) = active_route_meta.as_ref() {
+            route_by_target.insert(route.target_file.clone(), route.clone());
+        }
+        if let Some(default_route) = route_registry
             .default_scene_id
             .as_deref()
             .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-            .cloned()
-            .or_else(|| route_registry.routes.first().cloned())
-    };
+        {
+            route_by_target.insert(default_route.target_file.clone(), default_route.clone());
+        }
+        if let Some(preview_route) = options
+            .preview_target
+            .as_deref()
+            .map(str::trim)
+            .filter(|target| !target.is_empty())
+            .and_then(|target| {
+                route_registry
+                    .routes
+                    .iter()
+                    .find(|route| route.target_file == target)
+            })
+        {
+            route_by_target.insert(preview_route.target_file.clone(), preview_route.clone());
+        }
+        precompile_routes = route_by_target.into_values().collect();
+    }
+    let official_results_started = Instant::now();
+    let route_precompile_stats = precompile_route_payloads(
+        app_root,
+        source_root,
+        &app_decls,
+        &asset_map,
+        &scene_registry,
+        &dependency_graph,
+        &precompile_routes,
+        &mut official_results,
+    );
+    let official_results_all_routes_ms = elapsed_ms(official_results_started);
 
     let selected_target = options
         .preview_target
@@ -574,7 +841,7 @@ pub fn compile_app_from_root_with_options(
         .map(str::trim)
         .filter(|target| !target.is_empty())
         .map(|value| value.to_string());
-
+    let active_payload_pick_started = Instant::now();
     let (active_scene, active_target_file, mut active_payload) = if let Some(target_file) =
         selected_target
     {
@@ -700,6 +967,7 @@ pub fn compile_app_from_root_with_options(
             ),
         )
     };
+    let active_payload_pick_or_compile_ms = elapsed_ms(active_payload_pick_started);
 
     diagnostics.append(&mut active_payload.diagnostics);
 
@@ -726,20 +994,67 @@ pub fn compile_app_from_root_with_options(
     } else {
         build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
     };
+    let mut catalog_compile_rels = 0usize;
+    let mut catalog_compile_ms = 0u64;
+    let mut catalog_l2_hit_delta = 0u64;
+    let mut catalog_l2_miss_delta = 0u64;
     let dataset_catalog = if dataset_manage_preview {
         Vec::new()
     } else {
-        compile_dataset_catalog_resources(
+        let l2_before_catalog = scene_payload_cache_metrics_snapshot();
+        let catalog_started = Instant::now();
+        catalog_compile_rels =
+            catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter).len();
+        let out = compile_dataset_catalog_resources(
             app_root,
             source_root,
             &app_decls,
             &asset_map,
             &catalog_filter,
             &dependency_graph,
-        )
+        );
+        catalog_compile_ms = elapsed_ms(catalog_started);
+        let l2_after_catalog = scene_payload_cache_metrics_snapshot();
+        catalog_l2_hit_delta = l2_after_catalog.0.saturating_sub(l2_before_catalog.0);
+        catalog_l2_miss_delta = l2_after_catalog.1.saturating_sub(l2_before_catalog.1);
+        out
     };
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "catalog_compile_stats".to_string(),
+        message: format!(
+            "dataset_manage_preview={}, compile_rels={}, l2_hits_delta={}, l2_misses_delta={}, catalog_compile_ms={}",
+            dataset_manage_preview,
+            catalog_compile_rels,
+            catalog_l2_hit_delta,
+            catalog_l2_miss_delta,
+            catalog_compile_ms
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "catalog_parallelism_eval".to_string(),
+        message: if dataset_manage_preview {
+            "decision=skip_preview_scope".to_string()
+        } else if catalog_compile_rels >= 8 && catalog_compile_ms >= 120 {
+            format!(
+                "decision=candidate, reason=high_catalog_cost, compile_rels={}, catalog_compile_ms={}",
+                catalog_compile_rels, catalog_compile_ms
+            )
+        } else {
+            format!(
+                "decision=defer, reason=low_catalog_cost, compile_rels={}, catalog_compile_ms={}",
+                catalog_compile_rels, catalog_compile_ms
+            )
+        },
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    let resource_merge_started = Instant::now();
     let scene_resources = active_payload.resources.clone();
     let mut resources = merge_resource_catalog(dataset_catalog, scene_resources);
+    let resource_merge_ms = elapsed_ms(resource_merge_started);
+    let world_metric_ledger_started = Instant::now();
     let direct_world_metrics = active_payload
         .scene_contract
         .as_ref()
@@ -748,6 +1063,7 @@ pub fn compile_app_from_root_with_options(
         .unwrap_or(&[]);
     let world_metrics = build_world_metric_ledger(&resources, direct_world_metrics)?;
     append_world_metrics_dataset_resource(&mut resources, &world_metrics, direct_world_metrics);
+    let world_metric_ledger_ms = elapsed_ms(world_metric_ledger_started);
     if let Some(contract) = active_payload.scene_contract.as_ref() {
         validate_imported_catalog_world_refs(
             contract,
@@ -757,6 +1073,36 @@ pub fn compile_app_from_root_with_options(
             &mut diagnostics,
         );
     }
+
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "compile_stage_timing".to_string(),
+        message: format!(
+            "dependency_graph_build_ms={}, official_results_all_routes_ms={}, active_payload_pick_or_compile_ms={}, catalog_compile_ms={}, resource_merge_ms={}, world_metric_ledger_ms={}",
+            dependency_graph_build_ms,
+            official_results_all_routes_ms,
+            active_payload_pick_or_compile_ms,
+            catalog_compile_ms,
+            resource_merge_ms,
+            world_metric_ledger_ms
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "route_precompile_stats".to_string(),
+        message: format!(
+            "routes_total={}, routes_precompile_candidates={}, routes_attempted={}, routes_l2_hits={}, routes_l2_misses={}, routes_recompiled={}, parallelism={}",
+            route_registry.routes.len(),
+            precompile_routes.len(),
+            route_precompile_stats.attempted,
+            route_precompile_stats.l2_hits,
+            route_precompile_stats.l2_misses,
+            route_precompile_stats.l2_misses,
+            route_precompile_stats.parallelism
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
 
     let active_shard = shards::build_scene_payload_shard(
         active_target_file.as_str(),

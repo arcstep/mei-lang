@@ -323,6 +323,56 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
 }
 
 #[tokio::test]
+async fn access_root_redirects_to_default_scene_path() {
+    let root = unique_test_root("multi-scene-access");
+    let app_root = root.join("multi-scene");
+    fs::create_dir_all(&app_root).expect("create multi-scene app root");
+    fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+    fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        compile_cache: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
+    };
+
+    let response = app_page(
+        State(state),
+        AxumPath(("access".to_string(), "multi-scene".to_string())),
+        Query(AppQuery {
+            file: None,
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: Some("none".to_string()),
+        }),
+    )
+    .await
+    .expect("render access redirect response");
+
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/apps/access/multi-scene/scene/home?tab=preview&chrome=none")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
     let root = unique_test_root("index-redirect");
     let broken_root = root.join("011-bad");
