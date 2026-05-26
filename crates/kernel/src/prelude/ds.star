@@ -186,6 +186,11 @@ def metric_explain(
     ratio_parts = None,
     detail_fields = None,
     recommended_dimensions = None,
+    metrics = None,
+    composition_by = None,
+    trend_field = None,
+    trend_grain = None,
+    detail_dataset = None,
 ):
     return _without_empty({
         "analyzable": analyzable,
@@ -195,6 +200,51 @@ def metric_explain(
         "ratio_parts": ratio_parts,
         "detail_fields": detail_fields,
         "recommended_dimensions": recommended_dimensions,
+        "metrics": metrics,
+        "composition_by": composition_by,
+        "trend_field": trend_field,
+        "trend_grain": trend_grain,
+        "detail_dataset": detail_dataset,
+    })
+
+def explain_metric(
+    kind,
+    label = None,
+    by = None,
+    date_field = None,
+    grain = None,
+    dataset = None,
+    fields = None,
+    metric = None,
+    scene_id = None,
+    scene_file = None,
+    headers = None,
+    mapping = None,
+    chart_kind = None,
+):
+    return _without_empty({
+        "__kind": "explain_metric",
+        "kind": kind,
+        "label": label,
+        "by": by,
+        "date_field": date_field,
+        "grain": grain,
+        "dataset": dataset,
+        "fields": fields,
+        "metric": metric,
+        "scene_id": scene_id,
+        "scene_file": scene_file,
+        "headers": headers,
+        "mapping": mapping,
+        "chart_kind": chart_kind,
+    })
+
+def popup(template = None, focus = None, metrics = None):
+    return _without_empty({
+        "mode": "popup",
+        "template": template,
+        "focus": focus,
+        "metrics": metrics,
     })
 
 def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):

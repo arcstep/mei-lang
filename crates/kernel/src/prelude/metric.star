@@ -425,7 +425,7 @@ def _metric_literal_blocks(values, template = None, variant = None, inline_align
             )
     return blocks
 
-def _metric_runtime_slot_block(source, role, area, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, defer_slot_vertical_align = False):
+def _metric_runtime_slot_block(source, role, area, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, popup = None, defer_slot_vertical_align = False):
     tpl = _metric_template_name(template)
     props = {
         "content": source,
@@ -442,13 +442,15 @@ def _metric_runtime_slot_block(source, role, area, template = None, variant = No
         props["metric_map"] = map
     if patch != None and _is_dict(patch):
         props["metric_patch"] = patch
+    if role == "value" and popup != None and _is_dict(popup):
+        props["popup"] = popup
     return component(
         "mei.text",
         area = area,
         props = _without_empty(props),
     )
 
-def _metric_runtime_blocks(source, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, defer_slot_vertical_align = False):
+def _metric_runtime_blocks(source, template = None, variant = None, inline_align = None, shell_props = None, map = None, patch = None, popup = None, defer_slot_vertical_align = False):
     tpl = _metric_template_name(template)
     blocks = [
         _metric_runtime_slot_block(
@@ -461,6 +463,7 @@ def _metric_runtime_blocks(source, template = None, variant = None, inline_align
             shell_props = shell_props,
             map = map,
             patch = patch,
+            popup = popup,
             defer_slot_vertical_align = defer_slot_vertical_align,
         ),
         _metric_runtime_slot_block(
@@ -473,6 +476,7 @@ def _metric_runtime_blocks(source, template = None, variant = None, inline_align
             shell_props = shell_props,
             map = map,
             patch = patch,
+            popup = popup,
             defer_slot_vertical_align = defer_slot_vertical_align,
         ),
         _metric_runtime_slot_block(
@@ -485,6 +489,7 @@ def _metric_runtime_blocks(source, template = None, variant = None, inline_align
             shell_props = shell_props,
             map = map,
             patch = patch,
+            popup = popup,
             defer_slot_vertical_align = defer_slot_vertical_align,
         ),
     ]
@@ -505,6 +510,7 @@ def _metric_runtime_blocks(source, template = None, variant = None, inline_align
                 shell_props = shell_props,
                 map = map,
                 patch = patch,
+                popup = popup,
                 defer_slot_vertical_align = defer_slot_vertical_align,
             ),
         )
@@ -592,6 +598,7 @@ def metric_card(
     title_ratio = None,
     content_ratio = None,
     scale = None,
+    popup = None,
     analysis = None,
     label_vertical_align = None,
     value_vertical_align = None,
@@ -599,6 +606,11 @@ def metric_card(
     desc_vertical_align = None,
 ):
     effective_props = _clone_props(props)
+    effective_popup = popup
+    if effective_popup == None and analysis != None:
+        effective_popup = analysis
+    if effective_popup != None:
+        effective_props["popup"] = effective_popup
     if analysis != None:
         effective_props["analysis"] = analysis
     if scale != None and str(scale).strip() != "":
@@ -673,6 +685,7 @@ def metric_card(
                 card_props,
                 map,
                 patch,
+                effective_popup,
                 base != None,
             )
         elif _is_dict(source):

@@ -36,6 +36,11 @@ struct MetricDrilldownMeta {
     drilldown_ratio_denominator: Option<String>,
     drilldown_ratio_formula: Option<String>,
     drilldown_tab_metrics: serde_json::Map<String, Value>,
+    explain_metrics: serde_json::Map<String, Value>,
+    explain_composition_by: Vec<String>,
+    explain_trend_field: Option<String>,
+    explain_trend_grain: Option<String>,
+    explain_detail_dataset: Option<String>,
 }
 
 impl MetricDrilldownMeta {
@@ -59,6 +64,11 @@ impl MetricDrilldownMeta {
             && self.drilldown_ratio_denominator.is_none()
             && self.drilldown_ratio_formula.is_none()
             && self.drilldown_tab_metrics.is_empty()
+            && self.explain_metrics.is_empty()
+            && self.explain_composition_by.is_empty()
+            && self.explain_trend_field.is_none()
+            && self.explain_trend_grain.is_none()
+            && self.explain_detail_dataset.is_none()
     }
 }
 
@@ -279,6 +289,125 @@ impl RuntimeSceneAnchor {
                     Value::Object(meta.drilldown_tab_metrics.clone()),
                 );
             }
+            if !meta.explain_metrics.is_empty() {
+                obj.insert(
+                    "explain_metrics".to_string(),
+                    Value::Object(meta.explain_metrics.clone()),
+                );
+            }
+            if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert(
+                    "explain_title".to_string(),
+                    Value::String(title.to_string()),
+                );
+            }
+            if let Some(note) = meta.drilldown_note.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert("explain_note".to_string(), Value::String(note.to_string()));
+            }
+            if !meta.drilldown_basis_refs.is_empty() {
+                obj.insert(
+                    "explain_basis_refs".to_string(),
+                    Value::Array(
+                        meta.drilldown_basis_refs
+                            .iter()
+                            .map(|basis| Value::String(basis.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_detail_fields.is_empty() {
+                obj.insert(
+                    "explain_detail_fields".to_string(),
+                    Value::Array(
+                        meta.drilldown_detail_fields
+                            .iter()
+                            .map(|field| Value::String(field.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_recommended_dimensions.is_empty() {
+                obj.insert(
+                    "explain_recommended_dimensions".to_string(),
+                    Value::Array(
+                        meta.drilldown_recommended_dimensions
+                            .iter()
+                            .map(|dimension| Value::String(dimension.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(numerator) = meta
+                .drilldown_ratio_numerator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_ratio_numerator".to_string(),
+                    Value::String(numerator.to_string()),
+                );
+            }
+            if let Some(denominator) = meta
+                .drilldown_ratio_denominator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_ratio_denominator".to_string(),
+                    Value::String(denominator.to_string()),
+                );
+            }
+            if let Some(formula) = meta
+                .drilldown_ratio_formula
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_ratio_formula".to_string(),
+                    Value::String(formula.to_string()),
+                );
+            }
+            if !meta.explain_composition_by.is_empty() {
+                obj.insert(
+                    "explain_composition_by".to_string(),
+                    Value::Array(
+                        meta.explain_composition_by
+                            .iter()
+                            .map(|field| Value::String(field.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(field) = meta
+                .explain_trend_field
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_trend_field".to_string(),
+                    Value::String(field.to_string()),
+                );
+            }
+            if let Some(grain) = meta
+                .explain_trend_grain
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_trend_grain".to_string(),
+                    Value::String(grain.to_string()),
+                );
+            }
+            if let Some(dataset) = meta
+                .explain_detail_dataset
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "explain_detail_dataset".to_string(),
+                    Value::String(dataset.to_string()),
+                );
+            }
             obj.insert(
                 "analysis_enabled".to_string(),
                 Value::Bool(meta.drilldown_enabled.unwrap_or(true)),
@@ -332,6 +461,12 @@ impl RuntimeSceneAnchor {
                 contract.insert(
                     "tab_metrics".to_string(),
                     Value::Object(meta.drilldown_tab_metrics.clone()),
+                );
+            }
+            if !meta.explain_metrics.is_empty() {
+                contract.insert(
+                    "explain_metrics".to_string(),
+                    Value::Object(meta.explain_metrics.clone()),
                 );
             }
             if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
@@ -1162,6 +1297,41 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
         {
             meta.drilldown_recommended_dimensions = string_array_from_value(value);
         }
+    }
+    if meta.explain_metrics.is_empty() {
+        if let Some(value) = map.get("metrics") {
+            let metrics = object_map_from_value(value);
+            if !metrics.is_empty() {
+                meta.explain_metrics = metrics.clone();
+                if meta.drilldown_tabs.is_empty() {
+                    meta.drilldown_tabs = metrics.keys().cloned().collect();
+                }
+            }
+        }
+    }
+    if meta.explain_composition_by.is_empty() {
+        if let Some(value) = map
+            .get("composition_by")
+            .or_else(|| map.get("compositionBy"))
+        {
+            meta.explain_composition_by = string_array_from_value(value);
+        }
+    }
+    if meta.explain_trend_field.is_none() {
+        meta.explain_trend_field = first_non_empty_string(
+            map,
+            &["trend_field", "trendField", "date_field", "dateField"],
+        );
+    }
+    if meta.explain_trend_grain.is_none() {
+        meta.explain_trend_grain =
+            first_non_empty_string(map, &["trend_grain", "trendGrain", "trend_by", "trendBy"]);
+    }
+    if meta.explain_detail_dataset.is_none() {
+        meta.explain_detail_dataset = first_non_empty_string(
+            map,
+            &["detail_dataset", "detailDataset", "dataset_id", "datasetId"],
+        );
     }
     if meta.drilldown_ratio_numerator.is_none()
         || meta.drilldown_ratio_denominator.is_none()

@@ -10391,6 +10391,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
   const ANALYSIS_OPEN_EVENT = "mei:analysis-open";
+  const POPUP_OPEN_EVENT = "mei:popup-open";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
   const DRILLDOWN_SCENE_BY_FILE = {
@@ -10880,6 +10881,43 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return raw.replaceAll(/[\s-]+/g, "_");
   }
 
+  function normalizeExplainMetrics(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const normalized = {};
+    Object.entries(value).forEach(([key, entry]) => {
+      const id = normalizeTabId(key);
+      if (!id || !entry || typeof entry !== "object" || Array.isArray(entry)) return;
+      normalized[id] = {
+        id,
+        kind: normalizeTabId(entry.kind || id),
+        label: nonEmptyString(entry.label, key),
+        by: nonEmptyString(entry.by),
+        dateField: nonEmptyString(entry.date_field, entry.dateField),
+        grain: nonEmptyString(entry.grain),
+        datasetId: nonEmptyString(entry.dataset, entry.dataset_id, entry.datasetId),
+        sceneId: nonEmptyString(entry.scene_id, entry.sceneId),
+        scenePath: nonEmptyString(entry.scene_file, entry.sceneFile),
+        fields: cloneArray(entry.fields),
+        metric: entry.metric && typeof entry.metric === "object" ? entry.metric : null,
+        headers: cloneArray(entry.headers),
+        mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
+        chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+      };
+    });
+    return normalized;
+  }
+
+  function explainMetricForTab(config, tabId) {
+    const key = normalizeTabId(tabId);
+    return config?.explainMetrics?.[key] || null;
+  }
+
+  function explainMetricKind(config, tabId) {
+    const explainMetric = explainMetricForTab(config, tabId);
+    if (explainMetric?.kind) return normalizeTabId(explainMetric.kind);
+    return normalizeTabId(tabId);
+  }
+
   function defaultDrilldownTabs(explainKind, options = {}) {
     const kind = String(explainKind || "").trim().toLowerCase();
     const hasDetail = options.hasDetail !== false;
@@ -10921,6 +10959,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail }) {
+    const explainMetrics = normalizeExplainMetrics(detail?.explain_metrics);
+    const explicitExplainTabs = Object.keys(explainMetrics);
+    const popupMetricTabs = Object.keys(
+      normalizeTabMetricOverrides(detail?.popup?.metrics),
+    );
+    if (explicitExplainTabs.length || popupMetricTabs.length) {
+      return Array.from(new Set([...explicitExplainTabs, ...popupMetricTabs]));
+    }
     const explicit = runtimeTabIds(
       detail?.analysis_tabs,
       detail?.drilldown_tabs,
@@ -10968,6 +11014,33 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         return;
       }
+      if (entry.__ref === "metric") {
+        const metricId = nonEmptyString(entry.id);
+        if (!metricId) return;
+        normalized[tabId] = {
+          runtimeRef: {
+            kind: "metric",
+            metricId,
+            datasetId: nonEmptyString(entry.from_dataset, entry.fromDataset),
+            sceneId: nonEmptyString(entry.scene_id, entry.sceneId),
+            scenePath: nonEmptyString(entry.scene_file, entry.sceneFile),
+          },
+        };
+        return;
+      }
+      if (entry.__ref === "dataset") {
+        const datasetId = nonEmptyString(entry.id);
+        if (!datasetId) return;
+        normalized[tabId] = {
+          runtimeRef: {
+            kind: "data",
+            datasetId,
+            sceneId: nonEmptyString(entry.scene_id, entry.sceneId),
+            scenePath: nonEmptyString(entry.scene_file, entry.sceneFile, entry.path),
+          },
+        };
+        return;
+      }
       let columns = cloneArray(entry.columns);
       if (!columns.length) columns = cloneArray(entry.detail_fields);
       if (!columns.length) columns = cloneArray(entry.detailFields);
@@ -11007,29 +11080,72 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function resolveDrilldownTabConfig(config, tabId) {
     const tabMetrics = config?.tabMetrics || {};
-    const normalizedTab = normalizeTabId(tabId);
+    const normalizedTab = explainMetricKind(config, tabId);
+    const explainMetric = explainMetricForTab(config, normalizedTab);
     const override = tabMetrics[normalizedTab];
-    if (!override) return config;
+    if (!override && !explainMetric) return config;
+    const explainDatasetId = nonEmptyString(explainMetric?.datasetId);
+    const explainMetricRef =
+      explainMetric?.metric && typeof explainMetric.metric === "object" ? explainMetric.metric : null;
     const overrideDatasetId = nonEmptyString(override.datasetId);
     const overrideTableMetricId = nonEmptyString(override.tableMetricId);
     const suppressDetailMetricFallback = Boolean(overrideDatasetId && !overrideTableMetricId);
     const merged = {
       ...config,
-      title: nonEmptyString(override.title, config.title),
-      note: nonEmptyString(override.note, config.note),
-      tableMetricId: overrideTableMetricId || (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
-      datasetId: overrideDatasetId || nonEmptyString(config.datasetId),
+      title: nonEmptyString(override?.title, explainMetric?.label, config.title),
+      note: nonEmptyString(override?.note, config.note),
+      tableMetricId:
+        overrideTableMetricId ||
+        nonEmptyString(explainMetricRef?.id) ||
+        (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
+      datasetId:
+        overrideDatasetId ||
+        nonEmptyString(explainMetricRef?.from_dataset, explainDatasetId, config.datasetId),
       suppressDetailMetricFallback,
-      layoutPreset: nonEmptyString(override.layoutPreset, config.layoutPreset),
-      chartKind: nonEmptyString(override.chartKind, config.chartKind),
+      layoutPreset: nonEmptyString(override?.layoutPreset, config.layoutPreset),
+      chartKind: nonEmptyString(override?.chartKind, explainMetric?.chartKind, config.chartKind),
       mapping:
-        override.mapping && typeof override.mapping === "object"
+        override?.mapping && typeof override.mapping === "object"
           ? override.mapping
+          : explainMetric?.mapping && typeof explainMetric.mapping === "object"
+            ? explainMetric.mapping
           : config.mapping && typeof config.mapping === "object"
             ? config.mapping
             : null,
-      columns: cloneArray(override.columns).length ? cloneArray(override.columns) : cloneArray(config.columns),
-      headers: cloneArray(override.headers).length ? cloneArray(override.headers) : cloneArray(config.headers),
+      runtimeRef:
+        override?.runtimeRef && typeof override.runtimeRef === "object"
+          ? override.runtimeRef
+          : explainMetricRef && typeof explainMetricRef === "object"
+            ? {
+                kind: "metric",
+                metricId: nonEmptyString(explainMetricRef.id),
+                datasetId: nonEmptyString(explainMetricRef.from_dataset),
+                sceneId: nonEmptyString(explainMetricRef.scene_id),
+                scenePath: nonEmptyString(explainMetricRef.scene_file),
+              }
+          : explainMetric?.sceneId || explainMetric?.scenePath
+            ? {
+                kind: "data",
+                sceneId: nonEmptyString(explainMetric.sceneId),
+                scenePath: nonEmptyString(explainMetric.scenePath),
+                datasetId: explainDatasetId,
+              }
+          : config.runtimeRef && typeof config.runtimeRef === "object"
+            ? config.runtimeRef
+            : null,
+      columns: cloneArray(override?.columns).length
+        ? cloneArray(override.columns)
+        : cloneArray(explainMetric?.fields).length
+          ? cloneArray(explainMetric.fields)
+          : cloneArray(config.columns),
+      headers: cloneArray(override?.headers).length
+        ? cloneArray(override.headers)
+        : cloneArray(explainMetric?.headers).length
+          ? cloneArray(explainMetric.headers)
+          : cloneArray(config.headers),
+      compositionBy: explainMetric?.by ? [explainMetric.by] : config.compositionBy,
+      trendField: nonEmptyString(explainMetric?.dateField, config.trendField),
+      trendGrain: nonEmptyString(explainMetric?.grain, config.trendGrain),
     };
     return merged;
   }
@@ -11058,13 +11174,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return normalized[0];
   }
 
-  function isDrilldownSummaryTab(tabId) {
-    const normalized = normalizeTabId(tabId);
+  function isDrilldownSummaryTab(tabId, config = null) {
+    const normalized = explainMetricKind(config, tabId);
     return normalized === "definition" || normalized === "numerator_denominator";
   }
 
-  function isDrilldownAnalysisTab(tabId) {
-    const normalized = normalizeTabId(tabId);
+  function isDrilldownAnalysisTab(tabId, config = null) {
+    const normalized = explainMetricKind(config, tabId);
     return normalized === "composition" || normalized === "trend" || normalized === "attribution";
   }
 
@@ -11085,7 +11201,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   function createDrilldownSummaryNode(config, tabId) {
     const panel = document.createElement("div");
     panel.className = "access-drilldown-summary";
-    const normalizedTab = normalizeTabId(tabId);
+    const normalizedTab = explainMetricKind(config, tabId);
     const rows = [];
 
     if (config.explainKind) {
@@ -11195,9 +11311,16 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const metricId = String(detail?.metric_id || "").trim();
     const mapped = DRILLDOWN_METRIC_CONTEXT[metricId] || {};
     const runtime = runtimeDrilldownConfig(detail);
+    const popup =
+      detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
     const analysisLink =
       detail?.analysis_link && typeof detail.analysis_link === "object" ? detail.analysis_link : {};
-    const sceneId = resolveDrilldownSceneId(detail, mapped, runtime);
+    const sceneId = nonEmptyString(
+      detail?.scene_id,
+      popup?.scene_id,
+      popup?.sceneId,
+      resolveDrilldownSceneId(detail, mapped, runtime),
+    );
     const runtimeEnabled = boolValue(detail?.analysis_enabled, detail?.drilldown_enabled, runtime?.enabled);
     const explainKind = nonEmptyString(
       detail?.analysis_kind,
@@ -11205,7 +11328,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.kind,
       runtime?.explain_kind,
     );
-    let detailFields = cloneArray(detail?.drilldown_detail_fields);
+    const explainMetrics = normalizeExplainMetrics(detail?.explain_metrics);
+    let detailFields = cloneArray(detail?.explain_detail_fields);
+    if (!detailFields.length) detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
     if (!detailFields.length) detailFields = cloneArray(mapped?.detailFields);
@@ -11218,10 +11343,12 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     let headers = cloneArray(detail?.drilldown_headers);
     if (!headers.length) headers = cloneArray(runtime?.headers);
     if (!headers.length) headers = cloneArray(mapped?.headers);
-    let basisRefs = cloneArray(detail?.drilldown_basis_refs);
+    let basisRefs = cloneArray(detail?.explain_basis_refs);
+    if (!basisRefs.length) basisRefs = cloneArray(detail?.drilldown_basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basisRefs);
-    let recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
+    let recommendedDimensions = cloneArray(detail?.explain_recommended_dimensions);
+    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommendedDimensions);
     const ratioNumerator = nonEmptyString(
@@ -11247,10 +11374,12 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       mapped?.tableMetricId,
     );
     const datasetId = nonEmptyString(
+      detail?.explain_detail_dataset,
       detail?.drilldown_dataset_id,
       runtime?.dataset_id,
       runtime?.datasetId,
       mapped?.datasetId,
+      detail?.dataset_id,
     );
     const layoutPreset = nonEmptyString(
       detail?.drilldown_layout_preset,
@@ -11259,6 +11388,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       mapped?.layoutPreset,
     );
     const tabMetrics = normalizeTabMetricOverrides(
+      popup?.metrics,
       detail?.analysis_tab_metrics,
       detail?.drilldown_tab_metrics,
       runtime?.analysis_tab_metrics,
@@ -11285,9 +11415,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       formula: ratioFormula,
     });
     return {
-      enabled: runtimeEnabled !== false && Boolean(sceneId),
+      enabled: popup?.mode === "popup" || (runtimeEnabled !== false && Boolean(sceneId)),
       sceneId,
       title: nonEmptyString(
+        detail?.explain_title,
         detail?.drilldown_title,
         runtime?.title,
         mapped?.title,
@@ -11295,7 +11426,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         metricId,
         "指标明细",
       ),
-      note: nonEmptyString(detail?.analysis_note, detail?.drilldown_note, runtime?.note, mapped?.note, ratioNote),
+      note: nonEmptyString(
+        detail?.explain_note,
+        detail?.analysis_note,
+        detail?.drilldown_note,
+        runtime?.note,
+        mapped?.note,
+        ratioNote,
+      ),
       tableMetricId,
       datasetId,
       columns,
@@ -11308,8 +11446,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         denominator: ratioDenominator,
         formula: ratioFormula,
       },
+      compositionBy: cloneArray(detail?.explain_composition_by).length
+        ? cloneArray(detail?.explain_composition_by)
+        : cloneArray(recommendedDimensions),
+      trendField: nonEmptyString(detail?.explain_trend_field),
+      trendGrain: nonEmptyString(detail?.explain_trend_grain, "month"),
       layoutPreset,
       explainKind,
+      explainMetrics,
       tabs,
       tabMetrics,
       link: {
@@ -11317,6 +11461,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         template: nonEmptyString(analysisLink.template),
         entry: nonEmptyString(analysisLink.entry),
         defaultFocus: nonEmptyString(analysisLink.default_focus, analysisLink.defaultFocus),
+      },
+      popup: {
+        mode: nonEmptyString(popup?.mode, "popup"),
+        template: nonEmptyString(popup?.template),
+        focus: nonEmptyString(popup?.focus),
       },
       chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),
       mapping: runtime?.mapping && typeof runtime.mapping === "object" ? runtime.mapping : null,
@@ -11363,21 +11512,110 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return String(app || "").trim();
   }
 
+  async function fetchPopupDatasetRows(detail, datasetId) {
+    const appPath = resolveAccessAppPath();
+    const sceneId = nonEmptyString(detail?.scene_id);
+    if (!appPath || !sceneId || !datasetId) return null;
+    const response = await fetch(`/api/datasets/query/${appPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        scene_id: sceneId,
+        target: nonEmptyString(detail?.scene_path),
+        dataset_id: datasetId,
+        page: 1,
+        page_size: 100000,
+        full: true,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+    const payload = await response.json();
+    return {
+      rows: Array.isArray(payload?.rows) ? payload.rows : [],
+      columns: Array.isArray(payload?.columns) ? payload.columns : [],
+    };
+  }
+
+  function monthBucketLabel(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const match = raw.match(/^(\d{4})[-/年](\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${String(match[2]).padStart(2, "0")}`;
+    }
+    return raw.slice(0, 7);
+  }
+
+  function groupRowsByCount(rows, field) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const key = String(row?.[field] ?? "").trim() || "未标注";
+      grouped.set(key, (grouped.get(key) || 0) + 1);
+    });
+    return Array.from(grouped.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
+  }
+
+  function groupRowsByMonth(rows, field) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+      const key = monthBucketLabel(row?.[field]);
+      if (!key) return;
+      grouped.set(key, (grouped.get(key) || 0) + 1);
+    });
+    return Array.from(grouped.entries())
+      .map(([month, value]) => ({ month, value }))
+      .sort((a, b) => String(a.month).localeCompare(String(b.month)));
+  }
+
+  function buildStaticTablePropsFromRows(title, columns, rows) {
+    return {
+      title: String(title || ""),
+      data: {
+        title: String(title || ""),
+        columns: Array.isArray(columns) ? columns : [],
+        rows: Array.isArray(rows) ? rows : [],
+      },
+    };
+  }
+
+  function buildStaticChartModel(title, tabId, rows, mapping = null) {
+    const normalized = normalizeTabId(tabId);
+    const data = {
+      columns: Array.isArray(rows) && rows.length > 0 ? Object.keys(rows[0]) : [],
+      rows: Array.isArray(rows) ? rows : [],
+    };
+    const defaultMapping =
+      normalized === "trend"
+        ? { x: "month", y: "value" }
+        : { x: "label", y: "value" };
+    return {
+      title: String(title || ""),
+      data,
+      mapping: mapping && typeof mapping === "object" ? mapping : defaultMapping,
+    };
+  }
+
   function buildDrilldownTableProps(detail, config) {
-    const sceneId = String(config?.sceneId || "").trim();
+    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const sceneId = nonEmptyString(runtimeRefConfig.sceneId, config?.sceneId, detail?.scene_id);
     if (!sceneId) return null;
     const appPath = resolveAccessAppPath();
     if (!appPath) return null;
     const datasetId =
       nonEmptyString(
+        runtimeRefConfig.datasetId,
         detail?.drilldown_dataset_id,
         config?.datasetId,
         DRILLDOWN_DATASET_BY_SCENE[sceneId],
         detail?.dataset_id,
       ) || sceneId;
     const metricId = config?.suppressDetailMetricFallback
-      ? nonEmptyString(config?.tableMetricId)
-      : nonEmptyString(config?.tableMetricId, detail?.drilldown_table_metric_id);
+      ? nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId)
+      : nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId, detail?.drilldown_table_metric_id);
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -11410,6 +11648,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         dataset_query_api: `/api/datasets/query/${appPath}`,
         metric_query_api: `/api/datasets/metrics/${appPath}`,
         active_scene_id: sceneId,
+        active_target_file: nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path),
       },
     };
   }
@@ -11493,6 +11732,53 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return true;
   }
 
+  async function mountDerivedDrilldownContent(root, detail, config, tabId) {
+    const host = root.querySelector('[data-drilldown-table-host="true"]');
+    if (!(host instanceof HTMLElement)) {
+      return false;
+    }
+    const datasetId = nonEmptyString(config?.datasetId, detail?.dataset_id);
+    if (!datasetId) return false;
+    const dataset = await fetchPopupDatasetRows(detail, datasetId);
+    const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+    if (explainMetricKind(config, tabId) === "composition") {
+      const dimension = nonEmptyString(
+        Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+        Array.isArray(config?.recommendedDimensions) ? config.recommendedDimensions[0] : "",
+      );
+      if (!dimension) return false;
+      const grouped = groupRowsByCount(rows, dimension);
+      if (!grouped.length) return false;
+      host.replaceChildren();
+      const node = document.createElement("mei-chart-bar");
+      node.dataset.props = JSON.stringify(
+        buildStaticChartModel(config?.title || `${dimension}构成`, tabId, grouped, {
+          x: "label",
+          y: "value",
+        }),
+      );
+      host.appendChild(node);
+      return true;
+    }
+    if (explainMetricKind(config, tabId) === "trend") {
+      const trendField = nonEmptyString(config?.trendField);
+      if (!trendField) return false;
+      const grouped = groupRowsByMonth(rows, trendField);
+      if (!grouped.length) return false;
+      host.replaceChildren();
+      const node = document.createElement("mei-chart-line");
+      node.dataset.props = JSON.stringify(
+        buildStaticChartModel(config?.title || "趋势", tabId, grouped, {
+          x: "month",
+          y: "value",
+        }),
+      );
+      host.appendChild(node);
+      return true;
+    }
+    return false;
+  }
+
   function renderDrilldownContent(root, detail, config, tabId) {
     const activeConfig = resolveDrilldownTabConfig(config, tabId);
     applyDrilldownOverlayMeta(root, activeConfig);
@@ -11501,20 +11787,44 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return false;
     }
     const normalizedTab = normalizeTabId(tabId);
-    const hasTabOverride = Boolean(config?.tabMetrics?.[normalizedTab]);
-    if (isDrilldownSummaryTab(tabId) || (isDrilldownAnalysisTab(tabId) && !hasTabOverride)) {
-      const summaryConfig =
-        isDrilldownAnalysisTab(tabId) && !hasTabOverride
-          ? {
+    const explainMetric = explainMetricForTab(config, tabId);
+    const hasCustomMetricSource = Boolean(
+      config?.tabMetrics?.[normalizedTab] || (explainMetric?.metric && typeof explainMetric.metric === "object"),
+    );
+    if (
+      isDrilldownSummaryTab(tabId, config) ||
+      (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource)
+    ) {
+      if (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource) {
+        setDrilldownOverlayStatus(root, "loading");
+        mountDerivedDrilldownContent(root, detail, activeConfig, tabId)
+          .then((mounted) => {
+            if (mounted) {
+              setDrilldownOverlayStatus(root, "ready");
+              return;
+            }
+            const summaryConfig = {
               ...activeConfig,
               note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
-            }
-          : activeConfig;
-      host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
+            };
+            host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
+            setDrilldownOverlayStatus(root, "ready");
+          })
+          .catch(() => {
+            const summaryConfig = {
+              ...activeConfig,
+              note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
+            };
+            host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
+            setDrilldownOverlayStatus(root, "ready");
+          });
+        return true;
+      }
+      host.replaceChildren(createDrilldownSummaryNode(activeConfig, tabId));
       setDrilldownOverlayStatus(root, "ready");
       return true;
     }
-    if (isDrilldownAnalysisTab(tabId)) {
+    if (isDrilldownAnalysisTab(tabId, config)) {
       setDrilldownOverlayStatus(root, "loading");
       if (mountDrilldownChart(root, detail, activeConfig, tabId)) {
         setDrilldownOverlayStatus(root, "ready");
@@ -11545,17 +11855,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const tabs = normalizedTabs.length
       ? normalizedTabs
       : [defaultActiveDrilldownTab(defaultDrilldownTabs(config?.explainKind, { hasDetail: true }))];
-    const activeTab = defaultActiveDrilldownTab(tabs);
+    const preferredTab = normalizeTabId(
+      nonEmptyString(config?.popup?.focus, config?.link?.defaultFocus),
+    );
+    const activeTab = preferredTab && tabs.includes(preferredTab) ? preferredTab : defaultActiveDrilldownTab(tabs);
     tabsHost.replaceChildren();
     tabsHost.toggleAttribute("hidden", tabs.length <= 1);
     tabs.forEach((tab) => {
+      const explainMetric = explainMetricForTab(config, tab);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "access-drilldown-tab-button";
       button.dataset.drilldownTab = tab;
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
-      button.textContent = drilldownTabLabel(tab);
+      button.textContent = nonEmptyString(explainMetric?.label, drilldownTabLabel(explainMetric?.kind || tab));
       button.addEventListener("click", () => {
         if (button.getAttribute("aria-selected") === "true") return;
         tabsHost
@@ -11653,6 +11967,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
+    document.addEventListener(POPUP_OPEN_EVENT, openByEvent);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeDrilldownOverlay();
