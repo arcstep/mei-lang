@@ -748,9 +748,7 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
         })
         .unwrap_or_else(|| {
             let resources: Vec<_> = indicator.resources.iter().map(|r| r.id.as_str()).collect();
-            panic!(
-                "warnings_verification_rate runtime def should exist, resources: {resources:?}"
-            )
+            panic!("warnings_verification_rate runtime def should exist, resources: {resources:?}")
         });
     let (warning_dataset_id, warning_metric) = warning_dataset;
     let inspection_metric = indicator
@@ -925,9 +923,7 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
         })
         .unwrap_or_else(|| {
             let resources: Vec<_> = issue.resources.iter().map(|r| r.id.as_str()).collect();
-            panic!(
-                "warnings_pending_count runtime def should exist, resources: {resources:?}"
-            )
+            panic!("warnings_pending_count runtime def should exist, resources: {resources:?}")
         });
     let (issue_warning_dataset_id, issue_warning_metric) = issue_warning_dataset;
     let issue_warning_drilldown = issue_warning_metric
@@ -986,10 +982,12 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
                 .map(|metric| (resource.id.clone(), metric))
         })
         .unwrap_or_else(|| {
-            let resources: Vec<_> = enforcement.resources.iter().map(|r| r.id.as_str()).collect();
-            panic!(
-                "key_enterprises_count runtime def should exist, resources: {resources:?}"
-            )
+            let resources: Vec<_> = enforcement
+                .resources
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect();
+            panic!("key_enterprises_count runtime def should exist, resources: {resources:?}")
         });
     let (enterprise_dataset_id, enterprise_metric) = enterprise_dataset;
     let enterprise_drilldown = enterprise_metric
@@ -1012,9 +1010,7 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
         .iter()
         .find_map(|resource| {
             let dataset = resource.dataset.as_ref()?;
-            dataset
-                .runtime_metric_defs
-                .get("enforcement_items_count")
+            dataset.runtime_metric_defs.get("enforcement_items_count")
         })
         .expect("enforcement_items_count runtime def should exist");
     let matters_drilldown = matters_metric
@@ -1156,7 +1152,9 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
         .iter()
         .find_map(|resource| {
             let dataset = resource.dataset.as_ref()?;
-            dataset.runtime_metric_defs.get("penalty_revenue_growth_rate")
+            dataset
+                .runtime_metric_defs
+                .get("penalty_revenue_growth_rate")
         })
         .expect("penalty_revenue_growth_rate runtime def should exist");
     let penalty_growth_drilldown = penalty_growth_metric

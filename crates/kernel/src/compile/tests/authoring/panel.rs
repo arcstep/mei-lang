@@ -330,9 +330,10 @@ frame.add_panel(
         "panel_ref panel should carry import_scope"
     );
     assert!(
-        compiled.diagnostics.iter().any(|diag| {
-            diag.code == "host_world_shadows_imported_panel_resource"
-        }),
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| { diag.code == "host_world_shadows_imported_panel_resource" }),
         "expected shadowing warning when host declares same local id as imported panel"
     );
     let _ = fs::remove_dir_all(&root);
@@ -682,7 +683,10 @@ frame(
     assert!(
         live_blocks.iter().all(|block| block.use_key == "mei.text"),
         "metric_card(source=metric_ref(...)) should emit mei.text slots, got {:?}",
-        live_blocks.iter().map(|block| &block.use_key).collect::<Vec<_>>()
+        live_blocks
+            .iter()
+            .map(|block| &block.use_key)
+            .collect::<Vec<_>>()
     );
     let value_block = live_blocks
         .iter()
@@ -986,7 +990,8 @@ frame.add_panel(
 )
 "#,
     );
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile metric_card base v_align");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile metric_card base v_align");
     let contract = compiled.scene_contract.expect("contract");
     fn find_panel_by_id<'a>(
         panels: &'a [crate::PanelDecl],
@@ -1011,18 +1016,10 @@ frame.add_panel(
             let crate::UiNodeDecl::Block(block) = node else {
                 return None;
             };
-            if block
-                .props
-                .get("metric_role")
-                .and_then(|v| v.as_str())
-                != Some("value")
-            {
+            if block.props.get("metric_role").and_then(|v| v.as_str()) != Some("value") {
                 return None;
             }
-            block
-                .props
-                .get("metric_v_align")
-                .and_then(|v| v.as_str())
+            block.props.get("metric_v_align").and_then(|v| v.as_str())
         })
     }
     let live = find_panel_by_id(&contract.panels, "live").expect("live");
@@ -1297,7 +1294,8 @@ frame.add_panel(
 )
 "#,
     );
-    let compiled = compile_app_from_root(&root, &app_root).expect("compile metric_card base bg source");
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile metric_card base bg source");
     let contract = compiled.scene_contract.expect("contract");
     fn find_panel_by_id<'a>(
         panels: &'a [crate::PanelDecl],

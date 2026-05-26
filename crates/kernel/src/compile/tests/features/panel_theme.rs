@@ -254,8 +254,7 @@ frame.add_panel(
     let compiled = compile_app_from_root(&root, &app_root).expect("compile shared app");
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(
-        contract
-            .themes[0]
+        contract.themes[0]
             .shared
             .get("layout")
             .and_then(|value| value.get("header_height"))

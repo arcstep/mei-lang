@@ -372,9 +372,7 @@ fn compile_cockpit_panel_screen_header_preview() {
         },
     )
     .unwrap_or_else(|error| panic!("compile panel-screen-header failed: {error}"));
-    assert_eq!(
-        compiled.active_target_file, "panel/panel-screen-header.mei"
-    );
+    assert_eq!(compiled.active_target_file, "panel/panel-screen-header.mei");
     let sc = compiled.scene_contract.as_ref().expect("scene contract");
     assert_eq!(sc.panels.len(), 1, "single header shell panel");
     assert_eq!(sc.panels[0].id, "screen_header_shell");
@@ -498,8 +496,7 @@ fn compile_cockpit_templates_preview() {
         Some(&["1fr".to_string(), "2fr".to_string()][..]),
     );
     assert!(
-        long
-            .props
+        long.props
             .get("background")
             .and_then(|v| v.get("image"))
             .and_then(|v| v.as_str())
@@ -523,7 +520,10 @@ fn compile_cockpit_templates_preview() {
         has_progress_block,
         "cloned progress template + patch.desc should lower desc slot to metric-progress"
     );
-    let patch_layout = progress_patch.layout.as_ref().expect("progress_patch layout");
+    let patch_layout = progress_patch
+        .layout
+        .as_ref()
+        .expect("progress_patch layout");
     assert!(
         patch_layout
             .areas
@@ -536,12 +536,7 @@ fn compile_cockpit_templates_preview() {
             let crate::UiNodeDecl::Block(block) = node else {
                 continue;
             };
-            if block
-                .props
-                .get("metric_role")
-                .and_then(|v| v.as_str())
-                != Some(role)
-            {
+            if block.props.get("metric_role").and_then(|v| v.as_str()) != Some(role) {
                 continue;
             }
             return block
@@ -552,9 +547,18 @@ fn compile_cockpit_templates_preview() {
         }
         None
     }
-    assert_eq!(block_v_align(&progress_patch, "label").as_deref(), Some("center"));
-    assert_eq!(block_v_align(&progress_patch, "value").as_deref(), Some("end"));
-    assert_eq!(block_v_align(&progress_patch, "unit").as_deref(), Some("end"));
+    assert_eq!(
+        block_v_align(&progress_patch, "label").as_deref(),
+        Some("center")
+    );
+    assert_eq!(
+        block_v_align(&progress_patch, "value").as_deref(),
+        Some("end")
+    );
+    assert_eq!(
+        block_v_align(&progress_patch, "unit").as_deref(),
+        Some("end")
+    );
     let compound_top =
         find_panel_by_id(&sc.panels, "compound_top").expect("compound_top metric card");
     assert_eq!(
@@ -562,7 +566,10 @@ fn compile_cockpit_templates_preview() {
         Some("center"),
         "label_vertical_align on metric_card must reach mei-text, not card_plain defaults"
     );
-    assert_eq!(block_v_align(compound_top, "value").as_deref(), Some("center"));
+    assert_eq!(
+        block_v_align(compound_top, "value").as_deref(),
+        Some("center")
+    );
     let long_main = find_panel_by_id(&sc.panels, "long_main").expect("long_main metric card");
     assert_eq!(block_v_align(long_main, "label").as_deref(), Some("end"));
     assert_eq!(block_v_align(long_main, "value").as_deref(), Some("center"));
@@ -575,18 +582,14 @@ fn compile_cockpit_templates_preview() {
         Some("stack_desc"),
         "base clone + source must not overwrite template stack_desc with default stack"
     );
-    let patch_rows = patch_layout
-        .rows
-        .as_ref()
-        .expect("progress_patch rows");
+    let patch_rows = patch_layout.rows.as_ref().expect("progress_patch rows");
     assert!(
         patch_rows.iter().any(|track| track.contains("18px")),
         "progress_patch must keep template fixed label row track, not 1fr 1fr stack bands: {:?}",
         patch_rows
     );
     assert!(
-        !patch_rows.iter().any(|track| track == "1fr")
-            || patch_rows.len() > 2,
+        !patch_rows.iter().any(|track| track == "1fr") || patch_rows.len() > 2,
         "progress_patch should not collapse to two-band 1fr stack rows: {:?}",
         patch_rows
     );
