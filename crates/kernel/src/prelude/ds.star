@@ -178,6 +178,47 @@ def metric_ref(id, from_dataset = None, scene_file = None, scene_id = None):
         "scene_file": scene_file,
     })
 
+def metric_explain(
+    analyzable = None,
+    kind = None,
+    note = None,
+    basis_refs = None,
+    ratio_parts = None,
+    detail_fields = None,
+    recommended_dimensions = None,
+):
+    return _without_empty({
+        "analyzable": analyzable,
+        "kind": kind,
+        "note": note,
+        "basis_refs": basis_refs,
+        "ratio_parts": ratio_parts,
+        "detail_fields": detail_fields,
+        "recommended_dimensions": recommended_dimensions,
+    })
+
+def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):
+    return _without_empty({
+        "__kind": "metric_analysis",
+        "kind": kind,
+        "title": title,
+        "note": note,
+        "table_metric_id": table_metric_id,
+        "dataset_id": dataset_id,
+        "columns": columns,
+        "headers": headers,
+        "mapping": mapping,
+        "chart_kind": chart_kind,
+    })
+
+def analysis_link(entry = None, mode = None, template = None, default_focus = None):
+    return _without_empty({
+        "entry": entry,
+        "mode": mode,
+        "template": template,
+        "default_focus": default_focus,
+    })
+
 def _computed_metric_source(metric):
     value = _expr_source(metric.get("value"))
     values = metric.get("values")
@@ -190,6 +231,8 @@ def _computed_metric_source(metric):
         "dataset": metric.get("dataset"),
         "fallback": metric.get("fallback"),
         "drilldown_dataset": metric.get("drilldown"),
+        "explain": metric.get("explain"),
+        "analyses": metric.get("analyses"),
     })
     if type(values) == "dict":
         scalar_values = {}
@@ -284,7 +327,7 @@ def dataset_view(id = None, title = None, desc = None, purpose = None, sources =
         "__forbidden_world_only__": "dataset_view",
     })
 
-def computed_metric(id = None, key = None, label = None, unit = None, dataset = None, transforms = [], op = None, fallback = None, drilldown = None):
+def computed_metric(id = None, key = None, label = None, unit = None, dataset = None, transforms = [], op = None, fallback = None, drilldown = None, explain = None, analyses = None):
     metric_id = id if id != None else key
     return _without_empty({
         "__kind": "computed_metric",
@@ -296,6 +339,8 @@ def computed_metric(id = None, key = None, label = None, unit = None, dataset = 
         "op": op,
         "fallback": fallback,
         "drilldown": drilldown,
+        "explain": explain,
+        "analyses": analyses,
     })
 
 def _analysis(type, **kwargs):
@@ -577,7 +622,7 @@ def dedupe_first_percent_eq(dedupe_field, field, eq, fallback = 0):
 def dedupe_first_sum_morph_people_in_text(dedupe_field, field, fallback = 0):
     return sum(extract_number(first_by(_analysis("current_rows"), dedupe_field), field, pattern = "种形态[\\s\\S]{0,64}?(\\d+)\\s*人"), fallback = fallback)
 
-def metric(id = None, key = None, label = None, value = None, unit = None, where = None, drilldown = None):
+def metric(id = None, key = None, label = None, value = None, unit = None, where = None, drilldown = None, explain = None, analyses = None):
     metric_id = id if id != None else key
     return _without_empty({
         "__kind": "metric",
@@ -587,21 +632,23 @@ def metric(id = None, key = None, label = None, value = None, unit = None, where
         "unit": unit,
         "where": where,
         "drilldown": drilldown,
+        "explain": explain,
+        "analyses": analyses,
     })
 
-def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, drilldown = None):
-    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, drilldown = drilldown)
+def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
+    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses)
 
-def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, drilldown = None):
-    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, drilldown = drilldown)
+def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
+    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses)
 
-def count(id = None, label = None, unit = None, where = None, drilldown = None, fallback = 0):
+def count(id = None, label = None, unit = None, where = None, drilldown = None, fallback = 0, explain = None, analyses = None):
     if _is_analysis(id):
         return _analysis("count", rowset = id, fallback = fallback)
     value = _expr("count(*)")
     if id == None:
         return value
-    return scalar_map(id = id, label = label, values = {"value": value}, unit = unit, drilldown = drilldown)
+    return scalar_map(id = id, label = label, values = {"value": value}, unit = unit, drilldown = drilldown, explain = explain, analyses = analyses)
 
 def sum(field, fallback = 0):
     if _is_analysis(field):

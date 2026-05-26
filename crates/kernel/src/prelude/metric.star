@@ -592,12 +592,15 @@ def metric_card(
     title_ratio = None,
     content_ratio = None,
     scale = None,
+    analysis = None,
     label_vertical_align = None,
     value_vertical_align = None,
     unit_vertical_align = None,
     desc_vertical_align = None,
 ):
     effective_props = _clone_props(props)
+    if analysis != None:
+        effective_props["analysis"] = analysis
     if scale != None and str(scale).strip() != "":
         effective_props["scale"] = scale
     has_source_content = (

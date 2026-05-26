@@ -30,6 +30,8 @@ def _metric_source(metric):
         "unit": metric.get("unit"),
         "shape": metric.get("shape"),
         "schema": metric.get("schema"),
+        "explain": metric.get("explain"),
+        "analyses": metric.get("analyses"),
     })
     if type(values) == "dict":
         scalar_values = {}
@@ -53,7 +55,7 @@ def _metric_source(metric):
         source["drilldown_dataset"] = metric["drilldown"]
     return source
 
-def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, drilldown = None):
+def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
     product_id = id if id != None else key
     return _without_empty({
         "__kind": "data_product",
@@ -65,6 +67,8 @@ def _data_product(shape, id = None, key = None, label = None, value = None, valu
         "unit": unit,
         "schema": schema,
         "drilldown": drilldown,
+        "explain": explain,
+        "analyses": analyses,
     })
 
 def app(id, title = None, default_scene = None, scene = None):

@@ -7625,6 +7625,7 @@
   const SCRIPT_LOAD_TIMEOUT_MS = 15000;
   const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
+  const ANALYSIS_OPEN_EVENT = "mei:analysis-open";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
   const DRILLDOWN_SCENE_BY_FILE = {
@@ -7889,10 +7890,6 @@
       columns: ENFORCEMENT_OFFICER_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
-    enforcement_items_count: {
-      sceneId: "enforcement_matters",
-      ...DETAIL_TABLE_DEFAULTS,
-    },
     key_enterprises_count: {
       sceneId: "key_enterprises",
       title: "重点企业明细",
@@ -7905,10 +7902,6 @@
     },
     whitelist_enterprises_count: {
       sceneId: "enterprise_whitelist",
-      ...DETAIL_TABLE_DEFAULTS,
-    },
-    inspections_total_count: {
-      sceneId: "administrative_inspection",
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspections_today_count: {
@@ -7954,10 +7947,6 @@
     administrative_reconsiderations_count: {
       sceneId: "admin_reconsideration_register",
       ...DETAIL_TABLE_DEFAULTS,
-    },
-    inspection_frequency_reduction_rate: {
-      sceneId: "administrative_inspection",
-      ...EXPLAIN_TABLE_DEFAULTS,
     },
     penalty_revenue_growth_rate: {
       sceneId: "penalty_dashboard",
@@ -8073,7 +8062,7 @@
   }
 
   function runtimeDrilldownConfig(detail) {
-    const value = detail?.drilldown;
+    const value = detail?.analysis_contract || detail?.drilldown;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
@@ -8167,7 +8156,13 @@
   }
 
   function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail }) {
-    const explicit = runtimeTabIds(detail?.drilldown_tabs, runtime?.tabs, mapped?.tabs);
+    const explicit = runtimeTabIds(
+      detail?.analysis_tabs,
+      detail?.drilldown_tabs,
+      runtime?.tabs,
+      runtime?.analysis_tabs,
+      mapped?.tabs,
+    );
     const defaults = defaultDrilldownTabs(explainKind, { hasDetail });
     if (!explicit.length) return defaults;
     const normalizedExplicit = Array.from(new Set(explicit.map((tab) => normalizeTabId(tab)).filter(Boolean)));
@@ -8224,6 +8219,8 @@
         columns,
         headers: cloneArray(entry.headers),
         layoutPreset: nonEmptyString(entry.layout_preset, entry.layoutPreset),
+        chartKind: nonEmptyString(entry.chart_kind, entry.chartKind, entry.chart),
+        mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
       };
       if (
         !override.title &&
@@ -8232,7 +8229,9 @@
         !override.datasetId &&
         !override.columns.length &&
         !override.headers.length &&
-        !override.layoutPreset
+        !override.layoutPreset &&
+        !override.chartKind &&
+        !override.mapping
       ) {
         return;
       }
@@ -8257,6 +8256,13 @@
       datasetId: overrideDatasetId || nonEmptyString(config.datasetId),
       suppressDetailMetricFallback,
       layoutPreset: nonEmptyString(override.layoutPreset, config.layoutPreset),
+      chartKind: nonEmptyString(override.chartKind, config.chartKind),
+      mapping:
+        override.mapping && typeof override.mapping === "object"
+          ? override.mapping
+          : config.mapping && typeof config.mapping === "object"
+            ? config.mapping
+            : null,
       columns: cloneArray(override.columns).length ? cloneArray(override.columns) : cloneArray(config.columns),
       headers: cloneArray(override.headers).length ? cloneArray(override.headers) : cloneArray(config.headers),
     };
@@ -8424,9 +8430,16 @@
     const metricId = String(detail?.metric_id || "").trim();
     const mapped = DRILLDOWN_METRIC_CONTEXT[metricId] || {};
     const runtime = runtimeDrilldownConfig(detail);
+    const analysisLink =
+      detail?.analysis_link && typeof detail.analysis_link === "object" ? detail.analysis_link : {};
     const sceneId = resolveDrilldownSceneId(detail, mapped, runtime);
-    const runtimeEnabled = boolValue(detail?.drilldown_enabled, runtime?.enabled);
-    const explainKind = nonEmptyString(detail?.explain_kind, runtime?.kind, runtime?.explain_kind);
+    const runtimeEnabled = boolValue(detail?.analysis_enabled, detail?.drilldown_enabled, runtime?.enabled);
+    const explainKind = nonEmptyString(
+      detail?.analysis_kind,
+      detail?.explain_kind,
+      runtime?.kind,
+      runtime?.explain_kind,
+    );
     let detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
@@ -8481,7 +8494,9 @@
       mapped?.layoutPreset,
     );
     const tabMetrics = normalizeTabMetricOverrides(
+      detail?.analysis_tab_metrics,
       detail?.drilldown_tab_metrics,
+      runtime?.analysis_tab_metrics,
       runtime?.tab_metrics,
       runtime?.tabMetrics,
       mapped?.tabMetrics,
@@ -8515,7 +8530,7 @@
         metricId,
         "指标明细",
       ),
-      note: nonEmptyString(detail?.drilldown_note, runtime?.note, mapped?.note, ratioNote),
+      note: nonEmptyString(detail?.analysis_note, detail?.drilldown_note, runtime?.note, mapped?.note, ratioNote),
       tableMetricId,
       datasetId,
       columns,
@@ -8532,6 +8547,14 @@
       explainKind,
       tabs,
       tabMetrics,
+      link: {
+        mode: nonEmptyString(analysisLink.mode),
+        template: nonEmptyString(analysisLink.template),
+        entry: nonEmptyString(analysisLink.entry),
+        defaultFocus: nonEmptyString(analysisLink.default_focus, analysisLink.defaultFocus),
+      },
+      chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),
+      mapping: runtime?.mapping && typeof runtime.mapping === "object" ? runtime.mapping : null,
       pageSize:
         positiveInt(detail?.drilldown_page_size, runtime?.page_size, runtime?.pageSize, mapped?.pageSize, 8) || 8,
       cellPreviewMaxChars:
@@ -8626,6 +8649,69 @@
     };
   }
 
+  function drilldownChartTag(chartKind, tabId) {
+    const explicit = String(chartKind || "").trim().toLowerCase();
+    const fallback = normalizeTabId(tabId) === "trend" ? "line" : "bar";
+    const kind = explicit || fallback;
+    const supported = new Set([
+      "line",
+      "area",
+      "trend",
+      "column",
+      "bar",
+      "scatter",
+      "pie",
+      "donut",
+      "rose",
+      "radar",
+      "ranking",
+      "boxplot",
+    ]);
+    if (!supported.has(kind)) return "";
+    return `mei-chart-${kind}`;
+  }
+
+  function buildDrilldownChartProps(detail, config, tabId) {
+    const tableProps = buildDrilldownTableProps(detail, config);
+    if (!tableProps) return null;
+    const chartTag = drilldownChartTag(config?.chartKind, tabId);
+    if (!chartTag) return null;
+    const columns = Array.isArray(config?.columns) ? config.columns : [];
+    const xField = columns[0] || "label";
+    const yField = columns[1] || "value";
+    const mapping =
+      config?.mapping && typeof config.mapping === "object"
+        ? config.mapping
+        : {
+            x: xField,
+            y: yField,
+          };
+    return {
+      chartTag,
+      props: {
+        title: String(config?.title || ""),
+        data: tableProps.dataset,
+        _mei: tableProps._mei,
+        mapping,
+        chartHeight: 300,
+      },
+    };
+  }
+
+  function mountDrilldownChart(root, detail, config, tabId) {
+    const host = root.querySelector('[data-drilldown-table-host="true"]');
+    if (!(host instanceof HTMLElement)) {
+      return false;
+    }
+    const chart = buildDrilldownChartProps(detail, config, tabId);
+    if (!chart) return false;
+    host.replaceChildren();
+    const node = document.createElement(chart.chartTag);
+    node.dataset.props = JSON.stringify(chart.props);
+    host.appendChild(node);
+    return true;
+  }
+
   function mountDrilldownTable(root, detail, config) {
     const host = root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
@@ -8662,6 +8748,13 @@
       host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
       setDrilldownOverlayStatus(root, "ready");
       return true;
+    }
+    if (isDrilldownAnalysisTab(tabId)) {
+      setDrilldownOverlayStatus(root, "loading");
+      if (mountDrilldownChart(root, detail, activeConfig, tabId)) {
+        setDrilldownOverlayStatus(root, "ready");
+        return true;
+      }
     }
     setDrilldownOverlayStatus(root, "loading");
     if (!mountDrilldownTable(root, detail, activeConfig)) {
@@ -8786,13 +8879,15 @@
     if (!isAccessRoute()) return;
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
-    document.addEventListener(METRIC_DRILLDOWN_EVENT, (event) => {
+    const openByEvent = (event) => {
       if (!isAccessRoute()) return;
       const detail = event?.detail || {};
       const config = resolveDrilldownConfig(detail);
       if (!config.enabled || !config.sceneId) return;
       openDrilldownOverlay(detail);
-    });
+    };
+    document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
+    document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeDrilldownOverlay();
