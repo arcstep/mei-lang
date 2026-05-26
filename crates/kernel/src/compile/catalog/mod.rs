@@ -8,13 +8,17 @@ use serde_json::Value;
 use crate::model::{ComponentAsset, LoadedResource};
 use crate::typed_refs::SceneRegistry;
 
+use super::dependency_graph::DependencyGraph;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
 use merge::upsert_catalog_dataset_resource;
+#[cfg(test)]
+pub(crate) use scan::clear_dataset_catalog_index_cache_for_tests;
+use scan::resolve_dataset_catalog_compile_rels;
 pub use scan::{build_dataset_catalog_filter, DatasetCatalogFilter};
-use scan::{
-    build_dataset_id_to_scene_file_map, collect_dataset_catalog_mei_files,
-    dataset_file_matches_filter,
+pub(crate) use scan::{
+    dataset_catalog_index_cache_metrics_snapshot, extract_from_dataset_tokens,
+    extract_metric_ref_tokens,
 };
 
 /// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
@@ -26,6 +30,7 @@ pub(super) fn compile_dataset_catalog_resources(
     app_decls: &Value,
     asset_map: &BTreeMap<String, ComponentAsset>,
     filter: &DatasetCatalogFilter,
+    dependency_graph: &DependencyGraph,
 ) -> Vec<LoadedResource> {
     if !filter.is_active() {
         return Vec::new();
@@ -33,28 +38,14 @@ pub(super) fn compile_dataset_catalog_resources(
 
     let mut by_id = BTreeMap::<String, LoadedResource>::new();
 
-    let mut compile_rels: Vec<String> = collect_dataset_catalog_mei_files(app_root);
-    for rel in &filter.dataset_paths {
-        if rel.ends_with(".mei") && !compile_rels.iter().any(|r| r == rel) {
-            compile_rels.push(rel.clone());
-        }
-    }
-    let dataset_scene_files = build_dataset_id_to_scene_file_map(app_root);
-    for id in &filter.resource_ids {
-        if let Some(rel) = dataset_scene_files.get(id) {
-            if !compile_rels.iter().any(|r| r == rel) {
-                compile_rels.push(rel.clone());
-            }
-        }
-    }
+    let compile_rels = resolve_dataset_catalog_compile_rels(app_root, filter);
     if compile_rels.is_empty() {
         return Vec::new();
     }
 
     for rel in compile_rels {
-        if !dataset_file_matches_filter(app_root, rel.as_str(), filter) {
-            continue;
-        }
+        let dependency_fingerprint =
+            dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, rel.as_str());
         let payload = compile_scene_payload_for_target(
             app_root,
             source_root,
@@ -63,6 +54,7 @@ pub(super) fn compile_dataset_catalog_resources(
             rel.as_str(),
             None,
             &SceneRegistry::new(),
+            dependency_fingerprint.as_deref(),
         );
         let mut dataset_resources = Vec::new();
         for resource in payload.resources {

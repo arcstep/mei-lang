@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
@@ -25,6 +26,8 @@ pub fn scene_payload_cache_epoch() -> String {
 
 static SCENE_PAYLOAD_CACHE: Mutex<BTreeMap<String, CompiledScenePayload>> =
     Mutex::new(BTreeMap::new());
+static SCENE_PAYLOAD_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static SCENE_PAYLOAD_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 
 const MAX_SCENE_PAYLOAD_CACHE_ENTRIES: usize = 128;
 
@@ -108,7 +111,10 @@ fn components_revision(source_root: &Path) -> u128 {
     if compile_revision_mode() == RevisionMode::Full {
         return directory_latest_full_mtime_ms(&resolve_components_root(source_root));
     }
-    directory_latest_relevant_mtime_ms(&resolve_components_root(source_root), RevisionScope::Components)
+    directory_latest_relevant_mtime_ms(
+        &resolve_components_root(source_root),
+        RevisionScope::Components,
+    )
 }
 
 fn app_revision(app_root: &Path) -> u128 {
@@ -161,6 +167,7 @@ pub(crate) fn scene_payload_cache_key(
     app_root: &Path,
     source_root: &Path,
     target_file: &str,
+    dependency_fingerprint: Option<&str>,
 ) -> Option<String> {
     let target_file = normalize_target_file(target_file);
     if target_file.is_empty() {
@@ -172,11 +179,12 @@ pub(crate) fn scene_payload_cache_key(
     }
     let main_path = app_root.join("main.mei");
     Some(format!(
-        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|{}|{}|{}",
+        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|{}|{}|{}|{}",
         app_root.display(),
         file_mtime_ms(&target_path),
         file_mtime_ms(&main_path),
         app_revision(app_root).max(components_revision(source_root)),
+        dependency_fingerprint.unwrap_or("-"),
     ))
 }
 
@@ -205,11 +213,16 @@ pub(super) fn compile_scene_payload_for_target(
     target_file: &str,
     route_meta: Option<&CompiledSceneRoute>,
     scene_registry: &SceneRegistry,
+    dependency_fingerprint: Option<&str>,
 ) -> CompiledScenePayload {
-    if let Some(key) = scene_payload_cache_key(app_root, source_root, target_file) {
+    if let Some(key) =
+        scene_payload_cache_key(app_root, source_root, target_file, dependency_fingerprint)
+    {
         if let Some(payload) = take_scene_payload_cache(&key) {
+            SCENE_PAYLOAD_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             return payload;
         }
+        SCENE_PAYLOAD_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
         let payload = super::entry_payload::compile_scene_payload_for_target_uncached(
             app_root,
             app_decls,
@@ -221,6 +234,7 @@ pub(super) fn compile_scene_payload_for_target(
         store_scene_payload_cache(key, payload.clone());
         return payload;
     }
+    SCENE_PAYLOAD_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
     super::entry_payload::compile_scene_payload_for_target_uncached(
         app_root,
         app_decls,
@@ -228,6 +242,13 @@ pub(super) fn compile_scene_payload_for_target(
         target_file,
         route_meta,
         scene_registry,
+    )
+}
+
+pub(crate) fn scene_payload_cache_metrics_snapshot() -> (u64, u64) {
+    (
+        SCENE_PAYLOAD_CACHE_HITS.load(Ordering::Relaxed),
+        SCENE_PAYLOAD_CACHE_MISSES.load(Ordering::Relaxed),
     )
 }
 

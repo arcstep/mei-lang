@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -23,6 +24,8 @@ pub fn dataset_materialize_cache_epoch() -> String {
 }
 
 static LEGACY_ROWS_CACHE: Mutex<BTreeMap<String, LegacyRowsSnapshot>> = Mutex::new(BTreeMap::new());
+static LEGACY_ROWS_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static LEGACY_ROWS_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 const MAX_LEGACY_ROWS_CACHE_ENTRIES: usize = 96;
 
 fn source_rows_cache_key(app_root: &Path, source: &LegacySourceDecl) -> Option<String> {
@@ -81,13 +84,23 @@ pub(super) fn cached_load_legacy_rows_from_source(
 ) -> Result<LegacyRowsSnapshot> {
     if let Some(key) = source_rows_cache_key(app_root, source) {
         if let Some(snapshot) = take_rows_cache(&key) {
+            LEGACY_ROWS_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(snapshot);
         }
+        LEGACY_ROWS_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
         let snapshot = load()?;
         store_rows_cache(key, snapshot.clone());
         return Ok(snapshot);
     }
+    LEGACY_ROWS_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
     load()
+}
+
+pub(crate) fn dataset_materialize_cache_metrics_snapshot() -> (u64, u64) {
+    (
+        LEGACY_ROWS_CACHE_HITS.load(Ordering::Relaxed),
+        LEGACY_ROWS_CACHE_MISSES.load(Ordering::Relaxed),
+    )
 }
 
 /// 供测试：清空 L3 缓存。

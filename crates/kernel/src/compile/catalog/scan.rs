@@ -1,10 +1,16 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fs,
     path::Path,
+    sync::atomic::{AtomicU64, Ordering},
+    sync::Mutex,
 };
 
+use serde_json::Value;
 use walkdir::WalkDir;
+
+use crate::compile::dependency_graph::DependencyGraph;
+use crate::compile::scene_payload_cache::file_mtime_ms;
 
 /// 管理页预览 scene/widget 时，仅物化脚本里通过 `metric_ref` / `data_ref` 可追溯到的数据集，避免扫全库 xlsx。
 #[derive(Debug, Default)]
@@ -22,127 +28,30 @@ impl DatasetCatalogFilter {
     }
 }
 
-/// 同文件内 `LAYOUT_LEFT = "scenes/..."` 形式，供 `panel_ref(..., scene_file = LAYOUT_LEFT)` 解析。
-fn extract_string_assignment_constants(content: &str) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for line in content.lines() {
-        let line = line.split('#').next().unwrap_or(line).trim();
-        if line.is_empty() {
-            continue;
-        }
-        let Some(eq_idx) = line.find('=') else {
-            continue;
-        };
-        let name = line[..eq_idx].trim();
-        if name.is_empty() || name.contains(' ') || name.contains('(') {
-            continue;
-        }
-        let after_eq = line[eq_idx + 1..].trim();
-        if let Some(value) = parse_quoted_string(after_eq) {
-            let value = value.trim();
-            if !value.is_empty() {
-                out.insert(name.to_string(), value.to_string());
-            }
-        }
-    }
-    out
+#[derive(Debug, Clone, Default)]
+struct DatasetCatalogIndex {
+    dataset_ids: BTreeMap<String, String>,
+    metric_ids: BTreeMap<String, String>,
 }
 
-fn resolve_scene_file_token(token: &str, constants: &HashMap<String, String>) -> Option<String> {
-    let token = token.trim();
-    if token.is_empty() {
-        return None;
-    }
-    if let Some(value) = parse_quoted_string(token) {
-        let value = value.trim();
-        if !value.is_empty() {
-            return Some(value.to_string());
-        }
-        return None;
-    }
-    let ident = token
-        .split(|c: char| c == ',' || c == ')' || c.is_whitespace())
-        .next()
-        .unwrap_or(token)
-        .trim();
-    constants.get(ident).cloned()
-}
-
-/// 仅收集 typed `panel_ref(id=..., scene_file=...)` 的外部 panel 引用；忽略带 `area=` 的旧 block embed。
-fn extract_typed_panel_ref_scene_files(content: &str) -> Vec<String> {
-    let constants = extract_string_assignment_constants(content);
-    let mut out = Vec::new();
-    let mut rest = content;
-    const NEEDLE: &str = "panel_ref(";
-    while let Some(start) = rest.find(NEEDLE) {
-        let chunk_start = start + NEEDLE.len();
-        let Some(end_rel) = rest[chunk_start..].find(')') else {
-            break;
-        };
-        let chunk = &rest[chunk_start..chunk_start + end_rel];
-        if chunk.contains("area") && chunk.contains('=') {
-            rest = &rest[chunk_start + end_rel..];
-            continue;
-        }
-        let mut sub = chunk;
-        const SF: &str = "scene_file";
-        while let Some(idx) = sub.find(SF) {
-            let tail = &sub[idx + SF.len()..];
-            let Some(eq_idx) = tail.find('=') else {
-                break;
-            };
-            let after_eq = tail[eq_idx + 1..].trim_start();
-            if let Some(value) = resolve_scene_file_token(after_eq, &constants) {
-                out.push(value);
-            }
-            sub = tail;
-        }
-        rest = &rest[chunk_start + end_rel..];
-    }
-    out
-}
-
-fn seed_paths_for_catalog_scan(
-    app_root: &Path,
-    preview_target: Option<&str>,
-    route_targets: &[String],
-) -> Vec<String> {
-    let mut seeds = Vec::new();
-    let preview = preview_target.map(str::trim).filter(|s| !s.is_empty());
-    match preview {
-        None => {
-            for target in route_targets {
-                let path = normalize_rel_path(target);
-                if !path.is_empty() && path.ends_with(".mei") {
-                    seeds.push(path);
-                }
-            }
-        }
-        Some("main.mei") => {
-            if let Ok(main_content) = fs::read_to_string(app_root.join("main.mei")) {
-                for path in extract_typed_panel_ref_scene_files(&main_content) {
-                    seeds.push(normalize_rel_path(&path));
-                }
-            }
-            if seeds.is_empty() {
-                seeds.push("scenes/home.mei".to_string());
-            }
-        }
-        Some(p) if p.starts_with("data/") || p.contains("/datasets/") => {}
-        Some(p) => seeds.push(normalize_rel_path(p)),
-    }
-    seeds
-}
+static DATASET_CATALOG_INDEX_CACHE: Mutex<BTreeMap<String, DatasetCatalogIndex>> =
+    Mutex::new(BTreeMap::new());
+static DATASET_CATALOG_INDEX_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static DATASET_CATALOG_INDEX_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+const MAX_DATASET_CATALOG_INDEX_CACHE_ENTRIES: usize = 32;
 
 /// 从预览入口 + `panel_ref` 嵌入树收集 catalog 范围；**恒返回 `Some`**，无匹配时为空过滤器（不触发全量扫描）。
 pub fn build_dataset_catalog_filter(
     app_root: &Path,
+    app_decls: &Value,
+    dependency_graph: &DependencyGraph,
     preview_target: Option<&str>,
-    route_targets: &[String],
 ) -> DatasetCatalogFilter {
     let mut filter = DatasetCatalogFilter::default();
-    let seeds = seed_paths_for_catalog_scan(app_root, preview_target, route_targets);
-    let mut queue = seeds;
+    let mut queue: Vec<String> = dependency_graph
+        .catalog_seed_files(app_root, app_decls, preview_target)
+        .into_iter()
+        .collect();
     let mut queued = HashSet::<String>::new();
     let mut processed = HashSet::<String>::new();
     for seed in &queue {
@@ -182,19 +91,6 @@ pub fn build_dataset_catalog_filter(
                 }
             } else {
                 filter.resource_ids.insert(token);
-            }
-        }
-        for embed in extract_scene_file_tokens(&content) {
-            let path = normalize_rel_path(&embed);
-            filter.dataset_paths.insert(path.clone());
-            if queued.insert(path.clone()) {
-                queue.push(path);
-            }
-        }
-        for embed in extract_typed_panel_ref_scene_files(&content) {
-            let path = normalize_rel_path(&embed);
-            if queued.insert(path.clone()) {
-                queue.push(path);
             }
         }
     }
@@ -244,60 +140,93 @@ pub(crate) fn collect_dataset_catalog_mei_files(app_root: &Path) -> Vec<String> 
     mei_files
 }
 
-fn extract_scene_file_tokens(content: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = content;
-    const NEEDLE: &str = "scene_file";
-    while let Some(idx) = rest.find(NEEDLE) {
-        let tail = &rest[idx + NEEDLE.len()..];
-        let Some(eq_idx) = tail.find('=') else {
-            rest = tail;
-            continue;
-        };
-        let after_eq = tail[eq_idx + 1..].trim_start();
-        if let Some(value) = parse_quoted_string(after_eq) {
-            let value = value.trim();
-            if !value.is_empty() && value.ends_with(".mei") {
-                out.push(value.to_string());
-            }
-        }
-        rest = tail;
-    }
-    out
-}
-
-pub(crate) fn build_dataset_id_to_scene_file_map(app_root: &Path) -> BTreeMap<String, String> {
-    let mut map = BTreeMap::<String, String>::new();
-    let scenes_root = app_root.join("scenes");
-    if !scenes_root.is_dir() {
-        return map;
-    }
-    for entry in WalkDir::new(&scenes_root)
-        .into_iter()
-        .filter_entry(|entry| {
-            let name = entry.file_name().to_string_lossy();
-            entry.depth() == 0 || !matches!(name.as_ref(), ".git" | "node_modules" | "target")
-        })
-    {
-        let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("mei") {
-            continue;
-        }
-        let Ok(rel) = entry.path().strip_prefix(app_root) else {
-            continue;
-        };
-        let rel = rel.to_string_lossy().replace('\\', "/");
-        let Ok(content) = fs::read_to_string(entry.path()) else {
+fn build_dataset_catalog_index(app_root: &Path) -> DatasetCatalogIndex {
+    let mut index = DatasetCatalogIndex::default();
+    for rel in collect_dataset_catalog_mei_files(app_root) {
+        let path = app_root.join(&rel);
+        let Ok(content) = fs::read_to_string(&path) else {
             continue;
         };
         for id in extract_world_dataset_ids(&content) {
-            map.entry(id).or_insert(rel.clone());
+            index.dataset_ids.entry(id).or_insert(rel.clone());
+        }
+        for metric_id in extract_declared_metric_ids(&content) {
+            index.metric_ids.entry(metric_id).or_insert(rel.clone());
         }
     }
-    map
+    index
+}
+
+fn dataset_catalog_index_cache_key(app_root: &Path) -> String {
+    let mut parts = Vec::<String>::new();
+    for rel in collect_dataset_catalog_mei_files(app_root) {
+        let mtime = file_mtime_ms(&app_root.join(&rel));
+        parts.push(format!("{rel}@{mtime}"));
+    }
+    format!("{}|{}", app_root.display(), parts.join("|"))
+}
+
+fn get_cached_dataset_catalog_index(app_root: &Path) -> DatasetCatalogIndex {
+    let key = dataset_catalog_index_cache_key(app_root);
+    if let Ok(cache) = DATASET_CATALOG_INDEX_CACHE.lock() {
+        if let Some(index) = cache.get(&key).cloned() {
+            DATASET_CATALOG_INDEX_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+            return index;
+        }
+    }
+
+    DATASET_CATALOG_INDEX_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+    let index = build_dataset_catalog_index(app_root);
+    if let Ok(mut cache) = DATASET_CATALOG_INDEX_CACHE.lock() {
+        if cache.len() >= MAX_DATASET_CATALOG_INDEX_CACHE_ENTRIES {
+            cache.clear();
+        }
+        cache.insert(key, index.clone());
+    }
+    index
+}
+
+pub(crate) fn dataset_catalog_index_cache_metrics_snapshot() -> (u64, u64) {
+    (
+        DATASET_CATALOG_INDEX_CACHE_HITS.load(Ordering::Relaxed),
+        DATASET_CATALOG_INDEX_CACHE_MISSES.load(Ordering::Relaxed),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn clear_dataset_catalog_index_cache_for_tests() {
+    if let Ok(mut cache) = DATASET_CATALOG_INDEX_CACHE.lock() {
+        cache.clear();
+    }
+}
+
+pub(crate) fn build_dataset_id_to_scene_file_map(app_root: &Path) -> BTreeMap<String, String> {
+    get_cached_dataset_catalog_index(app_root).dataset_ids
+}
+
+pub(crate) fn resolve_dataset_catalog_compile_rels(
+    app_root: &Path,
+    filter: &DatasetCatalogFilter,
+) -> Vec<String> {
+    let mut rels = std::collections::BTreeSet::<String>::new();
+    for rel in &filter.dataset_paths {
+        let normalized = normalize_rel_path(rel);
+        if normalized.ends_with(".mei") {
+            rels.insert(normalized);
+        }
+    }
+    let index = get_cached_dataset_catalog_index(app_root);
+    for id in &filter.resource_ids {
+        if let Some(rel) = index.dataset_ids.get(id) {
+            rels.insert(rel.clone());
+        }
+    }
+    for metric_id in &filter.metric_ids {
+        if let Some(rel) = index.metric_ids.get(metric_id) {
+            rels.insert(rel.clone());
+        }
+    }
+    rels.into_iter().collect()
 }
 
 /// 派生数据集（如执法要素概览）在 .mei 内 `ds.data_ref` / `metric_ref(from_dataset=...)` 依赖其它 world id，需一并物化。
@@ -385,6 +314,28 @@ fn extract_data_ref_tokens(content: &str) -> Vec<String> {
     out
 }
 
+fn extract_declared_metric_ids(content: &str) -> Vec<String> {
+    let mut ids = BTreeSet::<String>::new();
+    for needle in ["scalar_map(", "metric("] {
+        let mut rest = content;
+        while let Some(idx) = rest.find(needle) {
+            let tail = &rest[idx + needle.len()..];
+            let Some(end_idx) = tail.find(')') else {
+                break;
+            };
+            let args = &tail[..end_idx];
+            if let Some(metric_id) = parse_named_arg_string(args, "id")
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+            {
+                ids.insert(metric_id);
+            }
+            rest = &tail[end_idx + 1..];
+        }
+    }
+    ids.into_iter().collect()
+}
+
 pub(crate) fn extract_from_dataset_tokens(content: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = content;
@@ -425,17 +376,6 @@ fn parse_quoted_string(input: &str) -> Option<String> {
 
 fn normalize_rel_path(path: &str) -> String {
     path.trim().trim_start_matches("./").replace('\\', "/")
-}
-
-fn file_declares_resource_id(content: &str, id: &str) -> bool {
-    content.contains(&format!("id = \"{id}\"")) || content.contains(&format!("id=\"{id}\""))
-}
-
-fn file_declares_metric_id(content: &str, id: &str) -> bool {
-    content.contains(&format!("scalar_map(id = \"{id}\""))
-        || content.contains(&format!("scalar_map(id=\"{id}\""))
-        || content.contains(&format!("metric(id = \"{id}\""))
-        || content.contains(&format!("metric(id=\"{id}\""))
 }
 
 fn parse_named_arg_string(raw: &str, name: &str) -> Option<String> {
@@ -494,29 +434,4 @@ pub(crate) fn extract_metric_ref_tokens(content: &str) -> Vec<(String, Option<St
         rest = &tail[end_idx + 1..];
     }
     out
-}
-
-pub(crate) fn dataset_file_matches_filter(
-    app_root: &Path,
-    rel: &str,
-    filter: &DatasetCatalogFilter,
-) -> bool {
-    if filter.dataset_paths.contains(rel) {
-        return true;
-    }
-    if filter.resource_ids.is_empty() && filter.metric_ids.is_empty() {
-        return false;
-    }
-    let path = app_root.join(rel);
-    let Ok(content) = fs::read_to_string(&path) else {
-        return false;
-    };
-    filter
-        .resource_ids
-        .iter()
-        .any(|id| file_declares_resource_id(&content, id))
-        || filter
-            .metric_ids
-            .iter()
-            .any(|metric_id| file_declares_metric_id(&content, metric_id))
 }

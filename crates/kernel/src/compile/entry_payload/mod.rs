@@ -64,6 +64,13 @@ pub(super) fn compile_scene_payload_for_target_uncached(
     }
 }
 
+pub(super) fn collect_ref_scene_files_from_value(
+    value: &Value,
+    out: &mut std::collections::BTreeSet<String>,
+) {
+    clone_merge::collect_ref_scene_files(value, out);
+}
+
 fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Result<Value> {
     if target_file == "main.mei" {
         Ok(app_decls.clone())

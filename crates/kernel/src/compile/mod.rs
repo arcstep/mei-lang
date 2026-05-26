@@ -22,6 +22,7 @@ mod analysis;
 mod app_decl;
 mod catalog;
 mod decls;
+mod dependency_graph;
 mod entry_payload;
 mod load_external;
 mod loaders;
@@ -33,19 +34,22 @@ mod resources;
 mod scene;
 mod scene_binding;
 mod scene_payload_cache;
+mod shards;
 mod ui_data_policy;
 
 use ui_data_policy::validate_imported_catalog_world_refs;
 
 use app_decl::decode_app_decl;
 use catalog::{
-    build_dataset_catalog_filter, compile_dataset_catalog_resources, merge_resource_catalog,
-    DatasetCatalogFilter,
+    build_dataset_catalog_filter, compile_dataset_catalog_resources,
+    dataset_catalog_index_cache_metrics_snapshot, merge_resource_catalog, DatasetCatalogFilter,
 };
+use dependency_graph::{file_content_hash_cache_metrics_snapshot, DependencyGraph};
 use entry_payload::CompiledScenePayload;
 use materialize::{append_world_metrics_dataset_resource, materialize_world_metrics};
+use materialize_cache::dataset_materialize_cache_metrics_snapshot;
 use scene::{find_scene_route, resolve_scene_routes};
-use scene_payload_cache::compile_scene_payload_for_target;
+use scene_payload_cache::{compile_scene_payload_for_target, scene_payload_cache_metrics_snapshot};
 
 /// 将「仅声明在入口 .mei 内、未出现在 app 路由表」的 scene 登记为临时 file_ref 路由，
 /// 以便管理态预览与访问态 `/scene/<id>` 能解析到同一入口文件。
@@ -88,6 +92,19 @@ fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str
         return false;
     };
     route.target_file == preview
+}
+
+fn route_matches_preview_scope(
+    route: &CompiledSceneRoute,
+    preview_target: Option<&str>,
+    affected_targets: Option<&std::collections::BTreeSet<String>>,
+) -> bool {
+    if let Some(targets) = affected_targets {
+        if !targets.is_empty() {
+            return targets.contains(route.target_file.as_str());
+        }
+    }
+    route_targets_preview(route, preview_target)
 }
 
 fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
@@ -179,6 +196,7 @@ fn inject_discovered_entry_scene_routes(
                 preview,
                 None,
                 scene_registry,
+                None,
             );
             if let Some(contract) = payload.scene_contract.as_ref() {
                 let sid = contract.scene.id.trim().to_string();
@@ -259,6 +277,7 @@ fn inject_discovered_entry_scene_routes(
             rel_str.as_str(),
             None,
             scene_registry,
+            None,
         );
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
@@ -304,6 +323,12 @@ pub fn compile_app_from_root_with_options(
     app_root: &Path,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
+    let (l2_hits_before, l2_misses_before) = scene_payload_cache_metrics_snapshot();
+    let (l3_hits_before, l3_misses_before) = dataset_materialize_cache_metrics_snapshot();
+    let (catalog_index_hits_before, catalog_index_misses_before) =
+        dataset_catalog_index_cache_metrics_snapshot();
+    let (content_hash_hits_before, content_hash_misses_before) =
+        file_content_hash_cache_metrics_snapshot();
     let app_main = app_root.join("main.mei");
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
@@ -327,11 +352,29 @@ pub fn compile_app_from_root_with_options(
         preview_only,
     );
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    let dependency_graph = DependencyGraph::build(app_root, &app_decls, &route_registry.routes);
+    let preview_affected_targets = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .map(|target| dependency_graph.dependent_targets_for_file(target));
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     for route in &route_registry.routes {
-        if preview_only && !route_targets_preview(route, options.preview_target.as_deref()) {
+        if preview_only
+            && !route_matches_preview_scope(
+                route,
+                options.preview_target.as_deref(),
+                preview_affected_targets.as_ref(),
+            )
+        {
             continue;
         }
+        let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+            app_root,
+            &app_decls,
+            route.target_file.as_str(),
+        );
         let result = compile_scene_payload_for_target(
             app_root,
             source_root,
@@ -340,6 +383,7 @@ pub fn compile_app_from_root_with_options(
             route.target_file.as_str(),
             Some(route),
             &scene_registry,
+            dependency_fingerprint.as_deref(),
         );
         official_results.insert(route.scene_id.clone(), result);
     }
@@ -394,101 +438,131 @@ pub fn compile_app_from_root_with_options(
         .filter(|target| !target.is_empty())
         .map(|value| value.to_string());
 
-    let (active_scene, active_target_file, mut active_payload) =
-        if let Some(target_file) = selected_target {
-            if let Some(scene_route) = route_registry
-                .routes
-                .iter()
-                .find(|route| route.target_file == target_file)
-                .cloned()
-            {
-                let payload = official_results
-                    .get(&scene_route.scene_id)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        compile_scene_payload_for_target(
-                            app_root,
-                            source_root,
-                            &app_decls,
-                            &asset_map,
-                            target_file.as_str(),
-                            Some(&scene_route),
-                            &scene_registry,
-                        )
-                    });
-                (Some(scene_route.scene_id), target_file, payload)
-            } else {
-                let payload = compile_scene_payload_for_target(
-                    app_root,
-                    source_root,
-                    &app_decls,
-                    &asset_map,
-                    target_file.as_str(),
-                    None,
-                    &scene_registry,
-                );
-                if target_file == "main.mei" && payload.scene_contract.is_none() {
-                    let fallback_route = active_route_meta.clone().or_else(|| {
-                        route_registry
-                            .default_scene_id
-                            .as_deref()
-                            .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-                            .cloned()
-                    });
-                    if let Some(route_meta) = fallback_route {
-                        let fallback_payload = official_results
-                            .get(&route_meta.scene_id)
-                            .cloned()
-                            .unwrap_or_else(|| {
-                                compile_scene_payload_for_target(
-                                    app_root,
-                                    source_root,
-                                    &app_decls,
-                                    &asset_map,
-                                    route_meta.target_file.as_str(),
-                                    Some(&route_meta),
-                                    &scene_registry,
-                                )
-                            });
-                        (Some(route_meta.scene_id), target_file, fallback_payload)
-                    } else {
-                        (None, target_file, payload)
-                    }
-                } else {
-                    (None, target_file, payload)
-                }
-            }
-        } else if let Some(route_meta) = active_route_meta {
+    let (active_scene, active_target_file, mut active_payload) = if let Some(target_file) =
+        selected_target
+    {
+        if let Some(scene_route) = route_registry
+            .routes
+            .iter()
+            .find(|route| route.target_file == target_file)
+            .cloned()
+        {
             let payload = official_results
-                .get(&route_meta.scene_id)
+                .get(&scene_route.scene_id)
                 .cloned()
                 .unwrap_or_else(|| {
+                    let dependency_fingerprint = dependency_graph
+                        .dependency_fingerprint_for_target(
+                            app_root,
+                            &app_decls,
+                            target_file.as_str(),
+                        );
                     compile_scene_payload_for_target(
                         app_root,
                         source_root,
                         &app_decls,
                         &asset_map,
-                        route_meta.target_file.as_str(),
-                        Some(&route_meta),
+                        target_file.as_str(),
+                        Some(&scene_route),
                         &scene_registry,
+                        dependency_fingerprint.as_deref(),
                     )
                 });
-            (Some(route_meta.scene_id), route_meta.target_file, payload)
+            (Some(scene_route.scene_id), target_file, payload)
         } else {
-            (
+            let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+                app_root,
+                &app_decls,
+                target_file.as_str(),
+            );
+            let payload = compile_scene_payload_for_target(
+                app_root,
+                source_root,
+                &app_decls,
+                &asset_map,
+                target_file.as_str(),
                 None,
-                "main.mei".to_string(),
+                &scene_registry,
+                dependency_fingerprint.as_deref(),
+            );
+            if target_file == "main.mei" && payload.scene_contract.is_none() {
+                let fallback_route = active_route_meta.clone().or_else(|| {
+                    route_registry
+                        .default_scene_id
+                        .as_deref()
+                        .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+                        .cloned()
+                });
+                if let Some(route_meta) = fallback_route {
+                    let fallback_payload = official_results
+                        .get(&route_meta.scene_id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            let dependency_fingerprint = dependency_graph
+                                .dependency_fingerprint_for_target(
+                                    app_root,
+                                    &app_decls,
+                                    route_meta.target_file.as_str(),
+                                );
+                            compile_scene_payload_for_target(
+                                app_root,
+                                source_root,
+                                &app_decls,
+                                &asset_map,
+                                route_meta.target_file.as_str(),
+                                Some(&route_meta),
+                                &scene_registry,
+                                dependency_fingerprint.as_deref(),
+                            )
+                        });
+                    (Some(route_meta.scene_id), target_file, fallback_payload)
+                } else {
+                    (None, target_file, payload)
+                }
+            } else {
+                (None, target_file, payload)
+            }
+        }
+    } else if let Some(route_meta) = active_route_meta {
+        let payload = official_results
+            .get(&route_meta.scene_id)
+            .cloned()
+            .unwrap_or_else(|| {
+                let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+                    app_root,
+                    &app_decls,
+                    route_meta.target_file.as_str(),
+                );
                 compile_scene_payload_for_target(
                     app_root,
                     source_root,
                     &app_decls,
                     &asset_map,
-                    "main.mei",
-                    None,
+                    route_meta.target_file.as_str(),
+                    Some(&route_meta),
                     &scene_registry,
-                ),
-            )
-        };
+                    dependency_fingerprint.as_deref(),
+                )
+            });
+        (Some(route_meta.scene_id), route_meta.target_file, payload)
+    } else {
+        let dependency_fingerprint =
+            dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, "main.mei");
+        (
+            None,
+            "main.mei".to_string(),
+            compile_scene_payload_for_target(
+                app_root,
+                source_root,
+                &app_decls,
+                &asset_map,
+                "main.mei",
+                None,
+                &scene_registry,
+                dependency_fingerprint.as_deref(),
+            ),
+        )
+    };
 
     diagnostics.append(&mut active_payload.diagnostics);
 
@@ -507,18 +581,19 @@ pub fn compile_app_from_root_with_options(
         .unwrap_or_else(|| app_decl.id.clone());
 
     let dataset_manage_preview = is_dataset_manage_preview(&options);
-    let route_target_files: Vec<String> = route_registry
-        .routes
-        .iter()
-        .map(|route| route.target_file.clone())
-        .collect();
+    let catalog_seed_files = dependency_graph.catalog_seed_files(
+        app_root,
+        &app_decls,
+        options.preview_target.as_deref(),
+    );
     let catalog_filter = if dataset_manage_preview {
         DatasetCatalogFilter::default()
     } else {
         build_dataset_catalog_filter(
             app_root,
+            &app_decls,
+            &dependency_graph,
             options.preview_target.as_deref(),
-            route_target_files.as_slice(),
         )
     };
     let dataset_catalog = if dataset_manage_preview {
@@ -530,6 +605,7 @@ pub fn compile_app_from_root_with_options(
             &app_decls,
             &asset_map,
             &catalog_filter,
+            &dependency_graph,
         )
     };
     let scene_resources = active_payload.resources.clone();
@@ -551,6 +627,101 @@ pub fn compile_app_from_root_with_options(
             &mut diagnostics,
         );
     }
+
+    let active_shard = shards::build_scene_payload_shard(
+        active_target_file.as_str(),
+        active_scene.as_deref(),
+        &active_payload,
+    );
+    let dataset_shard = shards::build_dataset_materialization_shard(
+        "__catalog__",
+        &resources
+            .iter()
+            .filter(|resource| resource.dataset.is_some())
+            .cloned()
+            .collect::<Vec<_>>(),
+    );
+    let imported_scope_shards = shards::collect_imported_scope_shards(&resources);
+    let graph_stats = dependency_graph.stats();
+    let preview_scope_size = preview_affected_targets
+        .as_ref()
+        .map(std::collections::BTreeSet::len)
+        .unwrap_or(0);
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "dependency_graph_stats".to_string(),
+        message: format!(
+            "routes={}, unique_files={}, edges={}, max_closure={}, preview_scope={}, catalog_seed_files={}",
+            graph_stats.route_roots,
+            graph_stats.unique_files,
+            graph_stats.edges,
+            graph_stats.max_closure,
+            preview_scope_size,
+            catalog_seed_files.len()
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "catalog_filter_stats".to_string(),
+        message: format!(
+            "dataset_manage_preview={}, dataset_paths={}, resource_ids={}, metric_ids={}",
+            dataset_manage_preview,
+            catalog_filter.dataset_paths.len(),
+            catalog_filter.resource_ids.len(),
+            catalog_filter.metric_ids.len(),
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "compile_shards_stats".to_string(),
+        message: format!(
+            "scene_shard_target={}, scene_resources={}, scene_assets={}, scene_has_contract={}, scene_id={}, dataset_shard_file={}, dataset_shard_resources={}, imported_scope_shards={}, imported_scope_resources={}, imported_scope_ids={}",
+            active_shard.target_file,
+            active_shard.resources.len(),
+            active_shard.component_assets.len(),
+            active_shard.scene_contract.is_some(),
+            active_shard.scene_id.as_deref().unwrap_or("-"),
+            dataset_shard.dataset_file,
+            dataset_shard.resources.len(),
+            imported_scope_shards.len(),
+            imported_scope_shards
+                .iter()
+                .map(|shard| shard.resources.len())
+                .sum::<usize>(),
+            imported_scope_shards
+                .iter()
+                .map(|shard| shard.import_scope.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "compile_cache_stats".to_string(),
+        message: {
+            let (l2_hits_after, l2_misses_after) = scene_payload_cache_metrics_snapshot();
+            let (l3_hits_after, l3_misses_after) = dataset_materialize_cache_metrics_snapshot();
+            let (catalog_index_hits_after, catalog_index_misses_after) =
+                dataset_catalog_index_cache_metrics_snapshot();
+            let (content_hash_hits_after, content_hash_misses_after) =
+                file_content_hash_cache_metrics_snapshot();
+            format!(
+                "l2_hits_delta={}, l2_misses_delta={}, l3_hits_delta={}, l3_misses_delta={}, catalog_index_hits_delta={}, catalog_index_misses_delta={}, content_hash_hits_delta={}, content_hash_misses_delta={}",
+                l2_hits_after.saturating_sub(l2_hits_before),
+                l2_misses_after.saturating_sub(l2_misses_before),
+                l3_hits_after.saturating_sub(l3_hits_before),
+                l3_misses_after.saturating_sub(l3_misses_before),
+                catalog_index_hits_after.saturating_sub(catalog_index_hits_before),
+                catalog_index_misses_after.saturating_sub(catalog_index_misses_before),
+                content_hash_hits_after.saturating_sub(content_hash_hits_before),
+                content_hash_misses_after.saturating_sub(content_hash_misses_before),
+            )
+        },
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
 
     Ok(CompiledApp {
         app_id: app_decl.id.clone(),
