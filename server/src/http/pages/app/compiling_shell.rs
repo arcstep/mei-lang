@@ -22,9 +22,7 @@ pub(crate) fn render_compiling_shell(
         .filter(|s| !s.is_empty())
         .map(|scene| {
             let scene_esc = html_escape_min(scene);
-            format!(
-                "<p class=\"mei-compile-scene\">场景 <code>{scene_esc}</code></p>"
-            )
+            format!("<p class=\"mei-compile-scene\">场景 <code>{scene_esc}</code></p>")
         })
         .unwrap_or_default();
     format!(

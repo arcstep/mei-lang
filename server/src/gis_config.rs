@@ -28,14 +28,13 @@ impl GisTilesConfig {
                 }
             })
             .unwrap_or_else(|| "/shapingba-z10-16".to_string());
-        Self { base_url, json_path }
+        Self {
+            base_url,
+            json_path,
+        }
     }
 
     pub fn tilejson_url(&self) -> String {
-        format!(
-            "{}{}",
-            self.base_url.trim_end_matches('/'),
-            self.json_path
-        )
+        format!("{}{}", self.base_url.trim_end_matches('/'), self.json_path)
     }
 }
