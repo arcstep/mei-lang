@@ -11,7 +11,7 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 use crate::{AppError, AppState};
 
 use super::super::super::compile_cache::{
-    compile_app_with_cache, peek_compile_cache, recent_compile_failure,
+    compile_app_with_cache, peek_compile_cache_hit, recent_compile_failure,
     start_compile_in_background_if_needed, CompileWithCacheFailure, CompileWithCacheOutcome,
 };
 use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
@@ -59,6 +59,29 @@ fn insert_manage_compile_observability_headers(res: &mut Response, compiled: &Co
         if let Ok(value) = HeaderValue::from_str(&message) {
             res.headers_mut()
                 .insert(HeaderName::from_static(header), value);
+        }
+    }
+}
+
+fn insert_manage_compile_request_headers(res: &mut Response, outcome: &CompileWithCacheOutcome) {
+    for (header, value) in [
+        (
+            "x-mei-compile-cache-hit",
+            if outcome.cache_hit { "1" } else { "0" }.to_string(),
+        ),
+        (
+            "x-mei-compile-revision-scope",
+            outcome.revision_scope.clone(),
+        ),
+        ("x-mei-compile-ms", outcome.compile_ms.to_string()),
+        (
+            "x-mei-compile-cache-lookup-ms",
+            outcome.cache_lookup_ms.to_string(),
+        ),
+    ] {
+        if let Ok(header_value) = HeaderValue::from_str(&value) {
+            res.headers_mut()
+                .insert(HeaderName::from_static(header), header_value);
         }
     }
 }
@@ -185,10 +208,11 @@ pub async fn app_page(
         && !recent_compile_failure(&app_id, &compile_options)
     {
         let peek_started = Instant::now();
-        match peek_compile_cache(&state, &app_id, &compile_options, components_root.as_path()) {
-            Some(compiled) => CompileWithCacheOutcome {
-                compiled,
+        match peek_compile_cache_hit(&state, &app_id, &compile_options, components_root.as_path()) {
+            Some(hit) => CompileWithCacheOutcome {
+                compiled: hit.compiled,
                 cache_hit: true,
+                revision_scope: hit.revision_scope,
                 cache_lookup_ms: elapsed_ms(peek_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
@@ -217,6 +241,7 @@ pub async fn app_page(
             Err(failure) => {
                 let CompileWithCacheFailure {
                     error,
+                    revision_scope,
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms,
@@ -224,6 +249,7 @@ pub async fn app_page(
                 tracing::warn!(
                     app_id = %app_id,
                     %error,
+                    revision_scope,
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms,
@@ -329,6 +355,10 @@ pub async fn app_page(
             }
         }
     };
+    let compile_cache_hit = compile_outcome.cache_hit;
+    let compile_revision_scope = compile_outcome.revision_scope.clone();
+    let compile_ms = compile_outcome.compile_ms;
+    let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let mut compiled = compile_outcome.compiled;
     if route_mode == UiRouteMode::Access {
         if access_path_scene.is_none() {
@@ -380,9 +410,6 @@ pub async fn app_page(
                 .into_response());
         }
     }
-    let compile_ms = compile_outcome.compile_ms;
-    let compile_cache_hit = compile_outcome.cache_hit;
-    let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let manage_scene_resolved = if route_mode == UiRouteMode::Access {
         access_path_scene.clone()
     } else {
@@ -508,6 +535,15 @@ pub async fn app_page(
             );
         }
         insert_manage_compile_observability_headers(&mut res, &compiled);
+        let request_meta = CompileWithCacheOutcome {
+            compiled: compiled.clone(),
+            cache_hit: compile_cache_hit,
+            revision_scope: compile_revision_scope.clone(),
+            cache_lookup_ms: compile_cache_lookup_ms,
+            compile_cache_lock_wait_ms: 0,
+            compile_ms,
+        };
+        insert_manage_compile_request_headers(&mut res, &request_meta);
     }
     tracing::info!(
         app_id = %app_id,

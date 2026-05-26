@@ -9,31 +9,46 @@ use walkdir::WalkDir;
 
 use crate::AppState;
 
+#[derive(Debug, Clone)]
+pub(crate) struct CompileRevisionStamp {
+    pub token: String,
+    pub scope: &'static str,
+}
+
 pub(crate) fn compile_revision(
     state: &AppState,
     app_id: &str,
     options: &CompileOptions,
     components_root: &Path,
-) -> String {
+) -> CompileRevisionStamp {
     let app_root = state.source_root.join(app_id);
     if let Ok(token) =
         compile_revision_token_from_root_with_options(&state.source_root, &app_root, options)
     {
-        return token;
+        return CompileRevisionStamp {
+            token,
+            scope: "focused_graph",
+        };
     }
     compile_revision_fallback(&app_root, components_root)
 }
 
-fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> String {
+fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> CompileRevisionStamp {
     if compile_revision_mode() == RevisionMode::Full {
         let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);
         let components_mtime = directory_latest_full_modified_ms(components_root).unwrap_or(0);
-        return app_mtime.max(components_mtime).to_string();
+        return CompileRevisionStamp {
+            token: app_mtime.max(components_mtime).to_string(),
+            scope: "full_mtime",
+        };
     }
     let app_mtime = directory_latest_modified_ms(&app_root, RevisionScope::App).unwrap_or(0);
     let components_mtime =
         directory_latest_modified_ms(components_root, RevisionScope::Components).unwrap_or(0);
-    app_mtime.max(components_mtime).to_string()
+    CompileRevisionStamp {
+        token: app_mtime.max(components_mtime).to_string(),
+        scope: "relevant_mtime",
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

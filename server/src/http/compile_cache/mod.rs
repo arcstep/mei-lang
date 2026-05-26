@@ -12,6 +12,7 @@ use crate::{AppState, CachedCompiledApp};
 pub(crate) struct CompileWithCacheOutcome {
     pub(crate) compiled: CompiledApp,
     pub(crate) cache_hit: bool,
+    pub(crate) revision_scope: String,
     pub(crate) cache_lookup_ms: u64,
     /// 等待 `compile_cache` Mutex 的累计时间（lookup + 写入各一次，不含锁外编译）。
     pub(crate) compile_cache_lock_wait_ms: u64,
@@ -20,9 +21,15 @@ pub(crate) struct CompileWithCacheOutcome {
 
 pub(crate) struct CompileWithCacheFailure {
     pub(crate) error: anyhow::Error,
+    pub(crate) revision_scope: String,
     pub(crate) cache_lookup_ms: u64,
     pub(crate) compile_cache_lock_wait_ms: u64,
     pub(crate) compile_ms: u64,
+}
+
+pub(crate) struct PeekCompileCacheHit {
+    pub(crate) compiled: CompiledApp,
+    pub(crate) revision_scope: String,
 }
 
 struct CompileInflight {
@@ -173,12 +180,14 @@ pub(crate) fn compile_app_with_cache(
             Ok(compiled) => Ok(CompileWithCacheOutcome {
                 compiled,
                 cache_hit: true,
+                revision_scope: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
             }),
             Err(message) => Err(CompileWithCacheFailure {
                 error: anyhow::anyhow!(message),
+                revision_scope: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
@@ -207,7 +216,7 @@ fn compile_app_with_cache_uncached_path(
     options: CompileOptions,
     components_root: &std::path::Path,
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
-    let app_revision = revision::compile_revision(state, app_id, &options, components_root);
+    let revision_stamp = revision::compile_revision(state, app_id, &options, components_root);
     let lookup_lock_started = Instant::now();
     let cache_lookup_ms;
     let mut compile_cache_lock_wait_ms = 0u64;
@@ -215,11 +224,12 @@ fn compile_app_with_cache_uncached_path(
         compile_cache_lock_wait_ms += elapsed_ms(lookup_lock_started);
         let lookup_started = Instant::now();
         if let Some(entry) = cache.get(cache_key) {
-            if entry.compile_revision == app_revision {
+            if entry.compile_revision == revision_stamp.token {
                 cache_lookup_ms = elapsed_ms(lookup_started);
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
+                    revision_scope: revision_stamp.scope.to_string(),
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms: 0,
@@ -240,6 +250,7 @@ fn compile_app_with_cache_uncached_path(
         Err(error) => {
             return Err(CompileWithCacheFailure {
                 error,
+                revision_scope: revision_stamp.scope.to_string(),
                 cache_lookup_ms,
                 compile_cache_lock_wait_ms,
                 compile_ms: elapsed_ms(compile_started),
@@ -256,7 +267,7 @@ fn compile_app_with_cache_uncached_path(
         cache.insert(
             cache_key.to_string(),
             CachedCompiledApp {
-                compile_revision: app_revision,
+                compile_revision: revision_stamp.token,
                 compiled: compiled.clone(),
             },
         );
@@ -270,6 +281,7 @@ fn compile_app_with_cache_uncached_path(
     Ok(CompileWithCacheOutcome {
         compiled,
         cache_hit: false,
+        revision_scope: revision_stamp.scope.to_string(),
         cache_lookup_ms,
         compile_cache_lock_wait_ms,
         compile_ms,
@@ -283,11 +295,31 @@ pub(crate) fn peek_compile_cache(
     components_root: &std::path::Path,
 ) -> Option<CompiledApp> {
     let cache_key = compile_cache_key(app_id, options);
-    let app_revision = revision::compile_revision(state, app_id, options, components_root);
+    let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
     let cache = state.compile_cache.lock().ok()?;
     let entry = cache.get(&cache_key)?;
-    if entry.compile_revision == app_revision {
+    if entry.compile_revision == revision_stamp.token {
         Some(entry.compiled.clone())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn peek_compile_cache_hit(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &std::path::Path,
+) -> Option<PeekCompileCacheHit> {
+    let cache_key = compile_cache_key(app_id, options);
+    let revision_stamp = revision::compile_revision(state, app_id, options, components_root);
+    let cache = state.compile_cache.lock().ok()?;
+    let entry = cache.get(&cache_key)?;
+    if entry.compile_revision == revision_stamp.token {
+        Some(PeekCompileCacheHit {
+            compiled: entry.compiled.clone(),
+            revision_scope: revision_stamp.scope.to_string(),
+        })
     } else {
         None
     }
