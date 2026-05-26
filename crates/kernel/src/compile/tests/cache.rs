@@ -5,6 +5,9 @@ use std::path::Path;
 
 use crate::compile::{
     clear_materialize_cache_for_tests, clear_scene_payload_cache_for_tests,
+    decl_file_cache::{
+        clear_decl_file_cache_for_tests, decl_file_cache_metrics_snapshot_for_tests,
+    },
     dependency_graph::{
         clear_dependency_graph_cache_for_tests, clear_file_content_hash_cache_for_tests,
         dependency_graph_cache_metrics_snapshot, DependencyGraph,
@@ -353,6 +356,33 @@ fn compile_revision_plan_tracks_only_relevant_watch_files() {
     assert!(
         !watched.contains(&"scenes/right.mei"),
         "unrelated route should not enter focused watch set"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn decl_file_cache_hits_on_repeated_external_loads() {
+    clear_decl_file_cache_for_tests();
+    let root = std::env::temp_dir().join(format!("mei-decl-cache-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_spbjw_like_app(&root);
+    let options = CompileOptions {
+        scene: Some("left".to_string()),
+        preview_target: None,
+    };
+    let before = decl_file_cache_metrics_snapshot_for_tests();
+    let _ =
+        compile_app_from_root_with_options(&root, &root, options.clone()).expect("first compile");
+    let after_first = decl_file_cache_metrics_snapshot_for_tests();
+    let _ = compile_app_from_root_with_options(&root, &root, options).expect("second compile");
+    let after_second = decl_file_cache_metrics_snapshot_for_tests();
+    assert!(
+        after_first.1 > before.1,
+        "first compile should populate decl file cache"
+    );
+    assert!(
+        after_second.0 > after_first.0,
+        "second compile should reuse cached decl files"
     );
     let _ = fs::remove_dir_all(&root);
 }

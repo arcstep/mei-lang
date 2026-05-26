@@ -3,9 +3,10 @@ use std::path::Path;
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::eval::evaluate_mei_file;
 use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic, Severity};
 use crate::typed_refs::SceneRegistry;
+
+use super::decl_file_cache::evaluate_mei_file_cached;
 
 pub(super) mod clone_merge;
 mod compile;
@@ -76,6 +77,6 @@ fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Re
         Ok(app_decls.clone())
     } else {
         let entry_path = app_root.join(target_file);
-        evaluate_mei_file(&entry_path)
+        evaluate_mei_file_cached(&entry_path)
     }
 }

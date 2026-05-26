@@ -6,10 +6,10 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
-use crate::eval::evaluate_mei_file;
 use crate::model::CompiledSceneRoute;
 
 use super::catalog::{extract_from_dataset_tokens, extract_metric_ref_tokens};
+use super::decl_file_cache::evaluate_mei_file_cached;
 use super::entry_payload::collect_ref_scene_files_from_value;
 use super::scene_payload_cache::file_mtime_ms;
 
@@ -272,7 +272,7 @@ fn collect_direct_dependencies(
     let decls = if target == "main.mei" {
         Some(app_decls.clone())
     } else {
-        evaluate_mei_file(&app_root.join(&target)).ok()
+        evaluate_mei_file_cached(&app_root.join(&target)).ok()
     };
 
     if let Some(values) = decls.as_ref().and_then(Value::as_array) {

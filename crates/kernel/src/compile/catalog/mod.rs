@@ -1,7 +1,11 @@
 mod merge;
 mod scan;
 
-use std::{collections::BTreeMap, path::Path};
+use std::{
+    collections::{BTreeMap, VecDeque},
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 use serde_json::Value;
 
@@ -21,6 +25,22 @@ pub(crate) use scan::{
     extract_metric_ref_tokens,
 };
 
+pub(super) fn catalog_compile_parallelism(max_jobs: usize) -> usize {
+    if max_jobs == 0 {
+        return 0;
+    }
+    let default_workers = std::thread::available_parallelism()
+        .map(|value| value.get())
+        .unwrap_or(1)
+        .clamp(1, 8);
+    let configured = std::env::var("MEI_CATALOG_COMPILE_PARALLELISM")
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default_workers);
+    configured.clamp(1, max_jobs)
+}
+
 /// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
 ///
 /// **硬约束**：仅当 `filter.is_active()` 且路径命中过滤器时才物化；绝不因 `filter == None` 或空过滤器而扫全库。
@@ -36,33 +56,80 @@ pub(super) fn compile_dataset_catalog_resources(
         return Vec::new();
     }
 
-    let mut by_id = BTreeMap::<String, LoadedResource>::new();
-
     let compile_rels = resolve_dataset_catalog_compile_rels(app_root, filter);
     if compile_rels.is_empty() {
         return Vec::new();
     }
+    let parallelism = catalog_compile_parallelism(compile_rels.len());
 
-    for rel in compile_rels {
-        let dependency_fingerprint =
-            dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, rel.as_str());
-        let payload = compile_scene_payload_for_target(
-            app_root,
-            source_root,
-            app_decls,
-            asset_map,
-            rel.as_str(),
-            None,
-            &SceneRegistry::new(),
-            dependency_fingerprint.as_deref(),
-        );
-        let mut dataset_resources = Vec::new();
-        for resource in payload.resources {
-            if resource.dataset.is_some() {
-                dataset_resources.push(resource);
-            }
+    let mut compiled = Vec::<(String, Vec<LoadedResource>)>::new();
+    if parallelism <= 1 || compile_rels.len() <= 1 {
+        for rel in compile_rels {
+            let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+                app_root,
+                app_decls,
+                rel.as_str(),
+            );
+            let payload = compile_scene_payload_for_target(
+                app_root,
+                source_root,
+                app_decls,
+                asset_map,
+                rel.as_str(),
+                None,
+                &SceneRegistry::new(),
+                dependency_fingerprint.as_deref(),
+            );
+            let dataset_resources = payload
+                .resources
+                .into_iter()
+                .filter(|resource| resource.dataset.is_some())
+                .collect::<Vec<_>>();
+            compiled.push((rel, dataset_resources));
         }
-        for resource in dataset_resources {
+    } else {
+        let queue = Arc::new(Mutex::new(VecDeque::from(compile_rels)));
+        let output = Arc::new(Mutex::new(Vec::<(String, Vec<LoadedResource>)>::new()));
+        std::thread::scope(|scope| {
+            for _ in 0..parallelism {
+                let queue = Arc::clone(&queue);
+                let output = Arc::clone(&output);
+                scope.spawn(move || loop {
+                    let rel = match queue.lock() {
+                        Ok(mut guard) => guard.pop_front(),
+                        Err(_) => None,
+                    };
+                    let Some(rel) = rel else { break };
+                    let dependency_fingerprint = dependency_graph
+                        .dependency_fingerprint_for_target(app_root, app_decls, rel.as_str());
+                    let payload = compile_scene_payload_for_target(
+                        app_root,
+                        source_root,
+                        app_decls,
+                        asset_map,
+                        rel.as_str(),
+                        None,
+                        &SceneRegistry::new(),
+                        dependency_fingerprint.as_deref(),
+                    );
+                    let dataset_resources = payload
+                        .resources
+                        .into_iter()
+                        .filter(|resource| resource.dataset.is_some())
+                        .collect::<Vec<_>>();
+                    if let Ok(mut guard) = output.lock() {
+                        guard.push((rel, dataset_resources));
+                    }
+                });
+            }
+        });
+        compiled = output.lock().map(|guard| guard.clone()).unwrap_or_default();
+    }
+
+    compiled.sort_by(|left, right| left.0.cmp(&right.0));
+    let mut by_id = BTreeMap::<String, LoadedResource>::new();
+    for (_rel, resources) in compiled {
+        for resource in resources {
             upsert_catalog_dataset_resource(&mut by_id, resource);
         }
     }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::eval::evaluate_mei_file;
+use crate::compile::decl_file_cache::evaluate_mei_file_cached;
 use crate::model::{
     BlockDecl, Diagnostic, LoadedResource, PanelDecl, PanelRefEmbedDecl, Severity, UiNodeDecl,
 };
@@ -31,7 +31,7 @@ pub(super) fn validate_embed_capsule_ui_bindings(
             &capsule_resources,
             path,
         );
-    let Ok(decls) = evaluate_mei_file(app_root.join(path)) else {
+    let Ok(decls) = evaluate_mei_file_cached(&app_root.join(path)) else {
         return;
     };
     let Some(values) = decls.as_array() else {

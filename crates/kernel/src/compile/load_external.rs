@@ -3,9 +3,9 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::eval::evaluate_mei_file;
 use crate::model::{EntityDecl, FlowDecl, FrameDecl, PanelDecl, ResourceDecl, SceneDecl};
 
+use super::decl_file_cache::evaluate_mei_file_cached;
 use super::decls::{
     FrameSetLayoutDecl, WorldAddEntityDecl, WorldAddMetricDecl, WorldAddResourceDecl,
     WorldSetTopologyDecl,
@@ -18,7 +18,7 @@ pub(super) fn load_world_from_file(
     world_id: Option<&str>,
 ) -> Result<crate::model::WorldDecl> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut worlds = Vec::new();
     let mut pending_resources = Vec::new();
     let mut pending_entities = Vec::new();
@@ -140,7 +140,7 @@ pub(super) fn load_frame_from_file(
     frame_id: Option<&str>,
 ) -> Result<FrameDecl> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut frames = Vec::new();
     let mut pending_layout: Option<crate::model::LayoutDecl> = None;
     let mut frame_layout_set_count = 0usize;
@@ -215,7 +215,7 @@ pub(super) fn load_flow_from_file(
     flow_id: Option<&str>,
 ) -> Result<FlowDecl> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut flows = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {
@@ -252,7 +252,7 @@ pub(super) fn load_panel_from_scene_file(
     panel_id: &str,
 ) -> Result<PanelDecl> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut panels = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {
@@ -278,7 +278,7 @@ pub(super) fn load_scene_from_file(
     scene_id: Option<&str>,
 ) -> Result<SceneDecl> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut scenes = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {
@@ -370,7 +370,7 @@ pub(super) fn load_block_from_scene_file(
     use_key: Option<&str>,
 ) -> Result<Value> {
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = evaluate_mei_file_cached(&source_path)?;
     let mut candidates = Vec::new();
     if let Some(values) = decls.as_array() {
         for value in values {

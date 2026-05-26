@@ -22,6 +22,7 @@ use crate::{
 mod analysis;
 mod app_decl;
 mod catalog;
+mod decl_file_cache;
 mod decls;
 mod dependency_graph;
 mod entry_payload;
@@ -42,9 +43,10 @@ use ui_data_policy::validate_imported_catalog_world_refs;
 
 use app_decl::decode_app_decl;
 use catalog::{
-    build_dataset_catalog_filter, compile_dataset_catalog_resources,
+    build_dataset_catalog_filter, catalog_compile_parallelism, compile_dataset_catalog_resources,
     dataset_catalog_index_cache_metrics_snapshot, merge_resource_catalog, DatasetCatalogFilter,
 };
+use decl_file_cache::decl_file_cache_metrics_snapshot;
 use dependency_graph::{
     dependency_graph_cache_metrics_snapshot, file_content_hash_cache_metrics_snapshot,
     DependencyGraph,
@@ -728,6 +730,7 @@ pub fn compile_app_from_root_with_options(
     let (l3_hits_before, l3_misses_before) = dataset_materialize_cache_metrics_snapshot();
     let (catalog_index_hits_before, catalog_index_misses_before) =
         dataset_catalog_index_cache_metrics_snapshot();
+    let (decl_file_hits_before, decl_file_misses_before) = decl_file_cache_metrics_snapshot();
     let (graph_cache_hits_before, graph_cache_misses_before) =
         dependency_graph_cache_metrics_snapshot();
     let (content_hash_hits_before, content_hash_misses_before) =
@@ -995,6 +998,7 @@ pub fn compile_app_from_root_with_options(
         build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
     };
     let mut catalog_compile_rels = 0usize;
+    let mut catalog_parallelism = 0usize;
     let mut catalog_compile_ms = 0u64;
     let mut catalog_l2_hit_delta = 0u64;
     let mut catalog_l2_miss_delta = 0u64;
@@ -1005,6 +1009,7 @@ pub fn compile_app_from_root_with_options(
         let catalog_started = Instant::now();
         catalog_compile_rels =
             catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter).len();
+        catalog_parallelism = catalog_compile_parallelism(catalog_compile_rels);
         let out = compile_dataset_catalog_resources(
             app_root,
             source_root,
@@ -1023,9 +1028,10 @@ pub fn compile_app_from_root_with_options(
         severity: Severity::Info,
         code: "catalog_compile_stats".to_string(),
         message: format!(
-            "dataset_manage_preview={}, compile_rels={}, l2_hits_delta={}, l2_misses_delta={}, catalog_compile_ms={}",
+            "dataset_manage_preview={}, compile_rels={}, parallelism={}, l2_hits_delta={}, l2_misses_delta={}, catalog_compile_ms={}",
             dataset_manage_preview,
             catalog_compile_rels,
+            catalog_parallelism,
             catalog_l2_hit_delta,
             catalog_l2_miss_delta,
             catalog_compile_ms
@@ -1039,13 +1045,13 @@ pub fn compile_app_from_root_with_options(
             "decision=skip_preview_scope".to_string()
         } else if catalog_compile_rels >= 8 && catalog_compile_ms >= 120 {
             format!(
-                "decision=candidate, reason=high_catalog_cost, compile_rels={}, catalog_compile_ms={}",
-                catalog_compile_rels, catalog_compile_ms
+                "decision=candidate, reason=high_catalog_cost, compile_rels={}, parallelism={}, catalog_compile_ms={}",
+                catalog_compile_rels, catalog_parallelism, catalog_compile_ms
             )
         } else {
             format!(
-                "decision=defer, reason=low_catalog_cost, compile_rels={}, catalog_compile_ms={}",
-                catalog_compile_rels, catalog_compile_ms
+                "decision=defer, reason=low_catalog_cost, compile_rels={}, parallelism={}, catalog_compile_ms={}",
+                catalog_compile_rels, catalog_parallelism, catalog_compile_ms
             )
         },
         source_path: Some(app_main.to_string_lossy().to_string()),
@@ -1182,18 +1188,21 @@ pub fn compile_app_from_root_with_options(
             let (l3_hits_after, l3_misses_after) = dataset_materialize_cache_metrics_snapshot();
             let (catalog_index_hits_after, catalog_index_misses_after) =
                 dataset_catalog_index_cache_metrics_snapshot();
+            let (decl_file_hits_after, decl_file_misses_after) = decl_file_cache_metrics_snapshot();
             let (graph_cache_hits_after, graph_cache_misses_after) =
                 dependency_graph_cache_metrics_snapshot();
             let (content_hash_hits_after, content_hash_misses_after) =
                 file_content_hash_cache_metrics_snapshot();
             format!(
-                "l2_hits_delta={}, l2_misses_delta={}, l3_hits_delta={}, l3_misses_delta={}, catalog_index_hits_delta={}, catalog_index_misses_delta={}, graph_cache_hits_delta={}, graph_cache_misses_delta={}, content_hash_hits_delta={}, content_hash_misses_delta={}",
+                "l2_hits_delta={}, l2_misses_delta={}, l3_hits_delta={}, l3_misses_delta={}, catalog_index_hits_delta={}, catalog_index_misses_delta={}, decl_file_hits_delta={}, decl_file_misses_delta={}, graph_cache_hits_delta={}, graph_cache_misses_delta={}, content_hash_hits_delta={}, content_hash_misses_delta={}",
                 l2_hits_after.saturating_sub(l2_hits_before),
                 l2_misses_after.saturating_sub(l2_misses_before),
                 l3_hits_after.saturating_sub(l3_hits_before),
                 l3_misses_after.saturating_sub(l3_misses_before),
                 catalog_index_hits_after.saturating_sub(catalog_index_hits_before),
                 catalog_index_misses_after.saturating_sub(catalog_index_misses_before),
+                decl_file_hits_after.saturating_sub(decl_file_hits_before),
+                decl_file_misses_after.saturating_sub(decl_file_misses_before),
                 graph_cache_hits_after.saturating_sub(graph_cache_hits_before),
                 graph_cache_misses_after.saturating_sub(graph_cache_misses_before),
                 content_hash_hits_after.saturating_sub(content_hash_hits_before),

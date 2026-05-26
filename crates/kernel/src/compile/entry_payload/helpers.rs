@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::eval::evaluate_mei_file;
 use crate::model::{
     Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl, WorldMetricLedgerEntry,
 };
@@ -211,7 +210,7 @@ fn load_resources_from_capsule_file_recursive(
         }
     }
     let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file(&source_path)?;
+    let decls = super::super::decl_file_cache::evaluate_mei_file_cached(&source_path)?;
     let mut nested_paths = BTreeSet::new();
     if let Some(values) = decls.as_array() {
         for value in values {
