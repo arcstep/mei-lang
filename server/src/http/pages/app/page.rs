@@ -10,7 +10,6 @@ use mei_lang_kernel::{discover_apps, read_source_file, CompileOptions, CompiledA
 
 use crate::{AppError, AppState};
 
-use super::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
 use super::super::super::compile_cache::{
     compile_app_with_cache, peek_compile_cache, recent_compile_failure,
     start_compile_in_background_if_needed, CompileWithCacheFailure, CompileWithCacheOutcome,
@@ -20,9 +19,9 @@ use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
 use super::super::util::{
     elapsed_ms, fill_gis_tiles_placeholders, fill_manage_wall_clock_placeholders,
-    fill_perf_placeholders, is_script_target,
-    push_manage_page_pipeline_diag,
+    fill_perf_placeholders, is_script_target, push_manage_page_pipeline_diag,
 };
+use super::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, parse_access_scene_path,
     AppQuery,
@@ -34,6 +33,34 @@ fn html_escape_min(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn diagnostic_message_by_code(compiled: &CompiledApp, code: &str) -> Option<String> {
+    compiled
+        .diagnostics
+        .iter()
+        .find(|diag| diag.code == code)
+        .map(|diag| diag.message.clone())
+}
+
+fn insert_manage_compile_observability_headers(res: &mut Response, compiled: &CompiledApp) {
+    for (header, code) in [
+        (
+            "x-mei-compile-optimization-status",
+            "compile_optimization_status",
+        ),
+        ("x-mei-compile-cache-stats", "compile_cache_stats"),
+        ("x-mei-dependency-graph-stats", "dependency_graph_stats"),
+        ("x-mei-catalog-filter-stats", "catalog_filter_stats"),
+    ] {
+        let Some(message) = diagnostic_message_by_code(compiled, code) else {
+            continue;
+        };
+        if let Ok(value) = HeaderValue::from_str(&message) {
+            res.headers_mut()
+                .insert(HeaderName::from_static(header), value);
+        }
+    }
 }
 
 pub async fn app_page(
@@ -158,12 +185,7 @@ pub async fn app_page(
         && !recent_compile_failure(&app_id, &compile_options)
     {
         let peek_started = Instant::now();
-        match peek_compile_cache(
-            &state,
-            &app_id,
-            &compile_options,
-            components_root.as_path(),
-        ) {
+        match peek_compile_cache(&state, &app_id, &compile_options, components_root.as_path()) {
             Some(compiled) => CompileWithCacheOutcome {
                 compiled,
                 cache_hit: true,
@@ -178,9 +200,7 @@ pub async fn app_page(
                     compile_options.clone(),
                     components_root.clone(),
                 );
-                let scene_hint = compile_scene
-                    .as_deref()
-                    .or(access_path_scene.as_deref());
+                let scene_hint = compile_scene.as_deref().or(access_path_scene.as_deref());
                 let shell = render_compiling_shell(route_mode, &app_id, scene_hint);
                 tracing::info!(
                     app_id = %app_id,
@@ -289,6 +309,7 @@ pub async fn app_page(
                             v,
                         );
                     }
+                    insert_manage_compile_observability_headers(&mut res, &compiled);
                 }
                 tracing::info!(
                     app_id = %app_id,
@@ -486,6 +507,7 @@ pub async fn app_page(
                 v,
             );
         }
+        insert_manage_compile_observability_headers(&mut res, &compiled);
     }
     tracing::info!(
         app_id = %app_id,

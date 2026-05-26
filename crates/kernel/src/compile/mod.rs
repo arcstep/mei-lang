@@ -44,7 +44,10 @@ use catalog::{
     build_dataset_catalog_filter, compile_dataset_catalog_resources,
     dataset_catalog_index_cache_metrics_snapshot, merge_resource_catalog, DatasetCatalogFilter,
 };
-use dependency_graph::{file_content_hash_cache_metrics_snapshot, DependencyGraph};
+use dependency_graph::{
+    dependency_graph_cache_metrics_snapshot, file_content_hash_cache_metrics_snapshot,
+    DependencyGraph,
+};
 use entry_payload::CompiledScenePayload;
 use materialize::{append_world_metrics_dataset_resource, materialize_world_metrics};
 use materialize_cache::dataset_materialize_cache_metrics_snapshot;
@@ -327,6 +330,8 @@ pub fn compile_app_from_root_with_options(
     let (l3_hits_before, l3_misses_before) = dataset_materialize_cache_metrics_snapshot();
     let (catalog_index_hits_before, catalog_index_misses_before) =
         dataset_catalog_index_cache_metrics_snapshot();
+    let (graph_cache_hits_before, graph_cache_misses_before) =
+        dependency_graph_cache_metrics_snapshot();
     let (content_hash_hits_before, content_hash_misses_before) =
         file_content_hash_cache_metrics_snapshot();
     let app_main = app_root.join("main.mei");
@@ -352,7 +357,8 @@ pub fn compile_app_from_root_with_options(
         preview_only,
     );
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
-    let dependency_graph = DependencyGraph::build(app_root, &app_decls, &route_registry.routes);
+    let dependency_graph =
+        DependencyGraph::build_cached(app_root, &app_decls, &route_registry.routes);
     let preview_affected_targets = options
         .preview_target
         .as_deref()
@@ -706,20 +712,50 @@ pub fn compile_app_from_root_with_options(
             let (l3_hits_after, l3_misses_after) = dataset_materialize_cache_metrics_snapshot();
             let (catalog_index_hits_after, catalog_index_misses_after) =
                 dataset_catalog_index_cache_metrics_snapshot();
+            let (graph_cache_hits_after, graph_cache_misses_after) =
+                dependency_graph_cache_metrics_snapshot();
             let (content_hash_hits_after, content_hash_misses_after) =
                 file_content_hash_cache_metrics_snapshot();
             format!(
-                "l2_hits_delta={}, l2_misses_delta={}, l3_hits_delta={}, l3_misses_delta={}, catalog_index_hits_delta={}, catalog_index_misses_delta={}, content_hash_hits_delta={}, content_hash_misses_delta={}",
+                "l2_hits_delta={}, l2_misses_delta={}, l3_hits_delta={}, l3_misses_delta={}, catalog_index_hits_delta={}, catalog_index_misses_delta={}, graph_cache_hits_delta={}, graph_cache_misses_delta={}, content_hash_hits_delta={}, content_hash_misses_delta={}",
                 l2_hits_after.saturating_sub(l2_hits_before),
                 l2_misses_after.saturating_sub(l2_misses_before),
                 l3_hits_after.saturating_sub(l3_hits_before),
                 l3_misses_after.saturating_sub(l3_misses_before),
                 catalog_index_hits_after.saturating_sub(catalog_index_hits_before),
                 catalog_index_misses_after.saturating_sub(catalog_index_misses_before),
+                graph_cache_hits_after.saturating_sub(graph_cache_hits_before),
+                graph_cache_misses_after.saturating_sub(graph_cache_misses_before),
                 content_hash_hits_after.saturating_sub(content_hash_hits_before),
                 content_hash_misses_after.saturating_sub(content_hash_misses_before),
             )
         },
+        source_path: Some(app_main.to_string_lossy().to_string()),
+    });
+    diagnostics.push(Diagnostic {
+        severity: Severity::Info,
+        code: "compile_optimization_status".to_string(),
+        message: format!(
+            "dependency_graph=on,preview_scope=on,l2=on,l3=on,catalog_index=on,content_hash=on,graph_cache_delta={},catalog_index_cache_delta={},content_hash_cache_delta={}",
+            dependency_graph_cache_metrics_snapshot()
+                .0
+                .saturating_sub(graph_cache_hits_before)
+                + dependency_graph_cache_metrics_snapshot()
+                    .1
+                    .saturating_sub(graph_cache_misses_before),
+            dataset_catalog_index_cache_metrics_snapshot()
+                .0
+                .saturating_sub(catalog_index_hits_before)
+                + dataset_catalog_index_cache_metrics_snapshot()
+                    .1
+                    .saturating_sub(catalog_index_misses_before),
+            file_content_hash_cache_metrics_snapshot()
+                .0
+                .saturating_sub(content_hash_hits_before)
+                + file_content_hash_cache_metrics_snapshot()
+                    .1
+                    .saturating_sub(content_hash_misses_before),
+        ),
         source_path: Some(app_main.to_string_lossy().to_string()),
     });
 

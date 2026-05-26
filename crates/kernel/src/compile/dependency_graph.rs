@@ -16,7 +16,12 @@ use super::scene_payload_cache::file_mtime_ms;
 static FILE_CONTENT_HASH_CACHE: Mutex<BTreeMap<String, String>> = Mutex::new(BTreeMap::new());
 static FILE_CONTENT_HASH_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 static FILE_CONTENT_HASH_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static DEPENDENCY_GRAPH_CACHE: Mutex<BTreeMap<String, DependencyGraph>> =
+    Mutex::new(BTreeMap::new());
+static DEPENDENCY_GRAPH_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static DEPENDENCY_GRAPH_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 const MAX_FILE_CONTENT_HASH_CACHE_ENTRIES: usize = 512;
+const MAX_DEPENDENCY_GRAPH_CACHE_ENTRIES: usize = 64;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct DependencyGraph {
@@ -35,6 +40,30 @@ pub(crate) struct DependencyGraphStats {
 }
 
 impl DependencyGraph {
+    pub(crate) fn build_cached(
+        app_root: &Path,
+        app_decls: &Value,
+        routes: &[CompiledSceneRoute],
+    ) -> DependencyGraph {
+        let key = dependency_graph_cache_key(app_root, routes);
+        if let Ok(cache) = DEPENDENCY_GRAPH_CACHE.lock() {
+            if let Some(graph) = cache.get(&key).cloned() {
+                DEPENDENCY_GRAPH_CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                return graph;
+            }
+        }
+
+        DEPENDENCY_GRAPH_CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
+        let graph = Self::build(app_root, app_decls, routes);
+        if let Ok(mut cache) = DEPENDENCY_GRAPH_CACHE.lock() {
+            if cache.len() >= MAX_DEPENDENCY_GRAPH_CACHE_ENTRIES {
+                cache.clear();
+            }
+            cache.insert(key, graph.clone());
+        }
+        graph
+    }
+
     pub(crate) fn build(
         app_root: &Path,
         app_decls: &Value,
@@ -180,6 +209,20 @@ pub(crate) fn clear_file_content_hash_cache_for_tests() {
     }
 }
 
+pub(crate) fn dependency_graph_cache_metrics_snapshot() -> (u64, u64) {
+    (
+        DEPENDENCY_GRAPH_CACHE_HITS.load(Ordering::Relaxed),
+        DEPENDENCY_GRAPH_CACHE_MISSES.load(Ordering::Relaxed),
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn clear_dependency_graph_cache_for_tests() {
+    if let Ok(mut cache) = DEPENDENCY_GRAPH_CACHE.lock() {
+        cache.clear();
+    }
+}
+
 fn collect_target_closure(
     app_root: &Path,
     app_decls: &Value,
@@ -263,6 +306,25 @@ fn collect_direct_dependencies(
 
 fn normalize_rel_path(path: &str) -> String {
     path.trim().trim_start_matches("./").replace('\\', "/")
+}
+
+fn dependency_graph_cache_key(app_root: &Path, routes: &[CompiledSceneRoute]) -> String {
+    let mut parts = Vec::<String>::new();
+    for route in routes {
+        let target = normalize_rel_path(route.target_file.as_str());
+        if target.is_empty() {
+            continue;
+        }
+        let mtime = file_mtime_ms(&app_root.join(&target));
+        parts.push(format!("{target}@{mtime}"));
+    }
+    parts.sort();
+    let app_mtime = file_mtime_ms(&app_root.join("main.mei"));
+    format!(
+        "{}|main@{app_mtime}|{}",
+        app_root.display(),
+        parts.join("|")
+    )
 }
 
 fn file_content_signature(path: &Path, rel: &str) -> String {

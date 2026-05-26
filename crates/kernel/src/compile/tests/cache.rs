@@ -5,7 +5,10 @@ use std::path::Path;
 
 use crate::compile::{
     clear_materialize_cache_for_tests, clear_scene_payload_cache_for_tests,
-    dependency_graph::{clear_file_content_hash_cache_for_tests, DependencyGraph},
+    dependency_graph::{
+        clear_dependency_graph_cache_for_tests, clear_file_content_hash_cache_for_tests,
+        dependency_graph_cache_metrics_snapshot, DependencyGraph,
+    },
     legacy_rows_cache_len_for_tests,
     scene_payload_cache::scene_payload_cache_key,
     scene_payload_cache_len_for_tests,
@@ -140,6 +143,45 @@ fn dependency_graph_tracks_route_closure_and_dependents() {
         fingerprint.contains("scenes/layouts/left.mei")
             && fingerprint.contains("scenes/child/page.mei"),
         "fingerprint should include transitive mei closure"
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn dependency_graph_cache_hits_on_repeated_build() {
+    clear_dependency_graph_cache_for_tests();
+    let root = std::env::temp_dir().join(format!("mei-graph-cache-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_spbjw_like_app(&root);
+    let app_decls = evaluate_mei_file(&root.join("main.mei")).expect("eval main");
+    let routes = vec![CompiledSceneRoute {
+        scene_id: "left".to_string(),
+        frame_id: None,
+        target_file: "scenes/layouts/left.mei".to_string(),
+        kind: "file_ref".to_string(),
+        title: None,
+        is_default: true,
+        access_export: true,
+    }];
+    let before = dependency_graph_cache_metrics_snapshot();
+    let first = DependencyGraph::build_cached(&root, &app_decls, &routes);
+    let after_first = dependency_graph_cache_metrics_snapshot();
+    let second = DependencyGraph::build_cached(&root, &app_decls, &routes);
+    let after_second = dependency_graph_cache_metrics_snapshot();
+    assert!(first
+        .dependent_targets_for_file("scenes/child/page.mei")
+        .contains("scenes/layouts/left.mei"));
+    assert_eq!(
+        second.dependent_targets_for_file("scenes/child/page.mei"),
+        first.dependent_targets_for_file("scenes/child/page.mei")
+    );
+    assert!(
+        after_first.1 > before.1,
+        "first build should miss graph cache"
+    );
+    assert!(
+        after_second.0 > after_first.0,
+        "second build should hit graph cache"
     );
     let _ = fs::remove_dir_all(&root);
 }
