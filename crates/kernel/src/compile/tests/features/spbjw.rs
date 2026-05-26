@@ -720,3 +720,539 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         "park_inspection_total should be enterprise-matched inspections on preview rows, got {total}"
     );
 }
+
+#[test]
+fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+
+    let indicator = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/2_行政检查/指标体系.mei".to_string()),
+        },
+    )
+    .expect("compile indicator_system preview");
+    let warning_dataset = indicator
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("warnings_verification_rate")
+                .map(|metric| (resource.id.clone(), metric))
+        })
+        .unwrap_or_else(|| {
+            let resources: Vec<_> = indicator.resources.iter().map(|r| r.id.as_str()).collect();
+            panic!(
+                "warnings_verification_rate runtime def should exist, resources: {resources:?}"
+            )
+        });
+    let (warning_dataset_id, warning_metric) = warning_dataset;
+    let inspection_metric = indicator
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("inspection_frequency_reduction_rate")
+        })
+        .expect("inspection_frequency_reduction_rate runtime def should exist");
+    let inspection_drilldown = inspection_metric
+        .get("drilldown_dataset")
+        .or_else(|| inspection_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("inspection_frequency_reduction_rate drilldown should remain object");
+    assert_eq!(
+        inspection_drilldown
+            .get("kind")
+            .and_then(|value| value.as_str()),
+        Some("mom")
+    );
+    assert_eq!(
+        inspection_drilldown
+            .get("basis_refs")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(2)
+    );
+    let inspection_ratio_parts = inspection_drilldown
+        .get("ratio_parts")
+        .and_then(|value| value.as_object())
+        .expect("inspection_frequency_reduction_rate ratio_parts should exist");
+    assert_eq!(
+        inspection_ratio_parts
+            .get("formula")
+            .and_then(|value| value.as_str()),
+        Some("(最近月检查次数 - 上月检查次数) / 上月检查次数")
+    );
+    let inspection_tab_metrics = inspection_drilldown
+        .get("tab_metrics")
+        .or_else(|| inspection_drilldown.get("tabMetrics"))
+        .and_then(|value| value.as_object())
+        .expect("inspection_frequency_reduction_rate tab_metrics should exist");
+    let inspection_trend_tab = inspection_tab_metrics
+        .get("trend")
+        .and_then(|value| value.as_object())
+        .expect("inspection_frequency_reduction_rate trend tab should exist");
+    assert_eq!(
+        inspection_trend_tab
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("inspections_6m_count_trend")
+    );
+    let warning_drilldown = warning_metric
+        .get("drilldown_dataset")
+        .or_else(|| warning_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("warnings_verification_rate drilldown should remain object");
+    assert_eq!(
+        warning_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("warning_list")
+    );
+    assert_eq!(
+        warning_drilldown
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("warnings_verification_breakdown_table")
+    );
+    assert_eq!(
+        warning_drilldown
+            .get("basis_refs")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(3)
+    );
+    assert_eq!(
+        warning_drilldown
+            .get("detail_fields")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(6)
+    );
+    let warning_ratio_parts = warning_drilldown
+        .get("ratio_parts")
+        .and_then(|value| value.as_object())
+        .expect("warnings_verification_rate ratio_parts should exist");
+    assert_eq!(
+        warning_ratio_parts
+            .get("numerator")
+            .and_then(|value| value.as_str()),
+        Some("已查实预警数")
+    );
+    assert_eq!(
+        warning_ratio_parts
+            .get("denominator")
+            .and_then(|value| value.as_str()),
+        Some("预警总数（按预警ID去重）")
+    );
+    let rectification_metric = indicator
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("effectiveness_verified_rectification_rate")
+        })
+        .expect("effectiveness_verified_rectification_rate runtime def should exist");
+    let rectification_drilldown = rectification_metric
+        .get("drilldown_dataset")
+        .or_else(|| rectification_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("effectiveness_verified_rectification_rate drilldown should remain object");
+    assert_eq!(
+        rectification_drilldown
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("effectiveness_verified_rectification_breakdown_table")
+    );
+    let rectification_ratio_parts = rectification_drilldown
+        .get("ratio_parts")
+        .and_then(|value| value.as_object())
+        .expect("effectiveness_verified_rectification_rate ratio_parts should exist");
+    assert_eq!(
+        rectification_ratio_parts
+            .get("denominator")
+            .and_then(|value| value.as_str()),
+        Some("已查实问题总数")
+    );
+    let rectification_tab_metrics = rectification_drilldown
+        .get("tab_metrics")
+        .or_else(|| rectification_drilldown.get("tabMetrics"))
+        .and_then(|value| value.as_object())
+        .expect("effectiveness_verified_rectification_rate tab_metrics should exist");
+    let rectification_detail_tab = rectification_tab_metrics
+        .get("detail")
+        .and_then(|value| value.as_object())
+        .expect("effectiveness_verified_rectification_rate detail tab should exist");
+    assert_eq!(
+        rectification_detail_tab
+            .get("dataset_id")
+            .and_then(|value| value.as_str()),
+        Some("issue_result_list")
+    );
+    assert!(
+        !warning_dataset_id.is_empty(),
+        "warnings_verification_rate should resolve to a concrete dataset id"
+    );
+
+    let issue = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督和问题办理/问题办理.mei".to_string()),
+        },
+    )
+    .expect("compile issue_handling preview");
+    let issue_warning_dataset = issue
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("warnings_pending_count")
+                .map(|metric| (resource.id.clone(), metric))
+        })
+        .unwrap_or_else(|| {
+            let resources: Vec<_> = issue.resources.iter().map(|r| r.id.as_str()).collect();
+            panic!(
+                "warnings_pending_count runtime def should exist, resources: {resources:?}"
+            )
+        });
+    let (issue_warning_dataset_id, issue_warning_metric) = issue_warning_dataset;
+    let issue_warning_drilldown = issue_warning_metric
+        .get("drilldown_dataset")
+        .or_else(|| issue_warning_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("warnings_pending_count drilldown should remain object");
+    assert_eq!(
+        issue_warning_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("warning_list")
+    );
+    assert_eq!(
+        issue_warning_drilldown
+            .get("layout_preset")
+            .and_then(|value| value.as_str()),
+        Some("drilldown_warnings")
+    );
+    assert_eq!(
+        issue_warning_drilldown
+            .get("basis_refs")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(3)
+    );
+    assert_eq!(
+        issue_warning_drilldown
+            .get("detail_fields")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(6)
+    );
+    assert!(
+        !issue_warning_dataset_id.is_empty(),
+        "warnings_pending_count should resolve to a concrete dataset id"
+    );
+
+    let enforcement = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/1_执法要素/执法要素.mei".to_string()),
+        },
+    )
+    .expect("compile enforcement_elements preview");
+    let enterprise_dataset = enforcement
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("key_enterprises_count")
+                .map(|metric| (resource.id.clone(), metric))
+        })
+        .unwrap_or_else(|| {
+            let resources: Vec<_> = enforcement.resources.iter().map(|r| r.id.as_str()).collect();
+            panic!(
+                "key_enterprises_count runtime def should exist, resources: {resources:?}"
+            )
+        });
+    let (enterprise_dataset_id, enterprise_metric) = enterprise_dataset;
+    let enterprise_drilldown = enterprise_metric
+        .get("drilldown_dataset")
+        .or_else(|| enterprise_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("key_enterprises_count drilldown should remain object");
+    assert_eq!(
+        enterprise_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("key_enterprises")
+    );
+    assert!(
+        !enterprise_dataset_id.is_empty(),
+        "key_enterprises_count should resolve to a concrete dataset id"
+    );
+    let matters_metric = enforcement
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("enforcement_items_count")
+        })
+        .expect("enforcement_items_count runtime def should exist");
+    let matters_drilldown = matters_metric
+        .get("drilldown_dataset")
+        .or_else(|| matters_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("enforcement_items_count drilldown should remain object");
+    assert_eq!(
+        matters_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("enforcement_matters")
+    );
+    let matters_tab_metrics = matters_drilldown
+        .get("tab_metrics")
+        .or_else(|| matters_drilldown.get("tabMetrics"))
+        .and_then(|value| value.as_object())
+        .expect("enforcement_items_count tab_metrics should exist");
+    assert_eq!(
+        matters_tab_metrics
+            .get("composition")
+            .and_then(|value| value.as_object())
+            .and_then(|value| value.get("table_metric_id"))
+            .and_then(|value| value.as_str()),
+        Some("enforcement_items_by_domain_ranking")
+    );
+
+    let inspection = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/2_行政检查/行政检查.mei".to_string()),
+        },
+    )
+    .expect("compile administrative_inspection preview");
+    let inspection_today_metric = inspection
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset.runtime_metric_defs.get("inspections_today_count")
+        })
+        .expect("inspections_today_count runtime def should exist");
+    let inspection_total_metric = inspection
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset.runtime_metric_defs.get("inspections_total_count")
+        })
+        .expect("inspections_total_count runtime def should exist");
+    let inspection_total_drilldown = inspection_total_metric
+        .get("drilldown_dataset")
+        .or_else(|| inspection_total_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("inspections_total_count drilldown should remain object");
+    assert_eq!(
+        inspection_total_drilldown
+            .get("tab_metrics")
+            .or_else(|| inspection_total_drilldown.get("tabMetrics"))
+            .and_then(|value| value.as_object())
+            .and_then(|tabs| tabs.get("trend"))
+            .and_then(|value| value.as_object())
+            .and_then(|value| value.get("table_metric_id"))
+            .and_then(|value| value.as_str()),
+        Some("inspections_6m_count_trend")
+    );
+    let inspection_today_drilldown = inspection_today_metric
+        .get("drilldown_dataset")
+        .or_else(|| inspection_today_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("inspections_today_count drilldown should remain object");
+    assert_eq!(
+        inspection_today_drilldown
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("inspections_today_detail_table")
+    );
+    assert_eq!(
+        inspection_today_drilldown
+            .get("detail_fields")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(11)
+    );
+
+    let penalty = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/3_行政处罚/行政处罚.mei".to_string()),
+        },
+    )
+    .expect("compile penalty_dashboard preview");
+    let penalty_today_metric = penalty
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset.runtime_metric_defs.get("penalties_today_count")
+        })
+        .expect("penalties_today_count runtime def should exist");
+    let penalty_today_drilldown = penalty_today_metric
+        .get("drilldown_dataset")
+        .or_else(|| penalty_today_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("penalties_today_count drilldown should remain object");
+    assert_eq!(
+        penalty_today_drilldown
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("penalties_today_detail_table")
+    );
+    let reconsideration_metric = penalty
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("administrative_reconsiderations_count")
+        })
+        .expect("administrative_reconsiderations_count runtime def should exist");
+    let reconsideration_drilldown = reconsideration_metric
+        .get("drilldown_dataset")
+        .or_else(|| reconsideration_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("administrative_reconsiderations_count drilldown should remain object");
+    assert_eq!(
+        reconsideration_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("admin_reconsideration_register")
+    );
+    let penalty_growth_metric = penalty
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset.runtime_metric_defs.get("penalty_revenue_growth_rate")
+        })
+        .expect("penalty_revenue_growth_rate runtime def should exist");
+    let penalty_growth_drilldown = penalty_growth_metric
+        .get("drilldown_dataset")
+        .or_else(|| penalty_growth_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("penalty_revenue_growth_rate drilldown should remain object");
+    assert_eq!(
+        penalty_growth_drilldown
+            .get("tab_metrics")
+            .or_else(|| penalty_growth_drilldown.get("tabMetrics"))
+            .and_then(|value| value.as_object())
+            .and_then(|tabs| tabs.get("composition"))
+            .and_then(|value| value.as_object())
+            .and_then(|value| value.get("table_metric_id"))
+            .and_then(|value| value.as_str()),
+        Some("park_penalty_amount_by_park")
+    );
+
+    let warning = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督和问题办理/监督预警.mei".to_string()),
+        },
+    )
+    .expect("compile supervision_warning preview");
+    let supervision_metric = warning
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset.runtime_metric_defs.get("supervision_items_count")
+        })
+        .expect("supervision_items_count runtime def should exist");
+    let supervision_drilldown = supervision_metric
+        .get("drilldown_dataset")
+        .or_else(|| supervision_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("supervision_items_count drilldown should remain object");
+    assert_eq!(
+        supervision_drilldown
+            .get("target_scene_id")
+            .and_then(|value| value.as_str()),
+        Some("supervision_matters")
+    );
+    assert_eq!(
+        supervision_drilldown
+            .get("layout_preset")
+            .and_then(|value| value.as_str()),
+        Some("drilldown_matters")
+    );
+    assert_eq!(
+        supervision_drilldown
+            .get("detail_fields")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(5)
+    );
+
+    let effectiveness = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督和问题办理/监督成效.mei".to_string()),
+        },
+    )
+    .expect("compile supervision_effectiveness preview");
+    let transfer_metric = effectiveness
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get("effectiveness_transfer_clue_count")
+        })
+        .expect("effectiveness_transfer_clue_count runtime def should exist");
+    let transfer_drilldown = transfer_metric
+        .get("drilldown_dataset")
+        .or_else(|| transfer_metric.get("drilldown"))
+        .and_then(|value| value.as_object())
+        .expect("effectiveness_transfer_clue_count drilldown should remain object");
+    assert_eq!(
+        transfer_drilldown
+            .get("table_metric_id")
+            .and_then(|value| value.as_str()),
+        Some("issue_results_transfer_clue_table")
+    );
+    assert_eq!(
+        transfer_drilldown
+            .get("basis_refs")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(3)
+    );
+}
