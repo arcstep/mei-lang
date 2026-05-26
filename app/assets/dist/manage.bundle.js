@@ -10656,8 +10656,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     },
     enforcement_items_count: {
       sceneId: "enforcement_matters",
-      title: "执法事项明细",
-      columns: ENFORCEMENT_MATTER_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     key_enterprises_count: {
@@ -10668,249 +10666,128 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     },
     park_count: {
       sceneId: "enforcement_parks",
-      title: "园区明细",
-      columns: PARK_COLUMNS,
-      headers: PARK_HEADERS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     whitelist_enterprises_count: {
       sceneId: "enterprise_whitelist",
-      title: "白名单企业明细",
-      columns: WHITELIST_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspections_total_count: {
       sceneId: "administrative_inspection",
-      title: "行政检查总数明细",
-      columns: INSPECTION_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspections_today_count: {
       sceneId: "administrative_inspection",
-      title: "今日行政检查明细",
-      note: "统计口径：检查日期落在最近 1 天。",
-      tableMetricId: "inspections_today_detail_table",
-      columns: INSPECTION_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspections_week_count: {
       sceneId: "administrative_inspection",
-      title: "近7日行政检查明细",
-      note: "统计口径：检查日期落在最近 7 天。",
-      tableMetricId: "inspections_week_detail_table",
-      columns: INSPECTION_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     enterprise_complaints_count: {
       sceneId: "enterprise_complaints",
-      title: "涉企投诉明细",
-      columns: COMPLAINT_COLUMNS,
-      headers: COMPLAINT_HEADERS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspections_no_violation_count: {
       sceneId: "administrative_inspection",
-      title: "无违规检查明细",
-      note: "统计口径：筛选检查结果为“无违规项”的记录。",
-      tableMetricId: "inspections_no_violation_detail_table",
-      columns: INSPECTION_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     ai_recognition_warnings_count: {
       sceneId: "ai_recognition_warnings",
-      title: "AI识别记录明细",
-      columns: AI_WARNING_COLUMNS,
-      headers: AI_WARNING_HEADERS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     records_devices_count: {
       sceneId: "body_cameras",
-      title: "执法记录仪明细",
-      columns: BODY_CAMERA_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     records_devices_playback_hours_total: {
       sceneId: "body_cameras",
-      title: "可回放时长计算依据",
-      note: "统计口径：汇总“可回放时长”字段。",
-      columns: BODY_CAMERA_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     penalties_total_count: {
       sceneId: "penalty_dashboard",
-      title: "行政处罚总数明细",
-      columns: PENALTY_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     penalties_today_count: {
       sceneId: "penalty_dashboard",
-      title: "今日行政处罚明细",
-      note: "统计口径：做出处罚日期落在最近 1 天。",
-      tableMetricId: "penalties_today_detail_table",
-      columns: PENALTY_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     penalties_week_count: {
       sceneId: "penalty_dashboard",
-      title: "近7日行政处罚明细",
-      note: "统计口径：做出处罚日期落在最近 7 天。",
-      tableMetricId: "penalties_week_detail_table",
-      columns: PENALTY_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     administrative_reconsiderations_count: {
       sceneId: "admin_reconsideration_register",
-      title: "行政复议明细",
-      columns: RECONSIDERATION_COLUMNS,
       ...DETAIL_TABLE_DEFAULTS,
     },
     inspection_frequency_reduction_rate: {
       sceneId: "administrative_inspection",
-      title: "检查频次降低率口径表",
-      note: "统计口径：按最近 6 个月月度检查次数分组，当前值基于最近月份相对上月变化。",
-      tableMetricId: "inspections_6m_count_trend",
-      columns: TREND_COLUMNS,
-      headers: ["月份", "检查次数"],
       ...EXPLAIN_TABLE_DEFAULTS,
     },
     penalty_revenue_growth_rate: {
       sceneId: "penalty_dashboard",
-      title: "罚没收入增长率口径表",
-      note: "统计口径：按最近 6 个月月度罚没金额汇总，当前值基于该分组统计计算。",
-      tableMetricId: "penalties_6m_amount_trend",
-      columns: TREND_COLUMNS,
-      headers: ["月份", "罚没收入"],
       ...EXPLAIN_TABLE_DEFAULTS,
     },
     warnings_verification_rate: {
       sceneId: "warning_list",
-      title: "预警查实率口径表",
-      note: "统计口径：按预警ID去重后，按“是否查实”分组统计；「是」「查实」「已查实」计为已查实。",
-      tableMetricId: "warnings_verification_breakdown_table",
-      columns: STATUS_COUNT_COLUMNS,
-      headers: ["查实情况（空值=未核查；是/查实/已查实=已查实）", "预警数"],
       ...EXPLAIN_TABLE_DEFAULTS,
     },
     effectiveness_verified_rectification_rate: {
       sceneId: "issue_result_list",
-      title: "查实预警整改率口径表",
-      note: "统计口径：按问题跟踪ID去重并筛选已查实问题，再按“健全机制”分组统计。",
-      tableMetricId: "effectiveness_verified_rectification_breakdown_table",
-      columns: MECHANISM_COUNT_COLUMNS,
-      headers: ["健全机制（空值=未整改）", "已查实问题数"],
       ...EXPLAIN_TABLE_DEFAULTS,
       columnMinWidth: 220,
     },
     supervision_items_count: {
       sceneId: "supervision_matters",
-      title: "监督事项明细",
-      columns: MATTERS_COLUMNS,
-      layoutPreset: "drilldown_matters",
       ...EXPLAIN_TABLE_DEFAULTS,
     },
     supervision_models_count: {
       sceneId: "warning_models",
-      title: "预警模型明细",
-      columns: MODEL_COLUMNS,
-      layoutPreset: "drilldown_models",
       ...EXPLAIN_TABLE_DEFAULTS,
       columnMinWidth: 190,
     },
     warnings_count: {
       sceneId: "warning_list",
-      title: "预警清单",
-      columns: WARNING_COLUMNS,
-      layoutPreset: "drilldown_warnings",
       ...DETAIL_TABLE_DEFAULTS,
     },
     warnings_pending_count: {
       sceneId: "warning_list",
-      title: "待办预警清单",
-      tableMetricId: "warnings_pending_detail_table",
-      note: "统计口径：预警ID 非空且承办部门为空。",
-      columns: WARNING_PENDING_COLUMNS,
-      layoutPreset: "drilldown_warnings",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_in_progress_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（在办）",
-      tableMetricId: "issue_results_in_progress_table",
-      note: "统计口径：按问题跟踪ID 去重，处理结果ID 为空。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_completed_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（已办）",
-      tableMetricId: "issue_results_completed_table",
-      note: "统计口径：按问题跟踪ID 去重，处理结果ID 非空。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_issue_verification_rate: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（查实率）",
-      tableMetricId: "issue_results_handled_table",
-      note: "统计口径：按问题跟踪ID 去重后，统计“是否查实=是”占比。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_transfer_clue_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（转问题线索）",
-      tableMetricId: "issue_results_transfer_clue_table",
-      note: "统计口径：先筛“是否转问题线索=是”，再按问题跟踪ID 去重（避免首行覆盖后续“是”）。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_filing_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（立案数）",
-      tableMetricId: "issue_results_filing_table",
-      note: "统计口径：按处理结果ID 去重后，筛选“是否立案=是”。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_party_gov_sanction_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（党纪政务处分）",
-      tableMetricId: "issue_results_sanction_table",
-      note: "统计口径：先筛“处理处分”含第二/三/四种等关键词，再按处理结果ID 去重计数。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_handled_person_times: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（处理人数）",
-      tableMetricId: "issue_results_handled_table",
-      note: "统计口径：按处理结果ID 去重后统计处理记录。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_recovered_funds_total: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（挽回资金）",
-      tableMetricId: "issue_results_handled_table",
-      note: "统计口径：按处理结果ID 去重后汇总“挽回资金”。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
     effectiveness_mechanism_item_count: {
       sceneId: "issue_result_list",
-      title: "问题处理结果（健全机制）",
-      tableMetricId: "issue_results_handled_table",
-      note: "统计口径：按“健全机制”字段拆分并去重计数。",
-      columns: ISSUE_COLUMNS,
-      layoutPreset: "drilldown_issues",
       ...DETAIL_TABLE_DEFAULTS,
     },
   };
@@ -10931,6 +10808,346 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       .replace(/^\.?\/*/, "");
   }
 
+  function nonEmptyString(...values) {
+    for (const value of values) {
+      const text = String(value || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function cloneArray(value) {
+    return Array.isArray(value) ? value.slice() : [];
+  }
+
+  function positiveInt(...values) {
+    for (const value of values) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return Math.floor(parsed);
+      }
+    }
+    return 0;
+  }
+
+  function boolValue(...values) {
+    for (const value of values) {
+      if (typeof value === "boolean") return value;
+    }
+    return undefined;
+  }
+
+  function runtimeDrilldownConfig(detail) {
+    const value = detail?.drilldown;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    return value;
+  }
+
+  function runtimeTabIds(...values) {
+    const raw = values.find((value) => Array.isArray(value));
+    if (!raw) return [];
+    return Array.from(
+      new Set(
+        raw
+      .map((entry) => {
+        if (entry && typeof entry === "object") {
+          return nonEmptyString(entry.id, entry.tab, entry.key, entry.name);
+        }
+        return String(entry || "").trim();
+      })
+          .map((entry) => normalizeTabId(entry))
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  function normalizeTabId(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw) return "";
+    if (["口径", "definition", "def", "metric_definition", "metric-definition"].includes(raw)) {
+      return "definition";
+    }
+    if (["构成", "composition", "breakdown", "group"].includes(raw)) {
+      return "composition";
+    }
+    if (["趋势", "trend", "timeseries", "time_series", "time-series"].includes(raw)) {
+      return "trend";
+    }
+    if (
+      ["分子分母", "ratio", "numerator_denominator", "numerator-denominator", "numerator"].includes(
+        raw,
+      )
+    ) {
+      return "numerator_denominator";
+    }
+    if (["归因", "attribution", "reason"].includes(raw)) {
+      return "attribution";
+    }
+    if (["明细", "detail", "details"].includes(raw)) {
+      return "detail";
+    }
+    return raw.replaceAll(/[\s-]+/g, "_");
+  }
+
+  function defaultDrilldownTabs(explainKind, options = {}) {
+    const kind = String(explainKind || "").trim().toLowerCase();
+    const hasDetail = options.hasDetail !== false;
+    const aggregateKinds = new Set(["count", "sum", "avg", "average", "median"]);
+    const ratioKinds = new Set(["ratio", "percent", "yoy", "mom"]);
+    const trendKinds = new Set(["trend", "dataframe", "timeseries", "series"]);
+    const breakdownKinds = new Set(["ranking", "breakdown", "group", "group_by", "groupby"]);
+
+    if (aggregateKinds.has(kind)) {
+      return hasDetail
+        ? ["definition", "composition", "trend", "detail"]
+        : ["definition", "composition", "trend"];
+    }
+    if (ratioKinds.has(kind)) {
+      return hasDetail
+        ? ["definition", "numerator_denominator", "trend", "detail"]
+        : ["definition", "numerator_denominator", "trend"];
+    }
+    if (trendKinds.has(kind)) {
+      return hasDetail
+        ? ["definition", "trend", "composition", "detail"]
+        : ["definition", "trend", "composition"];
+    }
+    if (breakdownKinds.has(kind)) {
+      return hasDetail
+        ? ["definition", "composition", "attribution", "detail"]
+        : ["definition", "composition", "attribution"];
+    }
+    return hasDetail ? ["definition", "detail"] : ["definition"];
+  }
+
+  function buildRatioExplainNote({ numerator = "", denominator = "", formula = "" } = {}) {
+    const n = String(numerator || "").trim();
+    const d = String(denominator || "").trim();
+    const f = String(formula || "").trim();
+    if (f) return `分子分母口径：${f}`;
+    if (n && d) return `分子分母口径：${n} / ${d}`;
+    return "";
+  }
+
+  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail }) {
+    const explicit = runtimeTabIds(detail?.drilldown_tabs, runtime?.tabs, mapped?.tabs);
+    const defaults = defaultDrilldownTabs(explainKind, { hasDetail });
+    if (!explicit.length) return defaults;
+    const normalizedExplicit = Array.from(new Set(explicit.map((tab) => normalizeTabId(tab)).filter(Boolean)));
+    const basicTabs = new Set(["definition", "detail", "numerator_denominator"]);
+    const hasOnlyBasicTabs = normalizedExplicit.every((tab) => basicTabs.has(tab));
+    if (!hasOnlyBasicTabs) return normalizedExplicit;
+    const merged = normalizedExplicit.filter((tab) => tab !== "detail");
+    defaults.forEach((tab) => {
+      const normalized = normalizeTabId(tab);
+      if (!normalized || normalized === "detail" || merged.includes(normalized)) return;
+      merged.push(normalized);
+    });
+    if (normalizedExplicit.includes("detail") || defaults.includes("detail")) {
+      merged.push("detail");
+    }
+    return merged;
+  }
+
+  function normalizeTabMetricOverrides(...values) {
+    const raw = values.find(
+      (value) =>
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        Object.keys(value).length > 0,
+    );
+    if (!raw) return {};
+    const normalized = {};
+    Object.entries(raw).forEach(([key, entry]) => {
+      const tabId = normalizeTabId(key);
+      if (!tabId) return;
+      if (typeof entry === "string") {
+        const metricId = String(entry || "").trim();
+        if (!metricId) return;
+        normalized[tabId] = { tableMetricId: metricId };
+        return;
+      }
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return;
+      }
+      let columns = cloneArray(entry.columns);
+      if (!columns.length) columns = cloneArray(entry.detail_fields);
+      if (!columns.length) columns = cloneArray(entry.detailFields);
+      const override = {
+        title: nonEmptyString(entry.title),
+        note: nonEmptyString(entry.note),
+        tableMetricId: nonEmptyString(
+          entry.table_metric_id,
+          entry.tableMetricId,
+          entry.metric_id,
+          entry.metricId,
+        ),
+        datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
+        columns,
+        headers: cloneArray(entry.headers),
+        layoutPreset: nonEmptyString(entry.layout_preset, entry.layoutPreset),
+      };
+      if (
+        !override.title &&
+        !override.note &&
+        !override.tableMetricId &&
+        !override.datasetId &&
+        !override.columns.length &&
+        !override.headers.length &&
+        !override.layoutPreset
+      ) {
+        return;
+      }
+      normalized[tabId] = override;
+    });
+    return normalized;
+  }
+
+  function resolveDrilldownTabConfig(config, tabId) {
+    const tabMetrics = config?.tabMetrics || {};
+    const normalizedTab = normalizeTabId(tabId);
+    const override = tabMetrics[normalizedTab];
+    if (!override) return config;
+    const overrideDatasetId = nonEmptyString(override.datasetId);
+    const overrideTableMetricId = nonEmptyString(override.tableMetricId);
+    const suppressDetailMetricFallback = Boolean(overrideDatasetId && !overrideTableMetricId);
+    const merged = {
+      ...config,
+      title: nonEmptyString(override.title, config.title),
+      note: nonEmptyString(override.note, config.note),
+      tableMetricId: overrideTableMetricId || (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
+      datasetId: overrideDatasetId || nonEmptyString(config.datasetId),
+      suppressDetailMetricFallback,
+      layoutPreset: nonEmptyString(override.layoutPreset, config.layoutPreset),
+      columns: cloneArray(override.columns).length ? cloneArray(override.columns) : cloneArray(config.columns),
+      headers: cloneArray(override.headers).length ? cloneArray(override.headers) : cloneArray(config.headers),
+    };
+    return merged;
+  }
+
+  function drilldownTabLabel(tabId) {
+    const id = normalizeTabId(tabId);
+    const labels = {
+      definition: "口径",
+      composition: "构成",
+      trend: "趋势",
+      numerator_denominator: "分子分母",
+      attribution: "归因",
+      detail: "明细",
+    };
+    return labels[id] || id || "明细";
+  }
+
+  function defaultActiveDrilldownTab(tabs = []) {
+    const normalized = Array.isArray(tabs) ? tabs.map((tab) => normalizeTabId(tab)).filter(Boolean) : [];
+    if (!normalized.length) return "detail";
+    for (const preferred of ["detail", "trend", "composition", "numerator_denominator", "definition"]) {
+      if (normalized.includes(preferred)) {
+        return preferred;
+      }
+    }
+    return normalized[0];
+  }
+
+  function isDrilldownSummaryTab(tabId) {
+    const normalized = normalizeTabId(tabId);
+    return normalized === "definition" || normalized === "numerator_denominator";
+  }
+
+  function isDrilldownAnalysisTab(tabId) {
+    const normalized = normalizeTabId(tabId);
+    return normalized === "composition" || normalized === "trend" || normalized === "attribution";
+  }
+
+  function unconfiguredTabNote(tabId) {
+    const normalized = normalizeTabId(tabId);
+    if (normalized === "composition") {
+      return "未配置构成数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.composition 指定 table_metric_id。";
+    }
+    if (normalized === "trend") {
+      return "未配置趋势数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.trend 指定 table_metric_id。";
+    }
+    if (normalized === "attribution") {
+      return "未配置归因数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.attribution 指定 table_metric_id。";
+    }
+    return "";
+  }
+
+  function createDrilldownSummaryNode(config, tabId) {
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-summary";
+    const normalizedTab = normalizeTabId(tabId);
+    const rows = [];
+
+    if (config.explainKind) {
+      rows.push(["指标类型", config.explainKind]);
+    }
+
+    if (normalizedTab === "numerator_denominator") {
+      if (config.ratioParts?.numerator) {
+        rows.push(["分子", config.ratioParts.numerator]);
+      }
+      if (config.ratioParts?.denominator) {
+        rows.push(["分母", config.ratioParts.denominator]);
+      }
+      if (config.ratioParts?.formula) {
+        rows.push(["公式", config.ratioParts.formula]);
+      }
+      if (!rows.length && config.note) {
+        rows.push(["说明", config.note]);
+      }
+    } else {
+      if (config.note) {
+        rows.push(["说明", config.note]);
+      }
+      if (Array.isArray(config.basisRefs) && config.basisRefs.length) {
+        rows.push(["口径依据", config.basisRefs.join(" / ")]);
+      }
+      if (Array.isArray(config.recommendedDimensions) && config.recommendedDimensions.length) {
+        rows.push(["推荐维度", config.recommendedDimensions.join(" / ")]);
+      }
+      if (Array.isArray(config.detailFields) && config.detailFields.length) {
+        rows.push(["明细字段", config.detailFields.join(" / ")]);
+      }
+    }
+
+    if (!rows.length) {
+      const empty = document.createElement("div");
+      empty.className = "access-drilldown-summary-empty";
+      empty.textContent = "暂无可展示的解释信息";
+      panel.appendChild(empty);
+      return panel;
+    }
+
+    rows.forEach(([label, value]) => {
+      const row = document.createElement("div");
+      row.className = "access-drilldown-summary-row";
+      const labelEl = document.createElement("div");
+      labelEl.className = "access-drilldown-summary-label";
+      labelEl.textContent = String(label || "");
+      const valueEl = document.createElement("div");
+      valueEl.className = "access-drilldown-summary-value";
+      valueEl.textContent = String(value || "");
+      row.append(labelEl, valueEl);
+      panel.appendChild(row);
+    });
+    return panel;
+  }
+
+  function applyDrilldownOverlayMeta(root, config) {
+    const titleEl = root.querySelector('[data-drilldown-title="true"]');
+    const noteEl = root.querySelector('[data-drilldown-note="true"]');
+    if (titleEl) titleEl.textContent = String(config?.title || "");
+    if (noteEl) {
+      const note = String(config?.note || "").trim();
+      noteEl.textContent = note;
+      noteEl.toggleAttribute("hidden", !note);
+    }
+  }
+
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
     const raw = String(pathname || "");
     const prefix = "/apps/access/";
@@ -10942,36 +11159,173 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return trimmed ? `${prefix}${trimmed}` : "";
   }
 
-  function resolveDrilldownSceneId(detail) {
-    const metricId = String(detail?.metric_id || "").trim();
-    const fromMetric = DRILLDOWN_METRIC_CONTEXT[metricId]?.sceneId;
-    if (fromMetric) return fromMetric;
-    const runtimeScene = normalizeDrilldownScenePath(detail?.drilldown_scene);
+  function resolveDrilldownSceneId(detail, mapped = {}, runtime = {}) {
+    const runtimeTargetSceneId = nonEmptyString(
+      detail?.drilldown_target_scene_id,
+      detail?.drilldown_scene_id,
+      runtime?.target_scene_id,
+      runtime?.targetSceneId,
+      runtime?.scene_id,
+      runtime?.sceneId,
+    );
+    if (runtimeTargetSceneId) return runtimeTargetSceneId;
+    const mappedSceneId = nonEmptyString(mapped?.sceneId);
+    if (mappedSceneId) return mappedSceneId;
+    const runtimeScene = normalizeDrilldownScenePath(
+      nonEmptyString(
+        detail?.drilldown_scene,
+        runtime?.scene_file,
+        runtime?.sceneFile,
+        runtime?.scene_path,
+        runtime?.scenePath,
+        runtime?.scene,
+      ),
+    );
     if (!runtimeScene) return "";
-    return DRILLDOWN_SCENE_BY_FILE[runtimeScene] || "";
+    return DRILLDOWN_SCENE_BY_FILE[runtimeScene] || runtimeScene;
   }
 
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
     const mapped = DRILLDOWN_METRIC_CONTEXT[metricId] || {};
+    const runtime = runtimeDrilldownConfig(detail);
+    const sceneId = resolveDrilldownSceneId(detail, mapped, runtime);
+    const runtimeEnabled = boolValue(detail?.drilldown_enabled, runtime?.enabled);
+    const explainKind = nonEmptyString(detail?.explain_kind, runtime?.kind, runtime?.explain_kind);
+    let detailFields = cloneArray(detail?.drilldown_detail_fields);
+    if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
+    if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
+    if (!detailFields.length) detailFields = cloneArray(mapped?.detailFields);
+    let columns = cloneArray(detail?.drilldown_columns);
+    if (!columns.length) columns = cloneArray(runtime?.columns);
+    if (!columns.length) columns = cloneArray(runtime?.detail_fields);
+    if (!columns.length) columns = cloneArray(runtime?.detailFields);
+    if (!columns.length) columns = cloneArray(detailFields);
+    if (!columns.length) columns = cloneArray(mapped?.columns);
+    let headers = cloneArray(detail?.drilldown_headers);
+    if (!headers.length) headers = cloneArray(runtime?.headers);
+    if (!headers.length) headers = cloneArray(mapped?.headers);
+    let basisRefs = cloneArray(detail?.drilldown_basis_refs);
+    if (!basisRefs.length) basisRefs = cloneArray(runtime?.basis_refs);
+    if (!basisRefs.length) basisRefs = cloneArray(runtime?.basisRefs);
+    let recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
+    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommended_dimensions);
+    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommendedDimensions);
+    const ratioNumerator = nonEmptyString(
+      detail?.drilldown_ratio_numerator,
+      runtime?.ratio_numerator,
+      runtime?.ratioNumerator,
+    );
+    const ratioDenominator = nonEmptyString(
+      detail?.drilldown_ratio_denominator,
+      runtime?.ratio_denominator,
+      runtime?.ratioDenominator,
+    );
+    const ratioFormula = nonEmptyString(
+      detail?.drilldown_ratio_formula,
+      runtime?.ratio_formula,
+      runtime?.ratioFormula,
+    );
+    const tableMetricId = nonEmptyString(
+      detail?.drilldown_table_metric_id,
+      detail?.drilldown_table_metric,
+      runtime?.table_metric_id,
+      runtime?.tableMetricId,
+      mapped?.tableMetricId,
+    );
+    const datasetId = nonEmptyString(
+      detail?.drilldown_dataset_id,
+      runtime?.dataset_id,
+      runtime?.datasetId,
+      mapped?.datasetId,
+    );
+    const layoutPreset = nonEmptyString(
+      detail?.drilldown_layout_preset,
+      runtime?.layout_preset,
+      runtime?.layoutPreset,
+      mapped?.layoutPreset,
+    );
+    const tabMetrics = normalizeTabMetricOverrides(
+      detail?.drilldown_tab_metrics,
+      runtime?.tab_metrics,
+      runtime?.tabMetrics,
+      mapped?.tabMetrics,
+    );
+    const hasDetail = Boolean(
+      tableMetricId ||
+        columns.length ||
+        detailFields.length ||
+        nonEmptyString(detail?.drilldown_dataset_id, runtime?.dataset_id, runtime?.datasetId, mapped?.datasetId),
+    );
+    const tabs = resolveDrilldownTabs({
+      detail,
+      runtime,
+      mapped,
+      explainKind,
+      hasDetail,
+    });
+    const ratioNote = buildRatioExplainNote({
+      numerator: ratioNumerator,
+      denominator: ratioDenominator,
+      formula: ratioFormula,
+    });
     return {
-      sceneId: resolveDrilldownSceneId(detail),
-      title:
-        String(mapped.title || detail?.label || metricId || "指标明细").trim() ||
+      enabled: runtimeEnabled !== false && Boolean(sceneId),
+      sceneId,
+      title: nonEmptyString(
+        detail?.drilldown_title,
+        runtime?.title,
+        mapped?.title,
+        detail?.label,
+        metricId,
         "指标明细",
-      note: String(mapped.note || "").trim(),
-      tableMetricId: String(mapped.tableMetricId || "").trim(),
-      columns: Array.isArray(mapped.columns) ? mapped.columns.slice() : [],
-      headers: Array.isArray(mapped.headers) ? mapped.headers.slice() : [],
-      layoutPreset: String(mapped.layoutPreset || "").trim(),
-      pageSize: Number(mapped.pageSize) > 0 ? Math.floor(Number(mapped.pageSize)) : 8,
+      ),
+      note: nonEmptyString(detail?.drilldown_note, runtime?.note, mapped?.note, ratioNote),
+      tableMetricId,
+      datasetId,
+      columns,
+      headers,
+      detailFields,
+      basisRefs,
+      recommendedDimensions,
+      ratioParts: {
+        numerator: ratioNumerator,
+        denominator: ratioDenominator,
+        formula: ratioFormula,
+      },
+      layoutPreset,
+      explainKind,
+      tabs,
+      tabMetrics,
+      pageSize:
+        positiveInt(detail?.drilldown_page_size, runtime?.page_size, runtime?.pageSize, mapped?.pageSize, 8) || 8,
       cellPreviewMaxChars:
-        Number(mapped.cellPreviewMaxChars) > 0
-          ? Math.floor(Number(mapped.cellPreviewMaxChars))
+        positiveInt(
+          detail?.drilldown_cell_preview_max_chars,
+          runtime?.cell_preview_max_chars,
+          runtime?.cellPreviewMaxChars,
+          mapped?.cellPreviewMaxChars,
+        ) > 0
+          ? positiveInt(
+              detail?.drilldown_cell_preview_max_chars,
+              runtime?.cell_preview_max_chars,
+              runtime?.cellPreviewMaxChars,
+              mapped?.cellPreviewMaxChars,
+            )
           : 0,
       columnMinWidth:
-        Number(mapped.columnMinWidth) > 0
-          ? Math.floor(Number(mapped.columnMinWidth))
+        positiveInt(
+          detail?.drilldown_column_min_width,
+          runtime?.column_min_width,
+          runtime?.columnMinWidth,
+          mapped?.columnMinWidth,
+        ) > 0
+          ? positiveInt(
+              detail?.drilldown_column_min_width,
+              runtime?.column_min_width,
+              runtime?.columnMinWidth,
+              mapped?.columnMinWidth,
+            )
           : 0,
     };
   }
@@ -10992,8 +11346,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const appPath = resolveAccessAppPath();
     if (!appPath) return null;
     const datasetId =
-      DRILLDOWN_DATASET_BY_SCENE[sceneId] || DRILLDOWN_SCENE_BY_FILE[sceneId] || sceneId;
-    const metricId = String(config?.tableMetricId || "").trim();
+      nonEmptyString(
+        detail?.drilldown_dataset_id,
+        config?.datasetId,
+        DRILLDOWN_DATASET_BY_SCENE[sceneId],
+        detail?.dataset_id,
+      ) || sceneId;
+    const metricId = config?.suppressDetailMetricFallback
+      ? nonEmptyString(config?.tableMetricId)
+      : nonEmptyString(config?.tableMetricId, detail?.drilldown_table_metric_id);
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -11046,6 +11407,74 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return true;
   }
 
+  function renderDrilldownContent(root, detail, config, tabId) {
+    const activeConfig = resolveDrilldownTabConfig(config, tabId);
+    applyDrilldownOverlayMeta(root, activeConfig);
+    const host = root.querySelector('[data-drilldown-table-host="true"]');
+    if (!(host instanceof HTMLElement)) {
+      return false;
+    }
+    const normalizedTab = normalizeTabId(tabId);
+    const hasTabOverride = Boolean(config?.tabMetrics?.[normalizedTab]);
+    if (isDrilldownSummaryTab(tabId) || (isDrilldownAnalysisTab(tabId) && !hasTabOverride)) {
+      const summaryConfig =
+        isDrilldownAnalysisTab(tabId) && !hasTabOverride
+          ? {
+              ...activeConfig,
+              note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
+            }
+          : activeConfig;
+      host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
+      setDrilldownOverlayStatus(root, "ready");
+      return true;
+    }
+    setDrilldownOverlayStatus(root, "loading");
+    if (!mountDrilldownTable(root, detail, activeConfig)) {
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+    setDrilldownOverlayStatus(root, "ready");
+    return true;
+  }
+
+  function renderDrilldownTabs(root, detail, config) {
+    const tabsHost = root.querySelector('[data-drilldown-tabs="true"]');
+    if (!(tabsHost instanceof HTMLElement)) {
+      return defaultActiveDrilldownTab(config?.tabs || []);
+    }
+    const normalizedTabs = Array.from(
+      new Set(
+        (Array.isArray(config?.tabs) ? config.tabs : [])
+          .map((tab) => normalizeTabId(tab))
+          .filter(Boolean),
+      ),
+    );
+    const tabs = normalizedTabs.length
+      ? normalizedTabs
+      : [defaultActiveDrilldownTab(defaultDrilldownTabs(config?.explainKind, { hasDetail: true }))];
+    const activeTab = defaultActiveDrilldownTab(tabs);
+    tabsHost.replaceChildren();
+    tabsHost.toggleAttribute("hidden", tabs.length <= 1);
+    tabs.forEach((tab) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "access-drilldown-tab-button";
+      button.dataset.drilldownTab = tab;
+      button.setAttribute("role", "tab");
+      button.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
+      button.textContent = drilldownTabLabel(tab);
+      button.addEventListener("click", () => {
+        if (button.getAttribute("aria-selected") === "true") return;
+        tabsHost
+          .querySelectorAll(".access-drilldown-tab-button")
+          .forEach((node) => node.setAttribute("aria-selected", node === button ? "true" : "false"));
+        renderDrilldownContent(root, detail, config, tab);
+      });
+      tabsHost.appendChild(button);
+    });
+    return activeTab;
+  }
+
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (root) return root;
@@ -11063,6 +11492,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       "</div>" +
       '<button type="button" class="access-drilldown-overlay-close" data-drilldown-close="button" aria-label="关闭">×</button>' +
       "</header>" +
+      '<div class="access-drilldown-overlay-tabs" data-drilldown-tabs="true" hidden></div>' +
       '<div class="access-drilldown-overlay-body">' +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载明细表...</div>' +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>明细表加载失败，请稍后重试。</div>' +
@@ -11101,24 +11531,16 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function openDrilldownOverlay(detail) {
     const config = resolveDrilldownConfig(detail);
-    if (!config.sceneId) return;
+    if (!config.enabled || !config.sceneId) return;
     const root = ensureDrilldownOverlayRoot();
-    const titleEl = root.querySelector('[data-drilldown-title="true"]');
-    const noteEl = root.querySelector('[data-drilldown-note="true"]');
-    if (titleEl) titleEl.textContent = config.title;
-    if (noteEl) {
-      noteEl.textContent = config.note;
-      noteEl.toggleAttribute("hidden", !config.note);
-    }
-    setDrilldownOverlayStatus(root, "loading");
-    if (!mountDrilldownTable(root, detail, config)) {
-      setDrilldownOverlayStatus(root, "error");
+    applyDrilldownOverlayMeta(root, config);
+    const activeTab = renderDrilldownTabs(root, detail, config);
+    if (!renderDrilldownContent(root, detail, config, activeTab)) {
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-drilldown-open");
       return;
     }
-    setDrilldownOverlayStatus(root, "ready");
     root.removeAttribute("hidden");
     root.classList.add("is-open");
     document.body.classList.add("access-drilldown-open");
@@ -11132,7 +11554,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     document.addEventListener(METRIC_DRILLDOWN_EVENT, (event) => {
       if (!isAccessRoute()) return;
       const detail = event?.detail || {};
-      if (!resolveDrilldownSceneId(detail)) return;
+      const config = resolveDrilldownConfig(detail);
+      if (!config.enabled || !config.sceneId) return;
       openDrilldownOverlay(detail);
     });
     document.addEventListener("keydown", (event) => {

@@ -15,6 +15,53 @@ pub(super) struct RuntimeSceneAnchor {
     pub scene_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct MetricDrilldownMeta {
+    drilldown_scene: Option<String>,
+    drilldown_target_scene_id: Option<String>,
+    drilldown_enabled: Option<bool>,
+    explain_kind: Option<String>,
+    drilldown_tabs: Vec<String>,
+    drilldown_title: Option<String>,
+    drilldown_note: Option<String>,
+    drilldown_table_metric_id: Option<String>,
+    drilldown_dataset_id: Option<String>,
+    drilldown_layout_preset: Option<String>,
+    drilldown_columns: Vec<String>,
+    drilldown_headers: Vec<String>,
+    drilldown_basis_refs: Vec<String>,
+    drilldown_detail_fields: Vec<String>,
+    drilldown_recommended_dimensions: Vec<String>,
+    drilldown_ratio_numerator: Option<String>,
+    drilldown_ratio_denominator: Option<String>,
+    drilldown_ratio_formula: Option<String>,
+    drilldown_tab_metrics: serde_json::Map<String, Value>,
+}
+
+impl MetricDrilldownMeta {
+    fn is_empty(&self) -> bool {
+        self.drilldown_scene.is_none()
+            && self.drilldown_target_scene_id.is_none()
+            && self.drilldown_enabled.is_none()
+            && self.explain_kind.is_none()
+            && self.drilldown_tabs.is_empty()
+            && self.drilldown_title.is_none()
+            && self.drilldown_note.is_none()
+            && self.drilldown_table_metric_id.is_none()
+            && self.drilldown_dataset_id.is_none()
+            && self.drilldown_layout_preset.is_none()
+            && self.drilldown_columns.is_empty()
+            && self.drilldown_headers.is_empty()
+            && self.drilldown_basis_refs.is_empty()
+            && self.drilldown_detail_fields.is_empty()
+            && self.drilldown_recommended_dimensions.is_empty()
+            && self.drilldown_ratio_numerator.is_none()
+            && self.drilldown_ratio_denominator.is_none()
+            && self.drilldown_ratio_formula.is_none()
+            && self.drilldown_tab_metrics.is_empty()
+    }
+}
+
 impl RuntimeSceneAnchor {
     pub fn from_compiled(compiled: &CompiledApp) -> Self {
         let scene_id = compiled
@@ -47,7 +94,7 @@ impl RuntimeSceneAnchor {
         kind: &str,
         dataset_id: &str,
         metric_id: Option<&str>,
-        drilldown_scene: Option<&str>,
+        drilldown: Option<&MetricDrilldownMeta>,
     ) -> Value {
         let mut obj = serde_json::Map::new();
         obj.insert("kind".to_string(), Value::String(kind.to_string()));
@@ -62,11 +109,173 @@ impl RuntimeSceneAnchor {
         if let Some(mid) = metric_id.filter(|s| !s.is_empty()) {
             obj.insert("metric_id".to_string(), Value::String(mid.to_string()));
         }
-        if let Some(scene) = drilldown_scene.filter(|s| !s.is_empty()) {
-            obj.insert(
-                "drilldown_scene".to_string(),
-                Value::String(scene.to_string()),
-            );
+        if let Some(meta) = drilldown.filter(|m| !m.is_empty()) {
+            if let Some(scene) = meta.drilldown_scene.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert(
+                    "drilldown_scene".to_string(),
+                    Value::String(scene.to_string()),
+                );
+            }
+            if let Some(scene_id) = meta
+                .drilldown_target_scene_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_target_scene_id".to_string(),
+                    Value::String(scene_id.to_string()),
+                );
+            }
+            if let Some(enabled) = meta.drilldown_enabled {
+                obj.insert("drilldown_enabled".to_string(), Value::Bool(enabled));
+            }
+            if let Some(kind_value) = meta.explain_kind.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert(
+                    "explain_kind".to_string(),
+                    Value::String(kind_value.to_string()),
+                );
+            }
+            if !meta.drilldown_tabs.is_empty() {
+                obj.insert(
+                    "drilldown_tabs".to_string(),
+                    Value::Array(
+                        meta.drilldown_tabs
+                            .iter()
+                            .map(|tab| Value::String(tab.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert(
+                    "drilldown_title".to_string(),
+                    Value::String(title.to_string()),
+                );
+            }
+            if let Some(note) = meta.drilldown_note.as_deref().filter(|s| !s.is_empty()) {
+                obj.insert("drilldown_note".to_string(), Value::String(note.to_string()));
+            }
+            if let Some(metric_id) = meta
+                .drilldown_table_metric_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_table_metric_id".to_string(),
+                    Value::String(metric_id.to_string()),
+                );
+            }
+            if let Some(dataset_id) = meta
+                .drilldown_dataset_id
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_dataset_id".to_string(),
+                    Value::String(dataset_id.to_string()),
+                );
+            }
+            if let Some(layout_preset) = meta
+                .drilldown_layout_preset
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_layout_preset".to_string(),
+                    Value::String(layout_preset.to_string()),
+                );
+            }
+            if !meta.drilldown_columns.is_empty() {
+                obj.insert(
+                    "drilldown_columns".to_string(),
+                    Value::Array(
+                        meta.drilldown_columns
+                            .iter()
+                            .map(|column| Value::String(column.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_headers.is_empty() {
+                obj.insert(
+                    "drilldown_headers".to_string(),
+                    Value::Array(
+                        meta.drilldown_headers
+                            .iter()
+                            .map(|header| Value::String(header.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_basis_refs.is_empty() {
+                obj.insert(
+                    "drilldown_basis_refs".to_string(),
+                    Value::Array(
+                        meta.drilldown_basis_refs
+                            .iter()
+                            .map(|basis| Value::String(basis.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_detail_fields.is_empty() {
+                obj.insert(
+                    "drilldown_detail_fields".to_string(),
+                    Value::Array(
+                        meta.drilldown_detail_fields
+                            .iter()
+                            .map(|field| Value::String(field.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_recommended_dimensions.is_empty() {
+                obj.insert(
+                    "drilldown_recommended_dimensions".to_string(),
+                    Value::Array(
+                        meta.drilldown_recommended_dimensions
+                            .iter()
+                            .map(|dimension| Value::String(dimension.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(numerator) = meta
+                .drilldown_ratio_numerator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_ratio_numerator".to_string(),
+                    Value::String(numerator.to_string()),
+                );
+            }
+            if let Some(denominator) = meta
+                .drilldown_ratio_denominator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_ratio_denominator".to_string(),
+                    Value::String(denominator.to_string()),
+                );
+            }
+            if let Some(formula) = meta
+                .drilldown_ratio_formula
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                obj.insert(
+                    "drilldown_ratio_formula".to_string(),
+                    Value::String(formula.to_string()),
+                );
+            }
+            if !meta.drilldown_tab_metrics.is_empty() {
+                obj.insert(
+                    "drilldown_tab_metrics".to_string(),
+                    Value::Object(meta.drilldown_tab_metrics.clone()),
+                );
+            }
         }
         Value::Object(obj)
     }
@@ -166,15 +375,15 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(map, resources, compiled, resource_index)
                 {
                     let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown_scene =
-                        resolve_metric_drilldown_scene(resources, &dataset_id, metric_id);
+                    let drilldown =
+                        resolve_metric_drilldown_meta(resources, &dataset_id, metric_id, compiled);
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra(
                             "metric",
                             &dataset_id,
                             Some(metric_id),
-                            drilldown_scene.as_deref(),
+                            drilldown.as_ref(),
                         ),
                     );
                 }
@@ -197,15 +406,15 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(&compat, resources, compiled, resource_index)
                 {
                     let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown_scene =
-                        resolve_metric_drilldown_scene(resources, &dataset_id, metric_id);
+                    let drilldown =
+                        resolve_metric_drilldown_meta(resources, &dataset_id, metric_id, compiled);
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra(
                             "metric",
                             &dataset_id,
                             Some(metric_id),
-                            drilldown_scene.as_deref(),
+                            drilldown.as_ref(),
                         ),
                     );
                 }
@@ -330,23 +539,517 @@ fn with_runtime_ref(mut value: Value, runtime_ref: Value) -> Value {
     value
 }
 
-fn resolve_metric_drilldown_scene(
+fn resolve_metric_drilldown_meta(
     resources: &BTreeMap<String, LoadedResource>,
     dataset_id: &str,
     metric_id: &str,
-) -> Option<String> {
-    let dataset = resources.get(dataset_id)?.dataset.as_ref()?;
-    let definition = dataset.runtime_metric_defs.get(metric_id)?;
-    metric_drilldown_from_definition(definition)
+    compiled: &CompiledApp,
+) -> Option<MetricDrilldownMeta> {
+    let primary = resources
+        .get(dataset_id)
+        .and_then(|resource| resource.dataset.as_ref())
+        .and_then(|dataset| dataset.runtime_metric_defs.get(metric_id))
+        .map(|definition| metric_drilldown_from_definition(definition, compiled));
+
+    if let Some(meta) = primary.as_ref().filter(|meta| !meta.is_empty()) {
+        return Some(meta.clone());
+    }
+
+    let fallback = resources
+        .iter()
+        .filter(|(id, _)| id.as_str() != dataset_id)
+        .filter_map(|(_, resource)| resource.dataset.as_ref())
+        .filter_map(|dataset| dataset.runtime_metric_defs.get(metric_id))
+        .map(|definition| metric_drilldown_from_definition(definition, compiled))
+        .find(|meta| !meta.is_empty());
+
+    fallback.or(primary)
 }
 
-fn metric_drilldown_from_definition(definition: &Value) -> Option<String> {
-    let map = definition.as_object()?;
+fn metric_drilldown_from_definition(definition: &Value, compiled: &CompiledApp) -> MetricDrilldownMeta {
+    let mut meta = MetricDrilldownMeta::default();
+    let Some(map) = definition.as_object() else {
+        return meta;
+    };
     for key in ["drilldown_dataset", "drilldown"] {
-        let value = map.get(key).and_then(Value::as_str).map(str::trim);
-        if let Some(scene) = value.filter(|v| !v.is_empty()) {
-            return Some(scene.to_string());
+        let Some(value) = map.get(key) else {
+            continue;
+        };
+        if let Some(scene) = value.as_str().map(str::trim).filter(|v| !v.is_empty()) {
+            if meta.drilldown_scene.is_none() {
+                meta.drilldown_scene = Some(scene.to_string());
+            }
+            continue;
+        }
+        if let Some(obj) = value.as_object() {
+            apply_drilldown_object(obj, &mut meta, compiled);
         }
     }
+
+    if let Some(enabled) = map.get("drilldown_enabled").and_then(Value::as_bool) {
+        meta.drilldown_enabled = Some(enabled);
+    }
+    if meta.explain_kind.is_none() {
+        if let Some(kind) = map.get("explain_kind").and_then(Value::as_str).map(str::trim) {
+            if !kind.is_empty() {
+                meta.explain_kind = Some(kind.to_string());
+            }
+        }
+    }
+    if meta.drilldown_tabs.is_empty() {
+        if let Some(tabs) = map.get("drilldown_tabs").or_else(|| map.get("tabs")) {
+            meta.drilldown_tabs = tabs_from_value(tabs);
+        }
+    }
+    if meta.drilldown_basis_refs.is_empty() {
+        for key in ["basis_refs", "basisRefs"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let basis = string_array_from_value(value);
+            if basis.is_empty() {
+                continue;
+            }
+            meta.drilldown_basis_refs = basis;
+            break;
+        }
+    }
+    if meta.drilldown_detail_fields.is_empty() {
+        for key in ["detail_fields", "detailFields"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let detail_fields = string_array_from_value(value);
+            if detail_fields.is_empty() {
+                continue;
+            }
+            meta.drilldown_detail_fields = detail_fields;
+            break;
+        }
+    }
+    if meta.drilldown_recommended_dimensions.is_empty() {
+        for key in ["recommended_dimensions", "recommendedDimensions"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let dimensions = string_array_from_value(value);
+            if dimensions.is_empty() {
+                continue;
+            }
+            meta.drilldown_recommended_dimensions = dimensions;
+            break;
+        }
+    }
+    if meta.drilldown_ratio_numerator.is_none() {
+        meta.drilldown_ratio_numerator = first_non_empty_string(
+            map,
+            &[
+                "ratio_numerator",
+                "ratioNumerator",
+                "drilldown_ratio_numerator",
+                "numerator",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_denominator.is_none() {
+        meta.drilldown_ratio_denominator = first_non_empty_string(
+            map,
+            &[
+                "ratio_denominator",
+                "ratioDenominator",
+                "drilldown_ratio_denominator",
+                "denominator",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_formula.is_none() {
+        meta.drilldown_ratio_formula = first_non_empty_string(
+            map,
+            &[
+                "ratio_formula",
+                "ratioFormula",
+                "drilldown_ratio_formula",
+                "formula",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_numerator.is_none()
+        || meta.drilldown_ratio_denominator.is_none()
+        || meta.drilldown_ratio_formula.is_none()
+    {
+        for key in ["ratio_parts", "ratioParts"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            apply_ratio_parts(value, &mut meta);
+            if meta.drilldown_ratio_numerator.is_some()
+                || meta.drilldown_ratio_denominator.is_some()
+                || meta.drilldown_ratio_formula.is_some()
+            {
+                break;
+            }
+        }
+    }
+    if meta.drilldown_tab_metrics.is_empty() {
+        for key in ["tab_metrics", "tabMetrics", "drilldown_tab_metrics"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let tab_metrics = object_map_from_value(value);
+            if tab_metrics.is_empty() {
+                continue;
+            }
+            meta.drilldown_tab_metrics = tab_metrics;
+            break;
+        }
+    }
+    if meta.drilldown_target_scene_id.is_none() {
+        if let Some(scene) = meta.drilldown_scene.as_deref() {
+            meta.drilldown_target_scene_id = resolve_drilldown_target_scene_id(compiled, scene);
+        }
+    }
+    if meta.drilldown_enabled.is_none()
+        && (meta.drilldown_scene.is_some() || meta.drilldown_target_scene_id.is_some())
+    {
+        meta.drilldown_enabled = Some(true);
+    }
+    meta
+}
+
+fn apply_drilldown_object(
+    map: &serde_json::Map<String, Value>,
+    meta: &mut MetricDrilldownMeta,
+    compiled: &CompiledApp,
+) {
+    if meta.drilldown_enabled.is_none() {
+        meta.drilldown_enabled = map.get("enabled").and_then(Value::as_bool);
+    }
+    if meta.explain_kind.is_none() {
+        for key in ["kind", "explain_kind", "metric_kind"] {
+            let Some(value) = map.get(key).and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if value.is_empty() {
+                continue;
+            }
+            meta.explain_kind = Some(value.to_string());
+            break;
+        }
+    }
+    if meta.drilldown_tabs.is_empty() {
+        for key in ["tabs", "drilldown_tabs", "default_tabs"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let tabs = tabs_from_value(value);
+            if tabs.is_empty() {
+                continue;
+            }
+            meta.drilldown_tabs = tabs;
+            break;
+        }
+    }
+    if meta.drilldown_target_scene_id.is_none() {
+        for key in [
+            "target_scene_id",
+            "target_scene",
+            "drilldown_target_scene_id",
+            "drilldown_scene_id",
+            "scene_id",
+        ] {
+            let Some(value) = map.get(key).and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if value.is_empty() {
+                continue;
+            }
+            meta.drilldown_target_scene_id = resolve_drilldown_target_scene_id(compiled, value)
+                .or_else(|| Some(value.to_string()));
+            break;
+        }
+    }
+    if meta.drilldown_scene.is_none() {
+        for key in ["scene_file", "scene", "scene_path", "drilldown_scene", "path", "file"] {
+            let Some(value) = map.get(key).and_then(Value::as_str).map(str::trim) else {
+                continue;
+            };
+            if value.is_empty() {
+                continue;
+            }
+            meta.drilldown_scene = Some(value.to_string());
+            break;
+        }
+    }
+    if meta.drilldown_target_scene_id.is_none() {
+        if let Some(scene) = meta.drilldown_scene.as_deref() {
+            meta.drilldown_target_scene_id = resolve_drilldown_target_scene_id(compiled, scene);
+        }
+    }
+    if meta.drilldown_title.is_none() {
+        meta.drilldown_title = first_non_empty_string(
+            map,
+            &["title", "drilldown_title", "label"],
+        );
+    }
+    if meta.drilldown_note.is_none() {
+        meta.drilldown_note = first_non_empty_string(map, &["note", "desc", "description"]);
+    }
+    if meta.drilldown_table_metric_id.is_none() {
+        meta.drilldown_table_metric_id = first_non_empty_string(
+            map,
+            &["table_metric_id", "tableMetricId", "drilldown_table_metric_id"],
+        );
+    }
+    if meta.drilldown_dataset_id.is_none() {
+        meta.drilldown_dataset_id = first_non_empty_string(
+            map,
+            &["dataset_id", "datasetId", "drilldown_dataset_id"],
+        );
+    }
+    if meta.drilldown_layout_preset.is_none() {
+        meta.drilldown_layout_preset =
+            first_non_empty_string(map, &["layout_preset", "layoutPreset"]);
+    }
+    if meta.drilldown_columns.is_empty() {
+        for key in ["columns", "drilldown_columns"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let columns = string_array_from_value(value);
+            if columns.is_empty() {
+                continue;
+            }
+            meta.drilldown_columns = columns;
+            break;
+        }
+    }
+    if meta.drilldown_headers.is_empty() {
+        for key in ["headers", "drilldown_headers"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let headers = string_array_from_value(value);
+            if headers.is_empty() {
+                continue;
+            }
+            meta.drilldown_headers = headers;
+            break;
+        }
+    }
+    if meta.drilldown_basis_refs.is_empty() {
+        for key in ["basis_refs", "basisRefs"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let basis = string_array_from_value(value);
+            if basis.is_empty() {
+                continue;
+            }
+            meta.drilldown_basis_refs = basis;
+            break;
+        }
+    }
+    if meta.drilldown_detail_fields.is_empty() {
+        for key in ["detail_fields", "detailFields"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let detail_fields = string_array_from_value(value);
+            if detail_fields.is_empty() {
+                continue;
+            }
+            meta.drilldown_detail_fields = detail_fields;
+            break;
+        }
+    }
+    if meta.drilldown_recommended_dimensions.is_empty() {
+        for key in ["recommended_dimensions", "recommendedDimensions"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let dimensions = string_array_from_value(value);
+            if dimensions.is_empty() {
+                continue;
+            }
+            meta.drilldown_recommended_dimensions = dimensions;
+            break;
+        }
+    }
+    if meta.drilldown_ratio_numerator.is_none() {
+        meta.drilldown_ratio_numerator = first_non_empty_string(
+            map,
+            &[
+                "ratio_numerator",
+                "ratioNumerator",
+                "drilldown_ratio_numerator",
+                "numerator",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_denominator.is_none() {
+        meta.drilldown_ratio_denominator = first_non_empty_string(
+            map,
+            &[
+                "ratio_denominator",
+                "ratioDenominator",
+                "drilldown_ratio_denominator",
+                "denominator",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_formula.is_none() {
+        meta.drilldown_ratio_formula = first_non_empty_string(
+            map,
+            &[
+                "ratio_formula",
+                "ratioFormula",
+                "drilldown_ratio_formula",
+                "formula",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_numerator.is_none()
+        || meta.drilldown_ratio_denominator.is_none()
+        || meta.drilldown_ratio_formula.is_none()
+    {
+        for key in ["ratio_parts", "ratioParts"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            apply_ratio_parts(value, meta);
+            if meta.drilldown_ratio_numerator.is_some()
+                || meta.drilldown_ratio_denominator.is_some()
+                || meta.drilldown_ratio_formula.is_some()
+            {
+                break;
+            }
+        }
+    }
+    if meta.drilldown_tab_metrics.is_empty() {
+        for key in ["tab_metrics", "tabMetrics", "drilldown_tab_metrics"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let tab_metrics = object_map_from_value(value);
+            if tab_metrics.is_empty() {
+                continue;
+            }
+            meta.drilldown_tab_metrics = tab_metrics;
+            break;
+        }
+    }
+}
+
+fn apply_ratio_parts(value: &Value, meta: &mut MetricDrilldownMeta) {
+    let Some(parts) = value.as_object() else {
+        return;
+    };
+    if meta.drilldown_ratio_numerator.is_none() {
+        meta.drilldown_ratio_numerator = first_non_empty_string(
+            parts,
+            &["numerator", "numerator_label", "numeratorLabel", "top"],
+        );
+    }
+    if meta.drilldown_ratio_denominator.is_none() {
+        meta.drilldown_ratio_denominator = first_non_empty_string(
+            parts,
+            &[
+                "denominator",
+                "denominator_label",
+                "denominatorLabel",
+                "bottom",
+            ],
+        );
+    }
+    if meta.drilldown_ratio_formula.is_none() {
+        meta.drilldown_ratio_formula =
+            first_non_empty_string(parts, &["formula", "expr", "expression"]);
+    }
+}
+
+fn first_non_empty_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
+    for key in keys {
+        let Some(value) = map.get(*key).and_then(Value::as_str).map(str::trim) else {
+            continue;
+        };
+        if value.is_empty() {
+            continue;
+        }
+        return Some(value.to_string());
+    }
     None
+}
+
+fn string_array_from_value(value: &Value) -> Vec<String> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| item.as_str().map(str::trim))
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn object_map_from_value(value: &Value) -> serde_json::Map<String, Value> {
+    let Some(map) = value.as_object() else {
+        return serde_json::Map::new();
+    };
+    map.clone()
+}
+
+fn tabs_from_value(value: &Value) -> Vec<String> {
+    let Some(items) = value.as_array() else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|item| {
+            if let Some(value) = item.as_str().map(str::trim).filter(|v| !v.is_empty()) {
+                return Some(value.to_string());
+            }
+            let map = item.as_object()?;
+            for key in ["id", "tab", "key", "name"] {
+                let Some(value) = map.get(key).and_then(Value::as_str).map(str::trim) else {
+                    continue;
+                };
+                if value.is_empty() {
+                    continue;
+                }
+                return Some(value.to_string());
+            }
+            None
+        })
+        .collect()
+}
+
+fn normalize_scene_selector(raw: &str) -> String {
+    raw.trim()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn resolve_drilldown_target_scene_id(compiled: &CompiledApp, selector: &str) -> Option<String> {
+    let normalized = normalize_scene_selector(selector);
+    if normalized.is_empty() {
+        return None;
+    }
+    if let Some(route) = compiled
+        .scene_routes
+        .iter()
+        .find(|route| route.scene_id.trim() == normalized)
+    {
+        return Some(route.scene_id.clone());
+    }
+    compiled
+        .scene_routes
+        .iter()
+        .find(|route| normalize_scene_selector(&route.target_file) == normalized)
+        .map(|route| route.scene_id.clone())
 }
