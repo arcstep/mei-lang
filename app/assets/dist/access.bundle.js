@@ -9688,11 +9688,8 @@
     });
   }
 
-  function publishManagePreviewFromDoc(doc) {
-    const panelRoot =
-      document.querySelector("#meilang-author-panel") ||
-      (doc && doc.querySelector("#meilang-author-panel"));
-    dispatchManageContextChange(extractManagePanelContext(panelRoot));
+  function pulseManagePreview(detail) {
+    dispatchManageContextChange(detail);
     window.dispatchEvent(new Event("meilang:preview-updated"));
     requestAnimationFrame(() => {
       window.dispatchEvent(new Event("meilang:preview-updated"));
@@ -9702,6 +9699,13 @@
         } catch (_) {}
       }
     });
+  }
+
+  function publishManagePreviewFromDoc(doc) {
+    const panelRoot =
+      document.querySelector("#meilang-author-panel") ||
+      (doc && doc.querySelector("#meilang-author-panel"));
+    pulseManagePreview(extractManagePanelContext(panelRoot));
   }
 
   function replaceShellFromDoc(doc, url, replaceHistory) {
@@ -10085,6 +10089,7 @@
             boot.mountSourceTreeControls();
           }
           syncManageTabFromUrl(url);
+          pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")));
         }
         installDrilldownOverlayHost();
         applyDrilldownContextFromQuery();
