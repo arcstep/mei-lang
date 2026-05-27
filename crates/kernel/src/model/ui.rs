@@ -187,6 +187,9 @@ pub struct SceneDecl {
     /// Scene 级只读共享参数；供 theme/components/props 通过 `shared_ref(...)` 消费。
     #[serde(default)]
     pub shared: Value,
+    /// Scene 级局部导航约定（如 tabs/sub-nav），由宿主按 scene contract 消费。
+    #[serde(default)]
+    pub local_nav: Value,
     /// Access 态是否允许导出该 scene（默认 true，保持兼容）。
     #[serde(default = "default_access_export")]
     pub access_export: bool,

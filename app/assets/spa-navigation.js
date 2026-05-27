@@ -49,12 +49,12 @@
   const BOARD_TEMPLATE_SCENE_FILES = {
     metric_board_default: "templates/cockpit/drilldown/metric-explain-board.mei",
   };
-  const BOARD_SCENE_CONTRACT_BY_FILE = {
+  const SCENE_LOCAL_NAV_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": {
       sceneId: "metric_explain_board",
       kind: "metric_explain_board",
-      defaultEntryTab: "definition",
-      tabs: [
+      defaultEntry: "definition",
+      items: [
         { id: "hero", role: "hero", label: "概览" },
         { id: "definition", role: "explain", label: "口径" },
         { id: "composition", role: "explain", label: "构成" },
@@ -484,15 +484,39 @@
     return "overlay";
   }
 
-  function resolveBoardSceneContract(sceneFile) {
-    const normalized = normalizeDrilldownScenePath(sceneFile);
-    if (!normalized) return null;
-    return BOARD_SCENE_CONTRACT_BY_FILE[normalized] || null;
+  function normalizeSceneLocalNav(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const itemsRaw = Array.isArray(raw.items)
+      ? raw.items
+      : Array.isArray(raw.tabs)
+        ? raw.tabs
+        : [];
+    const items = itemsRaw
+      .filter((entry) => entry && typeof entry === "object")
+      .map((entry) => ({
+        id: normalizeTabId(entry.id || entry.tab || entry.key),
+        role: nonEmptyString(entry.role),
+        label: nonEmptyString(entry.label),
+      }))
+      .filter((entry) => entry.id);
+    if (!items.length) return null;
+    return {
+      kind: nonEmptyString(raw.kind),
+      sceneId: nonEmptyString(raw.scene_id, raw.sceneId),
+      defaultEntry: normalizeTabId(nonEmptyString(raw.default_entry, raw.defaultEntry, raw.defaultEntryTab)),
+      items,
+    };
   }
 
-  function boardSceneTabIds(contract) {
-    if (!contract || !Array.isArray(contract.tabs)) return [];
-    return contract.tabs
+  function resolveSceneLocalNav(sceneFile) {
+    const normalized = normalizeDrilldownScenePath(sceneFile);
+    if (!normalized) return null;
+    return normalizeSceneLocalNav(SCENE_LOCAL_NAV_BY_FILE[normalized]);
+  }
+
+  function sceneLocalNavTabIds(localNav) {
+    if (!localNav || !Array.isArray(localNav.items)) return [];
+    return localNav.items
       .map((entry) => normalizeTabId(entry?.id))
       .filter((tab) => tab && tab !== "hero");
   }
@@ -503,32 +527,53 @@
     const panelPopup = isPanelPopupConfig(popup);
     if (!boardLink && !panelPopup) return null;
     const legacyTemplate = panelPopup && !boardLink ? normalizePanelTemplateId(popup?.template) : "";
+    const sceneRef =
+      popup?.scene && typeof popup.scene === "object" && !Array.isArray(popup.scene) ? popup.scene : {};
     const sceneFile = normalizeDrilldownScenePath(
       nonEmptyString(
         popup?.scene_file,
         popup?.sceneFile,
+        sceneRef?.scene_file,
+        sceneRef?.sceneFile,
         boardLink ? "" : BOARD_TEMPLATE_SCENE_FILES[legacyTemplate],
       ),
     );
-    const contract = resolveBoardSceneContract(sceneFile);
+    const localNav = normalizeSceneLocalNav(
+      popup?.local_nav ||
+        popup?.localNav ||
+        sceneRef?.local_nav ||
+        sceneRef?.localNav ||
+        resolveSceneLocalNav(sceneFile),
+    );
     const sceneId = nonEmptyString(
       popup?.scene_id,
       popup?.sceneId,
-      contract?.sceneId,
+      sceneRef?.scene_id,
+      sceneRef?.sceneId,
+      localNav?.sceneId,
       sceneFile ? DRILLDOWN_SCENE_BY_FILE[sceneFile] : "",
     );
     const entryTab = normalizeTabId(
-      nonEmptyString(popup?.entry_tab, popup?.entryTab, popup?.focus, contract?.defaultEntryTab),
+      nonEmptyString(
+        popup?.entry_tab,
+        popup?.entryTab,
+        sceneRef?.entry_tab,
+        sceneRef?.entryTab,
+        sceneRef?.entry,
+        popup?.focus,
+        localNav?.defaultEntry,
+      ),
     );
     return {
       boardLink: boardLink || Boolean(sceneFile),
       panelPopup,
       legacyTemplate,
+      sceneRef,
       sceneFile,
       sceneId,
       projection: normalizeProjection(popup?.projection),
       entryTab,
-      contract,
+      localNav,
     };
   }
 
@@ -781,13 +826,11 @@
     return null;
   }
 
-  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, boardContract }) {
-    const contract =
-      boardContract ||
-      resolveBoardSceneContract(
-        nonEmptyString(detail?.board_scene_file, detail?.scene_path, detail?.popup?.scene_file),
-      );
-    const contractTabs = boardSceneTabIds(contract);
+  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, localNav }) {
+    const resolvedLocalNav =
+      normalizeSceneLocalNav(localNav) ||
+      resolveSceneLocalNav(nonEmptyString(detail?.board_scene_file, detail?.scene_path, detail?.popup?.scene_file));
+    const contractTabs = sceneLocalNavTabIds(resolvedLocalNav);
     const explainMetrics = normalizeExplainMetrics(
       detail?.explain_metrics,
       runtime?.explain_metrics,
@@ -1334,8 +1377,11 @@
       popup?.scene_file,
       popup?.sceneFile,
     );
-    const boardSceneContract =
-      boardFields?.contract || resolveBoardSceneContract(boardSceneFile) || null;
+    const sceneLocalNav =
+      boardFields?.localNav ||
+      normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
+      resolveSceneLocalNav(boardSceneFile) ||
+      null;
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
@@ -1351,7 +1397,7 @@
       mapped,
       explainKind,
       hasDetail,
-      boardContract: boardSceneContract,
+      localNav: sceneLocalNav,
     });
     const ratioNote = buildRatioExplainNote({
       numerator: ratioNumerator,
@@ -1367,7 +1413,7 @@
       sceneId,
       boardLink,
       boardSceneFile,
-      boardSceneContract,
+      sceneLocalNav,
       projection,
       panelPopup,
       panelTemplate,
@@ -1433,7 +1479,9 @@
         ),
         scene_file: boardSceneFile,
         scene_id: sceneId,
+        scene: boardFields?.sceneRef || popup?.scene || null,
         projection,
+        local_nav: sceneLocalNav,
         slots: panelPopupSlotSources(popup),
       },
       chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),

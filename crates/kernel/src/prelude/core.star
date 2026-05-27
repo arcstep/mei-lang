@@ -117,7 +117,7 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         shared = shared,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, access_export = None, base = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, base = None):
     payload = {
         "kind": "scene",
         "id": id,
@@ -130,13 +130,14 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "goal": goal,
         "state": state if state != None else {},
         "shared": shared if shared != None else {},
+        "local_nav": local_nav,
         "access_export": access_export,
     }
     if base != None:
         payload["base"] = base
     return _declare(_clean(payload))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, access_export = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None):
     return scene_decl(
         id = id,
         world = world,
@@ -148,6 +149,7 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         goal = goal,
         state = state,
         shared = shared,
+        local_nav = local_nav,
         access_export = access_export,
     )
 
@@ -342,12 +344,15 @@ def world_ref(id = None, scene_file = None, scene_id = None):
         "scene_file": scene_file,
     })
 
-def scene_ref(id = None, scene_file = None, scene_id = None):
+def scene_ref(id = None, scene_file = None, scene_id = None, entry_tab = None, entry = None):
+    tab = entry_tab if entry_tab != None else entry
     return _clean({
         "__ref": "scene",
         "id": id,
         "scene_id": scene_id if scene_id != None else id,
         "scene_file": scene_file,
+        "entry_tab": tab,
+        "entry": tab,
     })
 
 def flow_ref(id = None, scene_file = None, scene_id = None):

@@ -24,13 +24,24 @@ pub struct SceneLocator {
     pub scene_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_file: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry_tab: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
 }
 
 impl SceneLocator {
-    pub fn new(scene_id: Option<String>, scene_file: Option<String>) -> Self {
+    pub fn new(
+        scene_id: Option<String>,
+        scene_file: Option<String>,
+        entry_tab: Option<String>,
+        entry: Option<String>,
+    ) -> Self {
         Self {
             scene_id,
             scene_file,
+            entry_tab,
+            entry,
         }
     }
 
@@ -38,6 +49,8 @@ impl SceneLocator {
         Self {
             scene_id: None,
             scene_file: Some(path.into().to_string()),
+            entry_tab: None,
+            entry: None,
         }
     }
 
@@ -45,6 +58,8 @@ impl SceneLocator {
         Self {
             scene_id: Some(id.into().to_string()),
             scene_file: None,
+            entry_tab: None,
+            entry: None,
         }
     }
 }
@@ -71,11 +86,16 @@ impl RefExpr {
         }
     }
 
-    pub fn scene(scene_id: Option<String>, scene_file: Option<String>) -> Self {
+    pub fn scene(
+        scene_id: Option<String>,
+        scene_file: Option<String>,
+        entry_tab: Option<String>,
+        entry: Option<String>,
+    ) -> Self {
         Self::new(
             RefKind::Scene,
             None,
-            SceneLocator::new(scene_id, scene_file),
+            SceneLocator::new(scene_id, scene_file, entry_tab, entry),
         )
     }
 
@@ -213,7 +233,20 @@ fn decode_locator(obj: &serde_json::Map<String, Value>) -> SceneLocator {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(str::to_string);
-    SceneLocator::new(scene_id, scene_file)
+    let entry_tab = obj
+        .get("entry_tab")
+        .or_else(|| obj.get("entryTab"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    let entry = obj
+        .get("entry")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string);
+    SceneLocator::new(scene_id, scene_file, entry_tab, entry)
 }
 
 fn decode_legacy_file_ref(
@@ -275,6 +308,12 @@ pub fn ref_to_json(expr: &RefExpr) -> Value {
     }
     if let Some(scene_file) = &expr.locator.scene_file {
         obj.insert("scene_file".to_string(), Value::String(scene_file.clone()));
+    }
+    if let Some(entry_tab) = &expr.locator.entry_tab {
+        obj.insert("entry_tab".to_string(), Value::String(entry_tab.clone()));
+    }
+    if let Some(entry) = &expr.locator.entry {
+        obj.insert("entry".to_string(), Value::String(entry.clone()));
     }
     Value::Object(obj)
 }
