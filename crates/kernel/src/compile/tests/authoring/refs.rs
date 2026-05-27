@@ -395,6 +395,126 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_collects_scene_bindings_for_scene_contracts() {
+    let root = temp_root("scene-bindings-scene-contract");
+    let app_root = root.join("binding-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "binding-app", scene = scene_ref(scene_file = "home.mei"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(
+    profile = "page",
+    bindings = {
+        "detail": metric_ref("sales_total", from_dataset = "sales"),
+    },
+    examples = [
+        {
+            "id": "default",
+            "bindings": {
+                "detail": metric_ref("sales_total", from_dataset = "sales"),
+            },
+        },
+    ],
+)
+world(
+    resources = [
+        ds.dataset_resource(
+            id = "sales",
+            source = ds.csv("sales.csv"),
+            metrics = [
+                ds.metric(id = "sales_total", value = 42),
+            ],
+        ),
+    ],
+)
+frame(layout = flex(direction = "column"))
+"#,
+    );
+    write_file(
+        &app_root.join("sales.csv"),
+        "name,value\nA,42\n",
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile scene bindings");
+    assert_eq!(
+        compiled
+            .scene_bindings_by_id
+            .get("home")
+            .and_then(|value| value.get("detail"))
+            .and_then(|value| value.get("__ref"))
+            .and_then(|value| value.as_str()),
+        Some("metric"),
+        "scene_bindings_by_id = {:?}",
+        compiled.scene_bindings_by_id
+    );
+    assert_eq!(
+        compiled
+            .scene_examples_by_id
+            .get("home")
+            .and_then(|value| value.as_array())
+            .map(|items| items.len()),
+        Some(1)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_reports_missing_required_scene_binding() {
+    let root = temp_root("scene-binding-required");
+    let app_root = root.join("binding-required-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "binding-required-app", scene = scene_ref(scene_file = "home.mei"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(profile = "page")
+world(
+    resources = [
+        ds.dataset_resource(
+            id = "sales",
+            source = ds.csv("sales.csv"),
+            binding = {
+                "enabled": True,
+                "required": True,
+                "replace": "source",
+                "accept": {"kind": "dataset"},
+            },
+        ),
+    ],
+)
+frame(layout = flex(direction = "column"))
+"#,
+    );
+    write_file(
+        &app_root.join("sales.csv"),
+        "name,value\nA,42\n",
+    );
+
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile missing required binding app");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "missing_required_scene_binding"),
+        "expected missing_required_scene_binding diagnostic, got {:?}",
+        compiled.diagnostics
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_scene_file_ref_main_target_skips_scene_first_missing_diagnostics() {
     let root = temp_root("scene-file-ref-main-target");
     let app_root = root.join("fire");

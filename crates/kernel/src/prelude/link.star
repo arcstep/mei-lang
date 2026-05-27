@@ -29,7 +29,7 @@ def _scene_ref_with_entry(scene = None, scene_file = None, scene_id = None, entr
     merged["entry"] = str(resolved_entry).strip()
     return merged
 
-def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, slots = None):
+def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None):
     """Link a home entry to a named secondary scene; projection only controls overlay vs route."""
     scene_value = _scene_ref_with_entry(
         scene = scene,
@@ -40,10 +40,11 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         focus = focus,
     )
     resolved_entry = scene_value.get("entry")
-    overrides = entry_overrides if entry_overrides != None else slots
+    overrides = bindings if bindings != None else (entry_overrides if entry_overrides != None else slots)
     return _without_empty({
         "__kind": "board_link",
         "mode": "board_link",
+        "type": type if type != None else "popup",
         "scene": scene_value,
         "projection": projection,
         "entry": resolved_entry,
@@ -51,26 +52,29 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         "entry_tab": resolved_entry,
         "focus": resolved_entry,
         "entry_overrides": overrides,
+        "bindings": overrides,
         "slots": overrides,
         "title": title,
     })
 
-def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, slots = None):
+def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None):
     """Alias of board_link for metric-card / chart entry links."""
     return board_link(
         scene = scene,
         scene_file = scene_file,
         scene_id = scene_id,
         projection = projection,
+        type = type,
         entry = entry,
         entry_tab = entry_tab,
         focus = focus,
         title = title,
         entry_overrides = entry_overrides,
+        bindings = bindings,
         slots = slots,
     )
 
-def popup_panel(template, focus = None, entry = None, slots = None, entry_overrides = None, title = None, projection = "overlay"):
+def popup_panel(template, focus = None, entry = None, slots = None, entry_overrides = None, bindings = None, title = None, projection = "overlay"):
     """Deprecated sugar: known templates lower to board_link; unknown templates stay inline overlay."""
     if template == None or str(template).strip() == "":
         fail("popup_panel requires template")
@@ -79,7 +83,7 @@ def popup_panel(template, focus = None, entry = None, slots = None, entry_overri
         resolved_template = "metric_board_default"
     scene_file = _BOARD_TEMPLATE_SCENE_FILES.get(resolved_template)
     resolved_entry = entry if entry != None else focus
-    overrides = entry_overrides if entry_overrides != None else slots
+    overrides = bindings if bindings != None else (entry_overrides if entry_overrides != None else slots)
     if scene_file != None:
         payload = board_link(
             scene = scene_ref(

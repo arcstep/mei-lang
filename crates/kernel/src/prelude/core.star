@@ -32,6 +32,7 @@ def _metric_source(metric):
         "schema": metric.get("schema"),
         "explain": metric.get("explain"),
         "analyses": metric.get("analyses"),
+        "binding": metric.get("binding"),
     })
     if type(values) == "dict":
         scalar_values = {}
@@ -55,7 +56,7 @@ def _metric_source(metric):
         source["drilldown_dataset"] = metric["drilldown"]
     return source
 
-def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
+def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
     product_id = id if id != None else key
     return _without_empty({
         "__kind": "data_product",
@@ -69,6 +70,7 @@ def _data_product(shape, id = None, key = None, label = None, value = None, valu
         "drilldown": drilldown,
         "explain": explain,
         "analyses": analyses,
+        "binding": binding,
     })
 
 def app(id, title = None, default_scene = None, scene = None):
@@ -101,7 +103,7 @@ def frame_file_ref(path, id = None):
         "id": id,
     })
 
-def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None):
+def app_add_scene(scene = None, id = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, bindings = None, examples = None):
     if scene != None:
         return _declare({
             "kind": "app_scene_ref",
@@ -115,9 +117,11 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         goal = goal,
         state = state,
         shared = shared,
+        bindings = bindings,
+        examples = examples,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, base = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None, base = None):
     payload = {
         "kind": "scene",
         "id": id,
@@ -132,12 +136,14 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "shared": shared if shared != None else {},
         "local_nav": local_nav,
         "access_export": access_export,
+        "bindings": bindings if bindings != None else {},
+        "examples": examples if examples != None else [],
     }
     if base != None:
         payload["base"] = base
     return _declare(_clean(payload))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None):
     return scene_decl(
         id = id,
         world = world,
@@ -151,6 +157,8 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         shared = shared,
         local_nav = local_nav,
         access_export = access_export,
+        bindings = bindings,
+        examples = examples,
     )
 
 def shared_ref(id, default = None):
@@ -217,7 +225,7 @@ def cell(id, row = None, col = None, surface_kind = None, flammable = None, walk
         "tags": tags if tags != None else [],
     })
 
-def resource(id, kind, title = None, purpose = None, source = None, content = None, dataset = None, metrics = None, filters = None, base = None):
+def resource(id, kind, title = None, purpose = None, source = None, content = None, dataset = None, metrics = None, filters = None, binding = None, base = None):
     payload = {
         "id": id,
         "kind": kind,
@@ -228,6 +236,7 @@ def resource(id, kind, title = None, purpose = None, source = None, content = No
         "dataset": dataset,
         "metrics": metrics,
         "filters": filters,
+        "binding": binding,
     }
     if base != None:
         payload["base"] = base

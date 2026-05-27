@@ -160,6 +160,15 @@ pub(crate) fn merge_scene_decl(base: SceneDecl, overlay_value: &Value) -> Result
     if value_has_key(overlay_value, "shared") {
         merged.shared = deep_merge_json(&merged.shared, &overlay.shared);
     }
+    if value_has_key(overlay_value, "local_nav") {
+        merged.local_nav = deep_merge_json(&merged.local_nav, &overlay.local_nav);
+    }
+    if value_has_key(overlay_value, "bindings") {
+        merged.bindings = deep_merge_json(&merged.bindings, &overlay.bindings);
+    }
+    if value_has_key(overlay_value, "examples") {
+        merged.examples = overlay.examples;
+    }
     if value_has_key(overlay_value, "access_export") {
         merged.access_export = overlay.access_export;
     }

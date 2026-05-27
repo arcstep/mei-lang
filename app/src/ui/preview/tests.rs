@@ -769,6 +769,8 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
                 "table": {"preview_chars": 18},
             }),
             local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: vec![ThemeDecl {
@@ -850,6 +852,8 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
             state: Value::Null,
             shared: Value::Null,
             local_nav: Value::Null,
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: Vec::new(),
@@ -869,6 +873,8 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         file_tree: Vec::new(),
         scene_contract: Some(contract.clone()),
         scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
         resources: Vec::new(),
         world_metrics: BTreeMap::new(),
         component_assets: Vec::new(),
@@ -931,6 +937,23 @@ fn attach_host_meta_exposes_shared_context_to_components() {
                 "order_by_kind": ["definition", "composition", "trend", "detail"],
             }),
         )]),
+        scene_bindings_by_id: BTreeMap::from([(
+            "inspection_total_popup".to_string(),
+            json!({
+                "detail": {"__ref": "metric", "id": "sales_total", "from_dataset": "sales"},
+            }),
+        )]),
+        scene_examples_by_id: BTreeMap::from([(
+            "inspection_total_popup".to_string(),
+            json!([
+                {
+                    "id": "default",
+                    "bindings": {
+                        "detail": {"__ref": "metric", "id": "sales_total", "from_dataset": "sales"},
+                    },
+                },
+            ]),
+        )]),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -960,6 +983,16 @@ fn attach_host_meta_exposes_shared_context_to_components() {
             .and_then(Value::as_str),
         Some("520px")
     );
+    assert_eq!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("scene_bindings_by_id"))
+            .and_then(|value| value.get("inspection_total_popup"))
+            .and_then(|value| value.get("detail"))
+            .and_then(|value| value.get("__ref"))
+            .and_then(Value::as_str),
+        Some("metric")
+    );
 }
 
 #[test]
@@ -978,6 +1011,8 @@ fn resolve_value_supports_shared_refs() {
             state: json!({}),
             shared: json!({}),
             local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: vec![],
@@ -999,6 +1034,8 @@ fn resolve_value_supports_shared_refs() {
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1038,6 +1075,8 @@ fn resolve_value_supports_data_and_metric_refs() {
             state: json!({}),
             shared: json!({}),
             local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: vec![],
@@ -1142,6 +1181,8 @@ fn resolve_value_supports_data_and_metric_refs() {
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1244,6 +1285,8 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
             state: json!({}),
             shared: json!({}),
             local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: vec![],
@@ -1334,6 +1377,8 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1383,6 +1428,8 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             state: json!({}),
             shared: json!({}),
             local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
             access_export: true,
         },
         themes: vec![],
@@ -1502,6 +1549,8 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         file_tree: Vec::new(),
         scene_contract: None,
         scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };

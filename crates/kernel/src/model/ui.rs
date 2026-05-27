@@ -190,6 +190,12 @@ pub struct SceneDecl {
     /// Scene 级局部导航约定（如 tabs/sub-nav），由宿主按 scene contract 消费。
     #[serde(default)]
     pub local_nav: Value,
+    /// Scene 级装配默认绑定；用于把可复用 scene 壳接到本地 world 资源。
+    #[serde(default)]
+    pub bindings: Value,
+    /// 参数化 scene 的预览示例；Manage 可在无外部 caller 时选用示例装配。
+    #[serde(default)]
+    pub examples: Value,
     /// Access 态是否允许导出该 scene（默认 true，保持兼容）。
     #[serde(default = "default_access_export")]
     pub access_export: bool,

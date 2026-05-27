@@ -573,6 +573,8 @@ pub(super) fn attach_host_meta(
                 "components": theme_components.clone(),
                 "shared": shared_context.clone(),
                 "scene_local_nav_by_target": compiled.scene_local_nav_by_target.clone(),
+                "scene_bindings_by_id": compiled.scene_bindings_by_id.clone(),
+                "scene_examples_by_id": compiled.scene_examples_by_id.clone(),
             }),
         );
     }

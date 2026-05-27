@@ -1058,6 +1058,38 @@
     return normalized;
   }
 
+  function sceneBindingDefaults(sceneId, bindingsById, examplesById) {
+    const normalizedSceneId = nonEmptyString(sceneId);
+    if (!normalizedSceneId) return {};
+    if (
+      bindingsById &&
+      typeof bindingsById === "object" &&
+      !Array.isArray(bindingsById) &&
+      bindingsById[normalizedSceneId]
+    ) {
+      const direct = normalizeTabMetricOverrides(bindingsById[normalizedSceneId]);
+      if (Object.keys(direct).length) return direct;
+    }
+    if (
+      examplesById &&
+      typeof examplesById === "object" &&
+      !Array.isArray(examplesById) &&
+      examplesById[normalizedSceneId]
+    ) {
+      const rawExamples = examplesById[normalizedSceneId];
+      const example = Array.isArray(rawExamples)
+        ? rawExamples.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+        : rawExamples && typeof rawExamples === "object"
+          ? rawExamples
+          : null;
+      const bindings =
+        example && typeof example === "object" && !Array.isArray(example) ? example.bindings : null;
+      const normalized = normalizeTabMetricOverrides(bindings);
+      if (Object.keys(normalized).length) return normalized;
+    }
+    return {};
+  }
+
   function resolveDrilldownTabConfig(config, tabId) {
     const tabMetrics = config?.tabMetrics || {};
     const exactTab = normalizeTabId(tabId);
@@ -1449,8 +1481,15 @@
       runtime?.layoutPreset,
       mapped?.layoutPreset,
     );
+    const defaultSceneBindings = sceneBindingDefaults(
+      boardSceneId,
+      detail?.scene_bindings_by_id,
+      detail?.scene_examples_by_id,
+    );
     const tabMetrics = normalizeTabMetricOverrides(
+      defaultSceneBindings,
       popup?.entry_overrides,
+      popup?.bindings,
       popup?.entryOverrides,
       panelPopupSlotSources(popup),
       popup?.metrics,

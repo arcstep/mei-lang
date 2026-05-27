@@ -1240,6 +1240,8 @@ pub fn compile_app_from_root_with_options(
     });
 
     let mut scene_local_nav_by_target = BTreeMap::new();
+    let mut scene_bindings_by_id = BTreeMap::new();
+    let mut scene_examples_by_id = BTreeMap::new();
     for route in &route_registry.routes {
         let Some(payload) = official_results.get(&route.scene_id) else {
             continue;
@@ -1247,6 +1249,12 @@ pub fn compile_app_from_root_with_options(
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
         };
+        if !contract.scene.bindings.is_null() {
+            scene_bindings_by_id.insert(route.scene_id.clone(), contract.scene.bindings.clone());
+        }
+        if !contract.scene.examples.is_null() {
+            scene_examples_by_id.insert(route.scene_id.clone(), contract.scene.examples.clone());
+        }
         if !contract.scene.local_nav.is_null() {
             scene_local_nav_by_target.insert(
                 route.target_file.clone(),
@@ -1255,6 +1263,16 @@ pub fn compile_app_from_root_with_options(
         }
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
+        if let Some(active_scene_id) = active_scene.as_deref() {
+            if !contract.scene.bindings.is_null() {
+                scene_bindings_by_id
+                    .insert(active_scene_id.to_string(), contract.scene.bindings.clone());
+            }
+            if !contract.scene.examples.is_null() {
+                scene_examples_by_id
+                    .insert(active_scene_id.to_string(), contract.scene.examples.clone());
+            }
+        }
         if !contract.scene.local_nav.is_null() {
             scene_local_nav_by_target
                 .insert(active_target_file.clone(), contract.scene.local_nav.clone());
@@ -1271,6 +1289,8 @@ pub fn compile_app_from_root_with_options(
         file_tree: source_tree(app_root)?,
         scene_contract: active_payload.scene_contract,
         scene_local_nav_by_target,
+        scene_bindings_by_id,
+        scene_examples_by_id,
         resources,
         world_metrics,
         component_assets: active_payload.component_assets,

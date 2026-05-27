@@ -67,7 +67,7 @@ def _resolve_resource_id(kind, id = None, key = None):
         fail(kind + " does not allow `.mei` path aliases as resource id; use a stable id")
     return dataset_id
 
-def dataset_resource(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+def dataset_resource(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     dataset_id = _resolve_resource_id("dataset_resource", id = id, key = key)
     dataset_schema = schema if schema != None else columns
     if dataset_schema == None:
@@ -89,6 +89,8 @@ def dataset_resource(id = None, key = None, title = None, desc = None, purpose =
         "kind": "dataframe",
         "columns": normalized_columns,
     }
+    if binding != None:
+        dataset_node["binding"] = binding
     if len(normalize) > 0:
         dataset_node["normalize"] = normalize
 
@@ -120,9 +122,10 @@ def dataset_resource(id = None, key = None, title = None, desc = None, purpose =
         dataset = dataset_node,
         metrics = metric_map,
         filters = filters,
+        binding = binding,
     )
 
-def world_add_dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+def world_add_dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     return world_add_resource(dataset_resource(
         id = id,
         key = key,
@@ -134,9 +137,10 @@ def world_add_dataset(id = None, key = None, title = None, desc = None, purpose 
         columns = columns,
         metrics = metrics,
         filters = filters,
+        binding = binding,
     ))
 
-def dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}):
+def dataset(id = None, key = None, title = None, desc = None, purpose = None, source = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     legacy_id = id if id != None else key
     if legacy_id == None:
         legacy_id = "__forbidden_world_only__"
@@ -153,6 +157,7 @@ def dataset(id = None, key = None, title = None, desc = None, purpose = None, so
         },
         "metrics": {},
         "filters": filters,
+        "binding": binding,
         "__forbidden_world_only__": "dataset",
     })
 
@@ -263,6 +268,7 @@ def _computed_metric_source(metric):
         "drilldown_dataset": metric.get("drilldown"),
         "explain": metric.get("explain"),
         "analyses": metric.get("analyses"),
+        "binding": metric.get("binding"),
     })
     if type(values) == "dict":
         scalar_values = {}
@@ -307,7 +313,7 @@ def metric_pack(id, desc = None, purpose = None, metrics = []):
         "__forbidden_world_only__": "metric_pack",
     })
 
-def dataset_view_resource(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+def dataset_view_resource(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     dataset_id = _resolve_resource_id("dataset_view_resource", id = id)
     dataset_schema = schema if schema != None else columns
     if dataset_schema == None:
@@ -326,12 +332,14 @@ def dataset_view_resource(id = None, title = None, desc = None, purpose = None, 
             "sources": sources,
             "columns": dataset_schema,
             "rowset": rowset,
+            "binding": binding,
         },
         metrics = metric_map,
         filters = filters,
+        binding = binding,
     )
 
-def world_add_dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+def world_add_dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     return world_add_resource(dataset_view_resource(
         id = id,
         title = title,
@@ -343,9 +351,10 @@ def world_add_dataset_view(id = None, title = None, desc = None, purpose = None,
         columns = columns,
         metrics = metrics,
         filters = filters,
+        binding = binding,
     ))
 
-def dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}):
+def dataset_view(id = None, title = None, desc = None, purpose = None, sources = [], rowset = None, schema = None, columns = None, metrics = [], filters = {}, binding = None):
     legacy_id = id if id != None else "__forbidden_world_only__"
     return _declare({
         "kind": "dataset_view",
@@ -354,10 +363,11 @@ def dataset_view(id = None, title = None, desc = None, purpose = None, sources =
         "rowset": rowset,
         "schema": schema if schema != None else (columns if columns != None else []),
         "metrics": [],
+        "binding": binding,
         "__forbidden_world_only__": "dataset_view",
     })
 
-def computed_metric(id = None, key = None, label = None, unit = None, dataset = None, transforms = [], op = None, fallback = None, drilldown = None, explain = None, analyses = None):
+def computed_metric(id = None, key = None, label = None, unit = None, dataset = None, transforms = [], op = None, fallback = None, drilldown = None, explain = None, analyses = None, binding = None):
     metric_id = id if id != None else key
     return _without_empty({
         "__kind": "computed_metric",
@@ -371,6 +381,7 @@ def computed_metric(id = None, key = None, label = None, unit = None, dataset = 
         "drilldown": drilldown,
         "explain": explain,
         "analyses": analyses,
+        "binding": binding,
     })
 
 def _analysis(type, **kwargs):
@@ -652,7 +663,7 @@ def dedupe_first_percent_eq(dedupe_field, field, eq, fallback = 0):
 def dedupe_first_sum_morph_people_in_text(dedupe_field, field, fallback = 0):
     return sum(extract_number(first_by(_analysis("current_rows"), dedupe_field), field, pattern = "种形态[\\s\\S]{0,64}?(\\d+)\\s*人"), fallback = fallback)
 
-def metric(id = None, key = None, label = None, value = None, unit = None, where = None, drilldown = None, explain = None, analyses = None):
+def metric(id = None, key = None, label = None, value = None, unit = None, where = None, drilldown = None, explain = None, analyses = None, binding = None):
     metric_id = id if id != None else key
     return _without_empty({
         "__kind": "metric",
@@ -664,13 +675,14 @@ def metric(id = None, key = None, label = None, value = None, unit = None, where
         "drilldown": drilldown,
         "explain": explain,
         "analyses": analyses,
+        "binding": binding,
     })
 
-def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
-    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses)
+def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
+    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
 
-def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None):
-    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses)
+def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
+    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
 
 def count(id = None, label = None, unit = None, where = None, drilldown = None, fallback = 0, explain = None, analyses = None):
     if _is_analysis(id):
