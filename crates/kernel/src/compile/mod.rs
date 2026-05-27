@@ -44,19 +44,21 @@ use ui_data_policy::validate_imported_catalog_world_refs;
 use app_decl::decode_app_decl;
 use catalog::{
     build_dataset_catalog_filter, catalog_compile_parallelism, compile_dataset_catalog_resources,
-    dataset_catalog_index_cache_metrics_snapshot, merge_resource_catalog, DatasetCatalogFilter,
+    clear_dataset_catalog_index_cache, dataset_catalog_index_cache_metrics_snapshot,
+    merge_resource_catalog, DatasetCatalogFilter,
 };
-use decl_file_cache::decl_file_cache_metrics_snapshot;
+use decl_file_cache::{clear_decl_file_cache, decl_file_cache_metrics_snapshot};
 use dependency_graph::{
+    clear_dependency_graph_cache, clear_file_content_hash_cache,
     dependency_graph_cache_metrics_snapshot, file_content_hash_cache_metrics_snapshot,
     DependencyGraph,
 };
 use entry_payload::CompiledScenePayload;
 use materialize::{append_world_metrics_dataset_resource, materialize_world_metrics};
-use materialize_cache::dataset_materialize_cache_metrics_snapshot;
+use materialize_cache::{clear_materialize_cache, dataset_materialize_cache_metrics_snapshot};
 use scene::{find_scene_route, resolve_scene_routes};
 use scene_payload_cache::{
-    compile_scene_payload_for_target, scene_payload_cache_has_entry,
+    clear_scene_payload_cache, compile_scene_payload_for_target, scene_payload_cache_has_entry,
     scene_payload_cache_metrics_snapshot,
 };
 
@@ -1301,6 +1303,15 @@ pub fn compile_app_from_root_with_options(
 pub use materialize_cache::dataset_materialize_cache_epoch;
 pub use panel_normalize::panel_resolved_has_head;
 pub use scene_payload_cache::scene_payload_cache_epoch;
+
+pub fn clear_runtime_compile_caches() {
+    clear_materialize_cache();
+    clear_scene_payload_cache();
+    clear_dataset_catalog_index_cache();
+    clear_decl_file_cache();
+    clear_dependency_graph_cache();
+    clear_file_content_hash_cache();
+}
 
 #[cfg(test)]
 pub(crate) use materialize_cache::{

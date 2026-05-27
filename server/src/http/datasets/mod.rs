@@ -15,6 +15,7 @@ mod xlsx_dataset;
 mod xlsx_format;
 
 pub use metric_dataframe::query_metric_dataframe;
+pub(crate) use file_cache::clear_external_file_cache_for_app;
 pub use query::query_dataset_rows;
 pub use types::DatasetQueryOptions;
 

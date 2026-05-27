@@ -193,11 +193,15 @@ pub(crate) fn dataset_catalog_index_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn clear_dataset_catalog_index_cache_for_tests() {
+pub(crate) fn clear_dataset_catalog_index_cache() {
     if let Ok(mut cache) = DATASET_CATALOG_INDEX_CACHE.lock() {
         cache.clear();
     }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_dataset_catalog_index_cache_for_tests() {
+    clear_dataset_catalog_index_cache();
 }
 
 pub(crate) fn build_dataset_id_to_scene_file_map(app_root: &Path) -> BTreeMap<String, String> {

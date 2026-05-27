@@ -4,15 +4,17 @@ mod geojson;
 mod model;
 mod runtime;
 mod runtime_resource_index;
+mod source_version;
 mod typed_refs;
 mod workspace;
 
 pub use compile::{
-    compile_app, compile_app_from_root, compile_app_from_root_with_options,
-    compile_app_with_options, compile_revision_plan_from_root_with_options,
-    compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,
-    evaluate_runtime_metric_defs, panel_resolved_has_head, resolve_default_scene_from_root,
-    scene_payload_cache_epoch, CompileOptions, CompileRevisionPlan, CompileWatchedFile,
+    clear_runtime_compile_caches, compile_app, compile_app_from_root,
+    compile_app_from_root_with_options, compile_app_with_options,
+    compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
+    dataset_materialize_cache_epoch, evaluate_runtime_metric_defs, panel_resolved_has_head,
+    resolve_default_scene_from_root, scene_payload_cache_epoch, CompileOptions,
+    CompileRevisionPlan, CompileWatchedFile,
 };
 
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
@@ -34,6 +36,12 @@ pub use runtime_resource_index::{
     build_runtime_resource_index, build_runtime_resource_map, is_forbidden_legacy_resource_id,
     locate_dataset_resource, resolve_dataset_resource_id, resolve_dataset_selector_value,
     RuntimeResourceIndex, RuntimeResourceResolveError,
+};
+pub use source_version::{
+    compare_version_tokens, parse_versioned_upload_file_name, read_upload_registry,
+    register_upload_version, resolve_versioned_source_identifier, resolve_versioned_source_path,
+    write_upload_registry, ParsedVersionedUploadFile, UploadAliasRecord, UploadRegistry,
+    UploadVersionRecord,
 };
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,

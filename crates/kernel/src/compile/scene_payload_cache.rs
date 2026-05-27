@@ -269,11 +269,15 @@ pub(crate) fn scene_payload_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn clear_scene_payload_cache_for_tests() {
+pub(crate) fn clear_scene_payload_cache() {
     if let Ok(mut cache) = SCENE_PAYLOAD_CACHE.lock() {
         cache.clear();
     }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_scene_payload_cache_for_tests() {
+    clear_scene_payload_cache();
 }
 
 #[cfg(test)]

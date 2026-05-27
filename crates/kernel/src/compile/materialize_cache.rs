@@ -10,6 +10,7 @@ use serde_json::Value;
 
 use super::decls::LegacySourceDecl;
 use super::scene_payload_cache::file_mtime_ms;
+use crate::resolve_versioned_source_identifier;
 
 #[derive(Debug, Clone)]
 pub(super) struct LegacyRowsSnapshot {
@@ -38,10 +39,15 @@ fn source_rows_cache_key(app_root: &Path, source: &LegacySourceDecl) -> Option<S
     if source_path.is_empty() && source.connection.is_none() {
         return None;
     }
-    let data_path = if source_path.is_empty() {
+    let resolved_path = if source_path.is_empty() {
+        String::new()
+    } else {
+        resolve_versioned_source_identifier(app_root, source_path)
+    };
+    let data_path = if resolved_path.is_empty() {
         None
     } else {
-        Some(app_root.join(source_path))
+        Some(app_root.join(&resolved_path))
     };
     let data_mtime = data_path
         .as_ref()
@@ -56,7 +62,7 @@ fn source_rows_cache_key(app_root: &Path, source: &LegacySourceDecl) -> Option<S
     let table = source.table.as_deref().unwrap_or("");
     let sheet = source.sheet.as_deref().unwrap_or("");
     Some(format!(
-        "rows|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{source_path}|{data_mtime}|{kind}|{sheet}|{header_row}|{preview_rows}|{connection}|{query}|{table}",
+        "rows|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{resolved_path}|{data_mtime}|{kind}|{sheet}|{header_row}|{preview_rows}|{connection}|{query}|{table}",
         app_root.display(),
     ))
 }
@@ -103,12 +109,16 @@ pub(crate) fn dataset_materialize_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-/// 供测试：清空 L3 缓存。
-#[cfg(test)]
-pub(crate) fn clear_materialize_cache_for_tests() {
+pub(crate) fn clear_materialize_cache() {
     if let Ok(mut c) = LEGACY_ROWS_CACHE.lock() {
         c.clear();
     }
+}
+
+/// 供测试：清空 L3 缓存。
+#[cfg(test)]
+pub(crate) fn clear_materialize_cache_for_tests() {
+    clear_materialize_cache();
 }
 
 #[cfg(test)]

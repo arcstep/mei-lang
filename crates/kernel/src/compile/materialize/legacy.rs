@@ -5,9 +5,11 @@ use serde_json::Value;
 
 use crate::geojson::rows_from_geojson_value;
 use crate::model::{DatasetView, LoadedResource, SourceDecl};
+use crate::resolve_versioned_source_path;
 
 use super::super::{
     analysis::{
+        dates::coerce_rows_to_schema,
         rowset::eval_rowset,
         schema::{infer_columns, infer_schema_from_rows},
     },
@@ -79,6 +81,9 @@ fn materialize_one_legacy_dataset(
     } else {
         decl.dataset.columns.clone()
     };
+    if !schema.is_empty() {
+        rows = coerce_rows_to_schema(rows, &schema);
+    }
     let columns = if schema.is_empty() {
         infer_columns(&rows)
     } else {
@@ -157,7 +162,7 @@ fn load_legacy_rows_from_source_inner(
         "csv"
     };
     let source_kind = source.kind.as_deref().unwrap_or(inferred);
-    let path = app_root.join(source_path);
+    let path = resolve_versioned_source_path(app_root, source_path);
     match source_kind {
         "csv" => {
             let mut reader = csv::Reader::from_path(&path)

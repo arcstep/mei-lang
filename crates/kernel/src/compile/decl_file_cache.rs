@@ -56,9 +56,13 @@ pub(crate) fn decl_file_cache_metrics_snapshot_for_tests() -> (u64, u64) {
     decl_file_cache_metrics_snapshot()
 }
 
-#[cfg(test)]
-pub(crate) fn clear_decl_file_cache_for_tests() {
+pub(crate) fn clear_decl_file_cache() {
     if let Ok(mut cache) = DECL_FILE_CACHE.lock() {
         cache.clear();
     }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_decl_file_cache_for_tests() {
+    clear_decl_file_cache();
 }

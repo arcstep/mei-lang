@@ -16,6 +16,7 @@ use super::dependency_graph::DependencyGraph;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
 use merge::upsert_catalog_dataset_resource;
+pub(crate) use scan::clear_dataset_catalog_index_cache;
 #[cfg(test)]
 pub(crate) use scan::clear_dataset_catalog_index_cache_for_tests;
 pub(super) use scan::resolve_dataset_catalog_compile_rels;

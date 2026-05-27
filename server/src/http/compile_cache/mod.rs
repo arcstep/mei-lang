@@ -502,3 +502,14 @@ fn default_scene_alias_keys(
         .filter(|candidate| candidate != &primary_key)
         .collect()
 }
+
+pub(crate) fn clear_compile_cache_for_app(state: &AppState, app_id: &str) -> usize {
+    let Ok(mut cache) = state.compile_cache.lock() else {
+        tracing::warn!(app_id = %app_id, "compile cache lock poisoned during clear");
+        return 0;
+    };
+    let prefix = format!("{app_id}|");
+    let before = cache.len();
+    cache.retain(|key, _| !key.starts_with(prefix.as_str()));
+    before.saturating_sub(cache.len())
+}

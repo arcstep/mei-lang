@@ -1,12 +1,7 @@
 use std::path::{Path, PathBuf};
 
 pub(crate) fn resolve_source_path(app_root: &Path, source_path: &str) -> PathBuf {
-    let path = Path::new(source_path);
-    if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        app_root.join(path)
-    }
+    mei_lang_kernel::resolve_versioned_source_path(app_root, source_path)
 }
 
 pub(crate) fn resolve_db_path(app_root: &Path, dsn: &str) -> PathBuf {

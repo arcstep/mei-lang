@@ -48,6 +48,10 @@ pub fn router() -> Router<AppState> {
             "/api/datasets/metrics/*app_id",
             post(pages::dataset_metric_api),
         )
+        .route(
+            "/api/datasets/recompute/*app_id",
+            post(pages::dataset_recompute_api),
+        )
         .route("/api/agent/config", get(agent_api::api_agent_config))
         .route("/api/agent/runtime", get(agent_api::api_agent_runtime))
         .route("/api/agent/skill", get(agent_api::api_agent_skill))

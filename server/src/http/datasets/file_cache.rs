@@ -144,6 +144,21 @@ impl ExternalFileDatasetCache {
         }
         evicted
     }
+
+    fn clear_for_app_root(&mut self, app_root: &Path) -> usize {
+        let prefix = app_root.to_string_lossy().replace('\\', "/");
+        let keys = self
+            .entries
+            .keys()
+            .filter(|key| key.contains(prefix.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        let removed = keys.len();
+        for key in keys {
+            self.remove_key(key.as_str());
+        }
+        removed
+    }
 }
 
 pub(crate) fn resolve_external_file_cache_settings(app_root: &Path) -> ExternalFileCacheSettings {
@@ -238,6 +253,14 @@ pub(crate) fn estimate_dataset_bytes(columns: &[String], rows: &[Value]) -> usiz
     let columns_bytes: usize = columns.iter().map(|value| value.len()).sum();
     let rows_bytes: usize = rows.iter().map(estimate_value_bytes).sum();
     columns_bytes.saturating_add(rows_bytes)
+}
+
+pub(crate) fn clear_external_file_cache_for_app(app_root: &Path) -> usize {
+    let Ok(mut cache) = external_file_cache().lock() else {
+        tracing::warn!("external file cache lock poisoned on app clear");
+        return 0;
+    };
+    cache.clear_for_app_root(app_root)
 }
 
 fn external_file_cache() -> &'static Mutex<ExternalFileDatasetCache> {

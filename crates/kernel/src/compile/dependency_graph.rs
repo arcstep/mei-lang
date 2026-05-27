@@ -202,8 +202,7 @@ pub(crate) fn file_content_hash_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn clear_file_content_hash_cache_for_tests() {
+pub(crate) fn clear_file_content_hash_cache() {
     if let Ok(mut cache) = FILE_CONTENT_HASH_CACHE.lock() {
         cache.clear();
     }
@@ -216,11 +215,20 @@ pub(crate) fn dependency_graph_cache_metrics_snapshot() -> (u64, u64) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn clear_dependency_graph_cache_for_tests() {
+pub(crate) fn clear_dependency_graph_cache() {
     if let Ok(mut cache) = DEPENDENCY_GRAPH_CACHE.lock() {
         cache.clear();
     }
+}
+
+#[cfg(test)]
+pub(crate) fn clear_file_content_hash_cache_for_tests() {
+    clear_file_content_hash_cache();
+}
+
+#[cfg(test)]
+pub(crate) fn clear_dependency_graph_cache_for_tests() {
+    clear_dependency_graph_cache();
 }
 
 fn collect_target_closure(

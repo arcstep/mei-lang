@@ -11,12 +11,17 @@ use std::collections::BTreeMap;
 use crate::{AppError, AppState};
 
 use super::super::compile_cache::compile_app_with_cache;
-use super::super::datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
+use super::super::compile_cache::clear_compile_cache_for_app;
+use super::super::datasets::{
+    clear_external_file_cache_for_app, query_dataset_rows, query_metric_dataframe,
+    DatasetQueryOptions,
+};
 use super::components::resolve_components_root;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
 };
 use super::util::elapsed_ms;
+use mei_lang_kernel::clear_runtime_compile_caches;
 
 #[derive(Debug, Deserialize)]
 pub struct DatasetQueryRequest {
@@ -57,6 +62,35 @@ pub struct DatasetQueryResponse {
     pub columns: Vec<String>,
     pub rows: Vec<serde_json::Value>,
     pub lazy: bool,
+    pub perf: BTreeMap<String, u64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DatasetRecomputeRequest {
+    #[serde(default)]
+    pub scene_id: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+    pub dataset_id: String,
+    #[serde(default)]
+    pub metric_id: Option<String>,
+    #[serde(default)]
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DatasetRecomputeResponse {
+    pub scene_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_path: Option<String>,
+    pub dataset_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metric_id: Option<String>,
+    pub mode: String,
+    pub compile_cache_cleared: usize,
+    pub file_cache_cleared: usize,
+    pub kernel_caches_cleared: bool,
+    pub warmed: bool,
     pub perf: BTreeMap<String, u64>,
 }
 
@@ -252,6 +286,146 @@ pub async fn dataset_query_api(
         columns: result.columns,
         rows: result.rows,
         lazy: result.lazy,
+        perf,
+    }))
+}
+
+pub async fn dataset_recompute_api(
+    State(state): State<AppState>,
+    AxumPath(app_id_raw): AxumPath<String>,
+    Json(request): Json<DatasetRecomputeRequest>,
+) -> Result<Json<DatasetRecomputeResponse>, AppError> {
+    let request_started = Instant::now();
+    let app_id = app_id_raw.trim_start_matches('/').to_string();
+    if app_id.is_empty() {
+        return Err(AppError::status(
+            StatusCode::NOT_FOUND,
+            "missing app id in route",
+        ));
+    }
+    let mode = request
+        .mode
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("clear_and_warm")
+        .to_ascii_lowercase();
+    if !matches!(mode.as_str(), "clear_only" | "clear_and_warm") {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!("unsupported recompute mode `{mode}`"),
+        ));
+    }
+    let app_root = state.source_root.join(&app_id);
+    let clear_started = Instant::now();
+    let compile_cache_cleared = clear_compile_cache_for_app(&state, &app_id);
+    let file_cache_cleared = clear_external_file_cache_for_app(app_root.as_path());
+    clear_runtime_compile_caches();
+    let clear_ms = elapsed_ms(clear_started);
+    let warmed = mode == "clear_and_warm";
+    let mut perf = BTreeMap::new();
+    perf.insert("clear_ms".to_string(), clear_ms);
+    let metric_id = request
+        .metric_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let requested_scene = request
+        .scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let requested_target = request
+        .target
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let mut response_scene_id = requested_scene.to_string();
+    let mut response_scene_path = requested_target;
+    if warmed {
+        let coords = SceneQueryCoords::from_parts(request.scene_id.clone(), request.target.clone());
+        let compile_options = compile_options_from_coords(&coords);
+        let components_root = resolve_components_root(&state.source_root);
+        let compile_started = Instant::now();
+        let compile_outcome =
+            compile_app_with_cache(&state, &app_id, compile_options, components_root.as_path())
+                .map_err(|failure| AppError::from(failure.error))?;
+        let compile_ms = elapsed_ms(compile_started);
+        perf.insert("compile_ms".to_string(), compile_ms);
+        perf.insert(
+            "compile_cache_hit".to_string(),
+            u64::from(compile_outcome.cache_hit),
+        );
+        perf.insert(
+            "compile_cache_lookup_ms".to_string(),
+            compile_outcome.cache_lookup_ms,
+        );
+        let compiled = compile_outcome.compiled;
+        let scene_ctx = resolved_scene_context(&compiled);
+        response_scene_id = scene_ctx.scene_id.clone();
+        response_scene_path = scene_ctx.scene_path.clone();
+        let locate_started = Instant::now();
+        let resource = locate_dataset_resource(
+            &compiled,
+            request.dataset_id.trim(),
+            coords
+                .scene_id
+                .as_deref()
+                .or(Some(scene_ctx.scene_id.as_str())),
+        )
+        .map_err(AppError::from)?;
+        perf.insert("locate_dataset_ms".to_string(), elapsed_ms(locate_started));
+        let warm_started = Instant::now();
+        let warm_query = DatasetQueryOptions {
+            page: 1,
+            page_size: 20,
+            search: None,
+            filters: BTreeMap::new(),
+            collect_all: false,
+        };
+        if let Some(metric_id) = metric_id.as_deref() {
+            let result = query_metric_dataframe(
+                &compiled,
+                &app_root,
+                request.dataset_id.trim(),
+                metric_id,
+                warm_query,
+            )
+            .map_err(AppError::from)?;
+            for (key, value) in result.perf {
+                perf.insert(format!("warm_{key}"), value);
+            }
+            perf.insert("warm_total_rows".to_string(), result.total as u64);
+        } else {
+            let dataset = resource.dataset.as_ref().ok_or_else(|| {
+                AppError::status(
+                    StatusCode::BAD_REQUEST,
+                    format!("resource `{}` is not a dataset", resource.id),
+                )
+            })?;
+            let result =
+                query_dataset_rows(&app_root, dataset, warm_query).map_err(AppError::from)?;
+            for (key, value) in result.perf {
+                perf.insert(format!("warm_{key}"), value);
+            }
+            perf.insert("warm_total_rows".to_string(), result.total as u64);
+        }
+        perf.insert("warm_ms".to_string(), elapsed_ms(warm_started));
+    }
+    perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+    Ok(Json(DatasetRecomputeResponse {
+        scene_id: response_scene_id,
+        scene_path: response_scene_path,
+        dataset_id: request.dataset_id.trim().to_string(),
+        metric_id,
+        mode,
+        compile_cache_cleared,
+        file_cache_cleared,
+        kernel_caches_cleared: true,
+        warmed,
         perf,
     }))
 }
