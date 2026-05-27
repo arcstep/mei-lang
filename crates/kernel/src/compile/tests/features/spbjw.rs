@@ -601,6 +601,305 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
 }
 
 #[test]
+fn compile_spbjw_admin_inspection_switches_to_popup_scene_contracts() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/2_行政检查/行政检查.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw 行政检查 preview");
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("行政检查 preview scene contract");
+    let encoded = serde_json::to_string(contract).expect("encode scene contract");
+
+    assert!(
+        encoded.contains("inspection-total-popup.mei")
+            && encoded.contains("inspection_total_popup")
+            && encoded.contains("inspection-today-popup.mei")
+            && encoded.contains("inspection_today_popup")
+            && encoded.contains("inspection-week-popup.mei")
+            && encoded.contains("inspection_week_popup")
+            && encoded.contains("inspection-complaint-popup.mei")
+            && encoded.contains("inspection_complaint_popup")
+            && encoded.contains("inspection-no-violation-popup.mei")
+            && encoded.contains("inspection_no_violation_popup")
+            && encoded.contains("inspection-ai-main-popup.mei")
+            && encoded.contains("inspection_ai_main_popup")
+            && encoded.contains("inspection-ai-top-popup.mei")
+            && encoded.contains("inspection_ai_top_popup")
+            && encoded.contains("inspection-ai-bottom-popup.mei")
+            && encoded.contains("inspection_ai_bottom_popup"),
+        "行政检查入口卡应全部指向独立 popup scene，got: {encoded}"
+    );
+    assert!(
+        !encoded.contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
+        "第二批后行政检查不应再直连模板壳 scene_file，got: {encoded}"
+    );
+}
+
+#[test]
+fn compile_spbjw_admin_inspection_popup_scenes_are_previewable() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let popup_targets = [
+        ("scenes/2_行政检查/inspection-total-popup.mei", "composition_by_agency"),
+        ("scenes/2_行政检查/inspection-today-popup.mei", "detail"),
+        ("scenes/2_行政检查/inspection-week-popup.mei", "detail"),
+        ("scenes/2_行政检查/inspection-complaint-popup.mei", "detail"),
+        (
+            "scenes/2_行政检查/inspection-no-violation-popup.mei",
+            "composition_by_park",
+        ),
+        ("scenes/2_行政检查/inspection-ai-main-popup.mei", "detail"),
+        (
+            "scenes/2_行政检查/inspection-ai-top-popup.mei",
+            "composition_by_unit",
+        ),
+        ("scenes/2_行政检查/inspection-ai-bottom-popup.mei", "detail"),
+    ];
+
+    for (target, expected_entry) in popup_targets {
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: Some(target.to_string()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("compile popup preview `{target}` failed: {error}"));
+        let errors: Vec<_> = compiled
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, crate::Severity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "popup preview `{target}` should have no error diagnostics: {:?}",
+            errors
+        );
+        let contract = compiled
+            .scene_contract
+            .as_ref()
+            .unwrap_or_else(|| panic!("popup preview `{target}` should yield scene contract"));
+        assert_eq!(
+            contract
+                .scene
+                .local_nav
+                .get("default_entry")
+                .and_then(|value| value.as_str()),
+            Some(expected_entry),
+            "popup preview `{target}` should keep local_nav.default_entry"
+        );
+        assert!(
+            contract.scene.bindings.is_object(),
+            "popup preview `{target}` should keep scene.bindings for assembly defaults"
+        );
+        assert!(
+            contract
+                .scene
+                .examples
+                .as_array()
+                .is_some_and(|items| !items.is_empty()),
+            "popup preview `{target}` should keep scene.examples for bare preview"
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let cases = [
+        (
+            "scenes/1_执法要素/执法要素.mei",
+            vec![
+                "enforcement-key-enterprises-popup.mei",
+                "enforcement-park-popup.mei",
+                "enforcement-whitelist-popup.mei",
+                "enforcement-units-popup.mei",
+                "enforcement-officers-popup.mei",
+                "enforcement-matters-popup.mei",
+            ],
+        ),
+        (
+            "scenes/4_监督和问题办理/监督预警.mei",
+            vec![
+                "supervision-warning-items-popup.mei",
+                "supervision-warning-models-popup.mei",
+                "supervision-warning-total-popup.mei",
+            ],
+        ),
+        (
+            "scenes/4_监督和问题办理/问题办理.mei",
+            vec![
+                "issue-pending-popup.mei",
+                "issue-doing-popup.mei",
+                "issue-done-popup.mei",
+                "issue-rate-popup.mei",
+            ],
+        ),
+        (
+            "scenes/4_监督和问题办理/监督成效.mei",
+            vec![
+                "effect-transfer-clue-popup.mei",
+                "effect-filing-popup.mei",
+                "effect-sanction-popup.mei",
+                "effect-handled-popup.mei",
+                "effect-recovered-popup.mei",
+                "effect-mechanism-popup.mei",
+            ],
+        ),
+    ];
+
+    for (target, expected_popup_files) in cases {
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: Some(target.to_string()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+        let contract = compiled
+            .scene_contract
+            .as_ref()
+            .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+        let encoded = serde_json::to_string(contract).expect("encode scene contract");
+
+        for expected in expected_popup_files {
+            assert!(
+                encoded.contains(expected),
+                "`{target}` should reference `{expected}` after popup migration, got: {encoded}"
+            );
+        }
+        assert!(
+            !encoded.contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
+            "`{target}` should not keep direct metric-explain-board scene_file links, got: {encoded}"
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let popup_targets = [
+        (
+            "scenes/1_执法要素/enforcement-key-enterprises-popup.mei",
+            "composition_by_street",
+        ),
+        (
+            "scenes/1_执法要素/enforcement-park-popup.mei",
+            "composition_by_town",
+        ),
+        ("scenes/1_执法要素/enforcement-whitelist-popup.mei", "detail"),
+        (
+            "scenes/1_执法要素/enforcement-units-popup.mei",
+            "composition_by_category",
+        ),
+        (
+            "scenes/1_执法要素/enforcement-officers-popup.mei",
+            "composition_by_agency",
+        ),
+        (
+            "scenes/1_执法要素/enforcement-matters-popup.mei",
+            "composition_by_domain",
+        ),
+        (
+            "scenes/4_监督和问题办理/supervision-warning-items-popup.mei",
+            "detail",
+        ),
+        (
+            "scenes/4_监督和问题办理/supervision-warning-models-popup.mei",
+            "detail",
+        ),
+        (
+            "scenes/4_监督和问题办理/supervision-warning-total-popup.mei",
+            "detail",
+        ),
+        ("scenes/4_监督和问题办理/issue-pending-popup.mei", "detail"),
+        ("scenes/4_监督和问题办理/issue-doing-popup.mei", "detail"),
+        ("scenes/4_监督和问题办理/issue-done-popup.mei", "detail"),
+        ("scenes/4_监督和问题办理/issue-rate-popup.mei", "detail"),
+        (
+            "scenes/4_监督和问题办理/effect-transfer-clue-popup.mei",
+            "detail",
+        ),
+        ("scenes/4_监督和问题办理/effect-filing-popup.mei", "detail"),
+        ("scenes/4_监督和问题办理/effect-sanction-popup.mei", "detail"),
+        ("scenes/4_监督和问题办理/effect-handled-popup.mei", "detail"),
+        (
+            "scenes/4_监督和问题办理/effect-recovered-popup.mei",
+            "detail",
+        ),
+        (
+            "scenes/4_监督和问题办理/effect-mechanism-popup.mei",
+            "detail",
+        ),
+    ];
+
+    for (target, expected_entry) in popup_targets {
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: Some(target.to_string()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("compile popup preview `{target}` failed: {error}"));
+        let errors: Vec<_> = compiled
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, crate::Severity::Error))
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "popup preview `{target}` should have no error diagnostics: {:?}",
+            errors
+        );
+        let contract = compiled
+            .scene_contract
+            .as_ref()
+            .unwrap_or_else(|| panic!("popup preview `{target}` should yield scene contract"));
+        assert_eq!(
+            contract
+                .scene
+                .local_nav
+                .get("default_entry")
+                .and_then(|value| value.as_str()),
+            Some(expected_entry),
+            "popup preview `{target}` should keep local_nav.default_entry"
+        );
+        assert!(
+            contract.scene.bindings.is_object(),
+            "popup preview `{target}` should keep scene.bindings for assembly defaults"
+        );
+        assert!(
+            contract
+                .scene
+                .examples
+                .as_array()
+                .is_some_and(|items| !items.is_empty()),
+            "popup preview `{target}` should keep scene.examples for bare preview"
+        );
+    }
+}
+
+#[test]
 fn compile_spbjw_preview_logistics_park_vector_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");

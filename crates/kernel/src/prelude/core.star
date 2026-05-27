@@ -143,7 +143,7 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         payload["base"] = base
     return _declare(_clean(payload))
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None, base = None):
     return scene_decl(
         id = id,
         world = world,
@@ -159,6 +159,7 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         access_export = access_export,
         bindings = bindings,
         examples = examples,
+        base = base,
     )
 
 def shared_ref(id, default = None):
