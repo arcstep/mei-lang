@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::contract::SceneContract;
 use super::dataset::WorldMetricLedgerEntry;
@@ -40,6 +41,8 @@ pub struct CompiledApp {
     pub file_tree: Vec<WorkspaceNode>,
     #[serde(default)]
     pub scene_contract: Option<SceneContract>,
+    #[serde(default)]
+    pub scene_local_nav_by_target: BTreeMap<String, Value>,
     #[serde(default)]
     pub resources: Vec<LoadedResource>,
     #[serde(default)]

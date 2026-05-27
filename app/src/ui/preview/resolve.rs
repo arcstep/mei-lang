@@ -8,6 +8,30 @@ use serde_json::{json, Value};
 
 use super::theme::resolve_shared_refs;
 
+/// Controls whether nested popup/board_link bindings stay as authored refs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum BindingResolveContext {
+    #[default]
+    Normal,
+    PopupPayload,
+}
+
+fn external_scene_locator(map: &serde_json::Map<String, Value>) -> bool {
+    map.get("__ref").and_then(Value::as_str) == Some("scene")
+        && (map.contains_key("scene_file") || map.contains_key("scene_id"))
+}
+
+fn preserve_popup_binding(value: &Value) -> bool {
+    let Some(map) = value.as_object() else {
+        return false;
+    };
+    match map.get("__ref").and_then(Value::as_str) {
+        Some("scene") => external_scene_locator(map),
+        Some("metric") | Some("data") | Some("explain_metric") => true,
+        _ => false,
+    }
+}
+
 /// Scene anchor injected into `__mei_runtime_ref` for scene-qualified runtime APIs.
 #[derive(Debug, Clone)]
 pub(super) struct RuntimeSceneAnchor {
@@ -548,6 +572,7 @@ pub(super) fn attach_host_meta(
                 "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
                 "components": theme_components.clone(),
                 "shared": shared_context.clone(),
+                "scene_local_nav_by_target": compiled.scene_local_nav_by_target.clone(),
             }),
         );
     }
@@ -563,6 +588,31 @@ pub(super) fn resolve_value(
     resource_index: &RuntimeResourceIndex,
     compiled: &CompiledApp,
 ) -> Value {
+    resolve_value_in_context(
+        value,
+        shared_context,
+        scene_contract,
+        resources,
+        scene_anchor,
+        resource_index,
+        compiled,
+        BindingResolveContext::Normal,
+    )
+}
+
+fn resolve_value_in_context(
+    value: &Value,
+    shared_context: &Value,
+    scene_contract: &SceneContract,
+    resources: &BTreeMap<String, LoadedResource>,
+    scene_anchor: &RuntimeSceneAnchor,
+    resource_index: &RuntimeResourceIndex,
+    compiled: &CompiledApp,
+    binding_context: BindingResolveContext,
+) -> Value {
+    if binding_context == BindingResolveContext::PopupPayload && preserve_popup_binding(value) {
+        return value.clone();
+    }
     match value {
         Value::Object(map) => {
             if map.get("__ref").and_then(Value::as_str) == Some("shared") {
@@ -587,6 +637,9 @@ pub(super) fn resolve_value(
                 }
             }
             if map.get("__ref").and_then(Value::as_str) == Some("scene") {
+                if external_scene_locator(map) {
+                    return value.clone();
+                }
                 return serde_json::to_value(scene_contract).unwrap_or(Value::Null);
             }
             if map.get("__ref").and_then(Value::as_str) == Some("data") {
@@ -674,9 +727,18 @@ pub(super) fn resolve_value(
             }
             let mut out = serde_json::Map::new();
             for (key, entry) in map {
+                let child_context = match binding_context {
+                    BindingResolveContext::PopupPayload => BindingResolveContext::PopupPayload,
+                    BindingResolveContext::Normal
+                        if matches!(key.as_str(), "popup" | "analysis") =>
+                    {
+                        BindingResolveContext::PopupPayload
+                    }
+                    _ => BindingResolveContext::Normal,
+                };
                 out.insert(
                     key.clone(),
-                    resolve_value(
+                    resolve_value_in_context(
                         entry,
                         shared_context,
                         scene_contract,
@@ -684,6 +746,7 @@ pub(super) fn resolve_value(
                         scene_anchor,
                         resource_index,
                         compiled,
+                        child_context,
                     ),
                 );
             }
@@ -693,7 +756,7 @@ pub(super) fn resolve_value(
             items
                 .iter()
                 .map(|item| {
-                    resolve_value(
+                    resolve_value_in_context(
                         item,
                         shared_context,
                         scene_contract,
@@ -701,6 +764,7 @@ pub(super) fn resolve_value(
                         scene_anchor,
                         resource_index,
                         compiled,
+                        binding_context,
                     )
                 })
                 .collect(),

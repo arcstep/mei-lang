@@ -396,13 +396,14 @@ fn resolve_active_route_meta(
             .and_then(|target| routes.iter().find(|route| route.target_file == target))
             .cloned();
         let fallback = preview_route
+            .clone()
             .or_else(|| {
                 default_scene_id
                     .and_then(|scene_id| find_scene_route(routes, scene_id))
                     .cloned()
             })
             .or_else(|| routes.first().cloned());
-        return (fallback, true);
+        return (fallback, preview_route.is_none());
     }
     (
         default_scene_id
@@ -1238,6 +1239,28 @@ pub fn compile_app_from_root_with_options(
         source_path: Some(app_main.to_string_lossy().to_string()),
     });
 
+    let mut scene_local_nav_by_target = BTreeMap::new();
+    for route in &route_registry.routes {
+        let Some(payload) = official_results.get(&route.scene_id) else {
+            continue;
+        };
+        let Some(contract) = payload.scene_contract.as_ref() else {
+            continue;
+        };
+        if !contract.scene.local_nav.is_null() {
+            scene_local_nav_by_target.insert(
+                route.target_file.clone(),
+                contract.scene.local_nav.clone(),
+            );
+        }
+    }
+    if let Some(contract) = active_payload.scene_contract.as_ref() {
+        if !contract.scene.local_nav.is_null() {
+            scene_local_nav_by_target
+                .insert(active_target_file.clone(), contract.scene.local_nav.clone());
+        }
+    }
+
     Ok(CompiledApp {
         app_id: app_decl.id.clone(),
         title,
@@ -1247,6 +1270,7 @@ pub fn compile_app_from_root_with_options(
         active_target_file,
         file_tree: source_tree(app_root)?,
         scene_contract: active_payload.scene_contract,
+        scene_local_nav_by_target,
         resources,
         world_metrics,
         component_assets: active_payload.component_assets,

@@ -344,15 +344,14 @@ def world_ref(id = None, scene_file = None, scene_id = None):
         "scene_file": scene_file,
     })
 
-def scene_ref(id = None, scene_file = None, scene_id = None, entry_tab = None, entry = None):
-    tab = entry_tab if entry_tab != None else entry
+def scene_ref(id = None, scene_file = None, scene_id = None, entry = None, entry_tab = None):
+    resolved_entry = entry if entry != None else entry_tab
     return _clean({
         "__ref": "scene",
         "id": id,
         "scene_id": scene_id if scene_id != None else id,
         "scene_file": scene_file,
-        "entry_tab": tab,
-        "entry": tab,
+        "entry": resolved_entry,
     })
 
 def flow_ref(id = None, scene_file = None, scene_id = None):

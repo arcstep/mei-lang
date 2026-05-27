@@ -233,19 +233,16 @@ fn decode_locator(obj: &serde_json::Map<String, Value>) -> SceneLocator {
         .map(str::trim)
         .filter(|path| !path.is_empty())
         .map(str::to_string);
-    let entry_tab = obj
-        .get("entry_tab")
-        .or_else(|| obj.get("entryTab"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .map(str::to_string);
     let entry = obj
         .get("entry")
+        .or_else(|| obj.get("entry_tab"))
+        .or_else(|| obj.get("entryTab"))
+        .or_else(|| obj.get("focus"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|id| !id.is_empty())
         .map(str::to_string);
+    let entry_tab = entry.clone();
     SceneLocator::new(scene_id, scene_file, entry_tab, entry)
 }
 
@@ -309,11 +306,12 @@ pub fn ref_to_json(expr: &RefExpr) -> Value {
     if let Some(scene_file) = &expr.locator.scene_file {
         obj.insert("scene_file".to_string(), Value::String(scene_file.clone()));
     }
-    if let Some(entry_tab) = &expr.locator.entry_tab {
-        obj.insert("entry_tab".to_string(), Value::String(entry_tab.clone()));
-    }
     if let Some(entry) = &expr.locator.entry {
         obj.insert("entry".to_string(), Value::String(entry.clone()));
+        // Keep legacy alias for one migration cycle.
+        obj.insert("entry_tab".to_string(), Value::String(entry.clone()));
+    } else if let Some(entry_tab) = &expr.locator.entry_tab {
+        obj.insert("entry_tab".to_string(), Value::String(entry_tab.clone()));
     }
     Value::Object(obj)
 }

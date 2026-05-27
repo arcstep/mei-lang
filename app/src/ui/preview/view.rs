@@ -4,6 +4,7 @@ use super::{build_preview_runtime_context, nodes, style, theme, viewport};
 use crate::ui::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::CompiledApp;
+use serde_json::json;
 
 pub(super) fn preview_view(
     compiled: &CompiledApp,
@@ -45,7 +46,30 @@ pub(super) fn preview_view(
                     )
                 })
                 .collect_view();
-            if let Some(vp) = viewport::frame_viewport_config(&frame_props) {
+            let vp = viewport::frame_viewport_config(&frame_props).or_else(|| {
+                let profile = scene_contract.scene.profile.as_deref().unwrap_or("");
+                if matches!(profile, "cockpit" | "page") {
+                    viewport::frame_viewport_config(&json!({
+                        "viewport": {
+                            "enabled": true,
+                            "design_width": 1920,
+                            "design_height": 1080,
+                            "aspect_ratio": "16:9",
+                            "scale_mode": "contain",
+                            "overflow": "clip",
+                            "edit_overflow": "debug",
+                            "edit_scale_mode": "contain",
+                            "show_design_bounds": true,
+                            "align": "center",
+                            "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
+                            "edit_safe_inset": { "top": 32, "right": 16, "bottom": 12, "left": 16 }
+                        }
+                    }))
+                } else {
+                    None
+                }
+            });
+            if let Some(vp) = vp {
                 let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
                 let is_manage = route_mode == UiRouteMode::Manage;
                 let content_bounds =

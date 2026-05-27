@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::resolve::{attach_host_meta, resolve_value};
+use super::resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor};
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
     frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
@@ -768,6 +768,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
                 "layout": {"rail_width": "520px"},
                 "table": {"preview_chars": 18},
             }),
+            local_nav: serde_json::json!({}),
             access_export: true,
         },
         themes: vec![ThemeDecl {
@@ -834,6 +835,82 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
 }
 
 #[test]
+fn resolve_value_preserves_board_link_scene_locator_in_popup() {
+    let contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "enforcement_elements".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: Some("page".to_string()),
+            theme: None,
+            summary: None,
+            goal: None,
+            state: Value::Null,
+            shared: Value::Null,
+            local_nav: Value::Null,
+            access_export: true,
+        },
+        themes: Vec::new(),
+        shared: Value::Null,
+        world: None,
+        flow: None,
+        frame: None,
+        panels: Vec::new(),
+    };
+    let compiled = CompiledApp {
+        app_id: "t".to_string(),
+        title: "t".to_string(),
+        app_root: ".".to_string(),
+        scene_routes: Vec::new(),
+        active_scene: Some("enforcement_elements".to_string()),
+        active_target_file: "scenes/1_执法要素/执法要素.mei".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: Some(contract.clone()),
+        scene_local_nav_by_target: BTreeMap::new(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let index = build_runtime_resource_index(&compiled);
+    let props = json!({
+        "popup": {
+            "__kind": "board_link",
+            "mode": "board_link",
+            "scene": {
+                "__ref": "scene",
+                "scene_file": "templates/cockpit/drilldown/metric-explain-board.mei",
+                "scene_id": "metric_explain_board",
+                "entry": "detail"
+            },
+            "projection": "overlay"
+        }
+    });
+    let resolved = resolve_value(
+        &props,
+        &json!({}),
+        &contract,
+        &BTreeMap::new(),
+        &RuntimeSceneAnchor::from_compiled(&compiled),
+        &index,
+        &compiled,
+    );
+    let popup = resolved.get("popup").expect("popup");
+    let scene = popup.get("scene").expect("scene locator");
+    assert_eq!(
+        scene.get("scene_id").and_then(Value::as_str),
+        Some("metric_explain_board")
+    );
+    assert_eq!(
+        scene.get("scene_file").and_then(Value::as_str),
+        Some("templates/cockpit/drilldown/metric-explain-board.mei")
+    );
+    assert_eq!(scene.get("entry").and_then(Value::as_str), Some("detail"));
+}
+
+#[test]
 fn attach_host_meta_exposes_shared_context_to_components() {
     let compiled = CompiledApp {
         app_id: "preview-shared".to_string(),
@@ -846,6 +923,14 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         title: "preview-shared".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::from([(
+            "templates/cockpit/drilldown/metric-explain-board.mei".to_string(),
+            json!({
+                "kind": "metric_explain_board",
+                "default_entry": "definition",
+                "order_by_kind": ["definition", "composition", "trend", "detail"],
+            }),
+        )]),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -856,6 +941,15 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
         &json!({"layout": {"rail_width": "520px"}}),
         Some("scenes/home.mei"),
+    );
+    assert_eq!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("scene_local_nav_by_target"))
+            .and_then(|value| value.get("templates/cockpit/drilldown/metric-explain-board.mei"))
+            .and_then(|value| value.get("kind"))
+            .and_then(Value::as_str),
+        Some("metric_explain_board")
     );
     assert_eq!(
         props
@@ -904,6 +998,7 @@ fn resolve_value_supports_shared_refs() {
         title: "preview-shared-ref".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1046,6 +1141,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         title: "preview-test".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1237,6 +1333,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         title: "preview-alias".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1404,6 +1501,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         title: "preview-ledger".to_string(),
         file_tree: Vec::new(),
         scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };

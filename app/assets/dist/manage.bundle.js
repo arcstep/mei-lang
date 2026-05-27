@@ -10419,6 +10419,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       ],
     },
   };
+  const SCENE_KIND_ORDER_FALLBACK = ["definition", "composition", "trend", "numerator_denominator", "detail"];
   const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
   const DRILLDOWN_DATASET_BY_SCENE = {
     enforcement_units: "enforcement_units",
@@ -10850,22 +10851,41 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       .filter((entry) => entry && typeof entry === "object")
       .map((entry) => ({
         id: normalizeTabId(entry.id || entry.tab || entry.key),
+        kind: normalizeTabId(entry.kind || entry.role || entry.id || entry.tab || entry.key),
         role: nonEmptyString(entry.role),
         label: nonEmptyString(entry.label),
       }))
-      .filter((entry) => entry.id);
-    if (!items.length) return null;
+      .filter((entry) => entry.id || entry.kind);
+    const kindOrder = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(raw.order_by_kind) ? raw.order_by_kind : []),
+          ...(Array.isArray(raw.kind_order) ? raw.kind_order : []),
+          ...(Array.isArray(raw.kindOrder) ? raw.kindOrder : []),
+          ...items.map((entry) => entry.kind || entry.id),
+        ]
+          .map((entry) => normalizeTabId(entry))
+          .filter(Boolean),
+      ),
+    );
+    if (!items.length && !kindOrder.length) return null;
     return {
       kind: nonEmptyString(raw.kind),
       sceneId: nonEmptyString(raw.scene_id, raw.sceneId),
       defaultEntry: normalizeTabId(nonEmptyString(raw.default_entry, raw.defaultEntry, raw.defaultEntryTab)),
+      includeHero: boolValue(raw.include_hero, raw.includeHero, true),
       items,
+      kindOrder,
     };
   }
 
-  function resolveSceneLocalNav(sceneFile) {
+  function resolveSceneLocalNav(sceneFile, runtimeMap = null) {
     const normalized = normalizeDrilldownScenePath(sceneFile);
     if (!normalized) return null;
+    if (runtimeMap && typeof runtimeMap === "object" && !Array.isArray(runtimeMap)) {
+      const dynamic = normalizeSceneLocalNav(runtimeMap[normalized]);
+      if (dynamic) return dynamic;
+    }
     return normalizeSceneLocalNav(SCENE_LOCAL_NAV_BY_FILE[normalized]);
   }
 
@@ -10876,7 +10896,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       .filter((tab) => tab && tab !== "hero");
   }
 
-  function resolveBoardLinkFields(popup) {
+  function resolveBoardLinkFields(popup, runtimeSceneNavMap = null) {
     if (!popup || typeof popup !== "object") return null;
     const boardLink = isBoardLinkConfig(popup);
     const panelPopup = isPanelPopupConfig(popup);
@@ -10898,7 +10918,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         popup?.localNav ||
         sceneRef?.local_nav ||
         sceneRef?.localNav ||
-        resolveSceneLocalNav(sceneFile),
+        resolveSceneLocalNav(sceneFile, runtimeSceneNavMap),
     );
     const sceneId = nonEmptyString(
       popup?.scene_id,
@@ -10908,13 +10928,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       localNav?.sceneId,
       sceneFile ? DRILLDOWN_SCENE_BY_FILE[sceneFile] : "",
     );
-    const entryTab = normalizeTabId(
+    const entry = normalizeTabId(
       nonEmptyString(
+        popup?.entry,
         popup?.entry_tab,
         popup?.entryTab,
+        sceneRef?.entry,
         sceneRef?.entry_tab,
         sceneRef?.entryTab,
-        sceneRef?.entry,
         popup?.focus,
         localNav?.defaultEntry,
       ),
@@ -10927,7 +10948,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       sceneFile,
       sceneId,
       projection: normalizeProjection(popup?.projection),
-      entryTab,
+      entry,
       localNav,
     };
   }
@@ -10939,10 +10960,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function normalizeDrilldownScenePath(raw) {
-    return String(raw || "")
+    let path = String(raw || "")
       .trim()
-      .replace(/\\/g, "/")
-      .replace(/^\.?\/*/, "");
+      .replace(/\\/g, "/");
+    while (path.startsWith("../")) {
+      path = path.slice(3);
+    }
+    return path.replace(/^\.?\/*/, "");
   }
 
   function nonEmptyString(...values) {
@@ -11172,6 +11196,12 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function panelPopupSlotSources(popup) {
     if (!popup || typeof popup !== "object") return null;
+    if (popup.entry_overrides && typeof popup.entry_overrides === "object" && !Array.isArray(popup.entry_overrides)) {
+      return popup.entry_overrides;
+    }
+    if (popup.entryOverrides && typeof popup.entryOverrides === "object" && !Array.isArray(popup.entryOverrides)) {
+      return popup.entryOverrides;
+    }
     if (popup.slots && typeof popup.slots === "object" && !Array.isArray(popup.slots)) {
       return popup.slots;
     }
@@ -11184,30 +11214,53 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, localNav }) {
     const resolvedLocalNav =
       normalizeSceneLocalNav(localNav) ||
-      resolveSceneLocalNav(nonEmptyString(detail?.board_scene_file, detail?.scene_path, detail?.popup?.scene_file));
-    const contractTabs = sceneLocalNavTabIds(resolvedLocalNav);
+      resolveSceneLocalNav(
+        nonEmptyString(detail?.board_scene_file, detail?.scene_path, detail?.popup?.scene_file),
+        detail?.scene_local_nav_by_target,
+      );
     const explainMetrics = normalizeExplainMetrics(
       detail?.explain_metrics,
       runtime?.explain_metrics,
       runtime?.explainMetrics,
     );
-    const explicitExplainTabs = explainMetrics.order;
+    const explicitExplainTabs = explainMetrics.order.filter((tab) => normalizeTabId(tab) !== "hero");
     const popup = detail?.popup && typeof detail.popup === "object" ? detail.popup : {};
-    const popupFocus = normalizeTabId(popup?.focus);
-    const slotSources = panelPopupSlotSources(popup);
-    const popupSlotTabs = slotSources ? Object.keys(normalizeTabMetricOverrides(slotSources)) : [];
-    const popupMetricTabs = Object.keys(normalizeTabMetricOverrides(popup?.metrics));
-    if (explicitExplainTabs.length || popupSlotTabs.length || popupMetricTabs.length || contractTabs.length) {
-      const merged = [
-        ...contractTabs,
-        ...explicitExplainTabs,
-        ...popupSlotTabs,
-        ...popupMetricTabs,
-      ].filter((tab) => normalizeTabId(tab) !== "hero");
-      if (popupFocus && !merged.includes(popupFocus)) {
-        merged.push(popupFocus);
-      }
-      return Array.from(new Set(merged));
+    const popupFocus = normalizeTabId(popup?.entry || popup?.entry_tab || popup?.focus);
+    const overrideTabs = Object.keys(
+      normalizeTabMetricOverrides(
+        popup?.entry_overrides,
+        popup?.entryOverrides,
+        panelPopupSlotSources(popup),
+        popup?.metrics,
+      ),
+    );
+    let merged = explicitExplainTabs.length
+      ? explicitExplainTabs
+      : defaultDrilldownTabs(explainKind, { hasDetail });
+    overrideTabs.forEach((tab) => {
+      const normalized = normalizeTabId(tab);
+      if (!normalized || merged.includes(normalized)) return;
+      merged.push(normalized);
+    });
+    if (popupFocus && !merged.includes(popupFocus)) {
+      merged.push(popupFocus);
+    }
+    merged = Array.from(new Set(merged)).filter((tab) => tab !== "hero");
+    if (merged.length) {
+      const kindOrder =
+        Array.isArray(resolvedLocalNav?.kindOrder) && resolvedLocalNav.kindOrder.length
+          ? resolvedLocalNav.kindOrder
+          : SCENE_KIND_ORDER_FALLBACK;
+      const kindRank = new Map(kindOrder.map((kind, index) => [normalizeTabId(kind), index]));
+      merged.sort((left, right) => {
+        const leftKind = normalizeTabId(explainMetrics.byId[left]?.kind || left);
+        const rightKind = normalizeTabId(explainMetrics.byId[right]?.kind || right);
+        const leftRank = kindRank.has(leftKind) ? kindRank.get(leftKind) : Number.MAX_SAFE_INTEGER;
+        const rightRank = kindRank.has(rightKind) ? kindRank.get(rightKind) : Number.MAX_SAFE_INTEGER;
+        if (leftRank !== rightRank) return leftRank - rightRank;
+        return left.localeCompare(right);
+      });
+      return merged;
     }
     const explicit = runtimeTabIds(
       detail?.analysis_tabs,
@@ -11222,16 +11275,16 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const basicTabs = new Set(["definition", "detail", "numerator_denominator"]);
     const hasOnlyBasicTabs = normalizedExplicit.every((tab) => basicTabs.has(tab));
     if (!hasOnlyBasicTabs) return normalizedExplicit;
-    const merged = normalizedExplicit.filter((tab) => tab !== "detail");
+    const mergedTabs = normalizedExplicit.filter((tab) => tab !== "detail");
     defaults.forEach((tab) => {
       const normalized = normalizeTabId(tab);
-      if (!normalized || normalized === "detail" || merged.includes(normalized)) return;
-      merged.push(normalized);
+      if (!normalized || normalized === "detail" || mergedTabs.includes(normalized)) return;
+      mergedTabs.push(normalized);
     });
     if (normalizedExplicit.includes("detail") || defaults.includes("detail")) {
-      merged.push("detail");
+      mergedTabs.push("detail");
     }
-    return merged;
+    return mergedTabs;
   }
 
   function normalizeTabMetricOverrides(...values) {
@@ -11281,6 +11334,24 @@ diff_match_patch.patch_obj.prototype.toString = function() {
             datasetId: nonEmptyString(entry.from_dataset, entry.fromDataset),
             sceneId: nonEmptyString(entry.scene_id, entry.sceneId),
             scenePath: nonEmptyString(entry.scene_file, entry.sceneFile),
+          },
+        };
+        return;
+      }
+      const runtimeRef =
+        entry.__mei_runtime_ref && typeof entry.__mei_runtime_ref === "object"
+          ? entry.__mei_runtime_ref
+          : null;
+      if (runtimeRef?.kind === "metric") {
+        const metricId = nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId);
+        if (!metricId) return;
+        normalized[tabId] = {
+          runtimeRef: {
+            kind: "metric",
+            metricId,
+            datasetId: nonEmptyString(runtimeRef.dataset_id, runtimeRef.datasetId),
+            sceneId: nonEmptyString(runtimeRef.scene_id, runtimeRef.sceneId),
+            scenePath: nonEmptyString(runtimeRef.scene_path, runtimeRef.scenePath),
           },
         };
         return;
@@ -11375,12 +11446,22 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           : config.mapping && typeof config.mapping === "object"
             ? config.mapping
             : null,
-      runtimeRef:
-        override?.runtimeRef && typeof override.runtimeRef === "object"
-          ? override.runtimeRef
-          : config.runtimeRef && typeof config.runtimeRef === "object"
-            ? config.runtimeRef
-            : null,
+      runtimeRef: (() => {
+        const base =
+          override?.runtimeRef && typeof override.runtimeRef === "object"
+            ? { ...override.runtimeRef }
+            : config.runtimeRef && typeof config.runtimeRef === "object"
+              ? { ...config.runtimeRef }
+              : null;
+        if (!base) return null;
+        if (!nonEmptyString(base.sceneId)) {
+          base.sceneId = nonEmptyString(config.hostSceneId, config.sceneId);
+        }
+        if (!nonEmptyString(base.scenePath)) {
+          base.scenePath = nonEmptyString(config.hostSceneFile);
+        }
+        return base;
+      })(),
       columns: cloneArray(override?.columns).length
         ? cloneArray(override.columns)
         : cloneArray(explainMetric?.fields).length
@@ -11551,7 +11632,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       noteEl.textContent = note;
       noteEl.toggleAttribute("hidden", !note);
     }
-    const boardMode = Boolean(config?.panelPopup && config?.panelTemplate);
+    const boardMode = Boolean(
+      config?.boardLink || (config?.panelPopup && config?.panelTemplate),
+    );
     if (panelEl) {
       panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
       panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
@@ -11589,7 +11672,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
+      config?.hostSceneId,
       config?.sceneId,
+      detail?.host_scene_id,
       detail?.scene_id,
       resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
       mapped?.sceneId,
@@ -11637,17 +11722,25 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const runtime = runtimeDrilldownConfig(detail);
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
-    const boardFields = resolveBoardLinkFields(popup);
+    const boardFields = resolveBoardLinkFields(popup, detail?.scene_local_nav_by_target);
     const analysisLink =
       detail?.analysis_link && typeof detail.analysis_link === "object" ? detail.analysis_link : {};
-    const sceneId = nonEmptyString(
+    const boardSceneId = nonEmptyString(
       detail?.board_scene_id,
       boardFields?.sceneId,
-      detail?.scene_id,
       popup?.scene_id,
       popup?.sceneId,
-      resolveDrilldownSceneId(detail, mapped, runtime),
     );
+    const hostSceneId = nonEmptyString(
+      detail?.host_scene_id,
+      detail?.dataset_scene_id,
+      detail?.scene_id !== boardSceneId ? detail?.scene_id : "",
+      runtime?.scene_id,
+      runtime?.sceneId,
+      resolveDrilldownSceneId(detail, mapped, runtime),
+      mapped?.sceneId,
+    );
+    const sceneId = hostSceneId;
     const runtimeEnabled = boolValue(detail?.analysis_enabled, detail?.drilldown_enabled, runtime?.enabled);
     const explainKind = nonEmptyString(
       detail?.analysis_kind,
@@ -11704,7 +11797,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.tableMetricId,
       mapped?.tableMetricId,
     );
-    const datasetId = resolveDrilldownDatasetId(detail, { sceneId }, mapped);
+    const datasetId = resolveDrilldownDatasetId(detail, { sceneId, hostSceneId, boardSceneId }, mapped);
     const layoutPreset = nonEmptyString(
       detail?.drilldown_layout_preset,
       runtime?.layout_preset,
@@ -11712,6 +11805,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       mapped?.layoutPreset,
     );
     const tabMetrics = normalizeTabMetricOverrides(
+      popup?.entry_overrides,
+      popup?.entryOverrides,
       panelPopupSlotSources(popup),
       popup?.metrics,
       detail?.analysis_tab_metrics,
@@ -11735,7 +11830,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const sceneLocalNav =
       boardFields?.localNav ||
       normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
-      resolveSceneLocalNav(boardSceneFile) ||
+      resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
       null;
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
@@ -11761,11 +11856,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     });
     return {
       enabled:
-        (boardLink && Boolean(sceneId)) ||
-        (panelPopup && Boolean(sceneId) && Boolean(panelTemplate)) ||
+        (boardLink && Boolean(boardSceneId)) ||
+        (panelPopup && Boolean(boardSceneId) && Boolean(panelTemplate)) ||
         popup?.mode === "popup" ||
-        (runtimeEnabled !== false && Boolean(sceneId)),
+        (runtimeEnabled !== false && Boolean(hostSceneId || boardSceneId)),
       sceneId,
+      hostSceneId,
+      hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
+      boardSceneId,
       boardLink,
       boardSceneFile,
       sceneLocalNav,
@@ -11826,17 +11924,20 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           boardLink ? "board_link" : panelPopup ? "popup_panel" : "popup",
         ),
         template: nonEmptyString(panelTemplate, popup?.template, popup?.legacy_template),
-        focus: nonEmptyString(
+        entry: nonEmptyString(
+          popup?.entry,
           popup?.entry_tab,
           popup?.entryTab,
           popup?.focus,
-          boardFields?.entryTab,
+          boardFields?.entry,
         ),
+        focus: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab, boardFields?.entry),
         scene_file: boardSceneFile,
-        scene_id: sceneId,
+        scene_id: boardSceneId,
         scene: boardFields?.sceneRef || popup?.scene || null,
         projection,
         local_nav: sceneLocalNav,
+        entry_overrides: panelPopupSlotSources(popup),
         slots: panelPopupSlotSources(popup),
       },
       chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),
@@ -11959,7 +12060,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   async function fetchPopupDatasetRows(detail, config, datasetId) {
     const appPath = resolvePreviewAppId();
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const sceneId = nonEmptyString(runtimeRefConfig.sceneId, config?.sceneId, detail?.scene_id);
+    const sceneId = nonEmptyString(
+      runtimeRefConfig.sceneId,
+      config?.hostSceneId,
+      config?.sceneId,
+      detail?.host_scene_id,
+      detail?.scene_id,
+    );
     const target = nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path);
     if (!appPath || !sceneId || !datasetId) {
       recordPopupDebugIssue({
@@ -12082,7 +12189,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const mapped = DRILLDOWN_METRIC_CONTEXT[String(detail?.metric_id || "").trim()] || {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
+      config?.hostSceneId,
       config?.sceneId,
+      detail?.host_scene_id,
       detail?.scene_id,
       resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
       mapped?.sceneId,
@@ -12153,6 +12262,35 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return `mei-chart-${kind}`;
   }
 
+  const DRILLDOWN_CHART_SCRIPT_BY_TAG = {
+    "mei-chart-line": "/workspace-components/chart/echarts/line.js",
+    "mei-chart-area": "/workspace-components/chart/echarts/area.js",
+    "mei-chart-trend": "/workspace-components/chart/echarts/trend.js",
+    "mei-chart-column": "/workspace-components/chart/echarts/column.js",
+    "mei-chart-bar": "/workspace-components/chart/echarts/bar.js",
+    "mei-chart-scatter": "/workspace-components/chart/echarts/scatter.js",
+    "mei-chart-pie": "/workspace-components/chart/echarts/pie.js",
+    "mei-chart-donut": "/workspace-components/chart/echarts/donut.js",
+    "mei-chart-rose": "/workspace-components/chart/echarts/rose.js",
+    "mei-chart-radar": "/workspace-components/chart/echarts/radar.js",
+    "mei-chart-ranking": "/workspace-components/chart/echarts/ranking.js",
+    "mei-chart-boxplot": "/workspace-components/chart/echarts/boxplot.js",
+  };
+
+  async function ensureDrilldownChartRegistered(tagName) {
+    const tag = String(tagName || "").trim().toLowerCase();
+    if (!tag) return false;
+    if (customElements.get(tag)) return true;
+    const scriptPath = DRILLDOWN_CHART_SCRIPT_BY_TAG[tag];
+    if (!scriptPath) return false;
+    await loadScript(scriptPath, {
+      module: true,
+      persistentKey: scriptPath,
+      softFail: false,
+    });
+    return Boolean(customElements.get(tag));
+  }
+
   function buildDrilldownChartProps(detail, config, tabId) {
     const tableProps = buildDrilldownTableProps(detail, config);
     if (!tableProps) return null;
@@ -12187,13 +12325,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     };
   }
 
-  function mountDrilldownChart(root, detail, config, tabId) {
+  async function mountDrilldownChart(root, detail, config, tabId) {
     const host = root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
     const chart = buildDrilldownChartProps(detail, config, tabId);
     if (!chart) return false;
+    const registered = await ensureDrilldownChartRegistered(chart.chartTag);
+    if (!registered) return false;
     host.replaceChildren();
     const node = document.createElement(chart.chartTag);
     node.dataset.props = JSON.stringify(chart.props);
@@ -12262,6 +12402,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       }
       const grouped = groupRowsByCount(rows, dimension, columns);
       if (!grouped.length) return false;
+      const registered = await ensureDrilldownChartRegistered("mei-chart-bar");
+      if (!registered) return false;
       host.replaceChildren();
       const node = document.createElement("mei-chart-bar");
       node.dataset.props = JSON.stringify(
@@ -12290,6 +12432,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       }
       const grouped = groupRowsByMonth(rows, trendField, columns);
       if (!grouped.length) return false;
+      const registered = await ensureDrilldownChartRegistered("mei-chart-line");
+      if (!registered) return false;
       host.replaceChildren();
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
@@ -12321,7 +12465,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource)
     ) {
       if (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource) {
-        setDrilldownOverlayStatus(root, "ready");
+        host.replaceChildren();
+        setDrilldownOverlayStatus(root, "loading");
         mountDerivedDrilldownContent(root, detail, activeConfig, tabId)
           .then((mounted) => {
             if (mounted) {
@@ -12367,11 +12512,47 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return true;
     }
     if (isDrilldownAnalysisTab(tabId, config)) {
+      host.replaceChildren();
       setDrilldownOverlayStatus(root, "loading");
-      if (mountDrilldownChart(root, detail, activeConfig, tabId)) {
-        setDrilldownOverlayStatus(root, "ready");
-        return true;
-      }
+      mountDrilldownChart(root, detail, activeConfig, tabId)
+        .then((mounted) => {
+          if (mounted) {
+            setDrilldownOverlayStatus(root, "ready");
+            window.dispatchEvent(new Event("meilang:preview-updated"));
+            return;
+          }
+          if (mountDrilldownTable(root, detail, activeConfig)) {
+            setDrilldownOverlayStatus(root, "ready");
+            return;
+          }
+          recordPopupDebugIssue({
+            level: "error",
+            message: `popup panel 表格挂载失败：${normalizedTab || tabId}`,
+            phase: "table_mount_failed",
+            detail,
+            config: activeConfig,
+            datasetId: activeConfig?.datasetId,
+            metricId: activeConfig?.tableMetricId,
+          });
+          setDrilldownOverlayStatus(root, "error");
+        })
+        .catch((error) => {
+          recordPopupDebugIssue({
+            level: "error",
+            message: String(error?.message || error || "图表 explain 块渲染失败"),
+            phase: "chart_render_error",
+            detail,
+            config: activeConfig,
+            datasetId: activeConfig?.datasetId,
+            metricId: activeConfig?.tableMetricId,
+          });
+          if (mountDrilldownTable(root, detail, activeConfig)) {
+            setDrilldownOverlayStatus(root, "ready");
+            return;
+          }
+          setDrilldownOverlayStatus(root, "error");
+        });
+      return true;
     }
     setDrilldownOverlayStatus(root, "loading");
     if (!mountDrilldownTable(root, detail, activeConfig)) {
@@ -12407,7 +12588,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       ? normalizedTabs
       : [defaultActiveDrilldownTab(defaultDrilldownTabs(config?.explainKind, { hasDetail: true }))];
     const preferredTab = normalizeTabId(
-      nonEmptyString(config?.popup?.focus, config?.link?.defaultFocus),
+      nonEmptyString(
+        config?.popup?.entry,
+        config?.popup?.entry_tab,
+        config?.popup?.entryTab,
+        config?.popup?.focus,
+        config?.link?.entry,
+        config?.link?.defaultFocus,
+      ),
     );
     const activeTab = preferredTab && tabs.includes(preferredTab) ? preferredTab : defaultActiveDrilldownTab(tabs);
     tabsHost.replaceChildren();
@@ -12502,7 +12690,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
             sceneId: config.sceneId,
             boardSceneFile: config.boardSceneFile,
             projection: config.projection,
-            entryTab: nonEmptyString(config.popup?.focus),
+            entry: nonEmptyString(config.popup?.entry, config.popup?.focus),
           },
         }),
       );
@@ -12544,13 +12732,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     }
     url.pathname = `/apps/manage/${appId}`;
     url.searchParams.set("file", boardFile);
-    if (config.sceneId) {
-      url.searchParams.set("scene", config.sceneId);
+    if (config.boardSceneId) {
+      url.searchParams.set("scene", config.boardSceneId);
     }
     url.searchParams.set("mei_projection", "route");
-    const entryTab = nonEmptyString(config.popup?.focus);
-    if (entryTab) {
-      url.searchParams.set("mei_entry_tab", entryTab);
+    const entry = nonEmptyString(config.popup?.entry, config.popup?.focus);
+    if (entry) {
+      url.searchParams.set("mei_entry_tab", entry);
     }
     return url.toString();
   }
@@ -12567,7 +12755,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function openSceneProjection(detail) {
     const config = resolveDrilldownConfig(detail);
-    if (!config.enabled || !config.sceneId) return;
+    if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
     if (config.projection === "route") {
       openBoardRouteProjection(detail, config);
       return;
@@ -12584,16 +12772,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     );
     if (projection !== "route") return;
     const detail = { ...stored.detail };
-    const entryTab = nonEmptyString(stored.config?.entryTab, detail.popup?.focus);
-    if (entryTab) {
-      detail.popup = { ...(detail.popup || {}), focus: entryTab, entry_tab: entryTab };
+    const entry = nonEmptyString(stored.config?.entry, detail.popup?.entry, detail.popup?.focus);
+    if (entry) {
+      detail.popup = {
+        ...(detail.popup || {}),
+        entry,
+        focus: entry,
+        entry_tab: entry,
+      };
     }
     openDrilldownOverlay(detail);
   }
 
   function openDrilldownOverlay(detail) {
     const config = resolveDrilldownConfig(detail);
-    if (!config.enabled || !config.sceneId) return;
+    if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
     const root = ensureDrilldownOverlayRoot();
     applyDrilldownOverlayMeta(root, config);
     const activeTab = renderDrilldownTabs(root, detail, config);
@@ -12618,7 +12811,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
       const config = resolveDrilldownConfig(detail);
-      if (!config.enabled || !config.sceneId) return;
+      if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
       openSceneProjection(detail);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);

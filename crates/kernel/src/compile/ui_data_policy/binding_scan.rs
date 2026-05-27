@@ -207,7 +207,7 @@ fn scan_deprecated_popup_binding(
             severity: Severity::Error,
             code: "deprecated_ds_popup".to_string(),
             message: format!(
-                "{context}：在 `{path}` 使用了已移除的 `ds.popup` / `mode: popup`；请改用 `board_link(scene=scene_ref(...), entry_tab=...)` 或过渡语法 `popup_panel(...)`"
+                "{context}：在 `{path}` 使用了已移除的 `ds.popup` / `mode: popup`；请改用 `board_link(scene=scene_ref(...), entry=...)` 或过渡语法 `popup_panel(...)`"
             ),
             source_path: Some(target_file.to_string()),
         });

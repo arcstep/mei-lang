@@ -323,6 +323,7 @@ mod tests {
             title: "demo".to_string(),
             file_tree: Vec::new(),
             scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
         }
