@@ -179,10 +179,7 @@ def metric_ref(id, from_dataset = None, scene_file = None, scene_id = None):
     })
 
 def metric_explain(
-    analyzable = None,
-    kind = None,
     note = None,
-    basis_refs = None,
     ratio_parts = None,
     detail_fields = None,
     recommended_dimensions = None,
@@ -193,10 +190,7 @@ def metric_explain(
     detail_dataset = None,
 ):
     return _without_empty({
-        "analyzable": analyzable,
-        "kind": kind,
         "note": note,
-        "basis_refs": basis_refs,
         "ratio_parts": ratio_parts,
         "detail_fields": detail_fields,
         "recommended_dimensions": recommended_dimensions,
@@ -208,43 +202,29 @@ def metric_explain(
     })
 
 def explain_metric(
+    id,
     kind,
     label = None,
     by = None,
     date_field = None,
     grain = None,
-    dataset = None,
     fields = None,
-    metric = None,
-    scene_id = None,
-    scene_file = None,
     headers = None,
     mapping = None,
     chart_kind = None,
 ):
     return _without_empty({
         "__kind": "explain_metric",
+        "id": id,
         "kind": kind,
         "label": label,
         "by": by,
         "date_field": date_field,
         "grain": grain,
-        "dataset": dataset,
         "fields": fields,
-        "metric": metric,
-        "scene_id": scene_id,
-        "scene_file": scene_file,
         "headers": headers,
         "mapping": mapping,
         "chart_kind": chart_kind,
-    })
-
-def popup(template = None, focus = None, metrics = None):
-    return _without_empty({
-        "mode": "popup",
-        "template": template,
-        "focus": focus,
-        "metrics": metrics,
     })
 
 def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):

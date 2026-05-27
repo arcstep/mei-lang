@@ -186,6 +186,34 @@ pub(super) fn scan_ui_node(
     }
 }
 
+fn scan_deprecated_popup_binding(
+    value: &Value,
+    path: &str,
+    context: &str,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Value::Object(map) = value else {
+        return;
+    };
+    let mode = map.get("mode").and_then(Value::as_str).unwrap_or_default().trim();
+    let kind = map
+        .get("__kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
+    if mode == "popup" && kind != "popup_panel" && kind != "board_link" {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "deprecated_ds_popup".to_string(),
+            message: format!(
+                "{context}：在 `{path}` 使用了已移除的 `ds.popup` / `mode: popup`；请改用 `board_link(scene_file=..., entry_tab=...)` 或过渡语法 `popup_panel(...)`"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+    }
+}
+
 pub(super) fn push_violations(
     value: &Value,
     host_resource_ids: &BTreeSet<String>,
@@ -196,6 +224,7 @@ pub(super) fn push_violations(
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    scan_deprecated_popup_binding(value, "$", context, target_file, diagnostics);
     let paths = collect_forbidden_paths(value, "$");
     for path in paths {
         diagnostics.push(Diagnostic {

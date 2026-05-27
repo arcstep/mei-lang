@@ -72,6 +72,9 @@ pub(super) fn resource_ref_issue(
             "误用 `world_ref` 作资源选择器；`world_ref` 仅用于 scene.world 单例槽位，资源消费请用 dataset_ref/resource_ref/metric_ref".to_string(),
         ));
     }
+    if ref_kind == "explain_metric" {
+        return None;
+    }
     if ref_kind != "dataset"
         && ref_kind != "metric"
         && ref_kind != "resource"

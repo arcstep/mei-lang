@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mei_lang_kernel::{
     dataset_materialize_cache_epoch, resolve_dataset_resource_id, resolve_dataset_selector_value,
@@ -36,7 +36,7 @@ struct MetricDrilldownMeta {
     drilldown_ratio_denominator: Option<String>,
     drilldown_ratio_formula: Option<String>,
     drilldown_tab_metrics: serde_json::Map<String, Value>,
-    explain_metrics: serde_json::Map<String, Value>,
+    explain_metrics: Vec<Value>,
     explain_composition_by: Vec<String>,
     explain_trend_field: Option<String>,
     explain_trend_grain: Option<String>,
@@ -292,7 +292,7 @@ impl RuntimeSceneAnchor {
             if !meta.explain_metrics.is_empty() {
                 obj.insert(
                     "explain_metrics".to_string(),
-                    Value::Object(meta.explain_metrics.clone()),
+                    Value::Array(meta.explain_metrics.clone()),
                 );
             }
             if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
@@ -466,7 +466,7 @@ impl RuntimeSceneAnchor {
             if !meta.explain_metrics.is_empty() {
                 contract.insert(
                     "explain_metrics".to_string(),
-                    Value::Object(meta.explain_metrics.clone()),
+                    Value::Array(meta.explain_metrics.clone()),
                 );
             }
             if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
@@ -605,8 +605,13 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(map, resources, compiled, resource_index)
                 {
                     let metric_id = map.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown =
-                        resolve_metric_drilldown_meta(resources, &dataset_id, metric_id, compiled);
+                    let drilldown = resolve_metric_drilldown_meta(
+                        resources,
+                        &dataset_id,
+                        metric_id,
+                        compiled,
+                        resource_index,
+                    );
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra(
@@ -636,8 +641,13 @@ pub(super) fn resolve_value(
                     resolve_metric_ref(&compat, resources, compiled, resource_index)
                 {
                     let metric_id = compat.get("id").and_then(Value::as_str).unwrap_or("");
-                    let drilldown =
-                        resolve_metric_drilldown_meta(resources, &dataset_id, metric_id, compiled);
+                    let drilldown = resolve_metric_drilldown_meta(
+                        resources,
+                        &dataset_id,
+                        metric_id,
+                        compiled,
+                        resource_index,
+                    );
                     return with_runtime_ref(
                         serde_json::to_value(metric).unwrap_or(Value::Null),
                         scene_anchor.runtime_ref_extra(
@@ -774,12 +784,29 @@ fn resolve_metric_drilldown_meta(
     dataset_id: &str,
     metric_id: &str,
     compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
 ) -> Option<MetricDrilldownMeta> {
     let primary = resources
         .get(dataset_id)
         .and_then(|resource| resource.dataset.as_ref())
         .and_then(|dataset| dataset.runtime_metric_defs.get(metric_id))
-        .map(|definition| metric_drilldown_from_definition(definition, compiled));
+        .map(|definition| {
+            (
+                metric_drilldown_from_definition(definition, compiled),
+                infer_primary_metric_dataset_id(definition, compiled, resource_index),
+            )
+        });
+
+    let primary = primary.map(|(mut meta, inferred_dataset_id)| {
+        let preferred_dataset_id = inferred_dataset_id.as_deref().unwrap_or(dataset_id);
+        if meta.explain_detail_dataset.is_none() {
+            meta.explain_detail_dataset = Some(preferred_dataset_id.to_string());
+        }
+        if meta.drilldown_dataset_id.is_none() {
+            meta.drilldown_dataset_id = Some(preferred_dataset_id.to_string());
+        }
+        meta
+    });
 
     if let Some(meta) = primary.as_ref().filter(|meta| !meta.is_empty()) {
         return Some(meta.clone());
@@ -788,12 +815,76 @@ fn resolve_metric_drilldown_meta(
     let fallback = resources
         .iter()
         .filter(|(id, _)| id.as_str() != dataset_id)
-        .filter_map(|(_, resource)| resource.dataset.as_ref())
-        .filter_map(|dataset| dataset.runtime_metric_defs.get(metric_id))
-        .map(|definition| metric_drilldown_from_definition(definition, compiled))
+        .filter_map(|(fallback_dataset_id, resource)| {
+            resource
+                .dataset
+                .as_ref()
+                .and_then(|dataset| dataset.runtime_metric_defs.get(metric_id))
+                .map(|definition| {
+                    (
+                        fallback_dataset_id.clone(),
+                        definition,
+                        infer_primary_metric_dataset_id(definition, compiled, resource_index),
+                    )
+                })
+        })
+        .map(|(fallback_dataset_id, definition, inferred_dataset_id)| {
+            let mut meta = metric_drilldown_from_definition(definition, compiled);
+            let preferred_dataset_id =
+                inferred_dataset_id.unwrap_or_else(|| fallback_dataset_id.clone());
+            if meta.explain_detail_dataset.is_none() {
+                meta.explain_detail_dataset = Some(preferred_dataset_id.clone());
+            }
+            if meta.drilldown_dataset_id.is_none() {
+                meta.drilldown_dataset_id = Some(preferred_dataset_id);
+            }
+            meta
+        })
         .find(|meta| !meta.is_empty());
 
     fallback.or(primary)
+}
+
+fn infer_primary_metric_dataset_id(
+    definition: &Value,
+    compiled: &CompiledApp,
+    resource_index: &RuntimeResourceIndex,
+) -> Option<String> {
+    let mut selectors = BTreeSet::new();
+    collect_metric_rowset_dataset_selectors(definition, &mut selectors);
+    if selectors.len() != 1 {
+        return None;
+    }
+    let selector = selectors.into_iter().next()?;
+    resolve_dataset_resource_id(compiled, &selector, Some(resource_index)).ok()
+}
+
+fn collect_metric_rowset_dataset_selectors(value: &Value, out: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                && map.get("type").and_then(Value::as_str) == Some("rows")
+            {
+                if let Some(dataset) = map
+                    .get("dataset")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    out.insert(dataset.to_string());
+                }
+            }
+            for child in map.values() {
+                collect_metric_rowset_dataset_selectors(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                collect_metric_rowset_dataset_selectors(child, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn metric_drilldown_from_definition(
@@ -1248,6 +1339,43 @@ fn object_map_from_value(value: &Value) -> serde_json::Map<String, Value> {
     map.clone()
 }
 
+fn explain_metric_entries_from_value(value: &Value) -> Vec<Value> {
+    let mut entries: Vec<Value> = Vec::new();
+    if let Some(items) = value.as_array() {
+        for item in items {
+            let Some(map) = item.as_object() else {
+                continue;
+            };
+            let id = first_non_empty_string(map, &["id", "key", "name"])
+                .and_then(|raw| normalize_analysis_tab_id(&raw));
+            let kind = first_non_empty_string(map, &["kind", "type"])
+                .and_then(|raw| normalize_analysis_tab_id(&raw));
+            let Some(metric_id) = id.or(kind) else {
+                continue;
+            };
+            let mut entry = map.clone();
+            entry.insert("id".to_string(), Value::String(metric_id));
+            entries.push(Value::Object(entry));
+        }
+        return entries;
+    }
+    if let Some(map) = value.as_object() {
+        for (key, item) in map {
+            let Some(obj) = item.as_object() else {
+                continue;
+            };
+            let mut entry = obj.clone();
+            let id = first_non_empty_string(obj, &["id"])
+                .and_then(|raw| normalize_analysis_tab_id(&raw))
+                .or_else(|| normalize_analysis_tab_id(key))
+                .unwrap_or_else(|| key.trim().to_string());
+            entry.insert("id".to_string(), Value::String(id));
+            entries.push(Value::Object(entry));
+        }
+    }
+    entries
+}
+
 fn normalize_analysis_tab_id(value: &str) -> Option<String> {
     let raw = value.trim().to_lowercase();
     if raw.is_empty() {
@@ -1268,22 +1396,8 @@ fn normalize_analysis_tab_id(value: &str) -> Option<String> {
 }
 
 fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
-    if meta.drilldown_enabled.is_none() {
-        meta.drilldown_enabled = map
-            .get("analyzable")
-            .or_else(|| map.get("enabled"))
-            .and_then(Value::as_bool);
-    }
-    if meta.explain_kind.is_none() {
-        meta.explain_kind = first_non_empty_string(map, &["kind", "explain_kind", "metric_kind"]);
-    }
     if meta.drilldown_note.is_none() {
         meta.drilldown_note = first_non_empty_string(map, &["note", "desc", "description"]);
-    }
-    if meta.drilldown_basis_refs.is_empty() {
-        if let Some(value) = map.get("basis_refs").or_else(|| map.get("basisRefs")) {
-            meta.drilldown_basis_refs = string_array_from_value(value);
-        }
     }
     if meta.drilldown_detail_fields.is_empty() {
         if let Some(value) = map.get("detail_fields").or_else(|| map.get("detailFields")) {
@@ -1300,15 +1414,27 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
     }
     if meta.explain_metrics.is_empty() {
         if let Some(value) = map.get("metrics") {
-            let metrics = object_map_from_value(value);
+            let metrics = explain_metric_entries_from_value(value);
             if !metrics.is_empty() {
                 meta.explain_metrics = metrics.clone();
                 if meta.drilldown_tabs.is_empty() {
-                    meta.drilldown_tabs = metrics.keys().cloned().collect();
+                    meta.drilldown_tabs = metrics
+                        .iter()
+                        .filter_map(|entry| {
+                            entry
+                                .as_object()
+                                .and_then(|obj| obj.get("id"))
+                                .and_then(Value::as_str)
+                                .map(str::trim)
+                                .filter(|id| !id.is_empty())
+                                .map(str::to_string)
+                        })
+                        .collect();
                 }
             }
         }
     }
+    sync_explain_metric_tab_overrides(meta);
     if meta.explain_composition_by.is_empty() {
         if let Some(value) = map
             .get("composition_by")
@@ -1339,6 +1465,60 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
     {
         if let Some(value) = map.get("ratio_parts").or_else(|| map.get("ratioParts")) {
             apply_ratio_parts(value, meta);
+        }
+    }
+}
+
+/// 将 `explain_metric` 上的 `by` / `date_field` 同步到 `drilldown_tab_metrics`，供 popup 派生查询使用。
+fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
+    for entry in &meta.explain_metrics {
+        let Some(obj) = entry.as_object() else {
+            continue;
+        };
+        let Some(tab_id) = obj
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        else {
+            continue;
+        };
+        let kind = obj
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        let mut override_obj = serde_json::Map::new();
+        if kind == "composition" {
+            if let Some(by) = obj.get("by").and_then(Value::as_str).map(str::trim) {
+                if !by.is_empty() {
+                    override_obj.insert(
+                        "composition_by".to_string(),
+                        Value::Array(vec![Value::String(by.to_string())]),
+                    );
+                }
+            }
+        } else if kind == "trend" {
+            if let Some(field) = first_non_empty_string(obj, &["date_field", "dateField"]) {
+                override_obj.insert("trend_field".to_string(), Value::String(field));
+            }
+            if let Some(grain) = first_non_empty_string(obj, &["grain"]) {
+                override_obj.insert("trend_grain".to_string(), Value::String(grain));
+            }
+        }
+        if override_obj.is_empty() {
+            continue;
+        }
+        match meta.drilldown_tab_metrics.get_mut(tab_id) {
+            Some(Value::Object(existing)) => {
+                for (key, value) in override_obj {
+                    existing.insert(key, value);
+                }
+            }
+            _ => {
+                meta.drilldown_tab_metrics
+                    .insert(tab_id.to_string(), Value::Object(override_obj));
+            }
         }
     }
 }

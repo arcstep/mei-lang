@@ -10399,7 +10399,27 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     "scenes/4_监督和问题办理/预警模型.mei": "warning_models",
     "scenes/4_监督和问题办理/预警清单.mei": "warning_list",
     "scenes/4_监督和问题办理/问题处理结果清单.mei": "issue_result_list",
+    "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
   };
+  const BOARD_TEMPLATE_SCENE_FILES = {
+    metric_board_default: "templates/cockpit/drilldown/metric-explain-board.mei",
+  };
+  const BOARD_SCENE_CONTRACT_BY_FILE = {
+    "templates/cockpit/drilldown/metric-explain-board.mei": {
+      sceneId: "metric_explain_board",
+      kind: "metric_explain_board",
+      defaultEntryTab: "definition",
+      tabs: [
+        { id: "hero", role: "hero", label: "概览" },
+        { id: "definition", role: "explain", label: "口径" },
+        { id: "composition", role: "explain", label: "构成" },
+        { id: "trend", role: "explain", label: "趋势" },
+        { id: "numerator_denominator", role: "explain", label: "分子分母" },
+        { id: "detail", role: "table", label: "明细" },
+      ],
+    },
+  };
+  const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
   const DRILLDOWN_DATASET_BY_SCENE = {
     enforcement_units: "enforcement_units",
     enforcement_officers: "enforcement_officers",
@@ -10791,6 +10811,88 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return String(pathname || "").startsWith("/apps/access/");
   }
 
+  function isManageRoute(pathname = window.location.pathname) {
+    return String(pathname || "").startsWith("/apps/manage/");
+  }
+
+  function shouldMountDrilldownHost(pathname = window.location.pathname) {
+    return isAccessRoute(pathname) || isManageRoute(pathname);
+  }
+
+  function isBoardLinkConfig(popup) {
+    if (!popup || typeof popup !== "object") return false;
+    return popup.mode === "board_link" || popup.__kind === "board_link";
+  }
+
+  function isPanelPopupConfig(popup) {
+    if (!popup || typeof popup !== "object") return false;
+    return popup.mode === "popup_panel" || popup.__kind === "popup_panel";
+  }
+
+  function normalizeProjection(value) {
+    const raw = String(value || "overlay")
+      .trim()
+      .toLowerCase();
+    if (raw === "route" || raw === "navigate" || raw === "spa" || raw === "page") {
+      return "route";
+    }
+    return "overlay";
+  }
+
+  function resolveBoardSceneContract(sceneFile) {
+    const normalized = normalizeDrilldownScenePath(sceneFile);
+    if (!normalized) return null;
+    return BOARD_SCENE_CONTRACT_BY_FILE[normalized] || null;
+  }
+
+  function boardSceneTabIds(contract) {
+    if (!contract || !Array.isArray(contract.tabs)) return [];
+    return contract.tabs
+      .map((entry) => normalizeTabId(entry?.id))
+      .filter((tab) => tab && tab !== "hero");
+  }
+
+  function resolveBoardLinkFields(popup) {
+    if (!popup || typeof popup !== "object") return null;
+    const boardLink = isBoardLinkConfig(popup);
+    const panelPopup = isPanelPopupConfig(popup);
+    if (!boardLink && !panelPopup) return null;
+    const legacyTemplate = panelPopup && !boardLink ? normalizePanelTemplateId(popup?.template) : "";
+    const sceneFile = normalizeDrilldownScenePath(
+      nonEmptyString(
+        popup?.scene_file,
+        popup?.sceneFile,
+        boardLink ? "" : BOARD_TEMPLATE_SCENE_FILES[legacyTemplate],
+      ),
+    );
+    const contract = resolveBoardSceneContract(sceneFile);
+    const sceneId = nonEmptyString(
+      popup?.scene_id,
+      popup?.sceneId,
+      contract?.sceneId,
+      sceneFile ? DRILLDOWN_SCENE_BY_FILE[sceneFile] : "",
+    );
+    const entryTab = normalizeTabId(
+      nonEmptyString(popup?.entry_tab, popup?.entryTab, popup?.focus, contract?.defaultEntryTab),
+    );
+    return {
+      boardLink: boardLink || Boolean(sceneFile),
+      panelPopup,
+      legacyTemplate,
+      sceneFile,
+      sceneId,
+      projection: normalizeProjection(popup?.projection),
+      entryTab,
+      contract,
+    };
+  }
+
+  function normalizePanelTemplateId(template) {
+    const raw = String(template || "").trim();
+    if (!raw || raw === "metric_default") return "metric_board_default";
+    return raw;
+  }
+
   function normalizeDrilldownScenePath(raw) {
     return String(raw || "")
       .trim()
@@ -10881,35 +10983,100 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return raw.replaceAll(/[\s-]+/g, "_");
   }
 
-  function normalizeExplainMetrics(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-    const normalized = {};
-    Object.entries(value).forEach(([key, entry]) => {
-      const id = normalizeTabId(key);
-      if (!id || !entry || typeof entry !== "object" || Array.isArray(entry)) return;
-      normalized[id] = {
+  function normalizeExplainMetrics(...values) {
+    const byId = {};
+    const order = [];
+    const pushEntry = (entry, fallbackId = "", fallbackLabel = "") => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+      const id = normalizeTabId(entry.id || fallbackId || "");
+      if (!id || byId[id]) return;
+      byId[id] = {
         id,
         kind: normalizeTabId(entry.kind || id),
-        label: nonEmptyString(entry.label, key),
+        label: nonEmptyString(entry.label, fallbackLabel, fallbackId),
         by: nonEmptyString(entry.by),
         dateField: nonEmptyString(entry.date_field, entry.dateField),
         grain: nonEmptyString(entry.grain),
-        datasetId: nonEmptyString(entry.dataset, entry.dataset_id, entry.datasetId),
-        sceneId: nonEmptyString(entry.scene_id, entry.sceneId),
-        scenePath: nonEmptyString(entry.scene_file, entry.sceneFile),
         fields: cloneArray(entry.fields),
-        metric: entry.metric && typeof entry.metric === "object" ? entry.metric : null,
         headers: cloneArray(entry.headers),
         mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
         chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
       };
+      order.push(id);
+    };
+    values.forEach((value) => {
+      if (Array.isArray(value)) {
+        value.forEach((entry) => pushEntry(entry));
+        return;
+      }
+      if (value && typeof value === "object") {
+        Object.entries(value).forEach(([key, entry]) => pushEntry(entry, key, key));
+      }
     });
-    return normalized;
+    return { byId, order };
   }
 
   function explainMetricForTab(config, tabId) {
     const key = normalizeTabId(tabId);
-    return config?.explainMetrics?.[key] || null;
+    if (!key) return null;
+    const byId = config?.explainMetrics;
+    if (!byId || typeof byId !== "object") return null;
+    if (byId[key]) return byId[key];
+    const genericKinds = new Set([
+      "definition",
+      "composition",
+      "trend",
+      "numerator_denominator",
+      "attribution",
+      "detail",
+    ]);
+    if (!genericKinds.has(key)) return null;
+    const order = Array.isArray(config?.explainMetricOrder) ? config.explainMetricOrder : Object.keys(byId);
+    for (const candidateId of order) {
+      const entry = byId[normalizeTabId(candidateId)];
+      if (!entry) continue;
+      if (normalizeTabId(entry.kind || entry.id) === key) return entry;
+    }
+    return null;
+  }
+
+  function compositionFieldsFromOverride(override) {
+    if (!override || typeof override !== "object") return [];
+    return cloneArray(override.compositionBy).length
+      ? cloneArray(override.compositionBy)
+      : cloneArray(override.composition_by);
+  }
+
+  function compositionFieldForTab(config, tabId, override = null) {
+    const exactTab = normalizeTabId(tabId);
+    const explainMetric =
+      explainMetricForTab(config, exactTab) || explainMetricForTab(config, explainMetricKind(config, tabId));
+    const fromExplain = nonEmptyString(explainMetric?.by);
+    if (fromExplain) return fromExplain;
+    const fromOverride = nonEmptyString(compositionFieldsFromOverride(override)[0]);
+    if (fromOverride) return fromOverride;
+    const fromConfig = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      Array.isArray(config?.recommendedDimensions) ? config.recommendedDimensions[0] : "",
+    );
+    return fromConfig;
+  }
+
+  function rowFieldValue(row, field, columns = []) {
+    const name = String(field || "").trim();
+    if (!name || !row || typeof row !== "object") return "";
+    if (Object.prototype.hasOwnProperty.call(row, name)) {
+      return row[name];
+    }
+    const trimmed = name.trim();
+    for (const [key, value] of Object.entries(row)) {
+      if (String(key).trim() === trimmed) return value;
+    }
+    const column = columns.find((entry) => String(entry || "").trim() === trimmed);
+    if (column && Object.prototype.hasOwnProperty.call(row, column)) {
+      return row[column];
+    }
+    return "";
   }
 
   function explainMetricKind(config, tabId) {
@@ -10958,14 +11125,46 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return "";
   }
 
-  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail }) {
-    const explainMetrics = normalizeExplainMetrics(detail?.explain_metrics);
-    const explicitExplainTabs = Object.keys(explainMetrics);
-    const popupMetricTabs = Object.keys(
-      normalizeTabMetricOverrides(detail?.popup?.metrics),
+  function panelPopupSlotSources(popup) {
+    if (!popup || typeof popup !== "object") return null;
+    if (popup.slots && typeof popup.slots === "object" && !Array.isArray(popup.slots)) {
+      return popup.slots;
+    }
+    if (popup.metrics && typeof popup.metrics === "object" && !Array.isArray(popup.metrics)) {
+      return popup.metrics;
+    }
+    return null;
+  }
+
+  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, boardContract }) {
+    const contract =
+      boardContract ||
+      resolveBoardSceneContract(
+        nonEmptyString(detail?.board_scene_file, detail?.scene_path, detail?.popup?.scene_file),
+      );
+    const contractTabs = boardSceneTabIds(contract);
+    const explainMetrics = normalizeExplainMetrics(
+      detail?.explain_metrics,
+      runtime?.explain_metrics,
+      runtime?.explainMetrics,
     );
-    if (explicitExplainTabs.length || popupMetricTabs.length) {
-      return Array.from(new Set([...explicitExplainTabs, ...popupMetricTabs]));
+    const explicitExplainTabs = explainMetrics.order;
+    const popup = detail?.popup && typeof detail.popup === "object" ? detail.popup : {};
+    const popupFocus = normalizeTabId(popup?.focus);
+    const slotSources = panelPopupSlotSources(popup);
+    const popupSlotTabs = slotSources ? Object.keys(normalizeTabMetricOverrides(slotSources)) : [];
+    const popupMetricTabs = Object.keys(normalizeTabMetricOverrides(popup?.metrics));
+    if (explicitExplainTabs.length || popupSlotTabs.length || popupMetricTabs.length || contractTabs.length) {
+      const merged = [
+        ...contractTabs,
+        ...explicitExplainTabs,
+        ...popupSlotTabs,
+        ...popupMetricTabs,
+      ].filter((tab) => normalizeTabId(tab) !== "hero");
+      if (popupFocus && !merged.includes(popupFocus)) {
+        merged.push(popupFocus);
+      }
+      return Array.from(new Set(merged));
     }
     const explicit = runtimeTabIds(
       detail?.analysis_tabs,
@@ -11014,6 +11213,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         return;
       }
+      if (entry.__ref === "explain_metric") {
+        const explainMetricId = nonEmptyString(entry.id);
+        if (!explainMetricId) return;
+        normalized[tabId] = {
+          explainMetricId,
+          compositionBy: cloneArray(entry.composition_by).length
+            ? cloneArray(entry.composition_by)
+            : entry.by
+              ? [String(entry.by)]
+              : [],
+          trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
+          trendGrain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
+        };
+        return;
+      }
       if (entry.__ref === "metric") {
         const metricId = nonEmptyString(entry.id);
         if (!metricId) return;
@@ -11059,6 +11273,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         layoutPreset: nonEmptyString(entry.layout_preset, entry.layoutPreset),
         chartKind: nonEmptyString(entry.chart_kind, entry.chartKind, entry.chart),
         mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
+        compositionBy: cloneArray(entry.composition_by).length
+          ? cloneArray(entry.composition_by)
+          : cloneArray(entry.compositionBy),
+        trendField: nonEmptyString(entry.trend_field, entry.trendField),
+        trendGrain: nonEmptyString(entry.trend_grain, entry.trendGrain),
       };
       if (
         !override.title &&
@@ -11069,7 +11288,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         !override.headers.length &&
         !override.layoutPreset &&
         !override.chartKind &&
-        !override.mapping
+        !override.mapping &&
+        !override.compositionBy.length &&
+        !override.trendField
       ) {
         return;
       }
@@ -11080,27 +11301,26 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function resolveDrilldownTabConfig(config, tabId) {
     const tabMetrics = config?.tabMetrics || {};
-    const normalizedTab = explainMetricKind(config, tabId);
-    const explainMetric = explainMetricForTab(config, normalizedTab);
-    const override = tabMetrics[normalizedTab];
+    const exactTab = normalizeTabId(tabId);
+    const kindTab = explainMetricKind(config, tabId);
+    const override = tabMetrics[exactTab] || tabMetrics[kindTab];
+    const explainMetricTab = normalizeTabId(
+      nonEmptyString(override?.explainMetricId, exactTab, kindTab)
+    );
+    const explainMetric =
+      explainMetricForTab(config, explainMetricTab) ||
+      explainMetricForTab(config, exactTab) ||
+      explainMetricForTab(config, kindTab);
     if (!override && !explainMetric) return config;
-    const explainDatasetId = nonEmptyString(explainMetric?.datasetId);
-    const explainMetricRef =
-      explainMetric?.metric && typeof explainMetric.metric === "object" ? explainMetric.metric : null;
-    const overrideDatasetId = nonEmptyString(override.datasetId);
-    const overrideTableMetricId = nonEmptyString(override.tableMetricId);
+    const overrideDatasetId = nonEmptyString(override?.datasetId);
+    const overrideTableMetricId = nonEmptyString(override?.tableMetricId);
     const suppressDetailMetricFallback = Boolean(overrideDatasetId && !overrideTableMetricId);
     const merged = {
       ...config,
       title: nonEmptyString(override?.title, explainMetric?.label, config.title),
       note: nonEmptyString(override?.note, config.note),
-      tableMetricId:
-        overrideTableMetricId ||
-        nonEmptyString(explainMetricRef?.id) ||
-        (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
-      datasetId:
-        overrideDatasetId ||
-        nonEmptyString(explainMetricRef?.from_dataset, explainDatasetId, config.datasetId),
+      tableMetricId: overrideTableMetricId || (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
+      datasetId: overrideDatasetId || nonEmptyString(config.datasetId),
       suppressDetailMetricFallback,
       layoutPreset: nonEmptyString(override?.layoutPreset, config.layoutPreset),
       chartKind: nonEmptyString(override?.chartKind, explainMetric?.chartKind, config.chartKind),
@@ -11115,21 +11335,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtimeRef:
         override?.runtimeRef && typeof override.runtimeRef === "object"
           ? override.runtimeRef
-          : explainMetricRef && typeof explainMetricRef === "object"
-            ? {
-                kind: "metric",
-                metricId: nonEmptyString(explainMetricRef.id),
-                datasetId: nonEmptyString(explainMetricRef.from_dataset),
-                sceneId: nonEmptyString(explainMetricRef.scene_id),
-                scenePath: nonEmptyString(explainMetricRef.scene_file),
-              }
-          : explainMetric?.sceneId || explainMetric?.scenePath
-            ? {
-                kind: "data",
-                sceneId: nonEmptyString(explainMetric.sceneId),
-                scenePath: nonEmptyString(explainMetric.scenePath),
-                datasetId: explainDatasetId,
-              }
           : config.runtimeRef && typeof config.runtimeRef === "object"
             ? config.runtimeRef
             : null,
@@ -11143,11 +11348,43 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         : cloneArray(explainMetric?.headers).length
           ? cloneArray(explainMetric.headers)
           : cloneArray(config.headers),
-      compositionBy: explainMetric?.by ? [explainMetric.by] : config.compositionBy,
-      trendField: nonEmptyString(explainMetric?.dateField, config.trendField),
-      trendGrain: nonEmptyString(explainMetric?.grain, config.trendGrain),
+      compositionBy: (() => {
+        const fromExplain = compositionFieldForTab(config, tabId, override);
+        if (fromExplain) return [fromExplain];
+        const fromOverride = compositionFieldsFromOverride(override);
+        if (fromOverride.length) return fromOverride;
+        return cloneArray(config.compositionBy);
+      })(),
+      trendField: nonEmptyString(
+        explainMetric?.dateField,
+        override?.trendField,
+        config.trendField,
+      ),
+      trendGrain: nonEmptyString(explainMetric?.grain, override?.trendGrain, config.trendGrain),
     };
     return merged;
+  }
+
+  function hasTabMetricDataSource(override) {
+    if (!override || typeof override !== "object") return false;
+    if (
+      nonEmptyString(override.explainMetricId) &&
+      !nonEmptyString(override.tableMetricId, override.datasetId) &&
+      !(override.runtimeRef && typeof override.runtimeRef === "object") &&
+      !cloneArray(override.columns).length &&
+      !compositionFieldsFromOverride(override).length &&
+      !nonEmptyString(override.trendField)
+    ) {
+      return false;
+    }
+    return Boolean(
+      (override.runtimeRef && typeof override.runtimeRef === "object") ||
+        nonEmptyString(override.tableMetricId, override.datasetId) ||
+        cloneArray(override.columns).length ||
+        cloneArray(override.headers).length ||
+        nonEmptyString(override.layoutPreset, override.chartKind) ||
+        (override.mapping && typeof override.mapping === "object")
+    );
   }
 
   function drilldownTabLabel(tabId) {
@@ -11187,13 +11424,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   function unconfiguredTabNote(tabId) {
     const normalized = normalizeTabId(tabId);
     if (normalized === "composition") {
-      return "未配置构成数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.composition 指定 table_metric_id。";
+      return "未配置构成数据块，当前展示推荐维度；可通过 popup.metrics.composition 指定正式 metric。";
     }
     if (normalized === "trend") {
-      return "未配置趋势数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.trend 指定 table_metric_id。";
+      return "未配置趋势数据块，当前展示推荐维度；可通过 popup.metrics.trend 指定正式 metric。";
     }
     if (normalized === "attribution") {
-      return "未配置归因数据块，当前展示推荐维度；可通过 drilldown.tab_metrics.attribution 指定 table_metric_id。";
+      return "未配置归因数据块，当前展示推荐维度；可通过 popup.metrics.attribution 指定正式 metric。";
     }
     return "";
   }
@@ -11262,11 +11499,35 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   function applyDrilldownOverlayMeta(root, config) {
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
     const noteEl = root.querySelector('[data-drilldown-note="true"]');
+    const panelEl = root.querySelector(".access-drilldown-overlay-panel");
+    const heroEl = root.querySelector('[data-drilldown-hero="true"]');
+    const headMetaEl = root.querySelector(".access-drilldown-overlay-head-meta");
     if (titleEl) titleEl.textContent = String(config?.title || "");
     if (noteEl) {
       const note = String(config?.note || "").trim();
       noteEl.textContent = note;
       noteEl.toggleAttribute("hidden", !note);
+    }
+    const boardMode = Boolean(config?.panelPopup && config?.panelTemplate);
+    if (panelEl) {
+      panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
+      panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
+    }
+    if (headMetaEl) {
+      headMetaEl.toggleAttribute("hidden", boardMode);
+    }
+    if (heroEl) {
+      heroEl.toggleAttribute("hidden", !boardMode);
+      if (boardMode) {
+        const heroTitle = heroEl.querySelector('[data-drilldown-hero-title="true"]');
+        const heroNote = heroEl.querySelector('[data-drilldown-hero-note="true"]');
+        if (heroTitle) heroTitle.textContent = String(config?.title || "");
+        if (heroNote) {
+          const note = String(config?.note || "").trim();
+          heroNote.textContent = note;
+          heroNote.toggleAttribute("hidden", !note);
+        }
+      }
     }
   }
 
@@ -11279,6 +11540,26 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const app = marker >= 0 ? tail.slice(0, marker) : tail;
     const trimmed = String(app || "").trim();
     return trimmed ? `${prefix}${trimmed}` : "";
+  }
+
+  function resolveDrilldownDatasetId(detail, config = {}, mapped = {}) {
+    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const sceneId = nonEmptyString(
+      runtimeRefConfig.sceneId,
+      config?.sceneId,
+      detail?.scene_id,
+      resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
+      mapped?.sceneId,
+    );
+    return nonEmptyString(
+      detail?.explain_detail_dataset,
+      detail?.drilldown_dataset_id,
+      runtimeRefConfig.datasetId,
+      config?.datasetId,
+      mapped?.datasetId,
+      sceneId ? DRILLDOWN_DATASET_BY_SCENE[sceneId] : "",
+      detail?.dataset_id,
+    );
   }
 
   function resolveDrilldownSceneId(detail, mapped = {}, runtime = {}) {
@@ -11313,9 +11594,12 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const runtime = runtimeDrilldownConfig(detail);
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
+    const boardFields = resolveBoardLinkFields(popup);
     const analysisLink =
       detail?.analysis_link && typeof detail.analysis_link === "object" ? detail.analysis_link : {};
     const sceneId = nonEmptyString(
+      detail?.board_scene_id,
+      boardFields?.sceneId,
       detail?.scene_id,
       popup?.scene_id,
       popup?.sceneId,
@@ -11328,7 +11612,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.kind,
       runtime?.explain_kind,
     );
-    const explainMetrics = normalizeExplainMetrics(detail?.explain_metrics);
+    const explainMetrics = normalizeExplainMetrics(
+      detail?.explain_metrics,
+      runtime?.explain_metrics,
+      runtime?.explainMetrics,
+    );
     let detailFields = cloneArray(detail?.explain_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
@@ -11373,14 +11661,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.tableMetricId,
       mapped?.tableMetricId,
     );
-    const datasetId = nonEmptyString(
-      detail?.explain_detail_dataset,
-      detail?.drilldown_dataset_id,
-      runtime?.dataset_id,
-      runtime?.datasetId,
-      mapped?.datasetId,
-      detail?.dataset_id,
-    );
+    const datasetId = resolveDrilldownDatasetId(detail, { sceneId }, mapped);
     const layoutPreset = nonEmptyString(
       detail?.drilldown_layout_preset,
       runtime?.layout_preset,
@@ -11388,6 +11669,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       mapped?.layoutPreset,
     );
     const tabMetrics = normalizeTabMetricOverrides(
+      panelPopupSlotSources(popup),
       popup?.metrics,
       detail?.analysis_tab_metrics,
       detail?.drilldown_tab_metrics,
@@ -11395,6 +11677,22 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.tab_metrics,
       runtime?.tabMetrics,
       mapped?.tabMetrics,
+    );
+    const panelPopup = Boolean(boardFields?.panelPopup) || isPanelPopupConfig(popup);
+    const boardLink = Boolean(boardFields?.boardLink);
+    const panelTemplate = panelPopup
+      ? normalizePanelTemplateId(nonEmptyString(popup?.template, boardFields?.legacyTemplate))
+      : "";
+    const boardSceneFile = nonEmptyString(
+      detail?.board_scene_file,
+      boardFields?.sceneFile,
+      popup?.scene_file,
+      popup?.sceneFile,
+    );
+    const boardSceneContract =
+      boardFields?.contract || resolveBoardSceneContract(boardSceneFile) || null;
+    const projection = normalizeProjection(
+      nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
     const hasDetail = Boolean(
       tableMetricId ||
@@ -11408,6 +11706,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       mapped,
       explainKind,
       hasDetail,
+      boardContract: boardSceneContract,
     });
     const ratioNote = buildRatioExplainNote({
       numerator: ratioNumerator,
@@ -11415,9 +11714,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       formula: ratioFormula,
     });
     return {
-      enabled: popup?.mode === "popup" || (runtimeEnabled !== false && Boolean(sceneId)),
+      enabled:
+        (boardLink && Boolean(sceneId)) ||
+        (panelPopup && Boolean(sceneId) && Boolean(panelTemplate)) ||
+        popup?.mode === "popup" ||
+        (runtimeEnabled !== false && Boolean(sceneId)),
       sceneId,
+      boardLink,
+      boardSceneFile,
+      boardSceneContract,
+      projection,
+      panelPopup,
+      panelTemplate,
+      panelTitle: nonEmptyString(popup?.title),
       title: nonEmptyString(
+        popup?.title,
         detail?.explain_title,
         detail?.drilldown_title,
         runtime?.title,
@@ -11453,7 +11764,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       trendGrain: nonEmptyString(detail?.explain_trend_grain, "month"),
       layoutPreset,
       explainKind,
-      explainMetrics,
+      explainMetrics: explainMetrics.byId,
+      explainMetricOrder: explainMetrics.order,
       tabs,
       tabMetrics,
       link: {
@@ -11463,9 +11775,21 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         defaultFocus: nonEmptyString(analysisLink.default_focus, analysisLink.defaultFocus),
       },
       popup: {
-        mode: nonEmptyString(popup?.mode, "popup"),
-        template: nonEmptyString(popup?.template),
-        focus: nonEmptyString(popup?.focus),
+        mode: nonEmptyString(
+          popup?.mode,
+          boardLink ? "board_link" : panelPopup ? "popup_panel" : "popup",
+        ),
+        template: nonEmptyString(panelTemplate, popup?.template, popup?.legacy_template),
+        focus: nonEmptyString(
+          popup?.entry_tab,
+          popup?.entryTab,
+          popup?.focus,
+          boardFields?.entryTab,
+        ),
+        scene_file: boardSceneFile,
+        scene_id: sceneId,
+        projection,
+        slots: panelPopupSlotSources(popup),
       },
       chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),
       mapping: runtime?.mapping && typeof runtime.mapping === "object" ? runtime.mapping : null,
@@ -11512,24 +11836,130 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return String(app || "").trim();
   }
 
-  async function fetchPopupDatasetRows(detail, datasetId) {
-    const appPath = resolveAccessAppPath();
-    const sceneId = nonEmptyString(detail?.scene_id);
-    if (!appPath || !sceneId || !datasetId) return null;
-    const response = await fetch(`/api/datasets/query/${appPath}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        scene_id: sceneId,
-        target: nonEmptyString(detail?.scene_path),
-        dataset_id: datasetId,
-        page: 1,
-        page_size: 100000,
-        full: true,
-      }),
-    });
+  function resolvePreviewAppId(pathname = window.location.pathname) {
+    const accessApp = resolveAccessAppPath(pathname);
+    if (accessApp) return accessApp;
+    const raw = String(pathname || "");
+    const managePrefix = "/apps/manage/";
+    if (!raw.startsWith(managePrefix)) return "";
+    const tail = raw.slice(managePrefix.length);
+    const slash = tail.indexOf("/");
+    return String(slash >= 0 ? tail.slice(0, slash) : tail).trim();
+  }
+
+  function resolvePopupDebugHost() {
+    try {
+      if (window.parent && window.parent !== window) {
+        const host = window.parent.document.getElementById("mei-runtime-query-errors");
+        if (host) return host;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return document.getElementById("mei-runtime-query-errors");
+  }
+
+  function recordPopupDebugIssue({
+    level = "error",
+    message = "",
+    phase = "",
+    detail = {},
+    config = {},
+    datasetId = "",
+    metricId = "",
+  } = {}) {
+    const payload = {
+      phase: String(phase || "").trim(),
+      message: String(message || "").trim(),
+      sceneId: nonEmptyString(config?.sceneId, detail?.scene_id),
+      target: nonEmptyString(config?.runtimeRef?.scenePath, detail?.scene_path),
+      datasetId: String(datasetId || "").trim(),
+      metricId: String(metricId || "").trim(),
+      template: nonEmptyString(config?.panelTemplate, config?.popup?.template),
+    };
+    const logger = level === "warn" ? console.warn : console.error;
+    logger("[mei][popup-panel]", payload);
+    const host = resolvePopupDebugHost();
+    if (!(host instanceof HTMLElement)) return;
+    const tone =
+      level === "warn"
+        ? "rgba(250, 204, 21, .24);border:1px solid rgba(250, 204, 21, .45);color:#fde68a;"
+        : "rgba(127, 29, 29, .18);border:1px solid rgba(248, 113, 113, .4);color:#fecaca;";
+    const context = [
+      payload.phase ? `phase=${payload.phase}` : "",
+      payload.sceneId ? `scene=${payload.sceneId}` : "",
+      payload.target ? `file=${payload.target}` : "",
+      payload.datasetId ? `dataset=${payload.datasetId}` : "",
+      payload.metricId ? `metric=${payload.metricId}` : "",
+      payload.template ? `template=${payload.template}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    host.insertAdjacentHTML(
+      "afterbegin",
+      `<div style="display:block;margin:6px 0;padding:8px;border-radius:8px;${tone}font-size:11px;line-height:1.45;">` +
+        `<strong>scene_projection</strong>${context ? ` · ${context}` : ""}<br/>` +
+        `<code style="display:block;margin-top:4px;white-space:pre-wrap;word-break:break-word;color:inherit;">${String(
+          payload.message || "unknown popup error"
+        )
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")}</code></div>`
+    );
+  }
+
+  async function fetchPopupDatasetRows(detail, config, datasetId) {
+    const appPath = resolvePreviewAppId();
+    const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const sceneId = nonEmptyString(runtimeRefConfig.sceneId, config?.sceneId, detail?.scene_id);
+    const target = nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path);
+    if (!appPath || !sceneId || !datasetId) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: "缺少 popup panel 数据查询所需的 app / scene / dataset 参数",
+        phase: "dataset_fetch_setup",
+        detail,
+        config,
+        datasetId,
+      });
+      return null;
+    }
+    let response;
+    try {
+      response = await fetch(`/api/datasets/query/${appPath}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scene_id: sceneId,
+          target,
+          dataset_id: datasetId,
+          page: 1,
+          page_size: 100000,
+          full: true,
+        }),
+      });
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "popup panel dataset fetch failed"),
+        phase: "dataset_fetch_network",
+        detail,
+        config,
+        datasetId,
+      });
+      throw error;
+    }
     if (!response.ok) {
-      throw new Error(await response.text());
+      const text = await response.text();
+      recordPopupDebugIssue({
+        level: "error",
+        message: text || `HTTP ${response.status}`,
+        phase: "dataset_fetch_http",
+        detail,
+        config,
+        datasetId,
+      });
+      throw new Error(text);
     }
     const payload = await response.json();
     return {
@@ -11548,10 +11978,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return raw.slice(0, 7);
   }
 
-  function groupRowsByCount(rows, field) {
+  function groupRowsByCount(rows, field, columns = []) {
     const grouped = new Map();
     rows.forEach((row) => {
-      const key = String(row?.[field] ?? "").trim() || "未标注";
+      const key = String(rowFieldValue(row, field, columns) ?? "").trim() || "未标注";
       grouped.set(key, (grouped.get(key) || 0) + 1);
     });
     return Array.from(grouped.entries())
@@ -11559,10 +11989,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       .sort((a, b) => Number(b.value || 0) - Number(a.value || 0));
   }
 
-  function groupRowsByMonth(rows, field) {
+  function groupRowsByMonth(rows, field, columns = []) {
     const grouped = new Map();
     rows.forEach((row) => {
-      const key = monthBucketLabel(row?.[field]);
+      const key = monthBucketLabel(rowFieldValue(row, field, columns));
       if (!key) return;
       grouped.set(key, (grouped.get(key) || 0) + 1);
     });
@@ -11601,18 +12031,18 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const sceneId = nonEmptyString(runtimeRefConfig.sceneId, config?.sceneId, detail?.scene_id);
+    const mapped = DRILLDOWN_METRIC_CONTEXT[String(detail?.metric_id || "").trim()] || {};
+    const sceneId = nonEmptyString(
+      runtimeRefConfig.sceneId,
+      config?.sceneId,
+      detail?.scene_id,
+      resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
+      mapped?.sceneId,
+    );
     if (!sceneId) return null;
-    const appPath = resolveAccessAppPath();
+    const appPath = resolvePreviewAppId();
     if (!appPath) return null;
-    const datasetId =
-      nonEmptyString(
-        runtimeRefConfig.datasetId,
-        detail?.drilldown_dataset_id,
-        config?.datasetId,
-        DRILLDOWN_DATASET_BY_SCENE[sceneId],
-        detail?.dataset_id,
-      ) || sceneId;
+    const datasetId = resolveDrilldownDatasetId(detail, config, mapped) || sceneId;
     const metricId = config?.suppressDetailMetricFallback
       ? nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId)
       : nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId, detail?.drilldown_table_metric_id);
@@ -11681,8 +12111,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const chartTag = drilldownChartTag(config?.chartKind, tabId);
     if (!chartTag) return null;
     const columns = Array.isArray(config?.columns) ? config.columns : [];
-    const xField = columns[0] || "label";
-    const yField = columns[1] || "value";
+    const normalizedKind = explainMetricKind(config, tabId);
+    const compositionField = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      columns[0],
+      "label",
+    );
+    const xField =
+      normalizedKind === "trend" ? "month" : normalizedKind === "composition" ? compositionField : columns[0] || "label";
+    const yField = "value";
     const mapping =
       config?.mapping && typeof config.mapping === "object"
         ? config.mapping
@@ -11737,17 +12174,45 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const datasetId = nonEmptyString(config?.datasetId, detail?.dataset_id);
-    if (!datasetId) return false;
-    const dataset = await fetchPopupDatasetRows(detail, datasetId);
+    const mapped = DRILLDOWN_METRIC_CONTEXT[String(detail?.metric_id || "").trim()] || {};
+    const datasetId = resolveDrilldownDatasetId(detail, config, mapped);
+    if (!datasetId) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: "未解析到 explain 派生块需要的数据集 id",
+        phase: "derived_dataset_missing",
+        detail,
+        config,
+      });
+      return false;
+    }
+    const dataset = await fetchPopupDatasetRows(detail, { ...config, datasetId }, datasetId);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+    if (!rows.length) {
+      recordPopupDebugIssue({
+        level: "warn",
+        message: "popup panel 派生查询返回 0 行，已回退到摘要说明",
+        phase: "derived_dataset_empty",
+        detail,
+        config,
+        datasetId,
+      });
+    }
     if (explainMetricKind(config, tabId) === "composition") {
-      const dimension = nonEmptyString(
-        Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
-        Array.isArray(config?.recommendedDimensions) ? config.recommendedDimensions[0] : "",
-      );
-      if (!dimension) return false;
-      const grouped = groupRowsByCount(rows, dimension);
+      const columns = Array.isArray(dataset?.columns) ? dataset.columns : [];
+      const dimension = compositionFieldForTab(config, tabId);
+      if (!dimension) {
+        recordPopupDebugIssue({
+          level: "error",
+          message: `构成 tab 未解析到分组字段（tab=${normalizeTabId(tabId)}）`,
+          phase: "derived_composition_dimension_missing",
+          detail,
+          config,
+          datasetId,
+        });
+        return false;
+      }
+      const grouped = groupRowsByCount(rows, dimension, columns);
       if (!grouped.length) return false;
       host.replaceChildren();
       const node = document.createElement("mei-chart-bar");
@@ -11758,12 +12223,24 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         }),
       );
       host.appendChild(node);
+      window.dispatchEvent(new Event("meilang:preview-updated"));
       return true;
     }
     if (explainMetricKind(config, tabId) === "trend") {
+      const columns = Array.isArray(dataset?.columns) ? dataset.columns : [];
       const trendField = nonEmptyString(config?.trendField);
-      if (!trendField) return false;
-      const grouped = groupRowsByMonth(rows, trendField);
+      if (!trendField) {
+        recordPopupDebugIssue({
+          level: "error",
+          message: `趋势 tab 未解析到日期字段（tab=${normalizeTabId(tabId)}）`,
+          phase: "derived_trend_field_missing",
+          detail,
+          config,
+          datasetId,
+        });
+        return false;
+      }
+      const grouped = groupRowsByMonth(rows, trendField, columns);
       if (!grouped.length) return false;
       host.replaceChildren();
       const node = document.createElement("mei-chart-line");
@@ -11774,6 +12251,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         }),
       );
       host.appendChild(node);
+      window.dispatchEvent(new Event("meilang:preview-updated"));
       return true;
     }
     return false;
@@ -11787,22 +12265,30 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return false;
     }
     const normalizedTab = normalizeTabId(tabId);
-    const explainMetric = explainMetricForTab(config, tabId);
-    const hasCustomMetricSource = Boolean(
-      config?.tabMetrics?.[normalizedTab] || (explainMetric?.metric && typeof explainMetric.metric === "object"),
-    );
+    const kindTab = explainMetricKind(config, tabId);
+    const tabOverride = config?.tabMetrics?.[normalizedTab] || config?.tabMetrics?.[kindTab];
+    const hasCustomMetricSource = hasTabMetricDataSource(tabOverride);
     if (
       isDrilldownSummaryTab(tabId, config) ||
       (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource)
     ) {
       if (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource) {
-        setDrilldownOverlayStatus(root, "loading");
+        setDrilldownOverlayStatus(root, "ready");
         mountDerivedDrilldownContent(root, detail, activeConfig, tabId)
           .then((mounted) => {
             if (mounted) {
               setDrilldownOverlayStatus(root, "ready");
+              window.dispatchEvent(new Event("meilang:preview-updated"));
               return;
             }
+            recordPopupDebugIssue({
+              level: "warn",
+              message: `派生 explain 块未能渲染，已回退为摘要：${normalizedTab || tabId}`,
+              phase: "derived_render_fallback",
+              detail,
+              config: activeConfig,
+              datasetId: activeConfig?.datasetId,
+            });
             const summaryConfig = {
               ...activeConfig,
               note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
@@ -11810,7 +12296,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
             host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
             setDrilldownOverlayStatus(root, "ready");
           })
-          .catch(() => {
+          .catch((error) => {
+            recordPopupDebugIssue({
+              level: "error",
+              message: String(error?.message || error || "派生 explain 块渲染失败"),
+              phase: "derived_render_error",
+              detail,
+              config: activeConfig,
+              datasetId: activeConfig?.datasetId,
+            });
             const summaryConfig = {
               ...activeConfig,
               note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
@@ -11833,6 +12327,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     }
     setDrilldownOverlayStatus(root, "loading");
     if (!mountDrilldownTable(root, detail, activeConfig)) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: `popup panel 表格挂载失败：${normalizedTab || tabId}`,
+        phase: "table_mount_failed",
+        detail,
+        config: activeConfig,
+        datasetId: activeConfig?.datasetId,
+        metricId: activeConfig?.tableMetricId,
+      });
       setDrilldownOverlayStatus(root, "error");
       return false;
     }
@@ -11899,6 +12402,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       "</div>" +
       '<button type="button" class="access-drilldown-overlay-close" data-drilldown-close="button" aria-label="关闭">×</button>' +
       "</header>" +
+      '<div class="access-drilldown-panel-hero" data-drilldown-hero="true" hidden>' +
+      '<div class="access-drilldown-panel-hero-title" data-drilldown-hero-title="true"></div>' +
+      '<div class="access-drilldown-panel-hero-note" data-drilldown-hero-note="true" hidden></div>' +
+      "</div>" +
       '<div class="access-drilldown-overlay-tabs" data-drilldown-tabs="true" hidden></div>' +
       '<div class="access-drilldown-overlay-body">' +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载明细表...</div>' +
@@ -11936,6 +12443,106 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     document.body.classList.remove("access-drilldown-open");
   }
 
+  function stashSceneProjectionContext(detail, config) {
+    try {
+      sessionStorage.setItem(
+        SCENE_PROJECTION_CONTEXT_KEY,
+        JSON.stringify({
+          stored_at: Date.now(),
+          detail,
+          config: {
+            sceneId: config.sceneId,
+            boardSceneFile: config.boardSceneFile,
+            projection: config.projection,
+            entryTab: nonEmptyString(config.popup?.focus),
+          },
+        }),
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  function consumeSceneProjectionContext() {
+    let raw = "";
+    try {
+      raw = sessionStorage.getItem(SCENE_PROJECTION_CONTEXT_KEY) || "";
+    } catch (_) {
+      return null;
+    }
+    if (!raw) return null;
+    try {
+      sessionStorage.removeItem(SCENE_PROJECTION_CONTEXT_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function resolveBoardRouteUrl(config) {
+    const appId = resolvePreviewAppId();
+    if (!appId) return "";
+    const boardFile = nonEmptyString(config.boardSceneFile);
+    if (!boardFile) return "";
+    let url;
+    try {
+      url = new URL(window.location.href);
+    } catch (_) {
+      return "";
+    }
+    url.pathname = `/apps/manage/${appId}`;
+    url.searchParams.set("file", boardFile);
+    if (config.sceneId) {
+      url.searchParams.set("scene", config.sceneId);
+    }
+    url.searchParams.set("mei_projection", "route");
+    const entryTab = nonEmptyString(config.popup?.focus);
+    if (entryTab) {
+      url.searchParams.set("mei_entry_tab", entryTab);
+    }
+    return url.toString();
+  }
+
+  function openBoardRouteProjection(detail, config) {
+    stashSceneProjectionContext(detail, config);
+    const targetUrl = resolveBoardRouteUrl(config);
+    if (!targetUrl) {
+      openDrilldownOverlay(detail);
+      return;
+    }
+    void navigateInternal(targetUrl, false);
+  }
+
+  function openSceneProjection(detail) {
+    const config = resolveDrilldownConfig(detail);
+    if (!config.enabled || !config.sceneId) return;
+    if (config.projection === "route") {
+      openBoardRouteProjection(detail, config);
+      return;
+    }
+    openDrilldownOverlay(detail);
+  }
+
+  function applySceneProjectionContextFromStorage() {
+    if (!shouldMountDrilldownHost()) return;
+    const stored = consumeSceneProjectionContext();
+    if (!stored?.detail) return;
+    const projection = normalizeProjection(
+      nonEmptyString(stored.config?.projection, stored.detail?.projection, "route"),
+    );
+    if (projection !== "route") return;
+    const detail = { ...stored.detail };
+    const entryTab = nonEmptyString(stored.config?.entryTab, detail.popup?.focus);
+    if (entryTab) {
+      detail.popup = { ...(detail.popup || {}), focus: entryTab, entry_tab: entryTab };
+    }
+    openDrilldownOverlay(detail);
+  }
+
   function openDrilldownOverlay(detail) {
     const config = resolveDrilldownConfig(detail);
     if (!config.enabled || !config.sceneId) return;
@@ -11953,17 +12560,18 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     document.body.classList.add("access-drilldown-open");
   }
 
-  function installDrilldownOverlayHost() {
+  function installSceneProjectionHost() {
     if (window.self !== window.top) return;
-    if (!isAccessRoute()) return;
+    if (!shouldMountDrilldownHost()) return;
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
+    boot.sceneProjectionHostMounted = true;
     const openByEvent = (event) => {
-      if (!isAccessRoute()) return;
+      if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
       const config = resolveDrilldownConfig(detail);
       if (!config.enabled || !config.sceneId) return;
-      openDrilldownOverlay(detail);
+      openSceneProjection(detail);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
@@ -12858,6 +13466,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         }
         installDrilldownOverlayHost();
         applyDrilldownContextFromQuery();
+        applySceneProjectionContextFromStorage();
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);
       }
@@ -12974,8 +13583,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   };
 
   tagExistingBodyScripts();
-  installDrilldownOverlayHost();
+  installSceneProjectionHost();
   applyDrilldownContextFromQuery();
+  applySceneProjectionContextFromStorage();
 
   document.addEventListener(
     "click",
