@@ -57,7 +57,7 @@ struct ServeArgs {
     source_root: PathBuf,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
-    #[arg(long, default_value_t = 5000)]
+    #[arg(long, default_value_t = 9527)]
     port: u16,
     /// 显式允许在 mei 启动时自动拉起托管的内置 Agent 运行时（默认关闭）
     #[arg(long)]

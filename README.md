@@ -21,7 +21,7 @@ cd mei-lang
 cargo run -p mei-lang-server -- serve
 ```
 
-- 应用：**http://127.0.0.1:5000**
+- 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
 - 瓦片默认：**http://127.0.0.1:8080**，TileJSON 路径 **`/shapingba-z10-16`**
 
 在 `mei-lang/.env` 中可改：
@@ -44,7 +44,7 @@ cargo run -p mei-lang-server -- serve
 
 默认行为：
 
-- `mei-lang` 监听 **http://127.0.0.1:5000**
+- `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
 - 源码根目录 **`--source-root`** 未传时默认为仓库内 **`../workspaces`**
 - 启动后直接使用内置 agent（按 `.env` 中 OpenAI 兼容配置连模型服务）
 
