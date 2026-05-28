@@ -101,22 +101,23 @@ pub async fn app_page(
     let app_started = Instant::now();
     let route_mode = UiRouteMode::from_slug(&mode);
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
-    let (app_id, access_path_scene) = if route_mode == UiRouteMode::Access {
-        match parse_access_scene_path(&app_id_trimmed) {
-            Ok(None) => (app_id_trimmed, None),
-            Ok(Some((app, scene))) => (app, Some(scene)),
-            Err(()) => {
-                return Ok((
-                    StatusCode::NOT_FOUND,
-                    Html(
-                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景路径无效</title></head><body><p>访问地址中的 <code>/scene/&lt;id&gt;</code> 无效。</p></body></html>".to_string(),
-                    ),
-                )
-                    .into_response());
-            }
+    let (app_id, url_path_scene) = match parse_access_scene_path(&app_id_trimmed) {
+        Ok(None) => (app_id_trimmed, None),
+        Ok(Some((app, scene))) => (app, Some(scene)),
+        Err(()) => {
+            return Ok((
+                StatusCode::NOT_FOUND,
+                Html(
+                    "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景路径无效</title></head><body><p>地址中的 <code>/scene/&lt;id&gt;</code> 无效。</p></body></html>".to_string(),
+                ),
+            )
+                .into_response());
         }
+    };
+    let access_path_scene = if route_mode == UiRouteMode::Access {
+        url_path_scene.clone()
     } else {
-        (app_id_trimmed, None)
+        None
     };
     if app_id.is_empty() {
         return Err(AppError::status(
@@ -209,11 +210,9 @@ pub async fn app_page(
     } else {
         None
     };
-    let compile_scene = if route_mode == UiRouteMode::Access {
-        access_path_scene.clone().or_else(|| query.scene.clone())
+    let compile_scene = if route_mode == UiRouteMode::Access || route_mode == UiRouteMode::Manage {
+        url_path_scene.clone().or_else(|| query.scene.clone())
     } else {
-        // 仅接受 URL 显式 ?scene=；勿用文件名 stem（如 企业白名单.mei）冒充 scene id。
-        // dataset/scene 入口的 id 由入口文件内 scene(...) 与 kernel discover 解析。
         query.scene.clone()
     };
     let components_root = resolve_components_root(&state.source_root);
