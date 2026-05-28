@@ -52,9 +52,28 @@
     return scriptEl.complete === true;
   }
 
+  /** bundle 首次加载完成：挂载树控件并通知编辑器（勿再派发 tab-change，避免与 lazy 监听死循环）。 */
+  function afterManageSourceBundleReady() {
+    if (typeof boot.mountSourceTreeControls === "function") {
+      try {
+        boot.mountSourceTreeControls();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const tab = tabFromUrl();
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:manage-source-bundle-ready", { detail: { tab } })
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   function loadManageSourceBundle() {
     if (boot.manageSourceBundleLoaded === true) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     if (loadingPromise) {
       return loadingPromise;
@@ -64,14 +83,14 @@
       if (existing) {
         if (scriptAlreadyLoaded(existing)) {
           boot.manageSourceBundleLoaded = true;
-          resolve();
+          resolve(true);
           return;
         }
         existing.addEventListener(
           "load",
           () => {
             boot.manageSourceBundleLoaded = true;
-            resolve();
+            resolve(true);
           },
           { once: true }
         );
@@ -88,7 +107,7 @@
       script.dataset.meiManageSourceBundle = "true";
       script.onload = () => {
         boot.manageSourceBundleLoaded = true;
-        resolve();
+        resolve(true);
       };
       script.onerror = () => {
         reject(new Error("manage source bundle load failed"));
@@ -102,14 +121,27 @@
 
   function maybeLoadForTab(tab) {
     const normalized = normalizeTab(tab);
-    if (normalized === "source" || normalized === "diff") {
-      loadManageSourceBundle().catch((error) => {
+    if (normalized !== "source" && normalized !== "diff") {
+      return;
+    }
+    loadManageSourceBundle()
+      .then((freshLoad) => {
+        if (freshLoad) {
+          afterManageSourceBundleReady();
+        }
+      })
+      .catch((error) => {
         boot.manageSourceBundleError = String(error?.message || error || "unknown error");
       });
-    }
   }
 
-  boot.ensureManageSourceBundle = loadManageSourceBundle;
+  boot.ensureManageSourceBundle = async function ensureManageSourceBundle() {
+    const freshLoad = await loadManageSourceBundle();
+    if (freshLoad) {
+      afterManageSourceBundleReady();
+    }
+    return freshLoad;
+  };
 
   boot.remountManageSourceAfterSpa = async function remountManageSourceAfterSpa() {
     if (!boot.manageSourceBundleLoaded) {
@@ -125,7 +157,10 @@
     }
     boot.manageSourceBundleLoaded = false;
     loadingPromise = null;
-    await loadManageSourceBundle();
+    const freshLoad = await loadManageSourceBundle();
+    if (freshLoad) {
+      afterManageSourceBundleReady();
+    }
   };
 
   document.addEventListener("mei:manage-tab-change", (event) => {
@@ -137,9 +172,13 @@
       "DOMContentLoaded",
       () => {
         if (perfDisabled("manage_source_lazy")) {
-          loadManageSourceBundle().catch((error) => {
-            boot.manageSourceBundleError = String(error?.message || error || "unknown error");
-          });
+          loadManageSourceBundle()
+            .then((freshLoad) => {
+              if (freshLoad) afterManageSourceBundleReady();
+            })
+            .catch((error) => {
+              boot.manageSourceBundleError = String(error?.message || error || "unknown error");
+            });
           return;
         }
         maybeLoadForTab(tabFromUrl());
@@ -148,9 +187,13 @@
     );
   } else {
     if (perfDisabled("manage_source_lazy")) {
-      loadManageSourceBundle().catch((error) => {
-        boot.manageSourceBundleError = String(error?.message || error || "unknown error");
-      });
+      loadManageSourceBundle()
+        .then((freshLoad) => {
+          if (freshLoad) afterManageSourceBundleReady();
+        })
+        .catch((error) => {
+          boot.manageSourceBundleError = String(error?.message || error || "unknown error");
+        });
       return;
     }
     maybeLoadForTab(tabFromUrl());

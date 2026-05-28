@@ -7424,6 +7424,16 @@
   };
   document.addEventListener("mei:manage-tab-change", onManageTabChange);
 
+  const onManageSourceBundleReady = function () {
+    if (!SRC || typeof SRC.ensureSourceEditor !== "function") return;
+    const nextTab = RT.currentManageTab();
+    SRC.ensureSourceEditor();
+    if (typeof SRC.applyManageTabMode === "function") {
+      SRC.applyManageTabMode(nextTab);
+    }
+  };
+  document.addEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
+
   const onManageContextChange = function (event) {
     const detail = event && event.detail && typeof event.detail === "object"
       ? event.detail
@@ -7521,6 +7531,7 @@
   boot.disposeAgentPanel = function () {
     SES.dispose();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
+    document.removeEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
     document.removeEventListener("pointermove", AF.continueAccessFloatingDrag);

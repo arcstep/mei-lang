@@ -4772,9 +4772,28 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return scriptEl.complete === true;
   }
 
+  /** bundle 首次加载完成：挂载树控件并通知编辑器（勿再派发 tab-change，避免与 lazy 监听死循环）。 */
+  function afterManageSourceBundleReady() {
+    if (typeof boot.mountSourceTreeControls === "function") {
+      try {
+        boot.mountSourceTreeControls();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const tab = tabFromUrl();
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:manage-source-bundle-ready", { detail: { tab } })
+      );
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   function loadManageSourceBundle() {
     if (boot.manageSourceBundleLoaded === true) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
     if (loadingPromise) {
       return loadingPromise;
@@ -4784,14 +4803,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       if (existing) {
         if (scriptAlreadyLoaded(existing)) {
           boot.manageSourceBundleLoaded = true;
-          resolve();
+          resolve(true);
           return;
         }
         existing.addEventListener(
           "load",
           () => {
             boot.manageSourceBundleLoaded = true;
-            resolve();
+            resolve(true);
           },
           { once: true }
         );
@@ -4808,7 +4827,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       script.dataset.meiManageSourceBundle = "true";
       script.onload = () => {
         boot.manageSourceBundleLoaded = true;
-        resolve();
+        resolve(true);
       };
       script.onerror = () => {
         reject(new Error("manage source bundle load failed"));
@@ -4822,14 +4841,27 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function maybeLoadForTab(tab) {
     const normalized = normalizeTab(tab);
-    if (normalized === "source" || normalized === "diff") {
-      loadManageSourceBundle().catch((error) => {
+    if (normalized !== "source" && normalized !== "diff") {
+      return;
+    }
+    loadManageSourceBundle()
+      .then((freshLoad) => {
+        if (freshLoad) {
+          afterManageSourceBundleReady();
+        }
+      })
+      .catch((error) => {
         boot.manageSourceBundleError = String(error?.message || error || "unknown error");
       });
-    }
   }
 
-  boot.ensureManageSourceBundle = loadManageSourceBundle;
+  boot.ensureManageSourceBundle = async function ensureManageSourceBundle() {
+    const freshLoad = await loadManageSourceBundle();
+    if (freshLoad) {
+      afterManageSourceBundleReady();
+    }
+    return freshLoad;
+  };
 
   boot.remountManageSourceAfterSpa = async function remountManageSourceAfterSpa() {
     if (!boot.manageSourceBundleLoaded) {
@@ -4845,7 +4877,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     }
     boot.manageSourceBundleLoaded = false;
     loadingPromise = null;
-    await loadManageSourceBundle();
+    const freshLoad = await loadManageSourceBundle();
+    if (freshLoad) {
+      afterManageSourceBundleReady();
+    }
   };
 
   document.addEventListener("mei:manage-tab-change", (event) => {
@@ -4857,9 +4892,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       "DOMContentLoaded",
       () => {
         if (perfDisabled("manage_source_lazy")) {
-          loadManageSourceBundle().catch((error) => {
-            boot.manageSourceBundleError = String(error?.message || error || "unknown error");
-          });
+          loadManageSourceBundle()
+            .then((freshLoad) => {
+              if (freshLoad) afterManageSourceBundleReady();
+            })
+            .catch((error) => {
+              boot.manageSourceBundleError = String(error?.message || error || "unknown error");
+            });
           return;
         }
         maybeLoadForTab(tabFromUrl());
@@ -4868,9 +4907,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     );
   } else {
     if (perfDisabled("manage_source_lazy")) {
-      loadManageSourceBundle().catch((error) => {
-        boot.manageSourceBundleError = String(error?.message || error || "unknown error");
-      });
+      loadManageSourceBundle()
+        .then((freshLoad) => {
+          if (freshLoad) afterManageSourceBundleReady();
+        })
+        .catch((error) => {
+          boot.manageSourceBundleError = String(error?.message || error || "unknown error");
+        });
       return;
     }
     maybeLoadForTab(tabFromUrl());
@@ -10189,6 +10232,16 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   };
   document.addEventListener("mei:manage-tab-change", onManageTabChange);
 
+  const onManageSourceBundleReady = function () {
+    if (!SRC || typeof SRC.ensureSourceEditor !== "function") return;
+    const nextTab = RT.currentManageTab();
+    SRC.ensureSourceEditor();
+    if (typeof SRC.applyManageTabMode === "function") {
+      SRC.applyManageTabMode(nextTab);
+    }
+  };
+  document.addEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
+
   const onManageContextChange = function (event) {
     const detail = event && event.detail && typeof event.detail === "object"
       ? event.detail
@@ -10286,6 +10339,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   boot.disposeAgentPanel = function () {
     SES.dispose();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
+    document.removeEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
     document.removeEventListener("pointermove", AF.continueAccessFloatingDrag);
