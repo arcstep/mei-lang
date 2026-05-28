@@ -90,6 +90,9 @@ pub(crate) fn query_db_rows(
             rows,
             lazy: true,
             perf: BTreeMap::new(),
+            column_meta: Vec::new(),
+            summary: None,
+            query_state_echo: None,
         };
         result
             .perf

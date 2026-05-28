@@ -46,6 +46,9 @@ pub fn query_metric_dataframe(
         search: options.search.clone(),
         filters: options.filters.clone(),
         collect_all: true,
+        sort: Vec::new(),
+        column_state: None,
+        summary: false,
     };
     let base_started = Instant::now();
     let filtered_rows = query_dataset_rows(app_root, dataset, base_query)?;
@@ -117,6 +120,9 @@ pub fn query_metric_dataframe(
         search: options.search,
         filters: options.filters,
         collect_all,
+        sort: options.sort.clone(),
+        column_state: options.column_state.clone(),
+        summary: options.summary,
     };
 
     let mut result = paginate_rows(rows, &columns, &meta.normalize, &normalized_options, true);

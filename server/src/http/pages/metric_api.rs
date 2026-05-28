@@ -216,6 +216,7 @@ pub async fn dataset_metric_api(
         search: request.search.clone(),
         filters: request.filters.clone(),
         collect_all: true,
+        ..DatasetQueryOptions::default()
     };
     let query_started = Instant::now();
     let filtered_rows = query_dataset_rows(&app_root, dataset, query).map_err(|error| {

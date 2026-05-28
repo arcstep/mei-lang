@@ -173,6 +173,7 @@ pub(crate) fn query_world_dataset(
             .map(str::to_string),
         filters: filters.clone(),
         collect_all: false,
+        ..DatasetQueryOptions::default()
     };
     let query_result = query_dataset_rows(&app_root, dataset, query_options)?;
 
@@ -283,6 +284,7 @@ pub(crate) fn query_world_dataset_metrics(
             .map(str::to_string),
         filters: filters.clone(),
         collect_all: true,
+        ..DatasetQueryOptions::default()
     };
     let filtered_rows = query_dataset_rows(&app_root, dataset, query_options)?;
 

@@ -14,6 +14,7 @@ use super::super::compile_cache::compile_app_with_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::datasets::{
     clear_external_file_cache_for_app, query_dataset_rows, query_metric_dataframe,
+    table_contract::{apply_table_request_fields, enrich_table_result, TableSortSpec},
     DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
@@ -45,6 +46,12 @@ pub struct DatasetQueryRequest {
     /// 非空时对 runtime metric（dataframe）求值后分页，与 dataset 行集共用过滤/分页语义。
     #[serde(default)]
     pub metric_id: Option<String>,
+    #[serde(default)]
+    pub sort: Vec<TableSortSpec>,
+    #[serde(default)]
+    pub column_state: Option<serde_json::Value>,
+    #[serde(default)]
+    pub summary: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -63,6 +70,12 @@ pub struct DatasetQueryResponse {
     pub rows: Vec<serde_json::Value>,
     pub lazy: bool,
     pub perf: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub column_meta: Vec<super::super::datasets::TableColumnMeta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<super::super::datasets::TableSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_state_echo: Option<super::super::datasets::table_contract::QueryStateEcho>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,13 +204,20 @@ pub async fn dataset_query_api(
         )
     })?;
     let app_root = state.source_root.join(&app_id);
-    let query = DatasetQueryOptions {
+    let mut query = DatasetQueryOptions {
         page: request.page.unwrap_or(1),
         page_size: request.page_size.unwrap_or(0),
         search: request.search.clone(),
         filters: request.filters.clone(),
         collect_all: request.full,
+        ..DatasetQueryOptions::default()
     };
+    apply_table_request_fields(
+        &mut query,
+        request.sort.clone(),
+        request.column_state.clone(),
+        request.summary,
+    );
     let metric_id = request
         .metric_id
         .as_deref()
@@ -205,13 +225,13 @@ pub async fn dataset_query_api(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
     let query_started = Instant::now();
-    let result = if let Some(metric_id) = metric_id.as_deref() {
+    let mut result = if let Some(metric_id) = metric_id.as_deref() {
         query_metric_dataframe(
             &compiled,
             &app_root,
             normalized_dataset_id,
             metric_id,
-            query,
+            query.clone(),
         )
         .map_err(|error| {
             tracing::warn!(
@@ -227,7 +247,7 @@ pub async fn dataset_query_api(
             AppError::from(error)
         })?
     } else {
-        query_dataset_rows(&app_root, dataset, query).map_err(|error| {
+        query_dataset_rows(&app_root, dataset, query.clone()).map_err(|error| {
             tracing::warn!(
                 app_id = %app_id,
                 scene_id = %scene_ctx.scene_id,
@@ -241,6 +261,7 @@ pub async fn dataset_query_api(
         })?
     };
     let query_ms = elapsed_ms(query_started);
+    result = enrich_table_result(dataset, &query, result);
     let mut perf = result.perf.clone();
     perf.insert("compile_ms".to_string(), compile_ms);
     perf.insert(
@@ -287,6 +308,9 @@ pub async fn dataset_query_api(
         rows: result.rows,
         lazy: result.lazy,
         perf,
+        column_meta: result.column_meta,
+        summary: result.summary,
+        query_state_echo: result.query_state_echo,
     }))
 }
 
@@ -385,6 +409,7 @@ pub async fn dataset_recompute_api(
             search: None,
             filters: BTreeMap::new(),
             collect_all: false,
+            ..DatasetQueryOptions::default()
         };
         if let Some(metric_id) = metric_id.as_deref() {
             let result = query_metric_dataframe(

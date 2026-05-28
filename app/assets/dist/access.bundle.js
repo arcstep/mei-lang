@@ -9228,6 +9228,7 @@
           page: 1,
           page_size: 100000,
           full: true,
+          summary: true,
         }),
       });
     } catch (error) {
@@ -9257,6 +9258,9 @@
     return {
       rows: Array.isArray(payload?.rows) ? payload.rows : [],
       columns: Array.isArray(payload?.columns) ? payload.columns : [],
+      column_meta: Array.isArray(payload?.column_meta) ? payload.column_meta : [],
+      summary: payload?.summary || null,
+      query_state_echo: payload?.query_state_echo || null,
     };
   }
 
@@ -9488,7 +9492,7 @@
       return false;
     }
     host.replaceChildren();
-    const table = document.createElement("mei-cockpit-qunfu-data-table");
+    const table = document.createElement("mei-cockpit-data-table");
     table.dataset.props = JSON.stringify(props);
     host.appendChild(table);
     return true;

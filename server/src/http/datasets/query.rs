@@ -48,6 +48,9 @@ pub fn query_dataset_rows(
         search: options.search,
         filters: options.filters,
         collect_all,
+        sort: options.sort.clone(),
+        column_state: options.column_state.clone(),
+        summary: options.summary,
     };
 
     let file_backed = file_backed_for_lazy_query(dataset, &meta);

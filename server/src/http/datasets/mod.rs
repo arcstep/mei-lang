@@ -9,6 +9,7 @@ mod metric_dataframe;
 mod paginate;
 mod paths;
 mod query;
+pub mod table_contract;
 mod types;
 mod util;
 mod xlsx_dataset;
@@ -17,7 +18,7 @@ mod xlsx_format;
 pub use metric_dataframe::query_metric_dataframe;
 pub(crate) use file_cache::clear_external_file_cache_for_app;
 pub use query::query_dataset_rows;
-pub use types::DatasetQueryOptions;
+pub use types::{DatasetQueryOptions, TableColumnMeta, TableSummary};
 
 #[cfg(test)]
 mod tests {
@@ -62,6 +63,7 @@ mod tests {
                 search: None,
                 filters: BTreeMap::new(),
                 collect_all: false,
+                ..DatasetQueryOptions::default()
             },
         )
         .expect("query in-memory dataset");
@@ -112,6 +114,7 @@ mod tests {
                 search: None,
                 filters: BTreeMap::new(),
                 collect_all: false,
+                ..DatasetQueryOptions::default()
             },
         )
         .expect("query csv default lazy");
@@ -173,6 +176,7 @@ mod tests {
                 search: None,
                 filters,
                 collect_all: false,
+                ..DatasetQueryOptions::default()
             },
         )
         .expect("query lazy csv");
@@ -223,6 +227,7 @@ mod tests {
                 search: None,
                 filters,
                 collect_all: true,
+                ..DatasetQueryOptions::default()
             },
         )
         .expect("query full filtered rows");
@@ -230,6 +235,42 @@ mod tests {
         assert_eq!(result.rows.len(), 2);
         assert!(!result.has_more);
         assert_eq!(result.page, 1);
+    }
+
+    #[test]
+    fn paginate_rows_sorts_before_paging() {
+        use super::paginate::paginate_rows;
+        use super::table_contract::TableSortSpec;
+        use serde_json::json;
+
+        let rows = vec![
+            json!({"name": "bob"}),
+            json!({"name": "alice"}),
+            json!({"name": "carol"}),
+        ];
+        let result = paginate_rows(
+            rows,
+            &["name".to_string()],
+            &BTreeMap::new(),
+            &DatasetQueryOptions {
+                page: 1,
+                page_size: 2,
+                search: None,
+                filters: BTreeMap::new(),
+                collect_all: false,
+                sort: vec![TableSortSpec {
+                    field: "name".to_string(),
+                    direction: "asc".to_string(),
+                }],
+                column_state: None,
+                summary: false,
+            },
+            false,
+        );
+        assert_eq!(result.rows.len(), 2);
+        assert_eq!(result.rows[0].get("name").and_then(|v| v.as_str()), Some("alice"));
+        assert_eq!(result.rows[1].get("name").and_then(|v| v.as_str()), Some("bob"));
+        assert!(result.has_more);
     }
 
     #[test]
@@ -251,6 +292,7 @@ mod tests {
                 search: None,
                 filters: BTreeMap::new(),
                 collect_all: false,
+                ..DatasetQueryOptions::default()
             },
             true,
         );

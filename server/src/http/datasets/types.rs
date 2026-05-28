@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::table_contract::TableSortSpec;
+
 #[derive(Debug, Clone)]
 pub struct DatasetQueryOptions {
     pub page: usize,
@@ -10,6 +12,38 @@ pub struct DatasetQueryOptions {
     pub search: Option<String>,
     pub filters: BTreeMap<String, String>,
     pub collect_all: bool,
+    pub sort: Vec<TableSortSpec>,
+    pub column_state: Option<Value>,
+    pub summary: bool,
+}
+
+impl Default for DatasetQueryOptions {
+    fn default() -> Self {
+        Self {
+            page: 1,
+            page_size: 0,
+            search: None,
+            filters: BTreeMap::new(),
+            collect_all: false,
+            sort: Vec::new(),
+            column_state: None,
+            summary: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TableColumnMeta {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub type_name: String,
+    pub sortable: bool,
+    pub filterable: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TableSummary {
+    pub total: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +56,12 @@ pub struct DatasetQueryResult {
     pub rows: Vec<Value>,
     pub lazy: bool,
     pub perf: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub column_meta: Vec<TableColumnMeta>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<TableSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_state_echo: Option<super::table_contract::QueryStateEcho>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
