@@ -788,6 +788,13 @@ fn resolve_data_ref(
     Some((resources.get(&dataset_id)?.dataset.clone()?, dataset_id))
 }
 
+/// `world.add_metric` / `world(metrics=...)` 物化进 ledger 时 owner 为 `__world_metrics__`（或带路径后缀），
+/// 与 `metric_ref(..., from_dataset = "<源数据集>")` 中的 lineage 提示 id 不同，不应因此拒绝解析。
+fn is_scene_direct_world_metric_owner(owner_resource_id: &str) -> bool {
+    owner_resource_id == "__world_metrics__"
+        || owner_resource_id.starts_with("__world_metrics__::")
+}
+
 fn resolve_metric_ref(
     map: &serde_json::Map<String, Value>,
     resources: &BTreeMap<String, LoadedResource>,
@@ -797,10 +804,18 @@ fn resolve_metric_ref(
     let metric_id = map.get("id").and_then(Value::as_str)?;
     if let Some(entry) = compiled.world_metrics.get(metric_id) {
         if let Some(from_dataset) = map.get("from_dataset").and_then(Value::as_str) {
-            let dataset_id =
-                resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)).ok()?;
-            if dataset_id != entry.owner_resource_id {
-                return None;
+            match resolve_dataset_resource_id(compiled, from_dataset, Some(resource_index)) {
+                Ok(dataset_id) => {
+                    if dataset_id != entry.owner_resource_id
+                        && !is_scene_direct_world_metric_owner(&entry.owner_resource_id)
+                    {
+                        return None;
+                    }
+                }
+                Err(_) if !is_scene_direct_world_metric_owner(&entry.owner_resource_id) => {
+                    return None;
+                }
+                Err(_) => {}
             }
         }
         return Some((entry.metric.clone(), entry.owner_resource_id.clone()));

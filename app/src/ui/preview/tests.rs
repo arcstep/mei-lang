@@ -542,12 +542,24 @@ fn default_viewport_stage_lock_is_centered_and_fixed_height() {
 
 #[test]
 fn resolve_frame_viewport_uses_profile_default_without_explicit_props() {
-    let vp = super::viewport::resolve_frame_viewport(&serde_json::json!({}), Some("page"))
-        .expect("page default");
+    let props = serde_json::json!({});
+    assert!(!super::viewport::frame_viewport_is_explicit(&props));
+    let vp = super::viewport::resolve_frame_viewport(&props, Some("page")).expect("page default");
     assert!(vp.fluid_height);
-    let cockpit = super::viewport::resolve_frame_viewport(&serde_json::json!({}), Some("cockpit"))
+    let cockpit = super::viewport::resolve_frame_viewport(&props, Some("cockpit"))
         .expect("cockpit default");
     assert!(!cockpit.fluid_height);
+}
+
+#[test]
+fn frame_viewport_is_explicit_when_props_declares_viewport() {
+    let props = serde_json::json!({
+        "viewport": {
+            "design_width": 1280,
+            "design_height": 720,
+        }
+    });
+    assert!(super::viewport::frame_viewport_is_explicit(&props));
 }
 
 #[test]
@@ -730,12 +742,15 @@ fn frame_viewport_style_page_flow_uses_block_layout() {
             "design_width": 1280,
             "design_height": 720,
             "fluid_height": true,
+            "edit_safe_inset": { "top": 32, "right": 24, "bottom": 16, "left": 24 }
         }
     }))
     .expect("viewport config");
     let style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
     assert!(style.contains("display:block;"));
     assert!(!style.contains("display:grid;"));
+    assert!(style.contains("padding:32px 0px 16px 0px;"));
+    assert!(!style.contains("padding:32px 24px"));
 }
 
 #[test]
@@ -1669,5 +1684,111 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             .and_then(|value| value.get("dataset_id"))
             .and_then(|value| value.as_str()),
         Some("b")
+    );
+}
+
+#[test]
+fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics() {
+    use mei_lang_kernel::{MetricContract, MetricShape, SceneDecl};
+
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "cockpit_embedded_carousel".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: None,
+            theme: None,
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({}),
+            local_nav: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+
+    let dataframe_metric = MetricContract {
+        id: "alerts_cockpit_table".to_string(),
+        label: Some("嵌入轮播表".to_string()),
+        unit: None,
+        purpose: None,
+        shape: MetricShape::Dataframe,
+        schema: Vec::new(),
+        dataset: None,
+        transforms: Vec::new(),
+        value: json!([
+            {"level": "蓝", "org": "城南街道", "model": "扬尘预警", "alert_time": "2025-03-01"}
+        ]),
+    };
+
+    let compiled = CompiledApp {
+        app_id: "preview-world-metric".to_string(),
+        active_scene: Some("cockpit_embedded_carousel".to_string()),
+        active_target_file: "03-cockpit-embedded-carousel.mei".to_string(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::from([(
+            "alerts_cockpit_table".to_string(),
+            mei_lang_kernel::WorldMetricLedgerEntry {
+                id: "alerts_cockpit_table".to_string(),
+                owner_resource_id: "__world_metrics__".to_string(),
+                order: 1,
+                metric: dataframe_metric,
+            },
+        )]),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview-world-metric".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let resource_index = build_runtime_resource_index(&compiled);
+    let scene_anchor = super::resolve::RuntimeSceneAnchor {
+        scene_id: "cockpit_embedded_carousel".to_string(),
+        scene_path: Some("03-cockpit-embedded-carousel.mei".to_string()),
+    };
+
+    let metric_ref = json!({
+        "__ref": "metric",
+        "id": "alerts_cockpit_table",
+        "from_dataset": "alerts_raw"
+    });
+    let resolved = resolve_value(
+        &metric_ref,
+        &json!({}),
+        &scene_contract,
+        &BTreeMap::new(),
+        &scene_anchor,
+        &resource_index,
+        &compiled,
+    );
+    assert_ne!(resolved, Value::Null);
+    assert_eq!(
+        resolved
+            .get("__mei_runtime_ref")
+            .and_then(|value| value.get("dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some("__world_metrics__")
+    );
+    assert_eq!(
+        resolved
+            .get("__mei_runtime_ref")
+            .and_then(|value| value.get("metric_id"))
+            .and_then(|value| value.as_str()),
+        Some("alerts_cockpit_table")
     );
 }
