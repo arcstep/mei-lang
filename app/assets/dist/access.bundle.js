@@ -9432,6 +9432,61 @@
       });
       return null;
     }
+    const runtimeQuery = window.__meiDatasetRuntime;
+    if (runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
+      try {
+        const result = await runtimeQuery.fetchDatasetRows(
+          {
+            data: {
+              id: String(datasetId || "").trim(),
+              __mei_runtime_ref: {
+                kind: "data",
+                dataset_id: String(datasetId || "").trim(),
+                scene_id: sceneId,
+                scene_path: target,
+              },
+            },
+            _mei: {
+              dataset_query_api: `/api/datasets/query/${appPath}`,
+              active_scene_id: sceneId,
+              active_target_file: target,
+              entry_target: target,
+            },
+          },
+          {
+            page: 1,
+            pageSize: 100000,
+            full: true,
+            summary: true,
+            meta: {
+              component: "mei-popup-panel",
+              panel_id: String(config?.panelId || "drilldown"),
+              scene_id: sceneId,
+              target,
+            },
+          }
+        );
+        if (result) {
+          return {
+            rows: Array.isArray(result?.rows) ? result.rows : [],
+            columns: Array.isArray(result?.columns) ? result.columns : [],
+            column_meta: Array.isArray(result?.column_meta) ? result.column_meta : [],
+            summary: result?.summary || null,
+            query_state_echo: result?.query_state_echo || null,
+          };
+        }
+      } catch (error) {
+        recordPopupDebugIssue({
+          level: "error",
+          message: String(error?.message || error || "popup panel runtime-query fetch failed"),
+          phase: "dataset_fetch_runtime_query",
+          detail,
+          config,
+          datasetId,
+        });
+        throw error;
+      }
+    }
     let response;
     try {
       response = await fetch(`/api/datasets/query/${appPath}`, {
