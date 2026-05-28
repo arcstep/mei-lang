@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 
 use mei_lang_kernel::{ColumnSchema, DatasetView};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
 
@@ -28,6 +27,45 @@ pub struct QueryStateEcho {
     pub filters: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sort: Vec<TableSortSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column_state: Option<TableColumnState>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
+pub struct TableColumnState {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<TableColumnStateItem>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq)]
+pub struct TableColumnStateItem {
+    pub key: String,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub hidden: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub width: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_width: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valign: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_align: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_valign: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_wrap: Option<bool>,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub fn column_meta_from_dataset(dataset: &DatasetView, columns: &[String]) -> Vec<TableColumnMeta> {
@@ -84,6 +122,7 @@ pub fn enrich_table_result(
             .filter(|value| !value.is_empty()),
         filters: options.filters.clone(),
         sort: options.sort.clone(),
+        column_state: options.column_state.clone(),
     });
     result
 }
@@ -92,7 +131,7 @@ pub fn enrich_table_result(
 pub fn apply_table_request_fields(
     options: &mut DatasetQueryOptions,
     sort: Vec<TableSortSpec>,
-    column_state: Option<Value>,
+    column_state: Option<TableColumnState>,
     summary: bool,
 ) {
     options.sort = sort

@@ -274,6 +274,41 @@ mod tests {
     }
 
     #[test]
+    fn paginate_rows_sorts_numeric_strings_as_numbers() {
+        use super::paginate::paginate_rows;
+        use super::table_contract::TableSortSpec;
+        use serde_json::json;
+
+        let rows = vec![
+            json!({"amount": "99"}),
+            json!({"amount": "920"}),
+            json!({"amount": "125"}),
+        ];
+        let result = paginate_rows(
+            rows,
+            &["amount".to_string()],
+            &BTreeMap::new(),
+            &DatasetQueryOptions {
+                page: 1,
+                page_size: 3,
+                search: None,
+                filters: BTreeMap::new(),
+                collect_all: false,
+                sort: vec![TableSortSpec {
+                    field: "amount".to_string(),
+                    direction: "desc".to_string(),
+                }],
+                column_state: None,
+                summary: false,
+            },
+            true,
+        );
+        assert_eq!(result.rows[0].get("amount").and_then(|v| v.as_str()), Some("920"));
+        assert_eq!(result.rows[1].get("amount").and_then(|v| v.as_str()), Some("125"));
+        assert_eq!(result.rows[2].get("amount").and_then(|v| v.as_str()), Some("99"));
+    }
+
+    #[test]
     fn paginate_rows_returns_logical_columns_when_normalize_maps_source_headers() {
         use super::paginate::paginate_rows;
         use serde_json::json;

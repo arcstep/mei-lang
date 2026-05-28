@@ -14,7 +14,7 @@ use super::super::compile_cache::compile_app_with_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::datasets::{
     clear_external_file_cache_for_app, query_dataset_rows, query_metric_dataframe,
-    table_contract::{apply_table_request_fields, enrich_table_result, TableSortSpec},
+    table_contract::{apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec},
     DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
@@ -49,7 +49,7 @@ pub struct DatasetQueryRequest {
     #[serde(default)]
     pub sort: Vec<TableSortSpec>,
     #[serde(default)]
-    pub column_state: Option<serde_json::Value>,
+    pub column_state: Option<TableColumnState>,
     #[serde(default)]
     pub summary: bool,
 }

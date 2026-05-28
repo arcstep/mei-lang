@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use super::table_contract::TableSortSpec;
+use super::table_contract::{TableColumnState, TableSortSpec};
 
 #[derive(Debug, Clone)]
 pub struct DatasetQueryOptions {
@@ -13,7 +12,7 @@ pub struct DatasetQueryOptions {
     pub filters: BTreeMap<String, String>,
     pub collect_all: bool,
     pub sort: Vec<TableSortSpec>,
-    pub column_state: Option<Value>,
+    pub column_state: Option<TableColumnState>,
     pub summary: bool,
 }
 

@@ -81,6 +81,19 @@ pub(crate) fn query_csv_rows(
             return Ok(result);
         }
     }
+    if !options.sort.is_empty() {
+        let load_started = Instant::now();
+        let (headers, rows) = load_csv_rows(&path)?;
+        let load_ms = elapsed_ms(load_started);
+        let paginate_started = Instant::now();
+        let mut result = paginate_rows(rows, &headers, &meta.normalize, options, true);
+        result.perf.insert("csv_full_load_ms".to_string(), load_ms);
+        result.perf.insert(
+            "csv_sort_paginate_ms".to_string(),
+            elapsed_ms(paginate_started),
+        );
+        return Ok(result);
+    }
     let open_started = Instant::now();
     let mut reader = csv::Reader::from_path(&path)
         .with_context(|| format!("failed to open dataset {}", path.display()))?;

@@ -5,7 +5,7 @@ use mei_lang_kernel::SourceDecl;
 use rusqlite::{types::ValueRef, Connection};
 use serde_json::Value;
 
-use super::paginate::{apply_normalize, row_matches, QueryWindow};
+use super::paginate::{apply_normalize, paginate_rows, row_matches, QueryWindow};
 use super::paths::resolve_db_path;
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
@@ -46,7 +46,7 @@ pub(crate) fn query_db_rows(
             .map(str::trim)
             .map(|value| value.is_empty())
             .unwrap_or(true);
-    if no_filters {
+    if no_filters && options.sort.is_empty() {
         let sql = if options.collect_all {
             base_sql.clone()
         } else {
@@ -106,6 +106,20 @@ pub(crate) fn query_db_rows(
         .map(|value| value.to_string())
         .collect::<Vec<_>>();
     let mapped = stmt.query_map([], |row| db_row_to_value(row, &columns))?;
+    if !options.sort.is_empty() {
+        let mut rows = Vec::new();
+        for row in mapped {
+            let normalized = apply_normalize(row?, &meta.normalize);
+            if row_matches(&normalized, &options.filters, options.search.as_deref()) {
+                rows.push(normalized);
+            }
+        }
+        let mut result = paginate_rows(rows, &columns, &meta.normalize, options, true);
+        result
+            .perf
+            .insert("db_query_sort_ms".to_string(), elapsed_ms(query_started));
+        return Ok(result);
+    }
     let mut window = QueryWindow::new(options);
     for row in mapped {
         if window.should_stop() {

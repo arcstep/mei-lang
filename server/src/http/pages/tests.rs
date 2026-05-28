@@ -459,13 +459,13 @@ async fn dataset_metric_api_echoes_scene_id() {
     let state = crate::test_support::test_app_state().expect("app state");
     let app = crate::http::router().with_state(state);
     let payload = serde_json::json!({
-        "scene_id": "home",
-        "dataset_id": "sales_analytics",
-        "metric_ids": ["pack_total_value"]
+        "scene_id": "manage_query_state",
+        "dataset_id": "orders",
+        "metric_ids": ["orders_overview"]
     });
     let req = Request::builder()
         .method("POST")
-        .uri("/api/datasets/metrics/examples%2Fds%2F01-dataset-baseline")
+        .uri("/api/datasets/metrics/examples%2Fds%2F04-data-table-features")
         .header("content-type", "application/json")
         .body(Body::from(payload.to_string()))
         .unwrap();
@@ -473,8 +473,8 @@ async fn dataset_metric_api_echoes_scene_id() {
     assert_eq!(response.status(), StatusCode::OK);
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(v["scene_id"], "home");
-    assert_eq!(v["dataset_id"], "sales_analytics");
+    assert_eq!(v["scene_id"], "manage_query_state");
+    assert_eq!(v["dataset_id"], "orders");
 }
 
 #[test]

@@ -97,6 +97,19 @@ pub(crate) fn query_xlsx_rows(
             return Ok(result);
         }
     }
+    if !options.sort.is_empty() {
+        let load_started = Instant::now();
+        let (columns, rows) = load_xlsx_rows(&path, source.path.as_str(), sheet, header_row)?;
+        let load_ms = elapsed_ms(load_started);
+        let paginate_started = Instant::now();
+        let mut result = paginate_rows(rows, &columns, &meta.normalize, options, true);
+        result.perf.insert("xlsx_full_load_ms".to_string(), load_ms);
+        result.perf.insert(
+            "xlsx_sort_paginate_ms".to_string(),
+            elapsed_ms(paginate_started),
+        );
+        return Ok(result);
+    }
     let open_started = Instant::now();
     let ext_xls = source.path.to_ascii_lowercase().ends_with(".xls");
     if ext_xls || is_ole_compound_document(&path) {
