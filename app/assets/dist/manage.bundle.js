@@ -36,6 +36,11 @@
     return value === "debug" || value === "scroll" || value === "visible";
   }
 
+  /** 仅 frame.props.viewport 显式配置；profile 默认（page-flow）不提供缩放工具栏。 */
+  function viewportToolbarEnabled(root) {
+    return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
+  }
+
   /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
@@ -263,6 +268,7 @@
   }
 
   function setManagePreviewZoom(root, value) {
+    if (!viewportToolbarEnabled(root)) return;
     root.dataset.previewZoom = value;
     try {
       localStorage.setItem(MANAGE_ZOOM_STORAGE_KEY, value);
@@ -287,6 +293,10 @@
   }
 
   function ensureManageZoomToolbar(root) {
+    if (!viewportToolbarEnabled(root)) {
+      root?.querySelector(":scope > .preview-viewport-toolbar")?.remove();
+      return null;
+    }
     let toolbar = root.querySelector(":scope > .preview-viewport-toolbar");
     const shell = root.querySelector(".preview-stage-shell");
     if (!toolbar) {
@@ -340,6 +350,7 @@
   }
 
   function updateManageZoomToolbar(root) {
+    if (!viewportToolbarEnabled(root)) return;
     ensureManageZoomToolbar(root);
     const bar = root.querySelector("[data-preview-zoom-bar]");
     if (!bar) return;
@@ -1379,8 +1390,12 @@
       shell.style.justifySelf = "start";
       shell.style.alignSelf = "start";
     }
-    initManagePreviewZoom(root);
-    ensureManageZoomToolbar(root);
+    if (viewportToolbarEnabled(root)) {
+      initManagePreviewZoom(root);
+      ensureManageZoomToolbar(root);
+    } else {
+      root.querySelector(":scope > .preview-viewport-toolbar")?.remove();
+    }
     const wrap = ensureStageScaleWrap(shell, stage);
     const inner = ensureStageScaleInner(wrap);
     clearDebugOverlayNodes(inner);
@@ -1601,6 +1616,8 @@
       card.querySelectorAll(".panel-body-cell, .preview-panel-body").forEach((body) => {
         body.style.height = "auto";
         body.style.minHeight = "0";
+        body.style.gridTemplateColumns = "minmax(0, 1fr)";
+        body.style.gridTemplateAreas = "none";
       });
       card.querySelectorAll(".component-card").forEach((slot) => {
         slot.style.display = "flex";
@@ -1609,6 +1626,9 @@
         slot.style.height = "auto";
         slot.style.minHeight = "0";
         slot.style.width = "100%";
+        slot.style.maxWidth = "100%";
+        slot.style.gridColumn = "1 / -1";
+        slot.style.gridArea = "auto";
         slot.style.justifyContent = "flex-start";
       });
     });
@@ -1617,11 +1637,23 @@
   /**
    * 访问态页面流（fluid_height）：定宽不超过宿主，左上对齐，纵向随内容延伸。
    */
+  function resolvePageFlowHostWidth(root, safe, hostWidth) {
+    const fromRoot = Math.max(
+      1,
+      (root?.clientWidth || 0) - safe.left - safe.right,
+    );
+    return Math.max(1, hostWidth || 0, fromRoot);
+  }
+
   function applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth) {
     flattenStageScaleWrap(shell, stage);
     removeDesignBounds(shell);
-    const canvasWidth = Math.max(1, Math.min(designWidth, Math.max(1, hostWidth)));
+    const safe = readSafeInsets(root, String(root?.dataset?.overflowMode || "debug"));
+    const effectiveHost = resolvePageFlowHostWidth(root, safe, hostWidth);
+    const canvasWidth = Math.max(1, Math.min(designWidth, effectiveHost));
     root.style.display = "block";
+    root.style.width = "100%";
+    root.style.maxWidth = "100%";
     root.style.justifyItems = "";
     root.style.alignItems = "";
     root.style.alignContent = "";
@@ -1640,6 +1672,8 @@
     shell.style.position = "relative";
     stage.style.width = "100%";
     stage.style.maxWidth = `${round(canvasWidth)}px`;
+    stage.style.margin = "0";
+    stage.style.marginInline = "0";
     stage.style.height = "auto";
     stage.style.minHeight = "0";
     stage.style.maxHeight = "none";
@@ -1782,9 +1816,11 @@
         if (fluidHeight) {
           applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth);
           unlockStageLayoutForDebug(stage, designHeight || contentHeight, true);
-          initManagePreviewZoom(root);
-          ensureManageZoomToolbar(root);
-          updateManageZoomToolbar(root);
+          if (viewportToolbarEnabled(root)) {
+            initManagePreviewZoom(root);
+            ensureManageZoomToolbar(root);
+            updateManageZoomToolbar(root);
+          }
           const canvasWidth = Math.max(
             1,
             Math.min(designWidth, Math.max(1, hostWidth)),
@@ -1982,7 +2018,7 @@
     const btn = event.target.closest("[data-preview-zoom]");
     if (!btn) return;
     const root = btn.closest('[data-mei-frame-viewport="true"]');
-    if (!root || !isManagePreviewRoute(root)) return;
+    if (!root || !isManagePreviewRoute(root) || !viewportToolbarEnabled(root)) return;
     const mode = String(btn.dataset.previewZoom || "");
     if (mode === "minus") {
       stepManagePreviewZoom(root, -0.1);

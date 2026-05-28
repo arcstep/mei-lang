@@ -59,6 +59,8 @@
       card.querySelectorAll(".panel-body-cell, .preview-panel-body").forEach((body) => {
         body.style.height = "auto";
         body.style.minHeight = "0";
+        body.style.gridTemplateColumns = "minmax(0, 1fr)";
+        body.style.gridTemplateAreas = "none";
       });
       card.querySelectorAll(".component-card").forEach((slot) => {
         slot.style.display = "flex";
@@ -67,6 +69,9 @@
         slot.style.height = "auto";
         slot.style.minHeight = "0";
         slot.style.width = "100%";
+        slot.style.maxWidth = "100%";
+        slot.style.gridColumn = "1 / -1";
+        slot.style.gridArea = "auto";
         slot.style.justifyContent = "flex-start";
       });
     });
@@ -75,11 +80,23 @@
   /**
    * 访问态页面流（fluid_height）：定宽不超过宿主，左上对齐，纵向随内容延伸。
    */
+  function resolvePageFlowHostWidth(root, safe, hostWidth) {
+    const fromRoot = Math.max(
+      1,
+      (root?.clientWidth || 0) - safe.left - safe.right,
+    );
+    return Math.max(1, hostWidth || 0, fromRoot);
+  }
+
   function applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth) {
     flattenStageScaleWrap(shell, stage);
     removeDesignBounds(shell);
-    const canvasWidth = Math.max(1, Math.min(designWidth, Math.max(1, hostWidth)));
+    const safe = readSafeInsets(root, String(root?.dataset?.overflowMode || "debug"));
+    const effectiveHost = resolvePageFlowHostWidth(root, safe, hostWidth);
+    const canvasWidth = Math.max(1, Math.min(designWidth, effectiveHost));
     root.style.display = "block";
+    root.style.width = "100%";
+    root.style.maxWidth = "100%";
     root.style.justifyItems = "";
     root.style.alignItems = "";
     root.style.alignContent = "";
@@ -98,6 +115,8 @@
     shell.style.position = "relative";
     stage.style.width = "100%";
     stage.style.maxWidth = `${round(canvasWidth)}px`;
+    stage.style.margin = "0";
+    stage.style.marginInline = "0";
     stage.style.height = "auto";
     stage.style.minHeight = "0";
     stage.style.maxHeight = "none";
@@ -240,9 +259,11 @@
         if (fluidHeight) {
           applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth);
           unlockStageLayoutForDebug(stage, designHeight || contentHeight, true);
-          initManagePreviewZoom(root);
-          ensureManageZoomToolbar(root);
-          updateManageZoomToolbar(root);
+          if (viewportToolbarEnabled(root)) {
+            initManagePreviewZoom(root);
+            ensureManageZoomToolbar(root);
+            updateManageZoomToolbar(root);
+          }
           const canvasWidth = Math.max(
             1,
             Math.min(designWidth, Math.max(1, hostWidth)),

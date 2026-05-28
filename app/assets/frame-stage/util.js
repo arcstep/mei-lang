@@ -18,6 +18,11 @@
     return value === "debug" || value === "scroll" || value === "visible";
   }
 
+  /** 仅 frame.props.viewport 显式配置；profile 默认（page-flow）不提供缩放工具栏。 */
+  function viewportToolbarEnabled(root) {
+    return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
+  }
+
   /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();

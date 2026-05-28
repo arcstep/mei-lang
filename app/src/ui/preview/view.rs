@@ -49,6 +49,7 @@ pub(super) fn preview_view(
                 scene_contract.scene.profile.as_deref(),
             );
             if let Some(vp) = vp {
+                let viewport_explicit = viewport::frame_viewport_is_explicit(&frame_props);
                 let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
                 let is_manage = route_mode == UiRouteMode::Manage;
                 let content_bounds =
@@ -92,7 +93,14 @@ pub(super) fn preview_view(
                 } else {
                     "preview-surface preview-stage"
                 };
-                let show_viewport_chrome = is_manage;
+                // 仅显式 viewport + 固定画布调试：profile 默认 page-flow 不展示缩放条
+                let show_viewport_chrome =
+                    is_manage && viewport_explicit && !fluid_height;
+                let viewport_explicit_attr = if viewport_explicit {
+                    "true"
+                } else {
+                    "false"
+                };
                 let chrome_height = if fluid_height {
                     content_bounds.height
                 } else {
@@ -145,6 +153,7 @@ pub(super) fn preview_view(
                         data-route-mode=route_mode.slug()
                         data-overflow-mode=overflow_mode.clone()
                         data-aspect-ratio=vp.aspect_ratio.clone().unwrap_or_default()
+                        data-viewport-explicit=viewport_explicit_attr
                     >
                         {show_viewport_chrome.then(|| view! {
                             <div class="preview-viewport-toolbar">

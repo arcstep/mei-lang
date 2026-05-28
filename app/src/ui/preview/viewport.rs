@@ -253,12 +253,18 @@ pub(super) fn frame_viewport_style_page_flow_for_route(
 ) -> String {
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
+    // Manage：水平留白交给 frame grid padding；视窗铺满中间栏，避免「视窗缩窄 + 右侧对齐」假象。
+    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Manage {
+        (safe_top, 0.0, safe_bottom, 0.0)
+    } else {
+        (safe_top, safe_right, safe_bottom, safe_left)
+    };
     format!(
         "width:100%;min-width:0;min-height:0;height:auto;overflow-x:auto;overflow-y:auto;display:block;box-sizing:border-box;padding:{}px {}px {}px {}px;--mei-viewport-design-width:{}px;--mei-viewport-design-height:{}px;",
-        safe_top,
-        safe_right,
-        safe_bottom,
-        safe_left,
+        pad_top,
+        pad_right,
+        pad_bottom,
+        pad_left,
         viewport.design_width,
         viewport.design_height,
     )
@@ -336,6 +342,11 @@ pub(super) fn default_viewport_for_profile(profile: Option<&str>) -> FrameViewpo
         "cockpit" => default_viewport_stage_lock(),
         _ => default_viewport_page_flow(),
     }
+}
+
+/// 是否在 `frame.props` 中显式声明了 `viewport`（不含 profile 默认）。
+pub(super) fn frame_viewport_is_explicit(props: &Value) -> bool {
+    frame_viewport_config(props).is_some()
 }
 
 /// 合并显式 `frame.props.viewport` 与 profile 默认。

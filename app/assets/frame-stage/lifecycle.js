@@ -94,7 +94,7 @@
     const btn = event.target.closest("[data-preview-zoom]");
     if (!btn) return;
     const root = btn.closest('[data-mei-frame-viewport="true"]');
-    if (!root || !isManagePreviewRoute(root)) return;
+    if (!root || !isManagePreviewRoute(root) || !viewportToolbarEnabled(root)) return;
     const mode = String(btn.dataset.previewZoom || "");
     if (mode === "minus") {
       stepManagePreviewZoom(root, -0.1);

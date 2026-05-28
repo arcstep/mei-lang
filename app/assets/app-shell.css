@@ -920,6 +920,15 @@ a.status-chip-link:focus-visible {
   min-height: 100%;
   max-height: none;
 }
+/* page-flow：视窗必须铺满中间栏宽度，禁止缩成内容宽后偏右留白 */
+.frame-stage-enabled .preview-pane-scroll > .preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  align-self: stretch;
+  box-sizing: border-box;
+}
 /* 管理端编辑调试：按宽缩放 + 分辨率虚线框；斜纹仅出现在溢出遮罩上，避免整页误读为横向溢出 */
 .preview-viewport.preview-viewport-edit-debug {
   position: relative;
@@ -1183,11 +1192,19 @@ a.status-chip-link:focus-visible {
 .frame-stage-enabled .preview-pane-scroll {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
+  width: 100%;
   min-height: 0;
+  box-sizing: border-box;
 }
 .frame-stage-enabled .preview-pane-scroll > .preview-viewport {
   flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   min-height: 0;
+  align-self: stretch;
+  box-sizing: border-box;
 }
 .preview-stage-shell {
   position: relative;
@@ -1340,15 +1357,20 @@ a.status-chip-link:focus-visible {
 .preview-card > .panel-body-cell {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
   min-width: 0;
   min-height: 0;
   overflow: visible;
 }
-/* bare 单组件（如 cockpit.header-brand）：避免 remap 的 grid-area:body 在嵌套 grid 里挤成右半列 */
-.preview-card-bare > .panel-body-cell > .component-card {
+/* 编译 remap auto→body 后，component-card 的 grid-area:body 在 panel-body-cell 嵌套 grid 会挤到右列或零宽 */
+.preview-card > .panel-body-cell > .component-card {
   grid-column: 1 / -1;
+  grid-area: auto;
   width: 100%;
   min-width: 0;
+}
+/* bare 单组件（如 cockpit.header-brand）：占满行宽，host 块级铺开 */
+.preview-card-bare > .panel-body-cell > .component-card {
   display: block;
 }
 .preview-card-bare > .panel-body-cell > .component-card > .component-host {

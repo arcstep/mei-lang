@@ -122,6 +122,7 @@
   }
 
   function setManagePreviewZoom(root, value) {
+    if (!viewportToolbarEnabled(root)) return;
     root.dataset.previewZoom = value;
     try {
       localStorage.setItem(MANAGE_ZOOM_STORAGE_KEY, value);
@@ -146,6 +147,10 @@
   }
 
   function ensureManageZoomToolbar(root) {
+    if (!viewportToolbarEnabled(root)) {
+      root?.querySelector(":scope > .preview-viewport-toolbar")?.remove();
+      return null;
+    }
     let toolbar = root.querySelector(":scope > .preview-viewport-toolbar");
     const shell = root.querySelector(".preview-stage-shell");
     if (!toolbar) {
@@ -199,6 +204,7 @@
   }
 
   function updateManageZoomToolbar(root) {
+    if (!viewportToolbarEnabled(root)) return;
     ensureManageZoomToolbar(root);
     const bar = root.querySelector("[data-preview-zoom-bar]");
     if (!bar) return;

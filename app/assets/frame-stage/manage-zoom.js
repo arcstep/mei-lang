@@ -202,8 +202,12 @@
       shell.style.justifySelf = "start";
       shell.style.alignSelf = "start";
     }
-    initManagePreviewZoom(root);
-    ensureManageZoomToolbar(root);
+    if (viewportToolbarEnabled(root)) {
+      initManagePreviewZoom(root);
+      ensureManageZoomToolbar(root);
+    } else {
+      root.querySelector(":scope > .preview-viewport-toolbar")?.remove();
+    }
     const wrap = ensureStageScaleWrap(shell, stage);
     const inner = ensureStageScaleInner(wrap);
     clearDebugOverlayNodes(inner);
