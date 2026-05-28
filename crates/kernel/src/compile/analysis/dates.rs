@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use crate::model::ColumnSchema;
+
 use super::schema::{row_number, row_value};
 
 /// 从行字段解析日历日期；支持常见字符串与 Excel 序列日。
@@ -87,6 +89,41 @@ fn civil_ymd_from_days(days: i32) -> (i32, u32, u32) {
 
 pub(super) fn format_month_label(year: i32, month: u32) -> String {
     format!("{year:04}-{month:02}")
+}
+
+pub(super) fn format_iso_date((year, month, day): (i32, u32, u32)) -> String {
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
+pub(crate) fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -> Vec<Value> {
+    if schema.is_empty() {
+        return rows;
+    }
+    rows.into_iter()
+        .map(|row| {
+            let Some(obj) = row.as_object() else {
+                return row;
+            };
+            let mut out = obj.clone();
+            for column in schema {
+                let type_name = column.type_name.as_str();
+                if type_name != "date" && type_name != "datetime" {
+                    continue;
+                }
+                if let Some(value) = out.get(&column.name) {
+                    out.insert(column.name.clone(), coerce_value_to_date_string(value));
+                }
+            }
+            Value::Object(out)
+        })
+        .collect()
+}
+
+fn coerce_value_to_date_string(value: &Value) -> Value {
+    parse_date_value(value)
+        .map(|ymd| Value::String(format_iso_date(ymd)))
+        .unwrap_or_else(|| value.clone())
 }
 
 pub(super) fn add_months(year: i32, month: u32, delta: i32) -> (i32, u32) {
@@ -242,6 +279,27 @@ mod tests {
         assert_eq!(
             parse_date_value(&json!("2024年6月15日")),
             Some((2024, 6, 15))
+        );
+    }
+
+    #[test]
+    fn coerce_rows_to_schema_converts_excel_serial_datetime_columns() {
+        use super::{coerce_rows_to_schema, format_iso_date};
+        use crate::model::ColumnSchema;
+
+        let rows = vec![json!({"预警时间": 46023, "预警ID": "w1"})];
+        let schema = vec![ColumnSchema {
+            name: "预警时间".to_string(),
+            type_name: "datetime".to_string(),
+            source: None,
+            optional: false,
+            unit: None,
+        }];
+        let out = coerce_rows_to_schema(rows, &schema);
+        let parsed = parse_date_value(&json!(46023)).expect("46023 serial");
+        assert_eq!(
+            out[0].get("预警时间").and_then(|v| v.as_str()),
+            Some(format_iso_date(parsed).as_str())
         );
     }
 }
