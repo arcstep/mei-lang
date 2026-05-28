@@ -15,12 +15,13 @@ mod theme;
 mod viewport;
 
 pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
-    compiled
-        .scene_contract
-        .as_ref()
-        .and_then(|scene_contract| scene_contract.frame.as_ref())
-        .and_then(|frame| viewport::frame_viewport_config(&frame.props))
-        .is_some()
+    let Some(scene_contract) = &compiled.scene_contract else {
+        return false;
+    };
+    let Some(frame) = &scene_contract.frame else {
+        return false;
+    };
+    viewport::resolve_frame_viewport(&frame.props, scene_contract.scene.profile.as_deref()).is_some()
 }
 
 pub(super) struct PreviewRuntimeContext {

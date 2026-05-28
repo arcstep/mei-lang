@@ -4,8 +4,6 @@ use super::{build_preview_runtime_context, nodes, style, theme, viewport};
 use crate::ui::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::CompiledApp;
-use serde_json::json;
-
 pub(super) fn preview_view(
     compiled: &CompiledApp,
     app_path: &str,
@@ -46,29 +44,10 @@ pub(super) fn preview_view(
                     )
                 })
                 .collect_view();
-            let vp = viewport::frame_viewport_config(&frame_props).or_else(|| {
-                let profile = scene_contract.scene.profile.as_deref().unwrap_or("");
-                if matches!(profile, "cockpit" | "page") {
-                    viewport::frame_viewport_config(&json!({
-                        "viewport": {
-                            "enabled": true,
-                            "design_width": 1920,
-                            "design_height": 1080,
-                            "aspect_ratio": "16:9",
-                            "scale_mode": "contain",
-                            "overflow": "clip",
-                            "edit_overflow": "debug",
-                            "edit_scale_mode": "contain",
-                            "show_design_bounds": true,
-                            "align": "center",
-                            "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
-                            "edit_safe_inset": { "top": 32, "right": 16, "bottom": 12, "left": 16 }
-                        }
-                    }))
-                } else {
-                    None
-                }
-            });
+            let vp = viewport::resolve_frame_viewport(
+                &frame_props,
+                scene_contract.scene.profile.as_deref(),
+            );
             if let Some(vp) = vp {
                 let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
                 let is_manage = route_mode == UiRouteMode::Manage;
@@ -83,11 +62,7 @@ pub(super) fn preview_view(
                         route_mode,
                     )
                 } else {
-                    viewport::frame_viewport_style_for_route(
-                        &vp,
-                        overflow_mode.as_str(),
-                        route_mode,
-                    )
+                    viewport::frame_viewport_style_for_route(&vp, overflow_mode.as_str(), route_mode)
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
                 let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
@@ -96,7 +71,6 @@ pub(super) fn preview_view(
                 } else {
                     content_bounds.height.to_string()
                 };
-                let content_fluid_width = if fluid_width { "true" } else { "false" };
                 let content_fluid_height = if fluid_height { "true" } else { "false" };
                 let viewport_class = if is_manage {
                     if fluid_width {
@@ -108,6 +82,8 @@ pub(super) fn preview_view(
                     }
                 } else if fluid_width {
                     "preview-viewport preview-viewport-access-clip preview-viewport-fluid-width"
+                } else if fluid_height {
+                    "preview-viewport preview-viewport-access-clip preview-viewport-fluid-height"
                 } else {
                     "preview-viewport preview-viewport-access-clip"
                 };
@@ -148,7 +124,6 @@ pub(super) fn preview_view(
                         class=viewport_class
                         style=viewport_style
                         data-mei-frame-viewport="true"
-                        data-content-fluid-width=content_fluid_width
                         data-content-fluid-height=content_fluid_height
                         data-design-width=vp.design_width.to_string()
                         data-canvas-width=canvas_width_attr
@@ -156,6 +131,7 @@ pub(super) fn preview_view(
                         data-content-max-width=content_max_width
                         data-content-height=content_height
                         data-scale-mode=vp.scale_mode.clone()
+                        data-edit-scale-mode=vp.edit_scale_mode.clone()
                         data-safe-top=vp.safe_top.to_string()
                         data-safe-right=vp.safe_right.to_string()
                         data-safe-bottom=vp.safe_bottom.to_string()
@@ -164,13 +140,11 @@ pub(super) fn preview_view(
                         data-edit-safe-right=vp.edit_safe_right.to_string()
                         data-edit-safe-bottom=vp.edit_safe_bottom.to_string()
                         data-edit-safe-left=vp.edit_safe_left.to_string()
-                        data-source-path=selected_target.to_string()
                         data-target-file=selected_target.to_string()
                         data-scene-id=scene_contract.scene.id.clone()
                         data-route-mode=route_mode.slug()
                         data-overflow-mode=overflow_mode.clone()
-                        data-show-design-bounds="true"
-                        data-aspect-ratio=vp.aspect_ratio.clone().unwrap_or_else(|| "16:9".to_string())
+                        data-aspect-ratio=vp.aspect_ratio.clone().unwrap_or_default()
                     >
                         {show_viewport_chrome.then(|| view! {
                             <div class="preview-viewport-toolbar">

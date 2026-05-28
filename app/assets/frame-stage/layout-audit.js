@@ -19,6 +19,99 @@
     manageRelayoutTimers.set(root, prev);
   }
 
+  /** 拆掉 manage 调试缩放壳，避免 inner 设计宽与 stage 宿主宽不一致导致整块偏右。 */
+  function flattenStageScaleWrap(shell, stage) {
+    const wrap = shell?.querySelector(":scope > .preview-stage-scale-wrap");
+    if (!wrap) return;
+    removeDesignBounds(shell);
+    const inner = wrap.querySelector(":scope > .preview-stage-scale-inner");
+    const moveOut = (node) => {
+      if (!node || node === wrap) return;
+      shell.insertBefore(node, wrap);
+    };
+    if (inner) {
+      inner.style.transform = "none";
+      inner.style.width = "";
+      inner.style.height = "";
+      [...inner.childNodes].forEach(moveOut);
+    } else {
+      [...wrap.childNodes].forEach(moveOut);
+    }
+    wrap.remove();
+    if (stage && stage.parentElement !== shell) {
+      shell.appendChild(stage);
+    }
+  }
+
+  /** page-flow：舞台与 panel 行高随内容，取消 1fr 撑满与 slot 居中留白。 */
+  function relaxPageFlowStageGrid(stage) {
+    const panels = stage?.querySelectorAll(":scope > .preview-card") || [];
+    if (panels.length > 0) {
+      stage.style.gridTemplateRows = `repeat(${panels.length}, auto)`;
+    }
+    panels.forEach((card) => {
+      card.style.gridTemplate = "none";
+      card.style.gridTemplateAreas = '"body"';
+      card.style.gridTemplateColumns = "minmax(0, 1fr)";
+      card.style.gridTemplateRows = "auto";
+      card.style.alignSelf = "start";
+      card.style.height = "auto";
+      card.querySelectorAll(".panel-body-cell, .preview-panel-body").forEach((body) => {
+        body.style.height = "auto";
+        body.style.minHeight = "0";
+      });
+      card.querySelectorAll(".component-card").forEach((slot) => {
+        slot.style.display = "flex";
+        slot.style.flexDirection = "column";
+        slot.style.alignItems = "stretch";
+        slot.style.height = "auto";
+        slot.style.minHeight = "0";
+        slot.style.width = "100%";
+        slot.style.justifyContent = "flex-start";
+      });
+    });
+  }
+
+  /**
+   * 访问态页面流（fluid_height）：定宽不超过宿主，左上对齐，纵向随内容延伸。
+   */
+  function applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth) {
+    flattenStageScaleWrap(shell, stage);
+    removeDesignBounds(shell);
+    const canvasWidth = Math.max(1, Math.min(designWidth, Math.max(1, hostWidth)));
+    root.style.display = "block";
+    root.style.justifyItems = "";
+    root.style.alignItems = "";
+    root.style.alignContent = "";
+    shell.style.display = "block";
+    shell.style.alignItems = "";
+    shell.style.justifyContent = "";
+    shell.style.justifySelf = "";
+    shell.style.alignSelf = "";
+    shell.style.width = "100%";
+    shell.style.height = "auto";
+    shell.style.maxWidth = "100%";
+    shell.style.maxHeight = "none";
+    shell.style.margin = "0";
+    shell.style.marginInline = "0";
+    shell.style.overflow = "visible";
+    shell.style.position = "relative";
+    stage.style.width = "100%";
+    stage.style.maxWidth = `${round(canvasWidth)}px`;
+    stage.style.height = "auto";
+    stage.style.minHeight = "0";
+    stage.style.maxHeight = "none";
+    stage.style.transform = "none";
+    stage.style.zoom = "";
+    stage.style.transformOrigin = "top left";
+    relaxPageFlowStageGrid(stage);
+    root.dataset.meiFrameScale = "1";
+    root.dataset.meiAppliedZoom = "1";
+    root.dataset.meiManageRelayout = "";
+    delete root.dataset.meiLayoutKey;
+    root.scrollLeft = 0;
+  }
+
   /**
    * 访问 / 运行态：contain（默认）或 cover；contain 等比铺满宿主且不裁切，信纸区居中。
    */
@@ -144,24 +237,73 @@
       if (viewportLayoutApplying.get(root)) return;
       viewportLayoutApplying.set(root, true);
       try {
-        applyDebugPreviewLayout(
-          root,
-          shell,
-          stage,
-          hostWidth,
-          hostHeight,
-        designWidthDeclared,
-        designHeight || contentHeight,
-        fluidHeight,
-        contentMaxWidth > 0 ? contentMaxWidth : 0,
-      );
+        if (fluidHeight) {
+          applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth);
+          unlockStageLayoutForDebug(stage, designHeight || contentHeight, true);
+          initManagePreviewZoom(root);
+          ensureManageZoomToolbar(root);
+          updateManageZoomToolbar(root);
+          const canvasWidth = Math.max(
+            1,
+            Math.min(designWidth, Math.max(1, hostWidth)),
+          );
+          const extent = measureStageContentExtent(
+            stage,
+            contentMaxWidth > 0 ? contentMaxWidth : 0,
+          );
+          const aspectRatio = String(root.dataset.aspectRatio || "").trim();
+          ensureViewportChrome(
+            root,
+            canvasWidth,
+            designHeight || contentHeight,
+            aspectRatio,
+            extent.height,
+            true,
+          );
+          runLayoutAudit(
+            root,
+            stage,
+            canvasWidth,
+            designHeight || contentHeight || extent.height,
+            extent.width,
+            extent.height,
+            extent.width,
+          );
+        } else {
+          applyDebugPreviewLayout(
+            root,
+            shell,
+            stage,
+            hostWidth,
+            hostHeight,
+            designWidthDeclared,
+            designHeight || contentHeight,
+            fluidHeight,
+            contentMaxWidth > 0 ? contentMaxWidth : 0,
+          );
+        }
       } finally {
         requestAnimationFrame(() => viewportLayoutApplying.delete(root));
       }
       return;
     }
 
-    if (contentMaxWidth > 0 && !fluidHeight) {
+    if (fluidHeight) {
+      applyFluidPageFlowLayout(root, shell, stage, hostWidth, designWidth);
+      const extent = measureStageContentExtent(stage, designWidth);
+      runLayoutAudit(
+        root,
+        stage,
+        designWidth,
+        designHeight || contentHeight || extent.height,
+        extent.width,
+        extent.height,
+        extent.width,
+      );
+      return;
+    }
+
+    if (contentMaxWidth > 0) {
       applyFluidWidthLayout(shell, stage, contentMaxWidth, hostWidth);
       const extent = measureStageContentExtent(stage, contentMaxWidth);
       runLayoutAudit(

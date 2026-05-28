@@ -92,6 +92,24 @@
     return fit > 0 ? fit : 1;
   }
 
+  /** page-flow / fit-width：仅按宽度适配宿主，纵向可滚动，避免「贴右长条」。 */
+  function computeManageWidthFitScale(root, hostWidth, contentWidth, fluidHeight) {
+    if (hostWidth <= 0 || contentWidth <= 0) return 1;
+    const editMode = String(root.dataset.editScaleMode || "")
+      .trim()
+      .toLowerCase();
+    const widthOnly =
+      fluidHeight ||
+      editMode === "fit-width" ||
+      editMode === "fit_width" ||
+      editMode === "width";
+    if (!widthOnly) {
+      return null;
+    }
+    const fit = hostWidth / contentWidth;
+    return fit > 0 ? fit : 1;
+  }
+
   function resolveManagePreviewZoom(root, fitScale) {
     initManagePreviewZoom(root);
     const raw = String(root.dataset.previewZoom || "fit").trim().toLowerCase();
@@ -204,12 +222,14 @@
     }
   }
 
-  function unlockStageLayoutForDebug(stage, designHeight) {
+  function unlockStageLayoutForDebug(stage, designHeight, fluidHeight) {
     stage.style.overflow = "visible";
     stage.style.height = "auto";
-    stage.style.minHeight = `${round(designHeight)}px`;
+    stage.style.minHeight = fluidHeight ? "0" : `${round(designHeight)}px`;
     stage.style.maxHeight = "none";
-    if (stage.dataset.meiDebugLayoutUnlocked !== "true") {
+    if (fluidHeight) {
+      relaxPageFlowStageGrid(stage);
+    } else if (stage.dataset.meiDebugLayoutUnlocked !== "true") {
       const rows = getComputedStyle(stage).gridTemplateRows;
       if (rows && rows !== "none") {
         const parts = rows.split(/\s+/).filter((row) => row && row !== "none");
@@ -217,7 +237,6 @@
           .map((row, index) => {
             if (index === 0) return row;
             if (/minmax|fr/i.test(row)) return "auto";
-            if (Number.isFinite(Number.parseFloat(row))) return "auto";
             return row;
           })
           .join(" ");

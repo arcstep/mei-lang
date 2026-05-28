@@ -190,10 +190,17 @@
     fluidHeight,
     contentMaxWidth,
   ) {
-    const canvasWidth =
-      contentMaxWidth > 0 ? Math.min(contentMaxWidth, designWidth) : designWidth;
-    if (contentMaxWidth > 0 && designWidth > canvasWidth + 0.5) {
+    const canvasWidth = fluidHeight
+      ? Math.min(designWidth, Math.max(1, hostWidth))
+      : contentMaxWidth > 0
+        ? Math.min(contentMaxWidth, designWidth)
+        : designWidth;
+    if (fluidHeight || (contentMaxWidth > 0 && designWidth > canvasWidth + 0.5)) {
       root.style.justifyItems = "start";
+      root.style.alignItems = "start";
+      root.style.alignContent = "start";
+      shell.style.justifySelf = "start";
+      shell.style.alignSelf = "start";
     }
     initManagePreviewZoom(root);
     ensureManageZoomToolbar(root);
@@ -204,7 +211,7 @@
     inner.style.width = "";
     inner.style.height = "";
 
-    unlockStageLayoutForDebug(stage, designHeight);
+    unlockStageLayoutForDebug(stage, designHeight, fluidHeight);
     stage.style.width = `${round(canvasWidth)}px`;
     stage.style.height = "auto";
     stage.style.maxHeight = "none";
@@ -224,13 +231,25 @@
       contentMaxWidth,
     );
 
-    const fitScale = computeManageFitScale(
+    const widthFit = computeManageWidthFitScale(
+      root,
       hostWidth,
-      hostHeight,
       contentWidth,
-      contentHeight,
+      fluidHeight,
     );
-    const appliedZoom = resolveManagePreviewZoom(root, fitScale);
+    const fitScale =
+      widthFit != null
+        ? widthFit
+        : computeManageFitScale(
+            hostWidth,
+            hostHeight,
+            contentWidth,
+            contentHeight,
+          );
+    let appliedZoom = resolveManagePreviewZoom(root, fitScale);
+    if (fluidHeight && widthFit != null) {
+      appliedZoom = Math.min(appliedZoom, widthFit);
+    }
     const aspectRatio = String(root.dataset.aspectRatio || "").trim();
     const layoutKey = manageLayoutKey(
       contentWidth,

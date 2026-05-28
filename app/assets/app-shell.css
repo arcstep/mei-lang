@@ -1114,6 +1114,47 @@ a.status-chip-link:focus-visible {
   position: relative;
 }
 /* frame 设 max_width：管理态仍走 edit-debug；访问态 contain 裁切 */
+/* page-flow（fluid_height）：舞台随宿主定宽、左上对齐，两侧由 edit_safe_inset 留白 */
+.preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height,
+.preview-viewport.preview-viewport-access-clip.preview-viewport-fluid-height {
+  display: block;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+.preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height > .preview-viewport-toolbar {
+  justify-self: auto;
+  width: 100%;
+  max-width: 100%;
+}
+.preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-height > .preview-stage-shell,
+.preview-viewport-fluid-height > .preview-stage-shell {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+.preview-viewport-fluid-height .preview-stage.preview-surface {
+  width: 100%;
+  max-width: min(100%, var(--mei-viewport-design-width, 1280px));
+  min-height: 0;
+  margin: 0;
+  align-content: start;
+  box-sizing: border-box;
+}
+.preview-viewport-fluid-height .preview-stage > .preview-card {
+  align-self: start;
+  height: auto;
+}
+.preview-viewport-fluid-height .preview-card .panel-body-cell,
+.preview-viewport-fluid-height .preview-card .preview-panel-body {
+  height: auto;
+  min-height: 0;
+}
+.preview-viewport-fluid-height .preview-card .component-card.component-card--slot-v-center {
+  justify-content: flex-start;
+  height: auto;
+}
 .preview-viewport.preview-viewport-edit-debug.preview-viewport-fluid-width {
   max-height: none;
   overflow-x: auto;

@@ -519,6 +519,38 @@ fn resolve_panel_props_prefers_bare_theme_when_chrome_is_bare() {
 }
 
 #[test]
+fn default_viewport_page_flow_is_top_left_and_fluid() {
+    let vp = super::viewport::default_viewport_page_flow();
+    assert!(vp.fluid_height);
+    assert_eq!(vp.align_x, "start");
+    assert_eq!(vp.align_y, "start");
+    assert_eq!(vp.design_width, 1280.0);
+    assert_eq!(vp.edit_safe_left, 24.0);
+    assert_eq!(vp.edit_safe_right, 24.0);
+}
+
+#[test]
+fn default_viewport_stage_lock_is_centered_and_fixed_height() {
+    let vp = super::viewport::default_viewport_stage_lock();
+    assert!(!vp.fluid_height);
+    assert_eq!(vp.align_x, "center");
+    assert_eq!(vp.align_y, "center");
+    assert_eq!(vp.design_width, 1920.0);
+    assert_eq!(vp.design_height, 1080.0);
+    assert_eq!(vp.aspect_ratio.as_deref(), Some("16:9"));
+}
+
+#[test]
+fn resolve_frame_viewport_uses_profile_default_without_explicit_props() {
+    let vp = super::viewport::resolve_frame_viewport(&serde_json::json!({}), Some("page"))
+        .expect("page default");
+    assert!(vp.fluid_height);
+    let cockpit = super::viewport::resolve_frame_viewport(&serde_json::json!({}), Some("cockpit"))
+        .expect("cockpit default");
+    assert!(!cockpit.fluid_height);
+}
+
+#[test]
 fn frame_viewport_config_supports_fluid_height() {
     let vp = frame_viewport_config(&json!({
         "viewport": {
@@ -615,7 +647,47 @@ fn frame_stage_style_debug_caps_canvas_width_to_frame_max_width() {
     let style = frame_stage_style(None, &props, &vp, &theme, "debug");
     assert!(style.contains("width:972px;"));
     assert!(!style.contains("width:1000px;"));
+    assert!(style.contains("min-height:0;"));
+    assert!(!style.contains("min-height:480px;"));
     assert_eq!(effective_canvas_width(&props, &vp), 972.0);
+}
+
+#[test]
+fn frame_stage_style_fluid_height_relaxes_fr_grid_rows() {
+    let vp = frame_viewport_config(&json!({
+        "viewport": {
+            "design_width": 1280,
+            "design_height": 720,
+            "fluid_height": true,
+        }
+    }))
+    .expect("viewport config");
+    let layout = LayoutDecl {
+        layout_type: "grid".to_string(),
+        direction: None,
+        columns: Some(vec!["1fr".to_string()]),
+        rows: Some(vec!["auto".to_string(), "minmax(360px, 1fr)".to_string()]),
+        areas: Some(vec![vec!["doc".to_string()], vec!["table".to_string()]]),
+        gap: Some("16px".to_string()),
+        padding: Some("20px".to_string()),
+        align: None,
+        justify: None,
+    };
+    let theme = ThemeResolved {
+        id: "page".to_string(),
+        frame: json!({}),
+        panel: json!({}),
+        panel_bare: json!({}),
+        panel_head: json!({}),
+        panel_body: json!({}),
+        heading: json!({}),
+        shared: json!({}),
+        components: json!({}),
+        css_vars: Vec::new(),
+    };
+    let style = frame_stage_style(Some(&layout), &json!({}), &vp, &theme, "debug");
+    assert!(style.contains("grid-template-rows:auto auto;"));
+    assert!(!style.contains("minmax(360px, 1fr)"));
 }
 
 #[test]
@@ -649,6 +721,21 @@ fn frame_stage_style_debug_uses_full_canvas_without_css_scale() {
     assert!(debug_style.contains("overflow-x:auto;"));
     assert!(viewport_overflow_is_debug("debug"));
     assert!(viewport_overflow_is_debug("scroll"));
+}
+
+#[test]
+fn frame_viewport_style_page_flow_uses_block_layout() {
+    let vp = frame_viewport_config(&json!({
+        "viewport": {
+            "design_width": 1280,
+            "design_height": 720,
+            "fluid_height": true,
+        }
+    }))
+    .expect("viewport config");
+    let style = frame_viewport_style_for_route(&vp, "debug", UiRouteMode::Manage);
+    assert!(style.contains("display:block;"));
+    assert!(!style.contains("display:grid;"));
 }
 
 #[test]

@@ -258,6 +258,41 @@ fn compile_capability_examples_baselines() {
 }
 
 #[test]
+fn compile_ds_04_data_table_features_example() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces/examples/ds");
+    let app_root = source_root.join("04-data-table-features");
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .unwrap_or_else(|error| panic!("compile ds-04-data-table-features failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "ds-04-data-table-features should compile without errors: {:?}",
+        compiled.diagnostics
+    );
+    for scene_id in [
+        "index",
+        "layout_default_flow",
+        "manage_server_paging",
+        "manage_query_state",
+        "cockpit_embedded_carousel",
+        "cockpit_metric_runtime",
+        "cockpit_warnings_skin",
+        "layout_stage_contain",
+    ] {
+        assert!(
+            compiled
+                .scene_routes
+                .iter()
+                .any(|route| route.scene_id == scene_id),
+            "missing scene route for {scene_id}"
+        );
+    }
+}
+
+#[test]
 fn parse_cockpit_default_compare_scene_file() {
     let root = build_regression_workspace_root();
     let path = root.join("regression-suite/cockpit-02-multi-entry/default.mei");

@@ -1,5 +1,5 @@
 use mei_lang_kernel::LayoutDecl;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::style::{
     container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
@@ -230,6 +230,9 @@ pub(super) fn frame_viewport_style_for_route(
     _overflow_mode: &str,
     route: UiRouteMode,
 ) -> String {
+    if viewport.fluid_height {
+        return frame_viewport_style_page_flow_for_route(viewport, route);
+    }
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
     let mode = effective_viewport_overflow(viewport, route);
@@ -240,6 +243,24 @@ pub(super) fn frame_viewport_style_for_route(
         safe_right,
         safe_bottom,
         safe_left,
+    )
+}
+
+/// page-flow（`fluid_height`）：块级纵向堆叠，画布左上贴齐；避免 edit-debug 网格把 shell 挤到右侧。
+pub(super) fn frame_viewport_style_page_flow_for_route(
+    viewport: &FrameViewportConfig,
+    route: UiRouteMode,
+) -> String {
+    let (safe_top, safe_right, safe_bottom, safe_left) =
+        effective_viewport_safe_inset(viewport, route);
+    format!(
+        "width:100%;min-width:0;min-height:0;height:auto;overflow-x:auto;overflow-y:auto;display:block;box-sizing:border-box;padding:{}px {}px {}px {}px;--mei-viewport-design-width:{}px;--mei-viewport-design-height:{}px;",
+        safe_top,
+        safe_right,
+        safe_bottom,
+        safe_left,
+        viewport.design_width,
+        viewport.design_height,
     )
 }
 
@@ -268,6 +289,61 @@ pub(super) fn frame_viewport_style_fluid_width_for_route(
         safe_bottom,
         safe_left,
     )
+}
+
+/// 页面流式布局（`profile=page` 等默认）：左右留白、左上对齐、高度随内容延伸。
+pub(super) fn default_viewport_page_flow() -> FrameViewportConfig {
+    frame_viewport_config(&json!({
+        "viewport": {
+            "enabled": true,
+            "design_width": 1280,
+            "design_height": 720,
+            "scale_mode": "contain",
+            "fluid_height": true,
+            "align": "top-left",
+            "edit_scale_mode": "fit-width",
+            "show_design_bounds": true,
+            "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
+            "edit_safe_inset": { "top": 32, "right": 24, "bottom": 16, "left": 24 }
+        }
+    }))
+    .expect("default page-flow viewport")
+}
+
+/// 固定舞台（`profile=cockpit` 默认）：锁定宽高比，contain 缩放，不足处 letterbox 居中。
+pub(super) fn default_viewport_stage_lock() -> FrameViewportConfig {
+    frame_viewport_config(&json!({
+        "viewport": {
+            "enabled": true,
+            "design_width": 1920,
+            "design_height": 1080,
+            "aspect_ratio": "16:9",
+            "scale_mode": "contain",
+            "fluid_height": false,
+            "align": "center",
+            "edit_scale_mode": "contain",
+            "show_design_bounds": true,
+            "safe_inset": { "top": 0, "right": 0, "bottom": 0, "left": 0 },
+            "edit_safe_inset": { "top": 32, "right": 16, "bottom": 12, "left": 16 }
+        }
+    }))
+    .expect("default stage-lock viewport")
+}
+
+/// 无 `frame.props.viewport` 时按 scene profile 选用默认视窗。
+pub(super) fn default_viewport_for_profile(profile: Option<&str>) -> FrameViewportConfig {
+    match profile.unwrap_or("page").trim() {
+        "cockpit" => default_viewport_stage_lock(),
+        _ => default_viewport_page_flow(),
+    }
+}
+
+/// 合并显式 `frame.props.viewport` 与 profile 默认。
+pub(super) fn resolve_frame_viewport(
+    props: &Value,
+    profile: Option<&str>,
+) -> Option<FrameViewportConfig> {
+    frame_viewport_config(props).or_else(|| Some(default_viewport_for_profile(profile)))
 }
 
 pub(super) fn frame_viewport_config(props: &Value) -> Option<FrameViewportConfig> {
@@ -410,6 +486,32 @@ pub(super) fn effective_canvas_width(props: &Value, viewport: &FrameViewportConf
     }
 }
 
+/// page-flow：把 `1fr` / `minmax(..., 1fr)` 行改为 `auto`，避免表格行被撑满设计高度留白。
+fn fluid_relaxed_layout(layout: Option<&LayoutDecl>) -> Option<LayoutDecl> {
+    let layout = layout.cloned()?;
+    if layout.layout_type != "grid" {
+        return Some(layout);
+    }
+    let mut relaxed = layout;
+    if let Some(rows) = relaxed.rows.as_mut() {
+        *rows = rows
+            .iter()
+            .map(|row| {
+                let trimmed = row.trim();
+                if trimmed.eq_ignore_ascii_case("1fr")
+                    || trimmed.contains("minmax(") && trimmed.contains("fr")
+                    || trimmed.ends_with("fr")
+                {
+                    "auto".to_string()
+                } else {
+                    row.clone()
+                }
+            })
+            .collect();
+    }
+    Some(relaxed)
+}
+
 pub(super) fn frame_stage_style(
     layout: Option<&LayoutDecl>,
     props: &Value,
@@ -419,14 +521,26 @@ pub(super) fn frame_stage_style(
 ) -> String {
     if viewport_overflow_is_debug(overflow_mode) {
         let canvas_width = effective_canvas_width(props, viewport);
-        let mut style = surface_layout_style(layout);
+        let relaxed_layout = viewport
+            .fluid_height
+            .then(|| fluid_relaxed_layout(layout))
+            .flatten();
+        let stage_layout = relaxed_layout.as_ref().or(layout);
+        let mut style = surface_layout_style(stage_layout);
         style.push_str(&frame_backdrop_css_vars(props));
         style.push_str(&container_visual_style_without_background(props));
         style.push_str(&theme_css_vars_style(theme));
-        style.push_str(&format!(
-            "width:{}px;min-height:{}px;height:auto;max-width:none;transform:none;transform-origin:top left;box-sizing:border-box;",
-            canvas_width, viewport.design_height
-        ));
+        if viewport.fluid_height {
+            style.push_str(&format!(
+                "width:min(100%,{}px);max-width:100%;min-height:0;height:auto;align-content:start;transform:none;transform-origin:top left;box-sizing:border-box;",
+                canvas_width
+            ));
+        } else {
+            style.push_str(&format!(
+                "width:{}px;min-height:{}px;height:auto;max-width:none;transform:none;transform-origin:top left;box-sizing:border-box;",
+                canvas_width, viewport.design_height
+            ));
+        }
         return style;
     }
     let bounds = frame_stage_content_bounds_for_viewport(props, viewport);
