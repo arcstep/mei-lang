@@ -10665,10 +10665,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
   const DRILLDOWN_SCENE_BY_FILE = {
-    "scenes/4_监督和问题办理/监督事项.mei": "supervision_matters",
-    "scenes/4_监督和问题办理/预警模型.mei": "warning_models",
-    "scenes/4_监督和问题办理/预警清单.mei": "warning_list",
-    "scenes/4_监督和问题办理/问题处理结果清单.mei": "issue_result_list",
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
   };
   const BOARD_TEMPLATE_SCENE_FILES = {

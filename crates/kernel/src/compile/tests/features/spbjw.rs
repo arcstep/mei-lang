@@ -10,7 +10,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/5_典型案例/监督典型案例.mei".to_string()),
+            preview_target: Some("scenes/6_典型案例/监督典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw with dataset mei preview");
@@ -46,7 +46,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     );
     assert!(
         compiled.scene_routes.iter().any(|r| {
-            r.scene_id == "typical_cases" && r.target_file == "scenes/5_典型案例/监督典型案例.mei"
+            r.scene_id == "typical_cases" && r.target_file == "scenes/6_典型案例/监督典型案例.mei"
         }),
         "expected typical_cases in app route registry for access/manage deep links, got: {:?}",
         compiled
@@ -73,7 +73,7 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
     .expect("compile spbjw with typical_cases scene (access-style)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "scenes/5_典型案例/监督典型案例.mei"
+        "scenes/6_典型案例/监督典型案例.mei"
     );
     assert_eq!(compiled.active_scene.as_deref(), Some("typical_cases"));
 }
@@ -87,18 +87,25 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
         &source_root,
         &app_root,
         CompileOptions {
-            scene: Some("enterprise_complaints".to_string()),
+            scene: Some("administrative_inspection".to_string()),
             preview_target: None,
         },
     )
-    .expect("compile spbjw with enterprise_complaints scene (discovered route)");
+    .expect("compile spbjw with administrative_inspection scene (discovered route)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "scenes/2_行政检查/企业投诉.mei"
+        "scenes/2_行政检查/行政检查.mei"
     );
     assert_eq!(
         compiled.active_scene.as_deref(),
-        Some("enterprise_complaints")
+        Some("administrative_inspection")
+    );
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|r| r.id == "enterprise_complaints"),
+        "expected enterprise_complaints dataset on administrative_inspection scene"
     );
 }
 
@@ -306,10 +313,10 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/4_监督和问题办理/预警模型.mei".to_string()),
+            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
         },
     )
-    .expect("compile spbjw warning models preview");
+    .expect("compile spbjw supervision warning preview");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -322,7 +329,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
     );
     assert_eq!(
         compiled.active_target_file,
-        "scenes/4_监督和问题办理/预警模型.mei"
+        "scenes/4_监督预警/监督预警.mei"
     );
     assert!(
         compiled.resources.iter().any(|r| r.id == "warning_models"),
@@ -361,9 +368,16 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
         .expect("preview scene contract");
     assert_eq!(contract.scene.id, "layout_right");
     assert!(
-        contract.panels.len() >= 4,
-        "layout right should resolve multiple panel_ref slots, got {}",
+        !contract.panels.is_empty(),
+        "layout right should resolve right_rail panel, got {}",
         contract.panels.len()
+    );
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|r| r.id == "warning_list" || r.id == "supervision_matters"),
+        "layout right preview should merge datasets from embedded rail bodies"
     );
     assert!(
         contract.panels.iter().any(|p| !p.blocks.is_empty()),
@@ -392,14 +406,14 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/5_典型案例/监督典型案例.mei".to_string()),
+            preview_target: Some("scenes/6_典型案例/监督典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw typical cases preview");
     let elapsed = started.elapsed();
     assert_eq!(
         compiled.active_target_file,
-        "scenes/5_典型案例/监督典型案例.mei"
+        "scenes/6_典型案例/监督典型案例.mei"
     );
     let errors: Vec<_> = compiled
         .diagnostics
@@ -733,7 +747,7 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
             ],
         ),
         (
-            "scenes/4_监督和问题办理/监督预警.mei",
+            "scenes/4_监督预警/监督预警.mei",
             vec![
                 "supervision-warning-items-popup.mei",
                 "supervision-warning-models-popup.mei",
@@ -741,7 +755,7 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
             ],
         ),
         (
-            "scenes/4_监督和问题办理/问题办理.mei",
+            "scenes/5_问题办理/问题办理.mei",
             vec![
                 "issue-pending-popup.mei",
                 "issue-doing-popup.mei",
@@ -750,7 +764,7 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
             ],
         ),
         (
-            "scenes/4_监督和问题办理/监督成效.mei",
+            "scenes/5_问题办理/监督成效.mei",
             vec![
                 "effect-transfer-clue-popup.mei",
                 "effect-filing-popup.mei",
@@ -819,34 +833,34 @@ fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
             "composition_by_domain",
         ),
         (
-            "scenes/4_监督和问题办理/supervision-warning-items-popup.mei",
+            "scenes/4_监督预警/supervision-warning-items-popup.mei",
             "detail",
         ),
         (
-            "scenes/4_监督和问题办理/supervision-warning-models-popup.mei",
+            "scenes/4_监督预警/supervision-warning-models-popup.mei",
             "detail",
         ),
         (
-            "scenes/4_监督和问题办理/supervision-warning-total-popup.mei",
+            "scenes/4_监督预警/supervision-warning-total-popup.mei",
             "detail",
         ),
-        ("scenes/4_监督和问题办理/issue-pending-popup.mei", "detail"),
-        ("scenes/4_监督和问题办理/issue-doing-popup.mei", "detail"),
-        ("scenes/4_监督和问题办理/issue-done-popup.mei", "detail"),
-        ("scenes/4_监督和问题办理/issue-rate-popup.mei", "detail"),
+        ("scenes/5_问题办理/issue-pending-popup.mei", "detail"),
+        ("scenes/5_问题办理/issue-doing-popup.mei", "detail"),
+        ("scenes/5_问题办理/issue-done-popup.mei", "detail"),
+        ("scenes/5_问题办理/issue-rate-popup.mei", "detail"),
         (
-            "scenes/4_监督和问题办理/effect-transfer-clue-popup.mei",
+            "scenes/5_问题办理/effect-transfer-clue-popup.mei",
             "detail",
         ),
-        ("scenes/4_监督和问题办理/effect-filing-popup.mei", "detail"),
-        ("scenes/4_监督和问题办理/effect-sanction-popup.mei", "detail"),
-        ("scenes/4_监督和问题办理/effect-handled-popup.mei", "detail"),
+        ("scenes/5_问题办理/effect-filing-popup.mei", "detail"),
+        ("scenes/5_问题办理/effect-sanction-popup.mei", "detail"),
+        ("scenes/5_问题办理/effect-handled-popup.mei", "detail"),
         (
-            "scenes/4_监督和问题办理/effect-recovered-popup.mei",
+            "scenes/5_问题办理/effect-recovered-popup.mei",
             "detail",
         ),
         (
-            "scenes/4_监督和问题办理/effect-mechanism-popup.mei",
+            "scenes/5_问题办理/effect-mechanism-popup.mei",
             "detail",
         ),
     ];
@@ -909,7 +923,7 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/6_物流园区/园区统计.mei".to_string()),
+            preview_target: Some("scenes/7_物流园区/园区统计.mei".to_string()),
         },
     )
     .expect("compile spbjw logistics preview");
@@ -1007,12 +1021,12 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
     let app_root = source_root.join("spbjw");
     let preview_targets = [
         "scenes/2_行政检查/指标体系.mei",
-        "scenes/4_监督和问题办理/问题办理.mei",
+        "scenes/5_问题办理/问题办理.mei",
         "scenes/1_执法要素/执法要素.mei",
         "scenes/2_行政检查/行政检查.mei",
         "scenes/3_行政处罚/行政处罚.mei",
-        "scenes/4_监督和问题办理/监督预警.mei",
-        "scenes/4_监督和问题办理/监督成效.mei",
+        "scenes/4_监督预警/监督预警.mei",
+        "scenes/5_问题办理/监督成效.mei",
     ];
     let metric_ids = [
         "inspection_frequency_reduction_rate",
