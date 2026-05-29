@@ -10931,9 +10931,55 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   };
   const EXPLAIN_TABLE_DEFAULTS = {
     pageSize: 10,
-    cellPreviewMaxChars: 18,
-    columnMinWidth: 180,
+    cellPreviewMaxChars: 28,
+    columnMinWidth: 140,
   };
+
+  function inferDrilldownColumnFormats(columns) {
+    const formats = {};
+    (Array.isArray(columns) ? columns : []).forEach((col) => {
+      const name = String(col || "").trim();
+      if (!name) return;
+      if (/等级/.test(name)) {
+        formats[name] = { tag: true };
+        return;
+      }
+      if (/承办部门|主责单位/.test(name)) {
+        formats[name] = { truncate: true, maxChars: 14 };
+        return;
+      }
+      if (/部门|单位|主责/.test(name)) {
+        formats[name] = { truncate: true, maxChars: 18 };
+        return;
+      }
+      if (/描述|事项|问题|表现|情况|名称|规则|依据|文件/.test(name)) {
+        formats[name] = { truncate: true, maxChars: 24 };
+      }
+    });
+    return formats;
+  }
+
+  function inferDrilldownColumnState(columns) {
+    return {
+      columns: (Array.isArray(columns) ? columns : []).map((key, order) => {
+        const name = String(key || "").trim();
+        if (!name) return { key: name, order };
+        if (/等级/.test(name)) {
+          return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
+        }
+        if (/承办部门|主责单位|部门/.test(name)) {
+          return { key: name, order, min_width: 180 };
+        }
+        if (/描述|事项|表现|问题|名称/.test(name)) {
+          return { key: name, order, min_width: 130 };
+        }
+        if (/ID|序号|模型/.test(name)) {
+          return { key: name, order, width: 96, width_mode: "fixed" };
+        }
+        return { key: name, order, min_width: 96 };
+      }),
+    };
+  }
   const DRILLDOWN_METRIC_CONTEXT = {};
   let currentNavigationId = 0;
   let spaNavigationInFlight = 0;
@@ -12446,16 +12492,33 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           scene_id: sceneId,
           dataset_id: datasetId,
         };
+    const columns = Array.isArray(config?.columns) ? config.columns : [];
+    const inferredFormats = inferDrilldownColumnFormats(columns);
+    const inferredColumnState = inferDrilldownColumnState(columns);
+    const columnFormats =
+      config?.columnFormats && typeof config.columnFormats === "object"
+        ? { ...inferredFormats, ...config.columnFormats }
+        : inferredFormats;
+    const columnState =
+      config?.columnState && typeof config.columnState === "object"
+        ? config.columnState
+        : config?.column_state && typeof config.column_state === "object"
+          ? config.column_state
+          : inferredColumnState;
     return {
-      columns: Array.isArray(config?.columns) ? config.columns : [],
+      columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
+      column_state: columnState,
       layoutPreset: config?.layoutPreset || "default",
       embedded: true,
       pageSize: Number(config?.pageSize) > 0 ? Number(config.pageSize) : 8,
       cellPreviewMaxChars:
-        Number(config?.cellPreviewMaxChars) > 0 ? Number(config.cellPreviewMaxChars) : undefined,
+        Number(config?.cellPreviewMaxChars) > 0
+          ? Number(config.cellPreviewMaxChars)
+          : 28,
       columnMinWidth:
         Number(config?.columnMinWidth) > 0 ? Number(config.columnMinWidth) : undefined,
+      columnFormats,
       pagination: true,
       paginationMode: "client",
       dataset: {
