@@ -8155,16 +8155,10 @@
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
         }
-        if (/承办部门|主责单位|部门/.test(name)) {
-          return { key: name, order, min_width: 180 };
+        if (/承办部门|主责单位/.test(name)) {
+          return { key: name, order, align: "left" };
         }
-        if (/描述|事项|表现|问题|名称/.test(name)) {
-          return { key: name, order, min_width: 130 };
-        }
-        if (/ID|序号|模型/.test(name)) {
-          return { key: name, order, width: 96, width_mode: "fixed" };
-        }
-        return { key: name, order, min_width: 96 };
+        return { key: name, order };
       }),
     };
   }
@@ -9048,9 +9042,9 @@
         const heroNote = heroEl.querySelector('[data-drilldown-hero-note="true"]');
         if (heroTitle) heroTitle.textContent = String(config?.title || "");
         if (heroNote) {
-          const note = String(config?.note || "").trim();
-          heroNote.textContent = note;
-          heroNote.toggleAttribute("hidden", !note);
+          // 口径说明留在「口径」tab；明细 tab 不再重复展示 metric_explain.note 副标题。
+          heroNote.textContent = "";
+          heroNote.toggleAttribute("hidden", true);
         }
       }
     }
@@ -9681,6 +9675,10 @@
           dataset_id: datasetId,
         };
     const columns = Array.isArray(config?.columns) ? config.columns : [];
+    const tableScrollX =
+      config?.tableScrollX === true ||
+      config?.table_scroll_x === true ||
+      columns.length >= 7;
     const inferredFormats = inferDrilldownColumnFormats(columns);
     const inferredColumnState = inferDrilldownColumnState(columns);
     const columnFormats =
@@ -9693,19 +9691,29 @@
         : config?.column_state && typeof config.column_state === "object"
           ? config.column_state
           : inferredColumnState;
+    const columnMinWidth =
+      Number(config?.columnMinWidth) > 0
+        ? Number(config.columnMinWidth)
+        : tableScrollX
+          ? 88
+          : undefined;
     return {
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
-      layoutPreset: config?.layoutPreset || "default",
+      layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       embedded: true,
+      tableScrollX,
+      fitColumnsFromSample: tableScrollX,
+      columnWidthSampleSize: 100,
       pageSize: Number(config?.pageSize) > 0 ? Number(config.pageSize) : 8,
       cellPreviewMaxChars:
         Number(config?.cellPreviewMaxChars) > 0
           ? Number(config.cellPreviewMaxChars)
-          : 28,
-      columnMinWidth:
-        Number(config?.columnMinWidth) > 0 ? Number(config.columnMinWidth) : undefined,
+          : tableScrollX
+            ? 20
+            : 28,
+      columnMinWidth,
       columnFormats,
       pagination: true,
       paginationMode: "client",
