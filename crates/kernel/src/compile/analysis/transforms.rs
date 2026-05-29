@@ -1,11 +1,16 @@
 use std::collections::BTreeSet;
 
+use regex::Regex;
 use serde_json::{json, Value};
 
 use super::dates::{
     aggregate_month_value, format_month_label, latest_month_window, max_row_month, parse_row_date,
 };
-use super::schema::{parse_number, row_number, row_string, row_value};
+use super::schema::{parse_number, row_number, row_string, row_value, value_display_text};
+
+fn scalar_text(value: &Value) -> String {
+    value_display_text(value)
+}
 
 pub(super) fn trend_rows_by_month(
     rows: &[Value],
@@ -170,7 +175,7 @@ pub(super) fn reorder_fields(row: &Value, fields: &[String]) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::trend_rows_by_month;
+    use super::{eval_row_value, trend_rows_by_month};
     use serde_json::json;
 
     #[test]
@@ -188,6 +193,20 @@ mod tests {
         assert_eq!(trend[0].get("value").and_then(|v| v.as_f64()), Some(0.0));
         assert_eq!(trend[4].get("value").and_then(|v| v.as_f64()), Some(100.0));
         assert_eq!(trend[5].get("value").and_then(|v| v.as_f64()), Some(200.0));
+    }
+
+    #[test]
+    fn extract_number_supports_regex_prefix_on_string_and_numeric_cells() {
+        let expr = json!({
+            "__kind": "analysis_expr",
+            "type": "extract_number",
+            "field": "序号",
+            "pattern": "^\\s*(\\d+)"
+        });
+        let row_text = serde_json::Map::from_iter([(String::from("序号"), json!("1-2"))]);
+        let row_number = serde_json::Map::from_iter([(String::from("序号"), json!(10))]);
+        assert_eq!(eval_row_value(&expr, &row_text).as_f64(), Some(1.0));
+        assert_eq!(eval_row_value(&expr, &row_number).as_f64(), Some(10.0));
     }
 }
 
@@ -278,11 +297,26 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                 }
                 "extract_number" => {
                     let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
-                    let text = row.get(field).and_then(Value::as_str).unwrap_or_default();
-                    let extracted = text
-                        .chars()
-                        .filter(|ch| ch.is_ascii_digit() || *ch == '.')
-                        .collect::<String>();
+                    let text = row
+                        .get(field)
+                        .map(scalar_text)
+                        .unwrap_or_default();
+                    let pattern = analysis.get("pattern").and_then(Value::as_str).unwrap_or("");
+                    let extracted = if pattern.is_empty() {
+                        text.chars()
+                            .filter(|ch| ch.is_ascii_digit() || *ch == '.')
+                            .collect::<String>()
+                    } else {
+                        Regex::new(pattern)
+                            .ok()
+                            .and_then(|regex| {
+                                regex
+                                    .captures(&text)
+                                    .and_then(|captures| captures.get(1).or_else(|| captures.get(0)))
+                                    .map(|matched| matched.as_str().to_string())
+                            })
+                            .unwrap_or_default()
+                    };
                     extracted
                         .parse::<f64>()
                         .ok()

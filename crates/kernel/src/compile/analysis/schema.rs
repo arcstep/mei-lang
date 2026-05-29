@@ -56,13 +56,31 @@ pub(super) fn row_value<'a>(row: &'a Value, field: &str) -> Option<&'a Value> {
     row.as_object().and_then(|object| object.get(field))
 }
 
+/// 单元格用于谓词、分组键、字符串比较的展示文本（Excel 浮点整数显示为 `10` 而非 `10.0`）。
+pub(super) fn value_display_text(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => {
+            if let Some(integer) = number.as_i64() {
+                return integer.to_string();
+            }
+            if let Some(float) = number.as_f64() {
+                if float.is_finite() && float.fract().abs() < f64::EPSILON {
+                    return (float as i64).to_string();
+                }
+            }
+            number.to_string()
+        }
+        Value::Bool(flag) => flag.to_string(),
+        Value::Null => String::new(),
+        other => other.to_string(),
+    }
+}
+
 pub(super) fn row_string(row: &Value, field: &str) -> String {
     match row_value(row, field) {
-        Some(Value::String(raw)) => raw.clone(),
-        Some(Value::Number(raw)) => raw.to_string(),
-        Some(Value::Bool(raw)) => raw.to_string(),
-        Some(Value::Null) | None => String::new(),
-        Some(other) => other.to_string(),
+        Some(value) => value_display_text(value),
+        None => String::new(),
     }
 }
 

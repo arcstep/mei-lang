@@ -391,6 +391,68 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
 }
 
 #[test]
+fn spbjw_supervision_models_count_is_eighteen() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+        },
+    )
+    .expect("compile supervision warning preview for models count");
+    let metric = compiled
+        .world_metrics
+        .get("supervision_models_count")
+        .map(|entry| &entry.metric)
+        .expect("supervision_models_count in world_metrics");
+    let value = metric
+        .value
+        .get("value")
+        .and_then(|v| v.as_f64())
+        .or_else(|| metric.value.as_f64())
+        .unwrap_or(f64::NAN);
+    assert_eq!(
+        value, 18.0,
+        "《10》按序号前缀去重应得 18 个预警模型，got {value}"
+    );
+}
+
+#[test]
+fn spbjw_warnings_count_sums_warning_entry_column() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+        },
+    )
+    .expect("compile supervision warning preview for warnings count");
+    let metric = compiled
+        .world_metrics
+        .get("warnings_count")
+        .map(|entry| &entry.metric)
+        .expect("warnings_count in world_metrics");
+    let value = metric
+        .value
+        .get("value")
+        .and_then(|v| v.as_f64())
+        .or_else(|| metric.value.as_f64())
+        .unwrap_or(f64::NAN);
+    assert_eq!(
+        value, 25.0,
+        "《11》预警ID去重后对「预警条数」求和应为 25 条，got {value}"
+    );
+}
+
+#[test]
 fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");

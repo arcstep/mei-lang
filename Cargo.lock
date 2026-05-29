@@ -2014,6 +2014,7 @@ dependencies = [
  "anyhow",
  "calamine",
  "csv",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

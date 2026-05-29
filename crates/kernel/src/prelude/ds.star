@@ -531,19 +531,29 @@ def is_verified(field = "是否查实"):
     return in_values(field, ["是", "查实", "已查实"])
 
 def is_yes(field):
-    """Spreadsheet yes/no columns where affirmative is 是."""
-    return in_values(field, ["是"])
+    """Spreadsheet yes cells: 是、是（2）等（与 Neverland yes_indicator 一致）。"""
+    return and_(not_empty(field), contains(field, "是"))
 
 def has_party_gov_sanction(field = "处理处分"):
-    """党纪政务处分：处理处分含第二/三/四种等形态关键词。"""
-    return or_(
-        contains(field, "第二种"),
-        contains(field, "第三种"),
-        contains(field, "第四种"),
-    )
+    """党纪政务处分：处理处分含「第二种」形态（一个处理结果ID对应一人）。"""
+    return contains(field, "第二种")
 
 def not_empty(field):
     return _analysis("not_empty", field = field)
+
+def present(field):
+    """非空且非 —、无、待定 等占位（与 Neverland DrillFieldValue.present? 一致）。"""
+    return _analysis("present", field = field)
+
+def blank(field):
+    return _analysis("blank", field = field)
+
+def placeholder_only(field):
+    return _analysis("placeholder_only", field = field)
+
+def not_placeholder_text(field):
+    """职务等字段：有内容且非 —— 等纯横线占位。"""
+    return and_(present(field), not_(placeholder_only(field)))
 
 def contains(field, value):
     return _analysis("contains", field = field, value = value)
@@ -569,7 +579,7 @@ def text(source, field = None):
 def date(source, field = None):
     return _analysis("date", source = source, field = field)
 
-def extract_number(source, field = None, pattern = None):
+def extract_number(source = None, field = None, pattern = None):
     return _analysis("extract_number", source = source, field = field, pattern = pattern)
 
 def split_text(rowset, field, delimiter = "、"):

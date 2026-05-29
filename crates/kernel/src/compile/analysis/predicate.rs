@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use regex::Regex;
 use serde_json::Value;
 
 use crate::model::DatasetView;
@@ -39,6 +40,43 @@ fn resolve_value_list(
         .into_iter()
         .map(|row| Value::String(row_string(&row, field)))
         .collect()
+}
+
+fn field_text(row: &Value, field: &str) -> String {
+    row_string(row, field).trim().to_string()
+}
+
+/// Aligns with Neverland `DrillFieldValue.blank?/present?` for承办部门、办结时间等字段。
+fn blank_field(text: &str) -> bool {
+    if text.is_empty() {
+        return true;
+    }
+    const SENTINELS: &[&str] = &[
+        "—",
+        "-",
+        "/",
+        "无",
+        "暂无",
+        "待定",
+        "未知",
+        "n/a",
+        "na",
+        "null",
+        "none",
+        "无承办部门",
+        "无部门",
+    ];
+    SENTINELS
+        .iter()
+        .any(|sentinel| sentinel.eq_ignore_ascii_case(text))
+}
+
+/// Dash-only placeholders such as `——` on 职务.
+fn placeholder_only_text(text: &str) -> bool {
+    if text.is_empty() {
+        return false;
+    }
+    text.chars().all(|ch| matches!(ch, '-' | '—' | '－' | '―' | ' ' | '\t' | '\n' | '\r'))
 }
 
 pub(super) fn predicate_matches(
@@ -107,6 +145,18 @@ pub(super) fn predicate_matches(
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
             !row_string(row, field).trim().is_empty()
         }
+        "present" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            !blank_field(&field_text(row, field))
+        }
+        "blank" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            blank_field(&field_text(row, field))
+        }
+        "placeholder_only" => {
+            let field = object.get("field").and_then(Value::as_str).unwrap_or("");
+            placeholder_only_text(&field_text(row, field))
+        }
         "contains" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
             let expected = object.get("value").and_then(Value::as_str).unwrap_or("");
@@ -115,7 +165,9 @@ pub(super) fn predicate_matches(
         "matches" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
             let expected = object.get("pattern").and_then(Value::as_str).unwrap_or("");
-            row_string(row, field).contains(expected)
+            Regex::new(expected)
+                .map(|regex| regex.is_match(&row_string(row, field)))
+                .unwrap_or(false)
         }
         "and" => object
             .get("predicates")
@@ -158,5 +210,54 @@ mod tests {
             "field": "园区名称"
         });
         assert!(!predicate_matches(&row, &predicate, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn present_treats_dash_sentinel_as_blank() {
+        let row = json!({"承办部门": "—"});
+        let predicate = json!({
+            "__kind": "analysis_expr",
+            "type": "present",
+            "field": "承办部门"
+        });
+        assert!(!predicate_matches(&row, &predicate, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn placeholder_only_matches_dash_only_position() {
+        let row = json!({"职务": "——"});
+        let predicate = json!({
+            "__kind": "analysis_expr",
+            "type": "placeholder_only",
+            "field": "职务"
+        });
+        assert!(predicate_matches(&row, &predicate, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn matches_uses_regex_pattern() {
+        let row = json!({"序号": "1-2"});
+        let predicate = json!({
+            "__kind": "analysis_expr",
+            "type": "matches",
+            "field": "序号",
+            "pattern": "^\\d+(?:-.*)?$"
+        });
+        assert!(predicate_matches(&row, &predicate, &BTreeMap::new()));
+    }
+
+    #[test]
+    fn matches_treats_excel_float_serial_as_integer_text() {
+        let row = json!({"序号": 10.0});
+        let predicate = json!({
+            "__kind": "analysis_expr",
+            "type": "matches",
+            "field": "序号",
+            "pattern": "^\\s*\\d+(?:-.*)?\\s*$"
+        });
+        assert!(
+            predicate_matches(&row, &predicate, &BTreeMap::new()),
+            "10.0 must match serial pattern like 10"
+        );
     }
 }
