@@ -248,27 +248,25 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .expect("preview scene contract");
     assert_eq!(contract.scene.id, "layout_left");
     assert!(
-        contract.panels.len() >= 3,
-        "layout left should resolve frame.panels panel_ref slots, got {}",
+        !contract.panels.is_empty(),
+        "layout left should resolve left_rail panel, got {}",
         contract.panels.len()
     );
-    assert!(
-        contract.panels.iter().any(|p| !p.blocks.is_empty()),
-        "layout left panels should carry blocks from external panel lookup"
-    );
-    let stats = contract
+    let left_rail = contract
         .panels
         .iter()
-        .find(|p| p.id == "enforcement_elements_stats")
-        .expect("enforcement stats panel from panel_ref");
-    let panel_layout = stats
-        .layout
-        .as_ref()
-        .expect("panel_ref must preserve panel.layout from source");
-    assert_eq!(panel_layout.layout_type, "grid");
+        .find(|p| p.id == "left_rail")
+        .expect("left_rail panel from layout capsule");
     assert!(
-        !stats.blocks.is_empty(),
-        "stats panel should carry title + metrics body blocks"
+        !left_rail.blocks.is_empty(),
+        "left_rail should carry titled_shell + body blocks from panel_ref"
+    );
+    assert!(
+        compiled
+            .resources
+            .iter()
+            .any(|r| r.id == "enforcement_units" || r.id == "administrative_inspection"),
+        "layout left preview should merge datasets from embedded rail bodies"
     );
     assert!(
         compiled
@@ -300,6 +298,61 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         elapsed.as_secs() < 9,
         "manage widget preview should not compile home + full catalog (21 xlsx), took {:?}",
         elapsed
+    );
+}
+
+#[test]
+fn compile_spbjw_preview_layout_center_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/layouts/中栏.mei".to_string()),
+        },
+    )
+    .expect("compile spbjw layout center preview");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "layout center preview errors: {:?}",
+        errors
+    );
+    assert_eq!(compiled.active_target_file, "scenes/layouts/中栏.mei");
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("layout center preview scene contract");
+    assert_eq!(contract.scene.id, "layout_center");
+    assert!(
+        contract.panels.len() >= 2,
+        "layout center should resolve indicator + realtime panel_ref slots, got {}",
+        contract.panels.len()
+    );
+    assert!(
+        contract
+            .panels
+            .iter()
+            .any(|p| p.id == "indicator_system_stats" && !p.blocks.is_empty()),
+        "indicator_system_stats should carry body blocks"
+    );
+    assert!(
+        contract
+            .panels
+            .iter()
+            .any(|p| p.id == "realtime_warnings_table" && !p.blocks.is_empty()),
+        "realtime_warnings_table should carry body blocks"
+    );
+    assert!(
+        compiled.resources.iter().any(|r| r.id == "warning_list"),
+        "layout center preview should materialize warning_list from realtime body"
     );
 }
 
