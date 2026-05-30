@@ -1368,6 +1368,27 @@ pub fn evaluate_runtime_metric_defs_with_scope_and_dag(
     )
 }
 
+pub fn build_runtime_analysis_graph(
+    metric_defs: &BTreeMap<String, Value>,
+    root_dataset_id: &str,
+) -> crate::model::AnalysisGraph {
+    materialize::build_analysis_graph(metric_defs, root_dataset_id)
+}
+
+pub fn build_runtime_analysis_contracts(
+    metric_defs: &BTreeMap<String, Value>,
+    root_dataset_id: &str,
+) -> BTreeMap<String, Value> {
+    materialize::build_analysis_contracts(metric_defs, root_dataset_id)
+}
+
+pub fn runtime_analysis_closure_metric_ids(
+    graph: &crate::model::AnalysisGraph,
+    focus_ids: &[String],
+) -> Vec<String> {
+    materialize::analysis_closure_metric_ids(graph, focus_ids)
+}
+
 pub use materialize::resolve_runtime_metric_def_key;
 pub use analysis::eval_context::{
     runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,

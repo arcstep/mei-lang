@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 
-use super::analysis_graph::expand_runtime_metric_defs;
+use super::analysis_graph::{build_analysis_artifacts, expand_runtime_metric_defs};
 use super::metric_packs::{
     materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
 };
@@ -92,7 +92,7 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
         return;
     }
     let mut metrics = BTreeMap::<String, MetricContract>::new();
-    let mut runtime_metric_defs = BTreeMap::<String, Value>::new();
+    let mut raw_runtime_metric_defs = BTreeMap::<String, Value>::new();
     for value in raw_metric_values {
         let Some(key) = value
             .get("key")
@@ -103,9 +103,10 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
         else {
             continue;
         };
-        runtime_metric_defs.insert(key.to_string(), value.clone());
+        raw_runtime_metric_defs.insert(key.to_string(), value.clone());
     }
-    runtime_metric_defs = expand_runtime_metric_defs(&runtime_metric_defs);
+    let (runtime_metric_defs, runtime_analysis_graph, runtime_analysis_contracts) =
+        build_analysis_artifacts(&raw_runtime_metric_defs, resource_id);
     for entry in ledger.values() {
         if entry.owner_resource_id != resource_id {
             continue;
@@ -144,6 +145,8 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
             sources: Vec::new(),
             metrics,
             runtime_metric_defs,
+            runtime_analysis_graph,
+            runtime_analysis_contracts,
         }),
     });
 }

@@ -25,6 +25,47 @@ pub struct DatasetView {
     pub metrics: BTreeMap<String, MetricContract>,
     #[serde(skip, default)]
     pub runtime_metric_defs: BTreeMap<String, Value>,
+    #[serde(skip, default)]
+    pub runtime_analysis_graph: AnalysisGraph,
+    #[serde(skip, default)]
+    pub runtime_analysis_contracts: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnalysisGraph {
+    #[serde(default)]
+    pub nodes: BTreeMap<String, AnalysisNode>,
+    #[serde(default)]
+    pub edges: Vec<AnalysisEdge>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnalysisNode {
+    pub id: String,
+    #[serde(default)]
+    pub canonical_metric_id: Option<String>,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub node_kind: String,
+    #[serde(default)]
+    pub support_role: Option<String>,
+    #[serde(default)]
+    pub shape: Option<String>,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub lineage_dataset_id: Option<String>,
+    #[serde(default)]
+    pub can_explain: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnalysisEdge {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub role: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

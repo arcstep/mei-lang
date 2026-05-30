@@ -123,6 +123,8 @@ fn load_dataset_view(app_root: &Path, resource: &ResourceDecl) -> Result<Dataset
         sources: Vec::new(),
         metrics: BTreeMap::new(),
         runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: Default::default(),
+        runtime_analysis_contracts: Default::default(),
     })
 }
 

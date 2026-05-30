@@ -12,8 +12,9 @@ mod world;
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
 pub use dataset::{
-    ColumnSchema, DataRef, DataTransform, DatasetSourceRef, DatasetView, MetricContract,
-    MetricPackContract, MetricRef, MetricShape, WorldMetricLedgerEntry,
+    AnalysisEdge, AnalysisGraph, AnalysisNode, ColumnSchema, DataRef, DataTransform,
+    DatasetSourceRef, DatasetView, MetricContract, MetricPackContract, MetricRef, MetricShape,
+    WorldMetricLedgerEntry,
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};

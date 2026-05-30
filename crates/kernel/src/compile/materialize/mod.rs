@@ -3,7 +3,10 @@ mod legacy;
 mod metric_packs;
 mod world_metrics;
 
-pub(super) use analysis_graph::expand_runtime_metric_defs;
+pub(super) use analysis_graph::{
+    analysis_closure_metric_ids, build_analysis_artifacts, build_analysis_contracts,
+    build_analysis_graph,
+};
 pub(super) use legacy::materialize_legacy_datasets;
 pub(super) use metric_packs::materialize_metric_packs;
 pub(super) use world_metrics::{

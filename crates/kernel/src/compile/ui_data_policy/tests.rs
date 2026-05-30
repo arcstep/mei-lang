@@ -346,6 +346,8 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
                 },
             )]),
             runtime_metric_defs: std::collections::BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         }),
     }];
     let mut diagnostics = Vec::new();

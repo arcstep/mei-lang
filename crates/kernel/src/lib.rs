@@ -17,8 +17,9 @@ pub use compile::{
     TableSnapshot, TableSnapshotKey,
     dataset_materialize_cache_epoch, evaluate_runtime_metric_defs,
     evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,
-    materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
-    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled, RequestDagMetrics,
+    build_runtime_analysis_contracts, build_runtime_analysis_graph, materialize_xlsx_column_headers,
+    panel_resolved_has_head, resolve_default_scene_from_root, resolve_runtime_metric_def_key,
+    runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled, RequestDagMetrics,
     RuntimeMetricEvalScope,
     scene_payload_cache_epoch, CompileOptions, CompileRevisionPlan, CompileWatchedFile,
 };
@@ -26,9 +27,10 @@ pub use compile::{
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
 pub use model::{
-    BlockDecl, ColumnSchema, CompiledApp, CompiledSceneRoute, ComponentAsset, DataRef,
-    DataTransform, DatasetSourceRef, DatasetView, Diagnostic, FlowDecl, FrameDecl, LayoutDecl,
-    LoadedResource, MetricContract, MetricPackContract, MetricRef, MetricShape, PanelDecl,
+    AnalysisEdge, AnalysisGraph, AnalysisNode, BlockDecl, ColumnSchema, CompiledApp,
+    CompiledSceneRoute, ComponentAsset, DataRef, DataTransform, DatasetSourceRef, DatasetView,
+    Diagnostic, FlowDecl, FrameDecl, LayoutDecl, LoadedResource, MetricContract, MetricPackContract,
+    MetricRef, MetricShape, PanelDecl,
     PanelRefEmbedDecl, ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl,
     RuleRequireDecl, RuleStartDecl, RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl,
     Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode, WorldCellDecl,

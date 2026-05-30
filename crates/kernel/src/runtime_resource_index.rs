@@ -296,6 +296,8 @@ mod tests {
                 sources: Vec::new(),
                 metrics: Default::default(),
                 runtime_metric_defs: Default::default(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
             }),
         }
     }

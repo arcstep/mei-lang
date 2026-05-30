@@ -203,8 +203,6 @@ def _explain_item(
     headers = None,
     mapping = None,
     chart_kind = None,
-    table_metric_id = None,
-    dataset_id = None,
 ):
     return _without_empty({
         "__kind": "explain_item",
@@ -227,8 +225,6 @@ def _explain_item(
         "headers": headers,
         "mapping": mapping,
         "chart_kind": chart_kind,
-        "table_metric_id": table_metric_id,
-        "dataset_id": dataset_id,
     })
 
 def note(content, id = "note", label = None):
@@ -263,7 +259,7 @@ def numerator_denominator(id = "numerator_denominator", label = None, numerator 
         formula = formula,
     )
 
-def detail(id = "detail", label = None, source = None, fields = None, headers = None, table_metric_id = None, dataset_id = None):
+def detail(id = "detail", label = None, source = None, fields = None, headers = None):
     return _explain_item(
         "detail",
         id = id,
@@ -271,29 +267,23 @@ def detail(id = "detail", label = None, source = None, fields = None, headers = 
         source = source,
         fields = fields,
         headers = headers,
-        table_metric_id = table_metric_id,
-        dataset_id = dataset_id,
     )
 
-def composition(id = "composition", label = None, by = None, source = None, table_metric_id = None, dataset_id = None):
+def composition(id = "composition", label = None, by = None, source = None):
     return _explain_item(
         "composition",
         id = id,
         label = label,
         by = by,
         source = source,
-        table_metric_id = table_metric_id,
-        dataset_id = dataset_id,
     )
 
-def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):
+def analysis(kind, title = None, note = None, columns = None, headers = None, mapping = None, chart_kind = None):
     return _without_empty({
         "__kind": "metric_analysis",
         "kind": kind,
         "title": title,
         "note": note,
-        "table_metric_id": table_metric_id,
-        "dataset_id": dataset_id,
         "columns": columns,
         "headers": headers,
         "mapping": mapping,
@@ -669,8 +659,8 @@ def agg(grouped, metrics = [], sort = None, order = "desc", limit = None):
 def bucket_date(rowset, field, by = "month"):
     return _analysis("bucket_date", rowset = rowset, field = field, by = by)
 
-def trend(rowset = None, date_field = None, value = None, by = "month", agg = "count", order = "asc", limit = None, id = None, label = None, source = None, grain = None, table_metric_id = None, dataset_id = None):
-    if rowset == None and (source != None or id != None or label != None or grain != None or table_metric_id != None or dataset_id != None):
+def trend(rowset = None, date_field = None, value = None, by = "month", agg = "count", order = "asc", limit = None, id = None, label = None, source = None, grain = None):
+    if rowset == None and (source != None or id != None or label != None or grain != None):
         return _explain_item(
             "trend",
             id = id if id != None else "trend",
@@ -678,8 +668,6 @@ def trend(rowset = None, date_field = None, value = None, by = "month", agg = "c
             source = source,
             date_field = date_field,
             grain = grain if grain != None else by,
-            table_metric_id = table_metric_id,
-            dataset_id = dataset_id,
         )
     return _analysis("trend", rowset = rowset, date_field = date_field, value = value, by = by, agg = agg, order = order, limit = limit)
 

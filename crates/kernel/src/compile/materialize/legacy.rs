@@ -103,9 +103,12 @@ fn materialize_one_legacy_dataset(
         sources: Vec::new(),
         metrics: BTreeMap::new(),
         runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: Default::default(),
+        runtime_analysis_contracts: Default::default(),
     };
     datasets.insert(dataset_id.clone(), dataset_stub.clone());
-    let runtime_metric_defs = super::expand_runtime_metric_defs(&decl.metrics);
+    let (runtime_metric_defs, runtime_analysis_graph, runtime_analysis_contracts) =
+        super::build_analysis_artifacts(&decl.metrics, &dataset_id);
     let metrics = materialize_legacy_metric_map(&runtime_metric_defs, &rows, datasets)
         .with_context(|| format!("failed to compile legacy metrics for `{dataset_id}`"))?;
     let dataset = DatasetView {
@@ -120,6 +123,8 @@ fn materialize_one_legacy_dataset(
         sources: Vec::new(),
         metrics,
         runtime_metric_defs,
+        runtime_analysis_graph,
+        runtime_analysis_contracts,
     };
     datasets.insert(dataset_id.clone(), dataset.clone());
     Ok(LoadedResource {
