@@ -8359,8 +8359,40 @@
     return undefined;
   }
 
+  function flagEnabled(value) {
+    if (typeof value === "boolean") return value;
+    const raw = String(value || "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+  }
+
+  const LEGACY_DRILLDOWN_FALLBACK_ENABLED = flagEnabled(
+    boot.enableLegacyDrilldownFallback ??
+      boot.legacyDrilldownFallback ??
+      window.__MEI_ENABLE_LEGACY_DRILLDOWN_FALLBACK,
+  );
+  let warnedLegacyDrilldownFallback = false;
+  let legacyDrilldownFallbackHits = 0;
+
   function runtimeDrilldownConfig(detail) {
-    const value = detail?.analysis_contract || detail?.drilldown;
+    let value = detail?.analysis_contract;
+    if (!value && LEGACY_DRILLDOWN_FALLBACK_ENABLED && detail?.drilldown) {
+      value = detail.drilldown;
+      legacyDrilldownFallbackHits += 1;
+      boot.legacyDrilldownFallback = {
+        enabled: true,
+        hits: legacyDrilldownFallbackHits,
+      };
+      if (!warnedLegacyDrilldownFallback) {
+        warnedLegacyDrilldownFallback = true;
+        try {
+          console.warn(
+            "[mei-runtime] legacy drilldown fallback active; disable __MEI_ENABLE_LEGACY_DRILLDOWN_FALLBACK to enforce analysis_contract only.",
+          );
+        } catch (_) {
+          /* ignore console issues */
+        }
+      }
+    }
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
@@ -9072,6 +9104,20 @@
       resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
       mapped?.sceneId,
     );
+    const tableMetricId = nonEmptyString(
+      detail?.table_metric_id,
+      detail?.drilldown_table_metric_id,
+      detail?.drilldown_table_metric,
+    );
+    if (tableMetricId) {
+      return nonEmptyString(
+        runtimeRefConfig.datasetId,
+        detail?.dataset_id,
+        config?.datasetId,
+        mapped?.datasetId,
+        detail?.drilldown_dataset_id,
+      );
+    }
     return nonEmptyString(
       detail?.explain_detail_dataset,
       detail?.drilldown_dataset_id,
@@ -9134,6 +9180,12 @@
       mapped?.sceneId,
     );
     const sceneId = hostSceneId;
+    const queryStateId = nonEmptyString(
+      detail?.query_state_id,
+      detail?.queryStateId,
+      runtime?.query_state_id,
+      runtime?.queryStateId,
+    );
     const runtimeEnabled = boolValue(detail?.analysis_enabled, detail?.drilldown_enabled, runtime?.enabled);
     const explainKind = nonEmptyString(
       detail?.analysis_kind,
@@ -9184,6 +9236,7 @@
       runtime?.ratioFormula,
     );
     const tableMetricId = nonEmptyString(
+      detail?.table_metric_id,
       detail?.drilldown_table_metric_id,
       detail?.drilldown_table_metric,
       runtime?.table_metric_id,
@@ -9239,7 +9292,13 @@
       tableMetricId ||
         columns.length ||
         detailFields.length ||
-        nonEmptyString(detail?.drilldown_dataset_id, runtime?.dataset_id, runtime?.datasetId, mapped?.datasetId),
+        nonEmptyString(
+          detail?.explain_detail_dataset,
+          detail?.drilldown_dataset_id,
+          runtime?.dataset_id,
+          runtime?.datasetId,
+          mapped?.datasetId,
+        ),
     );
     const tabs = resolveDrilldownTabs({
       detail,
@@ -9263,6 +9322,7 @@
       sceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
+      queryStateId,
       boardSceneId,
       boardLink,
       boardSceneFile,
@@ -9480,6 +9540,22 @@
       return null;
     }
     const runtimeQuery = window.__meiDatasetRuntime;
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const sharedFilters =
+      runtimeQuery &&
+      typeof runtimeQuery.sharedFiltersForQueryStateId === "function" &&
+      queryStateId
+        ? runtimeQuery.sharedFiltersForQueryStateId(queryStateId)
+        : {};
+    const mergedFilters = {};
+    if (sharedFilters && typeof sharedFilters === "object" && !Array.isArray(sharedFilters)) {
+      Object.entries(sharedFilters).forEach(([key, value]) => {
+        const normalizedKey = String(key || "").trim();
+        const normalizedValue = String(value ?? "").trim();
+        if (!normalizedKey || !normalizedValue) return;
+        mergedFilters[normalizedKey] = normalizedValue;
+      });
+    }
     if (runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
       try {
         const result = await runtimeQuery.fetchDatasetRows(
@@ -9503,6 +9579,8 @@
           {
             page: 1,
             pageSize: 100000,
+            queryStateId,
+            filters: mergedFilters,
             full: true,
             summary: true,
             meta: {
@@ -9543,6 +9621,7 @@
           scene_id: sceneId,
           target,
           dataset_id: datasetId,
+          filters: Object.keys(mergedFilters).length ? mergedFilters : undefined,
           page: 1,
           page_size: 100000,
           full: true,
