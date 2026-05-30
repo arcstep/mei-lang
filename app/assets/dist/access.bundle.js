@@ -8381,25 +8381,7 @@
   }
 
   function runtimeDrilldownConfig(detail) {
-    let value = detail?.analysis_contract;
-    if (!value && LEGACY_DRILLDOWN_FALLBACK_ENABLED && detail?.drilldown) {
-      value = detail.drilldown;
-      legacyDrilldownFallbackHits += 1;
-      boot.legacyDrilldownFallback = {
-        enabled: true,
-        hits: legacyDrilldownFallbackHits,
-      };
-      if (!warnedLegacyDrilldownFallback) {
-        warnedLegacyDrilldownFallback = true;
-        try {
-          console.warn(
-            "[mei-runtime] legacy drilldown fallback active; disable __MEI_ENABLE_LEGACY_DRILLDOWN_FALLBACK to enforce analysis_contract only.",
-          );
-        } catch (_) {
-          /* ignore console issues */
-        }
-      }
-    }
+    const value = detail?.analysis_contract;
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return {};
     }
@@ -8627,7 +8609,11 @@
         detail?.scene_local_nav_by_target,
       );
     const explainMetrics = normalizeExplainMetrics(
+      detail?.analysis_contract?.blocks,
+      detail?.analysis_contract?.explain_metrics,
+      detail?.analysis_contract?.explainMetrics,
       detail?.explain_metrics,
+      runtime?.blocks,
       runtime?.explain_metrics,
       runtime?.explainMetrics,
     );
@@ -8671,9 +8657,10 @@
       return merged;
     }
     const explicit = runtimeTabIds(
+      detail?.analysis_contract?.tabs,
+      runtime?.tabs,
       detail?.analysis_tabs,
       detail?.drilldown_tabs,
-      runtime?.tabs,
       runtime?.analysis_tabs,
       mapped?.tabs,
     );
@@ -8806,6 +8793,30 @@
           };
           return;
         }
+      }
+      if (entry.runtime_ref && typeof entry.runtime_ref === "object" && !Array.isArray(entry.runtime_ref)) {
+        const runtimeRef = entry.runtime_ref;
+        normalized[tabId] = {
+          runtimeRef: {
+            kind: nonEmptyString(runtimeRef.kind),
+            metricId: nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId, entry.metric_id, entry.metricId),
+            datasetId: nonEmptyString(runtimeRef.dataset_id, runtimeRef.datasetId, entry.dataset_id, entry.datasetId),
+            sceneId: nonEmptyString(runtimeRef.scene_id, runtimeRef.sceneId),
+            scenePath: nonEmptyString(runtimeRef.scene_path, runtimeRef.scenePath),
+          },
+          tableMetricId: nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId, entry.metric_id, entry.metricId),
+          datasetId: nonEmptyString(runtimeRef.dataset_id, runtimeRef.datasetId, entry.dataset_id, entry.datasetId),
+          columns: cloneArray(entry.fields),
+          headers: cloneArray(entry.headers),
+          mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
+          chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+          compositionBy: cloneArray(entry.composition_by).length
+            ? cloneArray(entry.composition_by)
+            : cloneArray(entry.compositionBy),
+          trendField: nonEmptyString(entry.date_field, entry.dateField),
+          trendGrain: nonEmptyString(entry.grain),
+        };
+        return;
       }
       let columns = cloneArray(entry.columns);
       if (!columns.length) columns = cloneArray(entry.detail_fields);
@@ -9217,7 +9228,7 @@
 
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
-    const mapped = legacyMetricContext(metricId);
+    const mapped = {};
     const runtime = runtimeDrilldownConfig(detail);
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
@@ -10097,46 +10108,12 @@
       (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource)
     ) {
       if (isDrilldownAnalysisTab(tabId, config) && !hasCustomMetricSource) {
-        host.replaceChildren();
-        setDrilldownOverlayStatus(root, "loading");
-        mountDerivedDrilldownContent(root, detail, activeConfig, tabId)
-          .then((mounted) => {
-            if (mounted) {
-              setDrilldownOverlayStatus(root, "ready");
-              window.dispatchEvent(new Event("meilang:preview-updated"));
-              return;
-            }
-            recordPopupDebugIssue({
-              level: "warn",
-              message: `派生 explain 块未能渲染，已回退为摘要：${normalizedTab || tabId}`,
-              phase: "derived_render_fallback",
-              detail,
-              config: activeConfig,
-              datasetId: activeConfig?.datasetId,
-            });
-            const summaryConfig = {
-              ...activeConfig,
-              note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
-            };
-            host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
-            setDrilldownOverlayStatus(root, "ready");
-          })
-          .catch((error) => {
-            recordPopupDebugIssue({
-              level: "error",
-              message: String(error?.message || error || "派生 explain 块渲染失败"),
-              phase: "derived_render_error",
-              detail,
-              config: activeConfig,
-              datasetId: activeConfig?.datasetId,
-            });
-            const summaryConfig = {
-              ...activeConfig,
-              note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
-            };
-            host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
-            setDrilldownOverlayStatus(root, "ready");
-          });
+        const summaryConfig = {
+          ...activeConfig,
+          note: nonEmptyString(activeConfig.note, unconfiguredTabNote(tabId)),
+        };
+        host.replaceChildren(createDrilldownSummaryNode(summaryConfig, tabId));
+        setDrilldownOverlayStatus(root, "ready");
         return true;
       }
       host.replaceChildren(createDrilldownSummaryNode(activeConfig, tabId));

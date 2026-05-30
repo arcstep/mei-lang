@@ -1254,6 +1254,8 @@ fn resolve_value_supports_data_and_metric_refs() {
                     },
                 )]),
                 runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
             }),
         },
     );
@@ -1443,6 +1445,8 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
                     },
                 )]),
                 runtime_metric_defs: Default::default(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
             }),
         },
     );
@@ -1594,6 +1598,8 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             sources: Vec::new(),
             metrics: BTreeMap::from([(metric_a.id.clone(), metric_a.clone())]),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         }),
     };
     let resource_b = LoadedResource {
@@ -1625,6 +1631,8 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
             sources: Vec::new(),
             metrics: BTreeMap::from([(metric_b.id.clone(), metric_b.clone())]),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         }),
     };
     let resources = BTreeMap::from([
@@ -1794,7 +1802,10 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
 }
 
 fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
-    use mei_lang_kernel::{MetricContract, MetricShape, SceneDecl, SourceDecl, WorldMetricLedgerEntry};
+    use mei_lang_kernel::{
+        build_runtime_analysis_contracts, build_runtime_analysis_graph, MetricContract, MetricShape,
+        SceneDecl, SourceDecl, WorldMetricLedgerEntry,
+    };
 
     let scene_contract = SceneContract {
         scene: SceneDecl {
@@ -1843,6 +1854,10 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
         transforms: Vec::new(),
         value: json!([{"id": "A", "value": 100}]),
     };
+    let runtime_metric_defs = BTreeMap::from([("sales_total".to_string(), runtime_def)]);
+    let runtime_analysis_graph = build_runtime_analysis_graph(&runtime_metric_defs, "sales_metrics");
+    let runtime_analysis_contracts =
+        build_runtime_analysis_contracts(&runtime_metric_defs, "sales_metrics");
     let resource = LoadedResource {
         id: "sales_metrics".to_string(),
         kind: "dataset".to_string(),
@@ -1874,7 +1889,9 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
                 ("sales_total".to_string(), scalar_metric.clone()),
                 ("sales_total_table".to_string(), table_metric.clone()),
             ]),
-            runtime_metric_defs: BTreeMap::from([("sales_total".to_string(), runtime_def)]),
+            runtime_metric_defs,
+            runtime_analysis_graph,
+            runtime_analysis_contracts,
         }),
     };
     let compiled = CompiledApp {
@@ -1997,6 +2014,16 @@ fn resolve_value_builds_analysis_contract_nodes_for_explain_scope_metrics() {
         .expect("analysis contract from explain scope metric");
     assert_eq!(
         contract.get("table_metric_id").and_then(Value::as_str),
+        None
+    );
+    assert_eq!(
+        contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .and_then(|items| items.get("detail"))
+            .and_then(Value::as_object)
+            .and_then(|value| value.get("metric_id"))
+            .and_then(Value::as_str),
         Some("sales_total::sales_total_table")
     );
     assert_eq!(
@@ -2011,7 +2038,7 @@ fn resolve_value_builds_analysis_contract_nodes_for_explain_scope_metrics() {
 }
 
 #[test]
-fn resolve_value_keeps_legacy_explain_object_compatible() {
+fn resolve_value_rejects_legacy_explain_object_contract_projection() {
     let resolved = preview_metric_with_runtime_def(json!({
         "explain": {
             "note": "旧 explain object 仍可兼容。",
@@ -2022,20 +2049,11 @@ fn resolve_value_keeps_legacy_explain_object_compatible() {
             ]
         }
     }));
-    let contract = resolved
-        .get("__mei_runtime_ref")
-        .and_then(|value| value.get("analysis_contract"))
-        .and_then(Value::as_object)
-        .expect("analysis contract from legacy explain object");
-    assert_eq!(
-        contract.get("table_metric_id").and_then(Value::as_str),
-        Some("sales_total_table")
-    );
-    assert_eq!(
-        contract
-            .get("blocks")
-            .and_then(Value::as_array)
-            .map(|items| items.len()),
-        Some(3)
+    assert!(
+        resolved
+            .get("__mei_runtime_ref")
+            .and_then(|value| value.get("analysis_contract"))
+            .is_none(),
+        "legacy explain object should not project analysis_contract"
     );
 }
