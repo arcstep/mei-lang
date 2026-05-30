@@ -200,6 +200,8 @@ scene(kind="scene", id="s1", world=world_file_ref(path="worlds/s1-world.mei"))
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let cols = normalize_dataset_columns(&dataset, None);
         assert_eq!(cols.len(), 10);

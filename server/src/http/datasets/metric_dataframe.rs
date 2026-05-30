@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     evaluate_runtime_metric_defs_with_scope_and_dag, locate_dataset_resource,
-    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled, CompiledApp, MetricShape,
+    resolve_runtime_metric_def_key, runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
+    CompiledApp, MetricShape,
 };
 use serde_json::Value;
 
@@ -179,10 +180,14 @@ pub fn query_metric_dataframe(
             acc.entry(dataset.id.clone()).or_insert(dataset);
             acc
         });
-    let defs_for_hydrate = select_metric_defs(
-        &dataset.runtime_metric_defs,
-        std::slice::from_ref(&resolved_metric_id),
-    );
+    let closure_metric_ids =
+        runtime_analysis_closure_metric_ids(&dataset.runtime_analysis_graph, std::slice::from_ref(&resolved_metric_id));
+    let effective_metric_ids = if closure_metric_ids.is_empty() {
+        vec![resolved_metric_id.clone()]
+    } else {
+        closure_metric_ids
+    };
+    let defs_for_hydrate = select_metric_defs(&dataset.runtime_metric_defs, &effective_metric_ids);
     let dependency_revision_key =
         metric_request_revision_fingerprint(app_root, &datasets, &resource.id, &defs_for_hydrate);
     let response_cache_key = metric_dataframe_cache_key(
@@ -190,7 +195,7 @@ pub fn query_metric_dataframe(
         scene_id,
         target,
         &resource.id,
-        &metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id)),
+        &metric_scope_cache_key(&effective_metric_ids),
         &options,
         compile_revision,
         &dependency_revision_key,
@@ -249,7 +254,7 @@ pub fn query_metric_dataframe(
         &dataset.runtime_metric_defs,
         &runtime_dataset.rows,
         &datasets,
-        Some(&[resolved_metric_id.clone()]),
+        Some(effective_metric_ids.as_slice()),
         &eval_scope,
     )
     .with_context(|| {
@@ -347,6 +352,23 @@ pub fn query_metric_dataframe(
         "request_dag_eval_node_cache_misses".to_string(),
         dag_metrics.eval_node_cache_misses,
     );
+    result.perf.insert(
+        "analysis_closure_nodes".to_string(),
+        effective_metric_ids.len() as u64,
+    );
+    let closure_set = effective_metric_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let closure_edges = dataset
+        .runtime_analysis_graph
+        .edges
+        .iter()
+        .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
+        .count() as u64;
+    result
+        .perf
+        .insert("analysis_closure_edges".to_string(), closure_edges);
     result.perf.insert(
         "eval_node_cache_enabled".to_string(),
         u64::from(runtime_eval_node_cache_enabled()),

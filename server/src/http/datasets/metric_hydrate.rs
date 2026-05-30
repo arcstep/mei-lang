@@ -307,6 +307,8 @@ mod tests {
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let mut filters = BTreeMap::new();
         filters.insert("status".to_string(), "待办".to_string());

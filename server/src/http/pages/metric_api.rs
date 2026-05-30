@@ -11,7 +11,7 @@ use axum::{
 };
 use mei_lang_kernel::{
     evaluate_runtime_metric_defs_with_scope_and_dag, resolve_runtime_metric_def_key,
-    runtime_eval_node_cache_enabled, MetricContract,
+    runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled, MetricContract,
 };
 use serde::{Deserialize, Serialize};
 
@@ -354,15 +354,26 @@ pub async fn dataset_metric_api(
         &request.metric_ids,
         &dataset.runtime_metric_defs,
     );
+    let closure_metric_ids = if request.metric_ids.is_empty() {
+        Vec::new()
+    } else {
+        let closure =
+            runtime_analysis_closure_metric_ids(&dataset.runtime_analysis_graph, &resolved_metric_ids);
+        if closure.is_empty() {
+            resolved_metric_ids.clone()
+        } else {
+            closure
+        }
+    };
     let metric_ids = if request.metric_ids.is_empty() {
         None
     } else {
-        Some(resolved_metric_ids.as_slice())
+        Some(closure_metric_ids.as_slice())
     };
     let defs_for_hydrate = if request.metric_ids.is_empty() {
         dataset.runtime_metric_defs.clone()
     } else {
-        select_metric_defs(&dataset.runtime_metric_defs, &resolved_metric_ids)
+        select_metric_defs(&dataset.runtime_metric_defs, &closure_metric_ids)
     };
     let dependency_revision_key =
         metric_request_revision_fingerprint(&app_root, &datasets, &resource.id, &defs_for_hydrate);
@@ -371,7 +382,11 @@ pub async fn dataset_metric_api(
         &scene_ctx.scene_id,
         scene_ctx.scene_path.as_deref(),
         &resource.id,
-        &metric_scope_cache_key(&resolved_metric_ids),
+        &metric_scope_cache_key(if request.metric_ids.is_empty() {
+            &resolved_metric_ids
+        } else {
+            &closure_metric_ids
+        }),
         &query,
         &compile_outcome.compile_revision,
         &dependency_revision_key,
@@ -525,6 +540,23 @@ pub async fn dataset_metric_api(
         "request_dag_eval_node_cache_misses".to_string(),
         dag_metrics.eval_node_cache_misses,
     );
+    if !closure_metric_ids.is_empty() {
+        perf.insert(
+            "analysis_closure_nodes".to_string(),
+            closure_metric_ids.len() as u64,
+        );
+        let closure_set = closure_metric_ids
+            .iter()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>();
+        let closure_edges = dataset
+            .runtime_analysis_graph
+            .edges
+            .iter()
+            .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
+            .count() as u64;
+        perf.insert("analysis_closure_edges".to_string(), closure_edges);
+    }
     perf.insert(
         "eval_node_cache_enabled".to_string(),
         u64::from(runtime_eval_node_cache_enabled()),

@@ -61,6 +61,8 @@ mod tests {
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let result = query_dataset_rows(
             PathBuf::from(".").as_path(),
@@ -112,6 +114,8 @@ mod tests {
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let result = query_dataset_rows(
             &root,
@@ -172,6 +176,8 @@ mod tests {
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let mut filters = BTreeMap::new();
         filters.insert("city".to_string(), "chongqing".to_string());
@@ -223,6 +229,8 @@ mod tests {
             sources: Vec::new(),
             metrics: BTreeMap::new(),
             runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
         };
         let mut filters = BTreeMap::new();
         filters.insert("city".to_string(), "chongqing".to_string());
