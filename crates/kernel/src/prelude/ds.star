@@ -183,37 +183,19 @@ def metric_ref(id, from_dataset = None, scene_file = None, scene_id = None):
         "scene_file": scene_file,
     })
 
-def metric_explain(
-    note = None,
-    ratio_parts = None,
-    detail_fields = None,
-    recommended_dimensions = None,
-    metrics = None,
-    composition_by = None,
-    trend_field = None,
-    trend_grain = None,
-    detail_dataset = None,
-    basis_refs = None,
-    detail_table_metric_id = None,
-):
-    return _without_empty({
-        "note": note,
-        "ratio_parts": ratio_parts,
-        "detail_fields": detail_fields,
-        "recommended_dimensions": recommended_dimensions,
-        "metrics": metrics,
-        "composition_by": composition_by,
-        "trend_field": trend_field,
-        "trend_grain": trend_grain,
-        "detail_dataset": detail_dataset,
-        "basis_refs": basis_refs,
-        "detail_table_metric_id": detail_table_metric_id,
-    })
-
-def explain_metric(
-    id,
+def _explain_item(
     kind,
+    id = None,
     label = None,
+    note = None,
+    content = None,
+    format = None,
+    basis_refs = None,
+    recommended_dimensions = None,
+    numerator = None,
+    denominator = None,
+    formula = None,
+    source = None,
     by = None,
     date_field = None,
     grain = None,
@@ -225,10 +207,19 @@ def explain_metric(
     dataset_id = None,
 ):
     return _without_empty({
-        "__kind": "explain_metric",
-        "id": id,
+        "__kind": "explain_item",
+        "id": id if id != None else kind,
         "kind": kind,
         "label": label,
+        "note": note,
+        "content": content,
+        "format": format,
+        "basis_refs": basis_refs,
+        "recommended_dimensions": recommended_dimensions,
+        "numerator": numerator,
+        "denominator": denominator,
+        "formula": formula,
+        "source": source,
         "by": by,
         "date_field": date_field,
         "grain": grain,
@@ -239,6 +230,61 @@ def explain_metric(
         "table_metric_id": table_metric_id,
         "dataset_id": dataset_id,
     })
+
+def note(content, id = "note", label = None):
+    if content == None or str(content).strip() == "":
+        fail("note requires non-empty content")
+    return _explain_item(
+        "note",
+        id = id,
+        label = label,
+        note = str(content).strip(),
+        content = str(content).strip(),
+        format = "text",
+    )
+
+def definition(id = "definition", label = None, note = None, basis_refs = None, recommended_dimensions = None):
+    return _explain_item(
+        "definition",
+        id = id,
+        label = label,
+        note = note,
+        basis_refs = basis_refs,
+        recommended_dimensions = recommended_dimensions,
+    )
+
+def numerator_denominator(id = "numerator_denominator", label = None, numerator = None, denominator = None, formula = None):
+    return _explain_item(
+        "numerator_denominator",
+        id = id,
+        label = label,
+        numerator = numerator,
+        denominator = denominator,
+        formula = formula,
+    )
+
+def detail(id = "detail", label = None, source = None, fields = None, headers = None, table_metric_id = None, dataset_id = None):
+    return _explain_item(
+        "detail",
+        id = id,
+        label = label,
+        source = source,
+        fields = fields,
+        headers = headers,
+        table_metric_id = table_metric_id,
+        dataset_id = dataset_id,
+    )
+
+def composition(id = "composition", label = None, by = None, source = None, table_metric_id = None, dataset_id = None):
+    return _explain_item(
+        "composition",
+        id = id,
+        label = label,
+        by = by,
+        source = source,
+        table_metric_id = table_metric_id,
+        dataset_id = dataset_id,
+    )
 
 def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):
     return _without_empty({
@@ -623,7 +669,18 @@ def agg(grouped, metrics = [], sort = None, order = "desc", limit = None):
 def bucket_date(rowset, field, by = "month"):
     return _analysis("bucket_date", rowset = rowset, field = field, by = by)
 
-def trend(rowset, date_field, value = None, by = "month", agg = "count", order = "asc", limit = None):
+def trend(rowset = None, date_field = None, value = None, by = "month", agg = "count", order = "asc", limit = None, id = None, label = None, source = None, grain = None, table_metric_id = None, dataset_id = None):
+    if rowset == None and (source != None or id != None or label != None or grain != None or table_metric_id != None or dataset_id != None):
+        return _explain_item(
+            "trend",
+            id = id if id != None else "trend",
+            label = label,
+            source = source,
+            date_field = date_field,
+            grain = grain if grain != None else by,
+            table_metric_id = table_metric_id,
+            dataset_id = dataset_id,
+        )
     return _analysis("trend", rowset = rowset, date_field = date_field, value = value, by = by, agg = agg, order = order, limit = limit)
 
 def mom(series, value_field = "value", label_field = "label", as_ = "mom"):
@@ -715,7 +772,15 @@ def sum(field, fallback = 0):
         return _analysis("sum", value = field, fallback = fallback)
     return _expr("sum(" + field + ")")
 
-def ratio(numerator, denominator, fallback = 0):
+def ratio(numerator = None, denominator = None, fallback = 0, id = None, label = None, formula = None):
+    if formula != None or id != None or label != None:
+        return numerator_denominator(
+            id = id if id != None else "numerator_denominator",
+            label = label,
+            numerator = numerator,
+            denominator = denominator,
+            formula = formula,
+        )
     if _is_analysis(numerator) or _is_analysis(denominator):
         return _analysis("ratio", numerator = numerator, denominator = denominator, fallback = fallback)
     return _expr("ratio(" + numerator + ", " + denominator + ")")

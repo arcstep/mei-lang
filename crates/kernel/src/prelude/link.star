@@ -5,7 +5,7 @@ _BOARD_TEMPLATE_SCENE_FILES = {
 }
 
 def explain_metric_ref(id):
-    """Reference an explain_metric id on the root metric's metric.explain.metrics[]."""
+    """Reference a stable explain item id on the root metric's explain scope."""
     if id == None or str(id).strip() == "":
         fail("explain_metric_ref requires non-empty id")
     return {

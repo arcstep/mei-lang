@@ -22,6 +22,13 @@ def _expr_source(value):
         return value["source"]
     return value
 
+def _normalize_explain(value):
+    if value == None:
+        return None
+    if type(value) == "list" and len(value) == 0:
+        return None
+    return value
+
 def _metric_source(metric):
     value = _expr_source(metric.get("value"))
     values = metric.get("values")
@@ -30,7 +37,7 @@ def _metric_source(metric):
         "unit": metric.get("unit"),
         "shape": metric.get("shape"),
         "schema": metric.get("schema"),
-        "explain": metric.get("explain"),
+        "explain": _normalize_explain(metric.get("explain")),
         "analyses": metric.get("analyses"),
         "binding": metric.get("binding"),
     })
@@ -68,7 +75,7 @@ def _data_product(shape, id = None, key = None, label = None, value = None, valu
         "unit": unit,
         "schema": schema,
         "drilldown": drilldown,
-        "explain": explain,
+        "explain": _normalize_explain(explain),
         "analyses": analyses,
         "binding": binding,
     })

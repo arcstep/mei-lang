@@ -30,7 +30,8 @@ pub(crate) fn materialize_metric_packs(
 
     let mut compiled = Vec::new();
     for pack in packs {
-        let metrics = materialize_legacy_metric_map(&pack.metrics, &[], &datasets)
+        let runtime_metric_defs = super::expand_runtime_metric_defs(&pack.metrics);
+        let metrics = materialize_legacy_metric_map(&runtime_metric_defs, &[], &datasets)
             .with_context(|| format!("failed to compile metric_pack `{}`", pack.metric_pack.id))?;
         let dataset = DatasetView {
             id: pack.metric_pack.id.clone(),
@@ -55,7 +56,7 @@ pub(crate) fn materialize_metric_packs(
             },
             sources: Vec::new(),
             metrics,
-            runtime_metric_defs: pack.metrics.clone(),
+            runtime_metric_defs,
         };
         datasets.insert(pack.metric_pack.id.clone(), dataset.clone());
         compiled.push(LoadedResource {

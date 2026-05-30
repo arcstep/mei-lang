@@ -1,4 +1,5 @@
 use super::{compile_app_from_root_with_options, workspace_root, CompileOptions};
+use serde_json::Value;
 
 #[test]
 fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
@@ -1240,15 +1241,117 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
                 let meta = metric
                     .get("drilldown_dataset")
                     .or_else(|| metric.get("drilldown"))
-                    .or_else(|| metric.get("explain"))
-                    .and_then(|value| value.as_object());
+                    .or_else(|| metric.get("explain"));
                 if let Some(meta) = meta {
+                    let is_non_empty = meta
+                        .as_object()
+                        .map(|value| !value.is_empty())
+                        .or_else(|| meta.as_array().map(|value| !value.is_empty()))
+                        .unwrap_or(false);
                     assert!(
-                        !meta.is_empty(),
-                        "{metric_id} should keep explain/drilldown metadata object in {target}"
+                        is_non_empty,
+                        "{metric_id} should keep non-empty explain/drilldown metadata in {target}"
                     );
                 }
             }
         }
     }
+}
+
+#[test]
+fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let preview_targets = [
+        (
+            "scenes/5_问题办理/监督成效.mei",
+            "effectiveness_handled_person_times",
+        ),
+        (
+            "scenes/5_问题办理/问题办理.mei",
+            "effectiveness_issue_verification_rate",
+        ),
+        (
+            "scenes/2_行政检查/指标体系.mei",
+            "inspection_frequency_reduction_rate",
+        ),
+    ];
+    for (target, metric_id) in preview_targets {
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: Some(target.to_string()),
+            },
+        )
+        .unwrap_or_else(|_| panic!("compile {target} preview"));
+        let explain = compiled.resources.iter().find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .get(metric_id)
+                .and_then(|metric| metric.get("explain"))
+        });
+        let explain = explain.unwrap_or_else(|| panic!("{metric_id} explain should exist in {target}"));
+        let items = explain
+            .as_array()
+            .unwrap_or_else(|| panic!("{metric_id} explain should normalize to list in {target}: {explain:?}"));
+        assert!(
+            !items.is_empty(),
+            "{metric_id} explain list should not be empty in {target}"
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/5_问题办理/监督成效.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|_| panic!("compile {target} preview"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .contains_key("effectiveness_handled_person_times")
+                .then_some(dataset)
+        })
+        .expect("supervision effectiveness runtime metric defs");
+    assert!(
+        dataset
+            .runtime_metric_defs
+            .contains_key("effectiveness_handled_person_times::handled_table"),
+        "effectiveness_handled_person_times explain scope child metric should be hoisted with scoped id"
+    );
+    let explain = dataset
+        .runtime_metric_defs
+        .get("effectiveness_handled_person_times")
+        .and_then(|metric| metric.get("explain"))
+        .and_then(Value::as_array)
+        .expect("handled explain list");
+    let detail = explain
+        .iter()
+        .find(|item| item.get("kind").and_then(Value::as_str) == Some("detail"))
+        .expect("detail explain entry");
+    assert_eq!(
+        detail
+            .get("source")
+            .and_then(|value| value.get("id"))
+            .and_then(Value::as_str),
+        Some("effectiveness_handled_person_times::handled_table")
+    );
 }

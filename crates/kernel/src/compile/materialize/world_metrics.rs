@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 
+use super::analysis_graph::expand_runtime_metric_defs;
 use super::metric_packs::{
     materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
 };
@@ -104,6 +105,7 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
         };
         runtime_metric_defs.insert(key.to_string(), value.clone());
     }
+    runtime_metric_defs = expand_runtime_metric_defs(&runtime_metric_defs);
     for entry in ledger.values() {
         if entry.owner_resource_id != resource_id {
             continue;
@@ -172,7 +174,7 @@ pub(crate) fn materialize_world_metrics(
         };
         raw_metrics.insert(key.to_string(), value.clone());
     }
-    materialize_legacy_metric_map(&raw_metrics, &[], &datasets)
+    materialize_legacy_metric_map(&expand_runtime_metric_defs(&raw_metrics), &[], &datasets)
 }
 
 pub(crate) fn evaluate_runtime_metric_defs(
@@ -210,11 +212,12 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
     metric_ids: Option<&[String]>,
     scope: &RuntimeMetricEvalScope,
 ) -> Result<(BTreeMap<String, MetricContract>, RequestDagMetrics)> {
+    let expanded_defs = expand_runtime_metric_defs(metric_defs);
     if let Some(ids) = metric_ids {
         let selected = ids
             .iter()
             .filter_map(|id| {
-                metric_defs
+                expanded_defs
                     .get(id)
                     .cloned()
                     .map(|value| (id.clone(), value))
@@ -224,7 +227,7 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
             &selected, base_rows, datasets, scope,
         );
     }
-    materialize_legacy_metric_map_with_scope_and_dag(metric_defs, base_rows, datasets, scope)
+    materialize_legacy_metric_map_with_scope_and_dag(&expanded_defs, base_rows, datasets, scope)
 }
 
 #[cfg(test)]
