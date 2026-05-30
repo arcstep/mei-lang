@@ -108,6 +108,12 @@ pub(crate) fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -
             let mut out = obj.clone();
             for column in schema {
                 let type_name = column.type_name.as_str();
+                if type_name == "integer" {
+                    if let Some(value) = out.get(&column.name) {
+                        out.insert(column.name.clone(), coerce_value_to_integer(value));
+                    }
+                    continue;
+                }
                 if type_name != "date" && type_name != "datetime" {
                     continue;
                 }
@@ -118,6 +124,21 @@ pub(crate) fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -
             Value::Object(out)
         })
         .collect()
+}
+
+fn coerce_value_to_integer(value: &Value) -> Value {
+    if let Some(integer) = value.as_i64() {
+        return serde_json::json!(integer);
+    }
+    if let Some(number) = value.as_f64() {
+        if number.fract() == 0.0 {
+            let rounded = number.round();
+            if rounded >= i64::MIN as f64 && rounded <= i64::MAX as f64 {
+                return serde_json::json!(rounded as i64);
+            }
+        }
+    }
+    value.clone()
 }
 
 fn coerce_value_to_date_string(value: &Value) -> Value {

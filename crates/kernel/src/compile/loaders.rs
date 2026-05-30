@@ -46,6 +46,77 @@ fn xlsx_header(value: &Data) -> String {
     }
 }
 
+/// 空表头列赋 `__EMPTY` / `__EMPTY_N`，与 `ds.column(name, source = "__EMPTY")` 的 normalize 映射一致。
+pub fn materialize_xlsx_column_headers(raw_headers: &[String]) -> Vec<String> {
+    let mut empty_idx = 0usize;
+    raw_headers
+        .iter()
+        .map(|raw| {
+            let text = raw.trim().to_string();
+            if !text.is_empty() {
+                return text;
+            }
+            let name = if empty_idx == 0 {
+                "__EMPTY".to_string()
+            } else {
+                format!("__EMPTY_{empty_idx}")
+            };
+            empty_idx += 1;
+            name
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::materialize_xlsx_column_headers;
+
+    #[test]
+    fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/spbjw/upload/11.预警清单、问题跟踪清单.20260527.xlsx");
+        let rows = super::load_legacy_xlsx_rows(&path, None, 4, Some(20))
+            .expect("load spbjw warning list xlsx");
+        let row = rows
+            .iter()
+            .find(|row| {
+                row.get("预警ID")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.contains("YJ2025001"))
+                    .unwrap_or(false)
+            })
+            .expect("sample row with 预警ID");
+        assert!(
+            row.get("__EMPTY").is_some(),
+            "raw row keys: {:?}",
+            row.as_object().map(|o| o.keys().collect::<Vec<_>>())
+        );
+    }
+
+    #[test]
+    fn materialize_xlsx_column_headers_names_empty_leading_columns() {
+        let headers = materialize_xlsx_column_headers(&[
+            String::new(),
+            String::new(),
+            String::new(),
+            "预警ID".to_string(),
+            "预警条数".to_string(),
+        ]);
+        assert_eq!(
+            headers,
+            vec![
+                "__EMPTY",
+                "__EMPTY_1",
+                "__EMPTY_2",
+                "预警ID",
+                "预警条数"
+            ]
+        );
+    }
+}
+
 fn is_ole_compound_document(path: &Path) -> bool {
     fs::read(path)
         .map(|bytes| bytes.starts_with(&[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]))
@@ -81,10 +152,11 @@ where
     let Some(header_row_cells) = rows.next() else {
         return Ok(Vec::new());
     };
-    let headers: Vec<String> = header_row_cells
+    let raw_headers: Vec<String> = header_row_cells
         .iter()
         .map(|cell| xlsx_header(cell))
         .collect();
+    let headers = materialize_xlsx_column_headers(&raw_headers);
     let mut out = Vec::new();
     for row in rows {
         if max_rows.is_some_and(|cap| out.len() >= cap) {
@@ -92,9 +164,6 @@ where
         }
         let mut obj = Map::new();
         for (index, header) in headers.iter().enumerate() {
-            if header.is_empty() {
-                continue;
-            }
             let cell = row.get(index).map(xlsx_cell).unwrap_or(Value::Null);
             obj.insert(header.clone(), cell);
         }

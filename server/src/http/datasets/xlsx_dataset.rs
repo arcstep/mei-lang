@@ -2,7 +2,7 @@ use std::{fs, path::Path, sync::Arc, time::Instant};
 
 use anyhow::{anyhow, Context, Result};
 use calamine::{open_workbook, Reader, Xls, Xlsx};
-use mei_lang_kernel::SourceDecl;
+use mei_lang_kernel::{materialize_xlsx_column_headers, SourceDecl};
 use serde_json::Value;
 
 use super::file_cache::{
@@ -183,10 +183,11 @@ where
     for _ in 0..header_row.saturating_sub(1) {
         rows_iter.next();
     }
-    let headers = rows_iter
+    let raw_headers = rows_iter
         .next()
         .map(|row| row.iter().map(xlsx_header).collect::<Vec<_>>())
         .unwrap_or_default();
+    let headers = materialize_xlsx_column_headers(&raw_headers);
     let mut window = QueryWindow::new(options);
     for row in rows_iter {
         if window.should_stop() {
@@ -194,9 +195,6 @@ where
         }
         let mut map = serde_json::Map::new();
         for (index, header) in headers.iter().enumerate() {
-            if header.is_empty() {
-                continue;
-            }
             let cell = row.get(index).map(xlsx_cell).unwrap_or(Value::Null);
             map.insert(header.clone(), cell);
         }
@@ -266,17 +264,15 @@ where
     for _ in 0..header_row.saturating_sub(1) {
         rows_iter.next();
     }
-    let headers = rows_iter
+    let raw_headers = rows_iter
         .next()
         .map(|row| row.iter().map(xlsx_header).collect::<Vec<_>>())
         .unwrap_or_default();
+    let headers = materialize_xlsx_column_headers(&raw_headers);
     let mut rows = Vec::new();
     for row in rows_iter {
         let mut map = serde_json::Map::new();
         for (index, header) in headers.iter().enumerate() {
-            if header.is_empty() {
-                continue;
-            }
             let cell = row.get(index).map(xlsx_cell).unwrap_or(Value::Null);
             map.insert(header.clone(), cell);
         }

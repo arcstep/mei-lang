@@ -12,9 +12,9 @@ pub use compile::{
     clear_runtime_compile_caches, compile_app, compile_app_from_root,
     compile_app_from_root_with_options, compile_app_with_options,
     compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
-    dataset_materialize_cache_epoch, evaluate_runtime_metric_defs, panel_resolved_has_head,
-    resolve_default_scene_from_root, scene_payload_cache_epoch, CompileOptions,
-    CompileRevisionPlan, CompileWatchedFile,
+    dataset_materialize_cache_epoch, evaluate_runtime_metric_defs,
+    materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
+    scene_payload_cache_epoch, CompileOptions, CompileRevisionPlan, CompileWatchedFile,
 };
 
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};

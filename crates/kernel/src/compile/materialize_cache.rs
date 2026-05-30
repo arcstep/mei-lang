@@ -18,7 +18,7 @@ pub(super) struct LegacyRowsSnapshot {
     pub truncated: bool,
 }
 
-pub const DATASET_MATERIALIZE_CACHE_VERSION: u32 = 1;
+pub const DATASET_MATERIALIZE_CACHE_VERSION: u32 = 2;
 
 pub fn dataset_materialize_cache_epoch() -> String {
     format!("l3v{DATASET_MATERIALIZE_CACHE_VERSION}")

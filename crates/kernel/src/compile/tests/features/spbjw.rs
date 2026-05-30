@@ -422,6 +422,53 @@ fn spbjw_supervision_models_count_is_eighteen() {
 }
 
 #[test]
+fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+        },
+    )
+    .expect("compile supervision warning for warning_list columns");
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "warning_list")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("warning_list dataset");
+    let row = dataset
+        .rows
+        .iter()
+        .find(|row| {
+            row.get("预警ID")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("YJ2025001"))
+                .unwrap_or(false)
+        })
+        .expect("sample warning row");
+    let serial = row.get("序号").and_then(|value| {
+        value
+            .as_i64()
+            .or_else(|| value.as_f64().map(|number| number as i64))
+    });
+    assert_eq!(
+        serial,
+        Some(1),
+        "序号列应来自 Excel A 列（表头行为空单元格）"
+    );
+    assert_eq!(
+        row.get("监督领域").and_then(|v| v.as_str()),
+        Some("行政执法"),
+        "监督领域应来自 Excel B 列"
+    );
+}
+
+#[test]
 fn spbjw_warnings_count_sums_warning_entry_column() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
