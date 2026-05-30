@@ -14,8 +14,10 @@ use super::super::{
         schema::{infer_columns, infer_schema_from_rows},
     },
     decls::{LegacyDatasetDecl, LegacySourceDecl},
-    loaders::load_legacy_xlsx_rows,
-    materialize_cache::cached_load_legacy_rows_from_source,
+    loaders::load_xlsx_table_snapshot,
+    materialize_cache::{
+        cached_load_legacy_rows_from_source, try_get_cached_xlsx_table_snapshot,
+    },
     resources::csv_record_to_json,
 };
 
@@ -210,14 +212,26 @@ fn load_legacy_rows_from_source_inner(
         }
         "xlsx" => {
             let header_row = source.header_row.unwrap_or(1).max(1) as usize;
-            let rows = load_legacy_xlsx_rows(
-                &path,
+            let mut rows = if let Some(snapshot) = try_get_cached_xlsx_table_snapshot(
+                app_root,
+                source_path,
                 source.sheet.as_deref(),
                 header_row,
-                Some(preview_rows),
-            )
-            .with_context(|| format!("failed to read xlsx dataset {}", path.display()))?;
+            ) {
+                snapshot.rows.clone()
+            } else {
+                load_xlsx_table_snapshot(
+                    &path,
+                    source_path,
+                    source.sheet.as_deref(),
+                    header_row,
+                    Some(preview_rows),
+                )
+                .with_context(|| format!("failed to read xlsx dataset {}", path.display()))?
+                .rows
+            };
             let truncated = rows.len() >= preview_rows;
+            rows.truncate(preview_rows);
             Ok(LegacyRowsSnapshot { rows, truncated })
         }
         other => Err(anyhow!("unsupported legacy dataset source kind `{other}`")),

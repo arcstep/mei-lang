@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 
 use crate::model::DatasetView;
 
 use super::{
-    predicate::predicate_matches,
-    rowset::eval_rowset,
+    eval_context::{EvalContext, EvalNodeKind},
+    predicate::predicate_matches_with_ctx,
+    rowset::eval_rowset_with_ctx,
     schema::{parse_number, row_number, row_string},
 };
 
@@ -32,10 +33,29 @@ fn period_over_period_rate(rows: &[Value], value_field: &str, offset: usize) -> 
     }
 }
 
-pub(crate) fn eval_scalar_value(
+pub(crate) fn eval_scalar_value_with_ctx(
     expr: &Value,
     base_rows: &[Value],
     datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Value> {
+    if let Some(value) = ctx.cached_scalar(expr) {
+        return Ok(value);
+    }
+    let Some(node_key) = ctx.scalar_key(expr) else {
+        return eval_scalar_uncached(expr, base_rows, datasets, ctx);
+    };
+    ctx.with_eval_node(&node_key, EvalNodeKind::Scalar, |ctx| {
+        eval_scalar_uncached(expr, base_rows, datasets, ctx)
+            .with_context(|| format!("metric_eval_recursion_guard_tripped(scalar): `{node_key}`"))
+    })
+}
+
+fn eval_scalar_uncached(
+    expr: &Value,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> Result<Value> {
     let Some(object) = expr.as_object() else {
         return Ok(expr.clone());
@@ -50,39 +70,61 @@ pub(crate) fn eval_scalar_value(
     match analysis_type {
         "count" => {
             let rows = match object.get("rowset") {
-                Some(rowset) => eval_rowset(rowset, datasets)?,
+                Some(rowset) => match eval_rowset_with_ctx(rowset, datasets, ctx) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        if let Some(fallback) = object.get("fallback").cloned() {
+                            ctx.store_scalar(expr, &fallback);
+                            return Ok(fallback);
+                        }
+                        return Err(error)
+                            .with_context(|| format!("count rowset for scalar `{expr}`"));
+                    }
+                },
                 None => base_rows.to_vec(),
             };
-            Ok(json!(rows.len()))
+            let value = json!(rows.len());
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "sum" => {
-            let values = eval_numeric_values(object.get("value"), datasets)?;
-            Ok(json!(values.iter().sum::<f64>()))
+            let values = eval_numeric_values(object.get("value"), datasets, ctx)?;
+            let value = json!(values.iter().sum::<f64>());
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "avg" => {
-            let values = eval_numeric_values(object.get("value"), datasets)?;
+            let values = eval_numeric_values(object.get("value"), datasets, ctx)?;
             let value = if values.is_empty() {
                 0.0
             } else {
                 values.iter().sum::<f64>() / values.len() as f64
             };
-            Ok(json!(value))
+            let value = json!(value);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "min" => {
-            let values = eval_numeric_values(object.get("value"), datasets)?;
-            Ok(json!(values.into_iter().reduce(f64::min).unwrap_or(0.0)))
+            let values = eval_numeric_values(object.get("value"), datasets, ctx)?;
+            let value = json!(values.into_iter().reduce(f64::min).unwrap_or(0.0));
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "max" => {
-            let values = eval_numeric_values(object.get("value"), datasets)?;
-            Ok(json!(values.into_iter().reduce(f64::max).unwrap_or(0.0)))
+            let values = eval_numeric_values(object.get("value"), datasets, ctx)?;
+            let value = json!(values.into_iter().reduce(f64::max).unwrap_or(0.0));
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "median" => {
-            let mut values = eval_numeric_values(object.get("value"), datasets)?;
+            let mut values = eval_numeric_values(object.get("value"), datasets, ctx)?;
             values.sort_by(|left, right| {
                 left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
             });
             if values.is_empty() {
-                return Ok(json!(0.0));
+                let value = json!(0.0);
+                ctx.store_scalar(expr, &value);
+                return Ok(value);
             }
             let middle = values.len() / 2;
             let median = if values.len() % 2 == 0 {
@@ -90,7 +132,9 @@ pub(crate) fn eval_scalar_value(
             } else {
                 values[middle]
             };
-            Ok(json!(median))
+            let value = json!(median);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "unique_count" => {
             let Some(value_expr) = object.get("value") else {
@@ -111,7 +155,7 @@ pub(crate) fn eval_scalar_value(
                             .or_else(|| map.get("rowset"))
                             .unwrap_or(&Value::Null);
                         let field = map.get("field").and_then(Value::as_str).unwrap_or("");
-                        eval_rowset(source, datasets)?
+                        eval_rowset_with_ctx(source, datasets, ctx)?
                             .iter()
                             .map(|row| row_string(row, field))
                             .collect::<BTreeSet<_>>()
@@ -122,7 +166,9 @@ pub(crate) fn eval_scalar_value(
                 }
                 _ => 0,
             };
-            Ok(json!(unique))
+            let value = json!(unique);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "item_count" => {
             let Some(value_expr) = object.get("value") else {
@@ -130,51 +176,72 @@ pub(crate) fn eval_scalar_value(
             };
             let count = match value_expr {
                 Value::Array(items) => items.len(),
-                _ => eval_rowset(value_expr, datasets)
+                _ => eval_rowset_with_ctx(value_expr, datasets, ctx)
                     .map(|rows| rows.len())
                     .unwrap_or(0),
             };
-            Ok(json!(count))
+            let value = json!(count);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "ratio" => {
-            let numerator = eval_scalar_value(
+            let numerator = eval_scalar_value_with_ctx(
                 object.get("numerator").unwrap_or(&Value::Null),
                 base_rows,
                 datasets,
+                ctx,
             )?
             .as_f64()
             .unwrap_or(0.0);
-            let denominator = eval_scalar_value(
+            let denominator = eval_scalar_value_with_ctx(
                 object.get("denominator").unwrap_or(&Value::Null),
                 base_rows,
                 datasets,
+                ctx,
             )?
             .as_f64()
             .unwrap_or(0.0);
             if denominator.abs() < f64::EPSILON {
-                Ok(json!(0.0))
+                let value = json!(0.0);
+                ctx.store_scalar(expr, &value);
+                Ok(value)
             } else {
-                Ok(json!(numerator / denominator))
+                let value = json!(numerator / denominator);
+                ctx.store_scalar(expr, &value);
+                Ok(value)
             }
         }
         "percent" => {
-            let rows = object
-                .get("rowset")
-                .map(|rowset| eval_rowset(rowset, datasets))
-                .transpose()?
-                .unwrap_or_else(|| base_rows.to_vec());
+            let rows = match object.get("rowset") {
+                Some(rowset) => match eval_rowset_with_ctx(rowset, datasets, ctx) {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        if datasets.is_empty() {
+                            let fallback = object.get("fallback").cloned().unwrap_or_else(|| json!(0.0));
+                            ctx.store_scalar(expr, &fallback);
+                            return Ok(fallback);
+                        }
+                        return Err(error);
+                    }
+                },
+                None => base_rows.to_vec(),
+            };
             let matched = object
                 .get("predicate")
                 .map(|predicate| {
                     rows.iter()
-                        .filter(|row| predicate_matches(row, predicate, datasets))
+                        .filter(|row| predicate_matches_with_ctx(row, predicate, datasets, ctx))
                         .count()
                 })
                 .unwrap_or(rows.len());
             if rows.is_empty() {
-                Ok(json!(0.0))
+                let value = json!(0.0);
+                ctx.store_scalar(expr, &value);
+                Ok(value)
             } else {
-                Ok(json!(matched as f64 / rows.len() as f64))
+                let value = json!(matched as f64 / rows.len() as f64);
+                ctx.store_scalar(expr, &value);
+                Ok(value)
             }
         }
         "sum_first_number" => {
@@ -195,7 +262,9 @@ pub(crate) fn eval_scalar_value(
                     }
                 }
             }
-            Ok(json!(total))
+            let value = json!(total);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "sum_rowset_counts" => {
             let rowsets = object
@@ -205,46 +274,56 @@ pub(crate) fn eval_scalar_value(
                 .unwrap_or_default();
             let mut total = 0usize;
             for rowset in rowsets {
-                total += eval_rowset(&rowset, datasets)?.len();
+                total += eval_rowset_with_ctx(&rowset, datasets, ctx)?.len();
             }
             let fallback = object.get("fallback").and_then(parse_number).unwrap_or(0.0);
-            Ok(json!(total as f64 + fallback))
+            let value = json!(total as f64 + fallback);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "number" => {
-            let values = eval_numeric_values(Some(expr), datasets)?;
-            Ok(Value::Array(
-                values.into_iter().map(|value| json!(value)).collect(),
-            ))
+            let values = eval_numeric_values(Some(expr), datasets, ctx)?;
+            let value = Value::Array(values.into_iter().map(|value| json!(value)).collect());
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
-        "lit" => Ok(object.get("value").cloned().unwrap_or(Value::Null)),
+        "lit" => {
+            let value = object.get("value").cloned().unwrap_or(Value::Null);
+            ctx.store_scalar(expr, &value);
+            Ok(value)
+        }
         "mom" => {
             let series_expr = object
                 .get("series")
                 .or_else(|| object.get("rowset"))
                 .ok_or_else(|| anyhow!("mom expression missing series"))?;
-            let rows = eval_rowset(series_expr, datasets)?;
-            Ok(json!(period_over_period_rate(
+            let rows = eval_rowset_with_ctx(series_expr, datasets, ctx)?;
+            let value = json!(period_over_period_rate(
                 &rows,
                 series_value_field(object),
                 1,
-            )))
+            ));
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         "yoy" => {
             let series_expr = object
                 .get("series")
                 .or_else(|| object.get("rowset"))
                 .ok_or_else(|| anyhow!("yoy expression missing series"))?;
-            let rows = eval_rowset(series_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(series_expr, datasets, ctx)?;
             let offset = if rows.len() > 12 {
                 12
             } else {
                 rows.len().saturating_sub(1).max(1)
             };
-            Ok(json!(period_over_period_rate(
+            let value = json!(period_over_period_rate(
                 &rows,
                 series_value_field(object),
                 offset,
-            )))
+            ));
+            ctx.store_scalar(expr, &value);
+            Ok(value)
         }
         _ => Ok(expr.clone()),
     }
@@ -253,6 +332,7 @@ pub(crate) fn eval_scalar_value(
 fn eval_numeric_values(
     expr: Option<&Value>,
     datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> Result<Vec<f64>> {
     let Some(expr) = expr else {
         return Ok(Vec::new());
@@ -274,7 +354,7 @@ fn eval_numeric_values(
                     .get("field")
                     .and_then(Value::as_str)
                     .ok_or_else(|| anyhow!("number expression missing field"))?;
-                return Ok(eval_rowset(rowset_expr, datasets)?
+                return Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                     .iter()
                     .filter_map(|row| row_number(row, field))
                     .collect());

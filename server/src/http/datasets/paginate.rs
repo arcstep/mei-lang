@@ -311,25 +311,6 @@ pub(crate) fn infer_columns(rows: &[Value]) -> Vec<String> {
     columns.into_iter().collect()
 }
 
-pub(crate) fn empty_result(options: &DatasetQueryOptions, lazy: bool) -> DatasetQueryResult {
-    DatasetQueryResult {
-        page: if options.collect_all { 1 } else { options.page },
-        page_size: if options.collect_all {
-            0
-        } else {
-            options.page_size
-        },
-        total: 0,
-        has_more: false,
-        columns: Vec::new(),
-        rows: Vec::new(),
-        lazy,
-        perf: std::collections::BTreeMap::new(),
-        column_meta: Vec::new(),
-        summary: None,
-        query_state_echo: None,
-    }
-}
 
 pub(crate) struct QueryWindow {
     page: usize,

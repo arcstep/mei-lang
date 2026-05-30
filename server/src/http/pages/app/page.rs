@@ -228,6 +228,7 @@ pub async fn app_page(
             Some(hit) => CompileWithCacheOutcome {
                 compiled: hit.compiled,
                 cache_hit: true,
+                compile_revision: hit.compile_revision,
                 revision_scope: hit.revision_scope,
                 cache_validation: hit.cache_validation,
                 cache_lookup_ms: elapsed_ms(peek_started),
@@ -557,6 +558,7 @@ pub async fn app_page(
     let request_meta = CompileWithCacheOutcome {
         compiled: compiled.clone(),
         cache_hit: compile_cache_hit,
+        compile_revision: String::new(),
         revision_scope: compile_revision_scope.clone(),
         cache_validation: compile_cache_validation.clone(),
         cache_lookup_ms: compile_cache_lookup_ms,

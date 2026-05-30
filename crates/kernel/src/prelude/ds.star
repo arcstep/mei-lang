@@ -193,6 +193,8 @@ def metric_explain(
     trend_field = None,
     trend_grain = None,
     detail_dataset = None,
+    basis_refs = None,
+    detail_table_metric_id = None,
 ):
     return _without_empty({
         "note": note,
@@ -204,6 +206,8 @@ def metric_explain(
         "trend_field": trend_field,
         "trend_grain": trend_grain,
         "detail_dataset": detail_dataset,
+        "basis_refs": basis_refs,
+        "detail_table_metric_id": detail_table_metric_id,
     })
 
 def explain_metric(
@@ -217,6 +221,8 @@ def explain_metric(
     headers = None,
     mapping = None,
     chart_kind = None,
+    table_metric_id = None,
+    dataset_id = None,
 ):
     return _without_empty({
         "__kind": "explain_metric",
@@ -230,6 +236,8 @@ def explain_metric(
         "headers": headers,
         "mapping": mapping,
         "chart_kind": chart_kind,
+        "table_metric_id": table_metric_id,
+        "dataset_id": dataset_id,
     })
 
 def analysis(kind, title = None, note = None, table_metric_id = None, dataset_id = None, columns = None, headers = None, mapping = None, chart_kind = None):

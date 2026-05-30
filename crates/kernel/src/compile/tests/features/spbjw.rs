@@ -735,6 +735,22 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     );
     assert_eq!(contract.themes.len(), 1);
     assert_eq!(contract.themes[0].id, "cockpit");
+    let issue_metrics_owner = "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics";
+    let issue_metrics = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == issue_metrics_owner)
+        .and_then(|r| r.dataset.as_ref())
+        .expect("home should import 问题办理 world metrics resource");
+    assert!(
+        crate::resolve_runtime_metric_def_key(
+            issue_metrics_owner,
+            "warnings_pending_table",
+            &issue_metrics.runtime_metric_defs,
+        )
+        .is_some(),
+        "imported capsule metrics should resolve local drilldown table id from home compile"
+    );
     assert!(
         compiled
             .resources

@@ -1,13 +1,14 @@
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use serde_json::{json, Value};
 
 use crate::model::DatasetView;
 
 use super::{
     dates::{filter_rows_in_latest_days, filter_rows_in_latest_months},
-    predicate::predicate_matches,
+    eval_context::{EvalContext, EvalNodeKind},
+    predicate::predicate_matches_with_ctx,
     schema::{row_string, row_value},
     transforms::{
         aggregate_group_rows, bucket_rows_by_month, distinct_rows_by_fields, first_rows_by_field,
@@ -20,6 +21,7 @@ fn eval_universe_labels(
     expr: &Value,
     datasets: &BTreeMap<String, DatasetView>,
     fallback_field: &str,
+    ctx: &mut EvalContext,
 ) -> Result<Vec<String>> {
     if let Some(items) = expr.as_array() {
         return Ok(items
@@ -48,9 +50,9 @@ fn eval_universe_labels(
                 .get("source")
                 .or_else(|| map.get("rowset"))
                 .ok_or_else(|| anyhow!("text expression missing source"))?;
-            eval_rowset(source, datasets)?
+            eval_rowset_with_ctx(source, datasets, ctx)?
         }
-        _ => eval_rowset(expr, datasets)?,
+        _ => eval_rowset_with_ctx(expr, datasets, ctx)?,
     };
     Ok(rows
         .into_iter()
@@ -65,8 +67,9 @@ fn apply_universe(
     universe_expr: &Value,
     group_field: &str,
     datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> Result<Vec<Value>> {
-    let labels = eval_universe_labels(universe_expr, datasets, group_field)?;
+    let labels = eval_universe_labels(universe_expr, datasets, group_field, ctx)?;
     if labels.is_empty() {
         return Ok(rows);
     }
@@ -94,6 +97,37 @@ pub(crate) fn eval_rowset(
     expr: &Value,
     datasets: &BTreeMap<String, DatasetView>,
 ) -> Result<Vec<Value>> {
+    let mut ctx = EvalContext::default();
+    eval_rowset_with_ctx(expr, datasets, &mut ctx)
+}
+
+pub(crate) fn eval_rowset_with_ctx(
+    expr: &Value,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Vec<Value>> {
+    if let Some(rows) = ctx.cached_rowset(expr) {
+        return Ok(rows);
+    }
+    if let Some(node_key) = ctx.rowset_key(expr) {
+        let rows = ctx
+            .with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {
+                eval_rowset_uncached(expr, datasets, ctx)
+                    .with_context(|| format!("metric_eval_recursion_guard_tripped(rowset): `{node_key}`"))
+            })?;
+        ctx.store_rowset(expr, &rows);
+        return Ok(rows);
+    }
+    let rows = eval_rowset_uncached(expr, datasets, ctx)?;
+    ctx.store_rowset(expr, &rows);
+    Ok(rows)
+}
+
+fn eval_rowset_uncached(
+    expr: &Value,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Vec<Value>> {
     match expr {
         Value::Array(items) => Ok(items.clone()),
         Value::Object(map) => {
@@ -101,7 +135,7 @@ pub(crate) fn eval_rowset(
                 return resolve_data_ref(map, datasets);
             }
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr") {
-                return eval_analysis_rowset(map, datasets);
+                return eval_analysis_rowset(map, datasets, ctx);
             }
             Err(anyhow!(
                 "rowset expression must be data_ref or analysis expression"
@@ -121,15 +155,38 @@ fn resolve_data_ref(
         .and_then(Value::as_str)
         .or_else(|| map.get("id").and_then(Value::as_str))
         .ok_or_else(|| anyhow!("data_ref missing id"))?;
-    let dataset = datasets
-        .get(dataset_id)
-        .ok_or_else(|| anyhow!("unknown dataset `{dataset_id}`"))?;
+    let dataset = lookup_dataset_view(datasets, dataset_id)
+        .ok_or_else(|| unknown_dataset_error(dataset_id, datasets))?;
     Ok(dataset.rows.clone())
+}
+
+fn lookup_dataset_view<'a>(
+    datasets: &'a BTreeMap<String, DatasetView>,
+    dataset_id: &str,
+) -> Option<&'a DatasetView> {
+    let normalized = dataset_id.strip_prefix("dataset.").unwrap_or(dataset_id);
+    datasets
+        .get(normalized)
+        .or_else(|| datasets.get(dataset_id))
+        .or_else(|| {
+            datasets.iter().find_map(|(key, dataset)| {
+                (dataset.id == normalized
+                    || key.ends_with(&format!("::{normalized}"))
+                    || key.ends_with(&format!("/{normalized}")))
+                .then_some(dataset)
+            })
+        })
+}
+
+fn unknown_dataset_error(dataset_id: &str, datasets: &BTreeMap<String, DatasetView>) -> anyhow::Error {
+    let available = datasets.keys().take(8).cloned().collect::<Vec<_>>();
+    anyhow!("unknown dataset `{dataset_id}`; available keys: {:?}", available)
 }
 
 fn eval_analysis_rowset(
     map: &serde_json::Map<String, Value>,
     datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> Result<Vec<Value>> {
     let analysis_type = map
         .get("type")
@@ -141,14 +198,8 @@ fn eval_analysis_rowset(
                 .get("dataset")
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("rows expression missing dataset"))?;
-            let normalized = dataset_id
-                .strip_prefix("dataset.")
-                .unwrap_or(dataset_id)
-                .to_string();
-            let dataset = datasets
-                .get(&normalized)
-                .or_else(|| datasets.get(dataset_id))
-                .ok_or_else(|| anyhow!("unknown dataset `{dataset_id}`"))?;
+            let dataset = lookup_dataset_view(datasets, dataset_id)
+                .ok_or_else(|| unknown_dataset_error(dataset_id, datasets))?;
             Ok(dataset.rows.clone())
         }
         "where" => {
@@ -156,9 +207,9 @@ fn eval_analysis_rowset(
                 .get("rowset")
                 .ok_or_else(|| anyhow!("where expression missing rowset"))?;
             let predicate = map.get("predicate").unwrap_or(&Value::Null);
-            Ok(eval_rowset(rowset_expr, datasets)?
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                 .into_iter()
-                .filter(|row| predicate_matches(row, predicate, datasets))
+                .filter(|row| predicate_matches_with_ctx(row, predicate, datasets, ctx))
                 .collect())
         }
         "select" => {
@@ -173,7 +224,7 @@ fn eval_analysis_rowset(
                 .filter_map(Value::as_str)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
-            Ok(eval_rowset(rowset_expr, datasets)?
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                 .into_iter()
                 .map(|row| select_fields(&row, &fields))
                 .collect())
@@ -186,7 +237,7 @@ fn eval_analysis_rowset(
                 .get("mapping")
                 .and_then(Value::as_object)
                 .ok_or_else(|| anyhow!("rename expression missing mapping"))?;
-            Ok(eval_rowset(rowset_expr, datasets)?
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                 .into_iter()
                 .map(|row| rename_fields(&row, mapping))
                 .collect())
@@ -199,7 +250,7 @@ fn eval_analysis_rowset(
                 .get("updates")
                 .and_then(Value::as_object)
                 .ok_or_else(|| anyhow!("mutate expression missing updates"))?;
-            Ok(eval_rowset(rowset_expr, datasets)?
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                 .into_iter()
                 .map(|row| mutate_row(&row, updates))
                 .collect())
@@ -213,7 +264,7 @@ fn eval_analysis_rowset(
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("sort_by expression missing field"))?;
             let order = map.get("order").and_then(Value::as_str).unwrap_or("asc");
-            let mut rows = eval_rowset(rowset_expr, datasets)?;
+            let mut rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             sort_rows_by_field(&mut rows, field, order);
             Ok(rows)
         }
@@ -229,7 +280,7 @@ fn eval_analysis_rowset(
                 .filter_map(Value::as_str)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
-            Ok(eval_rowset(rowset_expr, datasets)?
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
                 .into_iter()
                 .map(|row| reorder_fields(&row, &fields))
                 .collect())
@@ -238,7 +289,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("stage expression missing rowset"))?;
-            Ok(eval_rowset(rowset_expr, datasets)?)
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?)
         }
         "first_by" => {
             let rowset_expr = map
@@ -248,7 +299,7 @@ fn eval_analysis_rowset(
                 .get("field")
                 .and_then(Value::as_str)
                 .ok_or_else(|| anyhow!("first_by expression missing field"))?;
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             Ok(first_rows_by_field(&rows, field))
         }
         "distinct_by" => {
@@ -263,14 +314,14 @@ fn eval_analysis_rowset(
                 .filter_map(Value::as_str)
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             Ok(distinct_rows_by_fields(&rows, &fields))
         }
         "group_by" => {
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("group_by expression missing rowset"))?;
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let group_field = map
                 .get("by")
                 .and_then(Value::as_str)
@@ -293,7 +344,7 @@ fn eval_analysis_rowset(
                 map.get("limit").and_then(Value::as_u64).map(|n| n as usize),
             );
             if let Some(universe) = map.get("universe") {
-                grouped = apply_universe(grouped, universe, group_field, datasets)?;
+                grouped = apply_universe(grouped, universe, group_field, datasets, ctx)?;
             }
             Ok(grouped)
         }
@@ -302,7 +353,7 @@ fn eval_analysis_rowset(
                 .get("rowset")
                 .or_else(|| map.get("grouped"))
                 .ok_or_else(|| anyhow!("agg expression missing rowset"))?;
-            let mut rows = eval_rowset(rowset_expr, datasets)?;
+            let mut rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("identity");
             if agg != "identity" {
                 let value_field = map.get("value").and_then(Value::as_str).unwrap_or("value");
@@ -325,7 +376,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("trend expression missing rowset"))?;
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let date_field = map
                 .get("date_field")
                 .and_then(Value::as_str)
@@ -364,7 +415,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("table_rows expression missing rowset"))?;
-            Ok(eval_rowset(rowset_expr, datasets)?)
+            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?)
         }
         "split_text" => {
             let rowset_expr = map
@@ -376,7 +427,7 @@ fn eval_analysis_rowset(
                 .ok_or_else(|| anyhow!("split_text expression missing field"))?;
             let delimiter = map.get("delimiter").and_then(Value::as_str).unwrap_or("、");
             let mut out = Vec::new();
-            for row in eval_rowset(rowset_expr, datasets)? {
+            for row in eval_rowset_with_ctx(rowset_expr, datasets, ctx)? {
                 let mut base = row.as_object().cloned().unwrap_or_default();
                 let text = base
                     .get(field)
@@ -424,13 +475,13 @@ fn eval_analysis_rowset(
                 .unwrap_or(value_field)
                 .to_string();
             let mut lookup = BTreeMap::new();
-            for row in eval_rowset(lookup_rowset_expr, datasets)? {
+            for row in eval_rowset_with_ctx(lookup_rowset_expr, datasets, ctx)? {
                 let key = row_string(&row, lookup_field);
                 let value = row_value(&row, value_field).cloned().unwrap_or(Value::Null);
                 lookup.insert(key, value);
             }
             let mut out = Vec::new();
-            for row in eval_rowset(rowset_expr, datasets)? {
+            for row in eval_rowset_with_ctx(rowset_expr, datasets, ctx)? {
                 let mut object = row.as_object().cloned().unwrap_or_default();
                 let key = row_string(&row, field);
                 object.insert(
@@ -445,7 +496,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("{analysis_type} expression missing rowset"))?;
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let field = map
                 .get("field")
                 .and_then(Value::as_str)
@@ -461,7 +512,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("bucket_date expression missing rowset"))?;
-            let rows = eval_rowset(rowset_expr, datasets)?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let field = map
                 .get("field")
                 .and_then(Value::as_str)
@@ -477,7 +528,7 @@ fn eval_analysis_rowset(
             let rowset_expr = map
                 .get("rowset")
                 .ok_or_else(|| anyhow!("limit expression missing rowset"))?;
-            let mut rows = eval_rowset(rowset_expr, datasets)?;
+            let mut rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
             let limit = map.get("n").and_then(Value::as_u64).unwrap_or(0);
             rows.truncate(limit as usize);
             Ok(rows)

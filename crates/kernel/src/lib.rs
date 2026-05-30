@@ -9,11 +9,17 @@ mod typed_refs;
 mod workspace;
 
 pub use compile::{
-    clear_runtime_compile_caches, compile_app, compile_app_from_root,
+    clear_runtime_compile_caches, clear_runtime_eval_node_cache, compile_app, compile_app_from_root,
     compile_app_from_root_with_options, compile_app_with_options,
     compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
+    cached_load_xlsx_table_snapshot,
+    try_get_cached_xlsx_table_snapshot,
+    TableSnapshot, TableSnapshotKey,
     dataset_materialize_cache_epoch, evaluate_runtime_metric_defs,
+    evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,
     materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
+    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled, RequestDagMetrics,
+    RuntimeMetricEvalScope,
     scene_payload_cache_epoch, CompileOptions, CompileRevisionPlan, CompileWatchedFile,
 };
 

@@ -6,13 +6,15 @@ use serde_json::Value;
 use crate::model::DatasetView;
 
 use super::{
-    rowset::eval_rowset,
+    eval_context::EvalContext,
+    rowset::eval_rowset_with_ctx,
     schema::{row_string, row_value},
 };
 
 fn resolve_value_list(
     values_expr: Option<&Value>,
     datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> Vec<Value> {
     let Some(expr) = values_expr else {
         return Vec::new();
@@ -35,7 +37,7 @@ fn resolve_value_list(
         .or_else(|| map.get("rowset"))
         .unwrap_or(&Value::Null);
     let field = map.get("field").and_then(Value::as_str).unwrap_or("");
-    eval_rowset(source, datasets)
+    eval_rowset_with_ctx(source, datasets, ctx)
         .unwrap_or_default()
         .into_iter()
         .map(|row| Value::String(row_string(&row, field)))
@@ -79,10 +81,21 @@ fn placeholder_only_text(text: &str) -> bool {
     text.chars().all(|ch| matches!(ch, '-' | '—' | '－' | '―' | ' ' | '\t' | '\n' | '\r'))
 }
 
+#[cfg(test)]
 pub(super) fn predicate_matches(
     row: &Value,
     predicate: &Value,
     datasets: &BTreeMap<String, DatasetView>,
+) -> bool {
+    let mut ctx = EvalContext::default();
+    predicate_matches_with_ctx(row, predicate, datasets, &mut ctx)
+}
+
+pub(super) fn predicate_matches_with_ctx(
+    row: &Value,
+    predicate: &Value,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
 ) -> bool {
     let Some(object) = predicate.as_object() else {
         return true;
@@ -136,7 +149,7 @@ pub(super) fn predicate_matches(
         "in_values" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
             let actual = row_string(row, field);
-            resolve_value_list(object.get("values"), datasets)
+            resolve_value_list(object.get("values"), datasets, ctx)
                 .iter()
                 .filter_map(Value::as_str)
                 .any(|item| item == actual)
@@ -175,7 +188,7 @@ pub(super) fn predicate_matches(
             .map(|items| {
                 items
                     .iter()
-                    .all(|item| predicate_matches(row, item, datasets))
+                    .all(|item| predicate_matches_with_ctx(row, item, datasets, ctx))
             })
             .unwrap_or(true),
         "or" => object
@@ -184,13 +197,14 @@ pub(super) fn predicate_matches(
             .map(|items| {
                 items
                     .iter()
-                    .any(|item| predicate_matches(row, item, datasets))
+                    .any(|item| predicate_matches_with_ctx(row, item, datasets, ctx))
             })
             .unwrap_or(true),
-        "not" => !predicate_matches(
+        "not" => !predicate_matches_with_ctx(
             row,
             object.get("predicate").unwrap_or(&Value::Null),
             datasets,
+            ctx,
         ),
         _ => true,
     }

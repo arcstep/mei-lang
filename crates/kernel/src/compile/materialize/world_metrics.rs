@@ -5,7 +5,10 @@ use serde_json::Value;
 
 use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 
-use super::metric_packs::materialize_legacy_metric_map;
+use super::metric_packs::{
+    materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
+};
+use crate::compile::analysis::eval_context::{RequestDagMetrics, RuntimeMetricEvalScope};
 
 pub const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
@@ -15,6 +18,47 @@ pub(crate) fn imported_world_metrics_resource_id(relative_path: &str) -> String 
         return WORLD_METRICS_RESOURCE_ID.to_string();
     }
     format!("{WORLD_METRICS_RESOURCE_ID}::{path}::metrics")
+}
+
+const IMPORTED_WORLD_METRICS_PREFIX: &str = "__world_metrics__::";
+const IMPORTED_WORLD_METRICS_SUFFIX: &str = "::metrics";
+
+/// 从 `__world_metrics__::{capsule_path}::metrics` 解析嵌入 capsule 的相对路径。
+pub fn imported_capsule_path_from_world_metrics_resource_id(resource_id: &str) -> Option<String> {
+    let resource_id = resource_id.trim();
+    let inner = resource_id.strip_prefix(IMPORTED_WORLD_METRICS_PREFIX)?;
+    let path = inner.strip_suffix(IMPORTED_WORLD_METRICS_SUFFIX)?;
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.to_string())
+    }
+}
+
+/// 解析 runtime metric def 键：直查失败后，对 imported world metrics 尝试 `{capsule}::{local_id}`。
+pub fn resolve_runtime_metric_def_key(
+    resource_id: &str,
+    metric_id: &str,
+    defs: &BTreeMap<String, Value>,
+) -> Option<String> {
+    let metric_id = metric_id.trim();
+    if metric_id.is_empty() {
+        return None;
+    }
+    if defs.contains_key(metric_id) {
+        return Some(metric_id.to_string());
+    }
+    let capsule_path = imported_capsule_path_from_world_metrics_resource_id(resource_id)?;
+    let namespaced = if metric_id.contains("::") {
+        metric_id.to_string()
+    } else {
+        format!("{capsule_path}::{metric_id}")
+    };
+    if defs.contains_key(&namespaced) {
+        Some(namespaced)
+    } else {
+        None
+    }
 }
 
 /// 将 `world(metrics=...)` / `world.add_metric(...)` 物化为可被 runtime API 定位的 dataset 资源。
@@ -110,6 +154,9 @@ pub(crate) fn materialize_world_metrics(
     for resource in resources {
         if let Some(dataset) = &resource.dataset {
             datasets.insert(resource.id.clone(), dataset.clone());
+            datasets
+                .entry(dataset.id.clone())
+                .or_insert_with(|| dataset.clone());
         }
     }
     let mut raw_metrics = BTreeMap::<String, Value>::new();
@@ -134,6 +181,35 @@ pub(crate) fn evaluate_runtime_metric_defs(
     datasets: &BTreeMap<String, DatasetView>,
     metric_ids: Option<&[String]>,
 ) -> Result<BTreeMap<String, MetricContract>> {
+    evaluate_runtime_metric_defs_with_scope(
+        metric_defs,
+        base_rows,
+        datasets,
+        metric_ids,
+        &RuntimeMetricEvalScope::default(),
+    )
+}
+
+pub(crate) fn evaluate_runtime_metric_defs_with_scope(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    metric_ids: Option<&[String]>,
+    scope: &RuntimeMetricEvalScope,
+) -> Result<BTreeMap<String, MetricContract>> {
+    Ok(
+        evaluate_runtime_metric_defs_with_scope_and_dag(metric_defs, base_rows, datasets, metric_ids, scope)?
+            .0,
+    )
+}
+
+pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    metric_ids: Option<&[String]>,
+    scope: &RuntimeMetricEvalScope,
+) -> Result<(BTreeMap<String, MetricContract>, RequestDagMetrics)> {
     if let Some(ids) = metric_ids {
         let selected = ids
             .iter()
@@ -144,7 +220,48 @@ pub(crate) fn evaluate_runtime_metric_defs(
                     .map(|value| (id.clone(), value))
             })
             .collect::<BTreeMap<_, _>>();
-        return materialize_legacy_metric_map(&selected, base_rows, datasets);
+        return materialize_legacy_metric_map_with_scope_and_dag(
+            &selected, base_rows, datasets, scope,
+        );
     }
-    materialize_legacy_metric_map(metric_defs, base_rows, datasets)
+    materialize_legacy_metric_map_with_scope_and_dag(metric_defs, base_rows, datasets, scope)
+}
+
+#[cfg(test)]
+mod resolve_key_tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        imported_capsule_path_from_world_metrics_resource_id, resolve_runtime_metric_def_key,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn imported_capsule_path_from_world_metrics_resource_id_parses_scoped_owner() {
+        assert_eq!(
+            imported_capsule_path_from_world_metrics_resource_id(
+                "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics"
+            ),
+            Some("scenes/5_问题办理/问题办理.mei".to_string())
+        );
+        assert!(imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none());
+    }
+
+    #[test]
+    fn resolve_runtime_metric_def_key_falls_back_to_namespaced_import_key() {
+        let resource_id = "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics";
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "scenes/5_问题办理/问题办理.mei::warnings_pending_table".to_string(),
+            json!({"id": "scenes/5_问题办理/问题办理.mei::warnings_pending_table"}),
+        );
+        assert_eq!(
+            resolve_runtime_metric_def_key(resource_id, "warnings_pending_table", &defs),
+            Some("scenes/5_问题办理/问题办理.mei::warnings_pending_table".to_string())
+        );
+        assert_eq!(
+            resolve_runtime_metric_def_key(resource_id, "missing", &defs),
+            None
+        );
+    }
 }

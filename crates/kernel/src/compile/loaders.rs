@@ -9,6 +9,12 @@ use anyhow::{Context, Result};
 use calamine::{open_workbook, Data, Reader, Xls, Xlsx};
 use serde_json::{json, Map, Value};
 
+#[derive(Debug, Clone)]
+pub struct XlsxTableSnapshot {
+    pub columns: Vec<String>,
+    pub rows: Vec<Value>,
+}
+
 fn value_as_text(value: &Value) -> String {
     match value {
         Value::String(s) => s.clone(),
@@ -123,12 +129,12 @@ fn is_ole_compound_document(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn xlsx_rows_from_reader<R, RS>(
+fn xlsx_table_from_reader<R, RS>(
     workbook: &mut R,
     sheet: Option<&str>,
     header_row: usize,
     max_rows: Option<usize>,
-) -> Result<Vec<Value>>
+) -> Result<XlsxTableSnapshot>
 where
     R: Reader<RS>,
     RS: Read + Seek,
@@ -140,7 +146,10 @@ where
         workbook.sheet_names().first().cloned().unwrap_or_default()
     };
     if sheet_name.is_empty() {
-        return Ok(Vec::new());
+        return Ok(XlsxTableSnapshot {
+            columns: Vec::new(),
+            rows: Vec::new(),
+        });
     }
     let range = workbook.worksheet_range(&sheet_name).map_err(|error| {
         anyhow::anyhow!("failed to read Excel worksheet `{sheet_name}`: {error}")
@@ -150,7 +159,10 @@ where
         rows.next();
     }
     let Some(header_row_cells) = rows.next() else {
-        return Ok(Vec::new());
+        return Ok(XlsxTableSnapshot {
+            columns: Vec::new(),
+            rows: Vec::new(),
+        });
     };
     let raw_headers: Vec<String> = header_row_cells
         .iter()
@@ -171,23 +183,28 @@ where
             out.push(Value::Object(obj));
         }
     }
-    Ok(out)
+    Ok(XlsxTableSnapshot {
+        columns: headers,
+        rows: out,
+    })
 }
 
-/// 从 `.xlsx` 或 OLE 容器内的 `.xls` 读取行（表头行号从 1 计数，与 `ds.xlsx(..., header_row = n)` 一致）。
-pub(super) fn load_legacy_xlsx_rows(
+/// 从 `.xlsx` 或 OLE 容器内的 `.xls` 读取完整表快照（表头行号从 1 计数，与 `ds.xlsx(..., header_row = n)` 一致）。
+pub fn load_xlsx_table_snapshot(
     path: &Path,
+    source_path: &str,
     sheet: Option<&str>,
     header_row: usize,
     max_rows: Option<usize>,
-) -> Result<Vec<Value>> {
-    if is_ole_compound_document(path) {
+) -> Result<XlsxTableSnapshot> {
+    let ext_xls = source_path.to_ascii_lowercase().ends_with(".xls");
+    if ext_xls || is_ole_compound_document(path) {
         let mut workbook: Xls<_> = open_workbook(path)
             .with_context(|| format!("failed to open legacy xls {}", path.display()))?;
-        return xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows);
+        return xlsx_table_from_reader(&mut workbook, sheet, header_row, max_rows);
     }
     match open_workbook::<Xlsx<_>, &Path>(path) {
-        Ok(mut workbook) => xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows),
+        Ok(mut workbook) => xlsx_table_from_reader(&mut workbook, sheet, header_row, max_rows),
         Err(xlsx_err) => {
             let mut workbook: Xls<_> = open_workbook(path).with_context(|| {
                 format!(
@@ -195,7 +212,19 @@ pub(super) fn load_legacy_xlsx_rows(
                     path.display()
                 )
             })?;
-            xlsx_rows_from_reader(&mut workbook, sheet, header_row, max_rows)
+            xlsx_table_from_reader(&mut workbook, sheet, header_row, max_rows)
         }
     }
+}
+
+/// 从 `.xlsx` 或 OLE 容器内的 `.xls` 读取行（表头行号从 1 计数，与 `ds.xlsx(..., header_row = n)` 一致）。
+#[cfg(test)]
+pub(super) fn load_legacy_xlsx_rows(
+    path: &Path,
+    sheet: Option<&str>,
+    header_row: usize,
+    max_rows: Option<usize>,
+) -> Result<Vec<Value>> {
+    let snapshot = load_xlsx_table_snapshot(path, path.to_string_lossy().as_ref(), sheet, header_row, max_rows)?;
+    Ok(snapshot.rows)
 }

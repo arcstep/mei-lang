@@ -13,6 +13,7 @@ use crate::{AppState, CachedCompiledApp};
 pub(crate) struct CompileWithCacheOutcome {
     pub(crate) compiled: CompiledApp,
     pub(crate) cache_hit: bool,
+    pub(crate) compile_revision: String,
     pub(crate) revision_scope: String,
     pub(crate) cache_validation: String,
     pub(crate) cache_lookup_ms: u64,
@@ -32,6 +33,7 @@ pub(crate) struct CompileWithCacheFailure {
 
 pub(crate) struct PeekCompileCacheHit {
     pub(crate) compiled: CompiledApp,
+    pub(crate) compile_revision: String,
     pub(crate) revision_scope: String,
     pub(crate) cache_validation: String,
 }
@@ -184,6 +186,8 @@ pub(crate) fn compile_app_with_cache(
             Ok(compiled) => Ok(CompileWithCacheOutcome {
                 compiled,
                 cache_hit: true,
+                compile_revision: revision::compile_revision(state, app_id, &options, components_root)
+                    .token,
                 revision_scope: "singleflight_wait".to_string(),
                 cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
@@ -234,6 +238,7 @@ fn compile_app_with_cache_uncached_path(
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
+                    compile_revision: entry.compile_revision.clone(),
                     revision_scope: "watch_set".to_string(),
                     cache_validation: "watch_set".to_string(),
                     cache_lookup_ms,
@@ -247,6 +252,7 @@ fn compile_app_with_cache_uncached_path(
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
+                    compile_revision: entry.compile_revision.clone(),
                     revision_scope: "coarse_fast_path".to_string(),
                     cache_validation: "coarse_fast_path".to_string(),
                     cache_lookup_ms,
@@ -261,6 +267,7 @@ fn compile_app_with_cache_uncached_path(
                 return Ok(CompileWithCacheOutcome {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
+                    compile_revision: revision_stamp.token.clone(),
                     revision_scope: revision_stamp.scope.to_string(),
                     cache_validation: "focused_token".to_string(),
                     cache_lookup_ms,
@@ -303,7 +310,7 @@ fn compile_app_with_cache_uncached_path(
         }
         let cache_entry = CachedCompiledApp {
             coarse_revision,
-            compile_revision: revision_stamp.token,
+            compile_revision: revision_stamp.token.clone(),
             watched_files: revision_stamp.watched_files,
             components_revision: revision_stamp.components_revision,
             compiled: compiled.clone(),
@@ -322,6 +329,7 @@ fn compile_app_with_cache_uncached_path(
     Ok(CompileWithCacheOutcome {
         compiled,
         cache_hit: false,
+        compile_revision: revision_stamp.token.clone(),
         revision_scope: revision_stamp.scope.to_string(),
         cache_validation: "miss".to_string(),
         cache_lookup_ms,
@@ -367,6 +375,7 @@ pub(crate) fn peek_compile_cache_hit(
     if watched_files_are_fresh(&state.source_root, app_id, entry, components_root) {
         Some(PeekCompileCacheHit {
             compiled: entry.compiled.clone(),
+            compile_revision: entry.compile_revision.clone(),
             revision_scope: "watch_set".to_string(),
             cache_validation: "watch_set".to_string(),
         })
@@ -375,6 +384,7 @@ pub(crate) fn peek_compile_cache_hit(
     {
         Some(PeekCompileCacheHit {
             compiled: entry.compiled.clone(),
+            compile_revision: entry.compile_revision.clone(),
             revision_scope: "coarse_fast_path".to_string(),
             cache_validation: "coarse_fast_path".to_string(),
         })
@@ -383,6 +393,7 @@ pub(crate) fn peek_compile_cache_hit(
         if entry.compile_revision == revision_stamp.token {
             Some(PeekCompileCacheHit {
                 compiled: entry.compiled.clone(),
+                compile_revision: revision_stamp.token.clone(),
                 revision_scope: revision_stamp.scope.to_string(),
                 cache_validation: "focused_token".to_string(),
             })

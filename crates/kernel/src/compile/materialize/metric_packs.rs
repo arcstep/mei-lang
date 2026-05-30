@@ -9,7 +9,11 @@ use crate::model::{
 };
 
 use super::super::{
-    analysis::{rowset::eval_rowset, scalar::eval_scalar_value},
+    analysis::{
+        eval_context::{EvalContext, RequestDagMetrics, RuntimeMetricEvalScope},
+        rowset::eval_rowset_with_ctx,
+        scalar::eval_scalar_value_with_ctx,
+    },
     decls::LegacyMetricPackDecl,
 };
 
@@ -69,7 +73,31 @@ pub(crate) fn materialize_legacy_metric_map(
     base_rows: &[Value],
     datasets: &BTreeMap<String, DatasetView>,
 ) -> Result<BTreeMap<String, MetricContract>> {
+    materialize_legacy_metric_map_with_scope(
+        decls,
+        base_rows,
+        datasets,
+        &RuntimeMetricEvalScope::default(),
+    )
+}
+
+pub(crate) fn materialize_legacy_metric_map_with_scope(
+    decls: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    scope: &RuntimeMetricEvalScope,
+) -> Result<BTreeMap<String, MetricContract>> {
+    Ok(materialize_legacy_metric_map_with_scope_and_dag(decls, base_rows, datasets, scope)?.0)
+}
+
+pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
+    decls: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, DatasetView>,
+    scope: &RuntimeMetricEvalScope,
+) -> Result<(BTreeMap<String, MetricContract>, RequestDagMetrics)> {
     let mut metrics = BTreeMap::new();
+    let mut eval_ctx = EvalContext::with_scope(scope.clone());
     for (metric_id, raw) in decls {
         let Some(map) = raw.as_object() else {
             continue;
@@ -94,7 +122,8 @@ pub(crate) fn materialize_legacy_metric_map(
         let value = if let Some(values) = map.get("values").and_then(Value::as_object) {
             let mut out = serde_json::Map::new();
             for (entry_key, entry_value) in values {
-                let resolved = eval_scalar_value(entry_value, base_rows, datasets)
+                let resolved =
+                    eval_scalar_value_with_ctx(entry_value, base_rows, datasets, &mut eval_ctx)
                     .with_context(|| format!("legacy metric `{metric_id}` field `{entry_key}`"))?;
                 out.insert(entry_key.clone(), resolved);
             }
@@ -104,10 +133,11 @@ pub(crate) fn materialize_legacy_metric_map(
             .or_else(|| map.get("list"))
             .or_else(|| map.get("value"))
         {
-            if let Ok(rows) = eval_rowset(rowset, datasets) {
+            if let Ok(rows) = eval_rowset_with_ctx(rowset, datasets, &mut eval_ctx) {
                 Value::Array(rows)
             } else {
-                eval_scalar_value(rowset, base_rows, datasets).unwrap_or_else(|_| rowset.clone())
+                eval_scalar_value_with_ctx(rowset, base_rows, datasets, &mut eval_ctx)
+                    .unwrap_or_else(|_| rowset.clone())
             }
         } else {
             Value::Null
@@ -153,5 +183,6 @@ pub(crate) fn materialize_legacy_metric_map(
             },
         );
     }
-    Ok(metrics)
+    let dag_metrics = eval_ctx.request_dag_metrics();
+    Ok((metrics, dag_metrics))
 }

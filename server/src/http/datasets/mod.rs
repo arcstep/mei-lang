@@ -5,6 +5,8 @@ mod db_dataset;
 mod file_cache;
 mod geojson_dataset;
 mod json_dataset;
+mod metric_cache_key;
+mod metric_hydrate;
 mod metric_dataframe;
 mod paginate;
 mod paths;
@@ -13,10 +15,16 @@ pub mod table_contract;
 mod types;
 mod util;
 mod xlsx_dataset;
-mod xlsx_format;
 
 pub use metric_dataframe::query_metric_dataframe;
+pub(crate) use metric_cache_key::{
+    eval_node_cache_key, metric_request_revision_fingerprint, metric_scope_cache_key,
+    normalize_query_filters, normalize_query_search, resolve_runtime_metric_ids,
+    runtime_metric_eval_scope, select_metric_defs, serialize_cache_value,
+};
+pub(crate) use metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 pub(crate) use file_cache::clear_external_file_cache_for_app;
+pub(crate) use metric_dataframe::clear_metric_dataframe_result_cache;
 pub use query::query_dataset_rows;
 pub use types::{DatasetQueryOptions, TableColumnMeta, TableSummary};
 

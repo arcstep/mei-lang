@@ -13,10 +13,11 @@ use crate::{AppError, AppState};
 use super::super::compile_cache::compile_app_with_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::datasets::{
-    clear_external_file_cache_for_app, query_dataset_rows, query_metric_dataframe,
+    clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows, query_metric_dataframe,
     table_contract::{apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec},
     DatasetQueryOptions,
 };
+use super::metric_api::clear_metric_response_cache;
 use super::components::resolve_components_root;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
@@ -231,6 +232,9 @@ pub async fn dataset_query_api(
             &app_root,
             normalized_dataset_id,
             metric_id,
+            Some(&scene_ctx.scene_id),
+            scene_ctx.scene_path.as_deref(),
+            &compile_outcome.compile_revision,
             query.clone(),
         )
         .map_err(|error| {
@@ -344,11 +348,21 @@ pub async fn dataset_recompute_api(
     let clear_started = Instant::now();
     let compile_cache_cleared = clear_compile_cache_for_app(&state, &app_id);
     let file_cache_cleared = clear_external_file_cache_for_app(app_root.as_path());
+    let metric_response_cache_cleared = clear_metric_response_cache();
+    let metric_dataframe_cache_cleared = clear_metric_dataframe_result_cache();
     clear_runtime_compile_caches();
     let clear_ms = elapsed_ms(clear_started);
     let warmed = mode == "clear_and_warm";
     let mut perf = BTreeMap::new();
     perf.insert("clear_ms".to_string(), clear_ms);
+    perf.insert(
+        "metric_response_cache_cleared".to_string(),
+        metric_response_cache_cleared as u64,
+    );
+    perf.insert(
+        "metric_dataframe_cache_cleared".to_string(),
+        metric_dataframe_cache_cleared as u64,
+    );
     let metric_id = request
         .metric_id
         .as_deref()
@@ -417,6 +431,9 @@ pub async fn dataset_recompute_api(
                 &app_root,
                 request.dataset_id.trim(),
                 metric_id,
+                Some(&scene_ctx.scene_id),
+                scene_ctx.scene_path.as_deref(),
+                &compile_outcome.compile_revision,
                 warm_query,
             )
             .map_err(AppError::from)?;

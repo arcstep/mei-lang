@@ -1302,6 +1302,10 @@ pub fn compile_app_from_root_with_options(
 }
 
 pub use materialize_cache::dataset_materialize_cache_epoch;
+pub use materialize_cache::cached_load_xlsx_table_snapshot;
+pub use materialize_cache::TableSnapshot;
+pub use materialize_cache::TableSnapshotKey;
+pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use panel_normalize::panel_resolved_has_head;
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
@@ -1312,6 +1316,11 @@ pub fn clear_runtime_compile_caches() {
     clear_decl_file_cache();
     clear_dependency_graph_cache();
     clear_file_content_hash_cache();
+    clear_runtime_eval_node_cache();
+}
+
+pub fn clear_runtime_eval_node_cache() -> usize {
+    analysis::eval_context::clear_eval_node_cache()
 }
 
 #[cfg(test)]
@@ -1331,6 +1340,38 @@ pub fn evaluate_runtime_metric_defs(
 ) -> Result<BTreeMap<String, crate::model::MetricContract>> {
     materialize::evaluate_runtime_metric_defs(metric_defs, base_rows, datasets, metric_ids)
 }
+
+pub fn evaluate_runtime_metric_defs_with_scope(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, crate::model::DatasetView>,
+    metric_ids: Option<&[String]>,
+    scope: &analysis::eval_context::RuntimeMetricEvalScope,
+) -> Result<BTreeMap<String, crate::model::MetricContract>> {
+    materialize::evaluate_runtime_metric_defs_with_scope(
+        metric_defs, base_rows, datasets, metric_ids, scope,
+    )
+}
+
+pub fn evaluate_runtime_metric_defs_with_scope_and_dag(
+    metric_defs: &BTreeMap<String, Value>,
+    base_rows: &[Value],
+    datasets: &BTreeMap<String, crate::model::DatasetView>,
+    metric_ids: Option<&[String]>,
+    scope: &analysis::eval_context::RuntimeMetricEvalScope,
+) -> Result<(
+    BTreeMap<String, crate::model::MetricContract>,
+    analysis::eval_context::RequestDagMetrics,
+)> {
+    materialize::evaluate_runtime_metric_defs_with_scope_and_dag(
+        metric_defs, base_rows, datasets, metric_ids, scope,
+    )
+}
+
+pub use materialize::resolve_runtime_metric_def_key;
+pub use analysis::eval_context::{
+    runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
+};
 
 #[cfg(test)]
 mod tests;
