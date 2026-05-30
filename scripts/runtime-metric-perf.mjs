@@ -35,10 +35,11 @@ const cases = [
       "effectiveness_handled_person_times",
     ],
     drilldownTables: {
-      effectiveness_transfer_clue_count: "effectiveness_transfer_clue_table",
-      effectiveness_filing_count: "effectiveness_filing_table",
-      effectiveness_party_gov_sanction_count: "effectiveness_party_gov_sanction_table",
-      effectiveness_handled_person_times: "effectiveness_handled_table",
+      effectiveness_transfer_clue_count: "effectiveness_transfer_clue_count::transfer_clue_table",
+      effectiveness_filing_count: "effectiveness_filing_count::filing_table",
+      effectiveness_party_gov_sanction_count:
+        "effectiveness_party_gov_sanction_count::party_gov_sanction_table",
+      effectiveness_handled_person_times: "effectiveness_handled_person_times::handled_table",
     },
     namespacedPrefix: "scenes/5_问题办理/监督成效.mei::",
   },

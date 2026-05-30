@@ -556,6 +556,13 @@
   let warnedLegacyDrilldownFallback = false;
   let legacyDrilldownFallbackHits = 0;
 
+  function legacyMetricContext(metricId) {
+    if (!LEGACY_DRILLDOWN_FALLBACK_ENABLED) return {};
+    const normalizedMetricId = String(metricId || "").trim();
+    if (!normalizedMetricId) return {};
+    return DRILLDOWN_METRIC_CONTEXT[normalizedMetricId] || {};
+  }
+
   function runtimeDrilldownConfig(detail) {
     let value = detail?.analysis_contract;
     if (!value && LEGACY_DRILLDOWN_FALLBACK_ENABLED && detail?.drilldown) {
@@ -634,10 +641,12 @@
     const pushEntry = (entry, fallbackId = "", fallbackLabel = "") => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
       const id = normalizeTabId(entry.id || fallbackId || "");
-      if (!id || byId[id]) return;
+      const kind = normalizeTabId(entry.kind || id);
+      if (!id || !kind || kind === "note") return;
+      if (byId[id]) return;
       byId[id] = {
         id,
-        kind: normalizeTabId(entry.kind || id),
+        kind,
         label: nonEmptyString(entry.label, fallbackLabel, fallbackId),
         by: nonEmptyString(entry.by),
         dateField: nonEmptyString(entry.date_field, entry.dateField),
@@ -646,6 +655,12 @@
         headers: cloneArray(entry.headers),
         mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
         chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+        source: entry.source && typeof entry.source === "object" && !Array.isArray(entry.source) ? entry.source : null,
+        tableMetricId: nonEmptyString(entry.table_metric_id, entry.tableMetricId, entry.metric_id, entry.metricId),
+        datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
+        numerator: nonEmptyString(entry.numerator),
+        denominator: nonEmptyString(entry.denominator),
+        formula: nonEmptyString(entry.formula),
       };
       order.push(id);
     };
@@ -945,6 +960,36 @@
         };
         return;
       }
+      if (entry.source && typeof entry.source === "object" && !Array.isArray(entry.source)) {
+        const source = entry.source;
+        const sourceKind = nonEmptyString(source.kind);
+        if (sourceKind === "metric_ref") {
+          normalized[tabId] = {
+            runtimeRef: {
+              kind: "metric",
+              metricId: nonEmptyString(source.metric_id, source.metricId, entry.table_metric_id, entry.tableMetricId),
+              datasetId: nonEmptyString(source.dataset_id, source.datasetId, entry.dataset_id, entry.datasetId),
+              sceneId: nonEmptyString(source.scene_id, source.sceneId),
+              scenePath: nonEmptyString(source.scene_file, source.sceneFile),
+            },
+            tableMetricId: nonEmptyString(source.metric_id, source.metricId, entry.table_metric_id, entry.tableMetricId),
+            datasetId: nonEmptyString(source.dataset_id, source.datasetId, entry.dataset_id, entry.datasetId),
+          };
+          return;
+        }
+        if (sourceKind === "dataset_ref") {
+          normalized[tabId] = {
+            runtimeRef: {
+              kind: "data",
+              datasetId: nonEmptyString(source.dataset_id, source.datasetId, entry.dataset_id, entry.datasetId),
+              sceneId: nonEmptyString(source.scene_id, source.sceneId),
+              scenePath: nonEmptyString(source.scene_file, source.sceneFile),
+            },
+            datasetId: nonEmptyString(source.dataset_id, source.datasetId, entry.dataset_id, entry.datasetId),
+          };
+          return;
+        }
+      }
       let columns = cloneArray(entry.columns);
       if (!columns.length) columns = cloneArray(entry.detail_fields);
       if (!columns.length) columns = cloneArray(entry.detailFields);
@@ -1041,8 +1086,10 @@
       ...config,
       title: nonEmptyString(override?.title, explainMetric?.label, config.title),
       note: nonEmptyString(override?.note, config.note),
-      tableMetricId: overrideTableMetricId || (overrideDatasetId ? "" : nonEmptyString(config.tableMetricId)),
-      datasetId: overrideDatasetId || nonEmptyString(config.datasetId),
+      tableMetricId:
+        overrideTableMetricId ||
+        (overrideDatasetId ? "" : nonEmptyString(explainMetric?.tableMetricId, config.tableMetricId)),
+      datasetId: overrideDatasetId || nonEmptyString(override?.runtimeRef?.datasetId, explainMetric?.datasetId, config.datasetId),
       suppressDetailMetricFallback,
       layoutPreset: nonEmptyString(override?.layoutPreset, config.layoutPreset),
       chartKind: nonEmptyString(override?.chartKind, explainMetric?.chartKind, config.chartKind),
@@ -1058,6 +1105,19 @@
         const base =
           override?.runtimeRef && typeof override.runtimeRef === "object"
             ? { ...override.runtimeRef }
+            : explainMetric?.source && typeof explainMetric.source === "object"
+              ? {
+                  kind:
+                    nonEmptyString(explainMetric.source.kind) === "dataset_ref"
+                      ? "data"
+                      : nonEmptyString(explainMetric.source.kind) === "metric_ref"
+                        ? "metric"
+                        : nonEmptyString(explainMetric.source.kind),
+                  metricId: nonEmptyString(explainMetric.source.metric_id, explainMetric.source.metricId),
+                  datasetId: nonEmptyString(explainMetric.source.dataset_id, explainMetric.source.datasetId),
+                  sceneId: nonEmptyString(explainMetric.source.scene_id, explainMetric.source.sceneId),
+                  scenePath: nonEmptyString(explainMetric.source.scene_file, explainMetric.source.sceneFile),
+                }
             : config.runtimeRef && typeof config.runtimeRef === "object"
               ? { ...config.runtimeRef }
               : null;
@@ -1340,7 +1400,7 @@
 
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
-    const mapped = DRILLDOWN_METRIC_CONTEXT[metricId] || {};
+    const mapped = legacyMetricContext(metricId);
     const runtime = runtimeDrilldownConfig(detail);
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
@@ -1380,11 +1440,12 @@
       detail?.explain_metrics,
       runtime?.explain_metrics,
       runtime?.explainMetrics,
+      runtime?.blocks,
     );
     let detailFields = cloneArray(detail?.explain_detail_fields);
-    if (!detailFields.length) detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
+    if (!detailFields.length) detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(mapped?.detailFields);
     let columns = cloneArray(detail?.drilldown_columns);
     if (!columns.length) columns = cloneArray(runtime?.columns);
@@ -1396,34 +1457,34 @@
     if (!headers.length) headers = cloneArray(runtime?.headers);
     if (!headers.length) headers = cloneArray(mapped?.headers);
     let basisRefs = cloneArray(detail?.explain_basis_refs);
-    if (!basisRefs.length) basisRefs = cloneArray(detail?.drilldown_basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basisRefs);
+    if (!basisRefs.length) basisRefs = cloneArray(detail?.drilldown_basis_refs);
     let recommendedDimensions = cloneArray(detail?.explain_recommended_dimensions);
-    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommendedDimensions);
+    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
     const ratioNumerator = nonEmptyString(
-      detail?.drilldown_ratio_numerator,
       runtime?.ratio_numerator,
       runtime?.ratioNumerator,
+      detail?.drilldown_ratio_numerator,
     );
     const ratioDenominator = nonEmptyString(
-      detail?.drilldown_ratio_denominator,
       runtime?.ratio_denominator,
       runtime?.ratioDenominator,
+      detail?.drilldown_ratio_denominator,
     );
     const ratioFormula = nonEmptyString(
-      detail?.drilldown_ratio_formula,
       runtime?.ratio_formula,
       runtime?.ratioFormula,
+      detail?.drilldown_ratio_formula,
     );
     const tableMetricId = nonEmptyString(
+      runtime?.table_metric_id,
+      runtime?.tableMetricId,
       detail?.table_metric_id,
       detail?.drilldown_table_metric_id,
       detail?.drilldown_table_metric,
-      runtime?.table_metric_id,
-      runtime?.tableMetricId,
       mapped?.tableMetricId,
     );
     const datasetId = resolveDrilldownDatasetId(detail, { sceneId, hostSceneId, boardSceneId }, mapped);
@@ -1525,10 +1586,10 @@
         "指标明细",
       ),
       note: nonEmptyString(
+        runtime?.note,
         detail?.explain_note,
         detail?.analysis_note,
         detail?.drilldown_note,
-        runtime?.note,
         mapped?.note,
         ratioNote,
       ),
@@ -1546,9 +1607,11 @@
       },
       compositionBy: cloneArray(detail?.explain_composition_by).length
         ? cloneArray(detail?.explain_composition_by)
-        : cloneArray(recommendedDimensions),
-      trendField: nonEmptyString(detail?.explain_trend_field),
-      trendGrain: nonEmptyString(detail?.explain_trend_grain, "month"),
+        : cloneArray(runtime?.composition_by).length
+          ? cloneArray(runtime?.composition_by)
+          : cloneArray(recommendedDimensions),
+      trendField: nonEmptyString(runtime?.trend_field, runtime?.trendField, detail?.explain_trend_field),
+      trendGrain: nonEmptyString(runtime?.trend_grain, runtime?.trendGrain, detail?.explain_trend_grain, "month"),
       layoutPreset,
       explainKind,
       explainMetrics: explainMetrics.byId,
@@ -1907,7 +1970,7 @@
 
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const mapped = DRILLDOWN_METRIC_CONTEXT[String(detail?.metric_id || "").trim()] || {};
+    const mapped = legacyMetricContext(detail?.metric_id);
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
       config?.hostSceneId,
@@ -2114,7 +2177,7 @@
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const mapped = DRILLDOWN_METRIC_CONTEXT[String(detail?.metric_id || "").trim()] || {};
+    const mapped = legacyMetricContext(detail?.metric_id);
     const datasetId = resolveDrilldownDatasetId(detail, config, mapped);
     if (!datasetId) {
       recordPopupDebugIssue({
@@ -2650,7 +2713,7 @@
       clearDrilldownContextBanner();
       return;
     }
-    const context = DRILLDOWN_METRIC_CONTEXT[metricId] || {};
+    const context = legacyMetricContext(metricId);
     const title = parsed.searchParams.get("drill_title") || context.title || "";
     const note = parsed.searchParams.get("drill_note") || context.note || "";
     renderDrilldownContextBanner(title, note);

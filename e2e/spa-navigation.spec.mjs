@@ -12,6 +12,10 @@ const SPBJW_MANAGE =
   process.env.MEI_SPA_MANAGE_URL ||
   "/apps/manage/spbjw?file=scenes/home.mei&tab=preview";
 
+const SPBJW_EFFECTIVENESS_MANAGE =
+  process.env.MEI_SPA_EFFECTIVENESS_URL ||
+  "/apps/manage/spbjw?file=scenes/5_问题办理/监督成效.mei&tab=preview";
+
 const SPA_HEADER = "x-mei-spa-nav";
 
 async function waitSpaIdle(page, timeoutMs = 15000) {
@@ -204,5 +208,27 @@ test.describe("spbjw 完整壳", () => {
     await expectSpaFetch(page, () => link.click(), (url) => url.includes("file=main.mei"));
     await waitSpaIdle(page, 20000);
     await expect(page).toHaveURL(/file=main\.mei/);
+  });
+});
+
+test.describe("spbjw explain 弹层", () => {
+  test("处理人数指标可打开 overlay 并展示 detail 明细", async ({ page }) => {
+    await openManage(page, SPBJW_EFFECTIVENESS_MANAGE);
+    const metricButton = page.getByRole("button", {
+      name: /查看指标明细：effectiveness_handled_person_times/,
+    });
+    await expect(metricButton).toBeVisible({ timeout: 20000 });
+    await metricButton.click();
+    const overlay = page.locator("#mei-access-drilldown-overlay");
+    await expect(overlay).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("dialog", { name: "指标下钻明细" })).toBeVisible({
+      timeout: 20000,
+    });
+    await expect(
+      overlay.getByRole("tab", { name: "问题处理结果（处理人数）" }),
+    ).toBeVisible({ timeout: 20000 });
+    await expect(
+      overlay.getByRole("tab", { name: "问题处理结果（处理人数）" }),
+    ).toHaveAttribute("aria-selected", "true");
   });
 });

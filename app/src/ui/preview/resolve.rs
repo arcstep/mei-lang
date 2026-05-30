@@ -61,6 +61,9 @@ struct MetricDrilldownMeta {
     drilldown_ratio_formula: Option<String>,
     drilldown_tab_metrics: serde_json::Map<String, Value>,
     explain_metrics: Vec<Value>,
+    analysis_nodes: Vec<Value>,
+    analysis_blocks: Vec<Value>,
+    analysis_objects: serde_json::Map<String, Value>,
     explain_composition_by: Vec<String>,
     explain_trend_field: Option<String>,
     explain_trend_grain: Option<String>,
@@ -90,6 +93,9 @@ impl MetricDrilldownMeta {
             && self.drilldown_ratio_formula.is_none()
             && self.drilldown_tab_metrics.is_empty()
             && self.explain_metrics.is_empty()
+            && self.analysis_nodes.is_empty()
+            && self.analysis_blocks.is_empty()
+            && self.analysis_objects.is_empty()
             && self.explain_composition_by.is_empty()
             && self.explain_trend_field.is_none()
             && self.explain_trend_grain.is_none()
@@ -99,6 +105,9 @@ impl MetricDrilldownMeta {
 
     fn has_explain_semantics(&self) -> bool {
         !self.explain_metrics.is_empty()
+            || !self.analysis_nodes.is_empty()
+            || !self.analysis_blocks.is_empty()
+            || !self.analysis_objects.is_empty()
             || self.explain_kind.is_some()
             || self.drilldown_note.is_some()
             || !self.drilldown_tabs.is_empty()
@@ -483,6 +492,18 @@ impl RuntimeSceneAnchor {
                 "enabled".to_string(),
                 Value::Bool(meta.drilldown_enabled.unwrap_or(true)),
             );
+            if let Some(root_metric_id) = metric_id.filter(|s| !s.is_empty()) {
+                contract.insert(
+                    "root_metric_id".to_string(),
+                    Value::String(root_metric_id.to_string()),
+                );
+            }
+            if !dataset_id.is_empty() {
+                contract.insert(
+                    "root_dataset_id".to_string(),
+                    Value::String(dataset_id.to_string()),
+                );
+            }
             if let Some(kind_value) = meta.explain_kind.as_deref().filter(|s| !s.is_empty()) {
                 contract.insert("kind".to_string(), Value::String(kind_value.to_string()));
             }
@@ -509,11 +530,121 @@ impl RuntimeSceneAnchor {
                     Value::Array(meta.explain_metrics.clone()),
                 );
             }
+            if !meta.analysis_nodes.is_empty() {
+                contract.insert(
+                    "nodes".to_string(),
+                    Value::Array(meta.analysis_nodes.clone()),
+                );
+            }
+            if !meta.analysis_blocks.is_empty() {
+                contract.insert(
+                    "blocks".to_string(),
+                    Value::Array(meta.analysis_blocks.clone()),
+                );
+            }
+            if !meta.analysis_objects.is_empty() {
+                contract.insert(
+                    "objects".to_string(),
+                    Value::Object(meta.analysis_objects.clone()),
+                );
+            }
             if let Some(title) = meta.drilldown_title.as_deref().filter(|s| !s.is_empty()) {
                 contract.insert("title".to_string(), Value::String(title.to_string()));
             }
             if let Some(note) = meta.drilldown_note.as_deref().filter(|s| !s.is_empty()) {
                 contract.insert("note".to_string(), Value::String(note.to_string()));
+            }
+            if !meta.drilldown_basis_refs.is_empty() {
+                contract.insert(
+                    "basis_refs".to_string(),
+                    Value::Array(
+                        meta.drilldown_basis_refs
+                            .iter()
+                            .map(|basis| Value::String(basis.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_detail_fields.is_empty() {
+                contract.insert(
+                    "detail_fields".to_string(),
+                    Value::Array(
+                        meta.drilldown_detail_fields
+                            .iter()
+                            .map(|field| Value::String(field.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.drilldown_recommended_dimensions.is_empty() {
+                contract.insert(
+                    "recommended_dimensions".to_string(),
+                    Value::Array(
+                        meta.drilldown_recommended_dimensions
+                            .iter()
+                            .map(|dimension| Value::String(dimension.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if !meta.explain_composition_by.is_empty() {
+                contract.insert(
+                    "composition_by".to_string(),
+                    Value::Array(
+                        meta.explain_composition_by
+                            .iter()
+                            .map(|field| Value::String(field.clone()))
+                            .collect(),
+                    ),
+                );
+            }
+            if let Some(field) = meta
+                .explain_trend_field
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert("trend_field".to_string(), Value::String(field.to_string()));
+            }
+            if let Some(grain) = meta
+                .explain_trend_grain
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert("trend_grain".to_string(), Value::String(grain.to_string()));
+            }
+            if let Some(dataset) = meta
+                .explain_detail_dataset
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert("detail_dataset".to_string(), Value::String(dataset.to_string()));
+            }
+            if let Some(numerator) = meta
+                .drilldown_ratio_numerator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert(
+                    "ratio_numerator".to_string(),
+                    Value::String(numerator.to_string()),
+                );
+            }
+            if let Some(denominator) = meta
+                .drilldown_ratio_denominator
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert(
+                    "ratio_denominator".to_string(),
+                    Value::String(denominator.to_string()),
+                );
+            }
+            if let Some(formula) = meta
+                .drilldown_ratio_formula
+                .as_deref()
+                .filter(|s| !s.is_empty())
+            {
+                contract.insert("ratio_formula".to_string(), Value::String(formula.to_string()));
             }
             if let Some(scene_id) = meta
                 .drilldown_target_scene_id
@@ -530,6 +661,11 @@ impl RuntimeSceneAnchor {
                 .as_deref()
                 .filter(|s| !s.is_empty())
             {
+                contract.insert(
+                    "dataset_id".to_string(),
+                    Value::String(dataset_id.to_string()),
+                );
+            } else if !dataset_id.is_empty() {
                 contract.insert(
                     "dataset_id".to_string(),
                     Value::String(dataset_id.to_string()),
@@ -1014,7 +1150,9 @@ fn metric_drilldown_from_definition(
         return meta;
     };
     let has_drilldown = map.get("drilldown_dataset").is_some() || map.get("drilldown").is_some();
-    if let Some(explain) = map.get("explain").and_then(Value::as_object) {
+    if let Some(explain_items) = map.get("explain").and_then(Value::as_array) {
+        apply_explain_items(explain_items, &mut meta);
+    } else if let Some(explain) = map.get("explain").and_then(Value::as_object) {
         apply_explain_object(explain, &mut meta);
     }
     let has_explain = meta.has_explain_semantics();
@@ -1462,6 +1600,109 @@ fn object_map_from_value(value: &Value) -> serde_json::Map<String, Value> {
     map.clone()
 }
 
+fn normalize_explain_source(value: &Value) -> Option<Value> {
+    let map = value.as_object()?;
+    match map.get("__ref").and_then(Value::as_str) {
+        Some("metric") => {
+            let metric_id = first_non_empty_string(map, &["id"])?;
+            let mut source = serde_json::Map::new();
+            source.insert("kind".to_string(), Value::String("metric_ref".to_string()));
+            source.insert("metric_id".to_string(), Value::String(metric_id));
+            if let Some(dataset_id) = first_non_empty_string(map, &["from_dataset"]) {
+                source.insert("dataset_id".to_string(), Value::String(dataset_id));
+            }
+            if let Some(scene_id) = first_non_empty_string(map, &["scene_id"]) {
+                source.insert("scene_id".to_string(), Value::String(scene_id));
+            }
+            if let Some(scene_file) = first_non_empty_string(map, &["scene_file"]) {
+                source.insert("scene_file".to_string(), Value::String(scene_file));
+            }
+            Some(Value::Object(source))
+        }
+        Some("dataset") | Some("data") => {
+            let dataset_id = first_non_empty_string(map, &["id"])?;
+            let mut source = serde_json::Map::new();
+            source.insert("kind".to_string(), Value::String("dataset_ref".to_string()));
+            source.insert("dataset_id".to_string(), Value::String(dataset_id));
+            if let Some(scene_id) = first_non_empty_string(map, &["scene_id"]) {
+                source.insert("scene_id".to_string(), Value::String(scene_id));
+            }
+            if let Some(scene_file) = first_non_empty_string(map, &["scene_file"]) {
+                source.insert("scene_file".to_string(), Value::String(scene_file));
+            }
+            Some(Value::Object(source))
+        }
+        _ => Some(Value::Object(map.clone())),
+    }
+}
+
+fn table_metric_id_from_source(value: &Value) -> Option<String> {
+    let map = value.as_object()?;
+    first_non_empty_string(map, &["table_metric_id", "metric_id"])
+}
+
+fn dataset_id_from_source(value: &Value) -> Option<String> {
+    let map = value.as_object()?;
+    first_non_empty_string(map, &["dataset_id"])
+}
+
+fn normalize_explain_entry_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
+    let raw_kind = first_non_empty_string(obj, &["kind", "type", "id"])?;
+    let kind = normalize_analysis_tab_id(&raw_kind)?;
+    let id = first_non_empty_string(obj, &["id", "key", "name"])
+        .and_then(|raw| normalize_analysis_tab_id(&raw))
+        .unwrap_or_else(|| kind.clone());
+    let mut entry = obj.clone();
+    entry.insert("id".to_string(), Value::String(id));
+    entry.insert("kind".to_string(), Value::String(kind.clone()));
+    if let Some(source) = obj.get("source").and_then(normalize_explain_source) {
+        entry.insert("source".to_string(), source.clone());
+        if !entry.contains_key("table_metric_id") {
+            if let Some(metric_id) = table_metric_id_from_source(&source) {
+                entry.insert("table_metric_id".to_string(), Value::String(metric_id));
+            }
+        }
+        if !entry.contains_key("dataset_id") {
+            if let Some(dataset_id) = dataset_id_from_source(&source) {
+                entry.insert("dataset_id".to_string(), Value::String(dataset_id));
+            }
+        }
+    }
+    entry.insert("support_role".to_string(), Value::String(kind));
+    Some(Value::Object(entry))
+}
+
+fn normalize_analysis_node_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
+    let local_id = first_non_empty_string(obj, &["analysis_local_id", "key", "id"])?;
+    let scoped_metric_id =
+        first_non_empty_string(obj, &["analysis_scoped_id", "analysis_node_id", "key", "id"])?;
+    let mut node = serde_json::Map::new();
+    node.insert("id".to_string(), Value::String(local_id));
+    node.insert("metric_id".to_string(), Value::String(scoped_metric_id));
+    node.insert("node_kind".to_string(), Value::String("metric".to_string()));
+    if let Some(shape) = first_non_empty_string(obj, &["shape"]) {
+        node.insert("shape".to_string(), Value::String(shape));
+    }
+    if let Some(label) = first_non_empty_string(obj, &["label"]) {
+        node.insert("label".to_string(), Value::String(label));
+    }
+    if let Some(parent_metric_id) = first_non_empty_string(obj, &["analysis_parent_metric_id"]) {
+        node.insert(
+            "parent_metric_id".to_string(),
+            Value::String(parent_metric_id),
+        );
+    }
+    node.insert(
+        "can_explain".to_string(),
+        Value::Bool(
+            obj.get("explain")
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty()),
+        ),
+    );
+    Some(Value::Object(node))
+}
+
 fn explain_metric_entries_from_value(value: &Value) -> Vec<Value> {
     let mut entries: Vec<Value> = Vec::new();
     if let Some(items) = value.as_array() {
@@ -1516,6 +1757,143 @@ fn normalize_analysis_tab_id(value: &str) -> Option<String> {
         _ => raw.as_str(),
     };
     Some(tab.to_string())
+}
+
+fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
+    for item in items {
+        let Some(map) = item.as_object() else {
+            continue;
+        };
+        if map.get("__kind").and_then(Value::as_str) == Some("data_product") {
+            if let Some(node) = normalize_analysis_node_object(map) {
+                if let Some(node_id) = node
+                    .as_object()
+                    .and_then(|value| value.get("metric_id"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                {
+                    meta.analysis_objects.insert(node_id, node.clone());
+                }
+                meta.analysis_nodes.push(node);
+            }
+            continue;
+        }
+        let raw_kind = first_non_empty_string(map, &["kind", "type", "id"]).unwrap_or_default();
+        let normalized_kind =
+            normalize_analysis_tab_id(&raw_kind).unwrap_or_else(|| raw_kind.trim().to_string());
+        if normalized_kind == "note" {
+            if meta.drilldown_note.is_none() {
+                meta.drilldown_note = first_non_empty_string(
+                    map,
+                    &["note", "content", "text", "markdown", "md", "desc", "description"],
+                );
+            }
+            let mut block = map.clone();
+            block.insert("id".to_string(), Value::String("note".to_string()));
+            block.insert("kind".to_string(), Value::String("note".to_string()));
+            meta.analysis_blocks.push(Value::Object(block));
+            continue;
+        }
+        let Some(entry) = normalize_explain_entry_object(map) else {
+            continue;
+        };
+        let entry_obj = entry.as_object().expect("normalized explain entry");
+        let tab_id = entry_obj
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_default();
+        let kind = entry_obj
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default();
+        if !tab_id.is_empty() && !meta.drilldown_tabs.contains(&tab_id) {
+            meta.drilldown_tabs.push(tab_id);
+        }
+        if kind == "definition" {
+            if meta.drilldown_note.is_none() {
+                meta.drilldown_note = first_non_empty_string(
+                    entry_obj,
+                    &["note", "content", "text", "markdown", "md", "desc", "description"],
+                );
+            }
+            if meta.drilldown_basis_refs.is_empty() {
+                if let Some(value) = entry_obj.get("basis_refs").or_else(|| entry_obj.get("basisRefs")) {
+                    meta.drilldown_basis_refs = string_array_from_value(value);
+                }
+            }
+            if meta.drilldown_recommended_dimensions.is_empty() {
+                if let Some(value) = entry_obj
+                    .get("recommended_dimensions")
+                    .or_else(|| entry_obj.get("recommendedDimensions"))
+                {
+                    meta.drilldown_recommended_dimensions = string_array_from_value(value);
+                }
+            }
+        } else if kind == "detail" {
+            if meta.drilldown_detail_fields.is_empty() {
+                if let Some(value) = entry_obj.get("fields") {
+                    meta.drilldown_detail_fields = string_array_from_value(value);
+                }
+            }
+            if meta.drilldown_headers.is_empty() {
+                if let Some(value) = entry_obj.get("headers") {
+                    meta.drilldown_headers = string_array_from_value(value);
+                }
+            }
+            if meta.drilldown_table_metric_id.is_none() {
+                meta.drilldown_table_metric_id = first_non_empty_string(
+                    entry_obj,
+                    &[
+                        "table_metric_id",
+                        "tableMetricId",
+                        "metric_id",
+                        "metricId",
+                        "detail_table_metric_id",
+                        "detailTableMetricId",
+                    ],
+                );
+            }
+            if meta.explain_detail_dataset.is_none() {
+                meta.explain_detail_dataset = first_non_empty_string(
+                    entry_obj,
+                    &["detail_dataset", "detailDataset", "dataset_id", "datasetId"],
+                );
+            }
+        } else if kind == "composition" {
+            if meta.explain_composition_by.is_empty() {
+                if let Some(by) = first_non_empty_string(entry_obj, &["by"]) {
+                    meta.explain_composition_by = vec![by];
+                }
+            }
+        } else if kind == "trend" {
+            if meta.explain_trend_field.is_none() {
+                meta.explain_trend_field =
+                    first_non_empty_string(entry_obj, &["date_field", "dateField"]);
+            }
+            if meta.explain_trend_grain.is_none() {
+                meta.explain_trend_grain = first_non_empty_string(entry_obj, &["grain"]);
+            }
+        } else if kind == "numerator_denominator" {
+            if meta.drilldown_ratio_numerator.is_none() {
+                meta.drilldown_ratio_numerator =
+                    first_non_empty_string(entry_obj, &["numerator"]);
+            }
+            if meta.drilldown_ratio_denominator.is_none() {
+                meta.drilldown_ratio_denominator =
+                    first_non_empty_string(entry_obj, &["denominator"]);
+            }
+            if meta.drilldown_ratio_formula.is_none() {
+                meta.drilldown_ratio_formula = first_non_empty_string(entry_obj, &["formula"]);
+            }
+        }
+        meta.explain_metrics.push(entry.clone());
+        meta.analysis_blocks.push(entry);
+    }
+    sync_explain_metric_tab_overrides(meta);
 }
 
 fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
@@ -1623,6 +2001,21 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
             apply_ratio_parts(value, meta);
         }
     }
+    if meta.analysis_blocks.is_empty() {
+        if let Some(note) = meta.drilldown_note.as_deref().filter(|value| !value.is_empty()) {
+            meta.analysis_blocks.push(json!({
+                "__kind": "explain_item",
+                "id": "note",
+                "kind": "note",
+                "note": note,
+                "content": note,
+                "format": "text",
+            }));
+        }
+        for entry in &meta.explain_metrics {
+            meta.analysis_blocks.push(entry.clone());
+        }
+    }
 }
 
 /// 将 `explain_metric` 上的 `by` / `date_field` 同步到 `drilldown_tab_metrics`，供 popup 派生查询使用。
@@ -1644,6 +2037,7 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             .and_then(Value::as_str)
             .map(str::trim)
             .unwrap_or_default();
+        let normalized_source = obj.get("source").and_then(normalize_explain_source);
         let mut override_obj = serde_json::Map::new();
         if kind == "detail" {
             let detail_table_metric_id = first_non_empty_string(
@@ -1665,6 +2059,8 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
                     .filter(|value| !value.is_empty())
                     .map(str::to_string)
             });
+            let detail_table_metric_id = detail_table_metric_id
+                .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source));
             if let Some(table_metric_id) = detail_table_metric_id {
                 override_obj.insert(
                     "table_metric_id".to_string(),
@@ -1686,6 +2082,8 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
                     .filter(|value| !value.is_empty())
                     .map(str::to_string)
             });
+            let detail_dataset_id = detail_dataset_id
+                .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source));
             if let Some(dataset_id) = detail_dataset_id {
                 override_obj.insert("dataset_id".to_string(), Value::String(dataset_id));
             }
@@ -1706,7 +2104,9 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
                     "metric_id",
                     "metricId",
                 ],
-            ) {
+            )
+            .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source))
+            {
                 override_obj.insert(
                     "table_metric_id".to_string(),
                     Value::String(table_metric_id),
@@ -1714,6 +2114,7 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             }
             if let Some(dataset_id) =
                 first_non_empty_string(obj, &["dataset_id", "datasetId"])
+                    .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
             {
                 override_obj.insert("dataset_id".to_string(), Value::String(dataset_id));
             }
@@ -1732,7 +2133,9 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
                     "metric_id",
                     "metricId",
                 ],
-            ) {
+            )
+            .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source))
+            {
                 override_obj.insert(
                     "table_metric_id".to_string(),
                     Value::String(table_metric_id),
@@ -1740,9 +2143,13 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             }
             if let Some(dataset_id) =
                 first_non_empty_string(obj, &["dataset_id", "datasetId"])
+                    .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
             {
                 override_obj.insert("dataset_id".to_string(), Value::String(dataset_id));
             }
+        }
+        if let Some(source) = normalized_source {
+            override_obj.insert("source".to_string(), source);
         }
         if override_obj.is_empty() {
             continue;
