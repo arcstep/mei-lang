@@ -22,7 +22,8 @@ use super::super::datasets::{
 use super::metric_api::clear_metric_response_cache;
 use super::components::resolve_components_root;
 use super::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
+    strict_dataset_query_mode_contract, strict_runtime_query_contract, strict_scene_query_coords,
 };
 use super::util::elapsed_ms;
 #[derive(Debug, Deserialize)]
@@ -125,6 +126,13 @@ pub async fn dataset_query_api(
             "missing app id in route",
         ));
     }
+    strict_runtime_query_contract(
+        &request.filters,
+        request.search.as_deref(),
+        request.query_state.as_ref(),
+        &request.filter_intents,
+        "dataset query",
+    )?;
     let requested_scene_id = request
         .scene_id
         .as_deref()
@@ -154,7 +162,11 @@ pub async fn dataset_query_api(
     );
     let _request_span_guard = request_span.enter();
     tracing::info!("dataset query started");
-    let coords = SceneQueryCoords::from_parts(request.scene_id.clone(), request.target.clone());
+    let coords = strict_scene_query_coords(
+        request.scene_id.clone(),
+        request.target.clone(),
+        "dataset query",
+    )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
     let compile_outcome =
@@ -233,6 +245,7 @@ pub async fn dataset_query_api(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string);
+    strict_dataset_query_mode_contract(metric_id.as_deref(), &request.filter_intents)?;
     let query_started = Instant::now();
     let mut result = if let Some(metric_id) = metric_id.as_deref() {
         query_metric_dataframe(
@@ -394,7 +407,11 @@ pub async fn dataset_recompute_api(
     let mut response_scene_id = requested_scene.to_string();
     let mut response_scene_path = requested_target;
     if warmed {
-        let coords = SceneQueryCoords::from_parts(request.scene_id.clone(), request.target.clone());
+        let coords = strict_scene_query_coords(
+            request.scene_id.clone(),
+            request.target.clone(),
+            "dataset recompute",
+        )?;
         let compile_options = compile_options_from_coords(&coords);
         let components_root = resolve_components_root(&state.source_root);
         let compile_started = Instant::now();

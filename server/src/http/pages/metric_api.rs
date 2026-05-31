@@ -26,7 +26,8 @@ use super::super::datasets::{
 };
 use super::components::resolve_components_root;
 use super::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
+    strict_runtime_query_contract, strict_scene_query_coords,
 };
 use super::util::elapsed_ms;
 
@@ -182,6 +183,13 @@ pub async fn dataset_metric_api(
             "missing app id in route",
         ));
     }
+    strict_runtime_query_contract(
+        &request.filters,
+        request.search.as_deref(),
+        request.query_state.as_ref(),
+        &request.filter_intents,
+        "metric query",
+    )?;
     let requested_scene_id = request
         .scene_id
         .as_deref()
@@ -216,7 +224,11 @@ pub async fn dataset_metric_api(
     );
     let _request_span_guard = request_span.enter();
     tracing::info!("metric query started");
-    let coords = SceneQueryCoords::from_parts(request.scene_id.clone(), request.target.clone());
+    let coords = strict_scene_query_coords(
+        request.scene_id.clone(),
+        request.target.clone(),
+        "metric query",
+    )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
     let compile_outcome =

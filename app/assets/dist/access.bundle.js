@@ -9773,53 +9773,17 @@
         throw error;
       }
     }
-    let response;
-    try {
-      response = await fetch(`/api/datasets/query/${appPath}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          scene_id: sceneId,
-          target,
-          dataset_id: datasetId,
-          filters: Object.keys(mergedFilters).length ? mergedFilters : undefined,
-          page: 1,
-          page_size: 100000,
-          full: true,
-          summary: true,
-        }),
-      });
-    } catch (error) {
-      recordPopupDebugIssue({
-        level: "error",
-        message: String(error?.message || error || "popup panel dataset fetch failed"),
-        phase: "dataset_fetch_network",
-        detail,
-        config,
-        datasetId,
-      });
-      throw error;
-    }
-    if (!response.ok) {
-      const text = await response.text();
-      recordPopupDebugIssue({
-        level: "error",
-        message: text || `HTTP ${response.status}`,
-        phase: "dataset_fetch_http",
-        detail,
-        config,
-        datasetId,
-      });
-      throw new Error(text);
-    }
-    const payload = await response.json();
-    return {
-      rows: Array.isArray(payload?.rows) ? payload.rows : [],
-      columns: Array.isArray(payload?.columns) ? payload.columns : [],
-      column_meta: Array.isArray(payload?.column_meta) ? payload.column_meta : [],
-      summary: payload?.summary || null,
-      query_state_echo: payload?.query_state_echo || null,
-    };
+    const message =
+      "popup panel dataset fetch requires shared runtime-query.js; raw dataset fetch fallback has been removed";
+    recordPopupDebugIssue({
+      level: "error",
+      message,
+      phase: "dataset_fetch_runtime_missing",
+      detail,
+      config,
+      datasetId,
+    });
+    throw new Error(message);
   }
 
   function monthBucketLabel(value) {

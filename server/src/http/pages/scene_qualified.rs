@@ -3,8 +3,9 @@
 use axum::http::StatusCode;
 use mei_lang_kernel::{
     locate_dataset_resource as kernel_locate_dataset_resource, CompileOptions, CompiledApp,
-    LoadedResource, RuntimeResourceResolveError,
+    FilterIntent, LoadedResource, QueryState, RuntimeResourceResolveError,
 };
+use std::collections::BTreeMap;
 
 use crate::AppError;
 
@@ -29,6 +30,106 @@ impl SceneQueryCoords {
                 .filter(|s| !s.is_empty()),
         }
     }
+}
+
+pub fn strict_scene_query_coords(
+    scene_id: Option<String>,
+    target: Option<String>,
+    request_kind: &str,
+) -> Result<SceneQueryCoords, AppError> {
+    let coords = SceneQueryCoords::from_parts(scene_id, target);
+    if coords.scene_id.is_some() {
+        return Ok(coords);
+    }
+    let detail = coords
+        .target
+        .as_deref()
+        .map(|target| format!(" (received legacy target `{target}` without scene_id)"))
+        .unwrap_or_default();
+    Err(AppError::status(
+        StatusCode::BAD_REQUEST,
+        format!(
+            "{request_kind} requires `scene_id`; target-only runtime requests are no longer supported{detail}"
+        ),
+    ))
+}
+
+fn normalize_contract_filters(filters: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    filters
+        .iter()
+        .filter_map(|(dimension, value)| {
+            let dimension = dimension.trim();
+            let value = value.trim();
+            if dimension.is_empty() || value.is_empty() {
+                return None;
+            }
+            Some((dimension.to_string(), value.to_string()))
+        })
+        .collect()
+}
+
+fn normalize_contract_search(search: Option<&str>) -> Option<String> {
+    search.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+}
+
+pub fn strict_runtime_query_contract(
+    filters: &BTreeMap<String, String>,
+    search: Option<&str>,
+    query_state: Option<&QueryState>,
+    filter_intents: &[FilterIntent],
+    request_kind: &str,
+) -> Result<(), AppError> {
+    let normalized_filters = normalize_contract_filters(filters);
+    let normalized_search = normalize_contract_search(search);
+    let requires_query_state =
+        !normalized_filters.is_empty() || normalized_search.is_some() || !filter_intents.is_empty();
+    if requires_query_state && query_state.is_none() {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "{request_kind} with `filters`, `search`, or `filter_intents` requires `query_state`"
+            ),
+        ));
+    }
+    let Some(state) = query_state else {
+        return Ok(());
+    };
+    let state_filters = normalize_contract_filters(&state.filters);
+    if !normalized_filters.is_empty()
+        && !state_filters.is_empty()
+        && normalized_filters != state_filters
+    {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "{request_kind} received conflicting `filters` and `query_state.filters`; fail-fast migration rejects mixed query truth"
+            ),
+        ));
+    }
+    let state_search = normalize_contract_search(state.search.as_deref());
+    if normalized_search.is_some() && state_search.is_some() && normalized_search != state_search {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "{request_kind} received conflicting `search` and `query_state.search`; fail-fast migration rejects mixed query truth"
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub fn strict_dataset_query_mode_contract(
+    metric_id: Option<&str>,
+    filter_intents: &[FilterIntent],
+) -> Result<(), AppError> {
+    let metric_id = metric_id.map(str::trim).filter(|value| !value.is_empty());
+    if metric_id.is_some() || filter_intents.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::status(
+        StatusCode::BAD_REQUEST,
+        "plain dataset row queries do not accept `filter_intents`; keep row filtering in `query_state`, or use metric/dataframe query for EvalScope-aware evaluation",
+    ))
 }
 
 pub fn compile_options_from_coords(coords: &SceneQueryCoords) -> CompileOptions {
@@ -128,9 +229,13 @@ pub fn locate_dataset_resource<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::locate_dataset_resource;
+    use super::{
+        locate_dataset_resource, strict_dataset_query_mode_contract, strict_runtime_query_contract,
+        strict_scene_query_coords,
+    };
     use mei_lang_kernel::{
-        CompiledApp, CompiledSceneRoute, DatasetView, LoadedResource, SourceDecl,
+        CompiledApp, CompiledSceneRoute, DatasetView, FilterIntent, FilterIntentSource,
+        LoadedResource, QueryState, SourceDecl,
     };
     use serde_json::json;
 
@@ -200,6 +305,123 @@ mod tests {
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
         }
+    }
+
+    #[test]
+    fn strict_scene_query_coords_rejects_target_only_requests() {
+        let error = strict_scene_query_coords(None, Some("scenes/home.mei".to_string()), "dataset query")
+            .expect_err("target-only requests should fail");
+        let debug = format!("{error:?}");
+        assert!(
+            debug.contains("requires `scene_id`"),
+            "unexpected error: {debug}"
+        );
+    }
+
+    #[test]
+    fn strict_scene_query_coords_accepts_scene_first_requests() {
+        let coords = strict_scene_query_coords(
+            Some("home".to_string()),
+            Some("scenes/home.mei".to_string()),
+            "dataset query",
+        )
+        .expect("scene-qualified requests should pass");
+        assert_eq!(coords.scene_id.as_deref(), Some("home"));
+        assert_eq!(coords.target.as_deref(), Some("scenes/home.mei"));
+    }
+
+    #[test]
+    fn strict_runtime_query_contract_rejects_filters_without_query_state() {
+        let mut filters = std::collections::BTreeMap::new();
+        filters.insert("region".to_string(), "east".to_string());
+        let error = strict_runtime_query_contract(
+            &filters,
+            None,
+            None,
+            &[],
+            "dataset query",
+        )
+        .expect_err("filters without query_state should fail");
+        let debug = format!("{error:?}");
+        assert!(
+            debug.contains("requires `query_state`"),
+            "unexpected error: {debug}"
+        );
+    }
+
+    #[test]
+    fn strict_runtime_query_contract_rejects_filter_intents_without_query_state() {
+        let error = strict_runtime_query_contract(
+            &std::collections::BTreeMap::new(),
+            None,
+            None,
+            &[FilterIntent {
+                dimension: "region".to_string(),
+                operator: mei_lang_kernel::FilterOperator::Eq,
+                value: "east".to_string(),
+                source: FilterIntentSource::QueryState,
+            }],
+            "dataset query",
+        )
+        .expect_err("filter intents without query_state should fail");
+        let debug = format!("{error:?}");
+        assert!(debug.contains("requires `query_state`"), "unexpected error: {debug}");
+    }
+
+    #[test]
+    fn strict_runtime_query_contract_rejects_conflicting_filters() {
+        let mut top_level_filters = std::collections::BTreeMap::new();
+        top_level_filters.insert("region".to_string(), "east".to_string());
+        let mut state_filters = std::collections::BTreeMap::new();
+        state_filters.insert("region".to_string(), "west".to_string());
+        let error = strict_runtime_query_contract(
+            &top_level_filters,
+            None,
+            Some(&QueryState {
+                filters: state_filters,
+                search: None,
+                group: Vec::new(),
+                time_range: None,
+            }),
+            &[],
+            "metric query",
+        )
+        .expect_err("conflicting filters should fail");
+        let debug = format!("{error:?}");
+        assert!(debug.contains("conflicting `filters`"), "unexpected error: {debug}");
+    }
+
+    #[test]
+    fn strict_dataset_query_mode_contract_rejects_filter_intents_for_plain_rows() {
+        let error = strict_dataset_query_mode_contract(
+            None,
+            &[FilterIntent {
+                dimension: "region".to_string(),
+                operator: mei_lang_kernel::FilterOperator::Eq,
+                value: "east".to_string(),
+                source: FilterIntentSource::QueryState,
+            }],
+        )
+        .expect_err("plain dataset rows should reject filter_intents");
+        let debug = format!("{error:?}");
+        assert!(
+            debug.contains("plain dataset row queries do not accept `filter_intents`"),
+            "unexpected error: {debug}"
+        );
+    }
+
+    #[test]
+    fn strict_dataset_query_mode_contract_allows_metric_dataframe_filter_intents() {
+        strict_dataset_query_mode_contract(
+            Some("summary_metric"),
+            &[FilterIntent {
+                dimension: "region".to_string(),
+                operator: mei_lang_kernel::FilterOperator::Eq,
+                value: "east".to_string(),
+                source: FilterIntentSource::QueryState,
+            }],
+        )
+        .expect("metric dataframe path should keep filter_intents");
     }
 
     #[test]
