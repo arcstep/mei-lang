@@ -977,6 +977,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         resources: Vec::new(),
         world_metrics: BTreeMap::new(),
         component_assets: Vec::new(),
@@ -1056,6 +1057,29 @@ fn attach_host_meta_exposes_shared_context_to_components() {
                 },
             ]),
         )]),
+        scene_projection_assembly_by_id: BTreeMap::from([(
+            "inspection_total_popup".to_string(),
+            json!({
+                "scene_id": "inspection_total_popup",
+                "target_file": "templates/cockpit/drilldown/metric-explain-board.mei",
+                "local_nav": {
+                    "kind": "metric_explain_board",
+                    "default_entry": "definition",
+                    "order_by_kind": ["definition", "composition", "trend", "detail"]
+                },
+                "bindings": {
+                    "detail": {"__ref": "metric", "id": "sales_total", "from_dataset": "sales"}
+                },
+                "examples": [
+                    {
+                        "id": "default",
+                        "bindings": {
+                            "detail": {"__ref": "metric", "id": "sales_total", "from_dataset": "sales"}
+                        }
+                    }
+                ]
+            }),
+        )]),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1094,6 +1118,16 @@ fn attach_host_meta_exposes_shared_context_to_components() {
             .and_then(|value| value.get("__ref"))
             .and_then(Value::as_str),
         Some("metric")
+    );
+    assert_eq!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("scene_projection_assembly_by_id"))
+            .and_then(|value| value.get("inspection_total_popup"))
+            .and_then(|value| value.get("local_nav"))
+            .and_then(|value| value.get("default_entry"))
+            .and_then(Value::as_str),
+        Some("definition")
     );
 }
 
@@ -1138,6 +1172,7 @@ fn resolve_value_supports_shared_refs() {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1287,6 +1322,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1485,6 +1521,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1661,6 +1698,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1761,6 +1799,7 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1927,6 +1966,7 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
         scene_local_nav_by_target: BTreeMap::new(),
         scene_bindings_by_id: BTreeMap::new(),
         scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
     };
@@ -1966,7 +2006,11 @@ fn resolve_value_builds_analysis_contract_from_explain_list() {
         Some(3)
     );
     assert_eq!(
-        contract.get("table_metric_id").and_then(Value::as_str),
+        contract
+            .get("tab_metrics")
+            .and_then(|value| value.get("detail"))
+            .and_then(|value| value.get("metric_id"))
+            .and_then(Value::as_str),
         Some("sales_total_table")
     );
     assert_eq!(

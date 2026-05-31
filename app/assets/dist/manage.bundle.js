@@ -11181,19 +11181,51 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   let warnedLegacyDrilldownFallback = false;
   let legacyDrilldownFallbackHits = 0;
 
-  function legacyMetricContext(metricId) {
-    if (!LEGACY_DRILLDOWN_FALLBACK_ENABLED) return {};
-    const normalizedMetricId = String(metricId || "").trim();
-    if (!normalizedMetricId) return {};
-    return DRILLDOWN_METRIC_CONTEXT[normalizedMetricId] || {};
-  }
-
   function runtimeDrilldownConfig(detail) {
-    const value = detail?.analysis_contract;
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const value =
+      detail?.analysis_contract &&
+      typeof detail.analysis_contract === "object" &&
+      !Array.isArray(detail.analysis_contract)
+        ? detail.analysis_contract
+        : detail?.__mei_runtime_ref?.analysis_contract &&
+            typeof detail.__mei_runtime_ref.analysis_contract === "object" &&
+            !Array.isArray(detail.__mei_runtime_ref.analysis_contract)
+          ? detail.__mei_runtime_ref.analysis_contract
+          : null;
+    if (!value) {
       return {};
     }
     return value;
+  }
+
+  function hasRuntimeDrilldownConfig(detail) {
+    return Object.keys(runtimeDrilldownConfig(detail)).length > 0;
+  }
+
+  function shouldUseLegacyDrilldownFallback(detail) {
+    return LEGACY_DRILLDOWN_FALLBACK_ENABLED && !hasRuntimeDrilldownConfig(detail);
+  }
+
+  function recordLegacyDrilldownFallback(detail, reason = "") {
+    if (!shouldUseLegacyDrilldownFallback(detail)) return false;
+    legacyDrilldownFallbackHits += 1;
+    boot.legacyDrilldownFallbackHits = legacyDrilldownFallbackHits;
+    if (!warnedLegacyDrilldownFallback) {
+      warnedLegacyDrilldownFallback = true;
+      console.warn("[spa-navigation] using legacy drilldown fallback", {
+        metricId: nonEmptyString(detail?.metric_id),
+        reason: nonEmptyString(reason),
+        hits: legacyDrilldownFallbackHits,
+      });
+    }
+    return true;
+  }
+
+  function legacyMetricContext(metricId, detail = null) {
+    if (!shouldUseLegacyDrilldownFallback(detail)) return {};
+    const normalizedMetricId = String(metricId || "").trim();
+    if (!normalizedMetricId) return {};
+    return DRILLDOWN_METRIC_CONTEXT[normalizedMetricId] || {};
   }
 
   function runtimeTabIds(...values) {
@@ -11410,6 +11442,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, localNav }) {
+    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
     const resolvedLocalNav =
       normalizeSceneLocalNav(localNav) ||
       resolveSceneLocalNav(
@@ -11468,7 +11501,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       detail?.analysis_contract?.tabs,
       runtime?.tabs,
       detail?.analysis_tabs,
-      detail?.drilldown_tabs,
+      legacyCompat ? detail?.drilldown_tabs : null,
       runtime?.analysis_tabs,
       mapped?.tabs,
     );
@@ -11670,9 +11703,40 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return normalized;
   }
 
-  function sceneBindingDefaults(sceneId, bindingsById, examplesById) {
+  function sceneProjectionAssembly(sceneId, assemblyById) {
+    const normalizedSceneId = nonEmptyString(sceneId);
+    if (!normalizedSceneId) return null;
+    if (
+      !assemblyById ||
+      typeof assemblyById !== "object" ||
+      Array.isArray(assemblyById) ||
+      !assemblyById[normalizedSceneId] ||
+      typeof assemblyById[normalizedSceneId] !== "object" ||
+      Array.isArray(assemblyById[normalizedSceneId])
+    ) {
+      return null;
+    }
+    return assemblyById[normalizedSceneId];
+  }
+
+  function sceneBindingDefaults(sceneId, bindingsById, examplesById, assemblyById = null) {
     const normalizedSceneId = nonEmptyString(sceneId);
     if (!normalizedSceneId) return {};
+    const assembly = sceneProjectionAssembly(normalizedSceneId, assemblyById);
+    if (assembly) {
+      const direct = normalizeTabMetricOverrides(assembly.bindings);
+      if (Object.keys(direct).length) return direct;
+      const rawExamples = assembly.examples;
+      const example = Array.isArray(rawExamples)
+        ? rawExamples.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+        : rawExamples && typeof rawExamples === "object"
+          ? rawExamples
+          : null;
+      const bindings =
+        example && typeof example === "object" && !Array.isArray(example) ? example.bindings : null;
+      const normalized = normalizeTabMetricOverrides(bindings);
+      if (Object.keys(normalized).length) return normalized;
+    }
     if (
       bindingsById &&
       typeof bindingsById === "object" &&
@@ -11973,6 +12037,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function resolveDrilldownDatasetId(detail, config = {}, mapped = {}) {
+    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
@@ -11985,8 +12050,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     );
     const tableMetricId = nonEmptyString(
       detail?.table_metric_id,
-      detail?.drilldown_table_metric_id,
-      detail?.drilldown_table_metric,
+      legacyCompat ? detail?.drilldown_table_metric_id : "",
+      legacyCompat ? detail?.drilldown_table_metric : "",
     );
     if (tableMetricId) {
       return nonEmptyString(
@@ -11994,12 +12059,12 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         detail?.dataset_id,
         config?.datasetId,
         mapped?.datasetId,
-        detail?.drilldown_dataset_id,
+        legacyCompat ? detail?.drilldown_dataset_id : "",
       );
     }
     return nonEmptyString(
       detail?.explain_detail_dataset,
-      detail?.drilldown_dataset_id,
+      legacyCompat ? detail?.drilldown_dataset_id : "",
       runtimeRefConfig.datasetId,
       config?.datasetId,
       mapped?.datasetId,
@@ -12009,9 +12074,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function resolveDrilldownSceneId(detail, mapped = {}, runtime = {}) {
+    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
     const runtimeTargetSceneId = nonEmptyString(
-      detail?.drilldown_target_scene_id,
-      detail?.drilldown_scene_id,
+      legacyCompat ? detail?.drilldown_target_scene_id : "",
+      legacyCompat ? detail?.drilldown_scene_id : "",
       runtime?.target_scene_id,
       runtime?.targetSceneId,
       runtime?.scene_id,
@@ -12022,7 +12088,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (mappedSceneId) return mappedSceneId;
     const runtimeScene = normalizeDrilldownScenePath(
       nonEmptyString(
-        detail?.drilldown_scene,
+        legacyCompat ? detail?.drilldown_scene : "",
         runtime?.scene_file,
         runtime?.sceneFile,
         runtime?.scene_path,
@@ -12036,7 +12102,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
-    const mapped = {};
+    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
+    if (legacyCompat) {
+      recordLegacyDrilldownFallback(detail, "resolveDrilldownConfig");
+    }
+    const mapped = legacyCompat ? legacyMetricContext(metricId, detail) : {};
     const runtime = runtimeDrilldownConfig(detail);
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
@@ -12065,7 +12135,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       runtime?.query_state_id,
       runtime?.queryStateId,
     );
-    const runtimeEnabled = boolValue(detail?.analysis_enabled, detail?.drilldown_enabled, runtime?.enabled);
+    const runtimeEnabled = boolValue(
+      detail?.analysis_enabled,
+      legacyCompat ? detail?.drilldown_enabled : undefined,
+      runtime?.enabled,
+    );
     const explainKind = nonEmptyString(
       detail?.analysis_kind,
       detail?.explain_kind,
@@ -12081,51 +12155,53 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     let detailFields = cloneArray(detail?.explain_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
-    if (!detailFields.length) detailFields = cloneArray(detail?.drilldown_detail_fields);
+    if (!detailFields.length && legacyCompat) detailFields = cloneArray(detail?.drilldown_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(mapped?.detailFields);
-    let columns = cloneArray(detail?.drilldown_columns);
+    let columns = legacyCompat ? cloneArray(detail?.drilldown_columns) : [];
     if (!columns.length) columns = cloneArray(runtime?.columns);
     if (!columns.length) columns = cloneArray(runtime?.detail_fields);
     if (!columns.length) columns = cloneArray(runtime?.detailFields);
     if (!columns.length) columns = cloneArray(detailFields);
     if (!columns.length) columns = cloneArray(mapped?.columns);
-    let headers = cloneArray(detail?.drilldown_headers);
+    let headers = legacyCompat ? cloneArray(detail?.drilldown_headers) : [];
     if (!headers.length) headers = cloneArray(runtime?.headers);
     if (!headers.length) headers = cloneArray(mapped?.headers);
     let basisRefs = cloneArray(detail?.explain_basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basisRefs);
-    if (!basisRefs.length) basisRefs = cloneArray(detail?.drilldown_basis_refs);
+    if (!basisRefs.length && legacyCompat) basisRefs = cloneArray(detail?.drilldown_basis_refs);
     let recommendedDimensions = cloneArray(detail?.explain_recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommendedDimensions);
-    if (!recommendedDimensions.length) recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
+    if (!recommendedDimensions.length && legacyCompat) {
+      recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
+    }
     const ratioNumerator = nonEmptyString(
       runtime?.ratio_numerator,
       runtime?.ratioNumerator,
-      detail?.drilldown_ratio_numerator,
+      legacyCompat ? detail?.drilldown_ratio_numerator : "",
     );
     const ratioDenominator = nonEmptyString(
       runtime?.ratio_denominator,
       runtime?.ratioDenominator,
-      detail?.drilldown_ratio_denominator,
+      legacyCompat ? detail?.drilldown_ratio_denominator : "",
     );
     const ratioFormula = nonEmptyString(
       runtime?.ratio_formula,
       runtime?.ratioFormula,
-      detail?.drilldown_ratio_formula,
+      legacyCompat ? detail?.drilldown_ratio_formula : "",
     );
     const tableMetricId = nonEmptyString(
       runtime?.table_metric_id,
       runtime?.tableMetricId,
       detail?.table_metric_id,
-      detail?.drilldown_table_metric_id,
-      detail?.drilldown_table_metric,
+      legacyCompat ? detail?.drilldown_table_metric_id : "",
+      legacyCompat ? detail?.drilldown_table_metric : "",
       mapped?.tableMetricId,
     );
     const datasetId = resolveDrilldownDatasetId(detail, { sceneId, hostSceneId, boardSceneId }, mapped);
     const layoutPreset = nonEmptyString(
-      detail?.drilldown_layout_preset,
+      legacyCompat ? detail?.drilldown_layout_preset : "",
       runtime?.layout_preset,
       runtime?.layoutPreset,
       mapped?.layoutPreset,
@@ -12134,6 +12210,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       boardSceneId,
       detail?.scene_bindings_by_id,
       detail?.scene_examples_by_id,
+      detail?.scene_projection_assembly_by_id,
     );
     const tabMetrics = normalizeTabMetricOverrides(
       defaultSceneBindings,
@@ -12143,7 +12220,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       panelPopupSlotSources(popup),
       popup?.metrics,
       detail?.analysis_tab_metrics,
-      detail?.drilldown_tab_metrics,
+      legacyCompat ? detail?.drilldown_tab_metrics : null,
       runtime?.analysis_tab_metrics,
       runtime?.tab_metrics,
       runtime?.tabMetrics,
@@ -12160,9 +12237,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       popup?.scene_file,
       popup?.sceneFile,
     );
+    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
     const sceneLocalNav =
       boardFields?.localNav ||
       normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
+      normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
       resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
       null;
     const projection = normalizeProjection(
@@ -12174,7 +12253,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         detailFields.length ||
         nonEmptyString(
           detail?.explain_detail_dataset,
-          detail?.drilldown_dataset_id,
+          legacyCompat ? detail?.drilldown_dataset_id : "",
           runtime?.dataset_id,
           runtime?.datasetId,
           mapped?.datasetId,
@@ -12214,7 +12293,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       title: nonEmptyString(
         popup?.title,
         detail?.explain_title,
-        detail?.drilldown_title,
+        legacyCompat ? detail?.drilldown_title : "",
         runtime?.title,
         mapped?.title,
         detail?.label,
@@ -12225,7 +12304,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         runtime?.note,
         detail?.explain_note,
         detail?.analysis_note,
-        detail?.drilldown_note,
+        legacyCompat ? detail?.drilldown_note : "",
         mapped?.note,
         ratioNote,
       ),
@@ -12285,16 +12364,22 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       chartKind: nonEmptyString(runtime?.chart_kind, runtime?.chartKind),
       mapping: runtime?.mapping && typeof runtime.mapping === "object" ? runtime.mapping : null,
       pageSize:
-        positiveInt(detail?.drilldown_page_size, runtime?.page_size, runtime?.pageSize, mapped?.pageSize, 8) || 8,
+        positiveInt(
+          legacyCompat ? detail?.drilldown_page_size : undefined,
+          runtime?.page_size,
+          runtime?.pageSize,
+          mapped?.pageSize,
+          8,
+        ) || 8,
       cellPreviewMaxChars:
         positiveInt(
-          detail?.drilldown_cell_preview_max_chars,
+          legacyCompat ? detail?.drilldown_cell_preview_max_chars : undefined,
           runtime?.cell_preview_max_chars,
           runtime?.cellPreviewMaxChars,
           mapped?.cellPreviewMaxChars,
         ) > 0
           ? positiveInt(
-              detail?.drilldown_cell_preview_max_chars,
+              legacyCompat ? detail?.drilldown_cell_preview_max_chars : undefined,
               runtime?.cell_preview_max_chars,
               runtime?.cellPreviewMaxChars,
               mapped?.cellPreviewMaxChars,
@@ -12302,13 +12387,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           : 0,
       columnMinWidth:
         positiveInt(
-          detail?.drilldown_column_min_width,
+          legacyCompat ? detail?.drilldown_column_min_width : undefined,
           runtime?.column_min_width,
           runtime?.columnMinWidth,
           mapped?.columnMinWidth,
         ) > 0
           ? positiveInt(
-              detail?.drilldown_column_min_width,
+              legacyCompat ? detail?.drilldown_column_min_width : undefined,
               runtime?.column_min_width,
               runtime?.columnMinWidth,
               mapped?.columnMinWidth,
@@ -12470,6 +12555,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
               panel_id: String(config?.panelId || "drilldown"),
               scene_id: sceneId,
               target,
+              query_state_id: queryStateId || undefined,
+              filter_intent_source: "drilldown",
             },
           }
         );
@@ -12606,7 +12693,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const mapped = legacyMetricContext(detail?.metric_id);
+    const mapped = legacyMetricContext(detail?.metric_id, detail);
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
       config?.hostSceneId,
@@ -12622,7 +12710,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const datasetId = resolveDrilldownDatasetId(detail, config, mapped) || sceneId;
     const metricId = config?.suppressDetailMetricFallback
       ? nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId)
-      : nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId, detail?.drilldown_table_metric_id);
+      : nonEmptyString(
+          runtimeRefConfig.metricId,
+          config?.tableMetricId,
+          shouldUseLegacyDrilldownFallback(detail) ? detail?.drilldown_table_metric_id : "",
+        );
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -12688,6 +12780,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         active_scene_id: sceneId,
         active_target_file: nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path),
       },
+      query_state: queryStateId || undefined,
     };
   }
 
@@ -12770,6 +12863,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         title: String(config?.title || ""),
         data: tableProps.dataset,
         _mei: tableProps._mei,
+        query_state: tableProps.query_state,
         mapping,
         chartHeight: 300,
       },
@@ -12813,7 +12907,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const mapped = legacyMetricContext(detail?.metric_id);
+    const mapped = legacyMetricContext(detail?.metric_id, detail);
     const datasetId = resolveDrilldownDatasetId(detail, config, mapped);
     if (!datasetId) {
       recordPopupDebugIssue({
