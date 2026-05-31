@@ -4,13 +4,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::Result;
-use mei_lang_kernel::{DatasetView, DimensionBinding};
+use anyhow::{anyhow, Result};
+use mei_lang_kernel::{DatasetView, DimensionBinding, QueryState};
 use serde_json::Value;
 
 use super::query::query_dataset_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions};
 use super::util::elapsed_ms;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct DatasetQueryBindingResolution {
+    pub mapped_filters: BTreeMap<String, String>,
+    pub unresolved_filter_dimensions: Vec<String>,
+    pub unresolved_time_range_dimension: Option<String>,
+}
 
 pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
     app_root: &Path,
@@ -25,6 +32,8 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
     let hydrate_started = Instant::now();
     let mut hydrated_count = 0u64;
     let mut dropped_filters_total = 0u64;
+    let mut unresolved_filters_total = 0u64;
+    let mut unresolved_time_range_total = 0u64;
     for dataset_id in referenced {
         let Some(view) = lookup_dataset_view(datasets, dataset_id.as_str()) else {
             continue;
@@ -33,7 +42,22 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             continue;
         }
         let load_started = Instant::now();
-        let hydrate_filters = compatible_hydrate_filters(query, view);
+        let binding_resolution = compatible_hydrate_binding_resolution(query, view);
+        if !binding_resolution.unresolved_filter_dimensions.is_empty() {
+            return Err(anyhow!(
+                "runtime metric hydrate requires resolvable filter bindings for dataset `{}`: {}",
+                view.id,
+                binding_resolution.unresolved_filter_dimensions.join(", ")
+            ));
+        }
+        if let Some(dimension) = binding_resolution.unresolved_time_range_dimension.as_deref() {
+            return Err(anyhow!(
+                "runtime metric hydrate requires resolvable time_range.dimension binding for dataset `{}`: {}",
+                view.id,
+                dimension
+            ));
+        }
+        let hydrate_filters = binding_resolution.mapped_filters;
         let load_query = DatasetQueryOptions {
             page: 1,
             page_size: 0,
@@ -52,7 +76,11 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             .filters
             .len()
             .saturating_sub(load_query.filters.len()) as u64;
+        let unresolved_filters = binding_resolution.unresolved_filter_dimensions.len() as u64;
+        let unresolved_time_range = u64::from(binding_resolution.unresolved_time_range_dimension.is_some());
         dropped_filters_total += dropped_filters;
+        unresolved_filters_total += unresolved_filters;
+        unresolved_time_range_total += unresolved_time_range;
         let result = query_dataset_rows(app_root, view, load_query)?;
         let load_ms = elapsed_ms(load_started);
         if let Some(entry) = lookup_dataset_view_mut(datasets, dataset_id.as_str()) {
@@ -64,6 +92,14 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             perf.insert(format!("hydrate_{dataset_id}_ms"), load_ms);
             perf.insert(format!("hydrate_{dataset_id}_applied_filters"), applied_filters);
             perf.insert(format!("hydrate_{dataset_id}_dropped_filters"), dropped_filters);
+            perf.insert(
+                format!("hydrate_{dataset_id}_unresolved_filters"),
+                unresolved_filters,
+            );
+            perf.insert(
+                format!("hydrate_{dataset_id}_unresolved_time_range_binding"),
+                unresolved_time_range,
+            );
             perf.insert(format!("hydrate_{dataset_id}_search_forwarded"), 0);
             if let Some(hit) = result.perf.get("file_cache_hit") {
                 perf.insert(format!("hydrate_{dataset_id}_file_cache_hit"), *hit);
@@ -79,6 +115,14 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
     perf.insert(
         "hydrate_dropped_filters_total".to_string(),
         dropped_filters_total,
+    );
+    perf.insert(
+        "hydrate_unresolved_filters_total".to_string(),
+        unresolved_filters_total,
+    );
+    perf.insert(
+        "hydrate_unresolved_time_range_total".to_string(),
+        unresolved_time_range_total,
     );
     Ok(perf)
 }
@@ -108,21 +152,54 @@ fn dataset_needs_runtime_hydration(dataset: &DatasetView) -> bool {
         || path.ends_with(".xls")
 }
 
-fn compatible_hydrate_filters(
+fn compatible_hydrate_binding_resolution(
     query: &DatasetQueryOptions,
     dataset: &DatasetView,
-) -> BTreeMap<String, String> {
-    if query.filters.is_empty() {
-        return BTreeMap::new();
-    }
+) -> DatasetQueryBindingResolution {
+    resolve_dataset_query_bindings_from_state(
+        &QueryState {
+            filters: query.filters.clone(),
+            search: query.search.clone(),
+            group: query.group.clone(),
+            time_range: query.time_range.clone(),
+        },
+        dataset,
+    )
+}
+
+pub(crate) fn resolve_dataset_query_bindings_from_state(
+    state: &QueryState,
+    dataset: &DatasetView,
+) -> DatasetQueryBindingResolution {
     let bindings = dataset_dimension_bindings(dataset);
-    query
-        .filters
-        .iter()
-        .filter_map(|(key, value)| {
-            resolve_filter_binding(bindings.as_slice(), key).map(|binding| (binding.field.clone(), value.clone()))
-        })
-        .collect()
+    let mut mapped_filters = BTreeMap::new();
+    let mut unresolved_filter_dimensions = Vec::new();
+    for (key, value) in &state.filters {
+        let normalized = key.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+        if let Some(binding) = resolve_filter_binding(bindings.as_slice(), normalized) {
+            mapped_filters.insert(binding.field.clone(), value.clone());
+        } else {
+            unresolved_filter_dimensions.push(normalized.to_string());
+        }
+    }
+    unresolved_filter_dimensions.sort();
+    unresolved_filter_dimensions.dedup();
+    let unresolved_time_range_dimension = state
+        .time_range
+        .as_ref()
+        .and_then(|time_range| time_range.dimension.as_deref())
+        .map(str::trim)
+        .filter(|dimension| !dimension.is_empty())
+        .filter(|dimension| resolve_filter_binding(bindings.as_slice(), dimension).is_none())
+        .map(str::to_string);
+    DatasetQueryBindingResolution {
+        mapped_filters,
+        unresolved_filter_dimensions,
+        unresolved_time_range_dimension,
+    }
 }
 
 pub(crate) fn dataset_dimension_bindings(dataset: &DatasetView) -> Vec<DimensionBinding> {
@@ -328,9 +405,131 @@ mod tests {
             filters,
             ..DatasetQueryOptions::default()
         };
-        let filtered = compatible_hydrate_filters(&query, &dataset);
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered.get("status"), Some(&"待办".to_string()));
+        let resolution = compatible_hydrate_binding_resolution(&query, &dataset);
+        assert_eq!(resolution.mapped_filters.len(), 1);
+        assert_eq!(resolution.mapped_filters.get("status"), Some(&"待办".to_string()));
+        assert_eq!(resolution.unresolved_filter_dimensions, vec!["department"]);
+    }
+
+    #[test]
+    fn resolve_dataset_query_bindings_reports_unresolved_dimensions() {
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["department".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "xlsx".to_string(),
+                path: "upload/demo.xlsx".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let resolution = resolve_dataset_query_bindings_from_state(
+            &QueryState {
+                filters: BTreeMap::from([
+                    ("status".to_string(), "待办".to_string()),
+                    ("unknown".to_string(), "x".to_string()),
+                ]),
+                search: None,
+                group: Vec::new(),
+                time_range: Some(mei_lang_kernel::QueryTimeRange {
+                    dimension: Some("created_at".to_string()),
+                    start: None,
+                    end: None,
+                    preset: None,
+                }),
+            },
+            &dataset,
+        );
+        assert_eq!(
+            resolution.mapped_filters,
+            BTreeMap::from([("status".to_string(), "待办".to_string())])
+        );
+        assert_eq!(resolution.unresolved_filter_dimensions, vec!["unknown".to_string()]);
+        assert_eq!(
+            resolution.unresolved_time_range_dimension,
+            Some("created_at".to_string())
+        );
+    }
+
+    #[test]
+    fn hydrate_file_backed_datasets_rejects_unresolved_bindings() {
+        let mut datasets = BTreeMap::from([(
+            "warning_detail".to_string(),
+            DatasetView {
+                id: "warning_detail".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: vec!["status".to_string()],
+                rows: Vec::new(),
+                source: SourceDecl {
+                    kind: "xlsx".to_string(),
+                    path: "upload/detail.xlsx".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            },
+        )]);
+        let metric_defs = BTreeMap::from([(
+            "pending_count".to_string(),
+            json!({
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "count",
+                        "rowset": {
+                            "__kind": "analysis_expr",
+                            "type": "rows",
+                            "dataset": "warning_detail"
+                        }
+                    }
+                }
+            }),
+        )]);
+        let err = hydrate_file_backed_datasets_for_metric_defs(
+            Path::new("/tmp"),
+            &mut datasets,
+            &metric_defs,
+            &DatasetQueryOptions {
+                filters: BTreeMap::from([("unknown".to_string(), "x".to_string())]),
+                ..DatasetQueryOptions::default()
+            },
+        )
+        .expect_err("unresolved hydrate binding should fail");
+        assert!(
+            err.to_string()
+                .contains("runtime metric hydrate requires resolvable filter bindings for dataset `warning_detail`: unknown")
+        );
     }
 
     #[test]

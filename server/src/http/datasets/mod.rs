@@ -8,6 +8,7 @@ mod json_dataset;
 mod metric_cache_key;
 mod metric_hydrate;
 mod metric_dataframe;
+mod metric_locate;
 mod paginate;
 mod paths;
 mod query;
@@ -23,6 +24,9 @@ pub(crate) use metric_cache_key::{
     runtime_metric_workset, serialize_cache_value,
 };
 pub(crate) use metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
+pub(crate) use metric_locate::{
+    locate_runtime_metric_resource, metric_ids_visible_for_dataset, plan_access_metric_eval_for_ids,
+};
 pub(crate) use file_cache::clear_external_file_cache_for_app;
 pub(crate) use metric_dataframe::clear_metric_dataframe_result_cache;
 pub use query::query_dataset_rows;

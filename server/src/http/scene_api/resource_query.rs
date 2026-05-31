@@ -93,24 +93,24 @@ pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
             id: "dataset_query".to_string(),
             status: "phase2_api_ready".to_string(),
             purpose:
-                "按 dataset 资源 id 查询有界结果（schema+filters+metric ids+sample rows）；对应 LLM 工具名 dataset_query"
+                "按 dataset 资源 id 查询有界结果（schema+filters+metric ids+sample rows+analysis_contracts_preview）；对应 LLM 工具名 dataset_query"
                     .to_string(),
             input: "{id: string, search?: string, filters?: object, columns?: string[], limit?: number, scene_id?, target_file?}"
                 .to_string(),
             output:
-                "bounded: {dataset{schema_preview,filters,metric_ids}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."
+                "bounded: {dataset{schema_preview,filters,metric_ids,analysis_contracts_preview}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."
                     .to_string(),
         },
         ResourceQueryToolSpec {
             id: "dataset_metric".to_string(),
             status: "phase2_api_ready".to_string(),
             purpose:
-                "按 dataset 资源 id 查询运行时指标值（count/rate/trend 等聚合）；对应 LLM 工具名 dataset_metric"
+                "按 dataset 资源 id 查询运行时指标值（count/rate/trend 等聚合）及 analysis_contract 摘要；对应 LLM 工具名 dataset_metric"
                     .to_string(),
             input: "{id: string, metric_ids?: string[], search?: string, filters?: object, scene_id?, target_file?}"
                 .to_string(),
             output:
-                "bounded: {dataset_id, total_rows, metrics}; when metric_ids omitted returns all runtime metrics for the dataset."
+                "bounded: {dataset_id, total_rows, metrics, analysis_contracts}; when metric_ids omitted returns all runtime metrics for the dataset. analysis_contracts mirrors host UI explain/popup contract."
                     .to_string(),
         },
         ResourceQueryToolSpec {

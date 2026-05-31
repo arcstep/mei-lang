@@ -2,11 +2,23 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{locate_dataset_resource, DatasetView};
+use mei_lang_kernel::{
+    evaluate_runtime_metric_defs_with_scope, locate_dataset_resource, resolve_runtime_metric_def_key,
+    DatasetView, MetricContract,
+};
 use serde_json::{json, Value};
 
-use crate::http::datasets::{query_dataset_rows, DatasetQueryOptions};
+use crate::http::datasets::{
+    hydrate_file_backed_datasets_for_metric_defs, metric_ids_visible_for_dataset,
+    metric_request_revision_fingerprint, normalize_query_filters, normalize_query_search,
+    plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
+    runtime_metric_eval_scope, runtime_metric_workset, DatasetQueryOptions,
+};
 
+use super::analysis_contract_llm::{
+    build_dataset_analysis_contracts_preview_for_access, build_metric_analysis_contract_attachments,
+    contract_hint_when_empty, contract_hint_when_preview_empty,
+};
 use super::bundle::load_world_runtime_bundle;
 use super::json_shrink::{json_serialized_len, shrink_json_for_llm};
 use super::summaries::summarize_filters_decl;
@@ -189,10 +201,18 @@ pub(crate) fn query_world_dataset(
         .world
         .as_ref()
         .and_then(|w| w.resources.iter().find(|item| item.id == dataset_id));
-    let metric_ids = world_resource
-        .and_then(|item| item.metrics.as_ref())
-        .map(|m| m.keys().take(64).cloned().collect::<Vec<_>>())
-        .unwrap_or_else(|| dataset.metrics.keys().take(64).cloned().collect::<Vec<_>>());
+    let metric_ids = metric_ids_visible_for_dataset(
+        &bundle.compiled,
+        dataset,
+        world_resource.and_then(|item| item.metrics.as_ref()),
+    );
+    let analysis_contracts_preview = build_dataset_analysis_contracts_preview_for_access(
+        &bundle.compiled,
+        dataset,
+        &loaded.id,
+        &metric_ids,
+        world_resource.and_then(|item| item.metrics.as_ref()),
+    );
     let filters_preview = world_resource
         .and_then(|item| item.filters.as_ref())
         .map(summarize_filters_decl)
@@ -204,10 +224,12 @@ pub(crate) fn query_world_dataset(
         dataset.columns.len()
     };
 
+    let contract_hint = contract_hint_when_preview_empty(&analysis_contracts_preview);
     let mut payload = json!({
         "app_id": app_id,
         "scene_id": bundle.contract.scene.id,
         "id": dataset_id,
+        "contract_hint": contract_hint,
         "dataset": {
             "id": dataset.id.clone(),
             "title": dataset.title.clone(),
@@ -221,6 +243,7 @@ pub(crate) fn query_world_dataset(
             "schema_column_count": schema_total_columns,
             "filters": filters_preview,
             "metric_ids": metric_ids,
+            "analysis_contracts_preview": analysis_contracts_preview,
         },
         "sample_rows": sample_rows,
         "truncation": {
@@ -234,7 +257,7 @@ pub(crate) fn query_world_dataset(
             "total_chars_before_budget": 0,
             "total_chars_after_budget": 0,
         },
-        "usage_hint": "若需更多数据，请在 dataset_query 中追加 filters/search/columns/limit；默认仅返回前10行与前10列的有界样例。",
+        "usage_hint": "若需更多数据，请在 dataset_query 中追加 filters/search/columns/limit；默认仅返回前10行与前10列的有界样例。带 explain 的指标请同时查看 dataset.analysis_contracts_preview，与宿主 UI 的 analysis_contract 同轨。",
     });
     let before = json_serialized_len(&payload);
     if let Some(v) = payload.pointer_mut("/truncation/total_chars_before_budget") {
@@ -264,31 +287,27 @@ pub(crate) fn query_world_dataset_metrics(
     if dataset_id.is_empty() {
         return Err(anyhow!("query parameter `id` is required"));
     }
-    let loaded = locate_dataset_resource(&bundle.compiled, dataset_id)
-        .map_err(|error| anyhow!("{error}"))?;
-    let dataset = loaded
-        .dataset
-        .as_ref()
-        .ok_or_else(|| anyhow!("resource `{dataset_id}` is not a dataset"))?;
-    if dataset.runtime_metric_defs.is_empty() {
-        return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
-    }
+    let eval_plan = plan_access_metric_eval_for_ids(&bundle.compiled, dataset_id, metric_ids)?;
+    let primary_dataset = eval_plan.primary_dataset;
+    let owner_dataset = eval_plan.owner_dataset;
 
     let app_root = source_root.join(app_id);
+    let normalized_search = normalize_query_search(search);
+    let normalized_filters = normalize_query_filters(filters);
+    let effective_query_state = query_state_from_request(&normalized_filters, normalized_search.as_deref(), None);
     let query_options = DatasetQueryOptions {
         page: 1,
         page_size: 0,
-        search: search
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
-        filters: filters.clone(),
+        search: effective_query_state.search.clone(),
+        filters: effective_query_state.filters.clone(),
+        group: effective_query_state.group.clone(),
+        time_range: effective_query_state.time_range.clone(),
         collect_all: true,
         ..DatasetQueryOptions::default()
     };
-    let filtered_rows = query_dataset_rows(&app_root, dataset, query_options)?;
+    let filtered_rows = query_dataset_rows(&app_root, primary_dataset, query_options)?;
 
-    let mut runtime_dataset = dataset.clone();
+    let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
     if !filtered_rows.columns.is_empty() {
         runtime_dataset.columns = filtered_rows.columns.clone();
@@ -298,34 +317,77 @@ pub(crate) fn query_world_dataset_metrics(
         .compiled
         .resources
         .iter()
-        .filter_map(|resource| {
-            resource
-                .dataset
-                .clone()
-                .map(|dataset| (resource.id.clone(), dataset))
-        })
-        .collect::<BTreeMap<_, _>>();
-    datasets.insert(dataset_id.to_string(), runtime_dataset.clone());
-
-    let metric_filter = if metric_ids.is_empty() {
-        None
-    } else {
-        Some(metric_ids)
-    };
-    let metrics_map = mei_lang_kernel::evaluate_runtime_metric_defs(
-        &dataset.runtime_metric_defs,
+        .filter_map(|resource| resource.dataset.clone().map(|dataset| (resource.id.clone(), dataset)))
+        .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
+            acc.insert(resource_id, dataset.clone());
+            acc.entry(dataset.id.clone()).or_insert(dataset);
+            acc
+        });
+    datasets.insert(eval_plan.primary.id.clone(), runtime_dataset.clone());
+    let workset = runtime_metric_workset(
+        &eval_plan.owner.id,
+        &eval_plan.request_metric_ids,
+        owner_dataset,
+    );
+    let metric_filter = workset.eval_metric_ids.as_deref();
+    let defs_for_hydrate = workset.defs_for_hydrate.clone();
+    let dependency_revision_key = metric_request_revision_fingerprint(
+        &app_root,
+        &datasets,
+        &eval_plan.owner.id,
+        &defs_for_hydrate,
+    );
+    hydrate_file_backed_datasets_for_metric_defs(
+        &app_root,
+        &mut datasets,
+        &defs_for_hydrate,
+        &DatasetQueryOptions {
+            page: 1,
+            page_size: 0,
+            search: effective_query_state.search.clone(),
+            filters: effective_query_state.filters.clone(),
+            group: effective_query_state.group.clone(),
+            time_range: effective_query_state.time_range.clone(),
+            collect_all: true,
+            ..DatasetQueryOptions::default()
+        },
+    )?;
+    let eval_scope = runtime_metric_eval_scope(
+        Some(primary_dataset),
+        &eval_plan.primary.id,
+        &bundle.contract.scene.id,
+        Some(bundle.active_target_file.as_str()),
+        effective_query_state.search.as_deref(),
+        &effective_query_state.filters,
+        Some(&effective_query_state),
+        &[],
+        &dependency_revision_key,
+    )?;
+    let metrics_map = evaluate_runtime_metric_defs_with_scope(
+        &owner_dataset.runtime_metric_defs,
         &runtime_dataset.rows,
         &datasets,
         metric_filter,
+        &eval_scope,
     )?;
     let metrics = if metric_ids.is_empty() {
         metrics_map.into_values().collect::<Vec<_>>()
     } else {
-        metric_ids
-            .iter()
-            .filter_map(|metric_id| metrics_map.get(metric_id).cloned())
-            .collect::<Vec<_>>()
+        project_requested_metrics(
+            &eval_plan.owner.id,
+            &eval_plan.request_metric_ids,
+            &owner_dataset.runtime_metric_defs,
+            &metrics_map,
+        )
     };
+    let requested_metric_ids = eval_plan.request_metric_ids.clone();
+    let analysis_contracts = build_metric_analysis_contract_attachments(
+        &bundle.compiled,
+        primary_dataset,
+        &eval_plan.primary.id,
+        &requested_metric_ids,
+    );
+    let contract_hint = contract_hint_when_empty(&analysis_contracts);
 
     Ok(json!({
         "app_id": app_id,
@@ -333,6 +395,65 @@ pub(crate) fn query_world_dataset_metrics(
         "dataset_id": dataset_id,
         "total_rows": runtime_dataset.rows.len(),
         "metrics": metrics,
-        "usage_hint": "指标问答优先使用 dataset_metric；若要查看明细行，再改用 dataset_query。"
+        "analysis_contracts": analysis_contracts,
+        "contract_hint": contract_hint,
+        "usage_hint": "指标问答优先使用 dataset_metric；analysis_contracts 与宿主 UI popup/route 同轨。无 contract 时勿编造 explain 字段。若要查看明细行，再改用 dataset_query。"
     }))
+}
+
+fn project_requested_metrics(
+    resource_id: &str,
+    request_metric_ids: &[String],
+    runtime_metric_defs: &BTreeMap<String, Value>,
+    metrics_map: &BTreeMap<String, MetricContract>,
+) -> Vec<MetricContract> {
+    request_metric_ids
+        .iter()
+        .filter_map(|metric_id| {
+            let resolved =
+                resolve_runtime_metric_def_key(resource_id, metric_id, runtime_metric_defs)?;
+            let mut metric = metrics_map.get(&resolved)?.clone();
+            metric.id = metric_id.clone();
+            Some(metric)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::project_requested_metrics;
+    use mei_lang_kernel::{MetricContract, MetricShape};
+    use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn project_requested_metrics_keeps_requested_id_after_canonical_resolution() {
+        let runtime_metric_defs = BTreeMap::from([(
+            "capsule/overview.mei::sales_total".to_string(),
+            json!({"id": "capsule/overview.mei::sales_total"}),
+        )]);
+        let metrics_map = BTreeMap::from([(
+            "capsule/overview.mei::sales_total".to_string(),
+            MetricContract {
+                id: "capsule/overview.mei::sales_total".to_string(),
+                label: Some("Sales Total".to_string()),
+                unit: None,
+                purpose: None,
+                shape: MetricShape::Scalar,
+                schema: Vec::new(),
+                dataset: None,
+                transforms: Vec::new(),
+                value: json!(42),
+            },
+        )]);
+        let projected = project_requested_metrics(
+            "__world_metrics__::capsule/overview.mei::metrics",
+            &["sales_total".to_string()],
+            &runtime_metric_defs,
+            &metrics_map,
+        );
+        assert_eq!(projected.len(), 1);
+        assert_eq!(projected[0].id, "sales_total");
+        assert_eq!(projected[0].value, json!(42));
+    }
 }

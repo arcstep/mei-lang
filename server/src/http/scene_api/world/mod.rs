@@ -1,6 +1,9 @@
+mod analysis_contract_llm;
 mod assets;
 mod bundle;
 mod dataset_llm;
+#[cfg(test)]
+mod integration_access_contract;
 mod inventory;
 mod json_shrink;
 mod runtime_peek;

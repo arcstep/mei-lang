@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::UNIX_EPOCH;
@@ -10,7 +11,10 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
-use super::metric_hydrate::{collect_dataset_ids_from_metric_defs, dataset_dimension_bindings};
+use super::metric_hydrate::{
+    collect_dataset_ids_from_metric_defs,
+    resolve_dataset_query_bindings_from_state,
+};
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeMetricWorkset {
@@ -171,15 +175,22 @@ pub(crate) fn runtime_metric_eval_scope(
     query_state_override: Option<&QueryState>,
     filter_intents_override: &[FilterIntent],
     dependency_revision_key: &str,
-) -> RuntimeMetricEvalScope {
+) -> Result<RuntimeMetricEvalScope> {
     let normalized_filters = normalize_query_filters(filters);
     let query_state = query_state_from_request(&normalized_filters, search, query_state_override);
     let normalized_search = query_state.search.clone().unwrap_or_default();
     let filter_intents = filter_intents_from_request(&query_state, filter_intents_override);
     let dimension_bindings = binding_dataset
-        .map(|dataset| dimension_bindings_from_query_state_for_dataset(&query_state, dataset))
+        .map(|dataset| {
+            validate_runtime_scope_bindings(&query_state, dataset)?;
+            Ok::<_, anyhow::Error>(dimension_bindings_from_query_state_for_dataset(
+                &query_state,
+                dataset,
+            ))
+        })
+        .transpose()?
         .unwrap_or_else(|| dimension_bindings_from_query_state(&query_state));
-    RuntimeMetricEvalScope {
+    Ok(RuntimeMetricEvalScope {
         base_dataset_id: base_dataset_id.trim().to_string(),
         scene_id: scene_id.trim().to_string(),
         target: target.unwrap_or("").trim().to_string(),
@@ -189,7 +200,7 @@ pub(crate) fn runtime_metric_eval_scope(
         dimension_bindings,
         filters_fingerprint: serialize_cache_value(&normalized_filters),
         dependency_revision_key: dependency_revision_key.to_string(),
-    }
+    })
 }
 
 pub(crate) fn runtime_metric_workset(
@@ -318,32 +329,57 @@ pub(crate) fn dimension_bindings_from_query_state_for_dataset(
     state: &QueryState,
     dataset: &DatasetView,
 ) -> Vec<DimensionBinding> {
-    let available = dataset_dimension_bindings(dataset);
+    use super::metric_hydrate::dataset_dimension_bindings;
+    let catalog = dataset_dimension_bindings(dataset);
     state
         .filters
         .keys()
-        .map(|dimension| {
-            available
+        .filter_map(|dimension| {
+            let normalized = dimension.trim();
+            if normalized.is_empty() {
+                return None;
+            }
+            catalog
                 .iter()
-                .find(|binding| binding.dimension == *dimension)
-                .cloned()
-                .unwrap_or_else(|| DimensionBinding {
-                    dimension: dimension.clone(),
-                    field: dimension.clone(),
+                .find(|binding| binding.dimension == normalized)
+                .map(|binding| DimensionBinding {
+                    dimension: normalized.to_string(),
+                    field: binding.field.clone(),
                 })
         })
         .collect()
 }
 
+fn validate_runtime_scope_bindings(state: &QueryState, dataset: &DatasetView) -> Result<()> {
+    let resolution = resolve_dataset_query_bindings_from_state(state, dataset);
+    if !resolution.unresolved_filter_dimensions.is_empty() {
+        return Err(anyhow!(
+            "runtime metric query requires resolvable filter bindings for dataset `{}`: {}",
+            dataset.id,
+            resolution.unresolved_filter_dimensions.join(", ")
+        ));
+    }
+    if let Some(dimension) = resolution.unresolved_time_range_dimension {
+        return Err(anyhow!(
+            "runtime metric query requires resolvable time_range.dimension binding for dataset `{}`: {}",
+            dataset.id,
+            dimension
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn eval_node_cache_key(expr_fingerprint: &str, scope: &RuntimeMetricEvalScope) -> String {
     format!(
-        "expr={}|dataset={}|scene={}|target={}|search={}|filters={}|deps={}",
+        "expr={}|dataset={}|scene={}|target={}|search={}|filters={}|group={}|time_range={}|deps={}",
         expr_fingerprint.trim(),
         scope.base_dataset_id.trim(),
         scope.scene_id.trim(),
         scope.target.trim(),
         scope.search.trim(),
         scope.filters_fingerprint.trim(),
+        scope.query_state.group_identity_key(),
+        scope.query_state.time_range_identity_key(),
         scope.dependency_revision_key.trim()
     )
 }
@@ -465,8 +501,13 @@ mod tests {
             query_state: QueryState {
                 filters: BTreeMap::from([("status".to_string(), "待办".to_string())]),
                 search: Some("abc".to_string()),
-                group: Vec::new(),
-                time_range: None,
+                group: vec!["park".to_string()],
+                time_range: Some(QueryTimeRange {
+                    dimension: Some("created_at".to_string()),
+                    start: Some("2024-01-01".to_string()),
+                    end: Some("2024-12-31".to_string()),
+                    preset: Some("year".to_string()),
+                }),
             },
             filter_intents: vec![FilterIntent {
                 dimension: "status".to_string(),
@@ -488,6 +529,12 @@ mod tests {
         assert!(key.contains("target=scenes/home.mei"));
         assert!(key.contains("search=abc"));
         assert!(key.contains("filters={\"status\":\"待办\"}"));
+        assert!(key.contains("group=[\"park\"]"));
+        assert!(
+            key.contains(
+                "time_range={\"dimension\":\"created_at\",\"start\":\"2024-01-01\",\"end\":\"2024-12-31\",\"preset\":\"year\"}"
+            )
+        );
         assert!(key.contains("deps=deps=v1"));
     }
 
@@ -551,12 +598,15 @@ mod tests {
             None,
             &[],
             "deps=v1",
-        );
+        )
+        .expect("runtime metric eval scope");
         assert_eq!(
             scope.query_state.filters,
             BTreeMap::from([("status".to_string(), "待办".to_string())])
         );
         assert_eq!(scope.query_state.search.as_deref(), Some("abc"));
+        assert_eq!(scope.query_state.group, Vec::<String>::new());
+        assert_eq!(scope.query_state.time_range, None);
         assert_eq!(scope.filter_intents.len(), 1);
         assert_eq!(scope.filter_intents[0].dimension, "status");
         assert_eq!(scope.filter_intents[0].value, "待办");
@@ -590,13 +640,119 @@ mod tests {
             Some(&query_state),
             &filter_intents,
             "deps=v1",
-        );
+        )
+        .expect("runtime metric eval scope");
         assert_eq!(scope.query_state.filters.get("status"), Some(&"待办".to_string()));
         assert_eq!(scope.query_state.search.as_deref(), Some("host keyword"));
         assert_eq!(scope.filter_intents.len(), 1);
         assert_eq!(scope.filter_intents[0].source, FilterIntentSource::FilterBar);
         assert_eq!(scope.filter_intents[0].dimension, "status");
         assert_eq!(scope.filter_intents[0].value, "待办");
+    }
+
+    #[test]
+    fn runtime_metric_eval_scope_rejects_unresolved_filter_bindings() {
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["status".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:warning_list".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let err = runtime_metric_eval_scope(
+            Some(&dataset),
+            "warning_list",
+            "home",
+            Some("scenes/home.mei"),
+            None,
+            &BTreeMap::from([("department".to_string(), "执法".to_string())]),
+            None,
+            &[],
+            "deps=v1",
+        )
+        .expect_err("unresolved binding should fail");
+        assert!(
+            err.to_string()
+                .contains("requires resolvable filter bindings for dataset `warning_list`: department")
+        );
+    }
+
+    #[test]
+    fn runtime_metric_eval_scope_rejects_unresolved_time_range_binding() {
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["status".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:warning_list".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let err = runtime_metric_eval_scope(
+            Some(&dataset),
+            "warning_list",
+            "home",
+            Some("scenes/home.mei"),
+            None,
+            &BTreeMap::new(),
+            Some(&QueryState {
+                filters: BTreeMap::new(),
+                search: None,
+                group: Vec::new(),
+                time_range: Some(QueryTimeRange {
+                    dimension: Some("created_at".to_string()),
+                    start: Some("2024-01-01".to_string()),
+                    end: Some("2024-12-31".to_string()),
+                    preset: None,
+                }),
+            }),
+            &[],
+            "deps=v1",
+        )
+        .expect_err("unresolved time range binding should fail");
+        assert!(
+            err.to_string().contains(
+                "requires resolvable time_range.dimension binding for dataset `warning_list`: created_at"
+            )
+        );
     }
 
     #[test]

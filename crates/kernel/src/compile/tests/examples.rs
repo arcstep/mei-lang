@@ -260,6 +260,7 @@ fn compile_ds_04_data_table_features_example() {
         "cockpit_metric_runtime",
         "cockpit_warnings_skin",
         "layout_stage_contain",
+        "metric_explain_access",
     ] {
         assert!(
             compiled

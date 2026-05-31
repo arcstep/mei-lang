@@ -20,9 +20,9 @@ use crate::{AppError, AppState};
 use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{
     eval_node_cache_key, hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint,
-    metric_scope_cache_key, normalize_query_filters, normalize_query_search, query_dataset_rows,
-    query_state_from_request, runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value,
-    DatasetQueryOptions,
+    metric_scope_cache_key, normalize_query_filters, normalize_query_search,
+    plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
+    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value, DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
 use super::scene_qualified::{
@@ -64,6 +64,18 @@ fn metric_eval_diagnostic_code(message: &str) -> &'static str {
     }
 }
 
+fn runtime_metric_scope_requested(query_state: &QueryState, filter_intents: &[FilterIntent]) -> bool {
+    !query_state.filters.is_empty()
+        || query_state
+            .search
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        || !query_state.group.is_empty()
+        || query_state.time_range.is_some()
+        || !filter_intents.is_empty()
+}
+
 fn metric_response_cache_key(
     app_id: &str,
     scene_id: &str,
@@ -74,11 +86,15 @@ fn metric_response_cache_key(
     compile_revision: &str,
     dependency_revision_key: &str,
 ) -> String {
+    let group = serialize_cache_value(&query.group);
+    let time_range = serialize_cache_value(&query.time_range);
     format!(
-        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|metric_ids={metric_scope_key}|search={}|filters={}",
+        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|metric_ids={metric_scope_key}|search={}|filters={}|group={}|time_range={}",
         scene_path.unwrap_or(""),
         query.search.as_deref().unwrap_or(""),
-        serialize_cache_value(&query.filters)
+        serialize_cache_value(&query.filters),
+        group,
+        time_range
     )
 }
 
@@ -282,8 +298,15 @@ pub async fn dataset_metric_api(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
-    if !dataset.has_runtime_metric_defs() {
-        if !dataset.uses_compiled_metric_snapshot_only() {
+    let normalized_search = normalize_query_search(request.search.as_deref());
+    let normalized_filters = normalize_query_filters(&request.filters);
+    let effective_query_state = query_state_from_request(
+        &normalized_filters,
+        normalized_search.as_deref(),
+        request.query_state.as_ref(),
+    );
+    if !dataset.has_runtime_metric_defs() && dataset.uses_compiled_metric_snapshot_only() {
+        if runtime_metric_scope_requested(&effective_query_state, &request.filter_intents) {
             tracing::warn!(
                 app_id = %app_id,
                 scene_id = %scene_ctx.scene_id,
@@ -291,11 +314,14 @@ pub async fn dataset_metric_api(
                 dataset_id = %resource.id,
                 metric_ids = %requested_metric_ids,
                 phase = "metric_defs",
-                "metric query dataset has no runtime metric defs"
+                "metric query refused compile-time snapshot fallback for scoped request"
             );
             return Err(AppError::status(
                 StatusCode::BAD_REQUEST,
-                format!("dataset `{}` has no runtime metric defs", resource.id),
+                format!(
+                    "dataset `{}` only exposes compile-time metric snapshots; scoped runtime metric queries require runtime_metric_defs",
+                    resource.id
+                ),
             ));
         }
         // Static fallback only applies when the dataset exposes compile-time
@@ -351,14 +377,27 @@ pub async fn dataset_metric_api(
             perf,
         }));
     }
+    let access_plan = plan_access_metric_eval_for_ids(
+        &compiled,
+        normalized_dataset_id,
+        &request.metric_ids,
+    )
+    .map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %requested_dataset_id,
+            metric_ids = %requested_metric_ids,
+            phase = "metric_defs",
+            error = %error,
+            "metric query runtime metric plan failed"
+        );
+        AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+    })?;
+    let primary_dataset = access_plan.primary_dataset;
+    let owner_dataset = access_plan.owner_dataset;
     let app_root = state.source_root.join(&app_id);
-    let normalized_search = normalize_query_search(request.search.as_deref());
-    let normalized_filters = normalize_query_filters(&request.filters);
-    let effective_query_state = query_state_from_request(
-        &normalized_filters,
-        normalized_search.as_deref(),
-        request.query_state.as_ref(),
-    );
     let query = DatasetQueryOptions {
         page: 1,
         page_size: 0,
@@ -378,16 +417,24 @@ pub async fn dataset_metric_api(
             acc.entry(dataset.id.clone()).or_insert(dataset);
             acc
         });
-    let workset = runtime_metric_workset(&resource.id, &request.metric_ids, dataset);
+    let workset = runtime_metric_workset(
+        &access_plan.owner.id,
+        &access_plan.request_metric_ids,
+        owner_dataset,
+    );
     let metric_ids = workset.eval_metric_ids.as_deref();
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let dependency_revision_key =
-        metric_request_revision_fingerprint(&app_root, &datasets, &resource.id, &defs_for_hydrate);
+    let dependency_revision_key = metric_request_revision_fingerprint(
+        &app_root,
+        &datasets,
+        &access_plan.owner.id,
+        &defs_for_hydrate,
+    );
     let response_cache_key = metric_response_cache_key(
         &app_id,
         &scene_ctx.scene_id,
         scene_ctx.scene_path.as_deref(),
-        &resource.id,
+        &access_plan.owner.id,
         &metric_scope_cache_key(if request.metric_ids.is_empty() {
             &workset.resolved_metric_ids
         } else {
@@ -418,6 +465,10 @@ pub async fn dataset_metric_api(
         );
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("response_cache_hit".to_string(), 1);
+        perf.insert(
+            "response_cache_key_hash".to_string(),
+            hash_fingerprint(&response_cache_key),
+        );
         perf.insert("request_dag_observed".to_string(), 0);
         perf.insert("eval_memo_hits".to_string(), 0);
         perf.insert("eval_memo_eval_node_cache_hits".to_string(), 0);
@@ -434,16 +485,16 @@ pub async fn dataset_metric_api(
             dataset_id: resource.id.clone(),
             total_rows: cached.total_rows,
             metrics: project_requested_metrics(
-                &resource.id,
-                &request.metric_ids,
-                &dataset.runtime_metric_defs,
+                &access_plan.owner.id,
+                &access_plan.request_metric_ids,
+                &owner_dataset.runtime_metric_defs,
                 &cached.metrics_map,
             ),
             perf,
         }));
     }
     let query_started = Instant::now();
-    let filtered_rows = query_dataset_rows(&app_root, dataset, query.clone()).map_err(|error| {
+    let filtered_rows = query_dataset_rows(&app_root, primary_dataset, query.clone()).map_err(|error| {
         tracing::warn!(
             app_id = %app_id,
             scene_id = %scene_ctx.scene_id,
@@ -457,21 +508,33 @@ pub async fn dataset_metric_api(
         AppError::from(error)
     })?;
     let query_ms = elapsed_ms(query_started);
-    let mut runtime_dataset = dataset.clone();
+    let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
     if !filtered_rows.columns.is_empty() {
         runtime_dataset.columns = filtered_rows.columns.clone();
     }
-    datasets.insert(resource.id.clone(), runtime_dataset.clone());
+    datasets.insert(access_plan.primary.id.clone(), runtime_dataset.clone());
     let hydrate_started = Instant::now();
     let hydrate_perf =
         hydrate_file_backed_datasets_for_metric_defs(&app_root, &mut datasets, &defs_for_hydrate, &query)
-            .unwrap_or_default();
+            .map_err(|error| {
+                tracing::warn!(
+                    app_id = %app_id,
+                    scene_id = %scene_ctx.scene_id,
+                    target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+                    dataset_id = %resource.id,
+                    metric_ids = %requested_metric_ids,
+                    phase = "hydrate_bindings",
+                    error = %error,
+                    "metric query hydrate binding validation failed"
+                );
+                AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+            })?;
     let hydrate_ms = elapsed_ms(hydrate_started);
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
-        Some(dataset),
-        &resource.id,
+        Some(primary_dataset),
+        &access_plan.primary.id,
         &scene_ctx.scene_id,
         scene_ctx.scene_path.as_deref(),
         effective_query_state.search.as_deref(),
@@ -479,9 +542,22 @@ pub async fn dataset_metric_api(
         Some(&effective_query_state),
         &request.filter_intents,
         &dependency_revision_key,
-    );
+    )
+    .map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %resource.id,
+            metric_ids = %requested_metric_ids,
+            phase = "scope_binding",
+            error = %error,
+            "metric query scope binding validation failed"
+        );
+        AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+    })?;
     let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
-        &dataset.runtime_metric_defs,
+        &owner_dataset.runtime_metric_defs,
         &runtime_dataset.rows,
         &datasets,
         metric_ids,
@@ -506,12 +582,16 @@ pub async fn dataset_metric_api(
     let metric_eval_ms = elapsed_ms(metric_started);
     let dag_metrics = &eval_report.request_dag_metrics;
     let eval_plan = &eval_report.eval_plan;
-    let metrics = project_requested_metrics(
-        &resource.id,
-        &request.metric_ids,
-        &dataset.runtime_metric_defs,
-        &metrics_map,
-    );
+    let metrics = if request.metric_ids.is_empty() {
+        metrics_map.values().cloned().collect::<Vec<_>>()
+    } else {
+        project_requested_metrics(
+            &access_plan.owner.id,
+            &access_plan.request_metric_ids,
+            &owner_dataset.runtime_metric_defs,
+            &metrics_map,
+        )
+    };
     let mut perf = filtered_rows.perf.clone();
     let eval_scope_key = eval_node_cache_key("metric_scope", &eval_scope);
     perf.insert("compile_ms".to_string(), compile_ms);
@@ -529,6 +609,10 @@ pub async fn dataset_metric_api(
     );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("response_cache_hit".to_string(), 0);
+    perf.insert(
+        "response_cache_key_hash".to_string(),
+        hash_fingerprint(&response_cache_key),
+    );
     perf.insert(
         "response_cache_lookup_ms".to_string(),
         elapsed_ms(response_cache_lookup_started),
@@ -564,6 +648,18 @@ pub async fn dataset_metric_api(
     perf.insert(
         "eval_scope_key_hash".to_string(),
         hash_fingerprint(&eval_scope_key),
+    );
+    perf.insert(
+        "eval_scope_group_key_hash".to_string(),
+        hash_fingerprint(&eval_scope.query_state.group_identity_key()),
+    );
+    perf.insert(
+        "eval_scope_time_range_key_hash".to_string(),
+        hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
+    );
+    perf.insert(
+        "eval_scope_group_dimensions".to_string(),
+        eval_scope.query_state.group.len() as u64,
     );
     perf.insert("request_dag_nodes".to_string(), dag_metrics.nodes as u64);
     perf.insert("request_dag_edges".to_string(), dag_metrics.edges as u64);
@@ -639,4 +735,47 @@ pub async fn dataset_metric_api(
         metrics,
         perf,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::runtime_metric_scope_requested;
+    use mei_lang_kernel::{FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn runtime_metric_scope_requested_is_false_for_context_free_request() {
+        assert!(!runtime_metric_scope_requested(&QueryState::default(), &[]));
+    }
+
+    #[test]
+    fn runtime_metric_scope_requested_is_true_for_query_state_context() {
+        assert!(runtime_metric_scope_requested(
+            &QueryState {
+                filters: BTreeMap::from([("status".to_string(), "待办".to_string())]),
+                search: None,
+                group: vec!["park".to_string()],
+                time_range: Some(QueryTimeRange {
+                    dimension: Some("created_at".to_string()),
+                    start: Some("2024-01-01".to_string()),
+                    end: Some("2024-12-31".to_string()),
+                    preset: None,
+                }),
+            },
+            &[],
+        ));
+    }
+
+    #[test]
+    fn runtime_metric_scope_requested_is_true_for_filter_intents() {
+        assert!(runtime_metric_scope_requested(
+            &QueryState::default(),
+            &[FilterIntent {
+                dimension: "status".to_string(),
+                operator: FilterOperator::Eq,
+                value: "待办".to_string(),
+                source: FilterIntentSource::FilterBar,
+            }],
+        ));
+    }
 }

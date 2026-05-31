@@ -1,19 +1,20 @@
 //! 将 runtime metric（dataframe shape）物化后走统一分页/过滤管线。
 
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope_and_dag, locate_dataset_resource,
-    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled,
-    CompiledApp, EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
+    evaluate_runtime_metric_defs_with_scope_and_dag, runtime_eval_node_cache_enabled, CompiledApp,
+    EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
 };
 use serde_json::Value;
 
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
+use super::metric_locate::locate_runtime_metric_resource;
 use super::paginate::paginate_rows;
 use super::query::query_dataset_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
@@ -40,6 +41,12 @@ fn metric_dataframe_result_cache() -> &'static Mutex<BTreeMap<String, CachedMetr
 
 fn metric_dataframe_cache_ttl() -> Duration {
     Duration::from_millis(METRIC_DATAFRAME_CACHE_TTL_MS)
+}
+
+fn hash_fingerprint(value: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn metric_dataframe_cache_key(
@@ -110,49 +117,6 @@ pub(crate) fn clear_metric_dataframe_result_cache() -> usize {
     removed
 }
 
-fn locate_runtime_metric_resource<'a>(
-    compiled: &'a CompiledApp,
-    dataset_id: &str,
-    metric_id: &str,
-) -> Result<(&'a mei_lang_kernel::LoadedResource, String)> {
-    let primary =
-        locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
-    if let Some(dataset) = primary.dataset.as_ref() {
-        if dataset.has_runtime_metric_defs() {
-            if let Some(resolved) = resolve_runtime_metric_def_key(
-                &primary.id,
-                metric_id,
-                &dataset.runtime_metric_defs,
-            ) {
-                return Ok((primary, resolved));
-            }
-        }
-    }
-    for resource in &compiled.resources {
-        let Some(dataset) = resource.dataset.as_ref() else {
-            continue;
-        };
-        if !dataset.has_runtime_metric_defs() {
-            continue;
-        }
-        if let Some(resolved) =
-            resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)
-        {
-            return Ok((resource, resolved));
-        }
-    }
-    if primary
-        .dataset
-        .as_ref()
-        .is_some_and(|dataset| !dataset.has_runtime_metric_defs())
-    {
-        return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
-    }
-    Err(anyhow!(
-        "metric `{metric_id}` not found on dataset `{dataset_id}`"
-    ))
-}
-
 pub fn query_metric_dataframe(
     compiled: &CompiledApp,
     app_root: &Path,
@@ -211,6 +175,10 @@ pub fn query_metric_dataframe(
     if let Some(mut cached) = take_cached_metric_dataframe_result(&response_cache_key) {
         cached.perf = BTreeMap::from([
             ("response_cache_hit".to_string(), 1),
+            (
+                "response_cache_key_hash".to_string(),
+                hash_fingerprint(&response_cache_key),
+            ),
             ("request_dag_observed".to_string(), 0),
             ("eval_memo_hits".to_string(), 0),
             ("eval_memo_eval_node_cache_hits".to_string(), 0),
@@ -247,12 +215,18 @@ pub fn query_metric_dataframe(
 
     datasets.insert(resource.id.clone(), runtime_dataset.clone());
 
-    let _ = hydrate_file_backed_datasets_for_metric_defs(
+    hydrate_file_backed_datasets_for_metric_defs(
         app_root,
         &mut datasets,
         &defs_for_hydrate,
         &base_query,
-    );
+    )
+    .with_context(|| {
+        format!(
+            "metric_hydrate_binding_failed(dataframe): dataset={} metric={}",
+            resource.id, resolved_metric_id
+        )
+    })?;
 
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
@@ -265,7 +239,13 @@ pub fn query_metric_dataframe(
         Some(&effective_query_state),
         &filter_intents,
         &dependency_revision_key,
-    );
+    )
+    .with_context(|| {
+        format!(
+            "metric_scope_binding_failed(dataframe): dataset={} metric={}",
+            resource.id, resolved_metric_id
+        )
+    })?;
     let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
         &dataset.runtime_metric_defs,
         &runtime_dataset.rows,
@@ -282,6 +262,12 @@ pub fn query_metric_dataframe(
     let metric_eval_ms = elapsed_ms(metric_started);
     let dag_metrics = &eval_report.request_dag_metrics;
     let eval_plan = &eval_report.eval_plan;
+    let eval_scope_key = format!(
+        "{}|{}|{}",
+        eval_scope.base_dataset_id,
+        eval_scope.query_state.group_identity_key(),
+        eval_scope.query_state.time_range_identity_key()
+    );
 
     let metric = metrics_map
         .get(&resolved_metric_id)
@@ -339,6 +325,10 @@ pub fn query_metric_dataframe(
         .perf
         .insert("response_cache_hit".to_string(), 0);
     result.perf.insert(
+        "response_cache_key_hash".to_string(),
+        hash_fingerprint(&response_cache_key),
+    );
+    result.perf.insert(
         "response_cache_lookup_ms".to_string(),
         elapsed_ms(response_cache_lookup_started),
     );
@@ -372,6 +362,22 @@ pub fn query_metric_dataframe(
     result.perf.insert(
         "eval_plan_hydrate_nodes".to_string(),
         eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
+    );
+    result.perf.insert(
+        "eval_scope_key_hash".to_string(),
+        hash_fingerprint(&eval_scope_key),
+    );
+    result.perf.insert(
+        "eval_scope_group_key_hash".to_string(),
+        hash_fingerprint(&eval_scope.query_state.group_identity_key()),
+    );
+    result.perf.insert(
+        "eval_scope_time_range_key_hash".to_string(),
+        hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
+    );
+    result.perf.insert(
+        "eval_scope_group_dimensions".to_string(),
+        eval_scope.query_state.group.len() as u64,
     );
     result
         .perf

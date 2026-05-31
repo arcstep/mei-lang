@@ -6,6 +6,7 @@ use anyhow::Result;
 use crate::http::scene_api::resource_query::default_resource_query_tools;
 use crate::AppState;
 
+use super::analysis_contract_llm::build_analysis_contract_catalog_lines;
 use super::bundle::{load_world_runtime_bundle, load_world_runtime_bundle_cached};
 use super::inventory::build_resource_inventory;
 use super::runtime_peek::recent_trace_messages_for_snapshot;
@@ -24,11 +25,11 @@ pub(super) fn build_prompt_catalog_lines(
     let mut lines: Vec<String> = Vec::new();
     lines.push("[World — catalog (highest-priority context)]".to_string());
     lines.push(
-        "Below lists bindable world assets for this scope. When a dataset resource id is known or implied (e.g. `typical_cases`), call `dataset_query` for row/schema questions, or `dataset_metric` for aggregated questions whose metric id is already listed below (count/rate/trend/summary card asks)."
+        "Below lists bindable world assets for this scope. When a dataset resource id is known or implied (e.g. `typical_cases`), call `dataset_query` for row/schema questions (includes bounded analysis_contracts_preview when explain metrics exist), or `dataset_metric` for aggregated questions plus matching analysis_contract summaries (same source as host UI popup/route)."
             .to_string(),
     );
     lines.push(
-        "Tool-chaining guard: do NOT read_file() `.xlsx/.xls` (binary). `dataset_query` returns schema+filters+metric ids+sample rows, while `dataset_metric` returns metric values. For dataset facts, do NOT chain `read_file` / `resource_list` / `resource_runtime_peek` after a successful dataset tool call unless the user explicitly asks runtime trace or verbatim DSL edits."
+        "Tool-chaining guard: do NOT read_file() `.xlsx/.xls` (binary). `dataset_query` returns schema+filters+metric ids+sample rows+analysis_contracts_preview; `dataset_metric` returns metric values+analysis_contracts. When `contract_hint` is present, do not invent explain/popup/drilldown fields. For dataset facts, do NOT chain `read_file` / `resource_list` / `resource_runtime_peek` after a successful dataset tool call unless the user explicitly asks runtime trace or verbatim DSL edits."
             .to_string(),
     );
     lines.push(format!(
@@ -148,6 +149,8 @@ pub(super) fn build_prompt_catalog_lines(
             bundle.compiled.scene_routes.len() - MAX_ENTRY
         ));
     }
+
+    lines.extend(build_analysis_contract_catalog_lines(bundle));
 
     lines
 }
