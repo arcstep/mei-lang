@@ -170,6 +170,8 @@ impl RuntimeSceneAnchor {
             obj.insert("metric_id".to_string(), Value::String(mid.to_string()));
         }
         if let Some(meta) = drilldown.filter(|m| !m.is_empty()) {
+            // Host consumers only receive the derived analysis contract. Legacy drilldown
+            // compatibility stays folded inside preview resolution and is never re-exposed.
             if let Some(contract) = meta.analysis_contract.as_ref() {
                 obj.insert("analysis_contract".to_string(), contract.clone());
             }
@@ -211,8 +213,18 @@ pub(super) fn attach_host_meta(
                     active_target_file
                 ),
                 "step_api": format!("/api/sim/step/{}", app_path),
-                "dataset_query_api": format!("/api/datasets/query/{}", app_path),
-                "metric_query_api": format!("/api/datasets/metrics/{}", app_path),
+                "runtime_capabilities": {
+                    "rows_query": {
+                        "enabled": true,
+                        "api": format!("/api/datasets/query/{}", app_path),
+                        "scene_qualified": true,
+                    },
+                    "metric_query": {
+                        "enabled": true,
+                        "api": format!("/api/datasets/metrics/{}", app_path),
+                        "scene_qualified": true,
+                    },
+                },
                 "components": theme_components.clone(),
                 "shared": shared_context.clone(),
                 "scene_local_nav_by_target": compiled.scene_local_nav_by_target.clone(),

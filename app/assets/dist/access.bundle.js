@@ -8162,7 +8162,6 @@
       }),
     };
   }
-  const DRILLDOWN_METRIC_CONTEXT = {};
   let currentNavigationId = 0;
   let spaNavigationInFlight = 0;
   let loadingTimer = null;
@@ -8359,20 +8358,6 @@
     return undefined;
   }
 
-  function flagEnabled(value) {
-    if (typeof value === "boolean") return value;
-    const raw = String(value || "").trim().toLowerCase();
-    return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-  }
-
-  const LEGACY_DRILLDOWN_FALLBACK_ENABLED = flagEnabled(
-    boot.enableLegacyDrilldownFallback ??
-      boot.legacyDrilldownFallback ??
-      window.__MEI_ENABLE_LEGACY_DRILLDOWN_FALLBACK,
-  );
-  let warnedLegacyDrilldownFallback = false;
-  let legacyDrilldownFallbackHits = 0;
-
   function runtimeDrilldownConfig(detail) {
     const value =
       detail?.analysis_contract &&
@@ -8390,34 +8375,16 @@
     return value;
   }
 
-  function hasRuntimeDrilldownConfig(detail) {
-    return Object.keys(runtimeDrilldownConfig(detail)).length > 0;
-  }
-
-  function shouldUseLegacyDrilldownFallback(detail) {
-    return LEGACY_DRILLDOWN_FALLBACK_ENABLED && !hasRuntimeDrilldownConfig(detail);
-  }
-
-  function recordLegacyDrilldownFallback(detail, reason = "") {
-    if (!shouldUseLegacyDrilldownFallback(detail)) return false;
-    legacyDrilldownFallbackHits += 1;
-    boot.legacyDrilldownFallbackHits = legacyDrilldownFallbackHits;
-    if (!warnedLegacyDrilldownFallback) {
-      warnedLegacyDrilldownFallback = true;
-      console.warn("[spa-navigation] using legacy drilldown fallback", {
-        metricId: nonEmptyString(detail?.metric_id),
-        reason: nonEmptyString(reason),
-        hits: legacyDrilldownFallbackHits,
-      });
-    }
-    return true;
-  }
-
-  function legacyMetricContext(metricId, detail = null) {
-    if (!shouldUseLegacyDrilldownFallback(detail)) return {};
-    const normalizedMetricId = String(metricId || "").trim();
-    if (!normalizedMetricId) return {};
-    return DRILLDOWN_METRIC_CONTEXT[normalizedMetricId] || {};
+  function disabledDrilldownConfig(errorCode, errorMessage) {
+    return {
+      enabled: false,
+      errorCode: String(errorCode || "").trim(),
+      errorMessage: String(errorMessage || "").trim(),
+      sceneId: "",
+      hostSceneId: "",
+      boardSceneId: "",
+      popup: {},
+    };
   }
 
   function runtimeTabIds(...values) {
@@ -8633,8 +8600,7 @@
     return null;
   }
 
-  function resolveDrilldownTabs({ detail, runtime, mapped, explainKind, hasDetail, localNav }) {
-    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
+  function resolveDrilldownTabs({ detail, runtime, explainKind, hasDetail, localNav }) {
     const resolvedLocalNav =
       normalizeSceneLocalNav(localNav) ||
       resolveSceneLocalNav(
@@ -8693,9 +8659,7 @@
       detail?.analysis_contract?.tabs,
       runtime?.tabs,
       detail?.analysis_tabs,
-      legacyCompat ? detail?.drilldown_tabs : null,
       runtime?.analysis_tabs,
-      mapped?.tabs,
     );
     const defaults = defaultDrilldownTabs(explainKind, { hasDetail });
     if (!explicit.length) return defaults;
@@ -9228,8 +9192,7 @@
     return trimmed ? `${prefix}${trimmed}` : "";
   }
 
-  function resolveDrilldownDatasetId(detail, config = {}, mapped = {}) {
-    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
+  function resolveDrilldownDatasetId(detail, config = {}) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
@@ -9237,50 +9200,35 @@
       config?.sceneId,
       detail?.host_scene_id,
       detail?.scene_id,
-      resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
-      mapped?.sceneId,
+      resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
-    const tableMetricId = nonEmptyString(
-      detail?.table_metric_id,
-      legacyCompat ? detail?.drilldown_table_metric_id : "",
-      legacyCompat ? detail?.drilldown_table_metric : "",
-    );
+    const tableMetricId = nonEmptyString(config?.tableMetricId, detail?.table_metric_id);
     if (tableMetricId) {
       return nonEmptyString(
         runtimeRefConfig.datasetId,
         detail?.dataset_id,
         config?.datasetId,
-        mapped?.datasetId,
-        legacyCompat ? detail?.drilldown_dataset_id : "",
       );
     }
     return nonEmptyString(
       detail?.explain_detail_dataset,
-      legacyCompat ? detail?.drilldown_dataset_id : "",
       runtimeRefConfig.datasetId,
       config?.datasetId,
-      mapped?.datasetId,
       sceneId ? DRILLDOWN_DATASET_BY_SCENE[sceneId] : "",
       detail?.dataset_id,
     );
   }
 
-  function resolveDrilldownSceneId(detail, mapped = {}, runtime = {}) {
-    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
+  function resolveDrilldownSceneId(detail, runtime = {}) {
     const runtimeTargetSceneId = nonEmptyString(
-      legacyCompat ? detail?.drilldown_target_scene_id : "",
-      legacyCompat ? detail?.drilldown_scene_id : "",
       runtime?.target_scene_id,
       runtime?.targetSceneId,
       runtime?.scene_id,
       runtime?.sceneId,
     );
     if (runtimeTargetSceneId) return runtimeTargetSceneId;
-    const mappedSceneId = nonEmptyString(mapped?.sceneId);
-    if (mappedSceneId) return mappedSceneId;
     const runtimeScene = normalizeDrilldownScenePath(
       nonEmptyString(
-        legacyCompat ? detail?.drilldown_scene : "",
         runtime?.scene_file,
         runtime?.sceneFile,
         runtime?.scene_path,
@@ -9294,12 +9242,13 @@
 
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
-    const legacyCompat = shouldUseLegacyDrilldownFallback(detail);
-    if (legacyCompat) {
-      recordLegacyDrilldownFallback(detail, "resolveDrilldownConfig");
-    }
-    const mapped = legacyCompat ? legacyMetricContext(metricId, detail) : {};
     const runtime = runtimeDrilldownConfig(detail);
+    if (!Object.keys(runtime).length) {
+      return disabledDrilldownConfig(
+        "missing_analysis_contract",
+        `scene projection requires analysis_contract; metric \`${metricId || "unknown"}\` is missing runtime analysis_contract`,
+      );
+    }
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
     const boardFields = resolveBoardLinkFields(popup, detail?.scene_local_nav_by_target);
@@ -9317,8 +9266,7 @@
       detail?.scene_id !== boardSceneId ? detail?.scene_id : "",
       runtime?.scene_id,
       runtime?.sceneId,
-      resolveDrilldownSceneId(detail, mapped, runtime),
-      mapped?.sceneId,
+      resolveDrilldownSceneId(detail, runtime),
     );
     const sceneId = hostSceneId;
     const queryStateId = nonEmptyString(
@@ -9329,7 +9277,6 @@
     );
     const runtimeEnabled = boolValue(
       detail?.analysis_enabled,
-      legacyCompat ? detail?.drilldown_enabled : undefined,
       runtime?.enabled,
     );
     const explainKind = nonEmptyString(
@@ -9347,56 +9294,46 @@
     let detailFields = cloneArray(detail?.explain_detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detail_fields);
     if (!detailFields.length) detailFields = cloneArray(runtime?.detailFields);
-    if (!detailFields.length && legacyCompat) detailFields = cloneArray(detail?.drilldown_detail_fields);
-    if (!detailFields.length) detailFields = cloneArray(mapped?.detailFields);
-    let columns = legacyCompat ? cloneArray(detail?.drilldown_columns) : [];
+    let columns = [];
     if (!columns.length) columns = cloneArray(runtime?.columns);
     if (!columns.length) columns = cloneArray(runtime?.detail_fields);
     if (!columns.length) columns = cloneArray(runtime?.detailFields);
     if (!columns.length) columns = cloneArray(detailFields);
-    if (!columns.length) columns = cloneArray(mapped?.columns);
-    let headers = legacyCompat ? cloneArray(detail?.drilldown_headers) : [];
+    let headers = [];
     if (!headers.length) headers = cloneArray(runtime?.headers);
-    if (!headers.length) headers = cloneArray(mapped?.headers);
     let basisRefs = cloneArray(detail?.explain_basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basis_refs);
     if (!basisRefs.length) basisRefs = cloneArray(runtime?.basisRefs);
-    if (!basisRefs.length && legacyCompat) basisRefs = cloneArray(detail?.drilldown_basis_refs);
     let recommendedDimensions = cloneArray(detail?.explain_recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommended_dimensions);
     if (!recommendedDimensions.length) recommendedDimensions = cloneArray(runtime?.recommendedDimensions);
-    if (!recommendedDimensions.length && legacyCompat) {
-      recommendedDimensions = cloneArray(detail?.drilldown_recommended_dimensions);
-    }
     const ratioNumerator = nonEmptyString(
       runtime?.ratio_numerator,
       runtime?.ratioNumerator,
-      legacyCompat ? detail?.drilldown_ratio_numerator : "",
     );
     const ratioDenominator = nonEmptyString(
       runtime?.ratio_denominator,
       runtime?.ratioDenominator,
-      legacyCompat ? detail?.drilldown_ratio_denominator : "",
     );
     const ratioFormula = nonEmptyString(
       runtime?.ratio_formula,
       runtime?.ratioFormula,
-      legacyCompat ? detail?.drilldown_ratio_formula : "",
     );
     const tableMetricId = nonEmptyString(
       runtime?.table_metric_id,
       runtime?.tableMetricId,
       detail?.table_metric_id,
-      legacyCompat ? detail?.drilldown_table_metric_id : "",
-      legacyCompat ? detail?.drilldown_table_metric : "",
-      mapped?.tableMetricId,
     );
-    const datasetId = resolveDrilldownDatasetId(detail, { sceneId, hostSceneId, boardSceneId }, mapped);
+    const datasetId = resolveDrilldownDatasetId(detail, {
+      sceneId,
+      hostSceneId,
+      boardSceneId,
+      tableMetricId,
+      datasetId: nonEmptyString(runtime?.dataset_id, runtime?.datasetId),
+    });
     const layoutPreset = nonEmptyString(
-      legacyCompat ? detail?.drilldown_layout_preset : "",
       runtime?.layout_preset,
       runtime?.layoutPreset,
-      mapped?.layoutPreset,
     );
     const defaultSceneBindings = sceneBindingDefaults(
       boardSceneId,
@@ -9412,11 +9349,9 @@
       panelPopupSlotSources(popup),
       popup?.metrics,
       detail?.analysis_tab_metrics,
-      legacyCompat ? detail?.drilldown_tab_metrics : null,
       runtime?.analysis_tab_metrics,
       runtime?.tab_metrics,
       runtime?.tabMetrics,
-      mapped?.tabMetrics,
     );
     const panelPopup = Boolean(boardFields?.panelPopup) || isPanelPopupConfig(popup);
     const boardLink = Boolean(boardFields?.boardLink);
@@ -9445,16 +9380,13 @@
         detailFields.length ||
         nonEmptyString(
           detail?.explain_detail_dataset,
-          legacyCompat ? detail?.drilldown_dataset_id : "",
           runtime?.dataset_id,
           runtime?.datasetId,
-          mapped?.datasetId,
         ),
     );
     const tabs = resolveDrilldownTabs({
       detail,
       runtime,
-      mapped,
       explainKind,
       hasDetail,
       localNav: sceneLocalNav,
@@ -9485,9 +9417,7 @@
       title: nonEmptyString(
         popup?.title,
         detail?.explain_title,
-        legacyCompat ? detail?.drilldown_title : "",
         runtime?.title,
-        mapped?.title,
         detail?.label,
         metricId,
         "指标明细",
@@ -9496,8 +9426,6 @@
         runtime?.note,
         detail?.explain_note,
         detail?.analysis_note,
-        legacyCompat ? detail?.drilldown_note : "",
-        mapped?.note,
         ratioNote,
       ),
       tableMetricId,
@@ -9557,38 +9485,28 @@
       mapping: runtime?.mapping && typeof runtime.mapping === "object" ? runtime.mapping : null,
       pageSize:
         positiveInt(
-          legacyCompat ? detail?.drilldown_page_size : undefined,
           runtime?.page_size,
           runtime?.pageSize,
-          mapped?.pageSize,
           8,
         ) || 8,
       cellPreviewMaxChars:
         positiveInt(
-          legacyCompat ? detail?.drilldown_cell_preview_max_chars : undefined,
           runtime?.cell_preview_max_chars,
           runtime?.cellPreviewMaxChars,
-          mapped?.cellPreviewMaxChars,
         ) > 0
           ? positiveInt(
-              legacyCompat ? detail?.drilldown_cell_preview_max_chars : undefined,
               runtime?.cell_preview_max_chars,
               runtime?.cellPreviewMaxChars,
-              mapped?.cellPreviewMaxChars,
             )
           : 0,
       columnMinWidth:
         positiveInt(
-          legacyCompat ? detail?.drilldown_column_min_width : undefined,
           runtime?.column_min_width,
           runtime?.columnMinWidth,
-          mapped?.columnMinWidth,
         ) > 0
           ? positiveInt(
-              legacyCompat ? detail?.drilldown_column_min_width : undefined,
               runtime?.column_min_width,
               runtime?.columnMinWidth,
-              mapped?.columnMinWidth,
             )
           : 0,
     };
@@ -9729,7 +9647,13 @@
               },
             },
             _mei: {
-              dataset_query_api: `/api/datasets/query/${appPath}`,
+              runtime_capabilities: {
+                rows_query: {
+                  enabled: true,
+                  api: `/api/datasets/query/${appPath}`,
+                  scene_qualified: true,
+                },
+              },
               active_scene_id: sceneId,
               active_target_file: target,
               entry_target: target,
@@ -9849,7 +9773,6 @@
 
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const mapped = legacyMetricContext(detail?.metric_id, detail);
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
     const sceneId = nonEmptyString(
       runtimeRefConfig.sceneId,
@@ -9857,20 +9780,13 @@
       config?.sceneId,
       detail?.host_scene_id,
       detail?.scene_id,
-      resolveDrilldownSceneId(detail, mapped, runtimeDrilldownConfig(detail)),
-      mapped?.sceneId,
+      resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
     if (!sceneId) return null;
     const appPath = resolvePreviewAppId();
     if (!appPath) return null;
-    const datasetId = resolveDrilldownDatasetId(detail, config, mapped) || sceneId;
-    const metricId = config?.suppressDetailMetricFallback
-      ? nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId)
-      : nonEmptyString(
-          runtimeRefConfig.metricId,
-          config?.tableMetricId,
-          shouldUseLegacyDrilldownFallback(detail) ? detail?.drilldown_table_metric_id : "",
-        );
+    const datasetId = resolveDrilldownDatasetId(detail, config) || sceneId;
+    const metricId = nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId);
     const runtimeRef = metricId
       ? {
           kind: "metric",
@@ -9931,8 +9847,18 @@
         __mei_runtime_ref: runtimeRef,
       },
       _mei: {
-        dataset_query_api: `/api/datasets/query/${appPath}`,
-        metric_query_api: `/api/datasets/metrics/${appPath}`,
+        runtime_capabilities: {
+          rows_query: {
+            enabled: true,
+            api: `/api/datasets/query/${appPath}`,
+            scene_qualified: true,
+          },
+          metric_query: {
+            enabled: true,
+            api: `/api/datasets/metrics/${appPath}`,
+            scene_qualified: true,
+          },
+        },
         active_scene_id: sceneId,
         active_target_file: nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path),
       },
@@ -10063,8 +9989,7 @@
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const mapped = legacyMetricContext(detail?.metric_id, detail);
-    const datasetId = resolveDrilldownDatasetId(detail, config, mapped);
+    const datasetId = resolveDrilldownDatasetId(detail, config);
     if (!datasetId) {
       recordPopupDebugIssue({
         level: "error",
@@ -10422,7 +10347,19 @@
 
   function openSceneProjection(detail) {
     const config = resolveDrilldownConfig(detail);
-    if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
+    if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
+      if (config.errorMessage) {
+        recordPopupDebugIssue({
+          phase: config.errorCode || "scene_projection",
+          message: config.errorMessage,
+          detail,
+          config,
+          datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
+          metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        });
+      }
+      return;
+    }
     if (config.projection === "route") {
       openBoardRouteProjection(detail, config);
       return;
@@ -10453,7 +10390,19 @@
 
   function openDrilldownOverlay(detail) {
     const config = resolveDrilldownConfig(detail);
-    if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
+    if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
+      if (config.errorMessage) {
+        recordPopupDebugIssue({
+          phase: config.errorCode || "scene_projection",
+          message: config.errorMessage,
+          detail,
+          config,
+          datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
+          metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        });
+      }
+      return;
+    }
     const root = ensureDrilldownOverlayRoot();
     applyDrilldownOverlayMeta(root, config);
     const activeTab = renderDrilldownTabs(root, detail, config);
@@ -10478,7 +10427,19 @@
       if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
       const config = resolveDrilldownConfig(detail);
-      if (!config.enabled || !(config.boardSceneId || config.sceneId)) return;
+      if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
+        if (config.errorMessage) {
+          recordPopupDebugIssue({
+            phase: config.errorCode || "scene_projection",
+            message: config.errorMessage,
+            detail,
+            config,
+            datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
+            metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+          });
+        }
+        return;
+      }
       openSceneProjection(detail);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
@@ -10565,12 +10526,10 @@
       clearDrilldownContextBanner();
       return;
     }
-    const context = legacyMetricContext(metricId);
-    const title = parsed.searchParams.get("drill_title") || context.title || "";
-    const note = parsed.searchParams.get("drill_note") || context.note || "";
+    const title = parsed.searchParams.get("drill_title") || "";
+    const note = parsed.searchParams.get("drill_note") || "";
     renderDrilldownContextBanner(title, note);
-    const tableMetricId =
-      String(parsed.searchParams.get("drill_table_metric") || context.tableMetricId || "").trim();
+    const tableMetricId = String(parsed.searchParams.get("drill_table_metric") || "").trim();
     if (!tableMetricId) return;
     let attempts = 0;
     const retry = () => {

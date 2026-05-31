@@ -154,12 +154,14 @@ pub(crate) struct EvalContext {
 
 fn scope_cache_key(scope: &RuntimeMetricEvalScope) -> String {
     format!(
-        "base={}|scene={}|target={}|search={}|filters={}|deps={}",
+        "base={}|scene={}|target={}|search={}|filters={}|group={}|time_range={}|deps={}",
         scope.base_dataset_id,
         scope.scene_id,
         scope.target,
         scope.search,
         scope.filters_fingerprint,
+        scope.query_state.group_identity_key(),
+        scope.query_state.time_range_identity_key(),
         scope.dependency_revision_key
     )
 }

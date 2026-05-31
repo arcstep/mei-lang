@@ -388,6 +388,16 @@ pub struct QueryState {
     pub time_range: Option<QueryTimeRange>,
 }
 
+impl QueryState {
+    pub fn group_identity_key(&self) -> String {
+        serde_json::to_string(&self.group).unwrap_or_default()
+    }
+
+    pub fn time_range_identity_key(&self) -> String {
+        serde_json::to_string(&self.time_range).unwrap_or_default()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct QueryTimeRange {
     #[serde(default, skip_serializing_if = "Option::is_none")]

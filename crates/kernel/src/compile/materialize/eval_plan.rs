@@ -35,6 +35,8 @@ pub struct EvalPlanScope {
     pub target: String,
     pub search: String,
     pub filters_fingerprint: String,
+    pub group_identity_key: String,
+    pub time_range_identity_key: String,
     pub dependency_revision_key: String,
 }
 
@@ -46,6 +48,8 @@ impl From<&RuntimeMetricEvalScope> for EvalPlanScope {
             target: scope.target.clone(),
             search: scope.search.clone(),
             filters_fingerprint: scope.filters_fingerprint.clone(),
+            group_identity_key: scope.query_state.group_identity_key(),
+            time_range_identity_key: scope.query_state.time_range_identity_key(),
             dependency_revision_key: scope.dependency_revision_key.clone(),
         }
     }
@@ -414,7 +418,7 @@ fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -
 mod tests {
     use super::{build_eval_plan, EvalPlanNodeKind};
     use crate::compile::analysis::eval_context::RuntimeMetricEvalScope;
-    use crate::model::{DatasetView, QueryState, SourceDecl};
+    use crate::model::{DatasetView, QueryState, QueryTimeRange, SourceDecl};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -476,7 +480,17 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: String::new(),
-            query_state: QueryState::default(),
+            query_state: QueryState {
+                filters: BTreeMap::new(),
+                search: None,
+                group: vec!["park".to_string()],
+                time_range: Some(QueryTimeRange {
+                    dimension: Some("created_at".to_string()),
+                    start: Some("2024-01-01".to_string()),
+                    end: Some("2024-12-31".to_string()),
+                    preset: Some("year".to_string()),
+                }),
+            },
             filter_intents: Vec::new(),
             dimension_bindings: Vec::new(),
             filters_fingerprint: "{}".to_string(),
@@ -484,6 +498,11 @@ mod tests {
         };
         let plan = build_eval_plan(&defs, Some(&["sales_total".to_string()]), &datasets, &scope);
         assert_eq!(plan.targets, vec!["sales_total".to_string()]);
+        assert_eq!(plan.scope.group_identity_key, "[\"park\"]");
+        assert_eq!(
+            plan.scope.time_range_identity_key,
+            "{\"dimension\":\"created_at\",\"start\":\"2024-01-01\",\"end\":\"2024-12-31\",\"preset\":\"year\"}"
+        );
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::MetricEval), 1);
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr), 1);
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::Rowset), 1);

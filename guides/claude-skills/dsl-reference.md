@@ -7,9 +7,6 @@ app(
     id = "demo",
     title = "Demo",
     default_scene = "home",
-    entries = [
-        entry(id = "home", scene = "home", frame = "home_frame"),
-    ],
 )
 
 scene(

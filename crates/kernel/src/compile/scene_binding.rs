@@ -51,7 +51,11 @@ pub(super) fn decode_scene_decl(
 pub(super) enum SceneBinding {
     Absent,
     LocalId(String),
-    FileRef { path: String, id: Option<String> },
+    FileRef {
+        path: String,
+        id: Option<String>,
+        compat_source: Option<String>,
+    },
 }
 
 pub(super) fn parse_world_binding(
@@ -84,6 +88,38 @@ fn parse_singleton_binding(
     if value.is_null() {
         return Ok(SceneBinding::Absent);
     }
+    if let Some(kind) = value.get("kind").and_then(Value::as_str) {
+        let legacy_kind = match expected {
+            RefKind::World => "world_file_ref",
+            RefKind::Frame => "frame_file_ref",
+            RefKind::Flow => "flow_file_ref",
+            _ => "",
+        };
+        if kind == legacy_kind {
+            if expected == RefKind::World {
+                let world_ref = serde_json::from_value::<WorldFileRefDecl>(value.clone())?;
+                if world_ref.path.trim().is_empty() {
+                    return Err(anyhow!("world_file_ref path must not be empty"));
+                }
+                return Ok(SceneBinding::FileRef {
+                    path: world_ref.path,
+                    id: world_ref.id,
+                    compat_source: Some(legacy_kind.to_string()),
+                });
+            }
+            if expected == RefKind::Frame {
+                let frame_ref = serde_json::from_value::<FrameFileRefDecl>(value.clone())?;
+                if frame_ref.path.trim().is_empty() {
+                    return Err(anyhow!("frame_file_ref path must not be empty"));
+                }
+                return Ok(SceneBinding::FileRef {
+                    path: frame_ref.path,
+                    id: frame_ref.id,
+                    compat_source: Some(legacy_kind.to_string()),
+                });
+            }
+        }
+    }
     if let Some(expr) = decode_ref_value(value) {
         if expr.kind != expected {
             return Err(anyhow!(
@@ -112,6 +148,7 @@ fn parse_singleton_binding(
                     .map(str::trim)
                     .filter(|id| !id.is_empty())
                     .map(str::to_string),
+                compat_source: None,
             });
         }
         if let Some(local_id) = expr
@@ -130,36 +167,6 @@ fn parse_singleton_binding(
             return Ok(SceneBinding::Absent);
         }
         return Ok(SceneBinding::LocalId(id.to_string()));
-    }
-    if let Some(kind) = value.get("kind").and_then(Value::as_str) {
-        let legacy_kind = match expected {
-            RefKind::World => "world_file_ref",
-            RefKind::Frame => "frame_file_ref",
-            RefKind::Flow => "flow_file_ref",
-            _ => "",
-        };
-        if kind == legacy_kind {
-            if expected == RefKind::World {
-                let world_ref = serde_json::from_value::<WorldFileRefDecl>(value.clone())?;
-                if world_ref.path.trim().is_empty() {
-                    return Err(anyhow!("world_file_ref path must not be empty"));
-                }
-                return Ok(SceneBinding::FileRef {
-                    path: world_ref.path,
-                    id: world_ref.id,
-                });
-            }
-            if expected == RefKind::Frame {
-                let frame_ref = serde_json::from_value::<FrameFileRefDecl>(value.clone())?;
-                if frame_ref.path.trim().is_empty() {
-                    return Err(anyhow!("frame_file_ref path must not be empty"));
-                }
-                return Ok(SceneBinding::FileRef {
-                    path: frame_ref.path,
-                    id: frame_ref.id,
-                });
-            }
-        }
     }
     Err(anyhow!(
         "unsupported {label} binding; expected local id, {label}_ref(...), or legacy {label}_file_ref(...)"

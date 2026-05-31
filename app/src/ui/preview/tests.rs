@@ -1094,6 +1094,45 @@ fn attach_host_meta_exposes_shared_context_to_components() {
     assert_eq!(
         props
             .get("_mei")
+            .and_then(|value| value.get("runtime_capabilities"))
+            .and_then(|value| value.get("rows_query"))
+            .and_then(|value| value.get("enabled"))
+            .and_then(Value::as_bool),
+        Some(true)
+    );
+    assert_eq!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("runtime_capabilities"))
+            .and_then(|value| value.get("rows_query"))
+            .and_then(|value| value.get("api"))
+            .and_then(Value::as_str),
+        Some("/api/datasets/query/apps/preview-shared")
+    );
+    assert_eq!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("runtime_capabilities"))
+            .and_then(|value| value.get("metric_query"))
+            .and_then(|value| value.get("api"))
+            .and_then(Value::as_str),
+        Some("/api/datasets/metrics/apps/preview-shared")
+    );
+    assert!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("dataset_query_api"))
+            .is_none()
+    );
+    assert!(
+        props
+            .get("_mei")
+            .and_then(|value| value.get("metric_query_api"))
+            .is_none()
+    );
+    assert_eq!(
+        props
+            .get("_mei")
             .and_then(|value| value.get("scene_local_nav_by_target"))
             .and_then(|value| value.get("templates/cockpit/drilldown/metric-explain-board.mei"))
             .and_then(|value| value.get("kind"))
@@ -2100,4 +2139,55 @@ fn resolve_value_rejects_legacy_explain_object_contract_projection() {
             .is_none(),
         "legacy explain object should not project analysis_contract"
     );
+}
+
+#[test]
+fn resolve_value_keeps_legacy_drilldown_internal_to_preview() {
+    let resolved = preview_metric_with_runtime_def(json!({
+        "explain": [
+            {"__kind": "explain_item", "id": "definition", "kind": "definition", "label": "口径"},
+            {"__kind": "explain_item", "id": "detail", "kind": "detail", "label": "销售明细", "fields": ["销售单ID"], "source": {"__ref": "metric", "id": "sales_total_table"}}
+        ],
+        "drilldown": {
+            "scene": "legacy_board",
+            "title": "旧明细板",
+            "note": "这只是兼容字段。",
+            "table_metric_id": "sales_total_table",
+            "dataset_id": "sales_metrics",
+            "tabs": ["detail"]
+        }
+    }));
+    let runtime_ref = resolved
+        .get("__mei_runtime_ref")
+        .and_then(Value::as_object)
+        .expect("runtime ref for metric");
+    assert!(
+        runtime_ref.get("analysis_contract").is_some(),
+        "runtime ref should still expose analysis_contract"
+    );
+    for legacy_key in [
+        "drilldown_scene",
+        "drilldown_target_scene_id",
+        "drilldown_enabled",
+        "drilldown_tabs",
+        "drilldown_title",
+        "drilldown_note",
+        "drilldown_table_metric_id",
+        "drilldown_dataset_id",
+        "drilldown_layout_preset",
+        "drilldown_columns",
+        "drilldown_headers",
+        "drilldown_basis_refs",
+        "drilldown_detail_fields",
+        "drilldown_recommended_dimensions",
+        "drilldown_ratio_numerator",
+        "drilldown_ratio_denominator",
+        "drilldown_ratio_formula",
+        "drilldown_tab_metrics",
+    ] {
+        assert!(
+            !runtime_ref.contains_key(legacy_key),
+            "runtime ref should not re-expose legacy preview key: {legacy_key}"
+        );
+    }
 }

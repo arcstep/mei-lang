@@ -49,6 +49,14 @@ frame.add_panel(
     let contract = compiled.scene_contract.expect("scene contract");
     assert_eq!(contract.scene.id, "room_fire_click");
     assert_eq!(contract.panels.len(), 1);
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "deprecated_scene_file_ref"),
+        "legacy scene_file_ref should emit migration warning: {:?}",
+        compiled.diagnostics
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -143,6 +151,14 @@ frame.add_panel(
     assert_eq!(contract.scene.id, "home");
     assert_eq!(contract.panels.len(), 1);
     assert_eq!(contract.world.expect("world").resources.len(), 1);
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "deprecated_scene_file_ref"),
+        "app.scene = scene_file_ref(...) should emit migration warning: {:?}",
+        compiled.diagnostics
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -320,6 +336,22 @@ frame.set_layout(
             .iter()
             .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
         "world/frame file refs should not produce error diagnostics"
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "deprecated_world_file_ref"),
+        "legacy world_file_ref should emit migration warning: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "deprecated_frame_file_ref"),
+        "legacy frame_file_ref should emit migration warning: {:?}",
+        compiled.diagnostics
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -560,6 +592,14 @@ scene.set_frame(
             .iter()
             .all(|diag| diag.code != "missing_scene" && diag.code != "missing_frame"),
         "legacy scene-file-ref main target should not report scene-first missing diagnostics"
+    );
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "deprecated_scene_file_ref"),
+        "legacy scene_file_ref main target should emit migration warning: {:?}",
+        compiled.diagnostics
     );
     assert!(
         compiled.scene_contract.is_some(),
