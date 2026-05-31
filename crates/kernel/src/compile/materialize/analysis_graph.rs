@@ -4,6 +4,8 @@ use serde_json::{Map, Value};
 
 use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
 
+const INFERRED_SCALAR_ROWSET_LOCAL_ID: &str = "__scalar_rowset__";
+
 /// Expand authored/runtime metric defs into the runtime-authoritative metric
 /// definition map.
 ///
@@ -122,6 +124,7 @@ fn expand_metric_def(metric_id: &str, raw: &Value, out: &mut BTreeMap<String, Va
     if let Some(explain_value) = explain.as_ref() {
         normalized.insert("explain".to_string(), explain_value.clone());
     }
+    maybe_hoist_inferred_scalar_rowset(metric_id, &normalized, out);
     out.insert(metric_id.to_string(), Value::Object(normalized));
     let Some(items) = explain.as_ref().and_then(Value::as_array) else {
         return;
@@ -151,6 +154,161 @@ fn expand_metric_def(metric_id: &str, raw: &Value, out: &mut BTreeMap<String, Va
         );
         expand_metric_def(&scoped_id, &Value::Object(child_metric), out);
     }
+}
+
+fn maybe_hoist_inferred_scalar_rowset(
+    metric_id: &str,
+    normalized: &Map<String, Value>,
+    out: &mut BTreeMap<String, Value>,
+) {
+    let Some(items) = normalized.get("explain").and_then(Value::as_array) else {
+        return;
+    };
+    if !explain_needs_tabular_source(items) {
+        return;
+    }
+    let Some(rowset) = extract_primary_scalar_rowset(normalized) else {
+        return;
+    };
+    let local_id = INFERRED_SCALAR_ROWSET_LOCAL_ID.to_string();
+    let scoped_id = scoped_child_metric_id(metric_id, &local_id);
+    if out.contains_key(&scoped_id) {
+        return;
+    }
+    let mut child_metric = Map::new();
+    child_metric.insert(
+        "__kind".to_string(),
+        Value::String("data_product".to_string()),
+    );
+    child_metric.insert("id".to_string(), Value::String(local_id.clone()));
+    child_metric.insert("shape".to_string(), Value::String("dataframe".to_string()));
+    child_metric.insert("value".to_string(), rowset);
+    child_metric.insert(
+        "analysis_inferred_scalar_rowset".to_string(),
+        Value::Bool(true),
+    );
+    child_metric.insert("key".to_string(), Value::String(scoped_id.clone()));
+    child_metric.insert(
+        "analysis_local_id".to_string(),
+        Value::String(local_id.clone()),
+    );
+    child_metric.insert(
+        "analysis_parent_metric_id".to_string(),
+        Value::String(metric_id.to_string()),
+    );
+    child_metric.insert(
+        "analysis_node_id".to_string(),
+        Value::String(scoped_id.clone()),
+    );
+    expand_metric_def(&scoped_id, &Value::Object(child_metric), out);
+}
+
+fn explain_needs_tabular_source(items: &[Value]) -> bool {
+    items.iter().any(|item| {
+        item.as_object().is_some_and(|map| {
+            matches!(
+                support_role_for_item(map).as_str(),
+                "detail" | "trend" | "composition" | "attribution"
+            )
+        })
+    })
+}
+
+fn extract_primary_scalar_rowset(metric: &Map<String, Value>) -> Option<Value> {
+    let expr = primary_scalar_value_expr(metric)?;
+    extract_rowset_from_scalar_expr(&expr)
+}
+
+fn primary_scalar_value_expr(metric: &Map<String, Value>) -> Option<Value> {
+    if let Some(values) = metric.get("values").and_then(Value::as_object) {
+        if let Some(value) = values.get("value") {
+            return Some(value.clone());
+        }
+        return values.values().next().cloned();
+    }
+    metric.get("value").cloned()
+}
+
+fn extract_rowset_from_scalar_expr(expr: &Value) -> Option<Value> {
+    let map = expr.as_object()?;
+    if map.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+        return is_rowset_expression(expr).then(|| expr.clone());
+    }
+    match map.get("type").and_then(Value::as_str)? {
+        "count" | "percent" | "item_count" => map
+            .get("rowset")
+            .or_else(|| map.get("value"))
+            .cloned()
+            .filter(|value| is_rowset_expression(value)),
+        "sum" | "avg" | "min" | "max" | "median" | "unique_count" => map
+            .get("value")
+            .and_then(extract_rowset_from_numeric_source),
+        "sum_rowset_counts" => map
+            .get("rowsets")
+            .and_then(Value::as_array)
+            .and_then(|rowsets| rowsets.first())
+            .cloned()
+            .filter(|value| is_rowset_expression(value)),
+        _ => None,
+    }
+}
+
+fn extract_rowset_from_numeric_source(expr: &Value) -> Option<Value> {
+    let map = expr.as_object()?;
+    if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr") {
+        match map.get("type").and_then(Value::as_str)? {
+            "number" => map
+                .get("rowset")
+                .or_else(|| map.get("source"))
+                .cloned()
+                .filter(|value| is_rowset_expression(value)),
+            _ => extract_rowset_from_scalar_expr(expr),
+        }
+    } else {
+        is_rowset_expression(expr).then(|| expr.clone())
+    }
+}
+
+fn is_rowset_expression(expr: &Value) -> bool {
+    match expr {
+        Value::Array(_) => true,
+        Value::Object(map) => {
+            if map.get("__ref").and_then(Value::as_str) == Some("data") {
+                return true;
+            }
+            if map.get("__kind").and_then(Value::as_str) != Some("analysis_expr") {
+                return false;
+            }
+            match map.get("type").and_then(Value::as_str).unwrap_or_default() {
+                "rows" => true,
+                "count" | "sum" | "avg" | "min" | "max" | "median" | "ratio" | "percent"
+                | "unique_count" | "item_count" | "sum_first_number" | "sum_rowset_counts"
+                | "mom" | "yoy" | "lit" | "number" => false,
+                _ => true,
+            }
+        }
+        _ => false,
+    }
+}
+
+fn inferred_scalar_rowset_metric_id(metric_id: &str) -> String {
+    scoped_child_metric_id(metric_id, INFERRED_SCALAR_ROWSET_LOCAL_ID)
+}
+
+fn infer_inferred_scalar_rowset_metric_id(
+    graph: &AnalysisGraph,
+    metric_id: &str,
+) -> Option<String> {
+    let scoped = inferred_scalar_rowset_metric_id(metric_id);
+    graph.nodes.contains_key(&scoped).then_some(scoped)
+}
+
+fn infer_inferred_scalar_rowset_metric_id_from_defs(
+    metric_id: &str,
+    expanded_defs: &BTreeMap<String, Value>,
+) -> Option<String> {
+    let scoped = inferred_scalar_rowset_metric_id(metric_id);
+    expanded_defs.contains_key(&scoped).then_some(scoped)
 }
 
 fn rewrite_explain_scope(metric_id: &str, value: &Value) -> Value {
@@ -321,10 +479,18 @@ fn build_analysis_graph_from_expanded(
                 .or_insert_with(|| tabular_node_from_dataset_id(&tabular_node_id, &dataset_id));
             push_edge(&mut edge_set, metric_id, &tabular_node_id, "lineage");
         }
+        for dataset_id in collect_metric_value_lineage_dataset_ids(raw) {
+            let tabular_node_id = tabular_source_node_id(&dataset_id);
+            graph
+                .nodes
+                .entry(tabular_node_id.clone())
+                .or_insert_with(|| tabular_node_from_dataset_id(&tabular_node_id, &dataset_id));
+            push_edge(&mut edge_set, metric_id, &tabular_node_id, "lineage");
+        }
         let Some(items) = map.get("explain").and_then(Value::as_array) else {
             continue;
         };
-        for item in items {
+        for (item_index, item) in items.iter().enumerate() {
             let Some(item_map) = item.as_object() else {
                 continue;
             };
@@ -338,8 +504,19 @@ fn build_analysis_graph_from_expanded(
                 continue;
             }
             let role = support_role_for_item(item_map);
-            let Some(target_metric_id) = metric_target_from_item(item_map) else {
-                if let Some(dataset_id) = dataset_target_from_item(item_map) {
+            let target_metric_id = metric_target_from_item(item_map).or_else(|| {
+                if role == "detail" && explain_has_support_role(items, "composition") {
+                    infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)
+                } else {
+                    infer_explain_scoped_dataframe(items, item_index, role.as_str()).or_else(|| {
+                        infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)
+                    })
+                }
+            });
+            let Some(target_metric_id) = target_metric_id else {
+                if let Some(dataset_id) = dataset_target_from_item(item_map).or_else(|| {
+                    unique_lineage_dataset_id_from_metric_values(raw, role.as_str())
+                }) {
                     let tabular_node_id = tabular_source_node_id(&dataset_id);
                     graph
                         .nodes
@@ -374,6 +551,11 @@ fn build_analysis_graph_from_expanded(
                     can_explain: false,
                 });
             push_edge(&mut edge_set, metric_id, &target_metric_id, &role);
+        }
+        if let Some(inferred_id) =
+            infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)
+        {
+            push_edge(&mut edge_set, metric_id, &inferred_id, "scope_metric");
         }
     }
     graph.edges = edge_set
@@ -447,26 +629,11 @@ fn build_metric_contract(
     let mut blocks = Vec::<Value>::new();
     let mut seen_tabs = BTreeSet::new();
     let mut seen_nodes = BTreeSet::new();
-    let default_tabular_metric_id = map
-        .and_then(|value| value.get("explain"))
-        .and_then(Value::as_array)
-        .and_then(|items| {
-            items.iter().find_map(|item| {
-                let item_map = item.as_object()?;
-                if item_map.get("__kind").and_then(Value::as_str) != Some("data_product") {
-                    return None;
-                }
-                first_non_empty_string(
-                    item_map,
-                    &["analysis_scoped_id", "analysis_node_id", "id", "key"],
-                )
-            })
-        });
     if let Some(items) = map
         .and_then(|value| value.get("explain"))
         .and_then(Value::as_array)
     {
-        for item in items {
+        for (item_index, item) in items.iter().enumerate() {
             let Some(item_map) = item.as_object() else {
                 continue;
             };
@@ -490,10 +657,13 @@ fn build_metric_contract(
             }
             let support_role = support_role_for_item(item_map);
             let block = explain_block_value(
+                metric_id,
+                raw,
                 item_map,
+                items,
+                item_index,
                 graph,
                 root_dataset_id,
-                default_tabular_metric_id.as_deref(),
             );
             if support_role == "note" {
                 if contract.get("note").is_none() {
@@ -668,10 +838,13 @@ fn analysis_node_value(
 }
 
 fn explain_block_value(
+    metric_id: &str,
+    raw: &Value,
     item_map: &Map<String, Value>,
+    explain_items: &[Value],
+    item_index: usize,
     graph: &AnalysisGraph,
     root_dataset_id: &str,
-    default_tabular_metric_id: Option<&str>,
 ) -> Map<String, Value> {
     let support_role = support_role_for_item(item_map);
     let mut block = Map::new();
@@ -699,21 +872,35 @@ fn explain_block_value(
     copy_field(item_map, &mut block, "headers");
     copy_field(item_map, &mut block, "mapping");
     copy_field(item_map, &mut block, "chart_kind");
+    let scoped_dataframe_metric_id =
+        infer_explain_scoped_dataframe(explain_items, item_index, support_role.as_str());
+    let lineage_dataset_id =
+        infer_unique_lineage_dataset_id(raw, graph, metric_id, support_role.as_str());
     let target_metric_id = metric_target_from_item(item_map).or_else(|| {
-        default_tabular_metric_id.map(str::to_string).filter(|_| {
-            matches!(
-                support_role.as_str(),
-                "detail" | "trend" | "composition" | "attribution"
-            )
-        })
+        if support_role == "detail" && explain_has_support_role(explain_items, "composition") {
+            infer_inferred_scalar_rowset_metric_id(graph, metric_id)
+        } else {
+            scoped_dataframe_metric_id.clone().or_else(|| {
+                infer_inferred_scalar_rowset_metric_id(graph, metric_id)
+            })
+        }
     });
-    if let Some(metric_id) = target_metric_id {
-        block.insert("node_id".to_string(), Value::String(metric_id.clone()));
-        block.insert("metric_id".to_string(), Value::String(metric_id.clone()));
-        let runtime_ref =
-            metric_runtime_ref(graph.nodes.get(&metric_id), &metric_id, root_dataset_id);
+    if let Some(tabular_metric_id) = target_metric_id {
+        block.insert(
+            "node_id".to_string(),
+            Value::String(tabular_metric_id.clone()),
+        );
+        block.insert(
+            "metric_id".to_string(),
+            Value::String(tabular_metric_id.clone()),
+        );
+        let runtime_ref = metric_runtime_ref(
+            graph.nodes.get(&tabular_metric_id),
+            &tabular_metric_id,
+            root_dataset_id,
+        );
         block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
-    } else if let Some(dataset_id) = dataset_target_from_item(item_map) {
+    } else if let Some(dataset_id) = dataset_target_from_item(item_map).or(lineage_dataset_id) {
         let tabular_node_id = tabular_source_node_id(&dataset_id);
         let mut runtime_ref = Map::new();
         runtime_ref.insert("kind".to_string(), Value::String("data".to_string()));
@@ -723,6 +910,198 @@ fn explain_block_value(
         block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
     }
     block
+}
+
+fn collect_data_ref_dataset_ids(value: &Value, out: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            if map.get("__ref").and_then(Value::as_str) == Some("data") {
+                if let Some(dataset_id) = first_non_empty_string(map, &["from_dataset", "id"]) {
+                    out.insert(dataset_id);
+                }
+            }
+            if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr")
+                && map.get("type").and_then(Value::as_str) == Some("rows")
+            {
+                if let Some(dataset_id) = first_non_empty_string(map, &["dataset"]) {
+                    out.insert(dataset_id);
+                }
+            }
+            for child in map.values() {
+                collect_data_ref_dataset_ids(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                collect_data_ref_dataset_ids(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_metric_value_lineage_dataset_ids(raw: &Value) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let Some(map) = raw.as_object() else {
+        return out;
+    };
+    if let Some(values) = map.get("values") {
+        collect_data_ref_dataset_ids(values, &mut out);
+    }
+    if let Some(value) = map.get("value") {
+        collect_data_ref_dataset_ids(value, &mut out);
+    }
+    out
+}
+
+fn lineage_dataset_ids_from_graph(graph: &AnalysisGraph, metric_id: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for edge in &graph.edges {
+        if edge.from != metric_id || edge.role != "lineage" {
+            continue;
+        }
+        let Some(node) = graph.nodes.get(&edge.to) else {
+            continue;
+        };
+        if node.semantic_kind() != SemanticNodeKind::TabularSource {
+            continue;
+        }
+        if let Some(dataset_id) = node
+            .tabular_source_dataset_id
+            .as_deref()
+            .or(node.lineage_dataset_id.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            out.insert(dataset_id.to_string());
+        }
+    }
+    out
+}
+
+fn infer_unique_lineage_dataset_id(
+    raw: &Value,
+    graph: &AnalysisGraph,
+    metric_id: &str,
+    support_role: &str,
+) -> Option<String> {
+    if !matches!(
+        support_role,
+        "detail" | "trend" | "composition" | "attribution"
+    ) {
+        return None;
+    }
+    unique_lineage_dataset_id_from_metric_values(raw, support_role).or_else(|| {
+        let from_graph = lineage_dataset_ids_from_graph(graph, metric_id);
+        if from_graph.len() == 1 {
+            from_graph.into_iter().next()
+        } else {
+            None
+        }
+    })
+}
+
+fn unique_lineage_dataset_id_from_metric_values(
+    raw: &Value,
+    support_role: &str,
+) -> Option<String> {
+    if !matches!(
+        support_role,
+        "detail" | "trend" | "composition" | "attribution"
+    ) {
+        return None;
+    }
+    if let Some(map) = raw.as_object() {
+        if let Some(dataset_id) = first_non_empty_string(map, &["dataset", "dataset_id"]) {
+            return Some(dataset_id);
+        }
+    }
+    let selectors = collect_metric_value_lineage_dataset_ids(raw);
+    if selectors.len() == 1 {
+        return selectors.into_iter().next();
+    }
+    None
+}
+
+fn scoped_dataframe_metric_id(item_map: &Map<String, Value>) -> Option<String> {
+    first_non_empty_string(
+        item_map,
+        &["analysis_scoped_id", "analysis_node_id", "id", "key"],
+    )
+}
+
+fn infer_explain_scoped_dataframe(
+    explain_items: &[Value],
+    current_index: usize,
+    support_role: &str,
+) -> Option<String> {
+    if !matches!(
+        support_role,
+        "detail" | "trend" | "composition" | "attribution"
+    ) {
+        return None;
+    }
+    if support_role == "detail" {
+        return infer_explain_scoped_dataframe_for_detail(explain_items, current_index);
+    }
+    for item in explain_items[..current_index].iter().rev() {
+        let Some(item_map) = item.as_object() else {
+            continue;
+        };
+        if item_map.get("__kind").and_then(Value::as_str) != Some("data_product") {
+            continue;
+        }
+        return scoped_dataframe_metric_id(item_map);
+    }
+    single_explain_scoped_dataframe(explain_items)
+}
+
+fn infer_explain_scoped_dataframe_for_detail(
+    explain_items: &[Value],
+    current_index: usize,
+) -> Option<String> {
+    for (index, item) in explain_items[..current_index].iter().enumerate().rev() {
+        let Some(item_map) = item.as_object() else {
+            continue;
+        };
+        if item_map.get("__kind").and_then(Value::as_str) != Some("data_product") {
+            continue;
+        };
+        let has_tabular_support_between = explain_items[index + 1..current_index]
+            .iter()
+            .filter_map(Value::as_object)
+            .map(support_role_for_item)
+            .any(|role| role == "trend" || role == "composition");
+        if has_tabular_support_between {
+            continue;
+        }
+        return scoped_dataframe_metric_id(item_map);
+    }
+    single_explain_scoped_dataframe(explain_items)
+}
+
+fn single_explain_scoped_dataframe(explain_items: &[Value]) -> Option<String> {
+    let scoped: Vec<String> = explain_items
+        .iter()
+        .filter_map(|item| {
+            let item_map = item.as_object()?;
+            if item_map.get("__kind").and_then(Value::as_str) != Some("data_product") {
+                return None;
+            }
+            scoped_dataframe_metric_id(item_map)
+        })
+        .collect();
+    if scoped.len() == 1 {
+        return scoped.into_iter().next();
+    }
+    None
+}
+
+fn explain_has_support_role(explain_items: &[Value], role: &str) -> bool {
+    explain_items.iter().any(|item| {
+        item.as_object()
+            .is_some_and(|map| support_role_for_item(map) == role)
+    })
 }
 
 fn tab_metric_value(block: &Map<String, Value>) -> Option<Map<String, Value>> {
@@ -736,6 +1115,7 @@ fn tab_metric_value(block: &Map<String, Value>) -> Option<Map<String, Value>> {
     for key in [
         "node_id",
         "metric_id",
+        "dataset_id",
         "runtime_ref",
         "fields",
         "headers",
@@ -888,7 +1268,7 @@ mod tests {
     use crate::model::{
         AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::collections::BTreeMap;
 
     #[test]
@@ -1044,6 +1424,279 @@ mod tests {
         assert!(
             graph.validate_invariants().is_empty(),
             "tabular lineage graph should satisfy semantic invariants"
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_infers_detail_from_explain_scoped_dataframe() {
+        let defs = BTreeMap::from([(
+            "sales_total".to_string(),
+            json!({
+                "key": "sales_total",
+                "label": "销售总额",
+                "explain": [
+                    {
+                        "__kind": "data_product",
+                        "id": "detail_table",
+                        "shape": "dataframe",
+                        "value": [{"id": "A"}]
+                    },
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["id"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "sales_metrics");
+        let contract = contracts.get("sales_total").expect("contract");
+        let tab_metrics = contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .expect("tab_metrics");
+        let detail = tab_metrics
+            .get("detail")
+            .and_then(Value::as_object)
+            .expect("detail tab");
+        assert_eq!(
+            detail.get("metric_id").and_then(Value::as_str),
+            Some("sales_total::detail_table")
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_infers_detail_from_metric_value_lineage() {
+        let defs = BTreeMap::from([(
+            "unit_count".to_string(),
+            json!({
+                "key": "unit_count",
+                "label": "单位数",
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "count",
+                        "rowset": {"__ref": "data", "id": "enforcement_units"}
+                    }
+                },
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["序号", "类别"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+        let contract = contracts.get("unit_count").expect("contract");
+        let tab_metrics = contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .expect("tab_metrics");
+        let detail = tab_metrics
+            .get("detail")
+            .and_then(Value::as_object)
+            .expect("detail tab");
+        assert_eq!(
+            detail.get("metric_id").and_then(Value::as_str),
+            Some("unit_count::__scalar_rowset__")
+        );
+        let runtime_ref = detail
+            .get("runtime_ref")
+            .and_then(Value::as_object)
+            .expect("runtime_ref");
+        assert_eq!(
+            runtime_ref.get("kind").and_then(Value::as_str),
+            Some("metric")
+        );
+    }
+
+    #[test]
+    fn build_analysis_graph_adds_lineage_from_metric_values() {
+        let defs = BTreeMap::from([(
+            "unit_count".to_string(),
+            json!({
+                "key": "unit_count",
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "count",
+                        "rowset": {"__ref": "data", "id": "enforcement_units"}
+                    }
+                },
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["序号"]
+                    }
+                ]
+            }),
+        )]);
+        let graph = build_analysis_graph(&defs, "__world_metrics__");
+        assert!(graph.edges.iter().any(|edge| {
+            edge.from == "unit_count"
+                && edge.to == "tabular::enforcement_units"
+                && edge.semantic_kind() == SemanticEdgeKind::Lineage
+        }));
+    }
+
+    #[test]
+    fn build_analysis_contracts_detail_prefers_lineage_when_composition_present() {
+        let defs = BTreeMap::from([(
+            "verify_rate".to_string(),
+            json!({
+                "key": "verify_rate",
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "percent",
+                        "rowset": {"__ref": "data", "id": "warning_list"}
+                    }
+                },
+                "explain": [
+                    {
+                        "__kind": "data_product",
+                        "id": "breakdown_table",
+                        "shape": "dataframe",
+                        "value": [{"status": "yes", "value": 1}]
+                    },
+                    {
+                        "__kind": "explain_item",
+                        "id": "composition",
+                        "kind": "composition",
+                        "by": "status"
+                    },
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["预警ID"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+        let contract = contracts.get("verify_rate").expect("contract");
+        let tab_metrics = contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .expect("tab_metrics");
+        let detail = tab_metrics
+            .get("detail")
+            .and_then(Value::as_object)
+            .expect("detail tab");
+        assert_eq!(
+            detail.get("metric_id").and_then(Value::as_str),
+            Some("verify_rate::__scalar_rowset__")
+        );
+        let composition = tab_metrics
+            .get("composition")
+            .and_then(Value::as_object)
+            .expect("composition tab");
+        assert_eq!(
+            composition.get("metric_id").and_then(Value::as_str),
+            Some("verify_rate::breakdown_table")
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_infers_detail_from_scalar_rowset_without_explain_dataframe() {
+        let defs = BTreeMap::from([(
+            "transfer_clue_count".to_string(),
+            json!({
+                "key": "transfer_clue_count",
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "count",
+                        "rowset": {
+                            "__kind": "analysis_expr",
+                            "type": "first_by",
+                            "rowset": {
+                                "__kind": "analysis_expr",
+                                "type": "where",
+                                "rowset": {"__ref": "data", "id": "warning_list"},
+                                "predicate": {"__kind": "analysis_expr", "type": "present", "field": "问题跟踪ID"}
+                            },
+                            "field": "问题跟踪ID"
+                        }
+                    }
+                },
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["问题跟踪ID"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+        let contract = contracts.get("transfer_clue_count").expect("contract");
+        let tab_metrics = contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .expect("tab_metrics");
+        let detail = tab_metrics
+            .get("detail")
+            .and_then(Value::as_object)
+            .expect("detail tab");
+        assert_eq!(
+            detail.get("metric_id").and_then(Value::as_str),
+            Some("transfer_clue_count::__scalar_rowset__")
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_infers_recovered_funds_detail_from_sum_number_rowset() {
+        let defs = BTreeMap::from([(
+            "recovered_funds".to_string(),
+            json!({
+                "key": "recovered_funds",
+                "values": {
+                    "value": {
+                        "__kind": "analysis_expr",
+                        "type": "sum",
+                        "value": {
+                            "__kind": "analysis_expr",
+                            "type": "number",
+                            "rowset": {
+                                "__kind": "analysis_expr",
+                                "type": "first_by",
+                                "rowset": {"__ref": "data", "id": "issue_result_list"},
+                                "field": "处理结果ID"
+                            },
+                            "field": "挽回资金"
+                        }
+                    }
+                },
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["处理结果ID", "挽回资金"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+        let contract = contracts.get("recovered_funds").expect("contract");
+        let detail = contract
+            .get("tab_metrics")
+            .and_then(Value::as_object)
+            .and_then(|tabs| tabs.get("detail"))
+            .and_then(Value::as_object)
+            .expect("detail tab");
+        assert_eq!(
+            detail.get("metric_id").and_then(Value::as_str),
+            Some("recovered_funds::__scalar_rowset__")
         );
     }
 

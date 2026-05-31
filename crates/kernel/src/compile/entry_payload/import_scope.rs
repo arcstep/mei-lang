@@ -25,7 +25,7 @@ fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>)
     }
 }
 
-use super::super::materialize::imported_world_metrics_resource_id;
+use super::super::materialize::{build_analysis_artifacts, imported_world_metrics_resource_id};
 use super::helpers::load_resources_from_capsule_file;
 
 fn namespaced_metric_key(capsule_path: &str, local_key: &str) -> String {
@@ -77,6 +77,17 @@ fn rename_dataset_metric_keys(dataset: &mut DatasetView, capsule_path: &str) {
         renamed_defs.insert(namespaced, value);
     }
     dataset.runtime_metric_defs = renamed_defs;
+
+    if dataset.runtime_metric_defs.is_empty() {
+        dataset.runtime_analysis_graph = Default::default();
+        dataset.runtime_analysis_contracts = Default::default();
+        return;
+    }
+    let (expanded_defs, graph, contracts) =
+        build_analysis_artifacts(&dataset.runtime_metric_defs, dataset.id.as_str());
+    dataset.runtime_metric_defs = expanded_defs;
+    dataset.runtime_analysis_graph = graph;
+    dataset.runtime_analysis_contracts = contracts;
 }
 
 /// 编译期私有 id：`{capsule_path}::{local_id}`（不进入作者态 DSL）。

@@ -746,11 +746,11 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     assert!(
         crate::resolve_runtime_metric_def_key(
             issue_metrics_owner,
-            "warnings_pending_table",
+            "warnings_pending_count::__scalar_rowset__",
             &issue_metrics.runtime_metric_defs,
         )
         .is_some(),
-        "imported capsule metrics should resolve local drilldown table id from home compile"
+        "imported capsule metrics should hoist inferred scalar rowset for detail drilldown"
     );
     assert!(
         compiled
@@ -1305,6 +1305,59 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
 }
 
 #[test]
+fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_keys() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .expect("compile home preview");
+    let cases = [
+        (
+            "scenes/1_执法要素/执法要素.mei",
+            "enforcement_units_count",
+        ),
+        (
+            "scenes/5_问题办理/监督成效.mei",
+            "effectiveness_handled_person_times",
+        ),
+        (
+            "scenes/2_行政检查/指标体系.mei",
+            "inspection_frequency_reduction_rate",
+        ),
+    ];
+    for (capsule, local_metric_id) in cases {
+        let resource_id = format!("__world_metrics__::{capsule}::metrics");
+        let metric_key = format!("{capsule}::{local_metric_id}");
+        let dataset = compiled
+            .resources
+            .iter()
+            .find(|resource| resource.id == resource_id)
+            .and_then(|resource| resource.dataset.as_ref())
+            .unwrap_or_else(|| {
+                panic!("home preview should include imported world metrics resource `{resource_id}`")
+            });
+        assert!(
+            dataset.runtime_metric_defs.contains_key(&metric_key),
+            "expected runtime_metric_defs key `{metric_key}` on `{resource_id}`"
+        );
+        assert!(
+            dataset
+                .runtime_analysis_contracts
+                .contains_key(&metric_key),
+            "expected runtime_analysis_contracts key `{metric_key}` on `{resource_id}`, got keys: {:?}",
+            dataset.runtime_analysis_contracts.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
 fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
@@ -1333,24 +1386,22 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
     assert!(
         dataset
             .runtime_metric_defs
-            .contains_key("effectiveness_handled_person_times::handled_table"),
-        "effectiveness_handled_person_times explain scope child metric should be hoisted with scoped id"
+            .contains_key("effectiveness_handled_person_times::__scalar_rowset__"),
+        "effectiveness_handled_person_times should hoist inferred scalar rowset child metric"
     );
-    let explain = dataset
-        .runtime_metric_defs
+    let contract = dataset
+        .runtime_analysis_contracts
         .get("effectiveness_handled_person_times")
-        .and_then(|metric| metric.get("explain"))
-        .and_then(Value::as_array)
-        .expect("handled explain list");
-    let detail = explain
-        .iter()
-        .find(|item| item.get("kind").and_then(Value::as_str) == Some("detail"))
-        .expect("detail explain entry");
+        .and_then(Value::as_object)
+        .expect("handled analysis contract");
+    let detail = contract
+        .get("tab_metrics")
+        .and_then(Value::as_object)
+        .and_then(|tabs| tabs.get("detail"))
+        .and_then(Value::as_object)
+        .expect("detail tab metric");
     assert_eq!(
-        detail
-            .get("source")
-            .and_then(|value| value.get("id"))
-            .and_then(Value::as_str),
-        Some("effectiveness_handled_person_times::handled_table")
+        detail.get("metric_id").and_then(Value::as_str),
+        Some("effectiveness_handled_person_times::__scalar_rowset__")
     );
 }
