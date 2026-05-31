@@ -622,6 +622,12 @@ fn build_metric_contract(
     if let Some(label) = map.and_then(|value| first_non_empty_string(value, &["label", "title"])) {
         contract.insert("title".to_string(), Value::String(label));
     }
+    if let Some(map) = map {
+        apply_metric_narrative(map, &mut contract);
+    }
+    let metric_has_narrative = contract.contains_key("note")
+        || contract.contains_key("basis_refs")
+        || contract.contains_key("recommended_dimensions");
     let mut tabs = Vec::<Value>::new();
     let mut tab_metrics = Map::new();
     let mut nodes = Vec::<Value>::new();
@@ -656,6 +662,15 @@ fn build_metric_contract(
                 continue;
             }
             let support_role = support_role_for_item(item_map);
+            if support_role == "note" && contract.contains_key("note") {
+                continue;
+            }
+            if support_role == "definition" {
+                merge_definition_narrative_fallback(item_map, &mut contract);
+                if is_empty_legacy_definition_item(item_map) || metric_has_narrative {
+                    continue;
+                }
+            }
             let block = explain_block_value(
                 metric_id,
                 raw,
@@ -1238,6 +1253,90 @@ fn first_non_empty_string(map: &Map<String, Value>, keys: &[&str]) -> Option<Str
     })
 }
 
+fn metric_note_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+        return Some(text.to_string());
+    }
+    value
+        .as_object()
+        .and_then(|map| first_non_empty_string(map, &["content", "text", "note"]))
+}
+
+fn metric_note_format(value: &Value) -> Option<String> {
+    if value.as_str().is_some() {
+        return Some("text".to_string());
+    }
+    value
+        .as_object()
+        .and_then(|map| first_non_empty_string(map, &["format"]))
+        .or_else(|| metric_note_text(value).map(|_| "text".to_string()))
+}
+
+fn apply_metric_narrative(map: &Map<String, Value>, contract: &mut Map<String, Value>) {
+    if let Some(note_value) = map.get("note") {
+        if let Some(text) = metric_note_text(note_value) {
+            contract.insert("note".to_string(), Value::String(text));
+            if let Some(format) = metric_note_format(note_value) {
+                contract.insert("note_format".to_string(), Value::String(format));
+            }
+        }
+    }
+    for key in ["basis_refs", "recommended_dimensions"] {
+        if contract.contains_key(key) {
+            continue;
+        }
+        if let Some(value) = map.get(key).filter(|value| !value_is_empty(value)) {
+            contract.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn merge_definition_narrative_fallback(item_map: &Map<String, Value>, contract: &mut Map<String, Value>) {
+    if !contract.contains_key("note") {
+        if let Some(note) = first_non_empty_string(
+            item_map,
+            &["note", "content", "text", "markdown", "md", "desc", "description"],
+        ) {
+            contract.insert("note".to_string(), Value::String(note));
+            contract.insert("note_format".to_string(), Value::String("text".to_string()));
+        }
+    }
+    if !contract.contains_key("basis_refs") {
+        if let Some(value) = item_map.get("basis_refs").filter(|value| !value_is_empty(value)) {
+            contract.insert("basis_refs".to_string(), value.clone());
+        }
+    }
+    if !contract.contains_key("recommended_dimensions") {
+        if let Some(value) = item_map
+            .get("recommended_dimensions")
+            .filter(|value| !value_is_empty(value))
+        {
+            contract.insert("recommended_dimensions".to_string(), value.clone());
+        }
+    }
+}
+
+fn is_empty_legacy_definition_item(item_map: &Map<String, Value>) -> bool {
+    support_role_for_item(item_map) == "definition"
+        && metric_note_text(&Value::Object(item_map.clone())).is_none()
+        && item_map
+            .get("basis_refs")
+            .is_none_or(|value| value_is_empty(value))
+        && item_map
+            .get("recommended_dimensions")
+            .is_none_or(|value| value_is_empty(value))
+}
+
+fn value_is_empty(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(text) => text.trim().is_empty(),
+        Value::Array(items) => items.is_empty(),
+        Value::Object(map) => map.is_empty(),
+        _ => false,
+    }
+}
+
 fn copy_field(source: &Map<String, Value>, out: &mut Map<String, Value>, key: &str) {
     if let Some(value) = source.get(key).cloned() {
         out.insert(key.to_string(), value);
@@ -1697,6 +1796,52 @@ mod tests {
         assert_eq!(
             detail.get("metric_id").and_then(Value::as_str),
             Some("recovered_funds::__scalar_rowset__")
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_reads_metric_level_note_and_basis_refs() {
+        let defs = BTreeMap::from([(
+            "handled_person_times".to_string(),
+            json!({
+                "key": "handled_person_times",
+                "label": "处理人数",
+                "note": "按处理结果ID去重计处理人数。",
+                "basis_refs": ["12.问题处理结果清单.xlsx", "处理结果ID"],
+                "values": {"value": 1},
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "fields": ["处理结果ID"]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+        let contract = contracts
+            .get("handled_person_times")
+            .and_then(Value::as_object)
+            .expect("contract");
+        assert_eq!(
+            contract.get("note").and_then(Value::as_str),
+            Some("按处理结果ID去重计处理人数。")
+        );
+        assert_eq!(
+            contract
+                .get("basis_refs")
+                .and_then(Value::as_array)
+                .map(|items| items.len()),
+            Some(2)
+        );
+        assert_eq!(
+            contract.get("tabs").and_then(Value::as_array).map(|tabs| {
+                tabs.iter()
+                    .filter_map(Value::as_str)
+                    .any(|tab| tab == "definition")
+            }),
+            Some(false)
         );
     }
 

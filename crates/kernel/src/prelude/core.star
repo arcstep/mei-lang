@@ -63,7 +63,7 @@ def _metric_source(metric):
         source["drilldown_dataset"] = metric["drilldown"]
     return source
 
-def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
+def _data_product(shape, id = None, key = None, label = None, value = None, values = None, unit = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
     product_id = id if id != None else key
     return _without_empty({
         "__kind": "data_product",
@@ -74,6 +74,9 @@ def _data_product(shape, id = None, key = None, label = None, value = None, valu
         "values": values,
         "unit": unit,
         "schema": schema,
+        "note": note,
+        "basis_refs": basis_refs,
+        "recommended_dimensions": recommended_dimensions,
         "drilldown": drilldown,
         "explain": _normalize_explain(explain),
         "analyses": analyses,

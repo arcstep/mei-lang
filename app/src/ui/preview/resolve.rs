@@ -674,6 +674,7 @@ fn metric_drilldown_from_definition(
     let Some(map) = definition.as_object() else {
         return meta;
     };
+    apply_metric_narrative(map, &mut meta);
     let has_drilldown = map.get("drilldown_dataset").is_some() || map.get("drilldown").is_some();
     if let Some(explain_items) = map.get("explain").and_then(Value::as_array) {
         apply_explain_items(explain_items, &mut meta);
@@ -1106,6 +1107,52 @@ fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -
     None
 }
 
+fn metric_note_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+        return Some(text.to_string());
+    }
+    value.as_object().and_then(|map| {
+        first_non_empty_string(map, &["content", "text", "note", "markdown", "md"])
+    })
+}
+
+fn apply_metric_narrative(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
+    if meta.drilldown_note.is_none() {
+        if let Some(note_value) = map.get("note") {
+            meta.drilldown_note = metric_note_text(note_value);
+        }
+        if meta.drilldown_note.is_none() {
+            meta.drilldown_note = first_non_empty_string(map, &["desc", "description"]);
+        }
+    }
+    if meta.drilldown_basis_refs.is_empty() {
+        for key in ["basis_refs", "basisRefs"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let basis = string_array_from_value(value);
+            if basis.is_empty() {
+                continue;
+            }
+            meta.drilldown_basis_refs = basis;
+            break;
+        }
+    }
+    if meta.drilldown_recommended_dimensions.is_empty() {
+        for key in ["recommended_dimensions", "recommendedDimensions"] {
+            let Some(value) = map.get(key) else {
+                continue;
+            };
+            let dimensions = string_array_from_value(value);
+            if dimensions.is_empty() {
+                continue;
+            }
+            meta.drilldown_recommended_dimensions = dimensions;
+            break;
+        }
+    }
+}
+
 fn string_array_from_value(value: &Value) -> Vec<String> {
     let Some(items) = value.as_array() else {
         return Vec::new();
@@ -1310,18 +1357,24 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             normalize_analysis_tab_id(&raw_kind).unwrap_or_else(|| raw_kind.trim().to_string());
         if normalized_kind == "note" {
             if meta.drilldown_note.is_none() {
-                meta.drilldown_note = first_non_empty_string(
-                    map,
-                    &[
-                        "note",
-                        "content",
-                        "text",
-                        "markdown",
-                        "md",
-                        "desc",
-                        "description",
-                    ],
-                );
+                meta.drilldown_note = map
+                    .get("note")
+                    .and_then(metric_note_text)
+                    .or_else(|| {
+                        first_non_empty_string(
+                            map,
+                            &[
+                                "content",
+                                "text",
+                                "markdown",
+                                "md",
+                                "desc",
+                                "description",
+                            ],
+                        )
+                    });
+            } else {
+                continue;
             }
             let mut block = map.clone();
             block.insert("id".to_string(), Value::String("note".to_string()));
@@ -1345,7 +1398,10 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             .and_then(Value::as_str)
             .map(str::trim)
             .unwrap_or_default();
-        if !tab_id.is_empty() && !meta.drilldown_tabs.contains(&tab_id) {
+        if !tab_id.is_empty()
+            && kind != "definition"
+            && !meta.drilldown_tabs.contains(&tab_id)
+        {
             meta.drilldown_tabs.push(tab_id);
         }
         if kind == "definition" {
@@ -1379,6 +1435,7 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
                     meta.drilldown_recommended_dimensions = string_array_from_value(value);
                 }
             }
+            continue;
         } else if kind == "detail" {
             if meta.drilldown_detail_fields.is_empty() {
                 if let Some(value) = entry_obj.get("fields") {

@@ -227,6 +227,22 @@ def _explain_item(
         "chart_kind": chart_kind,
     })
 
+def text(content):
+    if content == None or str(content).strip() == "":
+        fail("text requires non-empty content")
+    return {
+        "format": "text",
+        "content": str(content).strip(),
+    }
+
+def md(content):
+    if content == None or str(content).strip() == "":
+        fail("md requires non-empty content")
+    return {
+        "format": "md",
+        "content": str(content).strip(),
+    }
+
 def note(content, id = "note", label = None):
     if content == None or str(content).strip() == "":
         fail("note requires non-empty content")
@@ -741,11 +757,11 @@ def metric(id = None, key = None, label = None, value = None, unit = None, where
         "binding": binding,
     })
 
-def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
-    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
+def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
+    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, note = note, basis_refs = basis_refs, recommended_dimensions = recommended_dimensions, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
 
-def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, drilldown = None, explain = None, analyses = None, binding = None):
-    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
+def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
+    return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, note = note, basis_refs = basis_refs, recommended_dimensions = recommended_dimensions, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
 
 def count(id = None, label = None, unit = None, where = None, drilldown = None, fallback = 0, explain = None, analyses = None):
     if _is_analysis(id):
