@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
@@ -42,6 +43,28 @@ fn finish_bundle(compiled: CompiledApp, app_id: &str) -> Result<WorldRuntimeBund
     })
 }
 
+fn log_bundle_loaded(
+    app_id: &str,
+    requested_scene: Option<&str>,
+    requested_target: Option<&str>,
+    strategy: &str,
+    fallback_compile: bool,
+    bundle: &WorldRuntimeBundle,
+    started: Instant,
+) {
+    tracing::info!(
+        app_id = %app_id,
+        requested_scene = %requested_scene.unwrap_or("-"),
+        requested_target = %requested_target.unwrap_or("-"),
+        active_scene = %bundle.compiled.active_scene.as_deref().unwrap_or("-"),
+        active_target_file = %bundle.active_target_file,
+        compile_strategy = %strategy,
+        fallback_compile,
+        total_ms = started.elapsed().as_millis() as u64,
+        "world runtime bundle loaded"
+    );
+}
+
 pub(super) fn load_world_runtime_bundle_with<F>(
     source_root: &Path,
     app_id: &str,
@@ -51,10 +74,18 @@ pub(super) fn load_world_runtime_bundle_with<F>(
 where
     F: FnMut(CompileOptions) -> Result<CompiledApp>,
 {
+    let load_started = Instant::now();
     let scope = normalize_world_scope(scope);
     let requested_scene = scope.scene_id.as_deref();
     let requested_target = scope.target_file.clone();
     let app_root = source_root.join(app_id);
+    let mut fallback_compile = false;
+    tracing::info!(
+        app_id = %app_id,
+        requested_scene = %requested_scene.unwrap_or("-"),
+        requested_target = %requested_target.as_deref().unwrap_or("-"),
+        "world runtime bundle loading"
+    );
 
     // 单编路径：manage/API 仅按 `.mei` 预览或显式 scene 请求时，避免「基线 + 目标」双次整包编译。
     // L1/L2/L3 仍会在 miss 时复用 scene payload 与数据行缓存。
@@ -65,7 +96,17 @@ where
                 scene: None,
                 preview_target: preview_target.clone(),
             })?;
-            return finish_bundle(compiled, app_id);
+            let bundle = finish_bundle(compiled, app_id)?;
+            log_bundle_loaded(
+                app_id,
+                requested_scene,
+                requested_target.as_deref(),
+                "target_preview_single_compile",
+                fallback_compile,
+                &bundle,
+                load_started,
+            );
+            return Ok(bundle);
         }
     }
 
@@ -79,6 +120,7 @@ where
             preview_target,
         })?;
         if compiled.active_scene.as_deref() != Some(scene_id) {
+            fallback_compile = true;
             // 回退：用路由表做一次基线解析（仅当单编未命中 scene id 时）
             let base = compile(CompileOptions::default())?;
             let exists = base.scene_routes.iter().any(|r| r.scene_id == scene_id);
@@ -113,13 +155,43 @@ where
             if compiled.active_scene.as_deref() != Some(scene_id) {
                 return Err(anyhow!("scene `{scene_id}` not found in app `{app_id}`"));
             }
-            return finish_bundle(compiled, app_id);
+            let bundle = finish_bundle(compiled, app_id)?;
+            log_bundle_loaded(
+                app_id,
+                requested_scene,
+                requested_target.as_deref(),
+                "scene_route_fallback_compile",
+                fallback_compile,
+                &bundle,
+                load_started,
+            );
+            return Ok(bundle);
         }
-        return finish_bundle(compiled, app_id);
+        let bundle = finish_bundle(compiled, app_id)?;
+        log_bundle_loaded(
+            app_id,
+            requested_scene,
+            requested_target.as_deref(),
+            "scene_single_compile",
+            fallback_compile,
+            &bundle,
+            load_started,
+        );
+        return Ok(bundle);
     }
 
     let compiled = compile(CompileOptions::default())?;
-    finish_bundle(compiled, app_id)
+    let bundle = finish_bundle(compiled, app_id)?;
+    log_bundle_loaded(
+        app_id,
+        requested_scene,
+        requested_target.as_deref(),
+        "default_compile",
+        fallback_compile,
+        &bundle,
+        load_started,
+    );
+    Ok(bundle)
 }
 
 pub(super) fn load_world_runtime_bundle(

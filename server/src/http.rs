@@ -1,6 +1,7 @@
 pub(crate) mod agent_api;
 mod compile_cache;
 mod datasets;
+pub(crate) mod observation;
 pub mod pages;
 pub mod projection_api;
 pub mod scene_api;

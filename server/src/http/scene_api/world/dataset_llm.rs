@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope, locate_dataset_resource, resolve_runtime_metric_def_key,
-    DatasetView, MetricContract,
+    evaluate_runtime_metric_defs_with_scope, locate_dataset_resource,
+    resolve_runtime_metric_def_key, DatasetView, MetricContract,
 };
 use serde_json::{json, Value};
 
@@ -14,10 +15,13 @@ use crate::http::datasets::{
     plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
     runtime_metric_eval_scope, runtime_metric_workset, DatasetQueryOptions,
 };
+use crate::http::observation::{CompileObservation, EvalObservation, ExposureManifest};
+use crate::http::scene_api::RESOURCE_QUERY_SCHEMA_VERSION;
 
 use super::analysis_contract_llm::{
-    build_dataset_analysis_contracts_preview_for_access, build_metric_analysis_contract_attachments,
-    contract_hint_when_empty, contract_hint_when_preview_empty,
+    build_dataset_analysis_contracts_preview_for_access,
+    build_metric_analysis_contract_attachments, contract_attachment_stats,
+    contract_hint_when_empty, contract_hint_when_preview_empty, contract_preview_stats,
 };
 use super::bundle::load_world_runtime_bundle;
 use super::json_shrink::{json_serialized_len, shrink_json_for_llm};
@@ -161,13 +165,42 @@ pub(crate) fn query_world_dataset(
     columns: Option<&[String]>,
     limit: Option<usize>,
 ) -> Result<Value> {
-    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let request_started = Instant::now();
     let dataset_id = id.trim();
     if dataset_id.is_empty() {
         return Err(anyhow!("query parameter `id` is required"));
     }
+    let requested_scene = scope
+        .and_then(|s| s.scene_id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("-");
+    let requested_target = scope
+        .and_then(|s| s.target_file.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("-");
+    let request_span = tracing::info_span!(
+        "world_dataset_query",
+        app_id = %app_id,
+        scene_id = %requested_scene,
+        target_file = %requested_target,
+        dataset_id = %dataset_id
+    );
+    let _request_span_guard = request_span.enter();
+    tracing::info!("world dataset query started");
+    let load_bundle_started = Instant::now();
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope).map_err(|error| {
+        tracing::warn!(
+            phase = "load_world_runtime_bundle",
+            error = %error,
+            "world dataset query failed"
+        );
+        error
+    })?;
+    let load_bundle_ms = load_bundle_started.elapsed().as_millis() as u64;
+    let locate_started = Instant::now();
     let loaded = locate_dataset_resource(&bundle.compiled, dataset_id)
         .map_err(|error| anyhow!("{error}"))?;
+    let locate_dataset_ms = locate_started.elapsed().as_millis() as u64;
     let dataset = loaded
         .dataset
         .as_ref()
@@ -187,7 +220,9 @@ pub(crate) fn query_world_dataset(
         collect_all: false,
         ..DatasetQueryOptions::default()
     };
+    let query_rows_started = Instant::now();
     let query_result = query_dataset_rows(&app_root, dataset, query_options)?;
+    let query_rows_ms = query_rows_started.elapsed().as_millis() as u64;
 
     let mut truncated_cells = 0usize;
     let sample_rows = query_result
@@ -206,6 +241,7 @@ pub(crate) fn query_world_dataset(
         dataset,
         world_resource.and_then(|item| item.metrics.as_ref()),
     );
+    let build_contract_preview_started = Instant::now();
     let analysis_contracts_preview = build_dataset_analysis_contracts_preview_for_access(
         &bundle.compiled,
         dataset,
@@ -213,6 +249,7 @@ pub(crate) fn query_world_dataset(
         &metric_ids,
         world_resource.and_then(|item| item.metrics.as_ref()),
     );
+    let build_contract_preview_ms = build_contract_preview_started.elapsed().as_millis() as u64;
     let filters_preview = world_resource
         .and_then(|item| item.filters.as_ref())
         .map(summarize_filters_decl)
@@ -225,6 +262,35 @@ pub(crate) fn query_world_dataset(
     };
 
     let contract_hint = contract_hint_when_preview_empty(&analysis_contracts_preview);
+    let compile_observation = CompileObservation::for_world_bundle(
+        app_id,
+        &bundle.contract.scene.id,
+        Some(bundle.active_target_file.as_str()),
+        load_bundle_ms,
+    );
+    let mut eval_observation = EvalObservation::new(false);
+    eval_observation.insert_counter("rows_returned", query_result.rows.len() as u64);
+    eval_observation.insert_counter("columns_returned", selected_columns.len() as u64);
+    eval_observation.insert_counter("cells_truncated", truncated_cells as u64);
+    let exposure_manifest = ExposureManifest::for_scene_scope(
+        app_id,
+        &bundle.contract.scene.id,
+        Some(bundle.active_target_file.as_str()),
+        Some(RESOURCE_QUERY_SCHEMA_VERSION),
+    );
+    let mut perf = BTreeMap::new();
+    compile_observation.write_perf(&mut perf);
+    perf.insert("load_world_bundle_ms".to_string(), load_bundle_ms);
+    perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
+    perf.insert("dataset_query_rows_ms".to_string(), query_rows_ms);
+    perf.insert(
+        "build_analysis_contract_preview_ms".to_string(),
+        build_contract_preview_ms,
+    );
+    eval_observation.write_perf(&mut perf);
+    for (key, value) in contract_preview_stats(&analysis_contracts_preview, metric_ids.len()) {
+        perf.insert(key, value);
+    }
     let mut payload = json!({
         "app_id": app_id,
         "scene_id": bundle.contract.scene.id,
@@ -257,8 +323,15 @@ pub(crate) fn query_world_dataset(
             "total_chars_before_budget": 0,
             "total_chars_after_budget": 0,
         },
+        "observation": {
+            "compile": &compile_observation,
+            "eval": &eval_observation,
+            "exposure": &exposure_manifest,
+        },
+        "perf": perf,
         "usage_hint": "若需更多数据，请在 dataset_query 中追加 filters/search/columns/limit；默认仅返回前10行与前10列的有界样例。带 explain 的指标请同时查看 dataset.analysis_contracts_preview，与宿主 UI 的 analysis_contract 同轨。",
     });
+    let shrink_started = Instant::now();
     let before = json_serialized_len(&payload);
     if let Some(v) = payload.pointer_mut("/truncation/total_chars_before_budget") {
         *v = json!(before);
@@ -270,6 +343,38 @@ pub(crate) fn query_world_dataset(
     if let Some(v) = payload.pointer_mut("/truncation/total_chars_after_budget") {
         *v = json!(after);
     }
+    let shrink_ms = shrink_started.elapsed().as_millis() as u64;
+    if let Some(map) = payload.get_mut("perf").and_then(Value::as_object_mut) {
+        map.insert(
+            "payload_chars_before_budget".to_string(),
+            json!(before as u64),
+        );
+        map.insert(
+            "payload_chars_after_budget".to_string(),
+            json!(after as u64),
+        );
+        map.insert("payload_shrink_ms".to_string(), json!(shrink_ms));
+        map.insert(
+            "payload_budget_truncated".to_string(),
+            json!(u64::from(before > DATASET_QUERY_TOTAL_CHAR_BUDGET)),
+        );
+        map.insert(
+            "total_ms".to_string(),
+            json!(request_started.elapsed().as_millis() as u64),
+        );
+    }
+    tracing::info!(
+        dataset_id = %dataset_id,
+        scene_id = %bundle.contract.scene.id,
+        rows_returned = query_result.rows.len(),
+        contract_preview_count = analysis_contracts_preview
+            .as_object()
+            .map(|items| items.len())
+            .unwrap_or(0),
+        contract_hint = %contract_hint.as_deref().unwrap_or("-"),
+        total_ms = request_started.elapsed().as_millis() as u64,
+        "world dataset query finished"
+    );
     Ok(payload)
 }
 
@@ -282,19 +387,60 @@ pub(crate) fn query_world_dataset_metrics(
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
 ) -> Result<Value> {
-    let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
+    let request_started = Instant::now();
     let dataset_id = id.trim();
     if dataset_id.is_empty() {
         return Err(anyhow!("query parameter `id` is required"));
     }
+    let requested_scene = scope
+        .and_then(|s| s.scene_id.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("-");
+    let requested_target = scope
+        .and_then(|s| s.target_file.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("-");
+    let request_metric_ids = if metric_ids.is_empty() {
+        "-".to_string()
+    } else {
+        metric_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let request_span = tracing::info_span!(
+        "world_dataset_metric_query",
+        app_id = %app_id,
+        scene_id = %requested_scene,
+        target_file = %requested_target,
+        dataset_id = %dataset_id,
+        metric_ids = %request_metric_ids
+    );
+    let _request_span_guard = request_span.enter();
+    tracing::info!("world dataset metric query started");
+    let load_bundle_started = Instant::now();
+    let bundle = load_world_runtime_bundle(source_root, app_id, scope).map_err(|error| {
+        tracing::warn!(
+            phase = "load_world_runtime_bundle",
+            error = %error,
+            "world dataset metric query failed"
+        );
+        error
+    })?;
+    let load_bundle_ms = load_bundle_started.elapsed().as_millis() as u64;
+    let plan_eval_started = Instant::now();
     let eval_plan = plan_access_metric_eval_for_ids(&bundle.compiled, dataset_id, metric_ids)?;
+    let plan_eval_ms = plan_eval_started.elapsed().as_millis() as u64;
     let primary_dataset = eval_plan.primary_dataset;
     let owner_dataset = eval_plan.owner_dataset;
 
     let app_root = source_root.join(app_id);
     let normalized_search = normalize_query_search(search);
     let normalized_filters = normalize_query_filters(filters);
-    let effective_query_state = query_state_from_request(&normalized_filters, normalized_search.as_deref(), None);
+    let effective_query_state =
+        query_state_from_request(&normalized_filters, normalized_search.as_deref(), None);
     let query_options = DatasetQueryOptions {
         page: 1,
         page_size: 0,
@@ -305,7 +451,9 @@ pub(crate) fn query_world_dataset_metrics(
         collect_all: true,
         ..DatasetQueryOptions::default()
     };
+    let query_rows_started = Instant::now();
     let filtered_rows = query_dataset_rows(&app_root, primary_dataset, query_options)?;
+    let query_rows_ms = query_rows_started.elapsed().as_millis() as u64;
 
     let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
@@ -317,7 +465,12 @@ pub(crate) fn query_world_dataset_metrics(
         .compiled
         .resources
         .iter()
-        .filter_map(|resource| resource.dataset.clone().map(|dataset| (resource.id.clone(), dataset)))
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
         .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
             acc.insert(resource_id, dataset.clone());
             acc.entry(dataset.id.clone()).or_insert(dataset);
@@ -337,6 +490,7 @@ pub(crate) fn query_world_dataset_metrics(
         &eval_plan.owner.id,
         &defs_for_hydrate,
     );
+    let hydrate_started = Instant::now();
     hydrate_file_backed_datasets_for_metric_defs(
         &app_root,
         &mut datasets,
@@ -352,6 +506,8 @@ pub(crate) fn query_world_dataset_metrics(
             ..DatasetQueryOptions::default()
         },
     )?;
+    let hydrate_ms = hydrate_started.elapsed().as_millis() as u64;
+    let eval_scope_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
         Some(primary_dataset),
         &eval_plan.primary.id,
@@ -363,6 +519,8 @@ pub(crate) fn query_world_dataset_metrics(
         &[],
         &dependency_revision_key,
     )?;
+    let eval_scope_ms = eval_scope_started.elapsed().as_millis() as u64;
+    let metric_eval_started = Instant::now();
     let metrics_map = evaluate_runtime_metric_defs_with_scope(
         &owner_dataset.runtime_metric_defs,
         &runtime_dataset.rows,
@@ -370,6 +528,7 @@ pub(crate) fn query_world_dataset_metrics(
         metric_filter,
         &eval_scope,
     )?;
+    let metric_eval_ms = metric_eval_started.elapsed().as_millis() as u64;
     let metrics = if metric_ids.is_empty() {
         metrics_map.into_values().collect::<Vec<_>>()
     } else {
@@ -381,13 +540,61 @@ pub(crate) fn query_world_dataset_metrics(
         )
     };
     let requested_metric_ids = eval_plan.request_metric_ids.clone();
+    let contract_attachment_started = Instant::now();
     let analysis_contracts = build_metric_analysis_contract_attachments(
         &bundle.compiled,
         primary_dataset,
         &eval_plan.primary.id,
         &requested_metric_ids,
     );
+    let contract_attachment_ms = contract_attachment_started.elapsed().as_millis() as u64;
     let contract_hint = contract_hint_when_empty(&analysis_contracts);
+    let compile_observation = CompileObservation::for_world_bundle(
+        app_id,
+        &bundle.contract.scene.id,
+        Some(bundle.active_target_file.as_str()),
+        load_bundle_ms,
+    );
+    let mut eval_observation = EvalObservation::new(false);
+    eval_observation.insert_counter("metrics_returned", metrics.len() as u64);
+    eval_observation.insert_counter("total_rows", runtime_dataset.rows.len() as u64);
+    let exposure_manifest = ExposureManifest::for_scene_scope(
+        app_id,
+        &bundle.contract.scene.id,
+        Some(bundle.active_target_file.as_str()),
+        Some(RESOURCE_QUERY_SCHEMA_VERSION),
+    );
+    let mut perf = BTreeMap::new();
+    compile_observation.write_perf(&mut perf);
+    perf.insert("load_world_bundle_ms".to_string(), load_bundle_ms);
+    perf.insert("plan_access_metric_eval_ms".to_string(), plan_eval_ms);
+    perf.insert("dataset_query_rows_ms".to_string(), query_rows_ms);
+    perf.insert("hydrate_datasets_ms".to_string(), hydrate_ms);
+    perf.insert("build_eval_scope_ms".to_string(), eval_scope_ms);
+    perf.insert("metric_eval_ms".to_string(), metric_eval_ms);
+    perf.insert(
+        "build_analysis_contract_attachments_ms".to_string(),
+        contract_attachment_ms,
+    );
+    eval_observation.write_perf(&mut perf);
+    for (key, value) in contract_attachment_stats(&analysis_contracts, requested_metric_ids.len()) {
+        perf.insert(key, value);
+    }
+    perf.insert(
+        "total_ms".to_string(),
+        request_started.elapsed().as_millis() as u64,
+    );
+    tracing::info!(
+        scene_id = %bundle.contract.scene.id,
+        dataset_id = %dataset_id,
+        metric_ids = %request_metric_ids,
+        total_rows = runtime_dataset.rows.len(),
+        metrics_returned = metrics.len(),
+        contract_count = analysis_contracts.len(),
+        contract_hint = %contract_hint.as_deref().unwrap_or("-"),
+        total_ms = request_started.elapsed().as_millis() as u64,
+        "world dataset metric query finished"
+    );
 
     Ok(json!({
         "app_id": app_id,
@@ -397,6 +604,12 @@ pub(crate) fn query_world_dataset_metrics(
         "metrics": metrics,
         "analysis_contracts": analysis_contracts,
         "contract_hint": contract_hint,
+        "observation": {
+            "compile": &compile_observation,
+            "eval": &eval_observation,
+            "exposure": &exposure_manifest,
+        },
+        "perf": perf,
         "usage_hint": "指标问答优先使用 dataset_metric；analysis_contracts 与宿主 UI popup/route 同轨。无 contract 时勿编造 explain 字段。若要查看明细行，再改用 dataset_query。"
     }))
 }

@@ -15,14 +15,16 @@ use mei_lang_kernel::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::http::observation::{CompileObservation, EvalObservation};
 use crate::{AppError, AppState};
 
 use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{
-    eval_node_cache_key, hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint,
-    metric_scope_cache_key, normalize_query_filters, normalize_query_search,
-    plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
-    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value, DatasetQueryOptions,
+    eval_node_cache_key, hydrate_file_backed_datasets_for_metric_defs,
+    metric_request_revision_fingerprint, metric_scope_cache_key, normalize_query_filters,
+    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
+    query_state_from_request, runtime_metric_eval_scope, runtime_metric_workset,
+    serialize_cache_value, DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
 use super::scene_qualified::{
@@ -56,7 +58,8 @@ fn hash_fingerprint(value: &str) -> u64 {
 }
 
 fn metric_eval_diagnostic_code(message: &str) -> &'static str {
-    if message.contains("cyclic_eval_dependency") || message.contains("metric_eval_recursion_guard_tripped")
+    if message.contains("cyclic_eval_dependency")
+        || message.contains("metric_eval_recursion_guard_tripped")
     {
         "metric_eval_recursion_guard_tripped"
     } else {
@@ -64,7 +67,10 @@ fn metric_eval_diagnostic_code(message: &str) -> &'static str {
     }
 }
 
-fn runtime_metric_scope_requested(query_state: &QueryState, filter_intents: &[FilterIntent]) -> bool {
+fn runtime_metric_scope_requested(
+    query_state: &QueryState,
+    filter_intents: &[FilterIntent],
+) -> bool {
     !query_state.filters.is_empty()
         || query_state
             .search
@@ -265,9 +271,15 @@ pub async fn dataset_metric_api(
                 );
                 AppError::from(failure.error)
             })?;
-    let compiled = compile_outcome.compiled;
     let compile_ms = compile_outcome.compile_ms;
-    let scene_ctx = resolved_scene_context(&compiled);
+    let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
+    let compile_observation = CompileObservation::from_compile_outcome(
+        &app_id,
+        &scene_ctx.scene_id,
+        scene_ctx.scene_path.as_deref(),
+        &compile_outcome,
+    );
+    let compiled = compile_outcome.compiled;
     let normalized_dataset_id = request.dataset_id.trim();
     let resource = locate_dataset_resource(
         &compiled,
@@ -336,24 +348,9 @@ pub async fn dataset_metric_api(
                 .collect::<Vec<_>>()
         };
         let mut perf = BTreeMap::new();
-        perf.insert("compile_ms".to_string(), compile_ms);
-        perf.insert(
-            "compile_cache_hit".to_string(),
-            u64::from(compile_outcome.cache_hit),
-        );
-        perf.insert(
-            "compile_cache_lookup_ms".to_string(),
-            compile_outcome.cache_lookup_ms,
-        );
-        perf.insert(
-            "compile_cache_lock_wait_ms".to_string(),
-            compile_outcome.compile_cache_lock_wait_ms,
-        );
+        compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-        perf.insert(
-            "compat_compiled_metric_snapshot_fallback".to_string(),
-            1,
-        );
+        perf.insert("compat_compiled_metric_snapshot_fallback".to_string(), 1);
         let total_ms = elapsed_ms(request_started);
         perf.insert("total_ms".to_string(), total_ms);
         tracing::info!(
@@ -377,24 +374,21 @@ pub async fn dataset_metric_api(
             perf,
         }));
     }
-    let access_plan = plan_access_metric_eval_for_ids(
-        &compiled,
-        normalized_dataset_id,
-        &request.metric_ids,
-    )
-    .map_err(|error| {
-        tracing::warn!(
-            app_id = %app_id,
-            scene_id = %scene_ctx.scene_id,
-            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-            dataset_id = %requested_dataset_id,
-            metric_ids = %requested_metric_ids,
-            phase = "metric_defs",
-            error = %error,
-            "metric query runtime metric plan failed"
-        );
-        AppError::status(StatusCode::BAD_REQUEST, error.to_string())
-    })?;
+    let access_plan =
+        plan_access_metric_eval_for_ids(&compiled, normalized_dataset_id, &request.metric_ids)
+            .map_err(|error| {
+                tracing::warn!(
+                    app_id = %app_id,
+                    scene_id = %scene_ctx.scene_id,
+                    target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+                    dataset_id = %requested_dataset_id,
+                    metric_ids = %requested_metric_ids,
+                    phase = "metric_defs",
+                    error = %error,
+                    "metric query runtime metric plan failed"
+                );
+                AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+            })?;
     let primary_dataset = access_plan.primary_dataset;
     let owner_dataset = access_plan.owner_dataset;
     let app_root = state.source_root.join(&app_id);
@@ -411,7 +405,12 @@ pub async fn dataset_metric_api(
     let mut datasets = compiled
         .resources
         .iter()
-        .filter_map(|resource| resource.dataset.clone().map(|dataset| (resource.id.clone(), dataset)))
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
         .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
             acc.insert(resource_id, dataset.clone());
             acc.entry(dataset.id.clone()).or_insert(dataset);
@@ -450,29 +449,15 @@ pub async fn dataset_metric_api(
     let response_cache_lookup_started = Instant::now();
     if let Some(cached) = take_cached_metric_response(&response_cache_key) {
         let mut perf = BTreeMap::new();
-        perf.insert("compile_ms".to_string(), compile_ms);
-        perf.insert(
-            "compile_cache_hit".to_string(),
-            u64::from(compile_outcome.cache_hit),
-        );
-        perf.insert(
-            "compile_cache_lookup_ms".to_string(),
-            compile_outcome.cache_lookup_ms,
-        );
-        perf.insert(
-            "compile_cache_lock_wait_ms".to_string(),
-            compile_outcome.compile_cache_lock_wait_ms,
-        );
+        compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-        perf.insert("response_cache_hit".to_string(), 1);
-        perf.insert(
-            "response_cache_key_hash".to_string(),
-            hash_fingerprint(&response_cache_key),
-        );
-        perf.insert("request_dag_observed".to_string(), 0);
-        perf.insert("eval_memo_hits".to_string(), 0);
-        perf.insert("eval_memo_eval_node_cache_hits".to_string(), 0);
-        perf.insert("eval_memo_eval_node_cache_misses".to_string(), 0);
+        let mut eval_observation = EvalObservation::new(true)
+            .with_response_cache_key_hash(hash_fingerprint(&response_cache_key));
+        eval_observation.insert_counter("request_dag_observed", 0);
+        eval_observation.insert_counter("eval_memo_hits", 0);
+        eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
+        eval_observation.insert_counter("eval_memo_eval_node_cache_misses", 0);
+        eval_observation.write_perf(&mut perf);
         perf.insert(
             "response_cache_lookup_ms".to_string(),
             elapsed_ms(response_cache_lookup_started),
@@ -494,19 +479,20 @@ pub async fn dataset_metric_api(
         }));
     }
     let query_started = Instant::now();
-    let filtered_rows = query_dataset_rows(&app_root, primary_dataset, query.clone()).map_err(|error| {
-        tracing::warn!(
-            app_id = %app_id,
-            scene_id = %scene_ctx.scene_id,
-            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-            dataset_id = %resource.id,
-            metric_ids = %requested_metric_ids,
-            phase = "query_dataset_rows",
-            error = %error,
-            "metric query rows failed"
-        );
-        AppError::from(error)
-    })?;
+    let filtered_rows =
+        query_dataset_rows(&app_root, primary_dataset, query.clone()).map_err(|error| {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %scene_ctx.scene_id,
+                target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+                dataset_id = %resource.id,
+                metric_ids = %requested_metric_ids,
+                phase = "query_dataset_rows",
+                error = %error,
+                "metric query rows failed"
+            );
+            AppError::from(error)
+        })?;
     let query_ms = elapsed_ms(query_started);
     let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
@@ -515,21 +501,25 @@ pub async fn dataset_metric_api(
     }
     datasets.insert(access_plan.primary.id.clone(), runtime_dataset.clone());
     let hydrate_started = Instant::now();
-    let hydrate_perf =
-        hydrate_file_backed_datasets_for_metric_defs(&app_root, &mut datasets, &defs_for_hydrate, &query)
-            .map_err(|error| {
-                tracing::warn!(
-                    app_id = %app_id,
-                    scene_id = %scene_ctx.scene_id,
-                    target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-                    dataset_id = %resource.id,
-                    metric_ids = %requested_metric_ids,
-                    phase = "hydrate_bindings",
-                    error = %error,
-                    "metric query hydrate binding validation failed"
-                );
-                AppError::status(StatusCode::BAD_REQUEST, error.to_string())
-            })?;
+    let hydrate_perf = hydrate_file_backed_datasets_for_metric_defs(
+        &app_root,
+        &mut datasets,
+        &defs_for_hydrate,
+        &query,
+    )
+    .map_err(|error| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %scene_ctx.scene_id,
+            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            dataset_id = %resource.id,
+            metric_ids = %requested_metric_ids,
+            phase = "hydrate_bindings",
+            error = %error,
+            "metric query hydrate binding validation failed"
+        );
+        AppError::status(StatusCode::BAD_REQUEST, error.to_string())
+    })?;
     let hydrate_ms = elapsed_ms(hydrate_started);
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
@@ -594,39 +584,35 @@ pub async fn dataset_metric_api(
     };
     let mut perf = filtered_rows.perf.clone();
     let eval_scope_key = eval_node_cache_key("metric_scope", &eval_scope);
-    perf.insert("compile_ms".to_string(), compile_ms);
-    perf.insert(
-        "compile_cache_hit".to_string(),
-        u64::from(compile_outcome.cache_hit),
-    );
-    perf.insert(
-        "compile_cache_lookup_ms".to_string(),
-        compile_outcome.cache_lookup_ms,
-    );
-    perf.insert(
-        "compile_cache_lock_wait_ms".to_string(),
-        compile_outcome.compile_cache_lock_wait_ms,
-    );
+    compile_observation.write_perf(&mut perf);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-    perf.insert("response_cache_hit".to_string(), 0);
-    perf.insert(
-        "response_cache_key_hash".to_string(),
-        hash_fingerprint(&response_cache_key),
+    let mut eval_observation = EvalObservation::new(false)
+        .with_response_cache_key_hash(hash_fingerprint(&response_cache_key));
+    eval_observation.insert_counter("request_dag_observed", 1);
+    eval_observation.insert_counter("eval_memo_hits", dag_metrics.request_cache_hits);
+    eval_observation.insert_counter(
+        "eval_memo_eval_node_cache_hits",
+        dag_metrics.eval_node_cache_hits,
     );
+    eval_observation.insert_counter(
+        "eval_memo_eval_node_cache_misses",
+        dag_metrics.eval_node_cache_misses,
+    );
+    eval_observation.write_perf(&mut perf);
     perf.insert(
         "response_cache_lookup_ms".to_string(),
         elapsed_ms(response_cache_lookup_started),
     );
     perf.insert("query_api_ms".to_string(), query_ms);
     perf.insert("hydrate_datasets_ms".to_string(), hydrate_ms);
-    perf.insert(
-        "compat_compiled_metric_snapshot_fallback".to_string(),
-        0,
-    );
+    perf.insert("compat_compiled_metric_snapshot_fallback".to_string(), 0);
     for (key, value) in hydrate_perf {
         perf.insert(key, value);
     }
-    perf.insert("eval_plan_targets".to_string(), eval_plan.targets.len() as u64);
+    perf.insert(
+        "eval_plan_targets".to_string(),
+        eval_plan.targets.len() as u64,
+    );
     perf.insert("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64);
     perf.insert("eval_plan_edges".to_string(), eval_plan.edges.len() as u64);
     perf.insert(
@@ -665,7 +651,6 @@ pub async fn dataset_metric_api(
     perf.insert("request_dag_edges".to_string(), dag_metrics.edges as u64);
     perf.insert("request_dag_hits".to_string(), dag_metrics.hits);
     perf.insert("request_dag_misses".to_string(), dag_metrics.misses);
-    perf.insert("request_dag_observed".to_string(), 1);
     perf.insert(
         "request_dag_request_cache_hits".to_string(),
         dag_metrics.request_cache_hits,
@@ -676,15 +661,6 @@ pub async fn dataset_metric_api(
     );
     perf.insert(
         "request_dag_eval_node_cache_misses".to_string(),
-        dag_metrics.eval_node_cache_misses,
-    );
-    perf.insert("eval_memo_hits".to_string(), dag_metrics.request_cache_hits);
-    perf.insert(
-        "eval_memo_eval_node_cache_hits".to_string(),
-        dag_metrics.eval_node_cache_hits,
-    );
-    perf.insert(
-        "eval_memo_eval_node_cache_misses".to_string(),
         dag_metrics.eval_node_cache_misses,
     );
     if !workset.closure_metric_ids.is_empty() {
@@ -740,7 +716,9 @@ pub async fn dataset_metric_api(
 #[cfg(test)]
 mod tests {
     use super::runtime_metric_scope_requested;
-    use mei_lang_kernel::{FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange};
+    use mei_lang_kernel::{
+        FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange,
+    };
     use std::collections::BTreeMap;
 
     #[test]

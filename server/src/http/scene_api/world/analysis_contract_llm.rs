@@ -27,8 +27,9 @@ pub(crate) fn lookup_runtime_analysis_contract(
     if metric_id.is_empty() {
         return None;
     }
-    let canonical_id = resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
-        .unwrap_or_else(|| metric_id.to_string());
+    let canonical_id =
+        resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
+            .unwrap_or_else(|| metric_id.to_string());
     dataset
         .runtime_analysis_contracts
         .get(&canonical_id)
@@ -148,8 +149,7 @@ pub(crate) fn build_dataset_analysis_contracts_preview_for_access(
         let Some(owner_dataset) = owner.dataset.as_ref() else {
             continue;
         };
-        let Some(contract) =
-            lookup_runtime_analysis_contract(owner_dataset, &owner.id, metric_id)
+        let Some(contract) = lookup_runtime_analysis_contract(owner_dataset, &owner.id, metric_id)
         else {
             continue;
         };
@@ -179,7 +179,8 @@ pub(crate) fn build_dataset_analysis_contracts_preview(
         metric_ids.to_vec()
     };
     for metric_id in ids.iter().take(MAX_CONTRACTS_IN_PREVIEW) {
-        let Some(contract) = lookup_runtime_analysis_contract(dataset, resource_id, metric_id) else {
+        let Some(contract) = lookup_runtime_analysis_contract(dataset, resource_id, metric_id)
+        else {
             continue;
         };
         preview.insert(
@@ -207,6 +208,77 @@ pub(crate) fn contract_hint_when_preview_empty(preview: &Value) -> Option<String
     }
 }
 
+pub(crate) fn contract_attachment_stats(
+    contracts: &BTreeMap<String, Value>,
+    requested_metric_count: usize,
+) -> BTreeMap<String, u64> {
+    let present_count = contracts
+        .values()
+        .filter(|entry| {
+            entry
+                .get("present")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .count();
+    let mut stats = BTreeMap::new();
+    stats.insert(
+        "analysis_contract_requested_metric_count".to_string(),
+        requested_metric_count as u64,
+    );
+    stats.insert(
+        "analysis_contract_attachment_count".to_string(),
+        contracts.len() as u64,
+    );
+    stats.insert(
+        "analysis_contract_present_count".to_string(),
+        present_count as u64,
+    );
+    stats.insert(
+        "analysis_contract_missing_count".to_string(),
+        requested_metric_count.saturating_sub(present_count) as u64,
+    );
+    stats
+}
+
+pub(crate) fn contract_preview_stats(
+    preview: &Value,
+    visible_metric_count: usize,
+) -> BTreeMap<String, u64> {
+    let preview_count = preview.as_object().map(|map| map.len()).unwrap_or(0);
+    let present_count = preview
+        .as_object()
+        .map(|map| {
+            map.values()
+                .filter(|entry| {
+                    entry
+                        .get("present")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    let mut stats = BTreeMap::new();
+    stats.insert(
+        "analysis_contract_visible_metric_count".to_string(),
+        visible_metric_count as u64,
+    );
+    stats.insert(
+        "analysis_contract_preview_count".to_string(),
+        preview_count as u64,
+    );
+    stats.insert(
+        "analysis_contract_preview_present_count".to_string(),
+        present_count as u64,
+    );
+    stats.insert(
+        "analysis_contract_preview_missing_count".to_string(),
+        visible_metric_count.saturating_sub(present_count) as u64,
+    );
+    stats
+}
+
 pub(crate) fn build_metric_analysis_contract_attachments(
     compiled: &CompiledApp,
     primary_dataset: &DatasetView,
@@ -232,8 +304,7 @@ pub(crate) fn build_metric_analysis_contract_attachments(
         let Some(owner_dataset) = owner.dataset.as_ref() else {
             continue;
         };
-        let Some(contract) =
-            lookup_runtime_analysis_contract(owner_dataset, &owner.id, metric_id)
+        let Some(contract) = lookup_runtime_analysis_contract(owner_dataset, &owner.id, metric_id)
         else {
             continue;
         };
@@ -287,10 +358,7 @@ pub(crate) fn build_analysis_contract_catalog_lines(bundle: &WorldRuntimeBundle)
                         .join(",")
                 })
                 .unwrap_or_default();
-            let note = summary
-                .get("note")
-                .and_then(Value::as_str)
-                .unwrap_or("-");
+            let note = summary.get("note").and_then(Value::as_str).unwrap_or("-");
             lines.push(format!(
                 "    - metric={} title={} tabs=[{}] note={}",
                 metric_id, title, tabs, note
@@ -319,8 +387,9 @@ fn truncate_chars(input: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_dataset_analysis_contracts_preview, contract_hint_when_empty,
-        contract_hint_when_preview_empty, summarize_analysis_contract_for_llm,
+        build_dataset_analysis_contracts_preview, contract_attachment_stats,
+        contract_hint_when_empty, contract_hint_when_preview_empty, contract_preview_stats,
+        summarize_analysis_contract_for_llm,
     };
     use mei_lang_kernel::{DatasetView, SourceDecl};
     use serde_json::{json, Value};
@@ -354,7 +423,10 @@ mod tests {
         let summary = summarize_analysis_contract_for_llm(&contract);
         assert_eq!(summary.get("present").and_then(Value::as_bool), Some(true));
         assert_eq!(
-            summary.get("tabs").and_then(Value::as_array).map(|v| v.len()),
+            summary
+                .get("tabs")
+                .and_then(Value::as_array)
+                .map(|v| v.len()),
             Some(3)
         );
         assert_eq!(
@@ -416,9 +488,48 @@ mod tests {
             .and_then(Value::as_object)
             .expect("preview entry");
         assert_eq!(entry.get("present").and_then(Value::as_bool), Some(true));
+        assert_eq!(entry.get("title").and_then(Value::as_str), Some("订单明细"));
+    }
+
+    #[test]
+    fn contract_stats_reflect_present_and_missing() {
+        let attachments = BTreeMap::from([
+            ("m1".to_string(), json!({"present": true})),
+            ("m2".to_string(), json!({"present": false})),
+        ]);
+        let attachment_stats = contract_attachment_stats(&attachments, 3);
         assert_eq!(
-            entry.get("title").and_then(Value::as_str),
-            Some("订单明细")
+            attachment_stats.get("analysis_contract_attachment_count"),
+            Some(&2)
+        );
+        assert_eq!(
+            attachment_stats.get("analysis_contract_present_count"),
+            Some(&1)
+        );
+        assert_eq!(
+            attachment_stats.get("analysis_contract_missing_count"),
+            Some(&2)
+        );
+
+        let preview_stats = contract_preview_stats(
+            &json!({
+                "m1": {"present": true},
+                "m2": {"present": true},
+                "m3": {"present": false}
+            }),
+            4,
+        );
+        assert_eq!(
+            preview_stats.get("analysis_contract_preview_count"),
+            Some(&3)
+        );
+        assert_eq!(
+            preview_stats.get("analysis_contract_preview_present_count"),
+            Some(&2)
+        );
+        assert_eq!(
+            preview_stats.get("analysis_contract_preview_missing_count"),
+            Some(&2)
         );
     }
 }

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use crate::http::scene_api::{
     query_resource_dataset, query_resource_dataset_metric, query_resource_get, query_resource_list,
@@ -121,7 +122,15 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
             return format!("error: {e}");
         }
         let scope_ref = Some(&ws);
-        match tool_name {
+        let tool_started = Instant::now();
+        tracing::info!(
+            app_id = %app,
+            tool_name = %tool_name,
+            scene_id = %ws.scene_id.as_deref().unwrap_or("-"),
+            target_file = %ws.target_file.as_deref().unwrap_or("-"),
+            "resource tool started"
+        );
+        let output = match tool_name {
             "dataset_query" => {
                 let id = args
                     .get("id")
@@ -261,7 +270,18 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                 ))
             }
             other => format!("error: unknown resource tool `{other}`"),
-        }
+        };
+        tracing::info!(
+            app_id = %app,
+            tool_name = %tool_name,
+            scene_id = %ws.scene_id.as_deref().unwrap_or("-"),
+            target_file = %ws.target_file.as_deref().unwrap_or("-"),
+            elapsed_ms = tool_started.elapsed().as_millis() as u64,
+            result_bytes = output.len(),
+            result_is_error = output.starts_with("error:"),
+            "resource tool finished"
+        );
+        output
     }
 }
 
