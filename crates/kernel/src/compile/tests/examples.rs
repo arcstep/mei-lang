@@ -215,27 +215,6 @@ fn compile_refs_invalid_examples_report_expected_errors() {
 }
 
 #[test]
-fn compile_cockpit_qunfu_chrome_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
-    let app_root = source_root.join("03-spbjw-qunfu-chrome");
-    let compiled = compile_app_from_root(&source_root, &app_root)
-        .unwrap_or_else(|error| panic!("compile 03-spbjw-qunfu-chrome failed: {error}"));
-    assert!(
-        compiled
-            .diagnostics
-            .iter()
-            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
-        "03-spbjw-qunfu-chrome should not produce error diagnostics: {:?}",
-        compiled.diagnostics
-    );
-    assert!(
-        compiled.scene_contract.is_some(),
-        "03-spbjw-qunfu-chrome should produce a scene contract"
-    );
-}
-
-#[test]
 fn compile_capability_examples_baselines() {
     let root = workspace_root();
     let source_root = root.join("workspaces/examples/capability");
@@ -951,16 +930,3 @@ fn compile_cockpit_metric_data_example() {
     );
 }
 
-#[test]
-fn compile_cockpit_qunfu_chrome_includes_body_shell_panel() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
-    let app_root = source_root.join("03-spbjw-qunfu-chrome");
-    let compiled = compile_app_from_root(&source_root, &app_root).unwrap();
-    let sc = compiled.scene_contract.as_ref().expect("scene contract");
-    assert!(
-        sc.panels.iter().any(|p| p.id == "body_shell"),
-        "body_shell panel must compile; got ids: {:?}",
-        sc.panels.iter().map(|p| &p.id).collect::<Vec<_>>()
-    );
-}

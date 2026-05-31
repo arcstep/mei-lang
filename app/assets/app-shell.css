@@ -1630,8 +1630,8 @@ a.status-chip-link:focus-visible {
   min-height: 0;
   height: 100%;
 }
-.preview-card-bare .component-host > mei-cockpit-qunfu-park-donut-trio,
-.preview-card-bare .component-host > mei-cockpit-qunfu-park-amount-list,
+.preview-card-bare .component-host > mei-cockpit-park-donut-trio,
+.preview-card-bare .component-host > mei-cockpit-park-amount-list,
 .preview-card-bare .component-host > mei-cockpit-scroll-list,
 .preview-panel-body > .component-card > .component-host > mei-text,
 .preview-card-bare .component-host > mei-text {
@@ -1683,9 +1683,8 @@ a.status-chip-link:focus-visible {
 }
 .preview-panel-body > .component-card > .component-host > mei-cockpit-metric-progress,
 .preview-card-bare .component-host > mei-cockpit-metric-progress,
-.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-metric-tile,
-.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-donut-trio,
-.preview-panel-body > .component-card > .component-host > mei-cockpit-qunfu-park-amount-list,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-park-donut-trio,
+.preview-panel-body > .component-card > .component-host > mei-cockpit-park-amount-list,
 .preview-panel-body > .component-card > .component-host > mei-chart-trend,
 .preview-panel-body > .component-card > .component-host > mei-chart-line,
 .preview-panel-body > .component-card > .component-host > mei-chart-ranking,
