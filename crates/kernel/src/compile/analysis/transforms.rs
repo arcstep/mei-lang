@@ -297,11 +297,11 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                 }
                 "extract_number" => {
                     let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
-                    let text = row
-                        .get(field)
-                        .map(scalar_text)
-                        .unwrap_or_default();
-                    let pattern = analysis.get("pattern").and_then(Value::as_str).unwrap_or("");
+                    let text = row.get(field).map(scalar_text).unwrap_or_default();
+                    let pattern = analysis
+                        .get("pattern")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
                     let extracted = if pattern.is_empty() {
                         text.chars()
                             .filter(|ch| ch.is_ascii_digit() || *ch == '.')
@@ -312,7 +312,9 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                             .and_then(|regex| {
                                 regex
                                     .captures(&text)
-                                    .and_then(|captures| captures.get(1).or_else(|| captures.get(0)))
+                                    .and_then(|captures| {
+                                        captures.get(1).or_else(|| captures.get(0))
+                                    })
                                     .map(|matched| matched.as_str().to_string())
                             })
                             .unwrap_or_default()

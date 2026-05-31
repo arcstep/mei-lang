@@ -545,7 +545,10 @@ mod tests {
 
         assert_eq!(metric.semantic_kind(), SemanticNodeKind::Metric);
         assert!(metric.participates_in_metric_closure());
-        assert_eq!(narrative.semantic_kind(), SemanticNodeKind::NarrativeSupport);
+        assert_eq!(
+            narrative.semantic_kind(),
+            SemanticNodeKind::NarrativeSupport
+        );
         assert!(!narrative.participates_in_metric_closure());
         assert_eq!(tabular.semantic_kind(), SemanticNodeKind::TabularSource);
         assert!(!tabular.participates_in_metric_closure());
@@ -590,6 +593,8 @@ mod tests {
             }],
         };
         let errors = graph.validate_invariants();
-        assert!(errors.iter().any(|item| item.contains("must target a tabular source node")));
+        assert!(errors
+            .iter()
+            .any(|item| item.contains("must target a tabular source node")));
     }
 }

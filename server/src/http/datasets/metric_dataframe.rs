@@ -34,7 +34,8 @@ struct CachedMetricDataframeResult {
     result: DatasetQueryResult,
 }
 
-fn metric_dataframe_result_cache() -> &'static Mutex<BTreeMap<String, CachedMetricDataframeResult>> {
+fn metric_dataframe_result_cache() -> &'static Mutex<BTreeMap<String, CachedMetricDataframeResult>>
+{
     static CACHE: OnceLock<Mutex<BTreeMap<String, CachedMetricDataframeResult>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
@@ -129,8 +130,11 @@ pub fn query_metric_dataframe(
     query_state: Option<QueryState>,
     filter_intents: Vec<FilterIntent>,
 ) -> Result<DatasetQueryResult> {
-    let effective_query_state =
-        query_state_from_request(&options.filters, options.search.as_deref(), query_state.as_ref());
+    let effective_query_state = query_state_from_request(
+        &options.filters,
+        options.search.as_deref(),
+        query_state.as_ref(),
+    );
     let options = DatasetQueryOptions {
         search: effective_query_state.search.clone(),
         filters: effective_query_state.filters.clone(),
@@ -153,7 +157,11 @@ pub fn query_metric_dataframe(
             acc.entry(dataset.id.clone()).or_insert(dataset);
             acc
         });
-    let workset = runtime_metric_workset(&resource.id, std::slice::from_ref(&resolved_metric_id), dataset);
+    let workset = runtime_metric_workset(
+        &resource.id,
+        std::slice::from_ref(&resolved_metric_id),
+        dataset,
+    );
     let effective_metric_ids = workset
         .eval_metric_ids
         .clone()
@@ -321,9 +329,7 @@ pub fn query_metric_dataframe(
 
     let mut result = paginate_rows(rows, &columns, &meta.normalize, &normalized_options, true);
     result.perf.extend(filtered_rows.perf);
-    result
-        .perf
-        .insert("response_cache_hit".to_string(), 0);
+    result.perf.insert("response_cache_hit".to_string(), 0);
     result.perf.insert(
         "response_cache_key_hash".to_string(),
         hash_fingerprint(&response_cache_key),
@@ -338,9 +344,10 @@ pub fn query_metric_dataframe(
     result
         .perf
         .insert("metric_eval_ms".to_string(), metric_eval_ms);
-    result
-        .perf
-        .insert("eval_plan_targets".to_string(), eval_plan.targets.len() as u64);
+    result.perf.insert(
+        "eval_plan_targets".to_string(),
+        eval_plan.targets.len() as u64,
+    );
     result
         .perf
         .insert("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64);
@@ -391,9 +398,7 @@ pub fn query_metric_dataframe(
     result
         .perf
         .insert("request_dag_misses".to_string(), dag_metrics.misses);
-    result
-        .perf
-        .insert("request_dag_observed".to_string(), 1);
+    result.perf.insert("request_dag_observed".to_string(), 1);
     result.perf.insert(
         "request_dag_request_cache_hits".to_string(),
         dag_metrics.request_cache_hits,

@@ -217,7 +217,10 @@ fn eval_scalar_uncached(
                     Ok(rows) => rows,
                     Err(error) => {
                         if datasets.is_empty() {
-                            let fallback = object.get("fallback").cloned().unwrap_or_else(|| json!(0.0));
+                            let fallback = object
+                                .get("fallback")
+                                .cloned()
+                                .unwrap_or_else(|| json!(0.0));
                             ctx.store_scalar(expr, &fallback);
                             return Ok(fallback);
                         }

@@ -6,8 +6,8 @@ mod file_cache;
 mod geojson_dataset;
 mod json_dataset;
 mod metric_cache_key;
-mod metric_hydrate;
 mod metric_dataframe;
+mod metric_hydrate;
 mod metric_locate;
 mod paginate;
 mod paths;
@@ -17,18 +17,18 @@ mod types;
 mod util;
 mod xlsx_dataset;
 
-pub use metric_dataframe::query_metric_dataframe;
+pub(crate) use file_cache::clear_external_file_cache_for_app;
 pub(crate) use metric_cache_key::{
     eval_node_cache_key, metric_request_revision_fingerprint, metric_scope_cache_key,
-    normalize_query_filters, normalize_query_search, query_state_from_request, runtime_metric_eval_scope,
-    runtime_metric_workset, serialize_cache_value,
+    normalize_query_filters, normalize_query_search, query_state_from_request,
+    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value,
 };
+pub(crate) use metric_dataframe::clear_metric_dataframe_result_cache;
+pub use metric_dataframe::query_metric_dataframe;
 pub(crate) use metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 pub(crate) use metric_locate::{
     locate_runtime_metric_resource, metric_ids_visible_for_dataset, plan_access_metric_eval_for_ids,
 };
-pub(crate) use file_cache::clear_external_file_cache_for_app;
-pub(crate) use metric_dataframe::clear_metric_dataframe_result_cache;
 pub use query::query_dataset_rows;
 pub use types::{DatasetQueryOptions, TableColumnMeta, TableSummary};
 
@@ -290,8 +290,14 @@ mod tests {
             false,
         );
         assert_eq!(result.rows.len(), 2);
-        assert_eq!(result.rows[0].get("name").and_then(|v| v.as_str()), Some("alice"));
-        assert_eq!(result.rows[1].get("name").and_then(|v| v.as_str()), Some("bob"));
+        assert_eq!(
+            result.rows[0].get("name").and_then(|v| v.as_str()),
+            Some("alice")
+        );
+        assert_eq!(
+            result.rows[1].get("name").and_then(|v| v.as_str()),
+            Some("bob")
+        );
         assert!(result.has_more);
     }
 
@@ -327,9 +333,18 @@ mod tests {
             },
             true,
         );
-        assert_eq!(result.rows[0].get("amount").and_then(|v| v.as_str()), Some("920"));
-        assert_eq!(result.rows[1].get("amount").and_then(|v| v.as_str()), Some("125"));
-        assert_eq!(result.rows[2].get("amount").and_then(|v| v.as_str()), Some("99"));
+        assert_eq!(
+            result.rows[0].get("amount").and_then(|v| v.as_str()),
+            Some("920")
+        );
+        assert_eq!(
+            result.rows[1].get("amount").and_then(|v| v.as_str()),
+            Some("125")
+        );
+        assert_eq!(
+            result.rows[2].get("amount").and_then(|v| v.as_str()),
+            Some("99")
+        );
     }
 
     #[test]

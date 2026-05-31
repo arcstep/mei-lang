@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 
+use super::table_contract::{TableColumnState, TableSortSpec};
 use mei_lang_kernel::QueryTimeRange;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use super::table_contract::{TableColumnState, TableSortSpec};
 
 #[derive(Debug, Clone)]
 pub struct DatasetQueryOptions {

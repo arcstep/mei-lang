@@ -4,16 +4,16 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use mei_lang_kernel::{
-    dataset_materialize_cache_epoch, resolve_runtime_metric_def_key, resolve_versioned_source_identifier,
-    DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator, QueryState,
-    QueryTimeRange, RuntimeMetricEvalScope, runtime_analysis_closure_metric_ids,
+    dataset_materialize_cache_epoch, resolve_runtime_metric_def_key,
+    resolve_versioned_source_identifier, runtime_analysis_closure_metric_ids, DatasetView,
+    DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange,
+    RuntimeMetricEvalScope,
 };
 use serde::Serialize;
 use serde_json::Value;
 
 use super::metric_hydrate::{
-    collect_dataset_ids_from_metric_defs,
-    resolve_dataset_query_bindings_from_state,
+    collect_dataset_ids_from_metric_defs, resolve_dataset_query_bindings_from_state,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -56,7 +56,9 @@ pub(crate) fn normalize_query_group(group: &[String]) -> Vec<String> {
     normalized
 }
 
-pub(crate) fn normalize_query_time_range(time_range: Option<&QueryTimeRange>) -> Option<QueryTimeRange> {
+pub(crate) fn normalize_query_time_range(
+    time_range: Option<&QueryTimeRange>,
+) -> Option<QueryTimeRange> {
     let raw = time_range?;
     let dimension = raw
         .dimension
@@ -208,8 +210,11 @@ pub(crate) fn runtime_metric_workset(
     requested_metric_ids: &[String],
     dataset: &DatasetView,
 ) -> RuntimeMetricWorkset {
-    let resolved_metric_ids =
-        resolve_runtime_metric_ids(resource_id, requested_metric_ids, &dataset.runtime_metric_defs);
+    let resolved_metric_ids = resolve_runtime_metric_ids(
+        resource_id,
+        requested_metric_ids,
+        &dataset.runtime_metric_defs,
+    );
     if requested_metric_ids.is_empty() {
         return RuntimeMetricWorkset {
             resolved_metric_ids,
@@ -369,7 +374,10 @@ fn validate_runtime_scope_bindings(state: &QueryState, dataset: &DatasetView) ->
     Ok(())
 }
 
-pub(crate) fn eval_node_cache_key(expr_fingerprint: &str, scope: &RuntimeMetricEvalScope) -> String {
+pub(crate) fn eval_node_cache_key(
+    expr_fingerprint: &str,
+    scope: &RuntimeMetricEvalScope,
+) -> String {
     format!(
         "expr={}|dataset={}|scene={}|target={}|search={}|filters={}|group={}|time_range={}|deps={}",
         expr_fingerprint.trim(),
@@ -441,11 +449,7 @@ mod tests {
 
     #[test]
     fn metric_scope_cache_key_sorts_and_dedups() {
-        let value = metric_scope_cache_key(&[
-            "b".to_string(),
-            "a".to_string(),
-            "b".to_string(),
-        ]);
+        let value = metric_scope_cache_key(&["b".to_string(), "a".to_string(), "b".to_string()]);
         assert_eq!(value, "[\"a\",\"b\"]");
     }
 
@@ -553,7 +557,10 @@ mod tests {
 
     #[test]
     fn normalize_query_search_trims_blank() {
-        assert_eq!(normalize_query_search(Some("  abc ")), Some("abc".to_string()));
+        assert_eq!(
+            normalize_query_search(Some("  abc ")),
+            Some("abc".to_string())
+        );
         assert_eq!(normalize_query_search(Some("   ")), None);
         assert_eq!(normalize_query_search(None), None);
     }
@@ -642,10 +649,16 @@ mod tests {
             "deps=v1",
         )
         .expect("runtime metric eval scope");
-        assert_eq!(scope.query_state.filters.get("status"), Some(&"待办".to_string()));
+        assert_eq!(
+            scope.query_state.filters.get("status"),
+            Some(&"待办".to_string())
+        );
         assert_eq!(scope.query_state.search.as_deref(), Some("host keyword"));
         assert_eq!(scope.filter_intents.len(), 1);
-        assert_eq!(scope.filter_intents[0].source, FilterIntentSource::FilterBar);
+        assert_eq!(
+            scope.filter_intents[0].source,
+            FilterIntentSource::FilterBar
+        );
         assert_eq!(scope.filter_intents[0].dimension, "status");
         assert_eq!(scope.filter_intents[0].value, "待办");
     }
@@ -691,10 +704,9 @@ mod tests {
             "deps=v1",
         )
         .expect_err("unresolved binding should fail");
-        assert!(
-            err.to_string()
-                .contains("requires resolvable filter bindings for dataset `warning_list`: department")
-        );
+        assert!(err.to_string().contains(
+            "requires resolvable filter bindings for dataset `warning_list`: department"
+        ));
     }
 
     #[test]
@@ -764,7 +776,8 @@ mod tests {
             group: Vec::new(),
             time_range: None,
         };
-        let merged = query_state_from_request(&filters, Some(" request keyword "), Some(&query_state));
+        let merged =
+            query_state_from_request(&filters, Some(" request keyword "), Some(&query_state));
         assert_eq!(merged.filters.get("status"), Some(&"待办".to_string()));
         assert_eq!(merged.search.as_deref(), Some("host keyword"));
     }
@@ -881,11 +894,8 @@ mod tests {
             ),
             runtime_analysis_contracts: Default::default(),
         };
-        let workset = runtime_metric_workset(
-            "warning_list",
-            &["sales_total".to_string()],
-            &dataset,
-        );
+        let workset =
+            runtime_metric_workset("warning_list", &["sales_total".to_string()], &dataset);
         assert_eq!(workset.resolved_metric_ids, vec!["sales_total".to_string()]);
         assert_eq!(
             workset.eval_metric_ids,

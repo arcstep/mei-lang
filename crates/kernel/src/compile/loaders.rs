@@ -112,13 +112,7 @@ mod tests {
         ]);
         assert_eq!(
             headers,
-            vec![
-                "__EMPTY",
-                "__EMPTY_1",
-                "__EMPTY_2",
-                "预警ID",
-                "预警条数"
-            ]
+            vec!["__EMPTY", "__EMPTY_1", "__EMPTY_2", "预警ID", "预警条数"]
         );
     }
 }
@@ -225,6 +219,12 @@ pub(super) fn load_legacy_xlsx_rows(
     header_row: usize,
     max_rows: Option<usize>,
 ) -> Result<Vec<Value>> {
-    let snapshot = load_xlsx_table_snapshot(path, path.to_string_lossy().as_ref(), sheet, header_row, max_rows)?;
+    let snapshot = load_xlsx_table_snapshot(
+        path,
+        path.to_string_lossy().as_ref(),
+        sheet,
+        header_row,
+        max_rows,
+    )?;
     Ok(snapshot.rows)
 }

@@ -930,4 +930,3 @@ fn compile_cockpit_metric_data_example() {
         use_keys
     );
 }
-

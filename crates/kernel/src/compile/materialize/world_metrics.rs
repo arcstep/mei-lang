@@ -203,10 +203,14 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope(
     metric_ids: Option<&[String]>,
     scope: &RuntimeMetricEvalScope,
 ) -> Result<BTreeMap<String, MetricContract>> {
-    Ok(
-        evaluate_runtime_metric_defs_with_scope_and_dag(metric_defs, base_rows, datasets, metric_ids, scope)?
-            .0,
-    )
+    Ok(evaluate_runtime_metric_defs_with_scope_and_dag(
+        metric_defs,
+        base_rows,
+        datasets,
+        metric_ids,
+        scope,
+    )?
+    .0)
 }
 
 pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
@@ -221,8 +225,7 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
     // higher layers when no runtime defs exist at all.
     let expanded_defs = expand_runtime_metric_defs(metric_defs);
     let selected_defs = if let Some(ids) = metric_ids {
-        ids
-            .iter()
+        ids.iter()
             .filter_map(|id| {
                 expanded_defs
                     .get(id)
@@ -266,7 +269,9 @@ mod resolve_key_tests {
             ),
             Some("scenes/5_问题办理/问题办理.mei".to_string())
         );
-        assert!(imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none());
+        assert!(
+            imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none()
+        );
     }
 
     #[test]

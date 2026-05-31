@@ -128,7 +128,9 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
             for (entry_key, entry_value) in values {
                 let resolved =
                     eval_scalar_value_with_ctx(entry_value, base_rows, datasets, &mut eval_ctx)
-                    .with_context(|| format!("legacy metric `{metric_id}` field `{entry_key}`"))?;
+                        .with_context(|| {
+                            format!("legacy metric `{metric_id}` field `{entry_key}`")
+                        })?;
                 out.insert(entry_key.clone(), resolved);
             }
             Value::Object(out)

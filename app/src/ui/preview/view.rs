@@ -63,7 +63,11 @@ pub(super) fn preview_view(
                         route_mode,
                     )
                 } else {
-                    viewport::frame_viewport_style_for_route(&vp, overflow_mode.as_str(), route_mode)
+                    viewport::frame_viewport_style_for_route(
+                        &vp,
+                        overflow_mode.as_str(),
+                        route_mode,
+                    )
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
                 let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
@@ -94,13 +98,8 @@ pub(super) fn preview_view(
                     "preview-surface preview-stage"
                 };
                 // 仅显式 viewport + 固定画布调试：profile 默认 page-flow 不展示缩放条
-                let show_viewport_chrome =
-                    is_manage && viewport_explicit && !fluid_height;
-                let viewport_explicit_attr = if viewport_explicit {
-                    "true"
-                } else {
-                    "false"
-                };
+                let show_viewport_chrome = is_manage && viewport_explicit && !fluid_height;
+                let viewport_explicit_attr = if viewport_explicit { "true" } else { "false" };
                 let chrome_height = if fluid_height {
                     content_bounds.height
                 } else {

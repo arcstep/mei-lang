@@ -15,9 +15,7 @@ use super::super::{
     },
     decls::{LegacyDatasetDecl, LegacySourceDecl},
     loaders::load_xlsx_table_snapshot,
-    materialize_cache::{
-        cached_load_legacy_rows_from_source, try_get_cached_xlsx_table_snapshot,
-    },
+    materialize_cache::{cached_load_legacy_rows_from_source, try_get_cached_xlsx_table_snapshot},
     resources::csv_record_to_json,
 };
 

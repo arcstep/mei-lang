@@ -78,7 +78,8 @@ fn placeholder_only_text(text: &str) -> bool {
     if text.is_empty() {
         return false;
     }
-    text.chars().all(|ch| matches!(ch, '-' | '—' | '－' | '―' | ' ' | '\t' | '\n' | '\r'))
+    text.chars()
+        .all(|ch| matches!(ch, '-' | '—' | '－' | '―' | ' ' | '\t' | '\n' | '\r'))
 }
 
 #[cfg(test)]

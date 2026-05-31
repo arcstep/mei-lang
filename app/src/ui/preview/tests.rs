@@ -546,8 +546,8 @@ fn resolve_frame_viewport_uses_profile_default_without_explicit_props() {
     assert!(!super::viewport::frame_viewport_is_explicit(&props));
     let vp = super::viewport::resolve_frame_viewport(&props, Some("page")).expect("page default");
     assert!(vp.fluid_height);
-    let cockpit = super::viewport::resolve_frame_viewport(&props, Some("cockpit"))
-        .expect("cockpit default");
+    let cockpit =
+        super::viewport::resolve_frame_viewport(&props, Some("cockpit")).expect("cockpit default");
     assert!(!cockpit.fluid_height);
 }
 
@@ -1118,18 +1118,14 @@ fn attach_host_meta_exposes_shared_context_to_components() {
             .and_then(Value::as_str),
         Some("/api/datasets/metrics/apps/preview-shared")
     );
-    assert!(
-        props
-            .get("_mei")
-            .and_then(|value| value.get("dataset_query_api"))
-            .is_none()
-    );
-    assert!(
-        props
-            .get("_mei")
-            .and_then(|value| value.get("metric_query_api"))
-            .is_none()
-    );
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("dataset_query_api"))
+        .is_none());
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("metric_query_api"))
+        .is_none());
     assert_eq!(
         props
             .get("_mei")
@@ -1881,8 +1877,8 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
 
 fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
     use mei_lang_kernel::{
-        build_runtime_analysis_contracts, build_runtime_analysis_graph, MetricContract, MetricShape,
-        SceneDecl, SourceDecl, WorldMetricLedgerEntry,
+        build_runtime_analysis_contracts, build_runtime_analysis_graph, MetricContract,
+        MetricShape, SceneDecl, SourceDecl, WorldMetricLedgerEntry,
     };
 
     let scene_contract = SceneContract {
@@ -1933,7 +1929,8 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
         value: json!([{"id": "A", "value": 100}]),
     };
     let runtime_metric_defs = BTreeMap::from([("sales_total".to_string(), runtime_def)]);
-    let runtime_analysis_graph = build_runtime_analysis_graph(&runtime_metric_defs, "sales_metrics");
+    let runtime_analysis_graph =
+        build_runtime_analysis_graph(&runtime_metric_defs, "sales_metrics");
     let runtime_analysis_contracts =
         build_runtime_analysis_contracts(&runtime_metric_defs, "sales_metrics");
     let resource = LoadedResource {
@@ -2041,7 +2038,10 @@ fn resolve_value_builds_analysis_contract_from_explain_list() {
         .and_then(Value::as_object)
         .expect("analysis contract from explain list");
     assert_eq!(
-        contract.get("tabs").and_then(Value::as_array).map(|items| items.len()),
+        contract
+            .get("tabs")
+            .and_then(Value::as_array)
+            .map(|items| items.len()),
         Some(3)
     );
     assert_eq!(

@@ -69,7 +69,10 @@ fn normalize_contract_filters(filters: &BTreeMap<String, String>) -> BTreeMap<St
 }
 
 fn normalize_contract_search(search: Option<&str>) -> Option<String> {
-    search.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+    search
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 pub fn strict_runtime_query_contract(
@@ -309,8 +312,9 @@ mod tests {
 
     #[test]
     fn strict_scene_query_coords_rejects_target_only_requests() {
-        let error = strict_scene_query_coords(None, Some("scenes/home.mei".to_string()), "dataset query")
-            .expect_err("target-only requests should fail");
+        let error =
+            strict_scene_query_coords(None, Some("scenes/home.mei".to_string()), "dataset query")
+                .expect_err("target-only requests should fail");
         let debug = format!("{error:?}");
         assert!(
             debug.contains("requires `scene_id`"),
@@ -334,14 +338,8 @@ mod tests {
     fn strict_runtime_query_contract_rejects_filters_without_query_state() {
         let mut filters = std::collections::BTreeMap::new();
         filters.insert("region".to_string(), "east".to_string());
-        let error = strict_runtime_query_contract(
-            &filters,
-            None,
-            None,
-            &[],
-            "dataset query",
-        )
-        .expect_err("filters without query_state should fail");
+        let error = strict_runtime_query_contract(&filters, None, None, &[], "dataset query")
+            .expect_err("filters without query_state should fail");
         let debug = format!("{error:?}");
         assert!(
             debug.contains("requires `query_state`"),
@@ -365,7 +363,10 @@ mod tests {
         )
         .expect_err("filter intents without query_state should fail");
         let debug = format!("{error:?}");
-        assert!(debug.contains("requires `query_state`"), "unexpected error: {debug}");
+        assert!(
+            debug.contains("requires `query_state`"),
+            "unexpected error: {debug}"
+        );
     }
 
     #[test]
@@ -388,7 +389,10 @@ mod tests {
         )
         .expect_err("conflicting filters should fail");
         let debug = format!("{error:?}");
-        assert!(debug.contains("conflicting `filters`"), "unexpected error: {debug}");
+        assert!(
+            debug.contains("conflicting `filters`"),
+            "unexpected error: {debug}"
+        );
     }
 
     #[test]

@@ -27,11 +27,9 @@ pub(crate) fn locate_runtime_metric_resource<'a>(
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     if let Some(dataset) = primary.dataset.as_ref() {
         if dataset.has_runtime_metric_defs() {
-            if let Some(resolved) = resolve_runtime_metric_def_key(
-                &primary.id,
-                metric_id,
-                &dataset.runtime_metric_defs,
-            ) {
+            if let Some(resolved) =
+                resolve_runtime_metric_def_key(&primary.id, metric_id, &dataset.runtime_metric_defs)
+            {
                 return Ok((primary, resolved));
             }
         }
@@ -179,13 +177,7 @@ pub(crate) fn metric_ids_visible_for_dataset(
 ) -> Vec<String> {
     let mut ids = BTreeSet::new();
     if !primary_dataset.runtime_metric_defs.is_empty() {
-        ids.extend(
-            primary_dataset
-                .runtime_metric_defs
-                .keys()
-                .take(64)
-                .cloned(),
-        );
+        ids.extend(primary_dataset.runtime_metric_defs.keys().take(64).cloned());
     } else if let Some(metrics) = world_metrics_decl {
         ids.extend(metrics.keys().take(64).cloned());
     }
@@ -341,12 +333,9 @@ mod tests {
     #[test]
     fn plan_access_metric_eval_for_ids_uses_world_metrics_owner() {
         let compiled = compiled_with_split_metrics();
-        let plan = plan_access_metric_eval_for_ids(
-            &compiled,
-            "orders",
-            &["orders_total".to_string()],
-        )
-        .expect("plan");
+        let plan =
+            plan_access_metric_eval_for_ids(&compiled, "orders", &["orders_total".to_string()])
+                .expect("plan");
         assert_eq!(plan.primary.id, "orders");
         assert_eq!(plan.owner.id, WORLD_METRICS_RESOURCE_ID);
         assert!(plan.primary_dataset.runtime_metric_defs.is_empty());

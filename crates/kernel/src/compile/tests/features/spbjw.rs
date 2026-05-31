@@ -833,7 +833,8 @@ fn compile_spbjw_admin_inspection_switches_to_popup_scene_contracts() {
         "行政检查入口卡应全部指向独立 popup scene，got: {encoded}"
     );
     assert!(
-        !encoded.contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
+        !encoded
+            .contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
         "第二批后行政检查不应再直连模板壳 scene_file，got: {encoded}"
     );
 }
@@ -844,7 +845,10 @@ fn compile_spbjw_admin_inspection_popup_scenes_are_previewable() {
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
     let popup_targets = [
-        ("scenes/2_行政检查/inspection-total-popup.mei", "composition_by_agency"),
+        (
+            "scenes/2_行政检查/inspection-total-popup.mei",
+            "composition_by_agency",
+        ),
         ("scenes/2_行政检查/inspection-today-popup.mei", "detail"),
         ("scenes/2_行政检查/inspection-week-popup.mei", "detail"),
         ("scenes/2_行政检查/inspection-complaint-popup.mei", "detail"),
@@ -998,7 +1002,10 @@ fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
             "scenes/1_执法要素/enforcement-park-popup.mei",
             "composition_by_town",
         ),
-        ("scenes/1_执法要素/enforcement-whitelist-popup.mei", "detail"),
+        (
+            "scenes/1_执法要素/enforcement-whitelist-popup.mei",
+            "detail",
+        ),
         (
             "scenes/1_执法要素/enforcement-units-popup.mei",
             "composition_by_category",
@@ -1027,21 +1034,12 @@ fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
         ("scenes/5_问题办理/issue-doing-popup.mei", "detail"),
         ("scenes/5_问题办理/issue-done-popup.mei", "detail"),
         ("scenes/5_问题办理/issue-rate-popup.mei", "detail"),
-        (
-            "scenes/5_问题办理/effect-transfer-clue-popup.mei",
-            "detail",
-        ),
+        ("scenes/5_问题办理/effect-transfer-clue-popup.mei", "detail"),
         ("scenes/5_问题办理/effect-filing-popup.mei", "detail"),
         ("scenes/5_问题办理/effect-sanction-popup.mei", "detail"),
         ("scenes/5_问题办理/effect-handled-popup.mei", "detail"),
-        (
-            "scenes/5_问题办理/effect-recovered-popup.mei",
-            "detail",
-        ),
-        (
-            "scenes/5_问题办理/effect-mechanism-popup.mei",
-            "detail",
-        ),
+        ("scenes/5_问题办理/effect-recovered-popup.mei", "detail"),
+        ("scenes/5_问题办理/effect-mechanism-popup.mei", "detail"),
     ];
 
     for (target, expected_entry) in popup_targets {
@@ -1294,10 +1292,11 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
                 .get(metric_id)
                 .and_then(|metric| metric.get("explain"))
         });
-        let explain = explain.unwrap_or_else(|| panic!("{metric_id} explain should exist in {target}"));
-        let items = explain
-            .as_array()
-            .unwrap_or_else(|| panic!("{metric_id} explain should normalize to list in {target}: {explain:?}"));
+        let explain =
+            explain.unwrap_or_else(|| panic!("{metric_id} explain should exist in {target}"));
+        let items = explain.as_array().unwrap_or_else(|| {
+            panic!("{metric_id} explain should normalize to list in {target}: {explain:?}")
+        });
         assert!(
             !items.is_empty(),
             "{metric_id} explain list should not be empty in {target}"

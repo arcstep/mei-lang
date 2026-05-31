@@ -447,8 +447,7 @@ fn resolve_data_ref(
 /// `world.add_metric` / `world(metrics=...)` 物化进 ledger 时 owner 为 `__world_metrics__`（或带路径后缀），
 /// 与 `metric_ref(..., from_dataset = "<源数据集>")` 中的 lineage 提示 id 不同，不应因此拒绝解析。
 fn is_scene_direct_world_metric_owner(owner_resource_id: &str) -> bool {
-    owner_resource_id == "__world_metrics__"
-        || owner_resource_id.starts_with("__world_metrics__::")
+    owner_resource_id == "__world_metrics__" || owner_resource_id.starts_with("__world_metrics__::")
 }
 
 fn resolve_metric_ref(
@@ -616,9 +615,13 @@ fn lookup_runtime_analysis_contract(
     }
     let resource = resources.get(dataset_id)?;
     let dataset = resource.dataset.as_ref()?;
-    let canonical_id = resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)
-        .unwrap_or_else(|| metric_id.to_string());
-    dataset.runtime_analysis_contracts.get(&canonical_id).cloned()
+    let canonical_id =
+        resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)
+            .unwrap_or_else(|| metric_id.to_string());
+    dataset
+        .runtime_analysis_contracts
+        .get(&canonical_id)
+        .cloned()
 }
 
 fn infer_primary_metric_dataset_id(
@@ -1196,8 +1199,10 @@ fn normalize_explain_entry_object(obj: &serde_json::Map<String, Value>) -> Optio
 
 fn normalize_analysis_node_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
     let local_id = first_non_empty_string(obj, &["analysis_local_id", "key", "id"])?;
-    let scoped_metric_id =
-        first_non_empty_string(obj, &["analysis_scoped_id", "analysis_node_id", "key", "id"])?;
+    let scoped_metric_id = first_non_empty_string(
+        obj,
+        &["analysis_scoped_id", "analysis_node_id", "key", "id"],
+    )?;
     let mut node = serde_json::Map::new();
     node.insert("id".to_string(), Value::String(local_id));
     node.insert("metric_id".to_string(), Value::String(scoped_metric_id));
@@ -1307,7 +1312,15 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             if meta.drilldown_note.is_none() {
                 meta.drilldown_note = first_non_empty_string(
                     map,
-                    &["note", "content", "text", "markdown", "md", "desc", "description"],
+                    &[
+                        "note",
+                        "content",
+                        "text",
+                        "markdown",
+                        "md",
+                        "desc",
+                        "description",
+                    ],
                 );
             }
             let mut block = map.clone();
@@ -1339,11 +1352,22 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             if meta.drilldown_note.is_none() {
                 meta.drilldown_note = first_non_empty_string(
                     entry_obj,
-                    &["note", "content", "text", "markdown", "md", "desc", "description"],
+                    &[
+                        "note",
+                        "content",
+                        "text",
+                        "markdown",
+                        "md",
+                        "desc",
+                        "description",
+                    ],
                 );
             }
             if meta.drilldown_basis_refs.is_empty() {
-                if let Some(value) = entry_obj.get("basis_refs").or_else(|| entry_obj.get("basisRefs")) {
+                if let Some(value) = entry_obj
+                    .get("basis_refs")
+                    .or_else(|| entry_obj.get("basisRefs"))
+                {
                     meta.drilldown_basis_refs = string_array_from_value(value);
                 }
             }
@@ -1401,8 +1425,7 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             }
         } else if kind == "numerator_denominator" {
             if meta.drilldown_ratio_numerator.is_none() {
-                meta.drilldown_ratio_numerator =
-                    first_non_empty_string(entry_obj, &["numerator"]);
+                meta.drilldown_ratio_numerator = first_non_empty_string(entry_obj, &["numerator"]);
             }
             if meta.drilldown_ratio_denominator.is_none() {
                 meta.drilldown_ratio_denominator =
@@ -1464,15 +1487,9 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
         );
     }
     if meta.drilldown_dataset_id.is_none() && !uses_table_metric {
-        meta.drilldown_dataset_id = meta
-            .explain_detail_dataset
-            .clone()
-            .or_else(|| {
-                first_non_empty_string(
-                    map,
-                    &["dataset_id", "datasetId", "drilldown_dataset_id"],
-                )
-            });
+        meta.drilldown_dataset_id = meta.explain_detail_dataset.clone().or_else(|| {
+            first_non_empty_string(map, &["dataset_id", "datasetId", "drilldown_dataset_id"])
+        });
     }
     if meta.explain_metrics.is_empty() {
         if let Some(value) = map.get("metrics") {
@@ -1524,7 +1541,11 @@ fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricD
         }
     }
     if meta.analysis_blocks.is_empty() {
-        if let Some(note) = meta.drilldown_note.as_deref().filter(|value| !value.is_empty()) {
+        if let Some(note) = meta
+            .drilldown_note
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
             meta.analysis_blocks.push(json!({
                 "__kind": "explain_item",
                 "id": "note",
@@ -1581,8 +1602,11 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
                     .filter(|value| !value.is_empty())
                     .map(str::to_string)
             });
-            let detail_table_metric_id = detail_table_metric_id
-                .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source));
+            let detail_table_metric_id = detail_table_metric_id.or_else(|| {
+                normalized_source
+                    .as_ref()
+                    .and_then(table_metric_id_from_source)
+            });
             if let Some(table_metric_id) = detail_table_metric_id {
                 override_obj.insert(
                     "table_metric_id".to_string(),
@@ -1591,12 +1615,7 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             }
             let detail_dataset_id = first_non_empty_string(
                 obj,
-                &[
-                    "detail_dataset",
-                    "detailDataset",
-                    "dataset_id",
-                    "datasetId",
-                ],
+                &["detail_dataset", "detailDataset", "dataset_id", "datasetId"],
             )
             .or_else(|| {
                 meta.drilldown_dataset_id
@@ -1620,23 +1639,20 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             }
             if let Some(table_metric_id) = first_non_empty_string(
                 obj,
-                &[
-                    "table_metric_id",
-                    "tableMetricId",
-                    "metric_id",
-                    "metricId",
-                ],
+                &["table_metric_id", "tableMetricId", "metric_id", "metricId"],
             )
-            .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source))
-            {
+            .or_else(|| {
+                normalized_source
+                    .as_ref()
+                    .and_then(table_metric_id_from_source)
+            }) {
                 override_obj.insert(
                     "table_metric_id".to_string(),
                     Value::String(table_metric_id),
                 );
             }
-            if let Some(dataset_id) =
-                first_non_empty_string(obj, &["dataset_id", "datasetId"])
-                    .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
+            if let Some(dataset_id) = first_non_empty_string(obj, &["dataset_id", "datasetId"])
+                .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
             {
                 override_obj.insert("dataset_id".to_string(), Value::String(dataset_id));
             }
@@ -1649,23 +1665,20 @@ fn sync_explain_metric_tab_overrides(meta: &mut MetricDrilldownMeta) {
             }
             if let Some(table_metric_id) = first_non_empty_string(
                 obj,
-                &[
-                    "table_metric_id",
-                    "tableMetricId",
-                    "metric_id",
-                    "metricId",
-                ],
+                &["table_metric_id", "tableMetricId", "metric_id", "metricId"],
             )
-            .or_else(|| normalized_source.as_ref().and_then(table_metric_id_from_source))
-            {
+            .or_else(|| {
+                normalized_source
+                    .as_ref()
+                    .and_then(table_metric_id_from_source)
+            }) {
                 override_obj.insert(
                     "table_metric_id".to_string(),
                     Value::String(table_metric_id),
                 );
             }
-            if let Some(dataset_id) =
-                first_non_empty_string(obj, &["dataset_id", "datasetId"])
-                    .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
+            if let Some(dataset_id) = first_non_empty_string(obj, &["dataset_id", "datasetId"])
+                .or_else(|| normalized_source.as_ref().and_then(dataset_id_from_source))
             {
                 override_obj.insert("dataset_id".to_string(), Value::String(dataset_id));
             }

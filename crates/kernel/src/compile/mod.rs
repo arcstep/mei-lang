@@ -44,8 +44,8 @@ use ui_data_policy::validate_imported_catalog_world_refs;
 
 use app_decl::decode_app_decl;
 use catalog::{
-    build_dataset_catalog_filter, catalog_compile_parallelism, compile_dataset_catalog_resources,
-    clear_dataset_catalog_index_cache, dataset_catalog_index_cache_metrics_snapshot,
+    build_dataset_catalog_filter, catalog_compile_parallelism, clear_dataset_catalog_index_cache,
+    compile_dataset_catalog_resources, dataset_catalog_index_cache_metrics_snapshot,
     merge_resource_catalog, DatasetCatalogFilter,
 };
 use decl_file_cache::{clear_decl_file_cache, decl_file_cache_metrics_snapshot};
@@ -1254,10 +1254,21 @@ pub fn compile_app_from_root_with_options(
             continue;
         };
         let mut assembly = serde_json::Map::new();
-        assembly.insert("scene_id".to_string(), Value::String(route.scene_id.clone()));
-        assembly.insert("target_file".to_string(), Value::String(route.target_file.clone()));
+        assembly.insert(
+            "scene_id".to_string(),
+            Value::String(route.scene_id.clone()),
+        );
+        assembly.insert(
+            "target_file".to_string(),
+            Value::String(route.target_file.clone()),
+        );
         assembly.insert("kind".to_string(), Value::String(route.kind.clone()));
-        if let Some(title) = route.title.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(title) = route
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
             assembly.insert("title".to_string(), Value::String(title.to_string()));
         }
         if !contract.scene.bindings.is_null() {
@@ -1269,10 +1280,8 @@ pub fn compile_app_from_root_with_options(
             assembly.insert("examples".to_string(), contract.scene.examples.clone());
         }
         if !contract.scene.local_nav.is_null() {
-            scene_local_nav_by_target.insert(
-                route.target_file.clone(),
-                contract.scene.local_nav.clone(),
-            );
+            scene_local_nav_by_target
+                .insert(route.target_file.clone(), contract.scene.local_nav.clone());
             assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
         }
         scene_projection_assembly_by_id.insert(route.scene_id.clone(), Value::Object(assembly));
@@ -1343,11 +1352,11 @@ pub fn compile_app_from_root_with_options(
     })
 }
 
-pub use materialize_cache::dataset_materialize_cache_epoch;
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
+pub use materialize_cache::dataset_materialize_cache_epoch;
+pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use materialize_cache::TableSnapshot;
 pub use materialize_cache::TableSnapshotKey;
-pub use materialize_cache::try_get_cached_xlsx_table_snapshot;
 pub use panel_normalize::panel_resolved_has_head;
 pub use scene_payload_cache::scene_payload_cache_epoch;
 
@@ -1391,7 +1400,11 @@ pub fn evaluate_runtime_metric_defs_with_scope(
     scope: &analysis::eval_context::RuntimeMetricEvalScope,
 ) -> Result<BTreeMap<String, crate::model::MetricContract>> {
     materialize::evaluate_runtime_metric_defs_with_scope(
-        metric_defs, base_rows, datasets, metric_ids, scope,
+        metric_defs,
+        base_rows,
+        datasets,
+        metric_ids,
+        scope,
     )
 }
 
@@ -1406,7 +1419,11 @@ pub fn evaluate_runtime_metric_defs_with_scope_and_dag(
     materialize::RuntimeMetricEvalReport,
 )> {
     materialize::evaluate_runtime_metric_defs_with_scope_and_dag(
-        metric_defs, base_rows, datasets, metric_ids, scope,
+        metric_defs,
+        base_rows,
+        datasets,
+        metric_ids,
+        scope,
     )
 }
 
@@ -1431,13 +1448,13 @@ pub fn runtime_analysis_closure_metric_ids(
     materialize::analysis_closure_metric_ids(graph, focus_ids)
 }
 
+pub use analysis::eval_context::{
+    runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
+};
+pub use materialize::resolve_runtime_metric_def_key;
 pub use materialize::{
     EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
     RuntimeMetricEvalReport,
-};
-pub use materialize::resolve_runtime_metric_def_key;
-pub use analysis::eval_context::{
-    runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
 };
 
 #[cfg(test)]

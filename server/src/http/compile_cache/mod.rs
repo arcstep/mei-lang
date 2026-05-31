@@ -186,8 +186,13 @@ pub(crate) fn compile_app_with_cache(
             Ok(compiled) => Ok(CompileWithCacheOutcome {
                 compiled,
                 cache_hit: true,
-                compile_revision: revision::compile_revision(state, app_id, &options, components_root)
-                    .token,
+                compile_revision: revision::compile_revision(
+                    state,
+                    app_id,
+                    &options,
+                    components_root,
+                )
+                .token,
                 revision_scope: "singleflight_wait".to_string(),
                 cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),

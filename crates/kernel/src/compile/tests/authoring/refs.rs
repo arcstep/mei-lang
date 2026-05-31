@@ -467,10 +467,7 @@ world(
 frame(layout = flex(direction = "column"))
 "#,
     );
-    write_file(
-        &app_root.join("sales.csv"),
-        "name,value\nA,42\n",
-    );
+    write_file(&app_root.join("sales.csv"), "name,value\nA,42\n");
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile scene bindings");
     assert_eq!(
@@ -527,10 +524,7 @@ world(
 frame(layout = flex(direction = "column"))
 "#,
     );
-    write_file(
-        &app_root.join("sales.csv"),
-        "name,value\nA,42\n",
-    );
+    write_file(&app_root.join("sales.csv"), "name,value\nA,42\n");
 
     let compiled =
         compile_app_from_root(&root, &app_root).expect("compile missing required binding app");

@@ -196,7 +196,11 @@ fn scan_deprecated_popup_binding(
     let Value::Object(map) = value else {
         return;
     };
-    let mode = map.get("mode").and_then(Value::as_str).unwrap_or_default().trim();
+    let mode = map
+        .get("mode")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .trim();
     let kind = map
         .get("__kind")
         .and_then(Value::as_str)

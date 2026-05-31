@@ -5,22 +5,24 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::{FilterIntent, QueryState, clear_runtime_compile_caches};
+use mei_lang_kernel::{clear_runtime_compile_caches, FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 
-use super::super::compile_cache::compile_app_with_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
+use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{
-    clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows, query_metric_dataframe,
-    query_state_from_request,
-    table_contract::{apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec},
+    clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows,
+    query_metric_dataframe, query_state_from_request,
+    table_contract::{
+        apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec,
+    },
     DatasetQueryOptions,
 };
-use super::metric_api::clear_metric_response_cache;
 use super::components::resolve_components_root;
+use super::metric_api::clear_metric_response_cache;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
     strict_dataset_query_mode_contract, strict_runtime_query_contract, strict_scene_query_coords,
@@ -221,8 +223,11 @@ pub async fn dataset_query_api(
         )
     })?;
     let app_root = state.source_root.join(&app_id);
-    let effective_query_state =
-        query_state_from_request(&request.filters, request.search.as_deref(), request.query_state.as_ref());
+    let effective_query_state = query_state_from_request(
+        &request.filters,
+        request.search.as_deref(),
+        request.query_state.as_ref(),
+    );
     let mut query = DatasetQueryOptions {
         page: request.page.unwrap_or(1),
         page_size: request.page_size.unwrap_or(0),

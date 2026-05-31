@@ -301,15 +301,18 @@ fn route_from_scene_value(raw_scene: &Value) -> Option<(CompiledSceneRoute, bool
             .clone()
             .or(expr.id.clone())
             .unwrap_or_else(|| scene_name_from_path(path));
-        return Some((CompiledSceneRoute {
-            scene_id,
-            frame_id: None,
-            target_file: path.to_string(),
-            kind: "file_ref".to_string(),
-            title: None,
-            is_default: false,
-            access_export: true,
-        }, legacy_scene_file_ref));
+        return Some((
+            CompiledSceneRoute {
+                scene_id,
+                frame_id: None,
+                target_file: path.to_string(),
+                kind: "file_ref".to_string(),
+                title: None,
+                is_default: false,
+                access_export: true,
+            },
+            legacy_scene_file_ref,
+        ));
     }
     let scene_ref = serde_json::from_value::<SceneFileRefDecl>(raw_scene.clone()).ok()?;
     if scene_ref.kind != "scene_file_ref" {
@@ -319,15 +322,18 @@ fn route_from_scene_value(raw_scene: &Value) -> Option<(CompiledSceneRoute, bool
         .id
         .clone()
         .unwrap_or_else(|| scene_name_from_path(&scene_ref.path));
-    Some((CompiledSceneRoute {
-        scene_id,
-        frame_id: None,
-        target_file: scene_ref.path,
-        kind: "file_ref".to_string(),
-        title: None,
-        is_default: false,
-        access_export: true,
-    }, true))
+    Some((
+        CompiledSceneRoute {
+            scene_id,
+            frame_id: None,
+            target_file: scene_ref.path,
+            kind: "file_ref".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        },
+        true,
+    ))
 }
 
 fn upsert_route(

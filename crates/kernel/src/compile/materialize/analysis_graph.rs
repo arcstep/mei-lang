@@ -2,9 +2,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde_json::{Map, Value};
 
-use crate::model::{
-    AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind,
-};
+use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
 
 /// Expand authored/runtime metric defs into the runtime-authoritative metric
 /// definition map.
@@ -12,7 +10,9 @@ use crate::model::{
 /// This step lowers explain-scope local objects into scoped metric ids so that
 /// runtime evaluation, cache identity, and semantic graph construction all
 /// share the same canonical metric space.
-pub(crate) fn expand_runtime_metric_defs(metric_defs: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
+pub(crate) fn expand_runtime_metric_defs(
+    metric_defs: &BTreeMap<String, Value>,
+) -> BTreeMap<String, Value> {
     let mut expanded = BTreeMap::new();
     for (metric_id, raw) in metric_defs {
         expand_metric_def(metric_id, raw, &mut expanded);
@@ -23,7 +23,11 @@ pub(crate) fn expand_runtime_metric_defs(metric_defs: &BTreeMap<String, Value>) 
 pub(crate) fn build_analysis_artifacts(
     metric_defs: &BTreeMap<String, Value>,
     root_dataset_id: &str,
-) -> (BTreeMap<String, Value>, AnalysisGraph, BTreeMap<String, Value>) {
+) -> (
+    BTreeMap<String, Value>,
+    AnalysisGraph,
+    BTreeMap<String, Value>,
+) {
     let expanded = expand_runtime_metric_defs(metric_defs);
     let graph = build_analysis_graph_from_expanded(&expanded, root_dataset_id);
     let contracts = build_analysis_contracts_from_expanded(&expanded, &graph, root_dataset_id);
@@ -155,7 +159,8 @@ fn rewrite_explain_scope(metric_id: &str, value: &Value) -> Value {
     };
     let local_ids = scope_local_metric_ids(metric_id, items);
     Value::Array(
-        items.iter()
+        items
+            .iter()
             .map(|item| rewrite_scope_item(metric_id, item, &local_ids))
             .collect(),
     )
@@ -173,7 +178,10 @@ fn scope_local_metric_ids(metric_id: &str, items: &[Value]) -> BTreeMap<String, 
         let Some(local_id) = child_metric_local_id(map) else {
             continue;
         };
-        ids.insert(local_id.clone(), scoped_child_metric_id(metric_id, &local_id));
+        ids.insert(
+            local_id.clone(),
+            scoped_child_metric_id(metric_id, &local_id),
+        );
     }
     ids
 }
@@ -201,7 +209,10 @@ fn rewrite_scope_item(
                 "analysis_scoped_id".to_string(),
                 Value::String(scoped_child_metric_id(metric_id, &local_id)),
             );
-            map.insert("analysis_node_kind".to_string(), Value::String("metric".to_string()));
+            map.insert(
+                "analysis_node_kind".to_string(),
+                Value::String("metric".to_string()),
+            );
         }
         return rewritten;
     }
@@ -215,7 +226,8 @@ fn rewrite_scope_item(
 fn rewrite_local_metric_refs(value: &Value, local_ids: &BTreeMap<String, String>) -> Value {
     match value {
         Value::Array(items) => Value::Array(
-            items.iter()
+            items
+                .iter()
                 .map(|item| rewrite_local_metric_refs(item, local_ids))
                 .collect(),
         ),
@@ -276,9 +288,7 @@ fn normalize_role_id(value: &str) -> String {
         "trend" | "trend_compare" | "timeseries" | "time_series" | "time-series" => {
             "trend".to_string()
         }
-        "composition" | "breakdown" | "group" | "group_by" | "groupby" => {
-            "composition".to_string()
-        }
+        "composition" | "breakdown" | "group" | "group_by" | "groupby" => "composition".to_string(),
         "numerator_denominator" | "numerator-denominator" | "ratio" | "numerator" => {
             "numerator_denominator".to_string()
         }
@@ -319,9 +329,10 @@ fn build_analysis_graph_from_expanded(
                 continue;
             };
             if item_map.get("__kind").and_then(Value::as_str) == Some("data_product") {
-                if let Some(scoped_id) =
-                    first_non_empty_string(item_map, &["analysis_scoped_id", "analysis_node_id", "id", "key"])
-                {
+                if let Some(scoped_id) = first_non_empty_string(
+                    item_map,
+                    &["analysis_scoped_id", "analysis_node_id", "id", "key"],
+                ) {
                     push_edge(&mut edge_set, metric_id, &scoped_id, "scope_metric");
                 }
                 continue;
@@ -333,7 +344,9 @@ fn build_analysis_graph_from_expanded(
                     graph
                         .nodes
                         .entry(tabular_node_id.clone())
-                        .or_insert_with(|| tabular_node_from_dataset_id(&tabular_node_id, &dataset_id));
+                        .or_insert_with(|| {
+                            tabular_node_from_dataset_id(&tabular_node_id, &dataset_id)
+                        });
                     push_edge(&mut edge_set, metric_id, &tabular_node_id, "lineage");
                     continue;
                 }
@@ -344,19 +357,22 @@ fn build_analysis_graph_from_expanded(
                 push_edge(&mut edge_set, metric_id, &block_id, &role);
                 continue;
             };
-            graph.nodes.entry(target_metric_id.clone()).or_insert_with(|| AnalysisNode {
-                id: target_metric_id.clone(),
-                canonical_metric_id: Some(target_metric_id.clone()),
-                parent_id: Some(metric_id.clone()),
-                node_kind: "metric".to_string(),
+            graph
+                .nodes
+                .entry(target_metric_id.clone())
+                .or_insert_with(|| AnalysisNode {
+                    id: target_metric_id.clone(),
+                    canonical_metric_id: Some(target_metric_id.clone()),
+                    parent_id: Some(metric_id.clone()),
+                    node_kind: "metric".to_string(),
                     semantic_kind: SemanticNodeKind::Metric,
-                support_role: Some(role.clone()),
-                shape: None,
-                label: first_non_empty_string(item_map, &["label"]),
-                lineage_dataset_id: Some(root_dataset_id.to_string()),
+                    support_role: Some(role.clone()),
+                    shape: None,
+                    label: first_non_empty_string(item_map, &["label"]),
+                    lineage_dataset_id: Some(root_dataset_id.to_string()),
                     tabular_source_dataset_id: None,
-                can_explain: false,
-            });
+                    can_explain: false,
+                });
             push_edge(&mut edge_set, metric_id, &target_metric_id, &role);
         }
     }
@@ -440,18 +456,25 @@ fn build_metric_contract(
                 if item_map.get("__kind").and_then(Value::as_str) != Some("data_product") {
                     return None;
                 }
-                first_non_empty_string(item_map, &["analysis_scoped_id", "analysis_node_id", "id", "key"])
+                first_non_empty_string(
+                    item_map,
+                    &["analysis_scoped_id", "analysis_node_id", "id", "key"],
+                )
             })
         });
-    if let Some(items) = map.and_then(|value| value.get("explain")).and_then(Value::as_array) {
+    if let Some(items) = map
+        .and_then(|value| value.get("explain"))
+        .and_then(Value::as_array)
+    {
         for item in items {
             let Some(item_map) = item.as_object() else {
                 continue;
             };
             if item_map.get("__kind").and_then(Value::as_str) == Some("data_product") {
-                let Some(node_id) =
-                    first_non_empty_string(item_map, &["analysis_scoped_id", "analysis_node_id", "id", "key"])
-                else {
+                let Some(node_id) = first_non_empty_string(
+                    item_map,
+                    &["analysis_scoped_id", "analysis_node_id", "id", "key"],
+                ) else {
                     continue;
                 };
                 if seen_nodes.insert(node_id.clone()) {
@@ -466,7 +489,12 @@ fn build_metric_contract(
                 continue;
             }
             let support_role = support_role_for_item(item_map);
-            let block = explain_block_value(item_map, graph, root_dataset_id, default_tabular_metric_id.as_deref());
+            let block = explain_block_value(
+                item_map,
+                graph,
+                root_dataset_id,
+                default_tabular_metric_id.as_deref(),
+            );
             if support_role == "note" {
                 if contract.get("note").is_none() {
                     if let Some(note) = block
@@ -528,7 +556,8 @@ fn metric_node_from_raw(metric_id: &str, raw: &Value, root_dataset_id: &str) -> 
     AnalysisNode {
         id: metric_id.to_string(),
         canonical_metric_id: Some(metric_id.to_string()),
-        parent_id: map.and_then(|value| first_non_empty_string(value, &["analysis_parent_metric_id"])),
+        parent_id: map
+            .and_then(|value| first_non_empty_string(value, &["analysis_parent_metric_id"])),
         node_kind: "metric".to_string(),
         semantic_kind: SemanticNodeKind::Metric,
         support_role: None,
@@ -646,8 +675,8 @@ fn explain_block_value(
 ) -> Map<String, Value> {
     let support_role = support_role_for_item(item_map);
     let mut block = Map::new();
-    let block_id = first_non_empty_string(item_map, &["id"])
-        .unwrap_or_else(|| support_role.clone());
+    let block_id =
+        first_non_empty_string(item_map, &["id"]).unwrap_or_else(|| support_role.clone());
     block.insert("id".to_string(), Value::String(block_id));
     block.insert("kind".to_string(), Value::String(support_role.clone()));
     block.insert(
@@ -670,21 +699,19 @@ fn explain_block_value(
     copy_field(item_map, &mut block, "headers");
     copy_field(item_map, &mut block, "mapping");
     copy_field(item_map, &mut block, "chart_kind");
-    let target_metric_id = metric_target_from_item(item_map)
-        .or_else(|| default_tabular_metric_id.map(str::to_string).filter(|_| {
+    let target_metric_id = metric_target_from_item(item_map).or_else(|| {
+        default_tabular_metric_id.map(str::to_string).filter(|_| {
             matches!(
                 support_role.as_str(),
                 "detail" | "trend" | "composition" | "attribution"
             )
-        }));
+        })
+    });
     if let Some(metric_id) = target_metric_id {
         block.insert("node_id".to_string(), Value::String(metric_id.clone()));
         block.insert("metric_id".to_string(), Value::String(metric_id.clone()));
-        let runtime_ref = metric_runtime_ref(
-            graph.nodes.get(&metric_id),
-            &metric_id,
-            root_dataset_id,
-        );
+        let runtime_ref =
+            metric_runtime_ref(graph.nodes.get(&metric_id), &metric_id, root_dataset_id);
         block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
     } else if let Some(dataset_id) = dataset_target_from_item(item_map) {
         let tabular_node_id = tabular_source_node_id(&dataset_id);
@@ -733,7 +760,10 @@ fn metric_runtime_ref(
 ) -> Map<String, Value> {
     let mut runtime_ref = Map::new();
     runtime_ref.insert("kind".to_string(), Value::String("metric".to_string()));
-    runtime_ref.insert("metric_id".to_string(), Value::String(metric_id.to_string()));
+    runtime_ref.insert(
+        "metric_id".to_string(),
+        Value::String(metric_id.to_string()),
+    );
     if let Some(dataset_id) = node
         .and_then(|value| value.lineage_dataset_id.clone())
         .or_else(|| (!root_dataset_id.trim().is_empty()).then(|| root_dataset_id.to_string()))
@@ -808,19 +838,24 @@ fn detect_metric_shape(map: &Map<String, Value>) -> Option<String> {
     if map.get("value").and_then(Value::as_array).is_some() {
         return Some("dataframe".to_string());
     }
-    map.get("value")
-        .map(|value| if value.is_array() { "dataframe" } else { "scalar" }.to_string())
+    map.get("value").map(|value| {
+        if value.is_array() {
+            "dataframe"
+        } else {
+            "scalar"
+        }
+        .to_string()
+    })
 }
 
 fn first_non_empty_string(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .find_map(|key| {
-            map.get(*key)
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-        })
+    keys.iter().find_map(|key| {
+        map.get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
 }
 
 fn copy_field(source: &Map<String, Value>, out: &mut Map<String, Value>, key: &str) {
@@ -850,7 +885,9 @@ fn push_edge(edges: &mut BTreeSet<(String, String, String)>, from: &str, to: &st
 #[cfg(test)]
 mod tests {
     use super::{analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph};
-    use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
+    use crate::model::{
+        AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind,
+    };
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -978,7 +1015,10 @@ mod tests {
             .nodes
             .get("tabular::warning_list")
             .expect("root dataset should materialize as tabular source");
-        assert_eq!(root_tabular.semantic_kind(), SemanticNodeKind::TabularSource);
+        assert_eq!(
+            root_tabular.semantic_kind(),
+            SemanticNodeKind::TabularSource
+        );
         assert_eq!(
             root_tabular.tabular_source_dataset_id.as_deref(),
             Some("warning_list")
@@ -987,7 +1027,10 @@ mod tests {
             .nodes
             .get("tabular::warning_detail")
             .expect("detail dataset should materialize as tabular source");
-        assert_eq!(detail_tabular.semantic_kind(), SemanticNodeKind::TabularSource);
+        assert_eq!(
+            detail_tabular.semantic_kind(),
+            SemanticNodeKind::TabularSource
+        );
         assert!(graph.edges.iter().any(|edge| {
             edge.from == "sales_total"
                 && edge.to == "tabular::warning_list"

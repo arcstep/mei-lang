@@ -21,7 +21,8 @@ pub(super) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
     let Some(frame) = &scene_contract.frame else {
         return false;
     };
-    viewport::resolve_frame_viewport(&frame.props, scene_contract.scene.profile.as_deref()).is_some()
+    viewport::resolve_frame_viewport(&frame.props, scene_contract.scene.profile.as_deref())
+        .is_some()
 }
 
 pub(super) struct PreviewRuntimeContext {

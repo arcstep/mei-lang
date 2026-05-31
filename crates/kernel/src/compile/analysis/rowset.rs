@@ -110,11 +110,11 @@ pub(crate) fn eval_rowset_with_ctx(
         return Ok(rows);
     }
     if let Some(node_key) = ctx.rowset_key(expr) {
-        let rows = ctx
-            .with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {
-                eval_rowset_uncached(expr, datasets, ctx)
-                    .with_context(|| format!("metric_eval_recursion_guard_tripped(rowset): `{node_key}`"))
-            })?;
+        let rows = ctx.with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {
+            eval_rowset_uncached(expr, datasets, ctx).with_context(|| {
+                format!("metric_eval_recursion_guard_tripped(rowset): `{node_key}`")
+            })
+        })?;
         ctx.store_rowset(expr, &rows);
         return Ok(rows);
     }
@@ -178,9 +178,15 @@ fn lookup_dataset_view<'a>(
         })
 }
 
-fn unknown_dataset_error(dataset_id: &str, datasets: &BTreeMap<String, DatasetView>) -> anyhow::Error {
+fn unknown_dataset_error(
+    dataset_id: &str,
+    datasets: &BTreeMap<String, DatasetView>,
+) -> anyhow::Error {
     let available = datasets.keys().take(8).cloned().collect::<Vec<_>>();
-    anyhow!("unknown dataset `{dataset_id}`; available keys: {:?}", available)
+    anyhow!(
+        "unknown dataset `{dataset_id}`; available keys: {:?}",
+        available
+    )
 }
 
 fn eval_analysis_rowset(

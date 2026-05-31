@@ -101,8 +101,9 @@ pub fn register_upload_version(
     uploaded_at: Option<String>,
     uploaded_by: Option<String>,
 ) -> io::Result<UploadAliasRecord> {
-    let parsed = parse_versioned_upload_file_name(versioned_file_name)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid versioned file name"))?;
+    let parsed = parse_versioned_upload_file_name(versioned_file_name).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "invalid versioned file name")
+    })?;
     let normalized_alias = normalize_path(alias_path);
     if normalized_alias.is_empty() {
         return Err(io::Error::new(
@@ -223,7 +224,10 @@ fn resolve_registry_physical_path(registry: &UploadRegistry, alias_path: &str) -
 }
 
 fn compare_registry_entries(left: &UploadAliasRecord, right: &UploadAliasRecord) -> Ordering {
-    match (left.current_version.as_deref(), right.current_version.as_deref()) {
+    match (
+        left.current_version.as_deref(),
+        right.current_version.as_deref(),
+    ) {
         (Some(l), Some(r)) => compare_version_tokens(l, r).unwrap_or(Ordering::Equal),
         (Some(_), None) => Ordering::Greater,
         (None, Some(_)) => Ordering::Less,
@@ -327,8 +331,9 @@ fn is_valid_version_token(token: &str) -> bool {
 mod tests {
     use super::{
         compare_version_tokens, parse_versioned_upload_file_name, read_upload_registry,
-        register_upload_version, resolve_versioned_source_identifier, resolve_versioned_source_path,
-        write_upload_registry, UploadAliasRecord, UploadRegistry, UploadVersionRecord,
+        register_upload_version, resolve_versioned_source_identifier,
+        resolve_versioned_source_path, write_upload_registry, UploadAliasRecord, UploadRegistry,
+        UploadVersionRecord,
     };
     use std::cmp::Ordering;
     use std::collections::BTreeMap;
@@ -336,8 +341,8 @@ mod tests {
 
     #[test]
     fn parse_versioned_upload_file_name_accepts_supported_patterns() {
-        let parsed = parse_versioned_upload_file_name("11.预警清单.20260527A.xlsx")
-            .expect("versioned name");
+        let parsed =
+            parse_versioned_upload_file_name("11.预警清单.20260527A.xlsx").expect("versioned name");
         assert_eq!(parsed.base_name, "11.预警清单");
         assert_eq!(parsed.version, "20260527A");
         assert_eq!(parsed.ext, "xlsx");

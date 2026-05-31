@@ -1230,7 +1230,14 @@ fn validate_scene_binding_contract(
             .filter(|id| !id.is_empty())
             .unwrap_or("<unnamed_metric>");
         if let Some(meta) = binding_meta_from_value(metric_value) {
-            validate_binding_meta(metric_id, "metric", &meta, &provided_keys, target_file, diagnostics);
+            validate_binding_meta(
+                metric_id,
+                "metric",
+                &meta,
+                &provided_keys,
+                target_file,
+                diagnostics,
+            );
         }
     }
 }

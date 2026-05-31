@@ -192,7 +192,10 @@ fn compare_sort_values(left: &Value, right: &Value) -> Ordering {
     if right_text.is_empty() {
         return Ordering::Less;
     }
-    if let (Some(lhs), Some(rhs)) = (sort_number(left, &left_text), sort_number(right, &right_text)) {
+    if let (Some(lhs), Some(rhs)) = (
+        sort_number(left, &left_text),
+        sort_number(right, &right_text),
+    ) {
         if let Some(ordering) = lhs.partial_cmp(&rhs) {
             return ordering;
         }
@@ -215,15 +218,24 @@ fn sort_datetime(text: &str) -> Option<i64> {
     if let Ok(datetime) = DateTime::parse_from_rfc3339(text) {
         return Some(datetime.timestamp_millis());
     }
-    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M"] {
+    for fmt in [
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+    ] {
         if let Ok(datetime) = NaiveDateTime::parse_from_str(text, fmt) {
-            return Some(DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc).timestamp_millis());
+            return Some(
+                DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc).timestamp_millis(),
+            );
         }
     }
     for fmt in ["%Y-%m-%d", "%Y/%m/%d"] {
         if let Ok(date) = NaiveDate::parse_from_str(text, fmt) {
             let datetime = date.and_hms_opt(0, 0, 0)?;
-            return Some(DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc).timestamp_millis());
+            return Some(
+                DateTime::<Utc>::from_naive_utc_and_offset(datetime, Utc).timestamp_millis(),
+            );
         }
     }
     None
@@ -310,7 +322,6 @@ pub(crate) fn infer_columns(rows: &[Value]) -> Vec<String> {
     }
     columns.into_iter().collect()
 }
-
 
 pub(crate) struct QueryWindow {
     page: usize,

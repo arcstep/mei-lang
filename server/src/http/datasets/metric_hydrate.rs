@@ -50,7 +50,10 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
                 binding_resolution.unresolved_filter_dimensions.join(", ")
             ));
         }
-        if let Some(dimension) = binding_resolution.unresolved_time_range_dimension.as_deref() {
+        if let Some(dimension) = binding_resolution
+            .unresolved_time_range_dimension
+            .as_deref()
+        {
             return Err(anyhow!(
                 "runtime metric hydrate requires resolvable time_range.dimension binding for dataset `{}`: {}",
                 view.id,
@@ -72,12 +75,10 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             summary: false,
         };
         let applied_filters = load_query.filters.len() as u64;
-        let dropped_filters = query
-            .filters
-            .len()
-            .saturating_sub(load_query.filters.len()) as u64;
+        let dropped_filters = query.filters.len().saturating_sub(load_query.filters.len()) as u64;
         let unresolved_filters = binding_resolution.unresolved_filter_dimensions.len() as u64;
-        let unresolved_time_range = u64::from(binding_resolution.unresolved_time_range_dimension.is_some());
+        let unresolved_time_range =
+            u64::from(binding_resolution.unresolved_time_range_dimension.is_some());
         dropped_filters_total += dropped_filters;
         unresolved_filters_total += unresolved_filters;
         unresolved_time_range_total += unresolved_time_range;
@@ -90,8 +91,14 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             }
             hydrated_count += 1;
             perf.insert(format!("hydrate_{dataset_id}_ms"), load_ms);
-            perf.insert(format!("hydrate_{dataset_id}_applied_filters"), applied_filters);
-            perf.insert(format!("hydrate_{dataset_id}_dropped_filters"), dropped_filters);
+            perf.insert(
+                format!("hydrate_{dataset_id}_applied_filters"),
+                applied_filters,
+            );
+            perf.insert(
+                format!("hydrate_{dataset_id}_dropped_filters"),
+                dropped_filters,
+            );
             perf.insert(
                 format!("hydrate_{dataset_id}_unresolved_filters"),
                 unresolved_filters,
@@ -106,12 +113,12 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             }
         }
     }
-    perf.insert("hydrate_datasets_ms".to_string(), elapsed_ms(hydrate_started));
-    perf.insert("hydrate_datasets_count".to_string(), hydrated_count);
     perf.insert(
-        "hydrate_filter_contract_version".to_string(),
-        1,
+        "hydrate_datasets_ms".to_string(),
+        elapsed_ms(hydrate_started),
     );
+    perf.insert("hydrate_datasets_count".to_string(), hydrated_count);
+    perf.insert("hydrate_filter_contract_version".to_string(), 1);
     perf.insert(
         "hydrate_dropped_filters_total".to_string(),
         dropped_filters_total,
@@ -211,7 +218,10 @@ pub(crate) fn dataset_dimension_bindings(dataset: &DatasetView) -> Vec<Dimension
         if normalized_dimension.is_empty() || normalized_field.is_empty() {
             return;
         }
-        if !seen.insert((normalized_dimension.to_string(), normalized_field.to_string())) {
+        if !seen.insert((
+            normalized_dimension.to_string(),
+            normalized_field.to_string(),
+        )) {
             return;
         }
         bindings.push(DimensionBinding {
@@ -243,7 +253,9 @@ fn resolve_filter_binding<'a>(
     if normalized.is_empty() {
         return None;
     }
-    bindings.iter().find(|binding| binding.dimension == normalized)
+    bindings
+        .iter()
+        .find(|binding| binding.dimension == normalized)
 }
 
 fn lookup_dataset_view<'a>(
@@ -275,14 +287,12 @@ fn lookup_dataset_view_mut<'a>(
     if datasets.contains_key(dataset_id) {
         return datasets.get_mut(dataset_id);
     }
-    let key = datasets
-        .iter()
-        .find_map(|(key, dataset)| {
-            (dataset.id == normalized
-                || key.ends_with(&format!("::{normalized}"))
-                || key.ends_with(&format!("/{normalized}")))
-            .then(|| key.clone())
-        })?;
+    let key = datasets.iter().find_map(|(key, dataset)| {
+        (dataset.id == normalized
+            || key.ends_with(&format!("::{normalized}"))
+            || key.ends_with(&format!("/{normalized}")))
+        .then(|| key.clone())
+    })?;
     datasets.get_mut(key.as_str())
 }
 
@@ -318,11 +328,7 @@ fn collect_dataset_ids_from_value(value: &Value, out: &mut BTreeSet<String>) {
                     if let Some(id) = map.get("dataset").and_then(Value::as_str) {
                         let text = id.trim();
                         if !text.is_empty() {
-                            out.insert(
-                                text.strip_prefix("dataset.")
-                                    .unwrap_or(text)
-                                    .to_string(),
-                            );
+                            out.insert(text.strip_prefix("dataset.").unwrap_or(text).to_string());
                         }
                     }
                 }
@@ -407,7 +413,10 @@ mod tests {
         };
         let resolution = compatible_hydrate_binding_resolution(&query, &dataset);
         assert_eq!(resolution.mapped_filters.len(), 1);
-        assert_eq!(resolution.mapped_filters.get("status"), Some(&"待办".to_string()));
+        assert_eq!(
+            resolution.mapped_filters.get("status"),
+            Some(&"待办".to_string())
+        );
         assert_eq!(resolution.unresolved_filter_dimensions, vec!["department"]);
     }
 
@@ -461,7 +470,10 @@ mod tests {
             resolution.mapped_filters,
             BTreeMap::from([("status".to_string(), "待办".to_string())])
         );
-        assert_eq!(resolution.unresolved_filter_dimensions, vec!["unknown".to_string()]);
+        assert_eq!(
+            resolution.unresolved_filter_dimensions,
+            vec!["unknown".to_string()]
+        );
         assert_eq!(
             resolution.unresolved_time_range_dimension,
             Some("created_at".to_string())
@@ -562,7 +574,11 @@ mod tests {
             runtime_analysis_contracts: Default::default(),
         };
         let bindings = dataset_dimension_bindings(&dataset);
-        assert!(bindings.iter().any(|binding| binding.dimension == "department" && binding.field == "department"));
-        assert!(bindings.iter().any(|binding| binding.dimension == "status" && binding.field == "status"));
+        assert!(bindings
+            .iter()
+            .any(|binding| binding.dimension == "department" && binding.field == "department"));
+        assert!(bindings
+            .iter()
+            .any(|binding| binding.dimension == "status" && binding.field == "status"));
     }
 }

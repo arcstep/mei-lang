@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use anyhow::Result;
@@ -117,7 +117,12 @@ fn source_rows_cache_key(app_root: &Path, source: &LegacySourceDecl) -> Option<S
     );
     let (resolved_identifier, normalized_mtime, normalized_sheet, normalized_header_row) =
         if let Some(key) = table_key {
-            (key.resolved_identifier, key.data_mtime, key.sheet, key.header_row)
+            (
+                key.resolved_identifier,
+                key.data_mtime,
+                key.sheet,
+                key.header_row,
+            )
         } else {
             (resolved_path, data_mtime, sheet.to_string(), header_row)
         };

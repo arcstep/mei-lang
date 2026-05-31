@@ -21,10 +21,7 @@ pub struct EvalPlan {
 
 impl EvalPlan {
     pub fn node_count_by_kind(&self, kind: EvalPlanNodeKind) -> usize {
-        self.nodes
-            .values()
-            .filter(|node| node.kind == kind)
-            .count()
+        self.nodes.values().filter(|node| node.kind == kind).count()
     }
 }
 
@@ -128,7 +125,14 @@ pub(crate) fn build_eval_plan(
             continue;
         };
         if let Some(dataset_id) = first_non_empty_string(raw, &["dataset", "dataset_id"]) {
-            add_hydrate_dependency(&metric_node_id, &dataset_id, scope, datasets, &mut nodes, &mut edges);
+            add_hydrate_dependency(
+                &metric_node_id,
+                &dataset_id,
+                scope,
+                datasets,
+                &mut nodes,
+                &mut edges,
+            );
         }
         if let Some(values) = raw.get("values").and_then(Value::as_object) {
             for (field, expr) in values {
@@ -143,7 +147,10 @@ pub(crate) fn build_eval_plan(
                     &mut edges,
                 );
             }
-        } else if let Some(expr) = raw.get("series").or_else(|| raw.get("list")).or_else(|| raw.get("value"))
+        } else if let Some(expr) = raw
+            .get("series")
+            .or_else(|| raw.get("list"))
+            .or_else(|| raw.get("value"))
         {
             visit_expr(
                 expr,
@@ -168,7 +175,10 @@ pub(crate) fn build_eval_plan(
     }
 }
 
-fn selected_metric_ids(metric_defs: &BTreeMap<String, Value>, metric_ids: Option<&[String]>) -> Vec<String> {
+fn selected_metric_ids(
+    metric_defs: &BTreeMap<String, Value>,
+    metric_ids: Option<&[String]>,
+) -> Vec<String> {
     if let Some(ids) = metric_ids {
         let selected = ids
             .iter()
@@ -197,7 +207,16 @@ fn visit_expr(
     match expr {
         Value::Array(items) => {
             for item in items {
-                visit_expr(item, parent_node_id, metric_id, field_label, scope, datasets, nodes, edges);
+                visit_expr(
+                    item,
+                    parent_node_id,
+                    metric_id,
+                    field_label,
+                    scope,
+                    datasets,
+                    nodes,
+                    edges,
+                );
             }
         }
         Value::Object(map) => {
@@ -210,7 +229,9 @@ fn visit_expr(
                     metric_id: metric_id.map(str::to_string),
                     dataset_id: dataset_id.clone(),
                     expr_fingerprint: Some(expr_fingerprint(expr)),
-                    label: dataset_id.clone().or_else(|| field_label.map(str::to_string)),
+                    label: dataset_id
+                        .clone()
+                        .or_else(|| field_label.map(str::to_string)),
                 });
                 edges.insert((
                     parent_node_id.to_string(),
@@ -253,12 +274,23 @@ fn visit_expr(
                     add_hydrate_dependency(&node_id, &dataset_id, scope, datasets, nodes, edges);
                 }
                 for child in map.values() {
-                    visit_expr(child, &node_id, metric_id, None, scope, datasets, nodes, edges);
+                    visit_expr(
+                        child, &node_id, metric_id, None, scope, datasets, nodes, edges,
+                    );
                 }
                 return;
             }
             for child in map.values() {
-                visit_expr(child, parent_node_id, metric_id, field_label, scope, datasets, nodes, edges);
+                visit_expr(
+                    child,
+                    parent_node_id,
+                    metric_id,
+                    field_label,
+                    scope,
+                    datasets,
+                    nodes,
+                    edges,
+                );
             }
         }
         _ => {}
@@ -277,14 +309,16 @@ fn add_hydrate_dependency(
         return;
     }
     let hydrate_node_id = hydrate_plan_node_id(dataset_id);
-    nodes.entry(hydrate_node_id.clone()).or_insert(EvalPlanNode {
-        id: hydrate_node_id.clone(),
-        kind: EvalPlanNodeKind::Hydrate,
-        metric_id: None,
-        dataset_id: Some(dataset_id.to_string()),
-        expr_fingerprint: None,
-        label: Some(dataset_id.to_string()),
-    });
+    nodes
+        .entry(hydrate_node_id.clone())
+        .or_insert(EvalPlanNode {
+            id: hydrate_node_id.clone(),
+            kind: EvalPlanNodeKind::Hydrate,
+            metric_id: None,
+            dataset_id: Some(dataset_id.to_string()),
+            expr_fingerprint: None,
+            label: Some(dataset_id.to_string()),
+        });
     edges.insert((
         parent_node_id.to_string(),
         hydrate_node_id,
@@ -336,22 +370,9 @@ fn canonicalize_expr_value(value: &Value) -> Value {
 
 fn analysis_expr_plan_kind(analysis_type: &str) -> EvalPlanNodeKind {
     match analysis_type.trim() {
-        "count"
-        | "sum"
-        | "avg"
-        | "min"
-        | "max"
-        | "median"
-        | "unique_count"
-        | "item_count"
-        | "ratio"
-        | "percent"
-        | "sum_first_number"
-        | "sum_rowset_counts"
-        | "number"
-        | "lit"
-        | "mom"
-        | "yoy" => EvalPlanNodeKind::ScalarExpr,
+        "count" | "sum" | "avg" | "min" | "max" | "median" | "unique_count" | "item_count"
+        | "ratio" | "percent" | "sum_first_number" | "sum_rowset_counts" | "number" | "lit"
+        | "mom" | "yoy" => EvalPlanNodeKind::ScalarExpr,
         _ => EvalPlanNodeKind::Rowset,
     }
 }
@@ -472,8 +493,14 @@ mod tests {
             }),
         )]);
         let datasets = BTreeMap::from([
-            ("warning_list".to_string(), dataset("warning_list", "derived", "dataset_view:warning_list")),
-            ("warning_detail".to_string(), dataset("warning_detail", "xlsx", "upload/detail.xlsx")),
+            (
+                "warning_list".to_string(),
+                dataset("warning_list", "derived", "dataset_view:warning_list"),
+            ),
+            (
+                "warning_detail".to_string(),
+                dataset("warning_detail", "xlsx", "upload/detail.xlsx"),
+            ),
         ]);
         let scope = RuntimeMetricEvalScope {
             base_dataset_id: "warning_list".to_string(),
@@ -507,10 +534,10 @@ mod tests {
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr), 1);
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::Rowset), 1);
         assert_eq!(plan.node_count_by_kind(EvalPlanNodeKind::Hydrate), 1);
-        assert!(
-            plan.edges
-                .iter()
-                .any(|edge| edge.from == "metric:sales_total" && edge.kind == super::EvalPlanEdgeKind::DependsOn)
-        );
+        assert!(plan
+            .edges
+            .iter()
+            .any(|edge| edge.from == "metric:sales_total"
+                && edge.kind == super::EvalPlanEdgeKind::DependsOn));
     }
 }

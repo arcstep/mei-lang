@@ -168,9 +168,12 @@ fn scope_cache_key(scope: &RuntimeMetricEvalScope) -> String {
 
 fn canonicalize_expr_value(value: &Value) -> Value {
     match value {
-        Value::Array(items) => {
-            Value::Array(items.iter().map(canonicalize_expr_value).collect::<Vec<_>>())
-        }
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(canonicalize_expr_value)
+                .collect::<Vec<_>>(),
+        ),
         Value::Object(map) => {
             let mut sorted = serde_json::Map::new();
             for key in map.keys().cloned().collect::<BTreeSet<_>>() {
@@ -240,11 +243,7 @@ impl EvalContext {
                     .insert((parent.clone(), key.to_string()));
             }
         }
-        let stats = self
-            .request_dag
-            .nodes
-            .entry(key.to_string())
-            .or_default();
+        let stats = self.request_dag.nodes.entry(key.to_string()).or_default();
         if hit {
             stats.hits += 1;
         } else {
@@ -436,11 +435,8 @@ mod tests {
         let mut ctx = EvalContext::with_scope(scope);
         let expr = json!({"__kind":"analysis_expr","type":"count"});
         let key = ctx.rowset_key(&expr).expect("rowset key");
-        ctx.begin_eval_node(&key)
-            .expect("first begin should pass");
-        let err = ctx
-            .begin_eval_node(&key)
-            .expect_err("reentry should fail");
+        ctx.begin_eval_node(&key).expect("first begin should pass");
+        let err = ctx.begin_eval_node(&key).expect_err("reentry should fail");
         assert!(err.to_string().contains("cyclic_eval_dependency"));
     }
 
@@ -493,6 +489,9 @@ mod tests {
         let metrics = ctx.request_dag_metrics();
         assert_eq!(metrics.nodes, 2, "parent scalar node and child rowset node");
         assert_eq!(metrics.edges, 1, "parent should depend on child");
-        assert_eq!(metrics.request_cache_hits, 1, "child should hit request cache");
+        assert_eq!(
+            metrics.request_cache_hits, 1,
+            "child should hit request cache"
+        );
     }
 }

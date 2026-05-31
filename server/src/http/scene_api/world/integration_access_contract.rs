@@ -46,33 +46,36 @@ fn contract_present(payload: &Value, metric_id: &str) -> bool {
         .unwrap_or(false)
 }
 
-    #[test]
-    fn compile_ds04_metric_explain_scene_emits_runtime_analysis_contracts() {
-        let root = workspaces_root();
-        let bundle = load_world_runtime_bundle(&root, DS04_APP, Some(&metric_explain_scope()))
-            .expect("load bundle");
-        let loaded = locate_dataset_resource(&bundle.compiled, "orders").expect("orders dataset");
-        let orders = loaded.dataset.as_ref().expect("dataset view");
-        let world_metrics = bundle
-            .compiled
-            .resources
-            .iter()
-            .find(|resource| resource.id == "__world_metrics__")
-            .and_then(|resource| resource.dataset.as_ref())
-            .expect("world metrics dataset");
-        assert!(
-            orders.runtime_analysis_contracts.is_empty(),
-            "business dataset should not embed world.add_metric contracts"
-        );
-        assert!(
-            world_metrics
-                .runtime_analysis_contracts
-                .keys()
-                .any(|key| key.contains("orders_total")),
-            "expected orders_total on __world_metrics__, keys: {:?}",
-            world_metrics.runtime_analysis_contracts.keys().collect::<Vec<_>>()
-        );
-    }
+#[test]
+fn compile_ds04_metric_explain_scene_emits_runtime_analysis_contracts() {
+    let root = workspaces_root();
+    let bundle = load_world_runtime_bundle(&root, DS04_APP, Some(&metric_explain_scope()))
+        .expect("load bundle");
+    let loaded = locate_dataset_resource(&bundle.compiled, "orders").expect("orders dataset");
+    let orders = loaded.dataset.as_ref().expect("dataset view");
+    let world_metrics = bundle
+        .compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .expect("world metrics dataset");
+    assert!(
+        orders.runtime_analysis_contracts.is_empty(),
+        "business dataset should not embed world.add_metric contracts"
+    );
+    assert!(
+        world_metrics
+            .runtime_analysis_contracts
+            .keys()
+            .any(|key| key.contains("orders_total")),
+        "expected orders_total on __world_metrics__, keys: {:?}",
+        world_metrics
+            .runtime_analysis_contracts
+            .keys()
+            .collect::<Vec<_>>()
+    );
+}
 
 #[test]
 fn query_world_dataset_metrics_returns_analysis_contracts_for_orders_total() {
@@ -96,9 +99,7 @@ fn query_world_dataset_metrics_returns_analysis_contracts_for_orders_total() {
             .unwrap_or(Value::Null)
     );
     assert!(
-        payload
-            .get("contract_hint")
-            .map_or(true, Value::is_null),
+        payload.get("contract_hint").map_or(true, Value::is_null),
         "contract_hint should be null when contracts exist: {payload}"
     );
 }
@@ -171,8 +172,8 @@ fn dataset_metric_without_explain_emits_contract_hint() {
 #[test]
 fn prompt_catalog_includes_analysis_contract_section() {
     let root = workspaces_root();
-    let bundle = load_world_runtime_bundle(&root, DS04_APP, Some(&metric_explain_scope()))
-        .expect("bundle");
+    let bundle =
+        load_world_runtime_bundle(&root, DS04_APP, Some(&metric_explain_scope())).expect("bundle");
     let lines = build_prompt_catalog_lines(&bundle, &[]);
     let joined = lines.join("\n");
     assert!(
