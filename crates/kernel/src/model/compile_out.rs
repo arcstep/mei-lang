@@ -48,6 +48,8 @@ pub struct CompiledApp {
     #[serde(default)]
     pub scene_examples_by_id: BTreeMap<String, Value>,
     #[serde(default)]
+    pub scene_projection_assembly_by_id: BTreeMap<String, Value>,
+    #[serde(default)]
     pub resources: Vec<LoadedResource>,
     #[serde(default)]
     pub world_metrics: BTreeMap<String, WorldMetricLedgerEntry>,

@@ -1245,6 +1245,7 @@ pub fn compile_app_from_root_with_options(
     let mut scene_local_nav_by_target = BTreeMap::new();
     let mut scene_bindings_by_id = BTreeMap::new();
     let mut scene_examples_by_id = BTreeMap::new();
+    let mut scene_projection_assembly_by_id = BTreeMap::new();
     for route in &route_registry.routes {
         let Some(payload) = official_results.get(&route.scene_id) else {
             continue;
@@ -1252,21 +1253,61 @@ pub fn compile_app_from_root_with_options(
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
         };
+        let mut assembly = serde_json::Map::new();
+        assembly.insert("scene_id".to_string(), Value::String(route.scene_id.clone()));
+        assembly.insert("target_file".to_string(), Value::String(route.target_file.clone()));
+        assembly.insert("kind".to_string(), Value::String(route.kind.clone()));
+        if let Some(title) = route.title.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            assembly.insert("title".to_string(), Value::String(title.to_string()));
+        }
         if !contract.scene.bindings.is_null() {
             scene_bindings_by_id.insert(route.scene_id.clone(), contract.scene.bindings.clone());
+            assembly.insert("bindings".to_string(), contract.scene.bindings.clone());
         }
         if !contract.scene.examples.is_null() {
             scene_examples_by_id.insert(route.scene_id.clone(), contract.scene.examples.clone());
+            assembly.insert("examples".to_string(), contract.scene.examples.clone());
         }
         if !contract.scene.local_nav.is_null() {
             scene_local_nav_by_target.insert(
                 route.target_file.clone(),
                 contract.scene.local_nav.clone(),
             );
+            assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
         }
+        scene_projection_assembly_by_id.insert(route.scene_id.clone(), Value::Object(assembly));
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
         if let Some(active_scene_id) = active_scene.as_deref() {
+            let assembly_entry = scene_projection_assembly_by_id
+                .entry(active_scene_id.to_string())
+                .or_insert_with(|| {
+                    let mut assembly = serde_json::Map::new();
+                    assembly.insert(
+                        "scene_id".to_string(),
+                        Value::String(active_scene_id.to_string()),
+                    );
+                    assembly.insert(
+                        "target_file".to_string(),
+                        Value::String(active_target_file.clone()),
+                    );
+                    Value::Object(assembly)
+                });
+            if let Some(assembly_map) = assembly_entry.as_object_mut() {
+                assembly_map.insert(
+                    "target_file".to_string(),
+                    Value::String(active_target_file.clone()),
+                );
+                if !contract.scene.bindings.is_null() {
+                    assembly_map.insert("bindings".to_string(), contract.scene.bindings.clone());
+                }
+                if !contract.scene.examples.is_null() {
+                    assembly_map.insert("examples".to_string(), contract.scene.examples.clone());
+                }
+                if !contract.scene.local_nav.is_null() {
+                    assembly_map.insert("local_nav".to_string(), contract.scene.local_nav.clone());
+                }
+            }
             if !contract.scene.bindings.is_null() {
                 scene_bindings_by_id
                     .insert(active_scene_id.to_string(), contract.scene.bindings.clone());
@@ -1294,6 +1335,7 @@ pub fn compile_app_from_root_with_options(
         scene_local_nav_by_target,
         scene_bindings_by_id,
         scene_examples_by_id,
+        scene_projection_assembly_by_id,
         resources,
         world_metrics,
         component_assets: active_payload.component_assets,
@@ -1361,7 +1403,7 @@ pub fn evaluate_runtime_metric_defs_with_scope_and_dag(
     scope: &analysis::eval_context::RuntimeMetricEvalScope,
 ) -> Result<(
     BTreeMap<String, crate::model::MetricContract>,
-    analysis::eval_context::RequestDagMetrics,
+    materialize::RuntimeMetricEvalReport,
 )> {
     materialize::evaluate_runtime_metric_defs_with_scope_and_dag(
         metric_defs, base_rows, datasets, metric_ids, scope,
@@ -1389,6 +1431,10 @@ pub fn runtime_analysis_closure_metric_ids(
     materialize::analysis_closure_metric_ids(graph, focus_ids)
 }
 
+pub use materialize::{
+    EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
+    RuntimeMetricEvalReport,
+};
 pub use materialize::resolve_runtime_metric_def_key;
 pub use analysis::eval_context::{
     runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,

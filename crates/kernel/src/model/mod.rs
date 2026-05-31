@@ -13,8 +13,9 @@ pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
 pub use dataset::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, ColumnSchema, DataRef, DataTransform,
-    DatasetSourceRef, DatasetView, MetricContract, MetricPackContract, MetricRef, MetricShape,
-    WorldMetricLedgerEntry,
+    DatasetSourceRef, DatasetView, DimensionBinding, FilterIntent, FilterIntentSource,
+    FilterOperator, MetricContract, MetricPackContract, MetricRef, MetricShape, QueryState,
+    QueryTimeRange, SemanticEdgeKind, SemanticNodeKind, WorldMetricLedgerEntry,
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};

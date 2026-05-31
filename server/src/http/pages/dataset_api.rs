@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use mei_lang_kernel::{FilterIntent, QueryState, clear_runtime_compile_caches};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -14,6 +15,7 @@ use super::super::compile_cache::compile_app_with_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::datasets::{
     clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows, query_metric_dataframe,
+    query_state_from_request,
     table_contract::{apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec},
     DatasetQueryOptions,
 };
@@ -23,8 +25,6 @@ use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context, SceneQueryCoords,
 };
 use super::util::elapsed_ms;
-use mei_lang_kernel::clear_runtime_compile_caches;
-
 #[derive(Debug, Deserialize)]
 pub struct DatasetQueryRequest {
     /// Scene anchor (preferred). `dataset_id` is local to this scene.
@@ -42,6 +42,10 @@ pub struct DatasetQueryRequest {
     pub search: Option<String>,
     #[serde(default)]
     pub filters: BTreeMap<String, String>,
+    #[serde(default)]
+    pub query_state: Option<QueryState>,
+    #[serde(default)]
+    pub filter_intents: Vec<FilterIntent>,
     #[serde(default)]
     pub full: bool,
     /// 非空时对 runtime metric（dataframe）求值后分页，与 dataset 行集共用过滤/分页语义。
@@ -205,11 +209,15 @@ pub async fn dataset_query_api(
         )
     })?;
     let app_root = state.source_root.join(&app_id);
+    let effective_query_state =
+        query_state_from_request(&request.filters, request.search.as_deref(), request.query_state.as_ref());
     let mut query = DatasetQueryOptions {
         page: request.page.unwrap_or(1),
         page_size: request.page_size.unwrap_or(0),
-        search: request.search.clone(),
-        filters: request.filters.clone(),
+        search: effective_query_state.search.clone(),
+        filters: effective_query_state.filters.clone(),
+        group: effective_query_state.group.clone(),
+        time_range: effective_query_state.time_range.clone(),
         collect_all: request.full,
         ..DatasetQueryOptions::default()
     };
@@ -236,6 +244,8 @@ pub async fn dataset_query_api(
             scene_ctx.scene_path.as_deref(),
             &compile_outcome.compile_revision,
             query.clone(),
+            Some(effective_query_state.clone()),
+            request.filter_intents.clone(),
         )
         .map_err(|error| {
             tracing::warn!(
@@ -435,6 +445,8 @@ pub async fn dataset_recompute_api(
                 scene_ctx.scene_path.as_deref(),
                 &compile_outcome.compile_revision,
                 warm_query,
+                None,
+                Vec::new(),
             )
             .map_err(AppError::from)?;
             for (key, value) in result.perf {

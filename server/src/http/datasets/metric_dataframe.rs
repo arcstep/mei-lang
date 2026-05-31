@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     evaluate_runtime_metric_defs_with_scope_and_dag, locate_dataset_resource,
-    resolve_runtime_metric_def_key, runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
-    CompiledApp, MetricShape,
+    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled,
+    CompiledApp, EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
 };
 use serde_json::Value;
 
@@ -19,9 +19,8 @@ use super::query::query_dataset_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 use super::{
-    metric_request_revision_fingerprint, metric_scope_cache_key, normalize_query_filters,
-    normalize_query_search, select_metric_defs,
-    serialize_cache_value, runtime_metric_eval_scope,
+    metric_request_revision_fingerprint, metric_scope_cache_key, query_state_from_request,
+    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -55,8 +54,10 @@ fn metric_dataframe_cache_key(
 ) -> String {
     let sort = serialize_cache_value(&options.sort);
     let column_state = serialize_cache_value(&options.column_state);
+    let group = serialize_cache_value(&options.group);
+    let time_range = serialize_cache_value(&options.time_range);
     format!(
-        "{}|compile={}|{}|scene={}|target={}|{}|{}|page={}|page_size={}|full={}|search={}|filters={}|sort={}|column_state={}|summary={}",
+        "{}|compile={}|{}|scene={}|target={}|{}|{}|page={}|page_size={}|full={}|search={}|filters={}|group={}|time_range={}|sort={}|column_state={}|summary={}",
         app_root.display(),
         compile_revision,
         dependency_revision_key,
@@ -69,6 +70,8 @@ fn metric_dataframe_cache_key(
         options.collect_all,
         options.search.as_deref().unwrap_or(""),
         serialize_cache_value(&options.filters),
+        group,
+        time_range,
         sort,
         column_state,
         options.summary
@@ -115,7 +118,7 @@ fn locate_runtime_metric_resource<'a>(
     let primary =
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     if let Some(dataset) = primary.dataset.as_ref() {
-        if !dataset.runtime_metric_defs.is_empty() {
+        if dataset.has_runtime_metric_defs() {
             if let Some(resolved) = resolve_runtime_metric_def_key(
                 &primary.id,
                 metric_id,
@@ -129,7 +132,7 @@ fn locate_runtime_metric_resource<'a>(
         let Some(dataset) = resource.dataset.as_ref() else {
             continue;
         };
-        if dataset.runtime_metric_defs.is_empty() {
+        if !dataset.has_runtime_metric_defs() {
             continue;
         }
         if let Some(resolved) =
@@ -141,7 +144,7 @@ fn locate_runtime_metric_resource<'a>(
     if primary
         .dataset
         .as_ref()
-        .is_some_and(|dataset| dataset.runtime_metric_defs.is_empty())
+        .is_some_and(|dataset| !dataset.has_runtime_metric_defs())
     {
         return Err(anyhow!("dataset `{dataset_id}` has no runtime metric defs"));
     }
@@ -159,10 +162,16 @@ pub fn query_metric_dataframe(
     target: Option<&str>,
     compile_revision: &str,
     options: DatasetQueryOptions,
+    query_state: Option<QueryState>,
+    filter_intents: Vec<FilterIntent>,
 ) -> Result<DatasetQueryResult> {
+    let effective_query_state =
+        query_state_from_request(&options.filters, options.search.as_deref(), query_state.as_ref());
     let options = DatasetQueryOptions {
-        search: normalize_query_search(options.search.as_deref()),
-        filters: normalize_query_filters(&options.filters),
+        search: effective_query_state.search.clone(),
+        filters: effective_query_state.filters.clone(),
+        group: effective_query_state.group.clone(),
+        time_range: effective_query_state.time_range.clone(),
         ..options
     };
     let (resource, resolved_metric_id) =
@@ -180,14 +189,12 @@ pub fn query_metric_dataframe(
             acc.entry(dataset.id.clone()).or_insert(dataset);
             acc
         });
-    let closure_metric_ids =
-        runtime_analysis_closure_metric_ids(&dataset.runtime_analysis_graph, std::slice::from_ref(&resolved_metric_id));
-    let effective_metric_ids = if closure_metric_ids.is_empty() {
-        vec![resolved_metric_id.clone()]
-    } else {
-        closure_metric_ids
-    };
-    let defs_for_hydrate = select_metric_defs(&dataset.runtime_metric_defs, &effective_metric_ids);
+    let workset = runtime_metric_workset(&resource.id, std::slice::from_ref(&resolved_metric_id), dataset);
+    let effective_metric_ids = workset
+        .eval_metric_ids
+        .clone()
+        .unwrap_or_else(|| vec![resolved_metric_id.clone()]);
+    let defs_for_hydrate = workset.defs_for_hydrate.clone();
     let dependency_revision_key =
         metric_request_revision_fingerprint(app_root, &datasets, &resource.id, &defs_for_hydrate);
     let response_cache_key = metric_dataframe_cache_key(
@@ -204,6 +211,10 @@ pub fn query_metric_dataframe(
     if let Some(mut cached) = take_cached_metric_dataframe_result(&response_cache_key) {
         cached.perf = BTreeMap::from([
             ("response_cache_hit".to_string(), 1),
+            ("request_dag_observed".to_string(), 0),
+            ("eval_memo_hits".to_string(), 0),
+            ("eval_memo_eval_node_cache_hits".to_string(), 0),
+            ("eval_memo_eval_node_cache_misses".to_string(), 0),
             (
                 "response_cache_lookup_ms".to_string(),
                 elapsed_ms(response_cache_lookup_started),
@@ -217,6 +228,8 @@ pub fn query_metric_dataframe(
         page_size: 0,
         search: options.search.clone(),
         filters: options.filters.clone(),
+        group: options.group.clone(),
+        time_range: options.time_range.clone(),
         collect_all: true,
         sort: Vec::new(),
         column_state: None,
@@ -243,14 +256,17 @@ pub fn query_metric_dataframe(
 
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
+        Some(dataset),
         &resource.id,
         scene_id.unwrap_or(""),
         target,
-        base_query.search.as_deref(),
-        &base_query.filters,
+        effective_query_state.search.as_deref(),
+        &effective_query_state.filters,
+        Some(&effective_query_state),
+        &filter_intents,
         &dependency_revision_key,
     );
-    let (metrics_map, dag_metrics) = evaluate_runtime_metric_defs_with_scope_and_dag(
+    let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
         &dataset.runtime_metric_defs,
         &runtime_dataset.rows,
         &datasets,
@@ -264,6 +280,8 @@ pub fn query_metric_dataframe(
         )
     })?;
     let metric_eval_ms = elapsed_ms(metric_started);
+    let dag_metrics = &eval_report.request_dag_metrics;
+    let eval_plan = &eval_report.eval_plan;
 
     let metric = metrics_map
         .get(&resolved_metric_id)
@@ -307,6 +325,8 @@ pub fn query_metric_dataframe(
         page_size,
         search: options.search,
         filters: options.filters,
+        group: options.group,
+        time_range: options.time_range,
         collect_all,
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),
@@ -330,6 +350,31 @@ pub fn query_metric_dataframe(
         .insert("metric_eval_ms".to_string(), metric_eval_ms);
     result
         .perf
+        .insert("eval_plan_targets".to_string(), eval_plan.targets.len() as u64);
+    result
+        .perf
+        .insert("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64);
+    result
+        .perf
+        .insert("eval_plan_edges".to_string(), eval_plan.edges.len() as u64);
+    result.perf.insert(
+        "eval_plan_metric_nodes".to_string(),
+        eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
+    );
+    result.perf.insert(
+        "eval_plan_rowset_nodes".to_string(),
+        eval_plan.node_count_by_kind(EvalPlanNodeKind::Rowset) as u64,
+    );
+    result.perf.insert(
+        "eval_plan_scalar_nodes".to_string(),
+        eval_plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr) as u64,
+    );
+    result.perf.insert(
+        "eval_plan_hydrate_nodes".to_string(),
+        eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
+    );
+    result
+        .perf
         .insert("request_dag_nodes".to_string(), dag_metrics.nodes as u64);
     result
         .perf
@@ -340,6 +385,9 @@ pub fn query_metric_dataframe(
     result
         .perf
         .insert("request_dag_misses".to_string(), dag_metrics.misses);
+    result
+        .perf
+        .insert("request_dag_observed".to_string(), 1);
     result.perf.insert(
         "request_dag_request_cache_hits".to_string(),
         dag_metrics.request_cache_hits,
@@ -350,6 +398,17 @@ pub fn query_metric_dataframe(
     );
     result.perf.insert(
         "request_dag_eval_node_cache_misses".to_string(),
+        dag_metrics.eval_node_cache_misses,
+    );
+    result
+        .perf
+        .insert("eval_memo_hits".to_string(), dag_metrics.request_cache_hits);
+    result.perf.insert(
+        "eval_memo_eval_node_cache_hits".to_string(),
+        dag_metrics.eval_node_cache_hits,
+    );
+    result.perf.insert(
+        "eval_memo_eval_node_cache_misses".to_string(),
         dag_metrics.eval_node_cache_misses,
     );
     result.perf.insert(

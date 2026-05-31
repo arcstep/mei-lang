@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use mei_lang_kernel::{ColumnSchema, DatasetView};
+use mei_lang_kernel::{ColumnSchema, DatasetView, QueryTimeRange};
 use serde::{Deserialize, Serialize};
 
 use super::types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
@@ -25,6 +25,10 @@ pub struct QueryStateEcho {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<String>,
     pub filters: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub group: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time_range: Option<QueryTimeRange>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sort: Vec<TableSortSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -121,6 +125,8 @@ pub fn enrich_table_result(
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty()),
         filters: options.filters.clone(),
+        group: options.group.clone(),
+        time_range: options.time_range.clone(),
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),
     });

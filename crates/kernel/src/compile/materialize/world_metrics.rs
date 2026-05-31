@@ -6,10 +6,11 @@ use serde_json::Value;
 use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 
 use super::analysis_graph::{build_analysis_artifacts, expand_runtime_metric_defs};
+use super::eval_plan::{build_eval_plan, RuntimeMetricEvalReport};
 use super::metric_packs::{
     materialize_legacy_metric_map, materialize_legacy_metric_map_with_scope_and_dag,
 };
-use crate::compile::analysis::eval_context::{RequestDagMetrics, RuntimeMetricEvalScope};
+use crate::compile::analysis::eval_context::RuntimeMetricEvalScope;
 
 pub const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
@@ -214,10 +215,13 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
     datasets: &BTreeMap<String, DatasetView>,
     metric_ids: Option<&[String]>,
     scope: &RuntimeMetricEvalScope,
-) -> Result<(BTreeMap<String, MetricContract>, RequestDagMetrics)> {
+) -> Result<(BTreeMap<String, MetricContract>, RuntimeMetricEvalReport)> {
+    // Runtime evaluation always treats metric defs as the authoritative source
+    // of truth. Compile-time `DatasetView.metrics` snapshots are only used by
+    // higher layers when no runtime defs exist at all.
     let expanded_defs = expand_runtime_metric_defs(metric_defs);
-    if let Some(ids) = metric_ids {
-        let selected = ids
+    let selected_defs = if let Some(ids) = metric_ids {
+        ids
             .iter()
             .filter_map(|id| {
                 expanded_defs
@@ -225,12 +229,24 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
                     .cloned()
                     .map(|value| (id.clone(), value))
             })
-            .collect::<BTreeMap<_, _>>();
-        return materialize_legacy_metric_map_with_scope_and_dag(
-            &selected, base_rows, datasets, scope,
-        );
-    }
-    materialize_legacy_metric_map_with_scope_and_dag(&expanded_defs, base_rows, datasets, scope)
+            .collect::<BTreeMap<_, _>>()
+    } else {
+        expanded_defs.clone()
+    };
+    let eval_plan = build_eval_plan(&expanded_defs, metric_ids, datasets, scope);
+    let (metrics, request_dag_metrics) = materialize_legacy_metric_map_with_scope_and_dag(
+        &selected_defs,
+        base_rows,
+        datasets,
+        scope,
+    )?;
+    Ok((
+        metrics,
+        RuntimeMetricEvalReport {
+            eval_plan,
+            request_dag_metrics,
+        },
+    ))
 }
 
 #[cfg(test)]

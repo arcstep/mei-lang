@@ -328,6 +328,7 @@ mod tests {
             scene_local_nav_by_target: BTreeMap::new(),
             scene_bindings_by_id: BTreeMap::new(),
             scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
         }

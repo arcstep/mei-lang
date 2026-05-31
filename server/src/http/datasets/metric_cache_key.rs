@@ -4,12 +4,21 @@ use std::time::UNIX_EPOCH;
 
 use mei_lang_kernel::{
     dataset_materialize_cache_epoch, resolve_runtime_metric_def_key, resolve_versioned_source_identifier,
-    DatasetView, RuntimeMetricEvalScope,
+    DatasetView, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator, QueryState,
+    QueryTimeRange, RuntimeMetricEvalScope, runtime_analysis_closure_metric_ids,
 };
 use serde::Serialize;
 use serde_json::Value;
 
-use super::metric_hydrate::collect_dataset_ids_from_metric_defs;
+use super::metric_hydrate::{collect_dataset_ids_from_metric_defs, dataset_dimension_bindings};
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct RuntimeMetricWorkset {
+    pub resolved_metric_ids: Vec<String>,
+    pub closure_metric_ids: Vec<String>,
+    pub eval_metric_ids: Option<Vec<String>>,
+    pub defs_for_hydrate: BTreeMap<String, Value>,
+}
 
 pub(crate) fn normalize_query_search(search: Option<&str>) -> Option<String> {
     let value = search.unwrap_or("").trim();
@@ -29,6 +38,55 @@ pub(crate) fn normalize_query_filters(
         normalized.insert(normalized_key.to_string(), normalized_value.to_string());
     }
     normalized
+}
+
+pub(crate) fn normalize_query_group(group: &[String]) -> Vec<String> {
+    let mut normalized = group
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    normalized.sort();
+    normalized.dedup();
+    normalized
+}
+
+pub(crate) fn normalize_query_time_range(time_range: Option<&QueryTimeRange>) -> Option<QueryTimeRange> {
+    let raw = time_range?;
+    let dimension = raw
+        .dimension
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let start = raw
+        .start
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let end = raw
+        .end
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let preset = raw
+        .preset
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if dimension.is_none() && start.is_none() && end.is_none() && preset.is_none() {
+        return None;
+    }
+    Some(QueryTimeRange {
+        dimension,
+        start,
+        end,
+        preset,
+    })
 }
 
 pub(crate) fn resolve_runtime_metric_ids(
@@ -104,23 +162,177 @@ pub(crate) fn metric_request_revision_fingerprint(
 }
 
 pub(crate) fn runtime_metric_eval_scope(
+    binding_dataset: Option<&DatasetView>,
     base_dataset_id: &str,
     scene_id: &str,
     target: Option<&str>,
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
+    query_state_override: Option<&QueryState>,
+    filter_intents_override: &[FilterIntent],
     dependency_revision_key: &str,
 ) -> RuntimeMetricEvalScope {
     let normalized_filters = normalize_query_filters(filters);
-    let normalized_search = normalize_query_search(search).unwrap_or_default();
+    let query_state = query_state_from_request(&normalized_filters, search, query_state_override);
+    let normalized_search = query_state.search.clone().unwrap_or_default();
+    let filter_intents = filter_intents_from_request(&query_state, filter_intents_override);
+    let dimension_bindings = binding_dataset
+        .map(|dataset| dimension_bindings_from_query_state_for_dataset(&query_state, dataset))
+        .unwrap_or_else(|| dimension_bindings_from_query_state(&query_state));
     RuntimeMetricEvalScope {
         base_dataset_id: base_dataset_id.trim().to_string(),
         scene_id: scene_id.trim().to_string(),
         target: target.unwrap_or("").trim().to_string(),
         search: normalized_search,
+        query_state,
+        filter_intents,
+        dimension_bindings,
         filters_fingerprint: serialize_cache_value(&normalized_filters),
         dependency_revision_key: dependency_revision_key.to_string(),
     }
+}
+
+pub(crate) fn runtime_metric_workset(
+    resource_id: &str,
+    requested_metric_ids: &[String],
+    dataset: &DatasetView,
+) -> RuntimeMetricWorkset {
+    let resolved_metric_ids =
+        resolve_runtime_metric_ids(resource_id, requested_metric_ids, &dataset.runtime_metric_defs);
+    if requested_metric_ids.is_empty() {
+        return RuntimeMetricWorkset {
+            resolved_metric_ids,
+            closure_metric_ids: Vec::new(),
+            eval_metric_ids: None,
+            defs_for_hydrate: dataset.runtime_metric_defs.clone(),
+        };
+    }
+    let closure_metric_ids =
+        runtime_analysis_closure_metric_ids(&dataset.runtime_analysis_graph, &resolved_metric_ids);
+    let eval_metric_ids = if closure_metric_ids.is_empty() {
+        resolved_metric_ids.clone()
+    } else {
+        closure_metric_ids.clone()
+    };
+    RuntimeMetricWorkset {
+        resolved_metric_ids,
+        closure_metric_ids,
+        defs_for_hydrate: select_metric_defs(&dataset.runtime_metric_defs, &eval_metric_ids),
+        eval_metric_ids: Some(eval_metric_ids),
+    }
+}
+
+pub(crate) fn query_state_from_filters(
+    filters: &BTreeMap<String, String>,
+    search: Option<&str>,
+) -> QueryState {
+    QueryState {
+        filters: normalize_query_filters(filters),
+        search: normalize_query_search(search),
+        group: Vec::new(),
+        time_range: None,
+    }
+}
+
+pub(crate) fn query_state_from_request(
+    filters: &BTreeMap<String, String>,
+    search: Option<&str>,
+    state: Option<&QueryState>,
+) -> QueryState {
+    let mut merged = query_state_from_filters(filters, search);
+    if let Some(state) = state {
+        for (dimension, value) in normalize_query_filters(&state.filters) {
+            merged.filters.insert(dimension, value);
+        }
+        if state.search.is_some() {
+            merged.search = normalize_query_search(state.search.as_deref());
+        }
+        if !state.group.is_empty() {
+            merged.group = normalize_query_group(&state.group);
+        }
+        if state.time_range.is_some() {
+            merged.time_range = normalize_query_time_range(state.time_range.as_ref());
+        }
+    }
+    merged
+}
+
+pub(crate) fn filter_intents_from_query_state(
+    state: &QueryState,
+    source: FilterIntentSource,
+) -> Vec<FilterIntent> {
+    state
+        .filters
+        .iter()
+        .map(|(dimension, value)| FilterIntent {
+            dimension: dimension.clone(),
+            operator: FilterOperator::Eq,
+            value: value.clone(),
+            source,
+        })
+        .collect()
+}
+
+pub(crate) fn normalize_filter_intents(intents: &[FilterIntent]) -> Vec<FilterIntent> {
+    intents
+        .iter()
+        .filter_map(|intent| {
+            let dimension = intent.dimension.trim();
+            let value = intent.value.trim();
+            if dimension.is_empty() || value.is_empty() {
+                return None;
+            }
+            Some(FilterIntent {
+                dimension: dimension.to_string(),
+                operator: intent.operator,
+                value: value.to_string(),
+                source: intent.source,
+            })
+        })
+        .collect()
+}
+
+pub(crate) fn filter_intents_from_request(
+    state: &QueryState,
+    intents: &[FilterIntent],
+) -> Vec<FilterIntent> {
+    let normalized = normalize_filter_intents(intents);
+    if !normalized.is_empty() {
+        return normalized;
+    }
+    filter_intents_from_query_state(state, FilterIntentSource::QueryState)
+}
+
+pub(crate) fn dimension_bindings_from_query_state(state: &QueryState) -> Vec<DimensionBinding> {
+    state
+        .filters
+        .keys()
+        .map(|dimension| DimensionBinding {
+            dimension: dimension.clone(),
+            field: dimension.clone(),
+        })
+        .collect()
+}
+
+pub(crate) fn dimension_bindings_from_query_state_for_dataset(
+    state: &QueryState,
+    dataset: &DatasetView,
+) -> Vec<DimensionBinding> {
+    let available = dataset_dimension_bindings(dataset);
+    state
+        .filters
+        .keys()
+        .map(|dimension| {
+            available
+                .iter()
+                .find(|binding| binding.dimension == *dimension)
+                .cloned()
+                .unwrap_or_else(|| DimensionBinding {
+                    dimension: dimension.clone(),
+                    field: dimension.clone(),
+                })
+        })
+        .collect()
 }
 
 pub(crate) fn eval_node_cache_key(expr_fingerprint: &str, scope: &RuntimeMetricEvalScope) -> String {
@@ -250,6 +462,22 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: "abc".to_string(),
+            query_state: QueryState {
+                filters: BTreeMap::from([("status".to_string(), "待办".to_string())]),
+                search: Some("abc".to_string()),
+                group: Vec::new(),
+                time_range: None,
+            },
+            filter_intents: vec![FilterIntent {
+                dimension: "status".to_string(),
+                operator: FilterOperator::Eq,
+                value: "待办".to_string(),
+                source: FilterIntentSource::QueryState,
+            }],
+            dimension_bindings: vec![DimensionBinding {
+                dimension: "status".to_string(),
+                field: "status".to_string(),
+            }],
             filters_fingerprint: "{\"status\":\"待办\"}".to_string(),
             dependency_revision_key: "deps=v1".to_string(),
         };
@@ -281,5 +509,235 @@ mod tests {
         assert_eq!(normalize_query_search(Some("  abc ")), Some("abc".to_string()));
         assert_eq!(normalize_query_search(Some("   ")), None);
         assert_eq!(normalize_query_search(None), None);
+    }
+
+    #[test]
+    fn runtime_metric_eval_scope_materializes_query_state_filter_intents_and_bindings() {
+        let filters = BTreeMap::from([(" status ".to_string(), " 待办 ".to_string())]);
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["status".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:warning_list".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let scope = runtime_metric_eval_scope(
+            Some(&dataset),
+            "warning_list",
+            "home",
+            Some("scenes/home.mei"),
+            Some("abc"),
+            &filters,
+            None,
+            &[],
+            "deps=v1",
+        );
+        assert_eq!(
+            scope.query_state.filters,
+            BTreeMap::from([("status".to_string(), "待办".to_string())])
+        );
+        assert_eq!(scope.query_state.search.as_deref(), Some("abc"));
+        assert_eq!(scope.filter_intents.len(), 1);
+        assert_eq!(scope.filter_intents[0].dimension, "status");
+        assert_eq!(scope.filter_intents[0].value, "待办");
+        assert_eq!(scope.dimension_bindings.len(), 1);
+        assert_eq!(scope.dimension_bindings[0].dimension, "status");
+        assert_eq!(scope.dimension_bindings[0].field, "status");
+    }
+
+    #[test]
+    fn runtime_metric_eval_scope_prefers_host_supplied_filter_intents() {
+        let filters = BTreeMap::from([("status".to_string(), "待办".to_string())]);
+        let query_state = QueryState {
+            filters: BTreeMap::from([("status".to_string(), "待办".to_string())]),
+            search: Some(" host keyword ".to_string()),
+            group: Vec::new(),
+            time_range: None,
+        };
+        let filter_intents = vec![FilterIntent {
+            dimension: " status ".to_string(),
+            operator: FilterOperator::Eq,
+            value: " 待办 ".to_string(),
+            source: FilterIntentSource::FilterBar,
+        }];
+        let scope = runtime_metric_eval_scope(
+            None,
+            "warning_list",
+            "home",
+            Some("scenes/home.mei"),
+            None,
+            &filters,
+            Some(&query_state),
+            &filter_intents,
+            "deps=v1",
+        );
+        assert_eq!(scope.query_state.filters.get("status"), Some(&"待办".to_string()));
+        assert_eq!(scope.query_state.search.as_deref(), Some("host keyword"));
+        assert_eq!(scope.filter_intents.len(), 1);
+        assert_eq!(scope.filter_intents[0].source, FilterIntentSource::FilterBar);
+        assert_eq!(scope.filter_intents[0].dimension, "status");
+        assert_eq!(scope.filter_intents[0].value, "待办");
+    }
+
+    #[test]
+    fn query_state_from_request_prefers_host_supplied_search() {
+        let filters = BTreeMap::from([("status".to_string(), "待办".to_string())]);
+        let query_state = QueryState {
+            filters: BTreeMap::new(),
+            search: Some(" host keyword ".to_string()),
+            group: Vec::new(),
+            time_range: None,
+        };
+        let merged = query_state_from_request(&filters, Some(" request keyword "), Some(&query_state));
+        assert_eq!(merged.filters.get("status"), Some(&"待办".to_string()));
+        assert_eq!(merged.search.as_deref(), Some("host keyword"));
+    }
+
+    #[test]
+    fn query_state_from_request_normalizes_group_and_time_range() {
+        let merged = query_state_from_request(
+            &BTreeMap::new(),
+            None,
+            Some(&QueryState {
+                filters: BTreeMap::new(),
+                search: None,
+                group: vec![" park ".to_string(), "park".to_string(), "".to_string()],
+                time_range: Some(QueryTimeRange {
+                    dimension: Some(" created_at ".to_string()),
+                    start: Some(" 2024-01-01 ".to_string()),
+                    end: Some(" 2024-12-31 ".to_string()),
+                    preset: Some(" year ".to_string()),
+                }),
+            }),
+        );
+        assert_eq!(merged.group, vec!["park".to_string()]);
+        assert_eq!(
+            merged.time_range,
+            Some(QueryTimeRange {
+                dimension: Some("created_at".to_string()),
+                start: Some("2024-01-01".to_string()),
+                end: Some("2024-12-31".to_string()),
+                preset: Some("year".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn query_state_from_request_allows_blank_host_search_to_clear_top_level_search() {
+        let merged = query_state_from_request(
+            &BTreeMap::new(),
+            Some("request keyword"),
+            Some(&QueryState {
+                filters: BTreeMap::new(),
+                search: Some("   ".to_string()),
+                group: Vec::new(),
+                time_range: None,
+            }),
+        );
+        assert_eq!(merged.search, None);
+    }
+
+    #[test]
+    fn runtime_metric_workset_uses_semantic_closure_for_requested_metrics() {
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:warning_list".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::from([
+                (
+                    "sales_total".to_string(),
+                    serde_json::json!({
+                        "key": "sales_total",
+                        "explain": [
+                            {
+                                "__kind": "data_product",
+                                "id": "detail_table",
+                                "shape": "dataframe",
+                                "value": [{"id": 1}]
+                            }
+                        ]
+                    }),
+                ),
+                (
+                    "sales_total::detail_table".to_string(),
+                    serde_json::json!({
+                        "key": "sales_total::detail_table",
+                        "shape": "dataframe",
+                        "value": [{"id": 1}]
+                    }),
+                ),
+            ]),
+            runtime_analysis_graph: mei_lang_kernel::build_runtime_analysis_graph(
+                &BTreeMap::from([(
+                    "sales_total".to_string(),
+                    serde_json::json!({
+                        "key": "sales_total",
+                        "explain": [
+                            {
+                                "__kind": "data_product",
+                                "id": "detail_table",
+                                "shape": "dataframe",
+                                "value": [{"id": 1}]
+                            }
+                        ]
+                    }),
+                )]),
+                "warning_list",
+            ),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let workset = runtime_metric_workset(
+            "warning_list",
+            &["sales_total".to_string()],
+            &dataset,
+        );
+        assert_eq!(workset.resolved_metric_ids, vec!["sales_total".to_string()]);
+        assert_eq!(
+            workset.eval_metric_ids,
+            Some(vec![
+                "sales_total".to_string(),
+                "sales_total::detail_table".to_string(),
+            ])
+        );
+        assert_eq!(workset.defs_for_hydrate.len(), 2);
     }
 }

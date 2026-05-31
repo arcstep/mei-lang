@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use mei_lang_kernel::QueryTimeRange;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use super::table_contract::{TableColumnState, TableSortSpec};
@@ -10,6 +11,8 @@ pub struct DatasetQueryOptions {
     pub page_size: usize,
     pub search: Option<String>,
     pub filters: BTreeMap<String, String>,
+    pub group: Vec<String>,
+    pub time_range: Option<QueryTimeRange>,
     pub collect_all: bool,
     pub sort: Vec<TableSortSpec>,
     pub column_state: Option<TableColumnState>,
@@ -23,6 +26,8 @@ impl Default for DatasetQueryOptions {
             page_size: 0,
             search: None,
             filters: BTreeMap::new(),
+            group: Vec::new(),
+            time_range: None,
             collect_all: false,
             sort: Vec::new(),
             column_state: None,

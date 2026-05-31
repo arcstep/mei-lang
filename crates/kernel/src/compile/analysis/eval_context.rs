@@ -1,16 +1,34 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::model::{DimensionBinding, FilterIntent, QueryState};
 
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeMetricEvalScope {
+    /// Base dataset whose current filtered rows act as the root rowset for this
+    /// evaluation pass.
     pub base_dataset_id: String,
+    /// Scene locator dimensions belong to evaluation identity, not semantic
+    /// graph identity.
     pub scene_id: String,
     pub target: String,
     pub search: String,
+    /// Shared runtime query state carried into evaluation. This is a host/runtime
+    /// context object, not semantic DAG state.
+    pub query_state: QueryState,
+    /// Filter intents normalized from query state or interaction inputs.
+    pub filter_intents: Vec<FilterIntent>,
+    /// Resolved bindings from semantic filter dimensions to concrete dataset
+    /// fields for this evaluation pass.
+    pub dimension_bindings: Vec<DimensionBinding>,
+    /// Normalized filter identity for cache keys and request-scoped memoization.
+    /// This is evaluation context, not semantic DAG state.
     pub filters_fingerprint: String,
     pub dependency_revision_key: String,
 }
@@ -29,11 +47,13 @@ pub(crate) struct EvalNodeStats {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RequestDag {
+    /// Evaluation nodes visited in a single request scope.
     pub nodes: BTreeMap<String, EvalNodeStats>,
+    /// Request-time execution dependencies between evaluation nodes.
     pub edges: BTreeSet<(String, String)>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RequestDagMetrics {
     pub nodes: usize,
     pub edges: usize,
@@ -122,6 +142,8 @@ pub(crate) struct EvalContext {
     scope: RuntimeMetricEvalScope,
     rowset_cache: BTreeMap<String, Vec<Value>>,
     scalar_cache: BTreeMap<String, Value>,
+    // This records the request-scoped execution DAG. It must not be confused
+    // with `AnalysisGraph`, which is semantic and compile-derived.
     request_dag: RequestDag,
     request_cache_hits: u64,
     eval_node_cache_hits: u64,
@@ -162,7 +184,35 @@ fn canonicalize_expr_value(value: &Value) -> Value {
 
 fn expr_cache_key(prefix: &str, scope: &RuntimeMetricEvalScope, expr: &Value) -> Option<String> {
     let serialized = serde_json::to_string(&canonicalize_expr_value(expr)).ok()?;
-    Some(format!("{prefix}|{}|{serialized}", scope_cache_key(scope)))
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    serialized.hash(&mut hasher);
+    let expr_hash = format!("{:016x}", hasher.finish());
+    let identity_hint = expr_identity_hint(expr).unwrap_or_else(|| prefix.to_string());
+    Some(format!(
+        "{prefix}|{}|hint={identity_hint}|expr_hash={expr_hash}",
+        scope_cache_key(scope)
+    ))
+}
+
+fn expr_identity_hint(expr: &Value) -> Option<String> {
+    let map = expr.as_object()?;
+    for key in [
+        "analysis_node_id",
+        "analysis_parent_metric_id",
+        "key",
+        "id",
+        "dataset",
+        "dataset_id",
+        "type",
+    ] {
+        let value = map
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?;
+        return Some(value.to_string());
+    }
+    None
 }
 
 impl EvalContext {
@@ -334,6 +384,7 @@ impl EvalContext {
 #[cfg(test)]
 mod tests {
     use super::{EvalContext, RuntimeMetricEvalScope};
+    use crate::model::QueryState;
     use serde_json::json;
 
     #[test]
@@ -344,6 +395,9 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: String::new(),
+            query_state: QueryState::default(),
+            filter_intents: Vec::new(),
+            dimension_bindings: Vec::new(),
             filters_fingerprint: "{\"status\":\"待办\"}".to_string(),
             dependency_revision_key: "deps=a".to_string(),
         });
@@ -352,6 +406,9 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: String::new(),
+            query_state: QueryState::default(),
+            filter_intents: Vec::new(),
+            dimension_bindings: Vec::new(),
             filters_fingerprint: "{\"status\":\"已办\"}".to_string(),
             dependency_revision_key: "deps=a".to_string(),
         });
@@ -368,6 +425,9 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: String::new(),
+            query_state: QueryState::default(),
+            filter_intents: Vec::new(),
+            dimension_bindings: Vec::new(),
             filters_fingerprint: "{}".to_string(),
             dependency_revision_key: "deps=a".to_string(),
         };
@@ -389,6 +449,9 @@ mod tests {
             scene_id: "home".to_string(),
             target: "scenes/home.mei".to_string(),
             search: String::new(),
+            query_state: QueryState::default(),
+            filter_intents: Vec::new(),
+            dimension_bindings: Vec::new(),
             filters_fingerprint: "{}".to_string(),
             dependency_revision_key: "deps=a".to_string(),
         };
@@ -397,5 +460,37 @@ mod tests {
         let right = json!({"type":"count","__kind":"analysis_expr","rowset":{"a":1,"b":2}});
         ctx.store_scalar(&left, &json!(9));
         assert_eq!(ctx.cached_scalar(&right), Some(json!(9)));
+    }
+
+    #[test]
+    fn request_dag_metrics_track_nested_eval_edges_and_request_hits() {
+        let scope = RuntimeMetricEvalScope {
+            base_dataset_id: "warning_list".to_string(),
+            scene_id: "home".to_string(),
+            target: "scenes/home.mei".to_string(),
+            search: String::new(),
+            query_state: QueryState::default(),
+            filter_intents: Vec::new(),
+            dimension_bindings: Vec::new(),
+            filters_fingerprint: "{\"status\":\"待办\"}".to_string(),
+            dependency_revision_key: "deps=a".to_string(),
+        };
+        let mut ctx = EvalContext::with_scope(scope);
+        let parent = json!({"__kind":"analysis_expr","type":"count","name":"parent"});
+        let child = json!({"__kind":"analysis_expr","type":"where","name":"child"});
+        ctx.store_rowset(&child, &[json!({"id": 1})]);
+        ctx.with_eval_node(
+            &ctx.scalar_key(&parent).expect("parent scalar key"),
+            super::EvalNodeKind::Scalar,
+            |ctx| {
+                assert_eq!(ctx.cached_rowset(&child).unwrap_or_default().len(), 1);
+                Ok(json!(1))
+            },
+        )
+        .expect("nested eval should succeed");
+        let metrics = ctx.request_dag_metrics();
+        assert_eq!(metrics.nodes, 2, "parent scalar node and child rowset node");
+        assert_eq!(metrics.edges, 1, "parent should depend on child");
+        assert_eq!(metrics.request_cache_hits, 1, "child should hit request cache");
     }
 }

@@ -2,8 +2,16 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde_json::{Map, Value};
 
-use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode};
+use crate::model::{
+    AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind,
+};
 
+/// Expand authored/runtime metric defs into the runtime-authoritative metric
+/// definition map.
+///
+/// This step lowers explain-scope local objects into scoped metric ids so that
+/// runtime evaluation, cache identity, and semantic graph construction all
+/// share the same canonical metric space.
 pub(crate) fn expand_runtime_metric_defs(metric_defs: &BTreeMap<String, Value>) -> BTreeMap<String, Value> {
     let mut expanded = BTreeMap::new();
     for (metric_id, raw) in metric_defs {
@@ -22,6 +30,10 @@ pub(crate) fn build_analysis_artifacts(
     (expanded, graph, contracts)
 }
 
+/// Build the compile-derived semantic analysis graph.
+///
+/// This graph is the current semantic DAG artifact. It should not be confused
+/// with request-time evaluation dependencies recorded by `RequestDag`.
 pub(crate) fn build_analysis_graph(
     metric_defs: &BTreeMap<String, Value>,
     root_dataset_id: &str,
@@ -30,6 +42,11 @@ pub(crate) fn build_analysis_graph(
     build_analysis_graph_from_expanded(&expanded, root_dataset_id)
 }
 
+/// Build consumer projection contracts from expanded runtime metric defs plus
+/// the semantic analysis graph.
+///
+/// These contracts are for consumers such as drilldown/popup and are not a
+/// semantic or runtime-evaluation source of truth.
 pub(crate) fn build_analysis_contracts(
     metric_defs: &BTreeMap<String, Value>,
     root_dataset_id: &str,
@@ -39,6 +56,12 @@ pub(crate) fn build_analysis_contracts(
     build_analysis_contracts_from_expanded(&expanded, &graph, root_dataset_id)
 }
 
+/// Select the metric workset implied by semantic analysis closure.
+///
+/// This walks compile-derived semantic edges to discover reachable metric
+/// nodes. It is intentionally narrower than the request eval DAG: it selects
+/// metric defs to consider for evaluation but does not express execution order
+/// or expression dependencies.
 pub(crate) fn analysis_closure_metric_ids(
     graph: &AnalysisGraph,
     focus_ids: &[String],
@@ -62,7 +85,10 @@ pub(crate) fn analysis_closure_metric_ids(
             let Some(target) = graph.nodes.get(&edge.to) else {
                 continue;
             };
-            if target.node_kind != "metric" {
+            if !edge.participates_in_default_closure() {
+                continue;
+            }
+            if !target.participates_in_metric_closure() {
                 continue;
             }
             if visited.insert(edge.to.clone()) {
@@ -277,6 +303,14 @@ fn build_analysis_graph_from_expanded(
         let Some(map) = raw.as_object() else {
             continue;
         };
+        if let Some(dataset_id) = first_non_empty_string(map, &["dataset", "dataset_id"]) {
+            let tabular_node_id = tabular_source_node_id(&dataset_id);
+            graph
+                .nodes
+                .entry(tabular_node_id.clone())
+                .or_insert_with(|| tabular_node_from_dataset_id(&tabular_node_id, &dataset_id));
+            push_edge(&mut edge_set, metric_id, &tabular_node_id, "lineage");
+        }
         let Some(items) = map.get("explain").and_then(Value::as_array) else {
             continue;
         };
@@ -294,6 +328,15 @@ fn build_analysis_graph_from_expanded(
             }
             let role = support_role_for_item(item_map);
             let Some(target_metric_id) = metric_target_from_item(item_map) else {
+                if let Some(dataset_id) = dataset_target_from_item(item_map) {
+                    let tabular_node_id = tabular_source_node_id(&dataset_id);
+                    graph
+                        .nodes
+                        .entry(tabular_node_id.clone())
+                        .or_insert_with(|| tabular_node_from_dataset_id(&tabular_node_id, &dataset_id));
+                    push_edge(&mut edge_set, metric_id, &tabular_node_id, "lineage");
+                    continue;
+                }
                 let block_id = narrative_block_id(metric_id, item_map);
                 graph.nodes.entry(block_id.clone()).or_insert_with(|| {
                     narrative_node_from_item(&block_id, metric_id, item_map, root_dataset_id)
@@ -306,10 +349,12 @@ fn build_analysis_graph_from_expanded(
                 canonical_metric_id: Some(target_metric_id.clone()),
                 parent_id: Some(metric_id.clone()),
                 node_kind: "metric".to_string(),
+                    semantic_kind: SemanticNodeKind::Metric,
                 support_role: Some(role.clone()),
                 shape: None,
                 label: first_non_empty_string(item_map, &["label"]),
                 lineage_dataset_id: Some(root_dataset_id.to_string()),
+                    tabular_source_dataset_id: None,
                 can_explain: false,
             });
             push_edge(&mut edge_set, metric_id, &target_metric_id, &role);
@@ -317,8 +362,19 @@ fn build_analysis_graph_from_expanded(
     }
     graph.edges = edge_set
         .into_iter()
-        .map(|(from, to, role)| AnalysisEdge { from, to, role })
+        .map(|(from, to, role)| AnalysisEdge {
+            semantic_kind: semantic_edge_kind_from_role(&role),
+            from,
+            to,
+            role,
+        })
         .collect();
+    let validation_errors = graph.validate_invariants();
+    debug_assert!(
+        validation_errors.is_empty(),
+        "analysis graph invariants should hold after build: {:?}",
+        validation_errors
+    );
     graph
 }
 
@@ -474,12 +530,14 @@ fn metric_node_from_raw(metric_id: &str, raw: &Value, root_dataset_id: &str) -> 
         canonical_metric_id: Some(metric_id.to_string()),
         parent_id: map.and_then(|value| first_non_empty_string(value, &["analysis_parent_metric_id"])),
         node_kind: "metric".to_string(),
+        semantic_kind: SemanticNodeKind::Metric,
         support_role: None,
         shape: map.and_then(detect_metric_shape),
         label: map.and_then(|value| first_non_empty_string(value, &["label", "title"])),
         lineage_dataset_id: map
             .and_then(|value| first_non_empty_string(value, &["dataset", "dataset_id"]))
             .or_else(|| (!root_dataset_id.trim().is_empty()).then(|| root_dataset_id.to_string())),
+        tabular_source_dataset_id: None,
         can_explain: map
             .and_then(|value| value.get("explain"))
             .and_then(Value::as_array)
@@ -498,10 +556,28 @@ fn narrative_node_from_item(
         canonical_metric_id: None,
         parent_id: Some(parent_metric_id.to_string()),
         node_kind: "narrative".to_string(),
+        semantic_kind: SemanticNodeKind::NarrativeSupport,
         support_role: Some(support_role_for_item(item_map)),
         shape: None,
         label: first_non_empty_string(item_map, &["label", "title"]),
         lineage_dataset_id: Some(root_dataset_id.to_string()),
+        tabular_source_dataset_id: None,
+        can_explain: false,
+    }
+}
+
+fn tabular_node_from_dataset_id(node_id: &str, dataset_id: &str) -> AnalysisNode {
+    AnalysisNode {
+        id: node_id.to_string(),
+        canonical_metric_id: None,
+        parent_id: None,
+        node_kind: "tabular_source".to_string(),
+        semantic_kind: SemanticNodeKind::TabularSource,
+        support_role: None,
+        shape: Some("dataframe".to_string()),
+        label: Some(dataset_id.to_string()),
+        lineage_dataset_id: Some(dataset_id.to_string()),
+        tabular_source_dataset_id: Some(dataset_id.to_string()),
         can_explain: false,
     }
 }
@@ -527,6 +603,14 @@ fn analysis_node_value(
                 .unwrap_or_else(|| "metric".to_string()),
         ),
     );
+    obj.insert(
+        "semantic_kind".to_string(),
+        Value::String(
+            node.map(|value| semantic_node_kind_name(value.semantic_kind()))
+                .unwrap_or("metric")
+                .to_string(),
+        ),
+    );
     if let Some(role) = support_role
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -540,6 +624,12 @@ fn analysis_node_value(
     }
     if let Some(parent_id) = node.and_then(|value| value.parent_id.clone()) {
         obj.insert("parent_id".to_string(), Value::String(parent_id));
+    }
+    if let Some(dataset_id) = node
+        .and_then(|value| value.tabular_source_dataset_id.clone())
+        .or_else(|| node.and_then(|value| value.lineage_dataset_id.clone()))
+    {
+        obj.insert("dataset_id".to_string(), Value::String(dataset_id));
     }
     obj.insert(
         "can_explain".to_string(),
@@ -597,9 +687,11 @@ fn explain_block_value(
         );
         block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
     } else if let Some(dataset_id) = dataset_target_from_item(item_map) {
+        let tabular_node_id = tabular_source_node_id(&dataset_id);
         let mut runtime_ref = Map::new();
         runtime_ref.insert("kind".to_string(), Value::String("data".to_string()));
         runtime_ref.insert("dataset_id".to_string(), Value::String(dataset_id.clone()));
+        block.insert("node_id".to_string(), Value::String(tabular_node_id));
         block.insert("dataset_id".to_string(), Value::String(dataset_id));
         block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
     }
@@ -675,6 +767,37 @@ fn narrative_block_id(parent_metric_id: &str, item_map: &Map<String, Value>) -> 
     format!("{parent_metric_id}#{}", local_id.trim())
 }
 
+fn tabular_source_node_id(dataset_id: &str) -> String {
+    format!("tabular::{}", dataset_id.trim())
+}
+
+fn semantic_node_kind_name(kind: SemanticNodeKind) -> &'static str {
+    match kind {
+        SemanticNodeKind::Metric => "metric",
+        SemanticNodeKind::NarrativeSupport => "narrative_support",
+        SemanticNodeKind::TabularSource => "tabular_source",
+        SemanticNodeKind::Unknown => "unknown",
+    }
+}
+
+fn semantic_edge_kind_from_role(role: &str) -> SemanticEdgeKind {
+    match role.trim() {
+        "scope_metric" => SemanticEdgeKind::ScopeMetric,
+        "support"
+        | "definition"
+        | "detail"
+        | "trend"
+        | "composition"
+        | "numerator_denominator"
+        | "attribution"
+        | "note" => SemanticEdgeKind::Support,
+        "lineage" => SemanticEdgeKind::Lineage,
+        "association" => SemanticEdgeKind::Association,
+        "reuse" => SemanticEdgeKind::Reuse,
+        _ => SemanticEdgeKind::Unknown,
+    }
+}
+
 fn detect_metric_shape(map: &Map<String, Value>) -> Option<String> {
     if let Some(shape) = first_non_empty_string(map, &["shape"]) {
         return Some(shape);
@@ -727,6 +850,7 @@ fn push_edge(edges: &mut BTreeSet<(String, String, String)>, from: &str, to: &st
 #[cfg(test)]
 mod tests {
     use super::{analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph};
+    use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
     use serde_json::json;
     use std::collections::BTreeMap;
 
@@ -774,6 +898,44 @@ mod tests {
     }
 
     #[test]
+    fn analysis_closure_metric_ids_ignores_narrative_support_nodes() {
+        let defs = BTreeMap::from([(
+            "sales_total".to_string(),
+            json!({
+                "key": "sales_total",
+                "label": "销售总额",
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "definition",
+                        "kind": "definition",
+                        "note": "口径说明"
+                    },
+                    {
+                        "__kind": "data_product",
+                        "id": "detail_table",
+                        "shape": "dataframe",
+                        "value": [{"id": "A"}]
+                    }
+                ]
+            }),
+        )]);
+        let graph = build_analysis_graph(&defs, "sales_metrics");
+        let closure = analysis_closure_metric_ids(&graph, &["sales_total".to_string()]);
+        assert_eq!(
+            closure,
+            vec![
+                "sales_total".to_string(),
+                "sales_total::detail_table".to_string(),
+            ]
+        );
+        assert!(
+            !closure.iter().any(|id| id.contains('#')),
+            "semantic closure used for runtime metric selection should ignore narrative-only support nodes"
+        );
+    }
+
+    #[test]
     fn build_analysis_contracts_ignores_legacy_explain_object() {
         let defs = BTreeMap::from([(
             "sales_total".to_string(),
@@ -790,6 +952,92 @@ mod tests {
         assert!(
             contracts.get("sales_total").is_none(),
             "legacy explain object should not build analysis contracts"
+        );
+    }
+
+    #[test]
+    fn build_analysis_graph_emits_tabular_sources_and_lineage_edges() {
+        let defs = BTreeMap::from([(
+            "sales_total".to_string(),
+            json!({
+                "key": "sales_total",
+                "label": "销售总额",
+                "dataset": "warning_list",
+                "explain": [
+                    {
+                        "__kind": "explain_item",
+                        "id": "detail",
+                        "kind": "detail",
+                        "source": {"__ref": "data", "from_dataset": "warning_detail"}
+                    }
+                ]
+            }),
+        )]);
+        let graph = build_analysis_graph(&defs, "sales_metrics");
+        let root_tabular = graph
+            .nodes
+            .get("tabular::warning_list")
+            .expect("root dataset should materialize as tabular source");
+        assert_eq!(root_tabular.semantic_kind(), SemanticNodeKind::TabularSource);
+        assert_eq!(
+            root_tabular.tabular_source_dataset_id.as_deref(),
+            Some("warning_list")
+        );
+        let detail_tabular = graph
+            .nodes
+            .get("tabular::warning_detail")
+            .expect("detail dataset should materialize as tabular source");
+        assert_eq!(detail_tabular.semantic_kind(), SemanticNodeKind::TabularSource);
+        assert!(graph.edges.iter().any(|edge| {
+            edge.from == "sales_total"
+                && edge.to == "tabular::warning_list"
+                && edge.semantic_kind() == SemanticEdgeKind::Lineage
+        }));
+        assert!(graph.edges.iter().any(|edge| {
+            edge.from == "sales_total"
+                && edge.to == "tabular::warning_detail"
+                && edge.semantic_kind() == SemanticEdgeKind::Lineage
+        }));
+        assert!(
+            graph.validate_invariants().is_empty(),
+            "tabular lineage graph should satisfy semantic invariants"
+        );
+    }
+
+    #[test]
+    fn analysis_closure_metric_ids_skips_auxiliary_association_edges() {
+        let graph = AnalysisGraph {
+            nodes: BTreeMap::from([
+                (
+                    "root".to_string(),
+                    AnalysisNode {
+                        id: "root".to_string(),
+                        node_kind: "metric".to_string(),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "related".to_string(),
+                    AnalysisNode {
+                        id: "related".to_string(),
+                        node_kind: "metric".to_string(),
+                        ..Default::default()
+                    },
+                ),
+            ]),
+            edges: vec![AnalysisEdge {
+                from: "root".to_string(),
+                to: "related".to_string(),
+                role: "association".to_string(),
+                semantic_kind: SemanticEdgeKind::Association,
+            }],
+        };
+
+        let closure = analysis_closure_metric_ids(&graph, &["root".to_string()]);
+        assert_eq!(
+            closure,
+            vec!["root".to_string()],
+            "auxiliary association edges should not silently expand the default semantic closure"
         );
     }
 }

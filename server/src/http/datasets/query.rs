@@ -47,6 +47,8 @@ pub fn query_dataset_rows(
         page_size,
         search: options.search,
         filters: options.filters,
+        group: options.group,
+        time_range: options.time_range,
         collect_all,
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),

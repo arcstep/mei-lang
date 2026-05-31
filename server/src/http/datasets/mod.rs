@@ -19,8 +19,8 @@ mod xlsx_dataset;
 pub use metric_dataframe::query_metric_dataframe;
 pub(crate) use metric_cache_key::{
     eval_node_cache_key, metric_request_revision_fingerprint, metric_scope_cache_key,
-    normalize_query_filters, normalize_query_search, resolve_runtime_metric_ids,
-    runtime_metric_eval_scope, select_metric_defs, serialize_cache_value,
+    normalize_query_filters, normalize_query_search, query_state_from_request, runtime_metric_eval_scope,
+    runtime_metric_workset, serialize_cache_value,
 };
 pub(crate) use metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 pub(crate) use file_cache::clear_external_file_cache_for_app;
@@ -273,6 +273,8 @@ mod tests {
                 page_size: 2,
                 search: None,
                 filters: BTreeMap::new(),
+                group: Vec::new(),
+                time_range: None,
                 collect_all: false,
                 sort: vec![TableSortSpec {
                     field: "name".to_string(),
@@ -309,6 +311,8 @@ mod tests {
                 page_size: 3,
                 search: None,
                 filters: BTreeMap::new(),
+                group: Vec::new(),
+                time_range: None,
                 collect_all: false,
                 sort: vec![TableSortSpec {
                     field: "amount".to_string(),

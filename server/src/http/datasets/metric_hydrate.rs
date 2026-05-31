@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
-use mei_lang_kernel::DatasetView;
+use mei_lang_kernel::{DatasetView, DimensionBinding};
 use serde_json::Value;
 
 use super::query::query_dataset_rows;
@@ -40,6 +40,8 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
             // 避免把主 dataset 的自由搜索错误传播到引用表；本轮先保守禁用。
             search: None,
             filters: hydrate_filters,
+            group: Vec::new(),
+            time_range: None,
             collect_all: true,
             sort: Vec::new(),
             column_state: None,
@@ -113,49 +115,58 @@ fn compatible_hydrate_filters(
     if query.filters.is_empty() {
         return BTreeMap::new();
     }
-    let mut allowed = BTreeSet::new();
-    allowed.extend(
-        dataset
-            .columns
-            .iter()
-            .map(|name| name.trim())
-            .filter(|name| !name.is_empty())
-            .map(ToString::to_string),
-    );
-    allowed.extend(
-        dataset
-            .schema
-            .iter()
-            .map(|column| column.name.trim())
-            .filter(|name| !name.is_empty())
-            .map(ToString::to_string),
-    );
-    allowed.extend(
-        dataset
-            .stage_schema
-            .iter()
-            .map(|column| column.name.trim())
-            .filter(|name| !name.is_empty())
-            .map(ToString::to_string),
-    );
-    let meta = parse_source_meta(dataset.source.content.as_deref());
-    allowed.extend(
-        meta.normalize
-            .values()
-            .map(|name| name.trim())
-            .filter(|name| !name.is_empty())
-            .map(ToString::to_string),
-    );
+    let bindings = dataset_dimension_bindings(dataset);
     query
         .filters
         .iter()
         .filter_map(|(key, value)| {
-            let normalized = key.trim();
-            allowed
-                .contains(normalized)
-                .then(|| (normalized.to_string(), value.clone()))
+            resolve_filter_binding(bindings.as_slice(), key).map(|binding| (binding.field.clone(), value.clone()))
         })
         .collect()
+}
+
+pub(crate) fn dataset_dimension_bindings(dataset: &DatasetView) -> Vec<DimensionBinding> {
+    let mut seen = BTreeSet::new();
+    let mut bindings = Vec::new();
+    let mut push_binding = |dimension: &str, field: &str| {
+        let normalized_dimension = dimension.trim();
+        let normalized_field = field.trim();
+        if normalized_dimension.is_empty() || normalized_field.is_empty() {
+            return;
+        }
+        if !seen.insert((normalized_dimension.to_string(), normalized_field.to_string())) {
+            return;
+        }
+        bindings.push(DimensionBinding {
+            dimension: normalized_dimension.to_string(),
+            field: normalized_field.to_string(),
+        });
+    };
+    for name in &dataset.columns {
+        push_binding(name, name);
+    }
+    for column in &dataset.schema {
+        push_binding(&column.name, &column.name);
+    }
+    for column in &dataset.stage_schema {
+        push_binding(&column.name, &column.name);
+    }
+    let meta = parse_source_meta(dataset.source.content.as_deref());
+    for name in meta.normalize.values() {
+        push_binding(name, name);
+    }
+    bindings
+}
+
+fn resolve_filter_binding<'a>(
+    bindings: &'a [DimensionBinding],
+    dimension: &str,
+) -> Option<&'a DimensionBinding> {
+    let normalized = dimension.trim();
+    if normalized.is_empty() {
+        return None;
+    }
+    bindings.iter().find(|binding| binding.dimension == normalized)
 }
 
 fn lookup_dataset_view<'a>(
@@ -320,5 +331,39 @@ mod tests {
         let filtered = compatible_hydrate_filters(&query, &dataset);
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered.get("status"), Some(&"待办".to_string()));
+    }
+
+    #[test]
+    fn dataset_dimension_bindings_encode_runtime_filter_dimensions() {
+        let dataset = DatasetView {
+            id: "warning_list".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["department".to_string()],
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "xlsx".to_string(),
+                path: "upload/demo.xlsx".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: Some(r#"{"normalize":{"原状态":"status"}}"#.to_string()),
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        };
+        let bindings = dataset_dimension_bindings(&dataset);
+        assert!(bindings.iter().any(|binding| binding.dimension == "department" && binding.field == "department"));
+        assert!(bindings.iter().any(|binding| binding.dimension == "status" && binding.field == "status"));
     }
 }

@@ -17,10 +17,11 @@ pub use compile::{
     TableSnapshot, TableSnapshotKey,
     dataset_materialize_cache_epoch, evaluate_runtime_metric_defs,
     evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,
+    EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
     build_runtime_analysis_contracts, build_runtime_analysis_graph, materialize_xlsx_column_headers,
     panel_resolved_has_head, resolve_default_scene_from_root, resolve_runtime_metric_def_key,
     runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled, RequestDagMetrics,
-    RuntimeMetricEvalScope,
+    RuntimeMetricEvalReport, RuntimeMetricEvalScope,
     scene_payload_cache_epoch, CompileOptions, CompileRevisionPlan, CompileWatchedFile,
 };
 
@@ -29,8 +30,9 @@ pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
 pub use model::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, BlockDecl, ColumnSchema, CompiledApp,
     CompiledSceneRoute, ComponentAsset, DataRef, DataTransform, DatasetSourceRef, DatasetView,
-    Diagnostic, FlowDecl, FrameDecl, LayoutDecl, LoadedResource, MetricContract, MetricPackContract,
-    MetricRef, MetricShape, PanelDecl,
+    Diagnostic, DimensionBinding, FilterIntent, FilterIntentSource, FilterOperator, FlowDecl,
+    FrameDecl, LayoutDecl, LoadedResource, MetricContract, MetricPackContract, MetricRef,
+    MetricShape, PanelDecl, QueryState, QueryTimeRange, SemanticEdgeKind, SemanticNodeKind,
     PanelRefEmbedDecl, ResourceDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl,
     RuleRequireDecl, RuleStartDecl, RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl,
     Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode, WorldCellDecl,

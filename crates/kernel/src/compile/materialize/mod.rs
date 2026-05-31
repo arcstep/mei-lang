@@ -1,4 +1,5 @@
 mod analysis_graph;
+mod eval_plan;
 mod legacy;
 mod metric_packs;
 mod world_metrics;
@@ -14,5 +15,9 @@ pub(super) use world_metrics::{
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
     evaluate_runtime_metric_defs_with_scope_and_dag,
     imported_world_metrics_resource_id, materialize_world_metrics,
+};
+pub use eval_plan::{
+    EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
+    RuntimeMetricEvalReport,
 };
 pub use world_metrics::resolve_runtime_metric_def_key;

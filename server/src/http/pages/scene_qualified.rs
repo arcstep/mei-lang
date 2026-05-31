@@ -196,6 +196,7 @@ mod tests {
             scene_local_nav_by_target: std::collections::BTreeMap::new(),
             scene_bindings_by_id: std::collections::BTreeMap::new(),
             scene_examples_by_id: std::collections::BTreeMap::new(),
+            scene_projection_assembly_by_id: std::collections::BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
         }
