@@ -1000,7 +1000,7 @@ fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
         ),
         (
             "scenes/1_执法要素/enforcement-park-popup.mei",
-            "composition_by_town",
+            "composition_by_geometry",
         ),
         (
             "scenes/1_执法要素/enforcement-whitelist-popup.mei",

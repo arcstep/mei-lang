@@ -1973,7 +1973,8 @@
     updateViewport(root);
   }
 
-  function scan() {
+  function scan(event) {
+    if (event?.detail?.scope === "drilldown") return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
@@ -10664,6 +10665,14 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   const POPUP_OPEN_EVENT = "mei:popup-open";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
+
+  function dispatchPreviewUpdated(scope = "page") {
+    window.dispatchEvent(
+      new CustomEvent("meilang:preview-updated", {
+        detail: { scope: String(scope || "page") },
+      }),
+    );
+  }
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
   };
@@ -12847,7 +12856,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         }),
       );
       host.appendChild(node);
-      window.dispatchEvent(new Event("meilang:preview-updated"));
+      dispatchPreviewUpdated("drilldown");
       return true;
     }
     if (explainMetricKind(config, tabId) === "trend") {
@@ -12877,7 +12886,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         }),
       );
       host.appendChild(node);
-      window.dispatchEvent(new Event("meilang:preview-updated"));
+      dispatchPreviewUpdated("drilldown");
       return true;
     }
     return false;
@@ -12918,7 +12927,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         .then((mounted) => {
           if (mounted) {
             setDrilldownOverlayStatus(root, "ready");
-            window.dispatchEvent(new Event("meilang:preview-updated"));
+            dispatchPreviewUpdated("drilldown");
             return;
           }
           if (mountDrilldownTable(root, detail, activeConfig)) {
@@ -13077,6 +13086,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       host.replaceChildren();
     }
     document.body.classList.remove("access-drilldown-open");
+    dispatchPreviewUpdated("page");
   }
 
   function stashSceneProjectionContext(detail, config) {

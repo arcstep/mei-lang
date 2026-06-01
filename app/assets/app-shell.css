@@ -118,9 +118,13 @@ body {
     transform: rotate(360deg);
   }
 }
-body.access-mode { overflow: auto; }
+body.access-mode {
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
 body.access-drilldown-open {
   overflow: hidden;
+  scrollbar-gutter: stable;
 }
 body.access-mode.chrome-none {
   overflow: hidden;

@@ -49,7 +49,8 @@
     updateViewport(root);
   }
 
-  function scan() {
+  function scan(event) {
+    if (event?.detail?.scope === "drilldown") return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));

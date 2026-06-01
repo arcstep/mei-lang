@@ -1973,7 +1973,8 @@
     updateViewport(root);
   }
 
-  function scan() {
+  function scan(event) {
+    if (event?.detail?.scope === "drilldown") return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
@@ -7856,6 +7857,14 @@
   const POPUP_OPEN_EVENT = "mei:popup-open";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
+
+  function dispatchPreviewUpdated(scope = "page") {
+    window.dispatchEvent(
+      new CustomEvent("meilang:preview-updated", {
+        detail: { scope: String(scope || "page") },
+      }),
+    );
+  }
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
   };
@@ -10039,7 +10048,7 @@
         }),
       );
       host.appendChild(node);
-      window.dispatchEvent(new Event("meilang:preview-updated"));
+      dispatchPreviewUpdated("drilldown");
       return true;
     }
     if (explainMetricKind(config, tabId) === "trend") {
@@ -10069,7 +10078,7 @@
         }),
       );
       host.appendChild(node);
-      window.dispatchEvent(new Event("meilang:preview-updated"));
+      dispatchPreviewUpdated("drilldown");
       return true;
     }
     return false;
@@ -10110,7 +10119,7 @@
         .then((mounted) => {
           if (mounted) {
             setDrilldownOverlayStatus(root, "ready");
-            window.dispatchEvent(new Event("meilang:preview-updated"));
+            dispatchPreviewUpdated("drilldown");
             return;
           }
           if (mountDrilldownTable(root, detail, activeConfig)) {
@@ -10269,6 +10278,7 @@
       host.replaceChildren();
     }
     document.body.classList.remove("access-drilldown-open");
+    dispatchPreviewUpdated("page");
   }
 
   function stashSceneProjectionContext(detail, config) {
