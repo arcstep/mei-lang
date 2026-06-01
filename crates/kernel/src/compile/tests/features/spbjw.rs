@@ -1358,6 +1358,221 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
 }
 
 #[test]
+fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis_contracts() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| panic!("`{target}` direct preview should include __world_metrics__"));
+    for metric_id in [
+        "enforcement_units_count",
+        "enforcement_personnel_count",
+        "enforcement_items_count",
+        "key_enterprises_count",
+        "park_count",
+        "whitelist_enterprises_count",
+    ] {
+        assert!(
+            dataset.runtime_metric_defs.contains_key(metric_id),
+            "expected runtime_metric_defs key `{metric_id}`, got: {:?}",
+            dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            dataset.runtime_analysis_contracts.contains_key(metric_id),
+            "expected runtime_analysis_contracts key `{metric_id}`, got: {:?}",
+            dataset.runtime_analysis_contracts.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_source() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find_map(|resource| {
+            resource
+                .dataset
+                .as_ref()
+                .filter(|dataset| dataset.id == "enforcement_units")
+                .cloned()
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "expected enforcement_units dataset, got ids: {:?}",
+                compiled
+                    .resources
+                    .iter()
+                    .filter_map(|r| r.dataset.as_ref().map(|d| d.id.as_str()))
+                    .collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(dataset.source.kind, "xlsx");
+    assert!(
+        dataset.source.path.contains("执法单位"),
+        "unexpected source path: {}",
+        dataset.source.path
+    );
+    assert!(
+        !dataset.rows.is_empty(),
+        "compile-time preview rows should not be empty"
+    );
+    let first = dataset.rows.first().cloned().unwrap_or_default();
+    assert!(
+        first.get("类别").is_some() || first.get("执法单位").is_some(),
+        "expected schema-mapped row keys, got keys: {:?}",
+        first.as_object().map(|m| m.keys().collect::<Vec<_>>())
+    );
+}
+
+#[test]
+fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materializes_enforcement_units() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .expect("direct preview world metrics");
+    let rowset_key = "enforcement_units_count::__scalar_rowset__";
+    let rowset_def = dataset
+        .runtime_metric_defs
+        .get(rowset_key)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "missing rowset def `{rowset_key}`, keys: {:?}",
+                dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
+            )
+        });
+    eprintln!("rowset def: {}", serde_json::to_string_pretty(rowset_def).unwrap());
+    let metric = dataset.metrics.get(rowset_key).or_else(|| {
+        dataset.metrics.get("enforcement_units_count")
+    });
+    if let Some(m) = metric {
+        eprintln!("metric value shape: {:?}", m.shape);
+        eprintln!("metric value: {}", serde_json::to_string(&m.value).unwrap_or_default().chars().take(200).collect::<String>());
+    }
+}
+
+#[test]
+fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_real_rowset() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .expect("compile home preview");
+    let resource_id = "__world_metrics__::scenes/1_执法要素/执法要素.mei::metrics";
+    let metric_key = "scenes/1_执法要素/执法要素.mei::enforcement_units_count";
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == resource_id)
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| panic!("missing `{resource_id}`"));
+    let contract = dataset
+        .runtime_analysis_contracts
+        .get(metric_key)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("missing contract `{metric_key}`"));
+    let composition_metric_id = contract
+        .get("tab_metrics")
+        .and_then(|value| value.get("composition"))
+        .and_then(|value| value.get("metric_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    eprintln!("home imported composition metric_id: {composition_metric_id}");
+    assert!(
+        !composition_metric_id.contains("__scalar_rowset__"),
+        "imported composition tab should bind to a real rowset metric, got `{composition_metric_id}`"
+    );
+}
+
+#[test]
+fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset_not_dataset() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .expect("direct preview world metrics");
+    let contract = dataset
+        .runtime_analysis_contracts
+        .get("enforcement_units_count")
+        .and_then(Value::as_object)
+        .expect("enforcement_units_count contract");
+    let composition_metric_id = contract
+        .get("tab_metrics")
+        .and_then(|value| value.get("composition"))
+        .and_then(|value| value.get("metric_id"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    assert!(
+        !composition_metric_id.contains("__scalar_rowset__"),
+        "composition tab should bind to a real rowset metric, got `{composition_metric_id}`"
+    );
+}
+
+#[test]
 fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
