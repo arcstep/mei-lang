@@ -1971,6 +1971,9 @@
     tracked.set(root, observersForRoot);
     invalidateManageLayout(root);
     updateViewport(root);
+    if (!manage) {
+      scheduleMetricPrefetch();
+    }
   }
 
   function scan(event) {
@@ -1978,6 +1981,21 @@
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
+    scheduleMetricPrefetch();
+  }
+
+  let metricPrefetchTimer = null;
+  function scheduleMetricPrefetch() {
+    if (metricPrefetchTimer != null) {
+      clearTimeout(metricPrefetchTimer);
+    }
+    metricPrefetchTimer = window.setTimeout(() => {
+      metricPrefetchTimer = null;
+      if (document.body?.classList?.contains("access-drilldown-open")) {
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
+    }, 80);
   }
 
   function scheduleViewportRelayout() {
@@ -1988,6 +2006,7 @@
           if (isManagePreviewRoute(root)) invalidateManageLayout(root);
           queueUpdateViewport(root);
         });
+      requestAnimationFrame(() => scheduleMetricPrefetch());
     });
   }
 
@@ -9912,6 +9931,8 @@
     "mei-chart-boxplot": "/workspace-components/chart/echarts/boxplot.js",
   };
 
+  const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
+
   async function ensureDrilldownChartRegistered(tagName) {
     const tag = String(tagName || "").trim().toLowerCase();
     if (!tag) return false;
@@ -9921,6 +9942,17 @@
     await loadScript(scriptPath, {
       module: true,
       persistentKey: scriptPath,
+      softFail: false,
+    });
+    return Boolean(customElements.get(tag));
+  }
+
+  async function ensureDrilldownTableRegistered() {
+    const tag = "mei-cockpit-data-table";
+    if (customElements.get(tag)) return true;
+    await loadScript(DRILLDOWN_TABLE_SCRIPT, {
+      module: true,
+      persistentKey: DRILLDOWN_TABLE_SCRIPT,
       softFail: false,
     });
     return Boolean(customElements.get(tag));
@@ -9977,13 +10009,17 @@
     return true;
   }
 
-  function mountDrilldownTable(root, detail, config) {
+  async function mountDrilldownTable(root, detail, config) {
     const host = root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
     const props = buildDrilldownTableProps(detail, config);
     if (!props) {
+      return false;
+    }
+    const registered = await ensureDrilldownTableRegistered();
+    if (!registered) {
       return false;
     }
     host.replaceChildren();
@@ -10116,14 +10152,15 @@
       host.replaceChildren();
       setDrilldownOverlayStatus(root, "loading");
       mountDrilldownChart(root, detail, activeConfig, tabId)
-        .then((mounted) => {
+        .then(async (mounted) => {
           if (mounted) {
             setDrilldownOverlayStatus(root, "ready");
             dispatchPreviewUpdated("drilldown");
             return;
           }
-          if (mountDrilldownTable(root, detail, activeConfig)) {
+          if (await mountDrilldownTable(root, detail, activeConfig)) {
             setDrilldownOverlayStatus(root, "ready");
+            dispatchPreviewUpdated("drilldown");
             return;
           }
           recordPopupDebugIssue({
@@ -10137,7 +10174,7 @@
           });
           setDrilldownOverlayStatus(root, "error");
         })
-        .catch((error) => {
+        .catch(async (error) => {
           recordPopupDebugIssue({
             level: "error",
             message: String(error?.message || error || "图表 explain 块渲染失败"),
@@ -10147,8 +10184,9 @@
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
           });
-          if (mountDrilldownTable(root, detail, activeConfig)) {
+          if (await mountDrilldownTable(root, detail, activeConfig)) {
             setDrilldownOverlayStatus(root, "ready");
+            dispatchPreviewUpdated("drilldown");
             return;
           }
           setDrilldownOverlayStatus(root, "error");
@@ -10156,20 +10194,36 @@
       return true;
     }
     setDrilldownOverlayStatus(root, "loading");
-    if (!mountDrilldownTable(root, detail, activeConfig)) {
-      recordPopupDebugIssue({
-        level: "error",
-        message: `popup panel 表格挂载失败：${normalizedTab || tabId}`,
-        phase: "table_mount_failed",
-        detail,
-        config: activeConfig,
-        datasetId: activeConfig?.datasetId,
-        metricId: activeConfig?.tableMetricId,
+    mountDrilldownTable(root, detail, activeConfig)
+      .then((mounted) => {
+        if (mounted) {
+          setDrilldownOverlayStatus(root, "ready");
+          dispatchPreviewUpdated("drilldown");
+          return;
+        }
+        recordPopupDebugIssue({
+          level: "error",
+          message: `popup panel 表格挂载失败：${normalizedTab || tabId}`,
+          phase: "table_mount_failed",
+          detail,
+          config: activeConfig,
+          datasetId: activeConfig?.datasetId,
+          metricId: activeConfig?.tableMetricId,
+        });
+        setDrilldownOverlayStatus(root, "error");
+      })
+      .catch((error) => {
+        recordPopupDebugIssue({
+          level: "error",
+          message: String(error?.message || error || "明细表渲染失败"),
+          phase: "table_render_error",
+          detail,
+          config: activeConfig,
+          datasetId: activeConfig?.datasetId,
+          metricId: activeConfig?.tableMetricId,
+        });
+        setDrilldownOverlayStatus(root, "error");
       });
-      setDrilldownOverlayStatus(root, "error");
-      return false;
-    }
-    setDrilldownOverlayStatus(root, "ready");
     return true;
   }
 
@@ -10278,7 +10332,7 @@
       host.replaceChildren();
     }
     document.body.classList.remove("access-drilldown-open");
-    dispatchPreviewUpdated("page");
+    // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
   }
 
   function stashSceneProjectionContext(detail, config) {
@@ -10492,7 +10546,7 @@
     const remount = document.createElement("mei-dataset-table");
     remount.dataset.props = table.dataset.props;
     table.replaceWith(remount);
-    window.dispatchEvent(new Event("meilang:preview-updated"));
+    dispatchPreviewUpdated("drilldown");
     return true;
   }
 
@@ -10940,9 +10994,9 @@
 
   function pulseManagePreview(detail) {
     dispatchManageContextChange(detail);
-    window.dispatchEvent(new Event("meilang:preview-updated"));
+    dispatchPreviewUpdated("page");
     requestAnimationFrame(() => {
-      window.dispatchEvent(new Event("meilang:preview-updated"));
+      dispatchPreviewUpdated("page");
       if (typeof boot.scheduleFrameViewportRelayout === "function") {
         try {
           boot.scheduleFrameViewportRelayout();

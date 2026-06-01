@@ -33,7 +33,7 @@ use super::scene_qualified::{
 };
 use super::util::elapsed_ms;
 
-const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 30_000;
+const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
 
 #[derive(Debug, Clone)]
 struct CachedMetricResponse {

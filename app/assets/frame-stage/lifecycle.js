@@ -47,6 +47,9 @@
     tracked.set(root, observersForRoot);
     invalidateManageLayout(root);
     updateViewport(root);
+    if (!manage) {
+      scheduleMetricPrefetch();
+    }
   }
 
   function scan(event) {
@@ -54,6 +57,21 @@
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
+    scheduleMetricPrefetch();
+  }
+
+  let metricPrefetchTimer = null;
+  function scheduleMetricPrefetch() {
+    if (metricPrefetchTimer != null) {
+      clearTimeout(metricPrefetchTimer);
+    }
+    metricPrefetchTimer = window.setTimeout(() => {
+      metricPrefetchTimer = null;
+      if (document.body?.classList?.contains("access-drilldown-open")) {
+        return;
+      }
+      window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
+    }, 80);
   }
 
   function scheduleViewportRelayout() {
@@ -64,6 +82,7 @@
           if (isManagePreviewRoute(root)) invalidateManageLayout(root);
           queueUpdateViewport(root);
         });
+      requestAnimationFrame(() => scheduleMetricPrefetch());
     });
   }
 

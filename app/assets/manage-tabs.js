@@ -145,9 +145,13 @@
         emitTabChange(active);
       }
       if (active === "preview") {
-        window.dispatchEvent(new Event("meilang:preview-updated"));
+        window.dispatchEvent(
+          new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
+        );
         requestAnimationFrame(() => {
-          window.dispatchEvent(new Event("meilang:preview-updated"));
+          window.dispatchEvent(
+            new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
+          );
           if (typeof boot.scheduleFrameViewportRelayout === "function") {
             try {
               boot.scheduleFrameViewportRelayout();
