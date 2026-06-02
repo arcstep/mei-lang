@@ -14,7 +14,11 @@ pub use eval_plan::{
 };
 pub(super) use legacy::materialize_legacy_datasets;
 pub(super) use metric_packs::materialize_metric_packs;
-pub use world_metrics::resolve_runtime_metric_def_key;
+pub use world_metrics::{
+    imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
+    resolve_runtime_metric_def_key,
+};
+pub use world_metrics::WORLD_METRICS_RESOURCE_ID;
 pub(super) use world_metrics::{
     append_world_metrics_dataset_resource, append_world_metrics_dataset_resource_with_id,
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,

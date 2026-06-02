@@ -2,6 +2,7 @@
 
 _BOARD_TEMPLATE_SCENE_FILES = {
     "metric_board_default": "templates/cockpit/drilldown/metric-explain-board.mei",
+    "generic_drilldown_board": "templates/cockpit/drilldown/generic-drilldown-board.mei",
 }
 
 def explain_metric_ref(id):
@@ -29,7 +30,7 @@ def _scene_ref_with_entry(scene = None, scene_file = None, scene_id = None, entr
     merged["entry"] = str(resolved_entry).strip()
     return merged
 
-def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None):
+def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None, tabs = None, default_slot = None):
     """Link a home entry to a named secondary scene; projection only controls overlay vs route."""
     scene_value = _scene_ref_with_entry(
         scene = scene,
@@ -55,9 +56,11 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         "bindings": overrides,
         "slots": overrides,
         "title": title,
+        "tabs": tabs,
+        "default_slot": default_slot,
     })
 
-def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None):
+def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None, tabs = None, default_slot = None):
     """Alias of board_link for metric-card / chart entry links."""
     return board_link(
         scene = scene,
@@ -72,6 +75,8 @@ def link(scene = None, scene_file = None, scene_id = None, projection = "overlay
         entry_overrides = entry_overrides,
         bindings = bindings,
         slots = slots,
+        tabs = tabs,
+        default_slot = default_slot,
     )
 
 def popup_panel(template, focus = None, entry = None, slots = None, entry_overrides = None, bindings = None, title = None, projection = "overlay"):

@@ -16,7 +16,11 @@ use super::super::decls::{
 use super::super::load_external::{
     load_flow_from_file, load_frame_from_file, load_world_from_file,
 };
-use super::super::materialize::{materialize_legacy_datasets, materialize_metric_packs};
+use super::super::materialize::{
+    append_world_metrics_dataset_resource_with_id, materialize_legacy_datasets,
+    materialize_metric_packs, materialize_world_metrics, WORLD_METRICS_RESOURCE_ID,
+};
+use crate::model::WorldMetricLedgerEntry;
 use super::super::mutations::{apply_frame_mutations, apply_world_mutations};
 use super::super::panel_normalize::normalize_panel_slots;
 use super::super::resources::load_resources;
@@ -819,7 +823,38 @@ pub(super) fn compile_scene_payload(
     );
     resources.append(&mut imported_runtime);
 
-    let scene_contract = selected_scene.map(|scene_decl| {
+    if let Some(world_decl) = world.as_ref() {
+        if !world_decl.metrics.is_empty() {
+            // 当前 scene 自身的 world(metrics=...) 使用宿主 `__world_metrics__`；
+            // imported capsule 的 namespaced owner 由 finalize_private_import_world 另行并入。
+            let owner_resource_id = WORLD_METRICS_RESOURCE_ID.to_string();
+            if let Ok(world_metrics) = materialize_world_metrics(&resources, &world_decl.metrics) {
+                let ledger = world_metrics
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, (metric_id, metric))| {
+                        (
+                            metric_id.clone(),
+                            WorldMetricLedgerEntry {
+                                id: metric_id,
+                                owner_resource_id: owner_resource_id.clone(),
+                                order: idx + 1,
+                                metric,
+                            },
+                        )
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                append_world_metrics_dataset_resource_with_id(
+                    &mut resources,
+                    &ledger,
+                    &world_decl.metrics,
+                    &owner_resource_id,
+                );
+            }
+        }
+    }
+
+    let mut scene_contract = selected_scene.map(|scene_decl| {
         let shared = deep_merge_json(
             &selected_custom_theme_shared(&scene_decl, &themes),
             &scene_decl.shared,
@@ -834,6 +869,14 @@ pub(super) fn compile_scene_payload(
             panels,
         }
     });
+    if let Some(ref mut contract) = scene_contract {
+        super::super::projection_assembly::lower_projection_assembly_in_panels(
+            &mut contract.panels,
+            &resources,
+            target_file,
+            &mut diagnostics,
+        );
+    }
     if let Some(ref contract) = scene_contract {
         validate_scene_ui_data_bindings(
             contract,

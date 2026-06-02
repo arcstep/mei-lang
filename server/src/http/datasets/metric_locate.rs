@@ -4,8 +4,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    locate_dataset_resource, resolve_runtime_metric_def_key, CompiledApp, DatasetView,
-    LoadedResource,
+    imported_capsule_path_from_world_metrics_resource_id, locate_dataset_resource,
+    resolve_runtime_metric_def_key, CompiledApp, DatasetView, LoadedResource,
 };
 
 const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
@@ -18,33 +18,52 @@ pub(crate) struct AccessMetricEvalPlan<'a> {
     pub request_metric_ids: Vec<String>,
 }
 
+fn try_resolve_metric_on_resource<'a>(
+    resource: &'a LoadedResource,
+    metric_id: &str,
+) -> Option<(&'a LoadedResource, String)> {
+    let dataset = resource.dataset.as_ref()?;
+    if !dataset.has_runtime_metric_defs() {
+        return None;
+    }
+    let resolved =
+        resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)?;
+    Some((resource, resolved))
+}
+
 pub(crate) fn locate_runtime_metric_resource<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
     metric_id: &str,
 ) -> Result<(&'a LoadedResource, String)> {
+    if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(dataset_id) {
+        let active_target = compiled.active_target_file.trim();
+        if active_target == capsule_path.trim() {
+            if let Ok(host) = locate_dataset_resource(compiled, WORLD_METRICS_RESOURCE_ID) {
+                if let Some(resolved) = try_resolve_metric_on_resource(host, metric_id) {
+                    return Ok(resolved);
+                }
+            }
+        }
+    }
     let primary =
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
-    if let Some(dataset) = primary.dataset.as_ref() {
-        if dataset.has_runtime_metric_defs() {
-            if let Some(resolved) =
-                resolve_runtime_metric_def_key(&primary.id, metric_id, &dataset.runtime_metric_defs)
-            {
-                return Ok((primary, resolved));
+    if let Some(resolved) = try_resolve_metric_on_resource(primary, metric_id) {
+        return Ok(resolved);
+    }
+    if imported_capsule_path_from_world_metrics_resource_id(dataset_id).is_some() {
+        if let Ok(host) = locate_dataset_resource(compiled, WORLD_METRICS_RESOURCE_ID) {
+            if let Some(resolved) = try_resolve_metric_on_resource(host, metric_id) {
+                return Ok(resolved);
             }
         }
     }
     for resource in &compiled.resources {
-        let Some(dataset) = resource.dataset.as_ref() else {
-            continue;
-        };
-        if !dataset.has_runtime_metric_defs() {
+        if resource.dataset.is_none() {
             continue;
         }
-        if let Some(resolved) =
-            resolve_runtime_metric_def_key(&resource.id, metric_id, &dataset.runtime_metric_defs)
-        {
-            return Ok((resource, resolved));
+        if let Some(resolved) = try_resolve_metric_on_resource(resource, metric_id) {
+            return Ok(resolved);
         }
     }
     if primary

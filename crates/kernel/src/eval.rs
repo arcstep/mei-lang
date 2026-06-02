@@ -17,6 +17,7 @@ const PRELUDE_SOURCE_FILES: &[&str] = &[
     "crates/kernel/src/prelude/doc.star",
     "crates/kernel/src/prelude/text.star",
     "crates/kernel/src/prelude/metric.star",
+    "crates/kernel/src/prelude/assembly.star",
 ];
 const MEILANG_PRELUDE: &str = concat!(
     include_str!("prelude/core.star"),
@@ -32,6 +33,8 @@ const MEILANG_PRELUDE: &str = concat!(
     include_str!("prelude/text.star"),
     "\n",
     include_str!("prelude/metric.star"),
+    "\n",
+    include_str!("prelude/assembly.star"),
 );
 
 fn public_prelude_functions() -> Vec<String> {

@@ -5,6 +5,8 @@ use serde_json::Value;
 
 use crate::model::{DatasetView, LoadedResource, MetricContract, SourceDecl};
 
+use crate::compile::entry_payload::import_scope::rewrite_imported_binding_refs;
+
 use super::analysis_graph::{build_analysis_artifacts, expand_runtime_metric_defs};
 use super::eval_plan::{build_eval_plan, RuntimeMetricEvalReport};
 use super::metric_packs::{
@@ -26,6 +28,20 @@ const IMPORTED_WORLD_METRICS_PREFIX: &str = "__world_metrics__::";
 const IMPORTED_WORLD_METRICS_SUFFIX: &str = "::metrics";
 
 /// 从 `__world_metrics__::{capsule_path}::metrics` 解析嵌入 capsule 的相对路径。
+const CAPSULE_DATASET_MARKER: &str = ".mei::";
+
+/// 将 `scenes/foo.mei::dataset_id` 还原为 capsule 内局部 dataset id（用于宿主短 id 回退）。
+pub fn local_dataset_id_from_namespaced_token(dataset_id: &str) -> Option<&str> {
+    let dataset_id = dataset_id.trim();
+    let idx = dataset_id.find(CAPSULE_DATASET_MARKER)?;
+    let local = dataset_id[idx + CAPSULE_DATASET_MARKER.len()..].trim();
+    if local.is_empty() {
+        None
+    } else {
+        Some(local)
+    }
+}
+
 pub fn imported_capsule_path_from_world_metrics_resource_id(resource_id: &str) -> Option<String> {
     let resource_id = resource_id.trim();
     let inner = resource_id.strip_prefix(IMPORTED_WORLD_METRICS_PREFIX)?;
@@ -38,6 +54,55 @@ pub fn imported_capsule_path_from_world_metrics_resource_id(resource_id: &str) -
 }
 
 /// 解析 runtime metric def 键：直查失败后，对 imported world metrics 尝试 `{capsule}::{local_id}`。
+fn namespaced_world_metric_key(capsule_path: Option<&str>, local_key: &str) -> String {
+    let local_key = local_key.trim();
+    if local_key.is_empty() {
+        return String::new();
+    }
+    if local_key.contains("::") {
+        return local_key.to_string();
+    }
+    let Some(path) = capsule_path.map(str::trim).filter(|p| !p.is_empty()) else {
+        return local_key.to_string();
+    };
+    format!("{path}::{local_key}")
+}
+
+fn rewrite_metric_def_identity(value: &mut Value, namespaced_key: &str) {
+    let Value::Object(map) = value else {
+        return;
+    };
+    for field in ["id", "key"] {
+        let Some(id) = map
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        else {
+            continue;
+        };
+        if !id.contains("::") {
+            map.insert(field.to_string(), Value::String(namespaced_key.to_string()));
+        }
+    }
+}
+
+fn namespace_runtime_metric_defs(
+    defs: BTreeMap<String, Value>,
+    capsule_path: Option<&str>,
+) -> BTreeMap<String, Value> {
+    let Some(path) = capsule_path.map(str::trim).filter(|p| !p.is_empty()) else {
+        return defs;
+    };
+    let mut out = BTreeMap::new();
+    for (key, mut value) in defs {
+        let namespaced = namespaced_world_metric_key(Some(path), key.as_str());
+        rewrite_metric_def_identity(&mut value, &namespaced);
+        out.insert(namespaced, value);
+    }
+    out
+}
+
 pub fn resolve_runtime_metric_def_key(
     resource_id: &str,
     metric_id: &str,
@@ -50,17 +115,24 @@ pub fn resolve_runtime_metric_def_key(
     if defs.contains_key(metric_id) {
         return Some(metric_id.to_string());
     }
-    let capsule_path = imported_capsule_path_from_world_metrics_resource_id(resource_id)?;
-    let namespaced = if metric_id.contains("::") {
-        metric_id.to_string()
-    } else {
-        format!("{capsule_path}::{metric_id}")
-    };
-    if defs.contains_key(&namespaced) {
-        Some(namespaced)
-    } else {
-        None
+    if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(resource_id) {
+        let namespaced = format!("{capsule_path}::{metric_id}");
+        if defs.contains_key(&namespaced) {
+            return Some(namespaced);
+        }
+        if let Some(local) = metric_id.strip_prefix(&format!("{capsule_path}::")) {
+            if defs.contains_key(local) {
+                return Some(local.to_string());
+            }
+        }
+        return None;
     }
+    if let Some(local) = local_dataset_id_from_namespaced_token(metric_id) {
+        if defs.contains_key(local) {
+            return Some(local.to_string());
+        }
+    }
+    None
 }
 
 /// 将 `world(metrics=...)` / `world.add_metric(...)` 物化为可被 runtime API 定位的 dataset 资源。
@@ -92,6 +164,7 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
     if resources.iter().any(|resource| resource.id == resource_id) {
         return;
     }
+    let capsule_path = imported_capsule_path_from_world_metrics_resource_id(resource_id);
     let mut metrics = BTreeMap::<String, MetricContract>::new();
     let mut raw_runtime_metric_defs = BTreeMap::<String, Value>::new();
     for value in raw_metric_values {
@@ -106,13 +179,21 @@ pub(crate) fn append_world_metrics_dataset_resource_with_id(
         };
         raw_runtime_metric_defs.insert(key.to_string(), value.clone());
     }
+    let mut raw_runtime_metric_defs =
+        namespace_runtime_metric_defs(raw_runtime_metric_defs, capsule_path.as_deref());
+    if let Some(path) = capsule_path.as_deref() {
+        for value in raw_runtime_metric_defs.values_mut() {
+            rewrite_imported_binding_refs(value, path);
+        }
+    }
     let (runtime_metric_defs, runtime_analysis_graph, runtime_analysis_contracts) =
         build_analysis_artifacts(&raw_runtime_metric_defs, resource_id);
     for entry in ledger.values() {
         if entry.owner_resource_id != resource_id {
             continue;
         }
-        metrics.insert(entry.id.clone(), entry.metric.clone());
+        let metric_id = namespaced_world_metric_key(capsule_path.as_deref(), entry.id.as_str());
+        metrics.insert(metric_id, entry.metric.clone());
     }
     if metrics.is_empty() {
         return;
@@ -271,6 +352,28 @@ mod resolve_key_tests {
         );
         assert!(
             imported_capsule_path_from_world_metrics_resource_id("__world_metrics__").is_none()
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_metric_def_key_namespaces_rowset_suffix_keys() {
+        let resource_id = "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics";
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"
+                .to_string(),
+            json!({"id": "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"}),
+        );
+        assert_eq!(
+            resolve_runtime_metric_def_key(
+                resource_id,
+                "warnings_pending_count::__scalar_rowset__",
+                &defs,
+            ),
+            Some(
+                "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"
+                    .to_string()
+            )
         );
     }
 

@@ -3,8 +3,11 @@
 
 use std::collections::BTreeMap;
 
+use crate::imported_capsule_path_from_world_metrics_resource_id;
 use crate::model::{CompiledApp, LoadedResource};
 use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
+
+const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeResourceResolveError {
@@ -160,9 +163,23 @@ fn resolve_dataset_resource_id_with_index(
         .filter(|resource| resource.id == key)
         .collect();
     match direct_matches.len() {
-        0 => Err(RuntimeResourceResolveError::NotFound {
-            selector: key.to_string(),
-        }),
+        0 => {
+            if let Some(capsule_path) =
+                imported_capsule_path_from_world_metrics_resource_id(&key)
+            {
+                let active_target = compiled.active_target_file.trim();
+                if active_target == capsule_path.trim()
+                    && compiled.resources.iter().any(|resource| {
+                        resource.id == WORLD_METRICS_RESOURCE_ID
+                    })
+                {
+                    return Ok(WORLD_METRICS_RESOURCE_ID.to_string());
+                }
+            }
+            Err(RuntimeResourceResolveError::NotFound {
+                selector: key.to_string(),
+            })
+        }
         1 => Ok(direct_matches[0].id.clone()),
         _ => Err(RuntimeResourceResolveError::Ambiguous {
             selector: key.to_string(),

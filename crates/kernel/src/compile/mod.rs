@@ -34,6 +34,7 @@ mod materialize;
 mod materialize_cache;
 mod mutations;
 mod panel_normalize;
+mod projection_assembly;
 mod resources;
 mod scene;
 mod scene_binding;
@@ -1452,10 +1453,10 @@ pub fn runtime_analysis_closure_metric_ids(
 pub use analysis::eval_context::{
     runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
 };
-pub use materialize::resolve_runtime_metric_def_key;
 pub use materialize::{
-    EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
-    RuntimeMetricEvalReport,
+    imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
+    resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,
+    EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
 
 #[cfg(test)]

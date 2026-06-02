@@ -423,6 +423,10 @@ fn lookup_dataset_view<'a>(
                 .then_some(dataset)
             })
         })
+        .or_else(|| {
+            super::world_metrics::local_dataset_id_from_namespaced_token(normalized)
+                .and_then(|local| lookup_dataset_view(datasets, local))
+        })
 }
 
 fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {

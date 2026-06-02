@@ -743,13 +743,14 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         .find(|r| r.id == issue_metrics_owner)
         .and_then(|r| r.dataset.as_ref())
         .expect("home should import 问题办理 world metrics resource");
-    assert!(
+    assert_eq!(
         crate::resolve_runtime_metric_def_key(
             issue_metrics_owner,
             "warnings_pending_count::__scalar_rowset__",
             &issue_metrics.runtime_metric_defs,
         )
-        .is_some(),
+        .as_deref(),
+        Some("scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"),
         "imported capsule metrics should hoist inferred scalar rowset for detail drilldown"
     );
     assert!(
@@ -919,31 +920,11 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
     let app_root = source_root.join("spbjw");
     let cases = [
         (
-            "scenes/1_执法要素/执法要素.mei",
-            vec![
-                "enforcement-key-enterprises-popup.mei",
-                "enforcement-park-popup.mei",
-                "enforcement-whitelist-popup.mei",
-                "enforcement-units-popup.mei",
-                "enforcement-officers-popup.mei",
-                "enforcement-matters-popup.mei",
-            ],
-        ),
-        (
             "scenes/4_监督预警/监督预警.mei",
             vec![
                 "supervision-warning-items-popup.mei",
                 "supervision-warning-models-popup.mei",
                 "supervision-warning-total-popup.mei",
-            ],
-        ),
-        (
-            "scenes/5_问题办理/问题办理.mei",
-            vec![
-                "issue-pending-popup.mei",
-                "issue-doing-popup.mei",
-                "issue-done-popup.mei",
-                "issue-rate-popup.mei",
             ],
         ),
         (
@@ -989,35 +970,64 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
 }
 
 #[test]
+fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+    let encoded = serde_json::to_string(contract).expect("encode scene contract");
+    assert!(
+        encoded.contains("generic-drilldown-board.mei"),
+        "执法要素应引用通用下钻壳，got: {encoded}"
+    );
+    assert!(
+        encoded.contains("projection_slots"),
+        "执法要素 link 应 lower 出 projection_slots，got: {encoded}"
+    );
+    assert!(
+        !encoded.contains("enforcement-units-popup.mei"),
+        "不应再引用独立 popup scene 文件，got: {encoded}"
+    );
+    assert!(
+        encoded.contains("enforcement_units_count"),
+        "projection_slots 应包含 enforcement_units_count，got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"component\":\"metric_card\"")
+            || encoded.contains("\"component\": \"metric_card\""),
+        "hero slot 应为 metric_card，got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"component\":\"chart\"")
+            || encoded.contains("\"component\": \"chart\""),
+        "composition slot 应为 chart，got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"component\":\"data_table\"")
+            || encoded.contains("\"component\": \"data_table\""),
+        "detail slot 应为 data_table，got: {encoded}"
+    );
+}
+
+#[test]
 fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
     let popup_targets = [
-        (
-            "scenes/1_执法要素/enforcement-key-enterprises-popup.mei",
-            "composition_by_street",
-        ),
-        (
-            "scenes/1_执法要素/enforcement-park-popup.mei",
-            "composition_by_geometry",
-        ),
-        (
-            "scenes/1_执法要素/enforcement-whitelist-popup.mei",
-            "detail",
-        ),
-        (
-            "scenes/1_执法要素/enforcement-units-popup.mei",
-            "composition_by_category",
-        ),
-        (
-            "scenes/1_执法要素/enforcement-officers-popup.mei",
-            "composition_by_agency",
-        ),
-        (
-            "scenes/1_执法要素/enforcement-matters-popup.mei",
-            "composition_by_domain",
-        ),
         (
             "scenes/4_监督预警/supervision-warning-items-popup.mei",
             "detail",
@@ -1527,10 +1537,10 @@ fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_re
         .and_then(|value| value.get("metric_id"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    eprintln!("home imported composition metric_id: {composition_metric_id}");
-    assert!(
-        !composition_metric_id.contains("__scalar_rowset__"),
-        "imported composition tab should bind to a real rowset metric, got `{composition_metric_id}`"
+    assert_eq!(
+        composition_metric_id,
+        format!("{metric_key}::__scalar_rowset__"),
+        "imported composition tab should bind to capsule-qualified rowset metric"
     );
 }
 
@@ -1567,8 +1577,12 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
         .and_then(Value::as_str)
         .unwrap_or("");
     assert!(
-        !composition_metric_id.contains("__scalar_rowset__"),
-        "composition tab should bind to a real rowset metric, got `{composition_metric_id}`"
+        composition_metric_id.contains("__scalar_rowset__"),
+        "composition tab should bind to inferred scalar rowset, got `{composition_metric_id}`"
+    );
+    assert_ne!(
+        composition_metric_id, "enforcement_units",
+        "composition tab should not bind to raw dataset id"
     );
 }
 
@@ -1995,5 +2009,150 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
     assert!(
         value.is_finite() && value.abs() > f64::EPSILON,
         "home imported inspection_frequency_reduction_rate should be non-zero, got {value}"
+    );
+}
+
+#[test]
+fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
+    use std::collections::BTreeMap;
+
+    use crate::compile::materialize::resolve_runtime_metric_def_key;
+    use crate::MetricShape;
+
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/1_执法要素/执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let resource_id = "__world_metrics__";
+    let owner = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == resource_id)
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| {
+            panic!(
+                "native preview should expose `{resource_id}`, got: {:?}",
+                compiled
+                    .resources
+                    .iter()
+                    .filter(|r| r.id.contains("world_metrics"))
+                    .map(|r| r.id.as_str())
+                    .collect::<Vec<_>>()
+            )
+        });
+    let rowset_key = "enforcement_personnel_count::__scalar_rowset__";
+    let resolved = resolve_runtime_metric_def_key(resource_id, rowset_key, &owner.runtime_metric_defs)
+        .unwrap_or_else(|| panic!("resolve `{rowset_key}` on `{resource_id}`"));
+    let mut datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let dataset_aliases: Vec<_> = datasets
+        .values()
+        .map(|dataset| (dataset.id.clone(), dataset.clone()))
+        .collect();
+    for (dataset_id, dataset) in dataset_aliases {
+        datasets.entry(dataset_id).or_insert(dataset);
+    }
+    let metrics = super::evaluate_runtime_metric_defs(
+        &owner.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[resolved.clone()]),
+    )
+    .unwrap_or_else(|error| panic!("evaluate `{resolved}` failed: {error}"));
+    let metric = metrics
+        .get(&resolved)
+        .unwrap_or_else(|| panic!("missing metric `{resolved}`"));
+    assert_eq!(metric.shape, MetricShape::Dataframe);
+    let row_count = metric
+        .value
+        .as_array()
+        .map(|rows| rows.len())
+        .unwrap_or(0);
+    assert!(
+        row_count > 0,
+        "personnel rowset should materialize rows, got {row_count}"
+    );
+}
+
+#[test]
+fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
+    use std::collections::BTreeMap;
+
+    use crate::compile::materialize::resolve_runtime_metric_def_key;
+    use crate::MetricShape;
+
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .expect("compile home preview");
+    let resource_id = "__world_metrics__::scenes/1_执法要素/执法要素.mei::metrics";
+    let metric_key = "scenes/1_执法要素/执法要素.mei::enforcement_personnel_count::__scalar_rowset__";
+    let owner = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == resource_id)
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| panic!("missing imported world metrics `{resource_id}`"));
+    let resolved = resolve_runtime_metric_def_key(resource_id, metric_key, &owner.runtime_metric_defs)
+        .unwrap_or_else(|| panic!("resolve imported rowset `{metric_key}`"));
+    let mut datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let dataset_aliases: Vec<_> = datasets
+        .values()
+        .map(|dataset| (dataset.id.clone(), dataset.clone()))
+        .collect();
+    for (dataset_id, dataset) in dataset_aliases {
+        datasets.entry(dataset_id).or_insert(dataset);
+    }
+    let metrics = super::evaluate_runtime_metric_defs(
+        &owner.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[resolved.clone()]),
+    )
+    .unwrap_or_else(|error| panic!("evaluate imported rowset failed: {error}"));
+    let metric = metrics.get(&resolved).expect("imported rowset metric");
+    assert_eq!(metric.shape, MetricShape::Dataframe);
+    let row_count = metric
+        .value
+        .as_array()
+        .map(|rows| rows.len())
+        .unwrap_or(0);
+    assert!(
+        row_count > 0,
+        "imported personnel rowset should materialize rows, got {row_count}"
     );
 }

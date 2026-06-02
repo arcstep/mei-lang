@@ -114,7 +114,13 @@ pub(crate) fn load_namespaced_capsule_resources(
     for mut resource in raw {
         if resource.id.contains("::metrics") {
             if let Some(dataset) = resource.dataset.as_mut() {
-                rename_dataset_metric_keys(dataset, capsule_path);
+                let already_namespaced = dataset.runtime_metric_defs.keys().any(|key| {
+                    key.contains(".mei::")
+                        || key.starts_with(&format!("{capsule_path}::"))
+                });
+                if !already_namespaced {
+                    rename_dataset_metric_keys(dataset, capsule_path);
+                }
             }
             out.push(resource);
             continue;
@@ -157,6 +163,11 @@ fn rewrite_local_dataset_token(
         field.to_string(),
         Value::String(namespaced_import_id(capsule_path, stripped)),
     );
+}
+
+/// Rewrite nested metric/dataset refs inside a value tree for imported capsule binding.
+pub(crate) fn rewrite_imported_binding_refs(value: &mut Value, capsule_path: &str) {
+    rewrite_value_refs(value, capsule_path);
 }
 
 fn rewrite_value_refs(value: &mut Value, capsule_path: &str) {

@@ -5,7 +5,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{DatasetView, DimensionBinding, QueryState};
+use mei_lang_kernel::{
+    local_dataset_id_from_namespaced_token, DatasetView, DimensionBinding, QueryState,
+};
 use serde_json::Value;
 
 use super::query::query_dataset_rows;
@@ -274,6 +276,10 @@ fn lookup_dataset_view<'a>(
                 .then_some(dataset)
             })
         })
+        .or_else(|| {
+            local_dataset_id_from_namespaced_token(normalized)
+                .and_then(|local| lookup_dataset_view(datasets, local))
+        })
 }
 
 fn lookup_dataset_view_mut<'a>(
@@ -292,8 +298,12 @@ fn lookup_dataset_view_mut<'a>(
             || key.ends_with(&format!("::{normalized}"))
             || key.ends_with(&format!("/{normalized}")))
         .then(|| key.clone())
-    })?;
-    datasets.get_mut(key.as_str())
+    });
+    if let Some(key) = key {
+        return datasets.get_mut(key.as_str());
+    }
+    local_dataset_id_from_namespaced_token(normalized)
+        .and_then(|local| lookup_dataset_view_mut(datasets, local))
 }
 
 fn collect_dataset_ids_from_values(values: &[Value]) -> BTreeSet<String> {
