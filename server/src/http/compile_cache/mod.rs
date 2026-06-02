@@ -6,7 +6,9 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use mei_lang_kernel::{compile_app_with_options, CompileOptions, CompiledApp};
+use mei_lang_kernel::{
+    compile_app_with_options, CompileOptions, CompiledApp, COMPILE_SEMANTICS_GENERATION,
+};
 
 use crate::{AppState, CachedCompiledApp};
 
@@ -435,7 +437,7 @@ pub(crate) fn start_compile_in_background_if_needed(
 
 fn compile_cache_key(app_id: &str, options: &CompileOptions) -> String {
     format!(
-        "{app_id}|v4|scene={}|focus={}",
+        "{app_id}|v5|gen={COMPILE_SEMANTICS_GENERATION}|scene={}|focus={}",
         options.scene.as_deref().unwrap_or(""),
         options.preview_target.as_deref().unwrap_or("")
     )

@@ -1,4 +1,5 @@
 mod compile;
+mod compile_semantics;
 mod eval;
 mod geojson;
 mod model;
@@ -8,6 +9,7 @@ mod source_version;
 mod typed_refs;
 mod workspace;
 
+pub use compile_semantics::COMPILE_SEMANTICS_GENERATION;
 pub use compile::{
     build_runtime_analysis_contracts, build_runtime_analysis_graph,
     cached_load_xlsx_table_snapshot, clear_runtime_compile_caches, clear_runtime_eval_node_cache,

@@ -928,6 +928,39 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
             || encoded.contains("\"component\": \"data_table\""),
         "detail slot 应为 data_table，got: {encoded}"
     );
+    let projection_empty: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "projection_slots_empty")
+        .collect();
+    assert!(
+        projection_empty.is_empty(),
+        "执法要素不应出现 projection_slots_empty: {projection_empty:?}"
+    );
+    let dataset = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .expect("执法要素 direct preview should include __world_metrics__");
+    let contract = dataset
+        .runtime_analysis_contracts
+        .get("enforcement_objects_count")
+        .and_then(Value::as_object)
+        .expect("enforcement_objects_count analysis contract");
+    let blocks = contract
+        .get("blocks")
+        .and_then(Value::as_array)
+        .expect("enforcement_objects_count contract blocks");
+    assert!(
+        blocks.len() >= 5,
+        "执法对象 explain 的 5 个 dataframe 应落成 projection blocks，got {blocks:?}"
+    );
+    assert!(
+        encoded.contains("enforcement_objects_count::enforcement_venues_table")
+            || encoded.contains("enforcement_venues_table"),
+        "执法对象下钻应包含场所 scoped 表 slot，got: {encoded}"
+    );
 }
 
 #[test]

@@ -659,6 +659,33 @@ fn build_metric_contract(
                     objects.insert(node_id.clone(), node_value.clone());
                     nodes.push(node_value);
                 }
+                if let Some(block) =
+                    explain_block_for_data_product_dataframe(item_map, graph, root_dataset_id)
+                {
+                    let support_role = block
+                        .get("support_role")
+                        .and_then(Value::as_str)
+                        .unwrap_or("detail")
+                        .to_string();
+                    if seen_tabs.insert(support_role.clone()) {
+                        tabs.push(Value::String(support_role.clone()));
+                    }
+                    if let Some(node_id) = block.get("node_id").and_then(Value::as_str) {
+                        if seen_nodes.insert(node_id.to_string()) {
+                            let node_value = analysis_node_value(
+                                graph.nodes.get(node_id),
+                                node_id,
+                                Some(support_role.as_str()),
+                            );
+                            objects.insert(node_id.to_string(), node_value.clone());
+                            nodes.push(node_value);
+                        }
+                    }
+                    if let Some(tab_metric) = tab_metric_value(&block) {
+                        tab_metrics.insert(support_role.clone(), Value::Object(tab_metric));
+                    }
+                    blocks.push(Value::Object(block));
+                }
                 continue;
             }
             let support_role = support_role_for_item(item_map);
@@ -850,6 +877,68 @@ fn analysis_node_value(
         Value::Bool(node.is_some_and(|value| value.can_explain)),
     );
     Value::Object(obj)
+}
+
+fn is_explain_dataframe_product(item_map: &Map<String, Value>) -> bool {
+    item_map.get("__kind").and_then(Value::as_str) == Some("data_product")
+        && item_map
+            .get("shape")
+            .and_then(Value::as_str)
+            .is_some_and(|shape| shape.eq_ignore_ascii_case("dataframe"))
+}
+
+fn fields_from_data_product_schema(item_map: &Map<String, Value>) -> Option<Value> {
+    let columns = item_map.get("schema")?.as_array()?;
+    let fields: Vec<Value> = columns
+        .iter()
+        .filter_map(|column| {
+            let column_map = column.as_object()?;
+            first_non_empty_string(column_map, &["name", "id", "key"])
+                .map(Value::String)
+        })
+        .collect();
+    (!fields.is_empty()).then_some(Value::Array(fields))
+}
+
+fn explain_block_for_data_product_dataframe(
+    item_map: &Map<String, Value>,
+    graph: &AnalysisGraph,
+    root_dataset_id: &str,
+) -> Option<Map<String, Value>> {
+    if !is_explain_dataframe_product(item_map) {
+        return None;
+    }
+    let tabular_metric_id = scoped_dataframe_metric_id(item_map)?;
+    let block_id = first_non_empty_string(item_map, &["id", "key"])
+        .unwrap_or_else(|| tabular_metric_id.clone());
+    let mut block = Map::new();
+    block.insert("id".to_string(), Value::String(block_id));
+    block.insert("kind".to_string(), Value::String("detail".to_string()));
+    block.insert(
+        "support_role".to_string(),
+        Value::String("detail".to_string()),
+    );
+    copy_field(item_map, &mut block, "label");
+    if !block.contains_key("fields") {
+        if let Some(fields) = fields_from_data_product_schema(item_map) {
+            block.insert("fields".to_string(), fields);
+        }
+    }
+    block.insert(
+        "node_id".to_string(),
+        Value::String(tabular_metric_id.clone()),
+    );
+    block.insert(
+        "metric_id".to_string(),
+        Value::String(tabular_metric_id.clone()),
+    );
+    let runtime_ref = metric_runtime_ref(
+        graph.nodes.get(&tabular_metric_id),
+        &tabular_metric_id,
+        root_dataset_id,
+    );
+    block.insert("runtime_ref".to_string(), Value::Object(runtime_ref));
+    Some(block)
 }
 
 fn explain_block_value(
@@ -1523,6 +1612,52 @@ mod tests {
         assert!(
             graph.validate_invariants().is_empty(),
             "tabular lineage graph should satisfy semantic invariants"
+        );
+    }
+
+    #[test]
+    fn build_analysis_contracts_emits_blocks_for_explain_dataframe_only() {
+        let defs = BTreeMap::from([(
+            "objects_total".to_string(),
+            json!({
+                "key": "objects_total",
+                "label": "执法对象",
+                "explain": [
+                    {
+                        "__kind": "data_product",
+                        "id": "venues_table",
+                        "shape": "dataframe",
+                        "label": "场所",
+                        "value": [{"id": 1}],
+                        "schema": [{"id": "id", "type": "integer"}, {"id": "name", "type": "string"}]
+                    },
+                    {
+                        "__kind": "data_product",
+                        "id": "parks_table",
+                        "shape": "dataframe",
+                        "label": "园区",
+                        "value": [{"园区ID": "P1"}],
+                        "schema": [{"id": "园区ID", "type": "string"}]
+                    }
+                ]
+            }),
+        )]);
+        let contracts = build_analysis_contracts(&defs, "world_metrics");
+        let contract = contracts.get("objects_total").expect("contract");
+        let blocks = contract
+            .get("blocks")
+            .and_then(Value::as_array)
+            .expect("blocks");
+        assert_eq!(blocks.len(), 2);
+        let first = blocks[0].as_object().expect("block");
+        assert_eq!(
+            first.get("metric_id").and_then(Value::as_str),
+            Some("objects_total::venues_table")
+        );
+        let second = blocks[1].as_object().expect("block");
+        assert_eq!(
+            second.get("metric_id").and_then(Value::as_str),
+            Some("objects_total::parks_table")
         );
     }
 
