@@ -10698,6 +10698,7 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
+    "templates/cockpit/drilldown/generic-drilldown-board.mei": "generic_drilldown_board",
   };
   const BOARD_TEMPLATE_SCENE_FILES = {
     metric_board_default: "templates/cockpit/drilldown/metric-explain-board.mei",
@@ -11177,6 +11178,53 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return "";
   }
 
+  function isWorldMetricsOwnerDatasetId(datasetId) {
+    const id = String(datasetId || "").trim();
+    return id === "__world_metrics__" || id.startsWith("__world_metrics__::");
+  }
+
+  function importedCapsuleScenePathFromWorldMetricsDatasetId(datasetId) {
+    const text = String(datasetId || "").trim();
+    const prefix = "__world_metrics__::";
+    const suffix = "::metrics";
+    if (!text.startsWith(prefix) || !text.endsWith(suffix)) {
+      return "";
+    }
+    return text.slice(prefix.length, text.length - suffix.length);
+  }
+
+  function importedCapsuleScenePathFromMetricId(metricId) {
+    const text = String(metricId || "").trim();
+    const marker = ".mei::";
+    const idx = text.indexOf(marker);
+    if (idx <= 0) {
+      return "";
+    }
+    return text.slice(0, idx + 4);
+  }
+
+  function resolveMetricOwnerScenePath(projectionSlots, detail) {
+    if (Array.isArray(projectionSlots)) {
+      for (const slot of projectionSlots) {
+        const fromDataset = importedCapsuleScenePathFromWorldMetricsDatasetId(
+          slot?.datasetId ?? slot?.dataset_id,
+        );
+        if (fromDataset) {
+          return fromDataset;
+        }
+        const fromMetric = importedCapsuleScenePathFromMetricId(slot?.metricId ?? slot?.metric_id);
+        if (fromMetric) {
+          return fromMetric;
+        }
+      }
+    }
+    return nonEmptyString(
+      importedCapsuleScenePathFromMetricId(detail?.metric_id),
+      importedCapsuleScenePathFromWorldMetricsDatasetId(detail?.dataset_id),
+      detail?.host_scene_file,
+    );
+  }
+
   function cloneArray(value) {
     return Array.isArray(value) ? value.slice() : [];
   }
@@ -11347,6 +11395,11 @@ diff_match_patch.patch_obj.prototype.toString = function() {
 
   function compositionFieldForTab(config, tabId, override = null) {
     const exactTab = normalizeTabId(tabId);
+    const slot = config?.slotByTab?.[exactTab];
+    if (slot) {
+      const fromSlot = compositionFieldsFromOverride(slot)[0];
+      if (fromSlot) return fromSlot;
+    }
     const explainMetric =
       explainMetricForTab(config, exactTab) || explainMetricForTab(config, explainMetricKind(config, tabId));
     const fromExplain = nonEmptyString(explainMetric?.by);
@@ -11378,6 +11431,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
   }
 
   function explainMetricKind(config, tabId) {
+    const slot = config?.slotByTab?.[normalizeTabId(tabId)];
+    if (slot?.supportRole) return normalizeTabId(slot.supportRole);
     const explainMetric = explainMetricForTab(config, tabId);
     if (explainMetric?.kind) return normalizeTabId(explainMetric.kind);
     return normalizeTabId(tabId);
@@ -11778,9 +11833,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     const overrideDatasetId = nonEmptyString(override?.datasetId);
     const overrideTableMetricId = nonEmptyString(override?.tableMetricId);
     const suppressDetailMetricFallback = Boolean(overrideDatasetId && !overrideTableMetricId);
-    const merged = {
+      const merged = {
       ...config,
-      title: nonEmptyString(override?.title, explainMetric?.label, config.title),
+      title: nonEmptyString(override?.title, override?.label, explainMetric?.label, config.title),
       note: nonEmptyString(override?.note, config.note),
       tableMetricId:
         overrideTableMetricId ||
@@ -11822,7 +11877,13 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           base.sceneId = nonEmptyString(config.hostSceneId, config.sceneId);
         }
         if (!nonEmptyString(base.scenePath)) {
-          base.scenePath = nonEmptyString(config.hostSceneFile);
+          base.scenePath = nonEmptyString(
+            config.hostSceneFile,
+            resolveMetricOwnerScenePath(
+              config?.slotByTab ? Object.values(config.slotByTab) : [],
+              null,
+            ),
+          );
         }
         return base;
       })(),
@@ -12089,8 +12150,160 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     return DRILLDOWN_SCENE_BY_FILE[runtimeScene] || runtimeScene;
   }
 
+  function normalizeProjectionSlots(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+      .map((entry, index) => {
+        const byRaw = entry.by ?? entry.composition_by ?? entry.compositionBy;
+        let by = [];
+        if (typeof byRaw === "string" && byRaw.trim()) {
+          by = [byRaw.trim()];
+        } else if (Array.isArray(byRaw)) {
+          by = byRaw.map((item) => String(item || "").trim()).filter(Boolean);
+        }
+        const fieldsRaw = entry.fields ?? entry.detail_fields ?? entry.detailFields;
+        const fields = Array.isArray(fieldsRaw)
+          ? fieldsRaw.map((item) => String(item || "").trim()).filter(Boolean)
+          : [];
+        return {
+          id: nonEmptyString(
+            entry.id,
+            entry.explain_block_id,
+            entry.explainBlockId,
+            entry.support_role,
+            entry.supportRole,
+            String(index),
+          ),
+          metricId: nonEmptyString(entry.metric_id, entry.metricId),
+          datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
+          component: nonEmptyString(entry.component, entry.as) || "data_table",
+          label: nonEmptyString(entry.label),
+          supportRole: nonEmptyString(entry.support_role, entry.supportRole, entry.component),
+          default: Boolean(entry.default),
+          fields,
+          by,
+          chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+          mapping:
+            entry.mapping && typeof entry.mapping === "object" && !Array.isArray(entry.mapping)
+              ? entry.mapping
+              : null,
+          explainBlockId: nonEmptyString(entry.explain_block_id, entry.explainBlockId),
+        };
+      })
+      .filter((slot) => slot.metricId || slot.datasetId);
+  }
+
+  function resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots) {
+    const metricId = String(detail?.metric_id || "").trim();
+    const defaultSlot =
+      projectionSlots.find((slot) => slot.default) || projectionSlots[0] || null;
+    const tabs = projectionSlots.map((slot) => slot.id);
+    const slotByTab = Object.fromEntries(projectionSlots.map((slot) => [slot.id, slot]));
+    const boardSceneId = nonEmptyString(
+      detail?.board_scene_id,
+      boardFields?.sceneId,
+      popup?.scene_id,
+      popup?.sceneId,
+      "generic_drilldown_board",
+    );
+    const hostSceneId = nonEmptyString(
+      detail?.host_scene_id,
+      detail?.dataset_scene_id,
+      detail?.scene_id !== boardSceneId ? detail?.scene_id : "",
+      detail?.__mei_runtime_ref?.scene_id,
+    );
+    const ownerScenePath = resolveMetricOwnerScenePath(projectionSlots, detail);
+    const projection = normalizeProjection(
+      nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
+    );
+  const title = nonEmptyString(
+      popup?.title,
+      detail?.label,
+      defaultSlot?.label,
+      metricId,
+      "指标下钻",
+    );
+    return {
+      enabled: Boolean(boardSceneId),
+      genericDrilldown: true,
+      sceneId: hostSceneId,
+      hostSceneId,
+      hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
+      boardSceneId,
+      boardSceneFile: nonEmptyString(
+        detail?.board_scene_file,
+        boardFields?.sceneFile,
+        popup?.scene_file,
+        popup?.sceneFile,
+        "templates/cockpit/drilldown/generic-drilldown-board.mei",
+      ),
+      projection,
+      title,
+      note: "",
+      tableMetricId: nonEmptyString(defaultSlot?.metricId, metricId),
+      datasetId: nonEmptyString(
+        defaultSlot?.datasetId,
+        detail?.dataset_id,
+        detail?.__mei_runtime_ref?.dataset_id,
+      ),
+      tabs,
+      slotByTab,
+      explainMetrics: Object.fromEntries(
+        projectionSlots.map((slot) => [
+          slot.id,
+          {
+            id: slot.id,
+            kind: nonEmptyString(slot.supportRole, slot.id),
+            label: slot.label,
+          },
+        ]),
+      ),
+      explainMetricOrder: projectionSlots.map((slot) => slot.id),
+      tabMetrics: Object.fromEntries(
+        projectionSlots.map((slot) => [
+          slot.id,
+          {
+            title: slot.label,
+            label: slot.label,
+            tableMetricId: slot.metricId,
+            datasetId: slot.datasetId,
+            chartKind: slot.chartKind,
+            by: slot.by[0] || "",
+            fields: slot.fields,
+            compositionBy: slot.by,
+            supportRole: slot.supportRole,
+            runtimeRef: {
+              kind: "metric",
+              metricId: slot.metricId,
+              datasetId: slot.datasetId,
+              sceneId: hostSceneId,
+              scenePath: nonEmptyString(ownerScenePath, detail?.host_scene_file, detail?.scene_path),
+            },
+          },
+        ]),
+      ),
+      popup: {
+        ...popup,
+        projection_slots: projectionSlots,
+      },
+      link: {
+        defaultFocus: defaultSlot?.id || tabs[0] || "",
+      },
+    };
+  }
+
   function resolveDrilldownConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
+    const popup =
+      detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
+    const boardFields = resolveBoardLinkFields(popup, detail?.scene_local_nav_by_target);
+    const projectionSlots = normalizeProjectionSlots(
+      popup?.projection_slots || popup?.projectionSlots,
+    );
+    if (projectionSlots.length) {
+      return resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots);
+    }
     const runtime = runtimeDrilldownConfig(detail);
     if (!Object.keys(runtime).length) {
       return disabledDrilldownConfig(
@@ -12098,9 +12311,6 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         `scene projection requires analysis_contract; metric \`${metricId || "unknown"}\` is missing runtime analysis_contract`,
       );
     }
-    const popup =
-      detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
-    const boardFields = resolveBoardLinkFields(popup, detail?.scene_local_nav_by_target);
     const analysisLink =
       detail?.analysis_link && typeof detail.analysis_link === "object" ? detail.analysis_link : {};
     const boardSceneId = nonEmptyString(
@@ -12453,7 +12663,16 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       detail?.host_scene_id,
       detail?.scene_id,
     );
-    const target = nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path);
+    const target = nonEmptyString(
+      runtimeRefConfig.scenePath,
+      config?.hostSceneFile,
+      resolveMetricOwnerScenePath(
+        config?.slotByTab ? Object.values(config.slotByTab) : [],
+        detail,
+      ),
+      detail?.host_scene_file,
+      detail?.scene_path,
+    );
     if (!appPath || !sceneId || !datasetId) {
       recordPopupDebugIssue({
         level: "error",
@@ -12634,18 +12853,30 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (!sceneId) return null;
     const appPath = resolvePreviewAppId();
     if (!appPath) return null;
+    const ownerScenePath = nonEmptyString(
+      runtimeRefConfig.scenePath,
+      config?.hostSceneFile,
+      resolveMetricOwnerScenePath(
+        config?.slotByTab ? Object.values(config.slotByTab) : [],
+        detail,
+      ),
+      detail?.host_scene_file,
+      detail?.scene_path,
+    );
     const datasetId = resolveDrilldownDatasetId(detail, config) || sceneId;
     const metricId = nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId);
     const runtimeRef = metricId
       ? {
           kind: "metric",
           scene_id: sceneId,
+          scene_path: ownerScenePath,
           dataset_id: datasetId,
           metric_id: metricId,
         }
       : {
           kind: "data",
           scene_id: sceneId,
+          scene_path: ownerScenePath,
           dataset_id: datasetId,
         };
     const columns = Array.isArray(config?.columns) ? config.columns : [];
@@ -12709,7 +12940,8 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           },
         },
         active_scene_id: sceneId,
-        active_target_file: nonEmptyString(runtimeRefConfig.scenePath, detail?.scene_path),
+        active_target_file: ownerScenePath,
+        entry_target: ownerScenePath,
       },
       query_state: queryStateId || undefined,
     };
@@ -12856,6 +13088,10 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return false;
     }
     const datasetId = resolveDrilldownDatasetId(detail, config);
+    const tableMetricId = nonEmptyString(config?.tableMetricId, detail?.table_metric_id);
+    if (tableMetricId && isWorldMetricsOwnerDatasetId(datasetId)) {
+      return false;
+    }
     if (!datasetId) {
       recordPopupDebugIssue({
         level: "error",
@@ -12949,6 +13185,19 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       return false;
     }
     const normalizedTab = normalizeTabId(tabId);
+    if (config?.genericDrilldown) {
+      const slot = config?.slotByTab?.[normalizedTab];
+      if (slot?.component === "metric_card") {
+        host.replaceChildren(createDrilldownSummaryNode(activeConfig, normalizedTab));
+        setDrilldownOverlayStatus(root, "ready");
+        return true;
+      }
+      if (slot?.component === "summary") {
+        host.replaceChildren(createDrilldownSummaryNode(activeConfig, normalizedTab));
+        setDrilldownOverlayStatus(root, "ready");
+        return true;
+      }
+    }
     const kindTab = explainMetricKind(config, tabId);
     const tabOverride = config?.tabMetrics?.[normalizedTab] || config?.tabMetrics?.[kindTab];
     const hasCustomMetricSource = hasTabMetricDataSource(tabOverride);
@@ -12969,13 +13218,19 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       setDrilldownOverlayStatus(root, "ready");
       return true;
     }
-    if (isDrilldownAnalysisTab(tabId, config)) {
+    if (isDrilldownAnalysisTab(tabId, config) || config?.genericDrilldown) {
       host.replaceChildren();
       setDrilldownOverlayStatus(root, "loading");
       const preferTableFirst =
-        typeof window.__meiDatasetRuntime?.isYearMonthMatrixMetricConfig === "function" &&
-        window.__meiDatasetRuntime.isYearMonthMatrixMetricConfig(activeConfig);
+        (config?.genericDrilldown && config?.slotByTab?.[normalizedTab]?.component === "data_table") ||
+        (typeof window.__meiDatasetRuntime?.isYearMonthMatrixMetricConfig === "function" &&
+          window.__meiDatasetRuntime.isYearMonthMatrixMetricConfig(activeConfig));
       const mountAnalysisContent = async () => {
+        if (config?.genericDrilldown && config?.slotByTab?.[normalizedTab]?.supportRole === "composition") {
+          if (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId)) {
+            return true;
+          }
+        }
         if (preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
           return true;
         }
@@ -12983,6 +13238,9 @@ diff_match_patch.patch_obj.prototype.toString = function() {
           return true;
         }
         if (!preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
+          return true;
+        }
+        if (config?.genericDrilldown && (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId))) {
           return true;
         }
         return false;
@@ -13083,7 +13341,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
         config?.link?.defaultFocus,
       ),
     );
-    const activeTab = preferredTab && tabs.includes(preferredTab) ? preferredTab : defaultActiveDrilldownTab(tabs);
+    const defaultFromSlots = config?.genericDrilldown
+      ? normalizeTabId(
+          Object.values(config?.slotByTab || {}).find((slot) => slot?.default)?.id,
+        )
+      : "";
+    const activeTab =
+      (preferredTab && tabs.includes(preferredTab) ? preferredTab : "") ||
+      (defaultFromSlots && tabs.includes(defaultFromSlots) ? defaultFromSlots : "") ||
+      defaultActiveDrilldownTab(tabs);
     tabsHost.replaceChildren();
     tabsHost.toggleAttribute("hidden", tabs.length <= 1);
     tabs.forEach((tab) => {
@@ -13095,9 +13361,15 @@ diff_match_patch.patch_obj.prototype.toString = function() {
       button.dataset.drilldownTab = tab;
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
+      const slotLabel =
+        config?.genericDrilldown && config?.slotByTab?.[tab]
+          ? nonEmptyString(config.slotByTab[tab].label)
+          : "";
       button.textContent = nonEmptyString(
+        slotLabel,
         explainMetric?.label,
         tabConfig?.title,
+        tabConfig?.label,
         drilldownTabLabel(explainMetric?.kind || tab, tabConfig),
       );
       button.addEventListener("click", () => {
