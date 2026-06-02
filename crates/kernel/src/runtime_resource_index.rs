@@ -3,7 +3,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::imported_capsule_path_from_world_metrics_resource_id;
+use crate::{
+    capsule_path_from_namespaced_resource_id, imported_capsule_path_from_world_metrics_resource_id,
+    local_dataset_id_from_namespaced_token,
+};
 use crate::model::{CompiledApp, LoadedResource};
 use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
 
@@ -164,6 +167,10 @@ fn resolve_dataset_resource_id_with_index(
         .collect();
     match direct_matches.len() {
         0 => {
+            if compiled.resources.iter().any(|resource| resource.id == key) {
+                return Ok(key.to_string());
+            }
+
             if let Some(capsule_path) =
                 imported_capsule_path_from_world_metrics_resource_id(&key)
             {
@@ -176,6 +183,19 @@ fn resolve_dataset_resource_id_with_index(
                     return Ok(WORLD_METRICS_RESOURCE_ID.to_string());
                 }
             }
+
+            if let (Some(capsule_path), Some(local_id)) = (
+                capsule_path_from_namespaced_resource_id(&key),
+                local_dataset_id_from_namespaced_token(&key),
+            ) {
+                let active_target = compiled.active_target_file.trim();
+                if active_target == capsule_path.trim()
+                    && compiled.resources.iter().any(|resource| resource.id == local_id)
+                {
+                    return Ok(local_id.to_string());
+                }
+            }
+
             Err(RuntimeResourceResolveError::NotFound {
                 selector: key.to_string(),
             })
@@ -279,6 +299,8 @@ pub fn is_forbidden_legacy_resource_id(id: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::model::{CompiledApp, DatasetView, LoadedResource, SourceDecl};
     use serde_json::json;
@@ -372,5 +394,63 @@ mod tests {
         let value = json!({"__ref": "dataset", "id": "warning_list"});
         let id = resolve_dataset_selector_value(&compiled, &value, &index).expect("typed");
         assert_eq!(id, "warning_list");
+    }
+
+    #[test]
+    fn resolves_namespaced_dataset_selector_to_local_id_on_native_capsule_compile() {
+        let capsule = "scenes/2_行政检查/行政检查.mei";
+        let local_id = "administrative_inspection_dashboard_ds";
+        let namespaced = format!("{capsule}::{local_id}");
+        let mut compiled = sample_compiled();
+        compiled.active_target_file = capsule.to_string();
+        compiled.resources = vec![sample_dataset_resource(local_id)];
+        let id = resolve_dataset_resource_id(&compiled, &namespaced, None).expect("resolve");
+        assert_eq!(id, local_id);
+    }
+
+    #[test]
+    fn resolves_namespaced_world_metrics_to_host_owner_on_native_capsule_compile() {
+        let capsule = "scenes/1_执法要素/执法要素.mei";
+        let namespaced = format!("__world_metrics__::{capsule}::metrics");
+        let mut compiled = sample_compiled();
+        compiled.active_target_file = capsule.to_string();
+        compiled.resources.push(LoadedResource {
+            id: "__world_metrics__".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: "__world_metrics__".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: Vec::new(),
+                source: SourceDecl {
+                    kind: "world_metrics".to_string(),
+                    path: String::new(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: Default::default(),
+                runtime_metric_defs: BTreeMap::from([(
+                    "enforcement_units_count".to_string(),
+                    json!({"id": "enforcement_units_count"}),
+                )]),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
+        });
+        let id = resolve_dataset_resource_id(&compiled, &namespaced, None).expect("resolve");
+        assert_eq!(id, "__world_metrics__");
     }
 }

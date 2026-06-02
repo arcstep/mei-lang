@@ -193,14 +193,7 @@ pub async fn dataset_query_api(
     let compile_ms = compile_outcome.compile_ms;
     let scene_ctx = resolved_scene_context(&compiled);
     let normalized_dataset_id = request.dataset_id.trim();
-    let resource = locate_dataset_resource(
-        &compiled,
-        normalized_dataset_id,
-        coords
-            .scene_id
-            .as_deref()
-            .or(Some(scene_ctx.scene_id.as_str())),
-    )
+    let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
     .map_err(|error| {
         tracing::warn!(
             app_id = %app_id,
@@ -438,14 +431,7 @@ pub async fn dataset_recompute_api(
         response_scene_id = scene_ctx.scene_id.clone();
         response_scene_path = scene_ctx.scene_path.clone();
         let locate_started = Instant::now();
-        let resource = locate_dataset_resource(
-            &compiled,
-            request.dataset_id.trim(),
-            coords
-                .scene_id
-                .as_deref()
-                .or(Some(scene_ctx.scene_id.as_str())),
-        )
+        let resource = locate_dataset_resource(&compiled, request.dataset_id.trim(), Some(&coords))
         .map_err(AppError::from)?;
         perf.insert("locate_dataset_ms".to_string(), elapsed_ms(locate_started));
         let warm_started = Instant::now();

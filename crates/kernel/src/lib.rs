@@ -17,6 +17,7 @@ pub use compile::{
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
     evaluate_runtime_metric_defs_with_scope_and_dag, coerce_rows_to_schema,
     materialize_xlsx_column_headers,
+    capsule_path_from_namespaced_resource_id,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
     panel_resolved_has_head,
     resolve_default_scene_from_root, resolve_runtime_metric_def_key,

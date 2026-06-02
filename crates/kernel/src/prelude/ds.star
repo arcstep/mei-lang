@@ -580,6 +580,21 @@ def lt(field, value):
 def lte(field, value):
     return _analysis("lte", field = field, value = value)
 
+def field_gt(left_field, right_field):
+    return _analysis("field_gt", left_field = left_field, right_field = right_field)
+
+def field_gte(left_field, right_field):
+    return _analysis("field_gte", left_field = left_field, right_field = right_field)
+
+def field_lt(left_field, right_field):
+    return _analysis("field_lt", left_field = left_field, right_field = right_field)
+
+def field_lte(left_field, right_field):
+    return _analysis("field_lte", left_field = left_field, right_field = right_field)
+
+def sub(left_field, right_field):
+    return _analysis("sub", left_field = left_field, right_field = right_field)
+
 def between(field, lower, upper):
     return _analysis("between", field = field, lower = lower, upper = upper)
 
@@ -684,6 +699,26 @@ def year_count(rowset, field, year):
 
 def year_sum(rowset, date_field, value_field, year):
     return sum(number(year_between(rowset, date_field, year), value_field))
+
+def party_year_aggregate(rowset, party_field, date_field, value_field, years):
+    return _analysis(
+        "party_year_aggregate",
+        rowset = rowset,
+        party_field = party_field,
+        date_field = date_field,
+        value_field = value_field,
+        years = years,
+    )
+
+def unpivot_columns(rowset, id_field, columns, year_field = "year", value_field = "value"):
+    return _analysis(
+        "unpivot_columns",
+        rowset = rowset,
+        id_field = id_field,
+        columns = columns,
+        year_field = year_field,
+        value_field = value_field,
+    )
 
 def change_rate(current, base, mode = "growth", scale = 100):
     return _analysis("change_rate", current = current, base = base, mode = mode, scale = scale)

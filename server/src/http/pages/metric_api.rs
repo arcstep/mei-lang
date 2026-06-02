@@ -281,14 +281,7 @@ pub async fn dataset_metric_api(
     );
     let compiled = compile_outcome.compiled;
     let normalized_dataset_id = request.dataset_id.trim();
-    let resource = locate_dataset_resource(
-        &compiled,
-        normalized_dataset_id,
-        coords
-            .scene_id
-            .as_deref()
-            .or(Some(scene_ctx.scene_id.as_str())),
-    )
+    let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
     .map_err(|error| {
         tracing::warn!(
             app_id = %app_id,

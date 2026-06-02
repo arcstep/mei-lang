@@ -1454,6 +1454,7 @@ pub use analysis::eval_context::{
     runtime_eval_node_cache_enabled, RequestDagMetrics, RuntimeMetricEvalScope,
 };
 pub use materialize::{
+    capsule_path_from_namespaced_resource_id,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
     resolve_runtime_metric_def_key, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,
     EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,

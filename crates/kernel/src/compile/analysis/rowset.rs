@@ -12,8 +12,9 @@ use super::{
     schema::{row_string, row_value},
     transforms::{
         aggregate_group_rows, bucket_rows_by_month, distinct_rows_by_fields, first_rows_by_field,
-        mutate_row, rename_fields, reorder_fields, select_fields, sort_rows_by_field,
-        summarize_rows, trend_rows_by_month, trend_year_compare_rows,
+        mutate_row, party_year_aggregate_rows, rename_fields, reorder_fields, select_fields,
+        sort_rows_by_field, summarize_rows, trend_rows_by_month, trend_year_compare_rows,
+        unpivot_columns_rows,
     },
 };
 
@@ -465,6 +466,86 @@ fn eval_analysis_rowset(
                 &years,
                 month_label_field,
                 year_label_field,
+            ))
+        }
+        "party_year_aggregate" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("party_year_aggregate expression missing rowset"))?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
+            let party_field = map
+                .get("party_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("party_year_aggregate expression missing party_field"))?;
+            let date_field = map
+                .get("date_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("party_year_aggregate expression missing date_field"))?;
+            let value_field = map
+                .get("value_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("party_year_aggregate expression missing value_field"))?;
+            let years = map
+                .get("years")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.as_i64()
+                                .map(|value| value as i32)
+                                .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty())
+                .unwrap_or_else(|| vec![2024, 2025]);
+            Ok(party_year_aggregate_rows(
+                &rows,
+                party_field,
+                date_field,
+                value_field,
+                &years,
+            ))
+        }
+        "unpivot_columns" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("unpivot_columns expression missing rowset"))?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
+            let id_field = map
+                .get("id_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("unpivot_columns expression missing id_field"))?;
+            let year_field = map
+                .get("year_field")
+                .and_then(Value::as_str)
+                .unwrap_or("year");
+            let value_field = map
+                .get("value_field")
+                .and_then(Value::as_str)
+                .unwrap_or("value");
+            let columns = map
+                .get("columns")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("unpivot_columns expression missing columns"))?
+                .iter()
+                .filter_map(|item| {
+                    let object = item.as_object()?;
+                    let year = object.get("year")?.as_str()?.to_string();
+                    let field = object.get("field")?.as_str()?.to_string();
+                    Some((year, field))
+                })
+                .collect::<Vec<_>>();
+            if columns.is_empty() {
+                return Err(anyhow!("unpivot_columns expression missing column mappings"));
+            }
+            Ok(unpivot_columns_rows(
+                &rows,
+                id_field,
+                &columns,
+                year_field,
+                value_field,
             ))
         }
         "table_rows" => {

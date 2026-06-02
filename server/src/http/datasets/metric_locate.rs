@@ -36,16 +36,6 @@ pub(crate) fn locate_runtime_metric_resource<'a>(
     dataset_id: &str,
     metric_id: &str,
 ) -> Result<(&'a LoadedResource, String)> {
-    if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(dataset_id) {
-        let active_target = compiled.active_target_file.trim();
-        if active_target == capsule_path.trim() {
-            if let Ok(host) = locate_dataset_resource(compiled, WORLD_METRICS_RESOURCE_ID) {
-                if let Some(resolved) = try_resolve_metric_on_resource(host, metric_id) {
-                    return Ok(resolved);
-                }
-            }
-        }
-    }
     let primary =
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     if let Some(resolved) = try_resolve_metric_on_resource(primary, metric_id) {

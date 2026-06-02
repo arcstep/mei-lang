@@ -15,6 +15,7 @@ pub use eval_plan::{
 pub(super) use legacy::materialize_legacy_datasets;
 pub(super) use metric_packs::materialize_metric_packs;
 pub use world_metrics::{
+    capsule_path_from_namespaced_resource_id,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
     resolve_runtime_metric_def_key,
 };

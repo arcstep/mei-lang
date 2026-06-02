@@ -795,152 +795,48 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
 }
 
 #[test]
-fn compile_spbjw_admin_inspection_switches_to_popup_scene_contracts() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces");
-    let app_root = source_root.join("spbjw");
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions {
-            scene: None,
-            preview_target: Some("scenes/2_行政检查/行政检查.mei".to_string()),
-        },
-    )
-    .expect("compile spbjw 行政检查 preview");
-    let contract = compiled
-        .scene_contract
-        .as_ref()
-        .expect("行政检查 preview scene contract");
-    let encoded = serde_json::to_string(contract).expect("encode scene contract");
-
-    assert!(
-        encoded.contains("inspection-total-popup.mei")
-            && encoded.contains("inspection_total_popup")
-            && encoded.contains("inspection-today-popup.mei")
-            && encoded.contains("inspection_today_popup")
-            && encoded.contains("inspection-week-popup.mei")
-            && encoded.contains("inspection_week_popup")
-            && encoded.contains("inspection-complaint-popup.mei")
-            && encoded.contains("inspection_complaint_popup")
-            && encoded.contains("inspection-no-violation-popup.mei")
-            && encoded.contains("inspection_no_violation_popup")
-            && encoded.contains("inspection-ai-main-popup.mei")
-            && encoded.contains("inspection_ai_main_popup")
-            && encoded.contains("inspection-ai-top-popup.mei")
-            && encoded.contains("inspection_ai_top_popup")
-            && encoded.contains("inspection-ai-bottom-popup.mei")
-            && encoded.contains("inspection_ai_bottom_popup"),
-        "行政检查入口卡应全部指向独立 popup scene，got: {encoded}"
-    );
-    assert!(
-        !encoded
-            .contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
-        "第二批后行政检查不应再直连模板壳 scene_file，got: {encoded}"
-    );
-}
-
-#[test]
-fn compile_spbjw_admin_inspection_popup_scenes_are_previewable() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces");
-    let app_root = source_root.join("spbjw");
-    let popup_targets = [
-        (
-            "scenes/2_行政检查/inspection-total-popup.mei",
-            "composition_by_agency",
-        ),
-        ("scenes/2_行政检查/inspection-today-popup.mei", "detail"),
-        ("scenes/2_行政检查/inspection-week-popup.mei", "detail"),
-        ("scenes/2_行政检查/inspection-complaint-popup.mei", "detail"),
-        (
-            "scenes/2_行政检查/inspection-no-violation-popup.mei",
-            "composition_by_park",
-        ),
-        ("scenes/2_行政检查/inspection-ai-main-popup.mei", "detail"),
-        (
-            "scenes/2_行政检查/inspection-ai-top-popup.mei",
-            "composition_by_unit",
-        ),
-        ("scenes/2_行政检查/inspection-ai-bottom-popup.mei", "detail"),
-    ];
-
-    for (target, expected_entry) in popup_targets {
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions {
-                scene: None,
-                preview_target: Some(target.to_string()),
-            },
-        )
-        .unwrap_or_else(|error| panic!("compile popup preview `{target}` failed: {error}"));
-        let errors: Vec<_> = compiled
-            .diagnostics
-            .iter()
-            .filter(|d| matches!(d.severity, crate::Severity::Error))
-            .collect();
-        assert!(
-            errors.is_empty(),
-            "popup preview `{target}` should have no error diagnostics: {:?}",
-            errors
-        );
-        let contract = compiled
-            .scene_contract
-            .as_ref()
-            .unwrap_or_else(|| panic!("popup preview `{target}` should yield scene contract"));
-        assert_eq!(
-            contract
-                .scene
-                .local_nav
-                .get("default_entry")
-                .and_then(|value| value.as_str()),
-            Some(expected_entry),
-            "popup preview `{target}` should keep local_nav.default_entry"
-        );
-        assert!(
-            contract.scene.bindings.is_object(),
-            "popup preview `{target}` should keep scene.bindings for assembly defaults"
-        );
-        assert!(
-            contract
-                .scene
-                .examples
-                .as_array()
-                .is_some_and(|items| !items.is_empty()),
-            "popup preview `{target}` should keep scene.examples for bare preview"
-        );
-    }
-}
-
-#[test]
-fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
+fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
     let cases = [
         (
-            "scenes/4_监督预警/监督预警.mei",
+            "scenes/1_执法要素/执法要素.mei",
+            "enforcement_units_count",
+            vec!["enforcement-units-popup.mei"],
+        ),
+        (
+            "scenes/2_行政检查/行政检查.mei",
+            "inspections_total_count",
             vec![
-                "supervision-warning-items-popup.mei",
-                "supervision-warning-models-popup.mei",
-                "supervision-warning-total-popup.mei",
+                "inspection-total-popup.mei",
+                "inspection-today-popup.mei",
+                "indicator-frequency-popup.mei",
             ],
         ),
         (
+            "scenes/2_行政检查/指标体系.mei",
+            "inspection_frequency_reduction_rate",
+            vec!["indicator-frequency-popup.mei"],
+        ),
+        (
+            "scenes/3_行政处罚/行政处罚.mei",
+            "penalties_total_count",
+            vec!["penalty-total-popup.mei"],
+        ),
+        (
+            "scenes/4_监督预警/监督预警.mei",
+            "supervision_items_count",
+            vec!["supervision-warning-items-popup.mei"],
+        ),
+        (
             "scenes/5_问题办理/监督成效.mei",
-            vec![
-                "effect-transfer-clue-popup.mei",
-                "effect-filing-popup.mei",
-                "effect-sanction-popup.mei",
-                "effect-handled-popup.mei",
-                "effect-recovered-popup.mei",
-                "effect-mechanism-popup.mei",
-            ],
+            "effectiveness_transfer_clue_count",
+            vec!["effect-transfer-clue-popup.mei"],
         ),
     ];
 
-    for (target, expected_popup_files) in cases {
+    for (target, sample_metric_id, legacy_popup_files) in cases {
         let compiled = compile_app_from_root_with_options(
             &source_root,
             &app_root,
@@ -956,10 +852,22 @@ fn compile_spbjw_home_chain_new_popup_targets_replace_template_links() {
             .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
         let encoded = serde_json::to_string(contract).expect("encode scene contract");
 
-        for expected in expected_popup_files {
+        assert!(
+            encoded.contains("generic-drilldown-board.mei"),
+            "`{target}` should reference generic drilldown shell, got: {encoded}"
+        );
+        assert!(
+            encoded.contains("projection_slots"),
+            "`{target}` link tabs should lower to projection_slots, got: {encoded}"
+        );
+        assert!(
+            encoded.contains(sample_metric_id),
+            "`{target}` projection_slots should include `{sample_metric_id}`, got: {encoded}"
+        );
+        for legacy in legacy_popup_files {
             assert!(
-                encoded.contains(expected),
-                "`{target}` should reference `{expected}` after popup migration, got: {encoded}"
+                !encoded.contains(legacy),
+                "`{target}` should not reference legacy popup `{legacy}`, got: {encoded}"
             );
         }
         assert!(
@@ -1023,81 +931,35 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
 }
 
 #[test]
-fn compile_spbjw_home_chain_batch_three_popup_scenes_are_previewable() {
+fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let popup_targets = [
-        (
-            "scenes/4_监督预警/supervision-warning-items-popup.mei",
-            "detail",
-        ),
-        (
-            "scenes/4_监督预警/supervision-warning-models-popup.mei",
-            "detail",
-        ),
-        (
-            "scenes/4_监督预警/supervision-warning-total-popup.mei",
-            "detail",
-        ),
-        ("scenes/5_问题办理/issue-pending-popup.mei", "detail"),
-        ("scenes/5_问题办理/issue-doing-popup.mei", "detail"),
-        ("scenes/5_问题办理/issue-done-popup.mei", "detail"),
-        ("scenes/5_问题办理/issue-rate-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-transfer-clue-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-filing-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-sanction-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-handled-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-recovered-popup.mei", "detail"),
-        ("scenes/5_问题办理/effect-mechanism-popup.mei", "detail"),
-    ];
-
-    for (target, expected_entry) in popup_targets {
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions {
-                scene: None,
-                preview_target: Some(target.to_string()),
-            },
-        )
-        .unwrap_or_else(|error| panic!("compile popup preview `{target}` failed: {error}"));
-        let errors: Vec<_> = compiled
-            .diagnostics
-            .iter()
-            .filter(|d| matches!(d.severity, crate::Severity::Error))
-            .collect();
-        assert!(
-            errors.is_empty(),
-            "popup preview `{target}` should have no error diagnostics: {:?}",
-            errors
-        );
-        let contract = compiled
-            .scene_contract
-            .as_ref()
-            .unwrap_or_else(|| panic!("popup preview `{target}` should yield scene contract"));
-        assert_eq!(
-            contract
-                .scene
-                .local_nav
-                .get("default_entry")
-                .and_then(|value| value.as_str()),
-            Some(expected_entry),
-            "popup preview `{target}` should keep local_nav.default_entry"
-        );
-        assert!(
-            contract.scene.bindings.is_object(),
-            "popup preview `{target}` should keep scene.bindings for assembly defaults"
-        );
-        assert!(
-            contract
-                .scene
-                .examples
-                .as_array()
-                .is_some_and(|items| !items.is_empty()),
-            "popup preview `{target}` should keep scene.examples for bare preview"
-        );
-    }
+    let target = "../templates/cockpit/drilldown/generic-drilldown-board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile generic drilldown preview `{target}` failed: {error}"));
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "generic drilldown preview should have no error diagnostics: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("generic drilldown preview should yield scene contract");
+    assert_eq!(contract.scene.id, "generic_drilldown_board");
 }
 
 #[test]

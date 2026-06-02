@@ -30,6 +30,18 @@ const IMPORTED_WORLD_METRICS_SUFFIX: &str = "::metrics";
 /// 从 `__world_metrics__::{capsule_path}::metrics` 解析嵌入 capsule 的相对路径。
 const CAPSULE_DATASET_MARKER: &str = ".mei::";
 
+/// 从 `{capsule_path}.mei::{local_dataset_id}` 资源 id 提取 capsule 相对路径（含 `.mei`）。
+pub fn capsule_path_from_namespaced_resource_id(resource_id: &str) -> Option<&str> {
+    let resource_id = resource_id.trim();
+    let idx = resource_id.find(CAPSULE_DATASET_MARKER)?;
+    let path = resource_id[..idx + 4].trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
+}
+
 /// 将 `scenes/foo.mei::dataset_id` 还原为 capsule 内局部 dataset id（用于宿主短 id 回退）。
 pub fn local_dataset_id_from_namespaced_token(dataset_id: &str) -> Option<&str> {
     let dataset_id = dataset_id.trim();
@@ -126,6 +138,12 @@ pub fn resolve_runtime_metric_def_key(
             }
         }
         return None;
+    }
+    if let Some(capsule_path) = capsule_path_from_namespaced_resource_id(resource_id) {
+        let namespaced = format!("{capsule_path}::{metric_id}");
+        if defs.contains_key(&namespaced) {
+            return Some(namespaced);
+        }
     }
     if let Some(local) = local_dataset_id_from_namespaced_token(metric_id) {
         if defs.contains_key(local) {
@@ -374,6 +392,20 @@ mod resolve_key_tests {
                 "scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"
                     .to_string()
             )
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_metric_def_key_resolves_namespaced_dataset_resource_defs() {
+        let resource_id = "scenes/2_行政检查/行政检查.mei::administrative_inspection_results";
+        let mut defs = BTreeMap::new();
+        defs.insert(
+            "scenes/2_行政检查/行政检查.mei::inspections_total_count".to_string(),
+            json!({"id": "scenes/2_行政检查/行政检查.mei::inspections_total_count"}),
+        );
+        assert_eq!(
+            resolve_runtime_metric_def_key(resource_id, "inspections_total_count", &defs),
+            Some("scenes/2_行政检查/行政检查.mei::inspections_total_count".to_string())
         );
     }
 

@@ -172,8 +172,24 @@ fn load_resources_from_capsule_file_recursive(
         Err(_) => return Ok(Vec::new()),
     };
 
-    let (normal_resources, dataset_resources) =
-        partition_world_resources(&all_world_resource_decls(&world_decl));
+    let scene_registry = crate::typed_refs::SceneRegistry::new();
+    let mut resolve_diagnostics = Vec::new();
+    let world_resource_decls = all_world_resource_decls(&world_decl)
+        .into_iter()
+        .filter_map(|resource| {
+            let slot = serde_json::to_value(&resource).ok()?;
+            super::clone_merge::resolve_resource_slot(
+                app_root,
+                &slot,
+                &scene_registry,
+                &mut resolve_diagnostics,
+                relative_path,
+            )
+            .or(Some(resource))
+        })
+        .collect::<Vec<_>>();
+
+    let (normal_resources, dataset_resources) = partition_world_resources(&world_resource_decls);
     let mut resources = load_resources(app_root, &normal_resources)?;
     let mut world_dataset_decls = Vec::new();
     let mut world_metric_pack_decls = Vec::new();

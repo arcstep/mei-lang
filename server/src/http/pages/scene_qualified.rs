@@ -200,31 +200,45 @@ fn map_resolve_error(error: RuntimeResourceResolveError) -> AppError {
     }
 }
 
+/// Scene id used for post-locate availability checks on scene-qualified runtime APIs.
+pub fn expected_scene_id_for_runtime_lookup(
+    compiled: &CompiledApp,
+    coords: Option<&SceneQueryCoords>,
+) -> String {
+    let scene_ctx = resolved_scene_context(compiled);
+    if let Some(coords) = coords {
+        if let Some(target) = coords.target.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if target == compiled.active_target_file.trim() {
+                return scene_ctx.scene_id;
+            }
+        }
+        if let Some(requested) = coords.scene_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        {
+            return requested.to_string();
+        }
+    }
+    scene_ctx.scene_id
+}
+
 /// Locate a dataset resource within the compiled active scene resource table.
 pub fn locate_dataset_resource<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
-    expected_scene_id: Option<&str>,
+    coords: Option<&SceneQueryCoords>,
 ) -> Result<&'a LoadedResource, AppError> {
     let resource =
         kernel_locate_dataset_resource(compiled, dataset_id).map_err(map_resolve_error)?;
 
-    if let Some(expected) = expected_scene_id.map(str::trim).filter(|s| !s.is_empty()) {
-        let active = compiled
-            .active_scene
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or(expected);
-        if active != expected {
-            return Err(AppError::status(
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "dataset `{}` is not available in scene `{expected}` (active scene is `{active}`)",
-                    resource.id
-                ),
-            ));
-        }
+    let expected = expected_scene_id_for_runtime_lookup(compiled, coords);
+    let active = resolved_scene_context(compiled).scene_id;
+    if active != expected {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!(
+                "dataset `{}` is not available in scene `{expected}` (active scene is `{active}`)",
+                resource.id
+            ),
+        ));
     }
 
     Ok(resource)
@@ -234,7 +248,7 @@ pub fn locate_dataset_resource<'a>(
 mod tests {
     use super::{
         locate_dataset_resource, strict_dataset_query_mode_contract, strict_runtime_query_contract,
-        strict_scene_query_coords,
+        strict_scene_query_coords, SceneQueryCoords,
     };
     use mei_lang_kernel::{
         CompiledApp, CompiledSceneRoute, DatasetView, FilterIntent, FilterIntentSource,
@@ -432,14 +446,62 @@ mod tests {
     fn locate_dataset_accepts_route_target_alias() {
         let compiled = sample_compiled();
         let resource =
-            locate_dataset_resource(&compiled, "scenes/home.mei", Some("home")).expect("alias");
+            locate_dataset_resource(&compiled, "scenes/home.mei", None).expect("alias");
         assert_eq!(resource.id, "home");
     }
 
     #[test]
     fn locate_dataset_accepts_canonical_resource_id() {
         let compiled = sample_compiled();
-        let resource = locate_dataset_resource(&compiled, "warning_list", None).expect("id");
+        let coords = SceneQueryCoords::from_parts(Some("home".to_string()), None);
+        let resource = locate_dataset_resource(&compiled, "warning_list", Some(&coords)).expect("id");
         assert_eq!(resource.id, "warning_list");
+    }
+
+    #[test]
+    fn locate_dataset_allows_host_scene_id_when_target_matches_active_capsule() {
+        let mut compiled = sample_compiled();
+        compiled.active_scene = Some("enforcement_elements".to_string());
+        compiled.active_target_file = "scenes/1_执法要素/执法要素.mei".to_string();
+        compiled.resources.push(LoadedResource {
+            id: "enforcement_units".to_string(),
+            kind: "dataset".to_string(),
+            title: None,
+            document: None,
+            dataset: Some(DatasetView {
+                id: "enforcement_units".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: vec!["a".to_string()],
+                rows: vec![json!({"a": 1})],
+                source: SourceDecl {
+                    kind: "csv".to_string(),
+                    path: "data/enforcement_units.csv".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: Default::default(),
+                runtime_metric_defs: Default::default(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: Default::default(),
+            }),
+        });
+        let coords = SceneQueryCoords::from_parts(
+            Some("home".to_string()),
+            Some("scenes/1_执法要素/执法要素.mei".to_string()),
+        );
+        let resource =
+            locate_dataset_resource(&compiled, "enforcement_units", Some(&coords)).expect("capsule");
+        assert_eq!(resource.id, "enforcement_units");
     }
 }

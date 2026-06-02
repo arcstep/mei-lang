@@ -133,6 +133,22 @@ pub(super) fn predicate_matches_with_ctx(
                 _ => actual <= expected,
             }
         }
+        "field_gt" | "field_gte" | "field_lt" | "field_lte" => {
+            let left_field = object.get("left_field").and_then(Value::as_str).unwrap_or("");
+            let right_field = object.get("right_field").and_then(Value::as_str).unwrap_or("");
+            let left = row_value(row, left_field)
+                .and_then(super::schema::parse_number)
+                .unwrap_or(f64::NAN);
+            let right = row_value(row, right_field)
+                .and_then(super::schema::parse_number)
+                .unwrap_or(f64::NAN);
+            match analysis_type {
+                "field_gt" => left > right,
+                "field_gte" => left >= right,
+                "field_lt" => left < right,
+                _ => left <= right,
+            }
+        }
         "between" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
             let lower = object.get("lower").cloned().unwrap_or(Value::Null);

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use regex::Regex;
 use serde_json::{json, Value};
@@ -96,6 +96,79 @@ pub(super) fn bucket_rows_by_month(rows: &[Value], field: &str, label_field: &st
             Value::Object(object)
         })
         .collect()
+}
+
+pub(super) fn party_year_aggregate_rows(
+    rows: &[Value],
+    party_field: &str,
+    date_field: &str,
+    value_field: &str,
+    years: &[i32],
+) -> Vec<Value> {
+    let mut parties: BTreeMap<String, BTreeMap<i32, (f64, usize)>> = BTreeMap::new();
+    for row in rows {
+        let party = row_string(row, party_field);
+        if party.is_empty() {
+            continue;
+        }
+        let Some((year, _, _)) = parse_row_date(row, date_field) else {
+            continue;
+        };
+        if !years.contains(&year) {
+            continue;
+        }
+        let amount = row_number(row, value_field).unwrap_or(0.0);
+        let entry = parties.entry(party).or_default().entry(year).or_insert((0.0, 0));
+        entry.0 += amount;
+        entry.1 += 1;
+    }
+    let mut out = Vec::new();
+    for (party, year_stats) in parties {
+        let mut object = serde_json::Map::new();
+        object.insert(party_field.to_string(), Value::String(party));
+        for year in years {
+            let (sum, count) = year_stats.get(year).copied().unwrap_or((0.0, 0));
+            object.insert(format!("罚没金额_{year}"), json!(sum));
+            object.insert(format!("处罚次数_{year}"), json!(count as f64));
+        }
+        if years.len() >= 2 {
+            let prev = years[years.len() - 2];
+            let curr = years[years.len() - 1];
+            let prev_sum = year_stats.get(&prev).map(|(sum, _)| *sum).unwrap_or(0.0);
+            let curr_sum = year_stats.get(&curr).map(|(sum, _)| *sum).unwrap_or(0.0);
+            object.insert(
+                format!("同比降低额_{curr}"),
+                json!((prev_sum - curr_sum).max(0.0)),
+            );
+        }
+        out.push(Value::Object(object));
+    }
+    out
+}
+
+pub(super) fn unpivot_columns_rows(
+    rows: &[Value],
+    id_field: &str,
+    columns: &[(String, String)],
+    year_field: &str,
+    value_field: &str,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    for row in rows {
+        let id = row_string(row, id_field);
+        if id.is_empty() {
+            continue;
+        }
+        for (year_label, source_field) in columns {
+            let value = row_number(row, source_field).unwrap_or(0.0);
+            let mut object = serde_json::Map::new();
+            object.insert(id_field.to_string(), Value::String(id.clone()));
+            object.insert(year_field.to_string(), Value::String(year_label.clone()));
+            object.insert(value_field.to_string(), json!(value));
+            out.push(Value::Object(object));
+        }
+    }
+    out
 }
 
 pub(super) fn aggregate_group_rows(
@@ -279,6 +352,60 @@ mod tests {
     }
 
     #[test]
+    fn party_year_aggregate_sums_by_execution_year_and_party() {
+        use super::party_year_aggregate_rows;
+
+        let rows = vec![
+            json!({"当事人": "甲公司", "执行日期": "2024-06-01", "罚款金额": 20000}),
+            json!({"当事人": "甲公司", "执行日期": "2024-08-01", "罚款金额": 5000}),
+            json!({"当事人": "甲公司", "执行日期": "2025-03-01", "罚款金额": 30000}),
+            json!({"当事人": "乙公司", "执行日期": "2025-01-01", "罚款金额": 12000}),
+        ];
+        let stats = party_year_aggregate_rows(
+            &rows,
+            "当事人",
+            "执行日期",
+            "罚款金额",
+            &[2024, 2025],
+        );
+        let a = stats
+            .iter()
+            .find(|row| row.get("当事人").and_then(|v| v.as_str()) == Some("甲公司"))
+            .expect("甲公司");
+        assert_eq!(a.get("罚没金额_2024").and_then(|v| v.as_f64()), Some(25000.0));
+        assert_eq!(a.get("处罚次数_2024").and_then(|v| v.as_f64()), Some(2.0));
+        assert_eq!(a.get("罚没金额_2025").and_then(|v| v.as_f64()), Some(30000.0));
+        assert_eq!(a.get("同比降低额_2025").and_then(|v| v.as_f64()), Some(0.0));
+    }
+
+    #[test]
+    fn unpivot_columns_expands_year_metrics_for_chart() {
+        use super::unpivot_columns_rows;
+
+        let rows = vec![json!({
+            "当事人": "甲公司",
+            "罚没金额_2024": 25000,
+            "罚没金额_2025": 30000,
+        })];
+        let bars = unpivot_columns_rows(
+            &rows,
+            "当事人",
+            &[
+                ("2024".to_string(), "罚没金额_2024".to_string()),
+                ("2025".to_string(), "罚没金额_2025".to_string()),
+            ],
+            "year",
+            "value",
+        );
+        assert_eq!(bars.len(), 2);
+        assert_eq!(
+            bars[0].get("year").and_then(|v| v.as_str()),
+            Some("2024")
+        );
+        assert_eq!(bars[0].get("value").and_then(|v| v.as_f64()), Some(25000.0));
+    }
+
+    #[test]
     fn extract_number_supports_regex_prefix_on_string_and_numeric_cells() {
         let expr = json!({
             "__kind": "analysis_expr",
@@ -407,6 +534,19 @@ fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Value {
                         .ok()
                         .map(|value| json!(value))
                         .unwrap_or(Value::Null)
+                }
+                "sub" => {
+                    let left_field = analysis
+                        .get("left_field")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let right_field = analysis
+                        .get("right_field")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let left = row.get(left_field).and_then(parse_number).unwrap_or(0.0);
+                    let right = row.get(right_field).and_then(parse_number).unwrap_or(0.0);
+                    json!(left - right)
                 }
                 _ => expr.clone(),
             };

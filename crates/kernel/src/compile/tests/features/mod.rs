@@ -2,6 +2,7 @@ mod dataset;
 mod panel_theme;
 mod refs_builtin;
 mod spbjw;
+mod spbjw_issue_handling_metrics;
 
 pub(super) use std::collections::BTreeMap;
 
