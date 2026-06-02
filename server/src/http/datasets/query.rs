@@ -102,6 +102,7 @@ pub fn query_dataset_rows(
             &meta,
             &normalized_options,
             &cache_settings,
+            &dataset.schema,
         ),
         "db" => db_dataset::query_db_rows(app_root, &dataset.source, &meta, &normalized_options),
         _ => Ok(paginate_rows(

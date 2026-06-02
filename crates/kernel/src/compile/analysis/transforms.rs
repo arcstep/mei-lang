@@ -12,6 +12,53 @@ fn scalar_text(value: &Value) -> String {
     value_display_text(value)
 }
 
+pub(super) fn trend_year_compare_rows(
+    rows: &[Value],
+    date_field: &str,
+    value_field: Option<&str>,
+    agg: &str,
+    months: usize,
+    years: &[i32],
+    month_label_field: &str,
+    year_label_field: &str,
+) -> Vec<Value> {
+    let Some(anchor) = max_row_month(rows, date_field) else {
+        return Vec::new();
+    };
+    let window = latest_month_window(anchor, months);
+    let month_nums = window
+        .iter()
+        .map(|(_, month)| *month)
+        .collect::<BTreeSet<_>>();
+    let mut out = Vec::new();
+    for month in month_nums {
+        for year in years {
+            let value = aggregate_month_value(rows, date_field, value_field, agg, *year, month);
+            let mut row = serde_json::Map::new();
+            row.insert(
+                month_label_field.to_string(),
+                Value::String(format!("{month:02}")),
+            );
+            row.insert(
+                year_label_field.to_string(),
+                Value::String(format!("{year}")),
+            );
+            row.insert("value".to_string(), json!(value));
+            out.push(Value::Object(row));
+        }
+    }
+    out.sort_by(|left, right| {
+        let left_month = row_string(left, month_label_field);
+        let left_year = row_string(left, year_label_field);
+        let right_month = row_string(right, month_label_field);
+        let right_year = row_string(right, year_label_field);
+        left_month
+            .cmp(&right_month)
+            .then_with(|| left_year.cmp(&right_year))
+    });
+    out
+}
+
 pub(super) fn trend_rows_by_month(
     rows: &[Value],
     date_field: &str,
@@ -175,8 +222,44 @@ pub(super) fn reorder_fields(row: &Value, fields: &[String]) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{eval_row_value, trend_rows_by_month};
+    use super::{eval_row_value, trend_rows_by_month, trend_year_compare_rows};
     use serde_json::json;
+
+    #[test]
+    fn trend_year_compare_aligns_months_across_years() {
+        let rows = vec![
+            json!({"检查日期": "2024-03-10"}),
+            json!({"检查日期": "2024-03-12"}),
+            json!({"检查日期": "2025-03-15"}),
+            json!({"检查日期": "2025-06-01"}),
+        ];
+        let trend = trend_year_compare_rows(
+            &rows,
+            "检查日期",
+            None,
+            "count",
+            6,
+            &[2024, 2025],
+            "month",
+            "year",
+        );
+        let march_2024 = trend
+            .iter()
+            .find(|row| {
+                row.get("month").and_then(|v| v.as_str()) == Some("03")
+                    && row.get("year").and_then(|v| v.as_str()) == Some("2024")
+            })
+            .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
+        let march_2025 = trend
+            .iter()
+            .find(|row| {
+                row.get("month").and_then(|v| v.as_str()) == Some("03")
+                    && row.get("year").and_then(|v| v.as_str()) == Some("2025")
+            })
+            .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
+        assert_eq!(march_2024, Some(2.0));
+        assert_eq!(march_2025, Some(1.0));
+    }
 
     #[test]
     fn trend_by_month_fills_missing_buckets_with_zero() {

@@ -11875,8 +11875,17 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     );
   }
 
-  function drilldownTabLabel(tabId) {
+  function drilldownTabLabel(tabId, config = null) {
     const id = normalizeTabId(tabId);
+    const metricId = String(
+      config?.tableMetricId ||
+        config?.runtimeRef?.metric_id ||
+        config?.runtimeRef?.metricId ||
+        "",
+    ).trim();
+    if (id === "trend" && metricId.includes("year_month_matrix")) {
+      return "汇总";
+    }
     const labels = {
       definition: "口径",
       composition: "构成",
@@ -12963,14 +12972,24 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     if (isDrilldownAnalysisTab(tabId, config)) {
       host.replaceChildren();
       setDrilldownOverlayStatus(root, "loading");
-      mountDrilldownChart(root, detail, activeConfig, tabId)
+      const preferTableFirst =
+        typeof window.__meiDatasetRuntime?.isYearMonthMatrixMetricConfig === "function" &&
+        window.__meiDatasetRuntime.isYearMonthMatrixMetricConfig(activeConfig);
+      const mountAnalysisContent = async () => {
+        if (preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
+          return true;
+        }
+        if (await mountDrilldownChart(root, detail, activeConfig, tabId)) {
+          return true;
+        }
+        if (!preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
+          return true;
+        }
+        return false;
+      };
+      mountAnalysisContent()
         .then(async (mounted) => {
           if (mounted) {
-            setDrilldownOverlayStatus(root, "ready");
-            dispatchPreviewUpdated("drilldown");
-            return;
-          }
-          if (await mountDrilldownTable(root, detail, activeConfig)) {
             setDrilldownOverlayStatus(root, "ready");
             dispatchPreviewUpdated("drilldown");
             return;
@@ -13069,13 +13088,18 @@ diff_match_patch.patch_obj.prototype.toString = function() {
     tabsHost.toggleAttribute("hidden", tabs.length <= 1);
     tabs.forEach((tab) => {
       const explainMetric = explainMetricForTab(config, tab);
+      const tabConfig = resolveDrilldownTabConfig(config, tab);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "access-drilldown-tab-button";
       button.dataset.drilldownTab = tab;
       button.setAttribute("role", "tab");
       button.setAttribute("aria-selected", tab === activeTab ? "true" : "false");
-      button.textContent = nonEmptyString(explainMetric?.label, drilldownTabLabel(explainMetric?.kind || tab));
+      button.textContent = nonEmptyString(
+        explainMetric?.label,
+        tabConfig?.title,
+        drilldownTabLabel(explainMetric?.kind || tab, tabConfig),
+      );
       button.addEventListener("click", () => {
         if (button.getAttribute("aria-selected") === "true") return;
         tabsHost

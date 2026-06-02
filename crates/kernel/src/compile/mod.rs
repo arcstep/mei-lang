@@ -28,6 +28,7 @@ mod dependency_graph;
 mod entry_payload;
 mod load_external;
 mod loaders;
+pub use analysis::dates::coerce_rows_to_schema;
 pub use loaders::materialize_xlsx_column_headers;
 mod materialize;
 mod materialize_cache;

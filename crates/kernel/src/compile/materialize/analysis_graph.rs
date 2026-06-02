@@ -283,7 +283,7 @@ fn is_rowset_expression(expr: &Value) -> bool {
                 "rows" => true,
                 "count" | "sum" | "avg" | "min" | "max" | "median" | "ratio" | "percent"
                 | "unique_count" | "item_count" | "sum_first_number" | "sum_rowset_counts"
-                | "mom" | "yoy" | "lit" | "number" => false,
+                | "mom" | "yoy" | "change_rate" | "lit" | "number" => false,
                 _ => true,
             }
         }

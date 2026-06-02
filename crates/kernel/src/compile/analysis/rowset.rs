@@ -13,7 +13,7 @@ use super::{
     transforms::{
         aggregate_group_rows, bucket_rows_by_month, distinct_rows_by_fields, first_rows_by_field,
         mutate_row, rename_fields, reorder_fields, select_fields, sort_rows_by_field,
-        summarize_rows, trend_rows_by_month,
+        summarize_rows, trend_rows_by_month, trend_year_compare_rows,
     },
 };
 
@@ -415,6 +415,56 @@ fn eval_analysis_rowset(
                 value_field,
                 agg,
                 Some(months),
+            ))
+        }
+        "trend_year_compare" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("trend_year_compare expression missing rowset"))?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
+            let date_field = map
+                .get("date_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("trend_year_compare expression missing date_field"))?;
+            let value_field = map.get("value").and_then(Value::as_str);
+            let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
+            let months = map
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|n| n as usize)
+                .unwrap_or(6);
+            let month_label_field = map
+                .get("month_label_field")
+                .and_then(Value::as_str)
+                .unwrap_or("month");
+            let year_label_field = map
+                .get("year_label_field")
+                .and_then(Value::as_str)
+                .unwrap_or("year");
+            let years = map
+                .get("years")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.as_i64()
+                                .map(|value| value as i32)
+                                .or_else(|| item.as_str().and_then(|text| text.parse().ok()))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty())
+                .unwrap_or_else(|| vec![2024, 2025]);
+            Ok(trend_year_compare_rows(
+                &rows,
+                date_field,
+                value_field,
+                agg,
+                months,
+                &years,
+                month_label_field,
+                year_label_field,
             ))
         }
         "table_rows" => {

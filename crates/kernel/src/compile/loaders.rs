@@ -80,6 +80,90 @@ mod tests {
     use super::materialize_xlsx_column_headers;
 
     #[test]
+    fn load_spbjw_penalty_legacy_xls_coerces_date_columns_in_schema() {
+        use crate::compile::analysis::dates::coerce_rows_to_schema;
+        use crate::model::ColumnSchema;
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/spbjw/upload/8.行政处罚结果清单.xlsx");
+        let rows = super::load_legacy_xlsx_rows(&path, None, 1, Some(20))
+            .expect("load spbjw penalty result list");
+        assert!(!rows.is_empty(), "penalty rows should not be empty");
+        let schema = vec![
+            ColumnSchema {
+                name: "立案日期".to_string(),
+                type_name: "date".to_string(),
+                source: Some("立案日期".to_string()),
+                optional: true,
+                unit: None,
+            },
+            ColumnSchema {
+                name: "做出处罚日期".to_string(),
+                type_name: "date".to_string(),
+                source: Some("做出处罚日期".to_string()),
+                optional: true,
+                unit: None,
+            },
+            ColumnSchema {
+                name: "执行日期".to_string(),
+                type_name: "date".to_string(),
+                source: Some("执行日期".to_string()),
+                optional: true,
+                unit: None,
+            },
+        ];
+        let coerced = coerce_rows_to_schema(rows, &schema);
+        let with_decision_date = coerced
+            .iter()
+            .find(|row| {
+                row.get("做出处罚日期")
+                    .and_then(|value| value.as_str())
+                    .map(|text| !text.trim().is_empty())
+                    .unwrap_or(false)
+            })
+            .expect("sample row with 做出处罚日期");
+        let decision_date = with_decision_date
+            .get("做出处罚日期")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        assert!(
+            decision_date.len() >= 10 && decision_date.as_bytes().get(4) == Some(&b'-'),
+            "做出处罚日期 should coerce to YYYY-MM-DD, got {decision_date:?}"
+        );
+    }
+
+    #[test]
+    fn load_spbjw_inspection_xlsx_coerces_check_date_column() {
+        use crate::compile::analysis::dates::coerce_rows_to_schema;
+        use crate::model::ColumnSchema;
+
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../workspaces/spbjw/upload/5.行政检查结果清单.xlsx");
+        let rows = super::load_legacy_xlsx_rows(&path, Some("总表"), 1, Some(20))
+            .expect("load spbjw inspection list");
+        let schema = vec![ColumnSchema {
+            name: "检查日期".to_string(),
+            type_name: "date".to_string(),
+            source: Some("检查日期".to_string()),
+            optional: false,
+            unit: None,
+        }];
+        let coerced = coerce_rows_to_schema(rows, &schema);
+        let with_date = coerced
+            .iter()
+            .find(|row| row.get("检查日期").is_some())
+            .expect("sample row with 检查日期");
+        let check_date = with_date
+            .get("检查日期")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        assert!(
+            check_date.len() >= 10 && check_date.as_bytes().get(4) == Some(&b'-'),
+            "检查日期 should coerce to YYYY-MM-DD, got {check_date:?}"
+        );
+    }
+
+    #[test]
     fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../../workspaces/spbjw/upload/11.预警清单、问题跟踪清单.20260527.xlsx");

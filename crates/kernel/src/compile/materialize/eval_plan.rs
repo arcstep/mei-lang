@@ -372,7 +372,7 @@ fn analysis_expr_plan_kind(analysis_type: &str) -> EvalPlanNodeKind {
     match analysis_type.trim() {
         "count" | "sum" | "avg" | "min" | "max" | "median" | "unique_count" | "item_count"
         | "ratio" | "percent" | "sum_first_number" | "sum_rowset_counts" | "number" | "lit"
-        | "mom" | "yoy" => EvalPlanNodeKind::ScalarExpr,
+        | "mom" | "yoy" | "change_rate" => EvalPlanNodeKind::ScalarExpr,
         _ => EvalPlanNodeKind::Rowset,
     }
 }

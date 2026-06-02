@@ -6,9 +6,10 @@ use serde_json::Value;
 use crate::model::DatasetView;
 
 use super::{
+    dates::row_date_in_inclusive_range,
     eval_context::EvalContext,
     rowset::eval_rowset_with_ctx,
-    schema::{row_string, row_value},
+    schema::{parse_number, row_string, row_value},
 };
 
 fn resolve_value_list(
@@ -134,18 +135,17 @@ pub(super) fn predicate_matches_with_ctx(
         }
         "between" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");
-            let lower = object
-                .get("lower")
-                .and_then(super::schema::parse_number)
-                .unwrap_or(f64::MIN);
-            let upper = object
-                .get("upper")
-                .and_then(super::schema::parse_number)
-                .unwrap_or(f64::MAX);
+            let lower = object.get("lower").cloned().unwrap_or(Value::Null);
+            let upper = object.get("upper").cloned().unwrap_or(Value::Null);
+            if row_date_in_inclusive_range(row, field, &lower, &upper) {
+                return true;
+            }
+            let lower_n = parse_number(&lower).unwrap_or(f64::MIN);
+            let upper_n = parse_number(&upper).unwrap_or(f64::MAX);
             let actual = row_value(row, field)
-                .and_then(super::schema::parse_number)
+                .and_then(parse_number)
                 .unwrap_or(f64::NAN);
-            actual >= lower && actual <= upper
+            actual >= lower_n && actual <= upper_n
         }
         "in_values" => {
             let field = object.get("field").and_then(Value::as_str).unwrap_or("");

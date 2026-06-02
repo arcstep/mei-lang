@@ -328,6 +328,41 @@ fn eval_scalar_uncached(
             ctx.store_scalar(expr, &value);
             Ok(value)
         }
+        "change_rate" => {
+            let current = eval_scalar_value_with_ctx(
+                object.get("current").unwrap_or(&Value::Null),
+                base_rows,
+                datasets,
+                ctx,
+            )?
+            .as_f64()
+            .unwrap_or(0.0);
+            let base = eval_scalar_value_with_ctx(
+                object.get("base").unwrap_or(&Value::Null),
+                base_rows,
+                datasets,
+                ctx,
+            )?
+            .as_f64()
+            .unwrap_or(0.0);
+            let mode = object
+                .get("mode")
+                .and_then(Value::as_str)
+                .unwrap_or("growth");
+            let scale = object.get("scale").and_then(parse_number).unwrap_or(100.0);
+            let delta = if mode.eq_ignore_ascii_case("reduction") {
+                base - current
+            } else {
+                current - base
+            };
+            let value = json!(if base.abs() < f64::EPSILON {
+                0.0
+            } else {
+                delta / base.abs() * scale
+            });
+            ctx.store_scalar(expr, &value);
+            Ok(value)
+        }
         _ => Ok(expr.clone()),
     }
 }

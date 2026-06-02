@@ -96,7 +96,7 @@ pub(super) fn format_iso_date((year, month, day): (i32, u32, u32)) -> String {
 }
 
 /// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
-pub(crate) fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -> Vec<Value> {
+pub fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -> Vec<Value> {
     if schema.is_empty() {
         return rows;
     }
@@ -213,6 +213,24 @@ fn date_ord((year, month, day): (i32, u32, u32)) -> i64 {
     year as i64 * 10_000 + month as i64 * 100 + day as i64
 }
 
+pub(super) fn row_date_in_inclusive_range(
+    row: &Value,
+    field: &str,
+    lower: &Value,
+    upper: &Value,
+) -> bool {
+    let Some(actual) = parse_row_date(row, field).map(date_ord) else {
+        return false;
+    };
+    let Some(lo) = parse_date_value(lower).map(date_ord) else {
+        return false;
+    };
+    let Some(hi) = parse_date_value(upper).map(date_ord) else {
+        return false;
+    };
+    actual >= lo && actual <= hi
+}
+
 pub(super) fn row_in_month(row: &Value, field: &str, year: i32, month: u32) -> bool {
     parse_row_date(row, field)
         .map(|(y, m, _)| y == year && m == month)
@@ -291,6 +309,24 @@ mod tests {
         assert_eq!(window.first().copied(), Some((2024, 1)));
         assert_eq!(window.last().copied(), Some((2024, 6)));
         assert_eq!(format_month_label(2024, 6), "2024-06");
+    }
+
+    #[test]
+    fn row_date_in_inclusive_range_matches_iso_bounds() {
+        use super::row_date_in_inclusive_range;
+        let row = json!({"检查日期": "2024-06-15"});
+        assert!(row_date_in_inclusive_range(
+            &row,
+            "检查日期",
+            &json!("2024-01-01"),
+            &json!("2024-12-31"),
+        ));
+        assert!(!row_date_in_inclusive_range(
+            &row,
+            "检查日期",
+            &json!("2025-01-01"),
+            &json!("2025-12-31"),
+        ));
     }
 
     #[test]

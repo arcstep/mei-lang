@@ -675,6 +675,32 @@ def agg(grouped, metrics = [], sort = None, order = "desc", limit = None):
 def bucket_date(rowset, field, by = "month"):
     return _analysis("bucket_date", rowset = rowset, field = field, by = by)
 
+def year_between(rowset, field, year):
+    year_text = str(year)
+    return where(rowset, between(field, year_text + "-01-01", year_text + "-12-31"))
+
+def year_count(rowset, field, year):
+    return count(year_between(rowset, field, year))
+
+def year_sum(rowset, date_field, value_field, year):
+    return sum(number(year_between(rowset, date_field, year), value_field))
+
+def change_rate(current, base, mode = "growth", scale = 100):
+    return _analysis("change_rate", current = current, base = base, mode = mode, scale = scale)
+
+def trend_year_compare(rowset, date_field, value = None, agg = "count", limit = 6, years = None, month_label_field = "month", year_label_field = "year"):
+    return _analysis(
+        "trend_year_compare",
+        rowset = rowset,
+        date_field = date_field,
+        value = value,
+        agg = agg,
+        limit = limit,
+        years = years if years != None else [2024, 2025],
+        month_label_field = month_label_field,
+        year_label_field = year_label_field,
+    )
+
 def trend(rowset = None, date_field = None, value = None, by = "month", agg = "count", order = "asc", limit = None, id = None, label = None, source = None, grain = None):
     if rowset == None and (source != None or id != None or label != None or grain != None):
         return _explain_item(
