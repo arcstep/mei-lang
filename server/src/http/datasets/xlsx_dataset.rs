@@ -1,7 +1,9 @@
 use std::{path::Path, time::Instant};
 
 use anyhow::Result;
-use mei_lang_kernel::{cached_load_xlsx_table_snapshot, coerce_rows_to_schema, ColumnSchema, SourceDecl};
+use mei_lang_kernel::{
+    cached_load_xlsx_table_snapshot, coerce_rows_to_schema, ColumnSchema, SourceDecl,
+};
 
 use super::file_cache::ExternalFileCacheSettings;
 use super::paginate::paginate_rows;
@@ -28,13 +30,7 @@ pub(crate) fn query_xlsx_rows(
         coerce_rows_to_schema(snapshot.rows.clone(), schema)
     };
     let paginate_started = Instant::now();
-    let mut result = paginate_rows(
-        rows,
-        &snapshot.columns,
-        &meta.normalize,
-        options,
-        true,
-    );
+    let mut result = paginate_rows(rows, &snapshot.columns, &meta.normalize, options, true);
     result
         .perf
         .insert("file_cache_hit".to_string(), u64::from(cache_hit));

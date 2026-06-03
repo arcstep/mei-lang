@@ -648,7 +648,9 @@ def not_(predicate):
 def number(source, field = None):
     return _analysis("number", source = source, field = field)
 
-def text(source, field = None):
+def field_values(source, field = None):
+    """从 rowset 抽取某列的非空值列表（供 in_values / group_by universe 等使用）。
+    勿用 `text(rowset, field)`：去 ds. 前缀后会与 prelude/text.star 的 UI `text()` 冲突。"""
     return _analysis("text", source = source, field = field)
 
 def date(source, field = None):
@@ -678,11 +680,21 @@ def unique_count(value, fallback = 0):
 def item_count(value, fallback = 0):
     return _analysis("item_count", value = value, fallback = fallback)
 
-def group_by(rowset, fields = None, by = None, universe = None, value = None, agg = "count"):
+def group_by(rowset, fields = None, by = None, universe = None, value = None, agg = "count", pivot_field = None, pivot_columns = None):
     resolved = fields
     if resolved == None and by != None:
         resolved = [by]
-    return _analysis("group_by", rowset = rowset, fields = resolved, by = by, universe = universe, value = value, agg = agg)
+    return _analysis(
+        "group_by",
+        rowset = rowset,
+        fields = resolved,
+        by = by,
+        universe = universe,
+        value = value,
+        agg = agg,
+        pivot_field = pivot_field,
+        pivot_columns = pivot_columns,
+    )
 
 def agg(grouped, metrics = [], sort = None, order = "desc", limit = None):
     return _analysis("agg", grouped = grouped, metrics = metrics, sort = sort, order = order, limit = limit)

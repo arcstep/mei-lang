@@ -11,6 +11,7 @@ use super::decls::{
     WorldSetTopologyDecl,
 };
 use super::mutations::apply_world_mutations_to_decl;
+use super::scene_binding::{parse_world_binding, SceneBinding};
 
 pub(super) fn load_world_from_file(
     app_root: &Path,
@@ -131,6 +132,33 @@ pub(super) fn load_world_from_file(
         count => Err(anyhow!(
             "world_file_ref `{relative_path}` matched {count} world(...) declarations; provide id"
         )),
+    }
+}
+
+/// 解析 scene capsule 的 world：同文件 `world(...)`，或 `scene(world = world_ref(...))` 外引。
+pub(super) fn load_world_for_capsule_file(
+    app_root: &Path,
+    scene_relative_path: &str,
+) -> Result<crate::model::WorldDecl> {
+    if let Ok(decl) = load_world_from_file(app_root, scene_relative_path, None) {
+        return Ok(decl);
+    }
+    let scene = load_scene_from_file(app_root, scene_relative_path, None)?;
+    let Some(world_slot) = scene.world.as_ref() else {
+        return Err(anyhow!(
+            "capsule `{scene_relative_path}` has no world(...) or scene(world = world_ref(...))"
+        ));
+    };
+    match parse_world_binding(world_slot, None)? {
+        SceneBinding::Absent => Err(anyhow!(
+            "capsule `{scene_relative_path}` scene(...) has no world binding"
+        )),
+        SceneBinding::LocalId(world_id) => {
+            load_world_from_file(app_root, scene_relative_path, Some(world_id.as_str()))
+        }
+        SceneBinding::FileRef { path, id, .. } => {
+            load_world_from_file(app_root, path.as_str(), id.as_deref())
+        }
     }
 }
 

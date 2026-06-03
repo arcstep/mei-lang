@@ -11,10 +11,10 @@ use super::{
     predicate::predicate_matches_with_ctx,
     schema::{row_string, row_value},
     transforms::{
-        aggregate_group_rows, bucket_rows_by_month, distinct_rows_by_fields, first_rows_by_field,
-        mutate_row, party_year_aggregate_rows, rename_fields, reorder_fields, select_fields,
-        sort_rows_by_field, summarize_rows, trend_rows_by_month, trend_year_compare_rows,
-        unpivot_columns_rows,
+        aggregate_group_rows, aggregate_group_rows_pivot, bucket_rows_by_month,
+        distinct_rows_by_fields, first_rows_by_field, mutate_row, party_year_aggregate_rows,
+        rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
+        trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows,
     },
 };
 
@@ -329,18 +329,64 @@ fn eval_analysis_rowset(
                 .get("rowset")
                 .ok_or_else(|| anyhow!("group_by expression missing rowset"))?;
             let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
-            let group_field = map
-                .get("by")
-                .and_then(Value::as_str)
-                .or_else(|| map.get("fields").and_then(Value::as_str))
+            let group_fields = map
+                .get("fields")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty())
+                .or_else(|| {
+                    map.get("by")
+                        .and_then(Value::as_str)
+                        .map(|field| vec![field.to_string()])
+                })
                 .or_else(|| {
                     map.get("fields")
-                        .and_then(Value::as_array)
-                        .and_then(|items| items.first())
                         .and_then(Value::as_str)
+                        .map(|field| vec![field.to_string()])
                 })
-                .or_else(|| map.get("field").and_then(Value::as_str))
+                .or_else(|| {
+                    map.get("field")
+                        .and_then(Value::as_str)
+                        .map(|field| vec![field.to_string()])
+                })
+                .ok_or_else(|| anyhow!("group_by expression missing by or fields"))?;
+            let group_field = group_fields
+                .first()
+                .map(String::as_str)
                 .ok_or_else(|| anyhow!("group_by expression missing by"))?;
+            let pivot_field = map.get("pivot_field").and_then(Value::as_str);
+            let pivot_columns = map
+                .get("pivot_columns")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty());
+            if let (Some(pivot_field), Some(pivot_columns)) = (pivot_field, pivot_columns) {
+                let universe = map
+                    .get("universe")
+                    .map(|expr| {
+                        eval_universe_labels(expr, datasets, group_field, ctx).unwrap_or_default()
+                    })
+                    .filter(|labels| !labels.is_empty());
+                return Ok(aggregate_group_rows_pivot(
+                    &rows,
+                    &group_fields,
+                    pivot_field,
+                    &pivot_columns,
+                    universe.as_deref(),
+                ));
+            }
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
             let mut grouped = aggregate_group_rows(
@@ -538,7 +584,9 @@ fn eval_analysis_rowset(
                 })
                 .collect::<Vec<_>>();
             if columns.is_empty() {
-                return Err(anyhow!("unpivot_columns expression missing column mappings"));
+                return Err(anyhow!(
+                    "unpivot_columns expression missing column mappings"
+                ));
             }
             Ok(unpivot_columns_rows(
                 &rows,

@@ -115,8 +115,7 @@ pub(crate) fn load_namespaced_capsule_resources(
         if resource.id.contains("::metrics") {
             if let Some(dataset) = resource.dataset.as_mut() {
                 let already_namespaced = dataset.runtime_metric_defs.keys().any(|key| {
-                    key.contains(".mei::")
-                        || key.starts_with(&format!("{capsule_path}::"))
+                    key.contains(".mei::") || key.starts_with(&format!("{capsule_path}::"))
                 });
                 if !already_namespaced {
                     rename_dataset_metric_keys(dataset, capsule_path);

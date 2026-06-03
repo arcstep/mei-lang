@@ -10,9 +10,7 @@ use super::constants::{
     PROP_COMPOUND_BOTTOM_RATIO, PROP_COMPOUND_TOP_BAND_RATIO, PROP_COMPOUND_TOP_RATIO,
     PROP_LAYOUT_COLUMNS, PROP_LAYOUT_COLUMNS_PREFER, PROP_LAYOUT_SPAN, SLOT_BODY, SLOT_HEAD,
 };
-use super::css_util::{
-    first_css_scalar_px, parse_px, px_track, sum_fixed_px_tracks,
-};
+use super::css_util::{first_css_scalar_px, parse_px, px_track, sum_fixed_px_tracks};
 use super::nodes::panel_head_height_track;
 use super::nodes::{
     node_height_track, node_is_metric_card_like, node_is_metrics_2_1_item_like, node_width_track,
@@ -695,10 +693,7 @@ fn metric_compound_band_fr_weights(panel: &PanelDecl) -> (u32, u32) {
                     parts.next().and_then(|part| parse_px(part.trim())),
                 ) {
                     if top > 0.0 && bottom > 0.0 {
-                        return (
-                            top.round().max(1.0) as u32,
-                            bottom.round().max(1.0) as u32,
-                        );
+                        return (top.round().max(1.0) as u32, bottom.round().max(1.0) as u32);
                     }
                 }
             }

@@ -20,7 +20,6 @@ use super::super::materialize::{
     append_world_metrics_dataset_resource_with_id, materialize_legacy_datasets,
     materialize_metric_packs, materialize_world_metrics, WORLD_METRICS_RESOURCE_ID,
 };
-use crate::model::WorldMetricLedgerEntry;
 use super::super::mutations::{apply_frame_mutations, apply_world_mutations};
 use super::super::panel_normalize::normalize_panel_slots;
 use super::super::resources::load_resources;
@@ -38,6 +37,7 @@ use super::helpers::{
     decode_world_metric_pack_decl, insert_resource_checked, partition_world_resources,
 };
 use super::CompiledScenePayload;
+use crate::model::WorldMetricLedgerEntry;
 use crate::typed_refs::{decode_binding_value, SceneRegistry};
 
 fn push_deprecated_ref_binding_diagnostic(

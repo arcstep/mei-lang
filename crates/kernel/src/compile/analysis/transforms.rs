@@ -98,6 +98,140 @@ pub(super) fn bucket_rows_by_month(rows: &[Value], field: &str, label_field: &st
         .collect()
 }
 
+fn row_group_component(row: &Value, field: &str) -> Option<String> {
+    if let Some(value) = row.get(field) {
+        if let Some(year) = value.as_i64() {
+            return Some(year.to_string());
+        }
+        if let Some(year) = value.as_f64() {
+            return Some((year as i64).to_string());
+        }
+    }
+    let text = row_string(row, field);
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn row_group_key(row: &Value, group_fields: &[String]) -> Option<Vec<String>> {
+    let mut key = Vec::with_capacity(group_fields.len());
+    for field in group_fields {
+        key.push(row_group_component(row, field)?);
+    }
+    Some(key)
+}
+
+fn year_values_from_rows(rows: &[Value], year_field: &str) -> BTreeSet<i32> {
+    let mut years = BTreeSet::new();
+    for row in rows {
+        if let Some(component) = row_group_component(row, year_field) {
+            if let Ok(year) = component.parse::<i32>() {
+                years.insert(year);
+            }
+        }
+    }
+    years
+}
+
+/// `group_by` 在指定 `pivot_field` / `pivot_columns` 时输出宽表（每个 pivot 列值为计数）。
+pub(super) fn aggregate_group_rows_pivot(
+    rows: &[Value],
+    group_fields: &[String],
+    pivot_field: &str,
+    pivot_columns: &[String],
+    universe_first: Option<&[String]>,
+) -> Vec<Value> {
+    if group_fields.is_empty() {
+        return Vec::new();
+    }
+    let mut counts: BTreeMap<Vec<String>, BTreeMap<String, usize>> = BTreeMap::new();
+    for row in rows {
+        let Some(key) = row_group_key(row, group_fields) else {
+            continue;
+        };
+        let category = row_string(row, pivot_field);
+        if !pivot_columns.iter().any(|item| item == &category) {
+            continue;
+        }
+        *counts.entry(key).or_default().entry(category).or_insert(0) += 1;
+    }
+
+    let year_field = group_fields.get(1).filter(|field| field.as_str() == "年份");
+    let mut years = year_field
+        .map(|field| year_values_from_rows(rows, field))
+        .unwrap_or_default();
+    for key in counts.keys() {
+        if key.len() >= 2 {
+            if let Ok(year) = key[1].parse::<i32>() {
+                years.insert(year);
+            }
+        }
+    }
+    let years_to_use: Vec<i32> = years.into_iter().collect();
+    if group_fields.len() >= 2 && years_to_use.is_empty() {
+        return Vec::new();
+    }
+
+    let first_field = &group_fields[0];
+    let dimensions: Vec<String> = if let Some(labels) = universe_first {
+        labels.to_vec()
+    } else {
+        counts
+            .keys()
+            .map(|key| key[0].clone())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect()
+    };
+
+    let mut out = Vec::new();
+    if group_fields.len() == 2 && year_field.is_some() {
+        let year_field_name = year_field.unwrap();
+        for dimension in dimensions {
+            for year in &years_to_use {
+                let key = vec![dimension.clone(), year.to_string()];
+                let mut object = serde_json::Map::new();
+                object.insert(first_field.clone(), Value::String(dimension.clone()));
+                object.insert(year_field_name.clone(), json!(*year));
+                let bucket = counts.get(&key);
+                for column in pivot_columns {
+                    let count = bucket
+                        .and_then(|stats| stats.get(column))
+                        .copied()
+                        .unwrap_or(0);
+                    object.insert(column.clone(), json!(count));
+                }
+                out.push(Value::Object(object));
+            }
+        }
+        return out;
+    }
+
+    for (key, bucket) in counts {
+        let mut object = serde_json::Map::new();
+        for (index, field) in group_fields.iter().enumerate() {
+            let component = &key[index];
+            if field == "年份" {
+                if let Ok(year) = component.parse::<i32>() {
+                    object.insert(field.clone(), json!(year));
+                } else {
+                    object.insert(field.clone(), Value::String(component.clone()));
+                }
+            } else {
+                object.insert(field.clone(), Value::String(component.clone()));
+            }
+        }
+        for column in pivot_columns {
+            let count = bucket.get(column).copied().unwrap_or(0);
+            object.insert(column.clone(), json!(count));
+        }
+        out.push(Value::Object(object));
+    }
+    out
+}
+
 pub(super) fn party_year_aggregate_rows(
     rows: &[Value],
     party_field: &str,
@@ -118,7 +252,11 @@ pub(super) fn party_year_aggregate_rows(
             continue;
         }
         let amount = row_number(row, value_field).unwrap_or(0.0);
-        let entry = parties.entry(party).or_default().entry(year).or_insert((0.0, 0));
+        let entry = parties
+            .entry(party)
+            .or_default()
+            .entry(year)
+            .or_insert((0.0, 0));
         entry.0 += amount;
         entry.1 += 1;
     }
@@ -352,6 +490,45 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_group_rows_pivot_builds_migration_wide_table() {
+        use super::aggregate_group_rows_pivot;
+
+        let rows = vec![
+            json!({"镇街/园区": "甲园", "年份": 2024, "类型": "迁入"}),
+            json!({"镇街/园区": "甲园", "年份": 2024, "类型": "迁入"}),
+            json!({"镇街/园区": "甲园", "年份": 2024, "类型": "迁出"}),
+            json!({"镇街/园区": "乙园", "年份": 2025, "类型": "迁入"}),
+            json!({"镇街/园区": "其他街道", "年份": 2025, "类型": "迁入"}),
+        ];
+        let stats = aggregate_group_rows_pivot(
+            &rows,
+            &["镇街/园区".to_string(), "年份".to_string()],
+            "类型",
+            &["迁入".to_string(), "迁出".to_string()],
+            Some(&["甲园".to_string(), "乙园".to_string()]),
+        );
+        assert_eq!(stats.len(), 4);
+        let a2024 = stats
+            .iter()
+            .find(|row| {
+                row.get("镇街/园区").and_then(|v| v.as_str()) == Some("甲园")
+                    && row.get("年份").and_then(|v| v.as_i64()) == Some(2024)
+            })
+            .expect("甲园 2024");
+        assert_eq!(a2024.get("迁入").and_then(|v| v.as_i64()), Some(2));
+        assert_eq!(a2024.get("迁出").and_then(|v| v.as_i64()), Some(1));
+        let b2025 = stats
+            .iter()
+            .find(|row| {
+                row.get("镇街/园区").and_then(|v| v.as_str()) == Some("乙园")
+                    && row.get("年份").and_then(|v| v.as_i64()) == Some(2025)
+            })
+            .expect("乙园 2025");
+        assert_eq!(b2025.get("迁入").and_then(|v| v.as_i64()), Some(1));
+        assert_eq!(b2025.get("迁出").and_then(|v| v.as_i64()), Some(0));
+    }
+
+    #[test]
     fn party_year_aggregate_sums_by_execution_year_and_party() {
         use super::party_year_aggregate_rows;
 
@@ -361,20 +538,21 @@ mod tests {
             json!({"当事人": "甲公司", "执行日期": "2025-03-01", "罚款金额": 30000}),
             json!({"当事人": "乙公司", "执行日期": "2025-01-01", "罚款金额": 12000}),
         ];
-        let stats = party_year_aggregate_rows(
-            &rows,
-            "当事人",
-            "执行日期",
-            "罚款金额",
-            &[2024, 2025],
-        );
+        let stats =
+            party_year_aggregate_rows(&rows, "当事人", "执行日期", "罚款金额", &[2024, 2025]);
         let a = stats
             .iter()
             .find(|row| row.get("当事人").and_then(|v| v.as_str()) == Some("甲公司"))
             .expect("甲公司");
-        assert_eq!(a.get("罚没金额_2024").and_then(|v| v.as_f64()), Some(25000.0));
+        assert_eq!(
+            a.get("罚没金额_2024").and_then(|v| v.as_f64()),
+            Some(25000.0)
+        );
         assert_eq!(a.get("处罚次数_2024").and_then(|v| v.as_f64()), Some(2.0));
-        assert_eq!(a.get("罚没金额_2025").and_then(|v| v.as_f64()), Some(30000.0));
+        assert_eq!(
+            a.get("罚没金额_2025").and_then(|v| v.as_f64()),
+            Some(30000.0)
+        );
         assert_eq!(a.get("同比降低额_2025").and_then(|v| v.as_f64()), Some(0.0));
     }
 
@@ -398,10 +576,7 @@ mod tests {
             "value",
         );
         assert_eq!(bars.len(), 2);
-        assert_eq!(
-            bars[0].get("year").and_then(|v| v.as_str()),
-            Some("2024")
-        );
+        assert_eq!(bars[0].get("year").and_then(|v| v.as_str()), Some("2024"));
         assert_eq!(bars[0].get("value").and_then(|v| v.as_f64()), Some(25000.0));
     }
 

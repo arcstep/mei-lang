@@ -3,12 +3,12 @@
 
 use std::collections::BTreeMap;
 
+use crate::model::{CompiledApp, LoadedResource};
+use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
 use crate::{
     capsule_path_from_namespaced_resource_id, imported_capsule_path_from_world_metrics_resource_id,
     local_dataset_id_from_namespaced_token,
 };
-use crate::model::{CompiledApp, LoadedResource};
-use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
 
 const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
@@ -171,14 +171,13 @@ fn resolve_dataset_resource_id_with_index(
                 return Ok(key.to_string());
             }
 
-            if let Some(capsule_path) =
-                imported_capsule_path_from_world_metrics_resource_id(&key)
-            {
+            if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(&key) {
                 let active_target = compiled.active_target_file.trim();
                 if active_target == capsule_path.trim()
-                    && compiled.resources.iter().any(|resource| {
-                        resource.id == WORLD_METRICS_RESOURCE_ID
-                    })
+                    && compiled
+                        .resources
+                        .iter()
+                        .any(|resource| resource.id == WORLD_METRICS_RESOURCE_ID)
                 {
                     return Ok(WORLD_METRICS_RESOURCE_ID.to_string());
                 }
@@ -190,7 +189,10 @@ fn resolve_dataset_resource_id_with_index(
             ) {
                 let active_target = compiled.active_target_file.trim();
                 if active_target == capsule_path.trim()
-                    && compiled.resources.iter().any(|resource| resource.id == local_id)
+                    && compiled
+                        .resources
+                        .iter()
+                        .any(|resource| resource.id == local_id)
                 {
                     return Ok(local_id.to_string());
                 }

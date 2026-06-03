@@ -44,7 +44,13 @@ fn walk_ui_nodes_mut(
                     .map(str::trim)
                     .filter(|scope| !scope.is_empty())
                     .or(import_scope);
-                walk_ui_nodes_mut(&mut panel.blocks, resources, target_file, scope, diagnostics);
+                walk_ui_nodes_mut(
+                    &mut panel.blocks,
+                    resources,
+                    target_file,
+                    scope,
+                    diagnostics,
+                );
             }
             UiNodeDecl::Block(block) => {
                 walk_value_mut(
@@ -152,7 +158,10 @@ fn lower_board_link(
         projection_slots.push(Value::Object(slot_obj));
     }
 
-    link.insert("projection_slots".to_string(), Value::Array(projection_slots));
+    link.insert(
+        "projection_slots".to_string(),
+        Value::Array(projection_slots),
+    );
     if let Some(title) = title {
         link.insert("title".to_string(), Value::String(title));
     }
@@ -168,7 +177,10 @@ fn resolve_world_hint(
     if let Some(world) = authored_world.filter(|value| !value.is_null()) {
         return Some(world.clone());
     }
-    if let Some(scope) = import_scope.map(str::trim).filter(|scope| !scope.is_empty()) {
+    if let Some(scope) = import_scope
+        .map(str::trim)
+        .filter(|scope| !scope.is_empty())
+    {
         return Some(json!({ "scene_file": scope }));
     }
     let target = target_file.trim();
@@ -192,7 +204,10 @@ fn expand_tabs_value(
                 .get("include_hero")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let default_slot = map.get("default_slot").and_then(Value::as_u64).map(|v| v as usize);
+            let default_slot = map
+                .get("default_slot")
+                .and_then(Value::as_u64)
+                .map(|v| v as usize);
             return expand_drilldown_tabs(
                 metric,
                 include_hero,
@@ -232,7 +247,8 @@ fn expand_drilldown_tabs(
     target_file: &str,
 ) -> Option<Vec<Map<String, Value>>> {
     let metric_id = parse_metric_ref_id(metric_ref)?;
-    let (dataset_id, contract) = lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
+    let (dataset_id, contract) =
+        lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
 
     let mut slots = Vec::new();
     if include_hero {
@@ -243,7 +259,11 @@ fn expand_drilldown_tabs(
             "metric_card",
         ));
     }
-    slots.extend(build_explain_slots(metric_id, &dataset_id, contract.as_ref()));
+    slots.extend(build_explain_slots(
+        metric_id,
+        &dataset_id,
+        contract.as_ref(),
+    ));
 
     if slots.is_empty() {
         diagnostics.push(Diagnostic {
@@ -267,7 +287,8 @@ fn lower_projection_slot(
 ) -> Option<Map<String, Value>> {
     let metric_ref = map.get("metric")?;
     let metric_id = parse_metric_ref_id(metric_ref)?;
-    let (dataset_id, contract) = lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
+    let (dataset_id, contract) =
+        lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
     let component = map
         .get("as")
         .or_else(|| map.get("component"))
@@ -276,10 +297,7 @@ fn lower_projection_slot(
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| "metric_card".to_string());
-    let label = map
-        .get("label")
-        .and_then(Value::as_str)
-        .map(str::to_string);
+    let label = map.get("label").and_then(Value::as_str).map(str::to_string);
     Some(build_slot_from_root(
         metric_id,
         &dataset_id,
@@ -371,7 +389,10 @@ fn build_explain_slots(
             slot.insert("mapping".to_string(), mapping.clone());
         }
         if let Some(block_id) = block_map.get("id").and_then(Value::as_str) {
-            slot.insert("explain_block_id".to_string(), Value::String(block_id.to_string()));
+            slot.insert(
+                "explain_block_id".to_string(),
+                Value::String(block_id.to_string()),
+            );
         }
         slots.push(slot);
     }
@@ -399,9 +420,18 @@ fn build_slot_from_root(
 ) -> Map<String, Value> {
     let mut slot = Map::new();
     slot.insert("id".to_string(), Value::String("metric".to_string()));
-    slot.insert("metric_id".to_string(), Value::String(metric_id.to_string()));
-    slot.insert("dataset_id".to_string(), Value::String(dataset_id.to_string()));
-    slot.insert("component".to_string(), Value::String(component.to_string()));
+    slot.insert(
+        "metric_id".to_string(),
+        Value::String(metric_id.to_string()),
+    );
+    slot.insert(
+        "dataset_id".to_string(),
+        Value::String(dataset_id.to_string()),
+    );
+    slot.insert(
+        "component".to_string(),
+        Value::String(component.to_string()),
+    );
     slot.insert(
         "support_role".to_string(),
         Value::String("metric".to_string()),

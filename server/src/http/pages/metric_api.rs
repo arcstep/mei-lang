@@ -282,19 +282,19 @@ pub async fn dataset_metric_api(
     let compiled = compile_outcome.compiled;
     let normalized_dataset_id = request.dataset_id.trim();
     let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
-    .map_err(|error| {
-        tracing::warn!(
-            app_id = %app_id,
-            scene_id = %requested_scene_id,
-            target = %requested_target,
-            dataset_id = %requested_dataset_id,
-            metric_ids = %requested_metric_ids,
-            phase = "locate_dataset",
-            error = ?error,
-            "metric query locate failed"
-        );
-        AppError::from(error)
-    })?;
+        .map_err(|error| {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %requested_scene_id,
+                target = %requested_target,
+                dataset_id = %requested_dataset_id,
+                metric_ids = %requested_metric_ids,
+                phase = "locate_dataset",
+                error = ?error,
+                "metric query locate failed"
+            );
+            AppError::from(error)
+        })?;
     let locate_started = Instant::now();
     let locate_dataset_ms = elapsed_ms(locate_started);
     let dataset = resource.dataset.as_ref().ok_or_else(|| {

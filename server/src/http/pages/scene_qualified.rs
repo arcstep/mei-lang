@@ -207,12 +207,21 @@ pub fn expected_scene_id_for_runtime_lookup(
 ) -> String {
     let scene_ctx = resolved_scene_context(compiled);
     if let Some(coords) = coords {
-        if let Some(target) = coords.target.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(target) = coords
+            .target
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             if target == compiled.active_target_file.trim() {
                 return scene_ctx.scene_id;
             }
         }
-        if let Some(requested) = coords.scene_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        if let Some(requested) = coords
+            .scene_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
         {
             return requested.to_string();
         }
@@ -445,8 +454,7 @@ mod tests {
     #[test]
     fn locate_dataset_accepts_route_target_alias() {
         let compiled = sample_compiled();
-        let resource =
-            locate_dataset_resource(&compiled, "scenes/home.mei", None).expect("alias");
+        let resource = locate_dataset_resource(&compiled, "scenes/home.mei", None).expect("alias");
         assert_eq!(resource.id, "home");
     }
 
@@ -454,7 +462,8 @@ mod tests {
     fn locate_dataset_accepts_canonical_resource_id() {
         let compiled = sample_compiled();
         let coords = SceneQueryCoords::from_parts(Some("home".to_string()), None);
-        let resource = locate_dataset_resource(&compiled, "warning_list", Some(&coords)).expect("id");
+        let resource =
+            locate_dataset_resource(&compiled, "warning_list", Some(&coords)).expect("id");
         assert_eq!(resource.id, "warning_list");
     }
 
@@ -500,8 +509,8 @@ mod tests {
             Some("home".to_string()),
             Some("scenes/1_执法要素/执法要素.mei".to_string()),
         );
-        let resource =
-            locate_dataset_resource(&compiled, "enforcement_units", Some(&coords)).expect("capsule");
+        let resource = locate_dataset_resource(&compiled, "enforcement_units", Some(&coords))
+            .expect("capsule");
         assert_eq!(resource.id, "enforcement_units");
     }
 }

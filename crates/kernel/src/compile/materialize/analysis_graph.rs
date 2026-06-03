@@ -514,9 +514,9 @@ fn build_analysis_graph_from_expanded(
                 }
             });
             let Some(target_metric_id) = target_metric_id else {
-                if let Some(dataset_id) = dataset_target_from_item(item_map).or_else(|| {
-                    unique_lineage_dataset_id_from_metric_values(raw, role.as_str())
-                }) {
+                if let Some(dataset_id) = dataset_target_from_item(item_map)
+                    .or_else(|| unique_lineage_dataset_id_from_metric_values(raw, role.as_str()))
+                {
                     let tabular_node_id = tabular_source_node_id(&dataset_id);
                     graph
                         .nodes
@@ -893,8 +893,7 @@ fn fields_from_data_product_schema(item_map: &Map<String, Value>) -> Option<Valu
         .iter()
         .filter_map(|column| {
             let column_map = column.as_object()?;
-            first_non_empty_string(column_map, &["name", "id", "key"])
-                .map(Value::String)
+            first_non_empty_string(column_map, &["name", "id", "key"]).map(Value::String)
         })
         .collect();
     (!fields.is_empty()).then_some(Value::Array(fields))
@@ -984,9 +983,9 @@ fn explain_block_value(
         if support_role == "detail" && explain_has_support_role(explain_items, "composition") {
             infer_inferred_scalar_rowset_metric_id(graph, metric_id)
         } else {
-            scoped_dataframe_metric_id.clone().or_else(|| {
-                infer_inferred_scalar_rowset_metric_id(graph, metric_id)
-            })
+            scoped_dataframe_metric_id
+                .clone()
+                .or_else(|| infer_inferred_scalar_rowset_metric_id(graph, metric_id))
         }
     });
     if let Some(tabular_metric_id) = target_metric_id {
@@ -1105,10 +1104,7 @@ fn infer_unique_lineage_dataset_id(
     })
 }
 
-fn unique_lineage_dataset_id_from_metric_values(
-    raw: &Value,
-    support_role: &str,
-) -> Option<String> {
+fn unique_lineage_dataset_id_from_metric_values(raw: &Value, support_role: &str) -> Option<String> {
     if !matches!(
         support_role,
         "detail" | "trend" | "composition" | "attribution"
@@ -1343,7 +1339,11 @@ fn first_non_empty_string(map: &Map<String, Value>, keys: &[&str]) -> Option<Str
 }
 
 fn metric_note_text(value: &Value) -> Option<String> {
-    if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
         return Some(text.to_string());
     }
     value
@@ -1380,18 +1380,32 @@ fn apply_metric_narrative(map: &Map<String, Value>, contract: &mut Map<String, V
     }
 }
 
-fn merge_definition_narrative_fallback(item_map: &Map<String, Value>, contract: &mut Map<String, Value>) {
+fn merge_definition_narrative_fallback(
+    item_map: &Map<String, Value>,
+    contract: &mut Map<String, Value>,
+) {
     if !contract.contains_key("note") {
         if let Some(note) = first_non_empty_string(
             item_map,
-            &["note", "content", "text", "markdown", "md", "desc", "description"],
+            &[
+                "note",
+                "content",
+                "text",
+                "markdown",
+                "md",
+                "desc",
+                "description",
+            ],
         ) {
             contract.insert("note".to_string(), Value::String(note));
             contract.insert("note_format".to_string(), Value::String("text".to_string()));
         }
     }
     if !contract.contains_key("basis_refs") {
-        if let Some(value) = item_map.get("basis_refs").filter(|value| !value_is_empty(value)) {
+        if let Some(value) = item_map
+            .get("basis_refs")
+            .filter(|value| !value_is_empty(value))
+        {
             contract.insert("basis_refs".to_string(), value.clone());
         }
     }

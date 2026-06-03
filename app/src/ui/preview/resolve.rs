@@ -464,8 +464,8 @@ fn resolve_metric_ref(
                     if dataset_id != entry.owner_resource_id
                         && !is_scene_direct_world_metric_owner(&entry.owner_resource_id)
                     {
-            return None;
-        }
+                        return None;
+                    }
                 }
                 Err(_) if !is_scene_direct_world_metric_owner(&entry.owner_resource_id) => {
                     return None;
@@ -1108,12 +1108,16 @@ fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -
 }
 
 fn metric_note_text(value: &Value) -> Option<String> {
-    if let Some(text) = value.as_str().map(str::trim).filter(|text| !text.is_empty()) {
+    if let Some(text) = value
+        .as_str()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
         return Some(text.to_string());
     }
-    value.as_object().and_then(|map| {
-        first_non_empty_string(map, &["content", "text", "note", "markdown", "md"])
-    })
+    value
+        .as_object()
+        .and_then(|map| first_non_empty_string(map, &["content", "text", "note", "markdown", "md"]))
 }
 
 fn apply_metric_narrative(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
@@ -1357,22 +1361,12 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             normalize_analysis_tab_id(&raw_kind).unwrap_or_else(|| raw_kind.trim().to_string());
         if normalized_kind == "note" {
             if meta.drilldown_note.is_none() {
-                meta.drilldown_note = map
-                    .get("note")
-                    .and_then(metric_note_text)
-                    .or_else(|| {
-                        first_non_empty_string(
-                            map,
-                            &[
-                                "content",
-                                "text",
-                                "markdown",
-                                "md",
-                                "desc",
-                                "description",
-                            ],
-                        )
-                    });
+                meta.drilldown_note = map.get("note").and_then(metric_note_text).or_else(|| {
+                    first_non_empty_string(
+                        map,
+                        &["content", "text", "markdown", "md", "desc", "description"],
+                    )
+                });
             } else {
                 continue;
             }
@@ -1398,10 +1392,7 @@ fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMeta) {
             .and_then(Value::as_str)
             .map(str::trim)
             .unwrap_or_default();
-        if !tab_id.is_empty()
-            && kind != "definition"
-            && !meta.drilldown_tabs.contains(&tab_id)
-        {
+        if !tab_id.is_empty() && kind != "definition" && !meta.drilldown_tabs.contains(&tab_id) {
             meta.drilldown_tabs.push(tab_id);
         }
         if kind == "definition" {

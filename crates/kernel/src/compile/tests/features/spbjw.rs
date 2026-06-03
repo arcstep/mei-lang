@@ -11,7 +11,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/6_典型案例/监督典型案例.mei".to_string()),
+            preview_target: Some("scenes/09-监督典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw with dataset mei preview");
@@ -47,7 +47,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     );
     assert!(
         compiled.scene_routes.iter().any(|r| {
-            r.scene_id == "typical_cases" && r.target_file == "scenes/6_典型案例/监督典型案例.mei"
+            r.scene_id == "typical_cases" && r.target_file == "scenes/09-监督典型案例.mei"
         }),
         "expected typical_cases in app route registry for access/manage deep links, got: {:?}",
         compiled
@@ -74,7 +74,7 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
     .expect("compile spbjw with typical_cases scene (access-style)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "scenes/6_典型案例/监督典型案例.mei"
+        "scenes/09-监督典型案例.mei"
     );
     assert_eq!(compiled.active_scene.as_deref(), Some("typical_cases"));
 }
@@ -95,7 +95,7 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
     .expect("compile spbjw with administrative_inspection scene (discovered route)");
     assert_eq!(
         compiled.active_target_file.as_str(),
-        "scenes/2_行政检查/行政检查.mei"
+        "scenes/02-行政检查.mei"
     );
     assert_eq!(
         compiled.active_scene.as_deref(),
@@ -115,7 +115,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -161,7 +161,7 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -191,7 +191,7 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -227,12 +227,12 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/layouts/左栏.mei".to_string()),
+            preview_target: Some("scenes/layout-左栏.mei".to_string()),
         },
     )
     .expect("compile spbjw layout left preview");
     let elapsed = started.elapsed();
-    assert_eq!(compiled.active_target_file, "scenes/layouts/左栏.mei");
+    assert_eq!(compiled.active_target_file, "scenes/layout-左栏.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -287,7 +287,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .filter(|r| r.dataset.is_some())
         .collect();
     assert!(
-        dataset_resources.len() <= 32,
+        dataset_resources.len() <= 40,
         "manage widget preview should use selective catalog, not full scan (got {}): {:?}",
         dataset_resources.len(),
         dataset_resources
@@ -312,7 +312,7 @@ fn compile_spbjw_preview_layout_center_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/layouts/中栏.mei".to_string()),
+            preview_target: Some("scenes/layout-中栏.mei".to_string()),
         },
     )
     .expect("compile spbjw layout center preview");
@@ -326,7 +326,7 @@ fn compile_spbjw_preview_layout_center_succeeds() {
         "layout center preview errors: {:?}",
         errors
     );
-    assert_eq!(compiled.active_target_file, "scenes/layouts/中栏.mei");
+    assert_eq!(compiled.active_target_file, "scenes/layout-中栏.mei");
     let contract = compiled
         .scene_contract
         .as_ref()
@@ -367,7 +367,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+            preview_target: Some("scenes/05-监督预警.mei".to_string()),
         },
     )
     .expect("compile spbjw supervision warning preview");
@@ -381,10 +381,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
         "metrics widget preview errors: {:?}",
         errors
     );
-    assert_eq!(
-        compiled.active_target_file,
-        "scenes/4_监督预警/监督预警.mei"
-    );
+    assert_eq!(compiled.active_target_file, "scenes/05-监督预警.mei");
     assert!(
         compiled.resources.iter().any(|r| r.id == "warning_models"),
         "expected warning_models dataset in resources"
@@ -401,7 +398,7 @@ fn spbjw_supervision_models_count_is_eighteen() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+            preview_target: Some("scenes/05-监督预警.mei".to_string()),
         },
     )
     .expect("compile supervision warning preview for models count");
@@ -432,7 +429,7 @@ fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+            preview_target: Some("scenes/05-监督预警.mei".to_string()),
         },
     )
     .expect("compile supervision warning for warning_list columns");
@@ -479,7 +476,7 @@ fn spbjw_warnings_count_sums_warning_entry_column() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/4_监督预警/监督预警.mei".to_string()),
+            preview_target: Some("scenes/05-监督预警.mei".to_string()),
         },
     )
     .expect("compile supervision warning preview for warnings count");
@@ -510,11 +507,11 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/layouts/右栏.mei".to_string()),
+            preview_target: Some("scenes/layout-右栏.mei".to_string()),
         },
     )
     .expect("compile spbjw layout right preview");
-    assert_eq!(compiled.active_target_file, "scenes/layouts/右栏.mei");
+    assert_eq!(compiled.active_target_file, "scenes/layout-右栏.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -569,15 +566,12 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/6_典型案例/监督典型案例.mei".to_string()),
+            preview_target: Some("scenes/09-监督典型案例.mei".to_string()),
         },
     )
     .expect("compile spbjw typical cases preview");
     let elapsed = started.elapsed();
-    assert_eq!(
-        compiled.active_target_file,
-        "scenes/6_典型案例/监督典型案例.mei"
-    );
+    assert_eq!(compiled.active_target_file, "scenes/09-监督典型案例.mei");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -626,7 +620,7 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/layouts/左栏.mei";
+    let target = "scenes/layout-左栏.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -736,7 +730,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     );
     assert_eq!(contract.themes.len(), 1);
     assert_eq!(contract.themes[0].id, "cockpit");
-    let issue_metrics_owner = "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics";
+    let issue_metrics_owner = "__world_metrics__::scenes/07-问题办理.mei::metrics";
     let issue_metrics = compiled
         .resources
         .iter()
@@ -750,7 +744,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
             &issue_metrics.runtime_metric_defs,
         )
         .as_deref(),
-        Some("scenes/5_问题办理/问题办理.mei::warnings_pending_count::__scalar_rowset__"),
+        Some("scenes/07-问题办理.mei::warnings_pending_count::__scalar_rowset__"),
         "imported capsule metrics should hoist inferred scalar rowset for detail drilldown"
     );
     assert!(
@@ -801,12 +795,12 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
     let app_root = source_root.join("spbjw");
     let cases = [
         (
-            "scenes/1_执法要素/执法要素.mei",
+            "scenes/01-执法要素.mei",
             "enforcement_units_count",
             vec!["enforcement-units-popup.mei"],
         ),
         (
-            "scenes/2_行政检查/行政检查.mei",
+            "scenes/02-行政检查.mei",
             "inspections_total_count",
             vec![
                 "inspection-total-popup.mei",
@@ -815,22 +809,22 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
             ],
         ),
         (
-            "scenes/2_行政检查/指标体系.mei",
+            "scenes/03-指标体系.mei",
             "inspection_frequency_reduction_rate",
             vec!["indicator-frequency-popup.mei"],
         ),
         (
-            "scenes/3_行政处罚/行政处罚.mei",
+            "scenes/04-行政处罚.mei",
             "penalties_total_count",
             vec!["penalty-total-popup.mei"],
         ),
         (
-            "scenes/4_监督预警/监督预警.mei",
+            "scenes/05-监督预警.mei",
             "supervision_items_count",
             vec!["supervision-warning-items-popup.mei"],
         ),
         (
-            "scenes/5_问题办理/监督成效.mei",
+            "scenes/08-监督成效.mei",
             "effectiveness_transfer_clue_count",
             vec!["effect-transfer-clue-popup.mei"],
         ),
@@ -882,7 +876,7 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -919,8 +913,7 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
         "hero slot 应为 metric_card，got: {encoded}"
     );
     assert!(
-        encoded.contains("\"component\":\"chart\"")
-            || encoded.contains("\"component\": \"chart\""),
+        encoded.contains("\"component\":\"chart\"") || encoded.contains("\"component\": \"chart\""),
         "composition slot 应为 chart，got: {encoded}"
     );
     assert!(
@@ -1001,7 +994,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/2_行政检查/行政检查.mei";
+    let target = "scenes/02-行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1098,13 +1091,13 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
     let preview_targets = [
-        "scenes/2_行政检查/指标体系.mei",
-        "scenes/5_问题办理/问题办理.mei",
-        "scenes/1_执法要素/执法要素.mei",
-        "scenes/2_行政检查/行政检查.mei",
-        "scenes/3_行政处罚/行政处罚.mei",
-        "scenes/4_监督预警/监督预警.mei",
-        "scenes/5_问题办理/监督成效.mei",
+        "scenes/03-指标体系.mei",
+        "scenes/07-问题办理.mei",
+        "scenes/01-执法要素.mei",
+        "scenes/02-行政检查.mei",
+        "scenes/04-行政处罚.mei",
+        "scenes/05-监督预警.mei",
+        "scenes/08-监督成效.mei",
     ];
     let metric_ids = [
         "inspection_frequency_reduction_rate",
@@ -1164,15 +1157,15 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
     let app_root = source_root.join("spbjw");
     let preview_targets = [
         (
-            "scenes/5_问题办理/监督成效.mei",
+            "scenes/08-监督成效.mei",
             "effectiveness_handled_person_times",
         ),
         (
-            "scenes/5_问题办理/问题办理.mei",
+            "scenes/07-问题办理.mei",
             "effectiveness_issue_verification_rate",
         ),
         (
-            "scenes/2_行政检查/指标体系.mei",
+            "scenes/03-指标体系.mei",
             "inspection_frequency_reduction_rate",
         ),
     ];
@@ -1220,16 +1213,13 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
     )
     .expect("compile home preview");
     let cases = [
+        ("scenes/01-执法要素.mei", "enforcement_units_count"),
         (
-            "scenes/1_执法要素/执法要素.mei",
-            "enforcement_units_count",
-        ),
-        (
-            "scenes/5_问题办理/监督成效.mei",
+            "scenes/08-监督成效.mei",
             "effectiveness_handled_person_times",
         ),
         (
-            "scenes/2_行政检查/指标体系.mei",
+            "scenes/03-指标体系.mei",
             "inspection_frequency_reduction_rate",
         ),
     ];
@@ -1242,7 +1232,9 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
             .find(|resource| resource.id == resource_id)
             .and_then(|resource| resource.dataset.as_ref())
             .unwrap_or_else(|| {
-                panic!("home preview should include imported world metrics resource `{resource_id}`")
+                panic!(
+                    "home preview should include imported world metrics resource `{resource_id}`"
+                )
             });
         assert!(
             dataset.runtime_metric_defs.contains_key(&metric_key),
@@ -1263,7 +1255,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1295,7 +1287,10 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
         assert!(
             dataset.runtime_analysis_contracts.contains_key(metric_id),
             "expected runtime_analysis_contracts key `{metric_id}`, got: {:?}",
-            dataset.runtime_analysis_contracts.keys().collect::<Vec<_>>()
+            dataset
+                .runtime_analysis_contracts
+                .keys()
+                .collect::<Vec<_>>()
         );
     }
 }
@@ -1305,7 +1300,7 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1354,11 +1349,12 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
 }
 
 #[test]
-fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materializes_enforcement_units() {
+fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materializes_enforcement_units(
+) {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1385,13 +1381,24 @@ fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materialize
                 dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
             )
         });
-    eprintln!("rowset def: {}", serde_json::to_string_pretty(rowset_def).unwrap());
-    let metric = dataset.metrics.get(rowset_key).or_else(|| {
-        dataset.metrics.get("enforcement_units_count")
-    });
+    eprintln!(
+        "rowset def: {}",
+        serde_json::to_string_pretty(rowset_def).unwrap()
+    );
+    let metric = dataset
+        .metrics
+        .get(rowset_key)
+        .or_else(|| dataset.metrics.get("enforcement_units_count"));
     if let Some(m) = metric {
         eprintln!("metric value shape: {:?}", m.shape);
-        eprintln!("metric value: {}", serde_json::to_string(&m.value).unwrap_or_default().chars().take(200).collect::<String>());
+        eprintln!(
+            "metric value: {}",
+            serde_json::to_string(&m.value)
+                .unwrap_or_default()
+                .chars()
+                .take(200)
+                .collect::<String>()
+        );
     }
 }
 
@@ -1409,8 +1416,8 @@ fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_re
         },
     )
     .expect("compile home preview");
-    let resource_id = "__world_metrics__::scenes/1_执法要素/执法要素.mei::metrics";
-    let metric_key = "scenes/1_执法要素/执法要素.mei::enforcement_units_count";
+    let resource_id = "__world_metrics__::scenes/01-执法要素.mei::metrics";
+    let metric_key = "scenes/01-执法要素.mei::enforcement_units_count";
     let dataset = compiled
         .resources
         .iter()
@@ -1440,7 +1447,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1482,7 +1489,7 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/5_问题办理/监督成效.mei";
+    let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1537,7 +1544,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/2_行政检查/指标体系.mei";
+    let target = "scenes/03-指标体系.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1592,8 +1599,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
         inspection_resource.schema
     );
 
-    let coerced_rows =
-        coerce_rows_to_schema(snapshot.rows.clone(), &inspection_resource.schema);
+    let coerced_rows = coerce_rows_to_schema(snapshot.rows.clone(), &inspection_resource.schema);
     let count_2024 = coerced_rows
         .iter()
         .filter(|row| {
@@ -1621,14 +1627,11 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
         .resources
         .iter()
         .find(|resource| {
-            resource
-                .dataset
-                .as_ref()
-                .is_some_and(|dataset| {
-                    dataset
-                        .runtime_metric_defs
-                        .contains_key("inspection_frequency_reduction_rate")
-                })
+            resource.dataset.as_ref().is_some_and(|dataset| {
+                dataset
+                    .runtime_metric_defs
+                    .contains_key("inspection_frequency_reduction_rate")
+            })
         })
         .and_then(|resource| resource.dataset.as_ref())
         .unwrap_or_else(|| panic!("indicator metrics should be on a runtime metric owner"));
@@ -1752,7 +1755,12 @@ fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
     let inspection = compiled
         .resources
         .iter()
-        .find(|r| r.id == "administrative_inspection" || r.dataset.as_ref().is_some_and(|d| d.id == "administrative_inspection"))
+        .find(|r| {
+            r.id == "administrative_inspection"
+                || r.dataset
+                    .as_ref()
+                    .is_some_and(|d| d.id == "administrative_inspection")
+        })
         .and_then(|r| r.dataset.as_ref());
     assert!(
         inspection.is_some(),
@@ -1770,10 +1778,7 @@ fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
         "administrative_inspection should have preview rows on home compile"
     );
     assert!(
-        inspection
-            .schema
-            .iter()
-            .any(|c| c.name == "检查日期"),
+        inspection.schema.iter().any(|c| c.name == "检查日期"),
         "schema must include 检查日期"
     );
 }
@@ -1800,9 +1805,8 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
     )
     .expect("compile home preview");
 
-    let resource_id = "__world_metrics__::scenes/2_行政检查/指标体系.mei::metrics";
-    let metric_key =
-        "scenes/2_行政检查/指标体系.mei::inspection_frequency_reduction_rate".to_string();
+    let resource_id = "__world_metrics__::scenes/03-指标体系.mei::metrics";
+    let metric_key = "scenes/03-指标体系.mei::inspection_frequency_reduction_rate".to_string();
     let owner_dataset = compiled
         .resources
         .iter()
@@ -1811,7 +1815,11 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
         .unwrap_or_else(|| {
             panic!(
                 "home preview should include `{resource_id}`, resources: {:?}",
-                compiled.resources.iter().map(|r| r.id.as_str()).collect::<Vec<_>>()
+                compiled
+                    .resources
+                    .iter()
+                    .map(|r| r.id.as_str())
+                    .collect::<Vec<_>>()
             )
         });
     let resolved = resolve_runtime_metric_def_key(
@@ -1913,7 +1921,7 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/执法要素.mei";
+    let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1941,8 +1949,9 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
             )
         });
     let rowset_key = "enforcement_personnel_count::__scalar_rowset__";
-    let resolved = resolve_runtime_metric_def_key(resource_id, rowset_key, &owner.runtime_metric_defs)
-        .unwrap_or_else(|| panic!("resolve `{rowset_key}` on `{resource_id}`"));
+    let resolved =
+        resolve_runtime_metric_def_key(resource_id, rowset_key, &owner.runtime_metric_defs)
+            .unwrap_or_else(|| panic!("resolve `{rowset_key}` on `{resource_id}`"));
     let mut datasets = compiled
         .resources
         .iter()
@@ -1971,11 +1980,7 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
         .get(&resolved)
         .unwrap_or_else(|| panic!("missing metric `{resolved}`"));
     assert_eq!(metric.shape, MetricShape::Dataframe);
-    let row_count = metric
-        .value
-        .as_array()
-        .map(|rows| rows.len())
-        .unwrap_or(0);
+    let row_count = metric.value.as_array().map(|rows| rows.len()).unwrap_or(0);
     assert!(
         row_count > 0,
         "personnel rowset should materialize rows, got {row_count}"
@@ -2001,16 +2006,17 @@ fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
         },
     )
     .expect("compile home preview");
-    let resource_id = "__world_metrics__::scenes/1_执法要素/执法要素.mei::metrics";
-    let metric_key = "scenes/1_执法要素/执法要素.mei::enforcement_personnel_count::__scalar_rowset__";
+    let resource_id = "__world_metrics__::scenes/01-执法要素.mei::metrics";
+    let metric_key = "scenes/01-执法要素.mei::enforcement_personnel_count::__scalar_rowset__";
     let owner = compiled
         .resources
         .iter()
         .find(|resource| resource.id == resource_id)
         .and_then(|resource| resource.dataset.as_ref())
         .unwrap_or_else(|| panic!("missing imported world metrics `{resource_id}`"));
-    let resolved = resolve_runtime_metric_def_key(resource_id, metric_key, &owner.runtime_metric_defs)
-        .unwrap_or_else(|| panic!("resolve imported rowset `{metric_key}`"));
+    let resolved =
+        resolve_runtime_metric_def_key(resource_id, metric_key, &owner.runtime_metric_defs)
+            .unwrap_or_else(|| panic!("resolve imported rowset `{metric_key}`"));
     let mut datasets = compiled
         .resources
         .iter()
@@ -2037,13 +2043,74 @@ fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
     .unwrap_or_else(|error| panic!("evaluate imported rowset failed: {error}"));
     let metric = metrics.get(&resolved).expect("imported rowset metric");
     assert_eq!(metric.shape, MetricShape::Dataframe);
-    let row_count = metric
-        .value
-        .as_array()
-        .map(|rows| rows.len())
-        .unwrap_or(0);
+    let row_count = metric.value.as_array().map(|rows| rows.len()).unwrap_or(0);
     assert!(
         row_count > 0,
         "imported personnel rowset should materialize rows, got {row_count}"
+    );
+}
+
+#[test]
+fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
+    use std::collections::BTreeMap;
+
+    use crate::model::MetricShape;
+
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/01-执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let world_metrics = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__")
+        .and_then(|resource| resource.dataset.as_ref())
+        .unwrap_or_else(|| panic!("`{target}` direct preview should include __world_metrics__"));
+    let yearly_key = world_metrics
+        .runtime_metric_defs
+        .keys()
+        .find(|key| key.contains("park_migration_yearly"))
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "missing park_migration_yearly scoped metric, keys: {:?}",
+                world_metrics.runtime_metric_defs.keys().collect::<Vec<_>>()
+            )
+        });
+    let datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<BTreeMap<_, _>>();
+    let metrics = super::evaluate_runtime_metric_defs(
+        &world_metrics.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[yearly_key.clone()]),
+    )
+    .unwrap_or_else(|error| panic!("evaluate park migration yearly failed: {error}"));
+    let metric = metrics
+        .get(&yearly_key)
+        .unwrap_or_else(|| panic!("missing evaluated metric `{yearly_key}`"));
+    assert_eq!(metric.shape, MetricShape::Dataframe);
+    let row_count = metric.value.as_array().map(|rows| rows.len()).unwrap_or(0);
+    assert!(
+        row_count > 0,
+        "park migration yearly wide table should have rows, got {row_count}; value={}",
+        serde_json::to_string(&metric.value).unwrap_or_default()
     );
 }

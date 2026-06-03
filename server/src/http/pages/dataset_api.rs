@@ -194,19 +194,19 @@ pub async fn dataset_query_api(
     let scene_ctx = resolved_scene_context(&compiled);
     let normalized_dataset_id = request.dataset_id.trim();
     let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
-    .map_err(|error| {
-        tracing::warn!(
-            app_id = %app_id,
-            scene_id = %requested_scene_id,
-            target = %requested_target,
-            dataset_id = %requested_dataset_id,
-            metric_id = %requested_metric_id,
-            phase = "locate_dataset",
-            error = ?error,
-            "dataset query locate failed"
-        );
-        AppError::from(error)
-    })?;
+        .map_err(|error| {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %requested_scene_id,
+                target = %requested_target,
+                dataset_id = %requested_dataset_id,
+                metric_id = %requested_metric_id,
+                phase = "locate_dataset",
+                error = ?error,
+                "dataset query locate failed"
+            );
+            AppError::from(error)
+        })?;
     let locate_started = Instant::now();
     let locate_dataset_ms = elapsed_ms(locate_started);
     let dataset = resource.dataset.as_ref().ok_or_else(|| {
@@ -432,7 +432,7 @@ pub async fn dataset_recompute_api(
         response_scene_path = scene_ctx.scene_path.clone();
         let locate_started = Instant::now();
         let resource = locate_dataset_resource(&compiled, request.dataset_id.trim(), Some(&coords))
-        .map_err(AppError::from)?;
+            .map_err(AppError::from)?;
         perf.insert("locate_dataset_ms".to_string(), elapsed_ms(locate_started));
         let warm_started = Instant::now();
         let warm_query = DatasetQueryOptions {

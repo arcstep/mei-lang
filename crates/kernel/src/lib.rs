@@ -9,26 +9,24 @@ mod source_version;
 mod typed_refs;
 mod workspace;
 
-pub use compile_semantics::COMPILE_SEMANTICS_GENERATION;
 pub use compile::{
     build_runtime_analysis_contracts, build_runtime_analysis_graph,
-    cached_load_xlsx_table_snapshot, clear_runtime_compile_caches, clear_runtime_eval_node_cache,
+    cached_load_xlsx_table_snapshot, capsule_path_from_namespaced_resource_id,
+    clear_runtime_compile_caches, clear_runtime_eval_node_cache, coerce_rows_to_schema,
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_with_options, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
-    evaluate_runtime_metric_defs_with_scope_and_dag, coerce_rows_to_schema,
-    materialize_xlsx_column_headers,
-    capsule_path_from_namespaced_resource_id,
+    evaluate_runtime_metric_defs_with_scope_and_dag,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
-    panel_resolved_has_head,
-    resolve_default_scene_from_root, resolve_runtime_metric_def_key,
-    runtime_analysis_closure_metric_ids, runtime_eval_node_cache_enabled,
-    scene_payload_cache_epoch, try_get_cached_xlsx_table_snapshot, CompileOptions,
-    CompileRevisionPlan, CompileWatchedFile, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind,
-    EvalPlanNode, EvalPlanNodeKind, EvalPlanScope, RequestDagMetrics, RuntimeMetricEvalReport,
-    RuntimeMetricEvalScope, TableSnapshot, TableSnapshotKey,
+    materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
+    resolve_runtime_metric_def_key, runtime_analysis_closure_metric_ids,
+    runtime_eval_node_cache_enabled, scene_payload_cache_epoch, try_get_cached_xlsx_table_snapshot,
+    CompileOptions, CompileRevisionPlan, CompileWatchedFile, EvalPlan, EvalPlanEdge,
+    EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope, RequestDagMetrics,
+    RuntimeMetricEvalReport, RuntimeMetricEvalScope, TableSnapshot, TableSnapshotKey,
 };
+pub use compile_semantics::COMPILE_SEMANTICS_GENERATION;
 
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};

@@ -2,14 +2,17 @@
 
 use std::collections::BTreeMap;
 
-use super::{compile_app_from_root_with_options, evaluate_runtime_metric_defs, workspace_root, CompileOptions};
+use super::{
+    compile_app_from_root_with_options, evaluate_runtime_metric_defs, workspace_root,
+    CompileOptions,
+};
 
 #[test]
 fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let capsule = "scenes/5_问题办理/问题办理.mei";
+    let capsule = "scenes/07-问题办理.mei";
     let owner = format!("__world_metrics__::{capsule}::metrics");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -49,8 +52,7 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         .find(|r| r.id == namespaced_warning)
         .and_then(|r| r.dataset.as_ref());
     assert!(
-        imported_warning.is_some_and(|d| !d.rows.is_empty())
-            || !warning_list.rows.is_empty(),
+        imported_warning.is_some_and(|d| !d.rows.is_empty()) || !warning_list.rows.is_empty(),
         "imported warning_list should have rows"
     );
     assert!(
@@ -62,8 +64,8 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         .iter()
         .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
         .collect();
-    let pending_key = "scenes/5_问题办理/问题办理.mei::warnings_pending_count";
-    let rate_key = "scenes/5_问题办理/问题办理.mei::effectiveness_issue_verification_rate";
+    let pending_key = "scenes/07-问题办理.mei::warnings_pending_count";
+    let rate_key = "scenes/07-问题办理.mei::effectiveness_issue_verification_rate";
     let metrics = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
@@ -114,13 +116,20 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
             .iter()
             .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
             .collect(),
-        Some(&[capsule_pending_key.to_string(), "effectiveness_issue_verification_rate".to_string()]),
+        Some(&[
+            capsule_pending_key.to_string(),
+            "effectiveness_issue_verification_rate".to_string(),
+        ]),
     )
     .unwrap_or_else(|e| panic!("evaluate capsule metrics failed: {e}"));
     assert!(
         capsule_metrics
             .get(capsule_pending_key)
-            .and_then(|m| m.value.get("value").and_then(|v| v.as_f64()).or_else(|| m.value.as_f64()))
+            .and_then(|m| m
+                .value
+                .get("value")
+                .and_then(|v| v.as_f64())
+                .or_else(|| m.value.as_f64()))
             .unwrap_or(0.0)
             > 0.0,
         "capsule preview warnings_pending_count should be > 0"

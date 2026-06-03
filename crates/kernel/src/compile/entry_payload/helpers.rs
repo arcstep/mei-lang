@@ -154,7 +154,7 @@ fn load_resources_from_capsule_file_recursive(
     relative_path: &str,
     visited_paths: &mut BTreeSet<String>,
 ) -> anyhow::Result<Vec<LoadedResource>> {
-    use super::super::load_external::load_world_from_file;
+    use super::super::load_external::load_world_for_capsule_file;
     use super::super::materialize::{
         append_world_metrics_dataset_resource_with_id, imported_world_metrics_resource_id,
         materialize_legacy_datasets, materialize_metric_packs, materialize_world_metrics,
@@ -167,7 +167,7 @@ fn load_resources_from_capsule_file_recursive(
         return Ok(Vec::new());
     }
 
-    let world_decl = match load_world_from_file(app_root, relative_path, None) {
+    let world_decl = match load_world_for_capsule_file(app_root, relative_path) {
         Ok(decl) => decl,
         Err(_) => return Ok(Vec::new()),
     };
