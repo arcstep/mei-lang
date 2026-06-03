@@ -134,19 +134,30 @@ pub async fn app_page(
         phase = "start",
         "app page request started"
     );
-    if route_mode == UiRouteMode::Access
-        && query
-            .file
-            .as_ref()
-            .map(|f| !f.trim().is_empty())
-            .unwrap_or(false)
-    {
-        return Ok(
-            Redirect::temporary(&access_sanitized_redirect_location(&app_id, &query))
-                .into_response(),
-        );
-    }
+    let request_file = query
+        .file
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     if route_mode == UiRouteMode::Access {
+        if let Some(ref file) = request_file {
+            if is_script_target(file) {
+                return Ok(Redirect::temporary(&access_sanitized_redirect_location(
+                    &app_id, &query,
+                ))
+                .into_response());
+            }
+        }
+    }
+    let access_static_file = if route_mode == UiRouteMode::Access {
+        request_file
+            .as_ref()
+            .filter(|t| !is_script_target(t))
+            .cloned()
+    } else {
+        None
+    };
+    if route_mode == UiRouteMode::Access && access_static_file.is_none() {
         let q_scene = query
             .scene
             .as_deref()
@@ -193,11 +204,7 @@ pub async fn app_page(
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(false);
     let manage_file = if route_mode == UiRouteMode::Manage {
-        query
-            .file
-            .as_ref()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+        request_file.clone()
     } else {
         None
     };
@@ -381,7 +388,7 @@ pub async fn app_page(
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let mut compiled = compile_outcome.compiled;
-    if route_mode == UiRouteMode::Access {
+    if route_mode == UiRouteMode::Access && access_static_file.is_none() {
         if access_path_scene.is_none() {
             let sid = compiled
                 .active_scene
@@ -431,7 +438,9 @@ pub async fn app_page(
                 .into_response());
         }
     }
-    let manage_scene_resolved = if route_mode == UiRouteMode::Access {
+    let manage_scene_resolved = if access_static_file.is_some() {
+        None
+    } else if route_mode == UiRouteMode::Access {
         access_path_scene.clone()
     } else {
         canonical_scene_for_target(&compiled, manage_file.as_deref())
@@ -454,6 +463,8 @@ pub async fn app_page(
     let manage_default_file = default_file_for_scene(&compiled, scene_for_default);
     let target = if route_mode == UiRouteMode::Manage {
         manage_file.clone().unwrap_or(manage_default_file)
+    } else if let Some(static_file) = access_static_file.clone() {
+        static_file
     } else {
         compiled.active_target_file.clone()
     };

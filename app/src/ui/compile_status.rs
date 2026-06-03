@@ -295,6 +295,12 @@ pub(super) fn is_mei_script_target(target: &str) -> bool {
     target.ends_with(".mei")
 }
 
+/// 工作区内非 `.mei` 的静态资源（HTML 原型、图片、数据文件等）。
+pub(super) fn is_static_workspace_asset_target(target: &str) -> bool {
+    let trimmed = target.trim();
+    !trimmed.is_empty() && !is_mei_script_target(trimmed)
+}
+
 pub(super) fn source_language(target: &str) -> &'static str {
     if is_mei_script_target(target) {
         "mei"

@@ -7,7 +7,8 @@ use std::{
 };
 
 use super::app::{app_page, index, AppQuery};
-use super::assets::app_bundle;
+use super::assets::{app_bundle, workspace_app_asset};
+use super::static_serve::content_type_for_path;
 use crate::{agent_runtime, mei_agent, AppState};
 use axum::{
     body::to_bytes,
@@ -317,6 +318,204 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
         html.contains("/apps/access/multi-scene") && html.contains("/scene/details"),
         "expected access URL to use canonical /scene/details path: {}",
         html.chars().take(1200).collect::<String>()
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn static_serve_html_content_type() {
+    use std::path::Path;
+
+    assert_eq!(
+        content_type_for_path(Path::new("prototype/index.html")),
+        "text/html; charset=utf-8"
+    );
+}
+
+#[tokio::test]
+async fn access_static_html_file_renders_without_scene_redirect() {
+    let root = unique_test_root("static-html-access");
+    let app_root = root.join("html-app");
+    fs::create_dir_all(app_root.join("demo")).expect("create demo dir");
+    fs::write(app_root.join("main.mei"), VALID_APP_SOURCE.replace("good-app", "html-app"))
+        .expect("write main.mei");
+    fs::write(
+        app_root.join("demo/index.html"),
+        "<!doctype html><html><body id=\"proto\">PROTOTYPE</body></html>",
+    )
+    .expect("write index.html");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        compile_cache: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
+    };
+
+    let response = app_page(
+        State(state.clone()),
+        AxumPath(("access".to_string(), "html-app".to_string())),
+        Query(AppQuery {
+            file: Some("demo/index.html".to_string()),
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: Some("none".to_string()),
+        }),
+    )
+    .await
+    .expect("render access static html");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read html body");
+    let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+    assert!(
+        html.contains("data-mei-html-document=\"true\""),
+        "expected html document iframe preview"
+    );
+    assert!(
+        html.contains("/workspace-app-assets/html-app/demo/index.html"),
+        "expected workspace asset href for prototype"
+    );
+
+    let asset_response = workspace_app_asset(
+        State(state),
+        AxumPath(("html-app".to_string(), "demo/index.html".to_string())),
+    )
+    .await
+    .expect("serve workspace html asset");
+    assert_eq!(asset_response.status(), StatusCode::OK);
+    assert_eq!(
+        asset_response
+            .headers()
+            .get("content-type")
+            .and_then(|value| value.to_str().ok()),
+        Some("text/html; charset=utf-8")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn access_mei_file_query_still_strips_file_param() {
+    let root = unique_test_root("access-mei-file-strip");
+    let app_root = root.join("multi-scene");
+    fs::create_dir_all(&app_root).expect("create multi-scene app root");
+    fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+    fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        compile_cache: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
+    };
+
+    let response = app_page(
+        State(state),
+        AxumPath(("access".to_string(), "multi-scene".to_string())),
+        Query(AppQuery {
+            file: Some("details.mei".to_string()),
+            scene: Some("details".to_string()),
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: None,
+        }),
+    )
+    .await
+    .expect("render access mei file redirect");
+
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    let location = response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        !location.contains("file="),
+        "access mei file should strip file query: {location}"
+    );
+    assert!(
+        location.contains("/scene/"),
+        "access mei file should redirect to canonical scene path: {location}"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn manage_html_preview_uses_document_iframe() {
+    let root = unique_test_root("static-html-manage");
+    let app_root = root.join("html-app");
+    fs::create_dir_all(app_root.join("demo")).expect("create demo dir");
+    fs::write(app_root.join("main.mei"), VALID_APP_SOURCE.replace("good-app", "html-app"))
+        .expect("write main.mei");
+    fs::write(
+        app_root.join("demo/index.html"),
+        "<!doctype html><html><body>MANAGE_HTML</body></html>",
+    )
+    .expect("write index.html");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        compile_cache: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
+    };
+
+    let response = app_page(
+        State(state),
+        AxumPath(("manage".to_string(), "html-app".to_string())),
+        Query(AppQuery {
+            file: Some("demo/index.html".to_string()),
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: None,
+        }),
+    )
+    .await
+    .expect("render manage html preview");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read html body");
+    let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+    assert!(html.contains("data-mei-html-document=\"true\""));
+    assert!(
+        !html.contains("<pre class=\"asset-text-preview"),
+        "html preview should not fall back to text pre"
     );
 
     let _ = fs::remove_dir_all(&root);

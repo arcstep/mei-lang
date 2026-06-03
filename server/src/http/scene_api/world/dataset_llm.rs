@@ -651,6 +651,7 @@ mod tests {
                 id: "capsule/overview.mei::sales_total".to_string(),
                 label: Some("Sales Total".to_string()),
                 unit: None,
+                value_format: None,
                 purpose: None,
                 shape: MetricShape::Scalar,
                 schema: Vec::new(),

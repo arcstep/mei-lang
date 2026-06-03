@@ -7,6 +7,7 @@ enum AssetPreviewKind {
     Markdown,
     Image,
     Pdf,
+    HtmlDocument,
     Csv,
     Text,
     Unsupported,
@@ -47,6 +48,19 @@ fn asset_preview_inner(
             view! {
                 <div class="asset-pdf-preview min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700/55 bg-slate-950/40">
                     <iframe class="h-full w-full border-0" src=asset_src title=target.to_string()></iframe>
+                </div>
+            }
+            .into_any()
+        }
+        AssetPreviewKind::HtmlDocument => {
+            view! {
+                <div class="asset-html-preview min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-700/55 bg-slate-950/40">
+                    <iframe
+                        class="h-full w-full border-0"
+                        src=asset_src
+                        title=target.to_string()
+                        data-mei-html-document="true"
+                    ></iframe>
                 </div>
             }
             .into_any()
@@ -139,6 +153,19 @@ fn asset_preview_inner(
     }
 }
 
+#[cfg(test)]
+pub(super) fn asset_preview_kind_label(target: &str) -> &'static str {
+    match asset_preview_kind(target) {
+        AssetPreviewKind::Markdown => "markdown",
+        AssetPreviewKind::Image => "image",
+        AssetPreviewKind::Pdf => "pdf",
+        AssetPreviewKind::HtmlDocument => "html_document",
+        AssetPreviewKind::Csv => "csv",
+        AssetPreviewKind::Text => "text",
+        AssetPreviewKind::Unsupported => "unsupported",
+    }
+}
+
 fn asset_preview_kind(target: &str) -> AssetPreviewKind {
     let ext = target
         .rsplit('.')
@@ -149,11 +176,10 @@ fn asset_preview_kind(target: &str) -> AssetPreviewKind {
         "md" | "markdown" => AssetPreviewKind::Markdown,
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "avif" => AssetPreviewKind::Image,
         "pdf" => AssetPreviewKind::Pdf,
+        "html" | "htm" => AssetPreviewKind::HtmlDocument,
         "csv" => AssetPreviewKind::Csv,
         "txt" | "json" | "yaml" | "yml" | "toml" | "xml" | "log" | "rs" | "js" | "ts" | "tsx"
-        | "jsx" | "css" | "html" | "htm" | "sh" | "zsh" | "bash" | "mei" | "star" => {
-            AssetPreviewKind::Text
-        }
+        | "jsx" | "css" | "sh" | "zsh" | "bash" | "mei" | "star" => AssetPreviewKind::Text,
         _ => {
             if ext.is_empty() {
                 AssetPreviewKind::Text
@@ -259,4 +285,15 @@ fn csv_preview_table(
     };
     let shown_rows = body.len().max(1);
     (headers, body, truncated, shown_rows, width)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::asset_preview_kind_label;
+
+    #[test]
+    fn html_targets_use_document_preview_kind() {
+        assert_eq!(asset_preview_kind_label("demo/index.html"), "html_document");
+        assert_eq!(asset_preview_kind_label("page.htm"), "html_document");
+    }
 }

@@ -280,6 +280,7 @@ mod tests {
                     id: "orders_total".to_string(),
                     label: None,
                     unit: None,
+                    value_format: None,
                     purpose: None,
                     shape: MetricShape::Scalar,
                     schema: Vec::new(),

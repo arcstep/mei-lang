@@ -2,7 +2,9 @@ use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
 use super::agent_panel;
+use super::compile_status::is_static_workspace_asset_target;
 use super::preview;
+use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
@@ -14,12 +16,25 @@ pub(super) fn access_shell(
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     selected_scene: Option<&str>,
-    preview_target: Option<&str>,
+    file_target: Option<&str>,
+    source: Option<&str>,
     active_tab: Option<&str>,
     chrome_hidden: bool,
 ) -> AnyView {
-    let current_target = preview_target.unwrap_or(&compiled.active_target_file);
-    let preview = preview::preview_view(compiled, app_path, current_target, UiRouteMode::Access);
+    let current_target = file_target
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or(compiled.active_target_file.as_str());
+    let static_asset = is_static_workspace_asset_target(current_target);
+    let preview = if static_asset {
+        asset_preview_body(app_path, current_target, source.unwrap_or(""))
+    } else {
+        preview::preview_view(compiled, app_path, current_target, UiRouteMode::Access)
+    };
+    let topbar_preview_target = if static_asset {
+        None
+    } else {
+        file_target
+    };
     let panel_tab = active_tab.unwrap_or("preview");
     let topbar = topbar_view(
         apps,
@@ -28,7 +43,7 @@ pub(super) fn access_shell(
         topbar_menu,
         UiRouteMode::Access,
         selected_scene,
-        preview_target,
+        topbar_preview_target,
         active_tab,
     );
     let statusbar = statusbar_view(

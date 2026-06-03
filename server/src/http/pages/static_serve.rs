@@ -42,6 +42,7 @@ pub(crate) fn content_type_for_path(path: &Path) -> &'static str {
         Some("csv") => "text/csv; charset=utf-8",
         Some("tsv") => "text/tab-separated-values; charset=utf-8",
         Some("pdf") => "application/pdf",
+        Some("html") | Some("htm") => "text/html; charset=utf-8",
         Some("svg") => "image/svg+xml",
         Some("png") => "image/png",
         Some("jpg") | Some("jpeg") => "image/jpeg",
@@ -49,5 +50,24 @@ pub(crate) fn content_type_for_path(path: &Path) -> &'static str {
         Some("gif") => "image/gif",
         Some("ico") => "image/x-icon",
         _ => "text/plain; charset=utf-8",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::content_type_for_path;
+
+    #[test]
+    fn html_assets_use_text_html_content_type() {
+        assert_eq!(
+            content_type_for_path(Path::new("demo/index.html")),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            content_type_for_path(Path::new("page.htm")),
+            "text/html; charset=utf-8"
+        );
     }
 }
