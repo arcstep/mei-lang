@@ -337,6 +337,7 @@ fn allows_metric_ref_in_props_when_metric_id_exists_in_world_ledger() {
                     id: "warnings_total".to_string(),
                     label: Some("预警总量".to_string()),
                     unit: Some("条".to_string()),
+                    value_format: None,
                     purpose: None,
                     shape: crate::model::MetricShape::Scalar,
                     schema: vec![],

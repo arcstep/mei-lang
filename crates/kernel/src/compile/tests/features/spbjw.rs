@@ -115,7 +115,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/企业白名单.mei";
+    let target = "scenes/1_执法要素/执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -124,7 +124,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
             preview_target: Some(target.to_string()),
         },
     )
-    .expect("compile spbjw enterprise whitelist preview");
+    .expect("compile spbjw enforcement elements preview (whitelist dataset)");
     let contract = compiled.scene_contract.as_ref().unwrap_or_else(|| {
         panic!(
             "preview should yield scene contract, diagnostics: {:?}",
@@ -161,20 +161,20 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/企业白名单.mei";
+    let target = "scenes/1_执法要素/执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
-            scene: Some("企业白名单".to_string()),
+            scene: Some("执法要素".to_string()),
             preview_target: Some(target.to_string()),
         },
     )
-    .expect("compile spbjw whitelist with filename-like scene query");
+    .expect("compile spbjw enforcement elements with filename-like scene query");
     assert_eq!(compiled.active_target_file, target);
     assert_eq!(
         compiled.active_scene.as_deref(),
-        Some("enterprise_whitelist")
+        Some("enforcement_elements")
     );
     assert!(
         !compiled
@@ -191,19 +191,19 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
-    let target = "scenes/1_执法要素/企业白名单.mei";
+    let target = "scenes/1_执法要素/执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
-            scene: Some("enterprise_whitelist".to_string()),
+            scene: Some("enforcement_elements".to_string()),
             preview_target: Some(target.to_string()),
         },
     )
-    .expect("compile spbjw whitelist scene+focus");
+    .expect("compile spbjw enforcement elements scene+focus");
     assert_eq!(
         compiled.active_scene.as_deref(),
-        Some("enterprise_whitelist")
+        Some("enforcement_elements")
     );
     assert_eq!(compiled.active_target_file, target);
     assert!(
@@ -996,19 +996,21 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
 }
 
 #[test]
-fn compile_spbjw_preview_logistics_park_vector_succeeds() {
+fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
+    use crate::MetricShape;
     let root = workspace_root();
     let source_root = root.join("workspaces");
     let app_root = source_root.join("spbjw");
+    let target = "scenes/2_行政检查/行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
         CompileOptions {
             scene: None,
-            preview_target: Some("scenes/7_物流园区/园区统计.mei".to_string()),
+            preview_target: Some(target.to_string()),
         },
     )
-    .expect("compile spbjw logistics preview");
+    .expect("compile spbjw administrative inspection preview");
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
@@ -1016,7 +1018,7 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         .collect();
     assert!(
         errors.is_empty(),
-        "logistics_park_vector preview errors: {:?}",
+        "administrative_inspection preview errors: {:?}",
         errors
     );
     let contract = compiled
@@ -1025,7 +1027,7 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         .expect("preview scene contract");
     assert!(
         !contract.panels.is_empty(),
-        "expected stats/charts/table panels"
+        "expected inspection cockpit panels"
     );
     let logistics = compiled
         .resources
@@ -1033,66 +1035,60 @@ fn compile_spbjw_preview_logistics_park_vector_succeeds() {
         .find(|r| r.id == "logistics_park_vector")
         .and_then(|r| r.dataset.as_ref())
         .expect("logistics_park_vector dataset");
-    assert!(logistics.metrics.contains_key("logistics_parks_count"));
     assert_eq!(
         logistics.rows.len(),
         3,
         "geojson FeatureCollection should yield 3 park rows"
     );
-    let inspection = compiled
+    let inspection_owner = compiled
         .resources
         .iter()
-        .find(|r| r.id == "administrative_inspection")
+        .find(|r| r.id == "administrative_inspection_dashboard_ds")
         .and_then(|r| r.dataset.as_ref())
-        .expect("administrative_inspection dataset");
+        .expect("administrative_inspection_dashboard_ds dataset");
     assert!(
-        inspection.metrics.contains_key("park_inspection_count"),
-        "catalog should merge 园区统计 park metrics into administrative_inspection"
+        inspection_owner
+            .runtime_metric_defs
+            .contains_key("park_inspection_total_by_park"),
+        "行政检查应内联分园区检查指标"
     );
-    let inspection_by_park = inspection
-        .metrics
-        .get("park_inspection_count")
-        .expect("park_inspection_count metric");
-    let by_park_rows = inspection_by_park
+    let datasets = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            resource
+                .dataset
+                .clone()
+                .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let evaluated = super::evaluate_runtime_metric_defs(
+        &inspection_owner.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&["park_inspection_total_by_park".to_string()]),
+    )
+    .expect("evaluate park_inspection_total_by_park");
+    let by_park = evaluated
+        .get("park_inspection_total_by_park")
+        .expect("park_inspection_total_by_park");
+    assert_eq!(by_park.shape, MetricShape::Dataframe);
+    let by_park_rows = by_park
         .value
         .as_array()
-        .or_else(|| {
-            inspection_by_park
-                .value
-                .get("value")
-                .and_then(|v| v.as_array())
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "dataframe metric rows expected array, got: {}",
-                inspection_by_park.value
-            );
-        });
+        .or_else(|| by_park.value.get("value").and_then(|v| v.as_array()))
+        .unwrap_or_else(|| panic!("dataframe rows expected, got: {}", by_park.value));
     assert!(
         !by_park_rows.is_empty(),
-        "park_inspection_count should have grouped rows, got {by_park_rows:?}"
+        "park_inspection_total_by_park should have grouped rows"
     );
     assert!(
         by_park_rows[0]
             .get("园区名称")
             .and_then(|v| v.as_str())
             .is_some(),
-        "group_by should use 园区名称 field, not label: {:?}",
+        "group_by should use 园区名称 field: {:?}",
         by_park_rows[0]
-    );
-    let total = inspection
-        .metrics
-        .get("park_inspection_total")
-        .and_then(|m| {
-            m.value
-                .get("value")
-                .and_then(|v| v.as_f64())
-                .or_else(|| m.value.as_f64())
-        })
-        .unwrap_or(-1.0);
-    assert!(
-        total > 0.0 && total < 100.0,
-        "park_inspection_total should be enterprise-matched inspections on preview rows, got {total}"
     );
 }
 

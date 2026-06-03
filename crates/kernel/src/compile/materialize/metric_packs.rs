@@ -161,6 +161,7 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
                     .and_then(Value::as_str)
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty()),
+                value_format: map.get("value_format").cloned(),
                 purpose: None,
                 shape,
                 schema,

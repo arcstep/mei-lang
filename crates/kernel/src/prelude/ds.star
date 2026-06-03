@@ -818,8 +818,8 @@ def metric(id = None, key = None, label = None, value = None, unit = None, where
         "binding": binding,
     })
 
-def scalar_map(id = None, key = None, label = None, values = None, unit = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
-    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, schema = schema, note = note, basis_refs = basis_refs, recommended_dimensions = recommended_dimensions, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
+def scalar_map(id = None, key = None, label = None, values = None, unit = None, value_format = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
+    return _data_product("scalar_map", id = id, key = key, label = label, values = values, unit = unit, value_format = value_format, schema = schema, note = note, basis_refs = basis_refs, recommended_dimensions = recommended_dimensions, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)
 
 def dataframe(id = None, key = None, label = None, value = None, unit = None, schema = None, note = None, basis_refs = None, recommended_dimensions = None, drilldown = None, explain = None, analyses = None, binding = None):
     return _data_product("dataframe", id = id, key = key, label = label, value = value, unit = unit, schema = schema, note = note, basis_refs = basis_refs, recommended_dimensions = recommended_dimensions, drilldown = drilldown, explain = explain, analyses = analyses, binding = binding)

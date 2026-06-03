@@ -11,7 +11,7 @@ use super::constants::{
     PROP_LAYOUT_COLUMNS, PROP_LAYOUT_COLUMNS_PREFER, PROP_LAYOUT_SPAN, SLOT_BODY, SLOT_HEAD,
 };
 use super::css_util::{
-    first_css_scalar_px, padding_vertical_px, parse_px, px_track, sum_fixed_px_tracks,
+    first_css_scalar_px, parse_px, px_track, sum_fixed_px_tracks,
 };
 use super::nodes::panel_head_height_track;
 use super::nodes::{
@@ -680,49 +680,45 @@ fn metric_ratio_weight(value: &Value) -> Option<f64> {
         .or_else(|| value.as_i64().filter(|n| *n > 0).map(|n| n as f64))
 }
 
-fn metric_compound_content_budget(panel: &PanelDecl, spacing: &PolicySpacing) -> Option<f64> {
-    let shell_h = panel_px_prop(panel, "height")?;
-    let padding_v = padding_vertical_px(&spacing.padding);
-    let gap = first_css_scalar_px(&spacing.gap).unwrap_or(0.0);
-    Some((shell_h - padding_v - gap).max(1.0))
+/// `32/99` → `(32, 99)fr`；百分比/小数 → 按 band 比例换算为 fr 权重。
+fn metric_compound_band_fr_weights(panel: &PanelDecl) -> (u32, u32) {
+    if let Some(map) = panel.props.as_object() {
+        if let Some(raw) = map
+            .get(PROP_COMPOUND_TOP_BAND_RATIO)
+            .and_then(Value::as_str)
+        {
+            let value = raw.trim();
+            if value.contains('/') {
+                let mut parts = value.split('/');
+                if let (Some(top), Some(bottom)) = (
+                    parts.next().and_then(|part| parse_px(part.trim())),
+                    parts.next().and_then(|part| parse_px(part.trim())),
+                ) {
+                    if top > 0.0 && bottom > 0.0 {
+                        return (
+                            top.round().max(1.0) as u32,
+                            bottom.round().max(1.0) as u32,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let top_band = metric_compound_top_band_fraction(panel);
+    let top = (top_band * 256.0).round().max(1.0) as u32;
+    let bottom = ((1.0 - top_band) * 256.0).round().max(1.0) as u32;
+    (top, bottom)
 }
 
-fn metric_compound_row_heights(panel: &PanelDecl, spacing: &PolicySpacing) -> (String, String) {
-    let top_band = metric_compound_top_band_fraction(panel);
-    let available = metric_compound_content_budget(panel, spacing).unwrap_or(122.0);
-    let top_hint = panel
-        .blocks
-        .first()
-        .and_then(node_height_track)
-        .unwrap_or(available * top_band);
-    let bottom_hint = panel
-        .blocks
-        .iter()
-        .skip(1)
-        .filter_map(node_height_track)
-        .fold(0.0_f64, f64::max);
-    let bottom_hint = if bottom_hint > 0.0 {
-        bottom_hint
-    } else {
-        available - top_hint
-    };
-    let sum = top_hint + bottom_hint;
-    let (top_px, bottom_px) = if sum > available + 0.5 {
-        let top_px = available * top_hint / sum;
-        (top_px, available - top_px)
-    } else if (sum - available).abs() <= 0.5 {
-        (top_hint, bottom_hint)
-    } else {
-        let top_px = available * top_band;
-        (top_px, available - top_px)
-    };
-    (px_track(top_px), px_track(bottom_px))
+fn metric_compound_row_fr_tracks(panel: &PanelDecl) -> (String, String) {
+    let (top_w, bottom_w) = metric_compound_band_fr_weights(panel);
+    (format!("{top_w}fr"), format!("{bottom_w}fr"))
 }
 
 pub(super) fn default_metric_compound_2_1_layout(panel: &PanelDecl) -> LayoutDecl {
     let spacing = policy_spacing(panel, DEFAULT_METRIC_COMPOUND_2_1_GAP, "0");
     let bottom_cols = metric_compound_bottom_count(panel).max(1);
-    let (top_row, bottom_row) = metric_compound_row_heights(panel, &spacing);
+    let (top_row, bottom_row) = metric_compound_row_fr_tracks(panel);
     let columns = (0..bottom_cols)
         .map(|_| "1fr".to_string())
         .collect::<Vec<_>>();

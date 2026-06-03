@@ -876,13 +876,17 @@ fn normalize_metric_compound_respects_top_band_ratio_props() {
     let layout = panels[0].layout.as_ref().expect("compound layout");
     let rows = layout.rows.as_ref().expect("rows");
     assert_eq!(rows.len(), 2);
-    let top_px = rows[0].trim_end_matches("px").parse::<f64>().unwrap();
-    let bottom_px = rows[1].trim_end_matches("px").parse::<f64>().unwrap();
     assert!(
-        (top_px - 49.0).abs() < 1.5,
-        "top row should be ~half of 100-2 gap, got {top_px}"
+        rows[0].ends_with("fr"),
+        "compound rows should use fractional tracks, got {:?}",
+        rows
     );
-    assert!((bottom_px - 49.0).abs() < 1.5, "bottom row got {bottom_px}");
+    let top_w = rows[0].trim_end_matches("fr").parse::<u32>().unwrap();
+    let bottom_w = rows[1].trim_end_matches("fr").parse::<u32>().unwrap();
+    assert_eq!(
+        top_w, bottom_w,
+        "0.5 top band should yield equal fr weights, got {top_w} / {bottom_w}"
+    );
 }
 
 #[test]

@@ -304,6 +304,9 @@ pub struct MetricContract {
     /// `ds.scalar_map(..., unit = "...")` 等声明的展示单位，供指标卡等 UI 与数值分列展示。
     #[serde(default)]
     pub unit: Option<String>,
+    /// 标量数值展示格式（fraction_digits / significant_digits / mode: compact），由前端 `formatMetricNumber` 解释。
+    #[serde(default, rename = "value_format")]
+    pub value_format: Option<Value>,
     #[serde(default)]
     pub purpose: Option<String>,
     #[serde(default = "default_metric_shape")]

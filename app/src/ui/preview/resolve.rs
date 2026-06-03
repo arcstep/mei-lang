@@ -464,8 +464,8 @@ fn resolve_metric_ref(
                     if dataset_id != entry.owner_resource_id
                         && !is_scene_direct_world_metric_owner(&entry.owner_resource_id)
                     {
-                        return None;
-                    }
+            return None;
+        }
                 }
                 Err(_) if !is_scene_direct_world_metric_owner(&entry.owner_resource_id) => {
                     return None;
