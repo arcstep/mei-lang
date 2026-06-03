@@ -45,6 +45,16 @@ pub(super) fn normalize_target_path(target: &str) -> String {
         .to_string()
 }
 
+pub(super) fn is_world_capsule_target(target: &str) -> bool {
+    normalize_target_path(target).ends_with(".world.mei")
+}
+
+pub(super) fn world_capsule_companion_scene(target: &str) -> Option<String> {
+    normalize_target_path(target)
+        .strip_suffix(".world.mei")
+        .map(|base| format!("{base}.mei"))
+}
+
 pub(super) fn normalize_diagnostic_source(
     app_root: &str,
     source_path: Option<&str>,
@@ -98,6 +108,27 @@ pub(super) fn diagnostic_matches_target(
     !target_base.is_empty() && target_base == source_base
 }
 
+fn is_world_capsule_manage_hint(
+    compiled: &CompiledApp,
+    selected_target: &str,
+    diag: &Diagnostic,
+) -> bool {
+    is_world_capsule_target(selected_target)
+        && diagnostic_matches_target(compiled, selected_target, diag)
+        && matches!(
+            diag.code.as_str(),
+            "missing_scene" | "public_fragment_file_deprecated"
+        )
+}
+
+fn should_display_diagnostic(
+    compiled: &CompiledApp,
+    selected_target: &str,
+    diag: &Diagnostic,
+) -> bool {
+    !is_world_capsule_manage_hint(compiled, selected_target, diag)
+}
+
 #[allow(dead_code)]
 pub(super) fn is_global_or_unattributed_diagnostic(
     compiled: &CompiledApp,
@@ -123,12 +154,18 @@ pub(super) fn compile_diagnostics_for_mode<'a>(
         DiagnosticsFilterMode::All => compiled
             .diagnostics
             .iter()
-            .filter(|diag| is_compile_diagnostic(diag))
+            .filter(|diag| {
+                is_compile_diagnostic(diag)
+                    && should_display_diagnostic(compiled, selected_target, diag)
+            })
             .collect(),
         DiagnosticsFilterMode::CurrentFile => compiled
             .diagnostics
             .iter()
-            .filter(|diag| diagnostic_matches_target(compiled, selected_target, diag))
+            .filter(|diag| {
+                diagnostic_matches_target(compiled, selected_target, diag)
+                    && should_display_diagnostic(compiled, selected_target, diag)
+            })
             .collect(),
     }
 }
@@ -143,6 +180,7 @@ pub(super) fn compile_diagnostics_other_file_count(
         .filter(|diag| {
             is_compile_diagnostic(diag)
                 && !diagnostic_matches_target(compiled, selected_target, diag)
+                && should_display_diagnostic(compiled, selected_target, diag)
         })
         .count()
 }
@@ -170,13 +208,36 @@ pub(super) fn compile_status_counts_for_target(
     let diags: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|diag| diagnostic_matches_target(compiled, selected_target, diag))
+        .filter(|diag| {
+            diagnostic_matches_target(compiled, selected_target, diag)
+                && should_display_diagnostic(compiled, selected_target, diag)
+        })
         .collect();
     severity_counts(&diags)
 }
 
-pub(super) fn compile_status_summary(compiled: &CompiledApp) -> String {
-    let (errors, warnings, infos) = compile_status_counts(compiled);
+pub(super) fn compile_status_counts_for_display(
+    compiled: &CompiledApp,
+    selected_target: &str,
+) -> (usize, usize, usize) {
+    let diags: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| should_display_diagnostic(compiled, selected_target, diag))
+        .collect();
+    severity_counts(&diags)
+}
+
+pub(super) fn visible_diagnostics_count(compiled: &CompiledApp, selected_target: &str) -> usize {
+    compiled
+        .diagnostics
+        .iter()
+        .filter(|diag| should_display_diagnostic(compiled, selected_target, diag))
+        .count()
+}
+
+pub(super) fn compile_status_summary(compiled: &CompiledApp, selected_target: &str) -> String {
+    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, selected_target);
     if errors == 0 && warnings == 0 && infos == 0 {
         "编译 正常".to_string()
     } else {
@@ -195,7 +256,7 @@ pub(super) fn compile_status_summary(compiled: &CompiledApp) -> String {
 }
 
 pub(super) fn compile_status_title(compiled: &CompiledApp, current_target: &str) -> String {
-    let (errors, warnings, infos) = compile_status_counts(compiled);
+    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, current_target);
     let (cur_e, cur_w, cur_i) = compile_status_counts_for_target(compiled, current_target);
     if errors == 0 && warnings == 0 && infos == 0 {
         "当前没有编译诊断".to_string()
@@ -207,8 +268,8 @@ pub(super) fn compile_status_title(compiled: &CompiledApp, current_target: &str)
     }
 }
 
-pub(super) fn compile_status_tone(compiled: &CompiledApp) -> &'static str {
-    let (errors, warnings, infos) = compile_status_counts(compiled);
+pub(super) fn compile_status_tone(compiled: &CompiledApp, selected_target: &str) -> &'static str {
+    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, selected_target);
     if errors > 0 {
         "danger"
     } else if warnings > 0 {
@@ -220,30 +281,14 @@ pub(super) fn compile_status_tone(compiled: &CompiledApp) -> &'static str {
     }
 }
 
-pub(super) fn compile_status_counts(compiled: &CompiledApp) -> (usize, usize, usize) {
-    let errors = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
-        .count();
-    let warnings = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Warning))
-        .count();
-    let infos = compiled
-        .diagnostics
-        .iter()
-        .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Info))
-        .count();
-    (errors, warnings, infos)
-}
-
-pub(super) fn compiled_has_error_diagnostics(compiled: &CompiledApp) -> bool {
-    compiled
-        .diagnostics
-        .iter()
-        .any(|diag| matches!(diag.severity, mei_lang_kernel::Severity::Error))
+pub(super) fn compiled_has_error_diagnostics(
+    compiled: &CompiledApp,
+    selected_target: &str,
+) -> bool {
+    compiled.diagnostics.iter().any(|diag| {
+        matches!(diag.severity, mei_lang_kernel::Severity::Error)
+            && should_display_diagnostic(compiled, selected_target, diag)
+    })
 }
 
 pub(super) fn is_mei_script_target(target: &str) -> bool {
@@ -351,6 +396,7 @@ pub(super) fn blocking_errors_for_preview<'a>(
     for diag in compiled.diagnostics.iter().filter(|diag| {
         matches!(diag.severity, mei_lang_kernel::Severity::Error)
             && diagnostic_matches_target(compiled, selected_target, diag)
+            && should_display_diagnostic(compiled, selected_target, diag)
     }) {
         picked.push(diag);
         if picked.len() >= limit {
@@ -360,6 +406,7 @@ pub(super) fn blocking_errors_for_preview<'a>(
     for diag in compiled.diagnostics.iter().filter(|diag| {
         matches!(diag.severity, mei_lang_kernel::Severity::Error)
             && !diagnostic_matches_target(compiled, selected_target, diag)
+            && should_display_diagnostic(compiled, selected_target, diag)
     }) {
         picked.push(diag);
         if picked.len() >= limit {
@@ -442,5 +489,30 @@ mod tests {
             DiagnosticsFilterMode::All,
         );
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn world_capsule_manage_hints_are_filtered_from_current_target() {
+        let compiled = sample_compiled(vec![
+            Diagnostic {
+                severity: Severity::Warning,
+                code: "public_fragment_file_deprecated".to_string(),
+                message: "msg".to_string(),
+                source_path: Some("scenes/foo.world.mei".to_string()),
+            },
+            diag("missing_scene", "scenes/foo.world.mei"),
+            diag("invalid_resource_ref", "scenes/foo.world.mei"),
+        ]);
+        let current = compile_diagnostics_for_mode(
+            &compiled,
+            "scenes/foo.world.mei",
+            DiagnosticsFilterMode::CurrentFile,
+        );
+        assert_eq!(current.len(), 1);
+        assert_eq!(current[0].code, "invalid_resource_ref");
+        assert!(compiled_has_error_diagnostics(
+            &compiled,
+            "scenes/foo.world.mei"
+        ));
     }
 }

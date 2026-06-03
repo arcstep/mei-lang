@@ -3,7 +3,8 @@ use mei_lang_kernel::CompiledApp;
 
 use super::super::compile_status::{
     compile_diagnostics_for_mode, compile_diagnostics_other_file_count, is_manage_pipeline_diag,
-    normalize_diagnostic_source, severity_counts, DiagnosticsFilterMode,
+    is_world_capsule_target, normalize_diagnostic_source, severity_counts,
+    world_capsule_companion_scene, DiagnosticsFilterMode,
 };
 use super::super::manage_routing::{manage_tab_href, ManageViewTab};
 use super::html_escape::escape_html_attr;
@@ -285,7 +286,18 @@ pub(super) fn diagnostics_view(
             <p class="m-0 rounded-lg border border-dashed border-slate-600/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
                 {match filter_mode {
                     DiagnosticsFilterMode::CurrentFile => {
-                        format!("当前文件 `{selected_target}` 无 compile diagnostics。")
+                        if is_world_capsule_target(selected_target) {
+                            let companion_scene = world_capsule_companion_scene(selected_target)
+                                .unwrap_or_else(|| {
+                                    selected_target.trim_end_matches(".world.mei").to_string()
+                                        + ".mei"
+                                });
+                            format!(
+                                "当前 world 胶囊文件 `{selected_target}` 无需展示的 compile diagnostics。它不提供独立 UI 预览，请打开对应 `{companion_scene}` 查看画布。"
+                            )
+                        } else {
+                            format!("当前文件 `{selected_target}` 无 compile diagnostics。")
+                        }
                     }
                     DiagnosticsFilterMode::All => "本次编译无 compile diagnostics（不含 manage_page_pipeline）。".to_string(),
                 }}

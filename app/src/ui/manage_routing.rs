@@ -1,6 +1,6 @@
 use mei_lang_kernel::CompiledApp;
 
-use super::compile_status::asset_dual_preview_source;
+use super::compile_status::{asset_dual_preview_source, is_world_capsule_target};
 use super::UiRouteMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,7 +74,9 @@ pub(super) fn manage_view_tab_from_query(
     let has_diagnostics_tab = script_target && diagnostics_count > 0;
     let asset_dual = asset_dual_preview_source(selected_target);
     let next = manage_tab_from_slug(active_tab).unwrap_or_else(|| {
-        if prefer_diagnostics && has_diagnostics_tab {
+        if script_target && is_world_capsule_target(selected_target) {
+            ManageViewTab::Source
+        } else if prefer_diagnostics && has_diagnostics_tab {
             ManageViewTab::Diagnostics
         } else {
             ManageViewTab::Preview

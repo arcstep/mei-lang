@@ -1,7 +1,10 @@
 use leptos::prelude::*;
 
 use super::{build_preview_runtime_context, nodes, style, theme, viewport};
-use crate::ui::compile_status::{blocking_errors_for_preview, normalize_diagnostic_source};
+use crate::ui::compile_status::{
+    blocking_errors_for_preview, is_world_capsule_target, normalize_diagnostic_source,
+    world_capsule_companion_scene,
+};
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::CompiledApp;
 pub(super) fn preview_view(
@@ -207,6 +210,33 @@ pub(super) fn preview_view(
             </section>
         }
         .into_any();
+    }
+
+    if is_world_capsule_target(selected_target) {
+        let companion_scene = world_capsule_companion_scene(selected_target)
+            .unwrap_or_else(|| selected_target.trim_end_matches(".world.mei").to_string() + ".mei");
+        let companion_label = companion_scene
+            .rsplit('/')
+            .next()
+            .unwrap_or(companion_scene.as_str())
+            .to_string();
+        let blocking_errors = blocking_errors_for_preview(compiled, selected_target, 3);
+        if blocking_errors.is_empty() {
+            return view! {
+                <section class="scene-placeholder rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4">
+                    <h3 class="mb-2 text-base font-semibold text-slate-100">"world 胶囊不提供独立预览"</h3>
+                    <p class="text-slate-300">
+                        "当前文件仅定义数据集、指标与 world 资源，不生成独立 scene/frame 画布。"
+                    </p>
+                    <p class="mt-2 text-sm leading-6 text-slate-400">
+                        "请打开对应的 "
+                        <code class="text-slate-200">{companion_label}</code>
+                        " 查看页面预览；当前文件仍可继续编辑源码并在「调试」页查看 world 相关诊断。"
+                    </p>
+                </section>
+            }
+            .into_any();
+        }
     }
 
     let blocking_errors = blocking_errors_for_preview(compiled, selected_target, 3);

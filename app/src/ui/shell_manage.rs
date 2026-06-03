@@ -4,7 +4,8 @@ use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use super::agent_panel;
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
-    is_mei_script_target, source_language, AssetShellKind, DiagnosticsFilterMode,
+    is_mei_script_target, source_language, visible_diagnostics_count, AssetShellKind,
+    DiagnosticsFilterMode,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::preview;
@@ -84,12 +85,12 @@ pub(super) fn manage_shell(
         selected_target.as_str(),
         diag_filter_mode,
     );
-    let diagnostics_total = compiled.diagnostics.len();
+    let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
     let script_target = is_mei_script_target(selected_target.as_str());
     let active_manage_tab = manage_view_tab_from_query(
         active_tab,
         script_target,
-        compiled_has_error_diagnostics(compiled),
+        compiled_has_error_diagnostics(compiled, selected_target.as_str()),
         diagnostics_total,
         selected_target.as_str(),
     );

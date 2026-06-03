@@ -191,6 +191,14 @@ mod tests {
     }
 
     #[test]
+    fn manage_world_capsule_defaults_to_source_tab() {
+        assert!(matches!(
+            manage_view_tab_from_query(None, true, true, 2, "scenes/foo.world.mei"),
+            ManageViewTab::Source
+        ));
+    }
+
+    #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
         assert_eq!(
             route_query(UiRouteMode::Manage, None, None, Some("source")),

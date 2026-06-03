@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::CompiledApp;
 
 use super::compile_status::{
-    compile_status_counts, compile_status_counts_for_target, compile_status_summary,
+    compile_status_counts_for_display, compile_status_counts_for_target, compile_status_summary,
     compile_status_title, compile_status_tone,
 };
 use super::manage_routing::{manage_tab_href, ManageViewTab};
@@ -41,13 +41,13 @@ pub(super) fn statusbar_view(
     } else {
         format!("当前文件：{current_target}")
     };
-    let (errors, warnings, infos) = compile_status_counts(compiled);
+    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, current_target);
     let error_tone = if errors > 0 { "danger" } else { "neutral" };
     let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
     let info_tone = if infos > 0 { "info" } else { "neutral" };
-    let compile_summary = compile_status_summary(compiled);
+    let compile_summary = compile_status_summary(compiled, current_target);
     let compile_summary_title = compile_status_title(compiled, current_target);
-    let compile_tone = compile_status_tone(compiled);
+    let compile_tone = compile_status_tone(compiled, current_target);
     let (cur_errors, _, _) = compile_status_counts_for_target(compiled, current_target);
     let diagnostics_tab_href = if show_compile_center && (errors > 0 || warnings > 0) {
         Some(manage_tab_href(
