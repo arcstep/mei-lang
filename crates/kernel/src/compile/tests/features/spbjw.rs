@@ -1534,6 +1534,64 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
 }
 
 #[test]
+fn spbjw_effectiveness_transfer_clue_and_filing_count_equal_four() {
+    use std::collections::BTreeMap;
+
+    let root = workspace_root();
+    let source_root = root.join("workspaces");
+    let app_root = source_root.join("spbjw");
+    let target = "scenes/08-监督成效.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let owner = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == "__world_metrics__")
+        .and_then(|r| r.dataset.as_ref())
+        .expect("08 capsule should materialize __world_metrics__");
+    let datasets: BTreeMap<_, _> = compiled
+        .resources
+        .iter()
+        .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
+        .collect();
+    let metrics = super::evaluate_runtime_metric_defs(
+        &owner.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[
+            "effectiveness_transfer_clue_count".to_string(),
+            "effectiveness_filing_count".to_string(),
+        ]),
+    )
+    .expect("evaluate supervision effectiveness clue/filing metrics");
+    for metric_id in [
+        "effectiveness_transfer_clue_count",
+        "effectiveness_filing_count",
+    ] {
+        let metric = metrics
+            .get(metric_id)
+            .unwrap_or_else(|| panic!("missing metric `{metric_id}`"));
+        let value = metric
+            .value
+            .get("value")
+            .and_then(|v| v.as_f64())
+            .or_else(|| metric.value.as_f64())
+            .unwrap_or(f64::NAN);
+        assert_eq!(
+            value, 4.0,
+            "{metric_id} should count 2+1+1 from 《11》是否转问题线索（含「是（2）」），got {value}"
+        );
+    }
+}
+
+#[test]
 fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date() {
     use std::collections::BTreeMap;
 

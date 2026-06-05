@@ -2252,7 +2252,7 @@
         ? Number(config.columnMinWidth)
         : tableScrollX
           ? 88
-          : undefined;
+          : 56;
     return {
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
@@ -2260,8 +2260,10 @@
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       embedded: true,
       tableScrollX,
-      fitColumnsFromSample: tableScrollX,
+      autoFitColumns: true,
+      fitColumnsFromSample: true,
       columnWidthSampleSize: 100,
+      cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize) > 0 ? Number(config.pageSize) : 8,
       cellPreviewMaxChars:
         Number(config?.cellPreviewMaxChars) > 0
