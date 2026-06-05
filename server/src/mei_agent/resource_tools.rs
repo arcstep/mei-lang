@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{llm, skill_tools};
+use super::llm;
 
 /// 业务层资源与工具可见范围（在 workspace 安全边界之内进一步收敛）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -109,22 +109,16 @@ pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
 
 /// 按「模式 + 资源可见性」生成 LLM 可见工具 schema：`local_only` 下 dataset 工具不暴露 scope 覆盖参数。
 pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) -> Vec<Value> {
-    let normalized = mode.trim().to_ascii_lowercase();
+    let _normalized = mode.trim().to_ascii_lowercase();
     let allow_ds_scope_override = vis != ResourceVisibility::LocalOnly;
-    let mut tools = vec![
+    vec![
         llm::read_file_tool_definition(),
         dataset_query_tool_definition(allow_ds_scope_override),
         dataset_metric_tool_definition(allow_ds_scope_override),
         resource_list_tool_definition(allow_ds_scope_override),
         resource_get_tool_definition(allow_ds_scope_override),
         resource_runtime_peek_tool_definition(allow_ds_scope_override),
-    ];
-    if normalized == "build" {
-        tools.push(rewrite_current_mei_tool_definition());
-        tools.push(skill_tools::skill_list_tool_definition());
-        tools.push(skill_tools::skill_read_tool_definition());
-    }
-    tools
+    ]
 }
 
 fn resource_list_tool_definition(allow_scope_override: bool) -> Value {
@@ -323,25 +317,6 @@ fn dataset_metric_tool_definition(allow_scope_override: bool) -> Value {
     })
 }
 
-fn rewrite_current_mei_tool_definition() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "rewrite_current_mei",
-            "description": "Rewrite current target `.mei` file with full new content. Build mode only. This tool is restricted to the active target file from the current request scope.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "content": { "type": "string", "description": "Full file content to write into current target `.mei`." },
-                    "target_file": { "type": "string", "description": "Optional; must equal current target_file if provided." },
-                    "reason": { "type": "string", "description": "Short reason for the rewrite." }
-                },
-                "required": ["content"]
-            }
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{tool_definitions_for_mode, tool_definitions_for_profile, ResourceVisibility};
@@ -407,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn build_mode_includes_authoring_tools() {
+    fn build_mode_now_matches_read_only_toolset() {
         let names = tool_names("build");
         assert!(names.contains(&"read_file".to_string()));
         assert!(names.contains(&"dataset_query".to_string()));
@@ -415,8 +390,8 @@ mod tests {
         assert!(names.contains(&"resource_list".to_string()));
         assert!(names.contains(&"resource_get".to_string()));
         assert!(names.contains(&"resource_runtime_peek".to_string()));
-        assert!(names.contains(&"skill_list".to_string()));
-        assert!(names.contains(&"skill_read".to_string()));
-        assert!(names.contains(&"rewrite_current_mei".to_string()));
+        assert!(!names.contains(&"skill_list".to_string()));
+        assert!(!names.contains(&"skill_read".to_string()));
+        assert!(!names.contains(&"rewrite_current_mei".to_string()));
     }
 }

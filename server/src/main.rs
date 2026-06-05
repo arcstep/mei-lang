@@ -18,8 +18,13 @@ use axum::{
     response::{IntoResponse, Response},
     Router,
 };
-use clap::{Parser, Subcommand};
-use mei_lang_kernel::{CompileWatchedFile, CompiledApp};
+use clap::{Args, Parser, Subcommand};
+use mei_lang_kernel::{
+    compile_app_with_options, compile_revision_plan_from_root_with_options, CompileOptions,
+    CompileWatchedFile, CompiledApp, Diagnostic, Severity,
+};
+use serde::Serialize;
+use serde_json::json;
 use std::time::Instant;
 use tracing::Instrument;
 
@@ -43,12 +48,151 @@ struct Cli {
 enum Command {
     Serve(ServeArgs),
     Agent(AgentArgs),
+    Compile(CheckArgs),
+    Check(CheckArgs),
+    Inspect(InspectArgs),
+    Query(QueryArgs),
+    Runtime(RuntimeArgs),
+    Mcp(McpArgs),
 }
 
 #[derive(clap::Args)]
 struct AgentArgs {
     #[command(subcommand)]
     command: AgentCommand,
+}
+
+#[derive(Args, Clone)]
+struct CliAppSelectorArgs {
+    #[arg(long, default_value = "../workspaces")]
+    source_root: PathBuf,
+    #[arg(long)]
+    app: String,
+    #[arg(long)]
+    scene: Option<String>,
+    #[arg(long, alias = "target")]
+    target_file: Option<String>,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args, Clone)]
+struct CheckArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+struct InspectArgs {
+    #[command(subcommand)]
+    command: InspectCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum InspectCommand {
+    World(InspectWorldArgs),
+    Inventory(InspectInventoryArgs),
+}
+
+#[derive(Args, Clone)]
+struct InspectWorldArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+struct InspectInventoryArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+struct QueryArgs {
+    #[command(subcommand)]
+    command: QueryCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum QueryCommand {
+    Dataset(QueryDatasetArgs),
+    Metric(QueryMetricArgs),
+    Resource(QueryResourceArgs),
+}
+
+#[derive(Args, Clone)]
+struct QueryDatasetArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    id: String,
+    #[arg(long)]
+    search: Option<String>,
+    #[arg(long = "filter")]
+    filters: Vec<String>,
+    #[arg(long = "column")]
+    columns: Vec<String>,
+    #[arg(long)]
+    limit: Option<usize>,
+}
+
+#[derive(Args, Clone)]
+struct QueryMetricArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    id: String,
+    #[arg(long = "metric-id")]
+    metric_ids: Vec<String>,
+    #[arg(long)]
+    search: Option<String>,
+    #[arg(long = "filter")]
+    filters: Vec<String>,
+}
+
+#[derive(Args, Clone)]
+struct QueryResourceArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    id: String,
+}
+
+#[derive(Args, Clone)]
+struct RuntimeArgs {
+    #[command(subcommand)]
+    command: RuntimeCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum RuntimeCommand {
+    Peek(RuntimePeekArgs),
+}
+
+#[derive(Args, Clone)]
+struct RuntimePeekArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    trace_limit: Option<usize>,
+}
+
+#[derive(Args, Clone)]
+struct McpArgs {
+    #[command(subcommand)]
+    command: McpCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum McpCommand {
+    Describe(McpDescribeArgs),
+}
+
+#[derive(Args, Clone)]
+struct McpDescribeArgs {
+    #[arg(long, value_parser = ["editor", "access"])]
+    surface: String,
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(clap::Args)]
@@ -122,18 +266,27 @@ pub(crate) struct SessionContextSnapshot {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let env_filter = match cli.command {
+        Command::Serve(_) => "info",
+        _ => "error",
+    };
     tracing_subscriber::fmt()
-        .with_env_filter("info")
+        .with_env_filter(env_filter)
         .with_target(false)
         .compact()
         .init();
-
-    let cli = Cli::parse();
     match cli.command {
         Command::Serve(args) => serve(args).await,
         Command::Agent(args) => agent_command(AgentRuntimeArgs {
             command: args.command,
         }),
+        Command::Compile(args) => compile_or_check_command("compile", args),
+        Command::Check(args) => compile_or_check_command("check", args),
+        Command::Inspect(args) => inspect_command(args),
+        Command::Query(args) => query_command(args),
+        Command::Runtime(args) => runtime_command(args),
+        Command::Mcp(args) => mcp_command(args),
     }
 }
 
@@ -142,6 +295,444 @@ fn resolve_package_root() -> Result<PathBuf> {
         .parent()
         .context("server crate manifest has no parent directory")
         .map(std::path::Path::to_path_buf)
+}
+
+fn resolve_cli_source_root(package_root: &std::path::Path, raw: &PathBuf) -> Result<PathBuf> {
+    let source_root = if raw.is_absolute() {
+        raw.clone()
+    } else {
+        package_root.join(raw)
+    };
+    fs::create_dir_all(&source_root).with_context(|| {
+        format!(
+            "failed to create or access source root {}",
+            source_root.display()
+        )
+    })?;
+    source_root.canonicalize().with_context(|| {
+        format!(
+            "failed to canonicalize source root {}",
+            source_root.display()
+        )
+    })
+}
+
+fn normalize_optional_arg(value: &Option<String>) -> Option<String> {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+fn compile_options_from_selector(args: &CliAppSelectorArgs) -> CompileOptions {
+    CompileOptions {
+        scene: normalize_optional_arg(&args.scene),
+        preview_target: normalize_optional_arg(&args.target_file),
+    }
+}
+
+fn world_scope_from_selector(args: &CliAppSelectorArgs) -> Option<http::scene_api::WorldScope> {
+    let scene_id = normalize_optional_arg(&args.scene);
+    let target_file = normalize_optional_arg(&args.target_file);
+    if scene_id.is_none() && target_file.is_none() {
+        None
+    } else {
+        Some(http::scene_api::WorldScope {
+            scene_id,
+            target_file,
+        })
+    }
+}
+
+fn parse_cli_filters(filters: &[String]) -> Result<std::collections::BTreeMap<String, String>> {
+    let mut out = std::collections::BTreeMap::new();
+    for item in filters {
+        let raw = item.trim();
+        let Some((key, value)) = raw.split_once('=') else {
+            anyhow::bail!("invalid --filter `{raw}`; expected key=value");
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() || value.is_empty() {
+            anyhow::bail!("invalid --filter `{raw}`; expected non-empty key=value");
+        }
+        out.insert(key.to_string(), value.to_string());
+    }
+    Ok(out)
+}
+
+fn diagnostics_summary(diagnostics: &[Diagnostic]) -> serde_json::Value {
+    let mut errors = 0usize;
+    let mut warnings = 0usize;
+    let mut infos = 0usize;
+    for item in diagnostics {
+        match item.severity {
+            Severity::Error => errors += 1,
+            Severity::Warning => warnings += 1,
+            Severity::Info => infos += 1,
+        }
+    }
+    json!({
+        "errors": errors,
+        "warnings": warnings,
+        "infos": infos,
+    })
+}
+
+fn watched_files_json(files: &[CompileWatchedFile]) -> Vec<serde_json::Value> {
+    files.iter()
+        .map(|item| {
+            json!({
+                "rel_path": item.rel_path,
+                "modified_ms": item.modified_ms,
+                "size_bytes": item.size_bytes,
+            })
+        })
+        .collect()
+}
+
+fn scope_json(scope: Option<&http::scene_api::WorldScope>) -> serde_json::Value {
+    match scope {
+        Some(scope) => json!({
+            "scene_id": scope.scene_id,
+            "target_file": scope.target_file,
+        }),
+        None => serde_json::Value::Null,
+    }
+}
+
+fn print_json_output<T: Serialize>(value: &T, pretty: bool) -> Result<()> {
+    if pretty {
+        println!("{}", serde_json::to_string_pretty(value)?);
+    } else {
+        println!("{}", serde_json::to_string(value)?);
+    }
+    Ok(())
+}
+
+fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    agent_runtime::runtime::load_repo_dotenv(&package_root);
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let options = compile_options_from_selector(&args.app);
+    let app_root = source_root.join(app_id);
+    let revision_plan =
+        compile_revision_plan_from_root_with_options(&source_root, &app_root, &options)?;
+    let compiled = compile_app_with_options(&source_root, app_id, options.clone())?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": command,
+        "app_id": app_id,
+        "source_root": source_root,
+        "requested": {
+            "scene_id": options.scene,
+            "target_file": options.preview_target,
+        },
+        "active": {
+            "scene_id": compiled.active_scene,
+            "target_file": compiled.active_target_file,
+        },
+        "ok": !compiled.diagnostics.iter().any(|item| matches!(item.severity, Severity::Error)),
+        "diagnostics_summary": diagnostics_summary(&compiled.diagnostics),
+        "diagnostics": compiled.diagnostics,
+        "scene_routes": compiled.scene_routes,
+        "revision": {
+            "token": revision_plan.token,
+            "components_revision": revision_plan.components_revision,
+            "watched_files": watched_files_json(&revision_plan.watched_files),
+        }
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn inspect_command(args: InspectArgs) -> Result<()> {
+    match args.command {
+        InspectCommand::World(args) => inspect_world_command(args),
+        InspectCommand::Inventory(args) => inspect_inventory_command(args),
+    }
+}
+
+fn inspect_world_command(args: InspectWorldArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let snapshot = http::scene_api::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "inspect.world",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "world_context": snapshot,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn inspect_inventory_command(args: InspectInventoryArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let snapshot = http::scene_api::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "inspect.inventory",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "active_target_file": snapshot.active_target_file,
+        "inventory": snapshot.resource_inventory,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn query_command(args: QueryArgs) -> Result<()> {
+    match args.command {
+        QueryCommand::Dataset(args) => query_dataset_command(args),
+        QueryCommand::Metric(args) => query_metric_command(args),
+        QueryCommand::Resource(args) => query_resource_command(args),
+    }
+}
+
+fn query_dataset_command(args: QueryDatasetArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let filters = parse_cli_filters(&args.filters)?;
+    let columns = if args.columns.is_empty() {
+        None
+    } else {
+        Some(args.columns.as_slice())
+    };
+    let result = http::scene_api::query_resource_dataset(
+        &source_root,
+        app_id,
+        scope.as_ref(),
+        args.id.trim(),
+        args.search.as_deref(),
+        &filters,
+        columns,
+        args.limit,
+    )?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "query.dataset",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "dataset_id": args.id.trim(),
+        "result": result,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn query_metric_command(args: QueryMetricArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let filters = parse_cli_filters(&args.filters)?;
+    let result = http::scene_api::query_resource_dataset_metric(
+        &source_root,
+        app_id,
+        scope.as_ref(),
+        args.id.trim(),
+        &args.metric_ids,
+        args.search.as_deref(),
+        &filters,
+    )?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "query.metric",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "dataset_id": args.id.trim(),
+        "metric_ids": args.metric_ids,
+        "result": result,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let result = http::scene_api::query_resource_get(
+        &source_root,
+        app_id,
+        scope.as_ref(),
+        args.id.trim(),
+    )?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "query.resource",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "resource_id": args.id.trim(),
+        "result": result,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn runtime_command(args: RuntimeArgs) -> Result<()> {
+    match args.command {
+        RuntimeCommand::Peek(args) => runtime_peek_command(args),
+    }
+}
+
+fn runtime_peek_command(args: RuntimePeekArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let scope = world_scope_from_selector(&args.app);
+    let result = http::scene_api::query_resource_runtime_peek(
+        &source_root,
+        app_id,
+        scope.as_ref(),
+        args.trace_limit,
+    )?;
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "runtime.peek",
+        "app_id": app_id,
+        "scope": scope_json(scope.as_ref()),
+        "result": result,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn mcp_command(args: McpArgs) -> Result<()> {
+    match args.command {
+        McpCommand::Describe(args) => mcp_describe_command(args),
+    }
+}
+
+fn mcp_describe_command(args: McpDescribeArgs) -> Result<()> {
+    let surface = args.surface.trim().to_ascii_lowercase();
+    let descriptor = match surface.as_str() {
+        "editor" => json!({
+            "schema_version": "mei-mcp-surface-v1",
+            "surface": "editor",
+            "transport": {
+                "status": "descriptor_ready",
+                "recommended": "wrap these commands in stdio MCP host or editor-native adapter"
+            },
+            "tools": [
+                {
+                    "name": "mei_check",
+                    "description": "Compile an app and return diagnostics plus revision metadata.",
+                    "backed_by": "mei check --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_compile",
+                    "description": "Compile an app and return the same JSON contract as check for scripted consumers.",
+                    "backed_by": "mei compile --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_inspect_world",
+                    "description": "Return the structured world/runtime snapshot for the selected app scope.",
+                    "backed_by": "mei inspect world --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_inspect_inventory",
+                    "description": "Return the app inventory/resource index for the selected scope.",
+                    "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_query_dataset",
+                    "description": "Run bounded dataset row/schema queries.",
+                    "backed_by": "mei query dataset --app <app> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json"
+                },
+                {
+                    "name": "mei_query_metric",
+                    "description": "Run bounded runtime metric queries for a dataset.",
+                    "backed_by": "mei query metric --app <app> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json"
+                },
+                {
+                    "name": "mei_runtime_peek",
+                    "description": "Peek current runtime phase/result/actions for the selected scope.",
+                    "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_query_resource",
+                    "description": "Fetch a single world resource/entity payload.",
+                    "backed_by": "mei query resource --app <app> --id <resource_id> [--scene <scene>] [--target-file <file>] --json"
+                }
+            ],
+            "write_policy": {
+                "default": "read_only",
+                "note": "Editor-side MCP currently wraps semantic read/check/query surfaces only; file writes stay in the external dev tool."
+            }
+        }),
+        "access" => json!({
+            "schema_version": "mei-mcp-surface-v1",
+            "surface": "access",
+            "transport": {
+                "status": "descriptor_ready",
+                "recommended": "bind these tools to host-side access agents after scope/auth is enforced"
+            },
+            "context_ir": {
+                "primary": "world-first",
+                "producer": "mei inspect world --app <app> [--scene <scene>] [--target-file <file>] --json"
+            },
+            "tools": [
+                {
+                    "name": "dataset_query",
+                    "description": "Bounded dataset schema/sample-row query for visitor-facing QA.",
+                    "backed_by": "mei query dataset --app <app> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json"
+                },
+                {
+                    "name": "dataset_metric",
+                    "description": "Bounded aggregate metric query for visitor-facing QA.",
+                    "backed_by": "mei query metric --app <app> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json"
+                },
+                {
+                    "name": "resource_list",
+                    "description": "List world assets/resources visible in the current scope.",
+                    "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "resource_get",
+                    "description": "Fetch a single world resource/entity payload.",
+                    "backed_by": "mei query resource --app <app> --id <resource_id> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "resource_runtime_peek",
+                    "description": "Peek runtime phase/result/actions for the current scope.",
+                    "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json"
+                }
+            ],
+            "write_policy": {
+                "default": "read_only",
+                "note": "Access-side MCP is intentionally read-only and should not expose authoring rewrite/diff/revert flows."
+            }
+        }),
+        _ => anyhow::bail!("unsupported MCP surface `{surface}`"),
+    };
+    print_json_output(&descriptor, args.json)
 }
 
 async fn serve(args: ServeArgs) -> Result<()> {
@@ -175,7 +766,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
     let auto_agent = args.auto_agent;
     let native_agent = Arc::new(mei_agent::NativeAgent::open_with_resource_tools(
         source_root.clone(),
-        package_root.clone(),
         std::sync::Arc::new(resource_tool_bridge::SceneResourceToolExecutor::default()),
     )?);
     let gis_tiles = Arc::new(gis_config::GisTilesConfig::resolve());
@@ -435,7 +1025,6 @@ pub(crate) mod test_support {
             .context("workspaces root (mei-lang/../workspaces)")?;
         let native_agent = Arc::new(crate::mei_agent::NativeAgent::open_with_resource_tools(
             source_root.clone(),
-            package_root.clone(),
             Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),
         )?);
         Ok(super::AppState {

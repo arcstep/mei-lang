@@ -144,7 +144,6 @@ mod tests {
         let native_agent = Arc::new(
             crate::mei_agent::NativeAgent::open_with_resource_tools(
                 source_root.clone(),
-                package_root.clone(),
                 Arc::new(crate::mei_agent::resource_tools::NoopResourceToolExecutor::default()),
             )
             .expect("native"),

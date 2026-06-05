@@ -43,18 +43,15 @@
 
     function normalizeTab(raw) {
       const value = String(raw || "").trim().toLowerCase();
-      if (value === "source" || value === "diff" || value === "diagnostics") return value;
+      if (value === "source" || value === "diagnostics") return value;
+      if (value === "diff") return "source";
       return "preview";
     }
 
     function resolveRenderableTab(tab) {
       const active = normalizeTab(tab);
-      if (active === "diff") {
-        const diffTab = document.getElementById("manage-tab-diff");
-        if (diffTab && diffTab.hidden) return "preview";
-      }
       const panels = getPanels();
-      if ((active === "source" || active === "diff") && !panels.source) {
+      if (active === "source" && !panels.source) {
         return "preview";
       }
       if (active === "diagnostics" && !panels.diagnostics) {
@@ -76,7 +73,7 @@
       const panels = getPanels();
       const active = resolveRenderableTab(tab);
       if (panels.preview) panels.preview.hidden = active !== "preview";
-      if (panels.source) panels.source.hidden = !(active === "source" || active === "diff");
+      if (panels.source) panels.source.hidden = active !== "source";
       if (panels.diagnostics) panels.diagnostics.hidden = active !== "diagnostics";
     }
 

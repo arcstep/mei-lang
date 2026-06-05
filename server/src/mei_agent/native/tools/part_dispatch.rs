@@ -2,7 +2,7 @@ use std::thread;
 
 use serde_json::{json, Value};
 
-use super::super::super::{resource_tools::AgentResourceScope, skill_tools};
+use super::super::super::resource_tools::AgentResourceScope;
 
 use super::super::NativeAgent;
 
@@ -181,40 +181,26 @@ impl NativeAgent {
         call_id: &str,
         name: &str,
         args: &str,
-        agent_mode: &str,
+        _agent_mode: &str,
         app_id: Option<&str>,
         resource_scope: &AgentResourceScope,
     ) -> String {
-        let build_mode = agent_mode.trim().eq_ignore_ascii_case("build");
         match name {
             "read_file" => {
                 self.run_read_file_tool(session_id, call_id, name, args, app_id, resource_scope)
             }
-            "dataset_query" | "dataset_metric" => self.inner.resource_tools.run_resource_tool(
+            "dataset_query"
+            | "dataset_metric"
+            | "resource_list"
+            | "resource_get"
+            | "resource_runtime_peek" => self.inner.resource_tools.run_resource_tool(
                 &self.inner.source_root,
                 app_id,
                 resource_scope,
                 name,
                 args,
             ),
-            "rewrite_current_mei" if build_mode => {
-                self.run_rewrite_current_mei_tool(args, resource_scope)
-            }
-            "skill_list" if build_mode => skill_tools::execute_skill_list(
-                &self.inner.skill_package_root,
-                &self.inner.source_root,
-            ),
-            "skill_read" if build_mode => skill_tools::execute_skill_read(
-                &self.inner.skill_package_root,
-                &self.inner.source_root,
-                args,
-            ),
-            "skill_list" | "skill_read" | "rewrite_current_mei" => {
-                format!(
-                    "error: tool `{name}` is disabled in `{}` mode",
-                    agent_mode.trim()
-                )
-            }
+            "skill_list" | "skill_read" | "rewrite_current_mei" => "error: authoring-only tools are no longer available in the built-in Mei access runtime; use external dev tools plus mei CLI/LSP for editing".to_string(),
             other => format!("error: tool `{other}` is not allowed"),
         }
     }

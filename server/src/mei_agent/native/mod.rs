@@ -127,8 +127,6 @@ pub(crate) fn native_llm_env_ready() -> bool {
 struct Inner {
     db: Mutex<Connection>,
     source_root: PathBuf,
-    /// 用于解析 meilang-author skill 安装目录（通常与 `AppState.package_root` 一致）。
-    skill_package_root: PathBuf,
     event_tx: broadcast::Sender<HostOpencodeEvent>,
     /// 会话进行中时存在；`abort_session` 置位以中断流式读取。
     abort_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
@@ -144,17 +142,14 @@ impl NativeAgent {
     /// 无场景 resource 工具（noop）；供测试与仅嵌入 `http/pages` 的构建使用，`mei serve` 主路径用 [`Self::open_with_resource_tools`]。
     #[allow(dead_code)]
     pub fn open(source_root: PathBuf) -> Result<Self> {
-        let skill_root = source_root.clone();
         Self::open_with_resource_tools(
             source_root,
-            skill_root,
             Arc::new(NoopResourceToolExecutor::default()),
         )
     }
 
     pub fn open_with_resource_tools(
         source_root: PathBuf,
-        skill_package_root: PathBuf,
         resource_tools: Arc<dyn ResourceToolExecutor>,
     ) -> Result<Self> {
         let mei = source_root.join(".mei");
@@ -168,7 +163,6 @@ impl NativeAgent {
             inner: Arc::new(Inner {
                 db: Mutex::new(conn),
                 source_root,
-                skill_package_root,
                 event_tx,
                 abort_flags: Mutex::new(HashMap::new()),
                 resource_tools,

@@ -1,7 +1,6 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
-use super::agent_panel;
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
     is_mei_script_target, source_language, visible_diagnostics_count, AssetShellKind,
@@ -131,7 +130,6 @@ pub(super) fn manage_shell(
         let mut v = vec![
             (ManageViewTab::Preview, "预览".to_string(), None, false),
             (ManageViewTab::Source, "源码".to_string(), None, false),
-            (ManageViewTab::Diff, "修改".to_string(), None, true),
         ];
         if diagnostics_total > 0 {
             v.push((
@@ -211,14 +209,8 @@ pub(super) fn manage_shell(
     } else {
         diagnostics
     };
-    let source_mode = if active_manage_tab == ManageViewTab::Diff {
-        "diff"
-    } else {
-        "source"
-    };
     let preview_tab_active = active_manage_tab == ManageViewTab::Preview;
-    let source_tab_active =
-        active_manage_tab == ManageViewTab::Source || active_manage_tab == ManageViewTab::Diff;
+    let source_tab_active = active_manage_tab == ManageViewTab::Source;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
     let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
 
@@ -311,7 +303,7 @@ pub(super) fn manage_shell(
             ></div>
             {topbar}
             <div
-                class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_8px_minmax(0,1fr)_8px_var(--workspace-right-aside)]"
+                class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_minmax(0,1fr)]"
                 id="workspace-root"
             >
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
@@ -319,25 +311,6 @@ pub(super) fn manage_shell(
                         {source_tree}
                     </div>
                 </aside>
-                <div
-                    class="splitter"
-                    data-workspace-splitter="left"
-                    title="拖拽调整左侧资源栏宽度"
-                >
-                    <button
-                        class="splitter-toggle"
-                        type="button"
-                        data-workspace-toggle="left"
-                        aria-label="折叠左侧资源栏"
-                        title="折叠左侧资源栏"
-                    >
-                        <span class="splitter-toggle-icon" aria-hidden="true">
-                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10.5 3.5 6 8l4.5 4.5"/>
-                            </svg>
-                        </span>
-                    </button>
-                </div>
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         {main_tabs_nav}
@@ -363,22 +336,11 @@ pub(super) fn manage_shell(
                                         hidden=!source_tab_active
                                     >
                                         <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
-                                            <div class="source-view-host flex flex-1 min-h-0 flex-col gap-2.5" id="source-view-host" data-source-mode=source_mode>
-                                                <div
-                                                    class="source-editor-host"
-                                                    id="source-view-source-panel"
-                                                    data-source-target=selected_target.clone()
-                                                    data-source-lang=source_lang
-                                                    hidden=source_mode != "source"
-                                                ></div>
-                                                <div
-                                                    id="source-view-source-raw"
-                                                    hidden
-                                                    data-source-target=selected_target.clone()
-                                                    data-source-lang=source_lang
-                                                >{source_panel.clone()}</div>
-                                                <div class="source-diff-host" id="source-view-diff-panel" hidden=source_mode != "diff"></div>
-                                            </div>
+                                            <pre
+                                                class="whitespace-pre-wrap break-words rounded-xl border border-slate-700/60 bg-slate-950/45 p-4 font-mono text-[12px] leading-6 text-slate-200"
+                                                data-source-target=selected_target.clone()
+                                                data-source-lang=source_lang
+                                            >{source_panel.clone()}</pre>
                                         </div>
                                     </section>
                                     {if diagnostics_total > 0 {
@@ -403,41 +365,6 @@ pub(super) fn manage_shell(
                         }}
                     </section>
                 </main>
-                <div
-                    class="splitter splitter-right"
-                    data-workspace-splitter="right"
-                    title="拖拽调整右侧 OpenCode 栏宽度"
-                >
-                    <button
-                        class="splitter-toggle"
-                        type="button"
-                        data-workspace-toggle="right"
-                        aria-label="折叠右侧 OpenCode 栏"
-                        title="折叠右侧 OpenCode 栏"
-                    >
-                        <span class="splitter-toggle-icon" aria-hidden="true">
-                            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M5.5 3.5 10 8l-4.5 4.5"/>
-                            </svg>
-                        </span>
-                    </button>
-                </div>
-                <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-tool h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-0 py-2.5">
-                    <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
-                        {agent_panel::panel_view(
-                            compiled,
-                            app_path,
-                            UiRouteMode::Manage,
-                            selected_target.as_str(),
-                            script_target,
-                            active_manage_tab.slug(),
-                            true,
-                            true,
-                            "build",
-                            true,
-                        )}
-                    </div>
-                </aside>
             </div>
             {statusbar}
         </div>

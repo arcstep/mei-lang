@@ -56,16 +56,16 @@ impl AgentModePolicy {
         let route_mode = normalize_route_mode(request.route_mode.as_deref());
         let mode = normalize_mode(request.mode.as_deref())
             .or_else(|| normalize_mode(request.agent.as_deref()))
-            .unwrap_or_else(|| match route_mode {
-                RouteMode::Access => AgentMode::Ask,
-                RouteMode::Manage => AgentMode::Build,
-            });
+            .unwrap_or(AgentMode::Ask);
         Self { mode, route_mode }
     }
 
     pub(crate) fn validate(self) -> Result<(), String> {
-        if self.route_mode == RouteMode::Access && self.mode == AgentMode::Build {
-            return Err("access 页面不允许 build 模式，请切换到 ask".to_string());
+        if self.mode == AgentMode::Build {
+            return Err(
+                "内置 authoring build 模式已退出主线；请改用 ask，或通过外部开发工具配合 mei CLI/LSP 完成编辑"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -120,6 +120,6 @@ mod tests {
         let access = AgentModePolicy::from_request(&request(None, Some("access"), None));
         let manage = AgentModePolicy::from_request(&request(None, Some("manage"), None));
         assert_eq!(access.mode, AgentMode::Ask);
-        assert_eq!(manage.mode, AgentMode::Build);
+        assert_eq!(manage.mode, AgentMode::Ask);
     }
 }

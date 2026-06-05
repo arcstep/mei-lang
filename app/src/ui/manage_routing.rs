@@ -83,6 +83,9 @@ pub(super) fn manage_view_tab_from_query(
         }
     });
     if script_target {
+        if matches!(next, ManageViewTab::Diff) {
+            return ManageViewTab::Source;
+        }
         if matches!(next, ManageViewTab::Diagnostics) && !has_diagnostics_tab {
             return ManageViewTab::Preview;
         }

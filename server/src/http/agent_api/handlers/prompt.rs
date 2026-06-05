@@ -190,7 +190,7 @@ pub async fn api_agent_context_preview(
         .or(request.agent.as_deref())
         .map(str::trim)
         .filter(|v| !v.is_empty())
-        .unwrap_or("build");
+        .unwrap_or("ask");
     let native_tool_names: Vec<String> =
         resource_tools::tool_definitions_for_profile(mode_for_tools, vis)
             .into_iter()
@@ -225,15 +225,9 @@ pub async fn api_agent_context_preview(
         .into_iter()
         .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
         .collect::<Vec<_>>();
-    let skill_status = crate::agent_runtime::runtime::managed_agent_skill_status(&state)
-        .ok()
-        .and_then(|item| serde_json::to_value(item).ok());
+    let skill_status = None;
     let binding_scope = "scene".to_string();
-    let edit_scope = if mode_for_tools.eq_ignore_ascii_case("ask") {
-        "read_only".to_string()
-    } else {
-        "rewrite_target_only".to_string()
-    };
+    let edit_scope = "read_only".to_string();
     let scope_boundary = ScopeBoundaryView {
         binding_scope,
         resource_visibility: vis.as_slug().to_string(),

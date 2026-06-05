@@ -8,7 +8,6 @@ pub(crate) mod mode_policy;
 pub mod native;
 pub(crate) mod permission_policy;
 pub(crate) mod resource_tools;
-pub(crate) mod skill_tools;
 mod workspace_snapshot_git;
 
 pub(crate) use dispatch::{
