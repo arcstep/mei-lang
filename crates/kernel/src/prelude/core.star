@@ -180,6 +180,24 @@ def shared_ref(id, default = None):
         "default": default,
     })
 
+def config_ref(kind, id):
+    return _without_empty({
+        "__config_ref": kind,
+        "id": id,
+    })
+
+def theme_ref(id):
+    return "@theme:" + id
+
+def basemap_ref(id):
+    return config_ref("basemap", id)
+
+def source_ref(id):
+    return config_ref("source", id)
+
+def ops_param_ref(id):
+    return config_ref("ops_param", id)
+
 def world(id = None, topology = None, resources = None, entities = None, datasets = None, metrics = None, metric_packs = None, base = None):
     payload = {
         "kind": "world",

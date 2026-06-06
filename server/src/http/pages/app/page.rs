@@ -347,7 +347,12 @@ pub async fn app_page(
                     let h = fill_perf_placeholders(h, ssr_emit_ms, total_wall);
                     let handler_ms = elapsed_ms(app_started);
                     let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
-                    let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
+                    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+                        &state.source_root.join(&app_id),
+                        Some(state.source_root.as_path()),
+                        None,
+                    );
+                    let h = fill_gis_tiles_placeholders(h, &gis);
                     (h, ssr_emit_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
@@ -551,7 +556,12 @@ pub async fn app_page(
         let h = fill_perf_placeholders(h, ssr_emit_ms, total_wall);
         let handler_ms = elapsed_ms(app_started);
         let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
-        let h = fill_gis_tiles_placeholders(h, state.gis_tiles.as_ref());
+        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+            &state.source_root.join(&app_id),
+            Some(state.source_root.as_path()),
+            None,
+        );
+        let h = fill_gis_tiles_placeholders(h, &gis);
         (h, ssr_emit_ms, handler_ms)
     };
     let mut res = Html(html).into_response();

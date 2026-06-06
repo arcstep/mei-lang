@@ -1,7 +1,7 @@
 use axum::{
     body::Body,
     extract::{Path, Query, State},
-    http::{header::CONTENT_TYPE, HeaderValue},
+    http::{header::CONTENT_TYPE, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -9,10 +9,9 @@ use axum::{
 use crate::{
     agent_runtime::{
         bridge::{
-            BridgeAbortSummary, BridgeCreateSessionRequest, BridgeDiffSummary,
-            BridgePermissionResponseRequest, BridgePermissionResponseSummary, BridgeRevertRequest,
-            BridgeRevertSummary, BridgeSessionDiffQuery, BridgeSessionMessageRaw,
-            BridgeSessionSummary, BridgeUnrevertSummary,
+            BridgeAbortSummary, BridgeCreateSessionRequest, BridgePermissionResponseRequest,
+            BridgePermissionResponseSummary, BridgeRevertRequest, BridgeSessionDiffQuery,
+            BridgeSessionMessageRaw, BridgeSessionSummary,
         },
         events::{
             normalize_upstream_message_to_snapshot, HostOpencodeEvent, HostOpencodeMessageList,
@@ -20,9 +19,9 @@ use crate::{
     },
     mei_agent::{
         agent_abort_session, agent_create_session, agent_list_sessions, agent_respond_permission,
-        agent_revert_session, agent_session_diff, agent_session_messages, agent_unrevert_session,
+        agent_session_messages,
         native::{encode_host_event_line, filter_session_event},
-        resolve_agent_conn, sanitize_relative_path,
+        resolve_agent_conn,
     },
     AppState,
 };
@@ -159,27 +158,13 @@ pub async fn api_agent_session_messages(
 }
 
 pub async fn api_agent_session_diff(
-    State(state): State<AppState>,
-    Path(session_id): Path<String>,
-    Query(query): Query<BridgeSessionDiffQuery>,
+    _state: State<AppState>,
+    _session_id: Path<String>,
+    _query: Query<BridgeSessionDiffQuery>,
 ) -> Response {
-    let conn = match resolve_agent_conn(&state) {
-        Ok(c) => c,
-        Err(error) => return error_response(error),
-    };
-    let diff_path = query.path.as_deref().and_then(sanitize_relative_path);
-    match agent_session_diff(
-        &state,
-        &conn,
-        &session_id,
-        query.message_id.as_deref(),
-        diff_path,
+    authoring_writeback_retired_response(
+        "agent session diff 已下线；`.mei` 只读，请使用 /api/ops/journal 查看运维变更。",
     )
-    .await
-    {
-        Ok(summary) => Json::<BridgeDiffSummary>(summary).into_response(),
-        Err(error) => error_response(error),
-    }
 }
 
 pub async fn api_agent_abort_session(
@@ -197,32 +182,33 @@ pub async fn api_agent_abort_session(
 }
 
 pub async fn api_agent_revert_session(
-    State(state): State<AppState>,
-    Path(session_id): Path<String>,
-    Json(request): Json<BridgeRevertRequest>,
+    _state: State<AppState>,
+    _session_id: Path<String>,
+    _request: Json<BridgeRevertRequest>,
 ) -> Response {
-    let conn = match resolve_agent_conn(&state) {
-        Ok(c) => c,
-        Err(error) => return error_response(error),
-    };
-    match agent_revert_session(&state, &conn, &session_id, request).await {
-        Ok(summary) => Json::<BridgeRevertSummary>(summary).into_response(),
-        Err(error) => error_response(error),
-    }
+    authoring_writeback_retired_response(
+        "agent revert 已下线；请通过 /api/ops/config 与 ops journal 管理配置回滚。",
+    )
 }
 
 pub async fn api_agent_unrevert_session(
-    State(state): State<AppState>,
-    Path(session_id): Path<String>,
+    _state: State<AppState>,
+    _session_id: Path<String>,
 ) -> Response {
-    let conn = match resolve_agent_conn(&state) {
-        Ok(c) => c,
-        Err(error) => return error_response(error),
-    };
-    match agent_unrevert_session(&state, &conn, &session_id).await {
-        Ok(summary) => Json::<BridgeUnrevertSummary>(summary).into_response(),
-        Err(error) => error_response(error),
-    }
+    authoring_writeback_retired_response(
+        "agent unrevert 已下线；请通过 /api/ops/config 与 ops journal 管理配置回滚。",
+    )
+}
+
+fn authoring_writeback_retired_response(message: &str) -> Response {
+    (
+        StatusCode::GONE,
+        Json(serde_json::json!({
+            "error": "authoring_writeback_retired",
+            "message": message,
+        })),
+    )
+        .into_response()
 }
 
 pub async fn api_agent_respond_permission(

@@ -8,35 +8,18 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use walkdir::WalkDir;
 
+use crate::mei_config::{segment_mei_config_path, MeiConfig};
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
-
-#[derive(Debug, Default, Deserialize)]
-struct MeiConfigDiscover {
-    #[serde(default)]
-    skip_directories: Vec<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct MeiConfigDisk {
-    #[serde(default)]
-    discover: MeiConfigDiscover,
-}
 
 fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
     let mut out: HashSet<String> = ["node_modules", ".git", "target", "dist"]
         .into_iter()
         .map(str::to_string)
         .collect();
-    let path = segment_root.join(".mei-config.json");
-    if let Ok(raw) = fs::read_to_string(&path) {
-        if let Ok(cfg) = serde_json::from_str::<MeiConfigDisk>(&raw) {
-            for d in cfg.discover.skip_directories {
-                let t = d.trim().trim_matches('/').replace('\\', "/");
-                if !t.is_empty() && !t.contains('/') {
-                    out.insert(t);
-                }
-            }
-        }
+    let path = segment_mei_config_path(segment_root);
+    let cfg = MeiConfig::load_or_default(&path);
+    for d in cfg.discover_skip_directories() {
+        out.insert(d);
     }
     out
 }

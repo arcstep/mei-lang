@@ -116,6 +116,7 @@ pub(crate) async fn agent_session_messages(
     )
 }
 
+#[allow(dead_code)] // 外部 Agent 桥接保留；宿主 manage 已改走 ops journal。
 pub(crate) async fn agent_session_diff(
     _state: &AppState,
     conn: &AgentConn,
@@ -147,6 +148,7 @@ pub(crate) async fn agent_abort_session(
     )
 }
 
+#[allow(dead_code)]
 pub(crate) async fn agent_revert_session(
     _state: &AppState,
     conn: &AgentConn,
@@ -162,6 +164,7 @@ pub(crate) async fn agent_revert_session(
     )
 }
 
+#[allow(dead_code)]
 pub(crate) async fn agent_unrevert_session(
     _state: &AppState,
     conn: &AgentConn,

@@ -1,3 +1,5 @@
+#![allow(dead_code)] // authoring diff 过滤工具；HTTP 路由已下线，保留供外部桥接复用。
+
 use std::process::Command;
 
 pub(super) fn normalize_diff_rel_path(rel: &str) -> String {

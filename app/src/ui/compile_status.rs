@@ -301,14 +301,6 @@ pub(super) fn is_static_workspace_asset_target(target: &str) -> bool {
     !trimmed.is_empty() && !is_mei_script_target(trimmed)
 }
 
-pub(super) fn source_language(target: &str) -> &'static str {
-    if is_mei_script_target(target) {
-        "mei"
-    } else {
-        "plain"
-    }
-}
-
 fn file_extension_lower(target: &str) -> String {
     target.rsplit('.').next().unwrap_or("").to_ascii_lowercase()
 }

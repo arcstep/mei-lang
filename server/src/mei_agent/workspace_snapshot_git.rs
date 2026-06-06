@@ -120,6 +120,7 @@ impl WorkspaceSnapshotGit {
     }
 
     /// 将工作区文件恢复为给定树（`read-tree` + `checkout-index -a -f`）。
+    #[allow(dead_code)] // authoring revert 已下线；保留供外部 Agent 桥接。
     pub fn restore_worktree(&self, tree_hash: &str) -> Result<()> {
         let th = tree_hash.trim();
         if th.is_empty() {

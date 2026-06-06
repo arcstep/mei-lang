@@ -38,6 +38,7 @@ use super::helpers::{
 };
 use super::CompiledScenePayload;
 use crate::model::WorldMetricLedgerEntry;
+use crate::config_refs::{decode_theme_ref_token, walk_value_for_config_refs, ConfigRefResolver};
 use crate::typed_refs::{decode_binding_value, SceneRegistry};
 
 fn push_deprecated_ref_binding_diagnostic(
@@ -755,7 +756,7 @@ pub(super) fn compile_scene_payload(
     if let Some(world_decl) = world.as_ref() {
         let (normal_resources, dataset_resources) =
             partition_world_resources(&all_world_resource_decls(world_decl));
-        resources = load_resources(app_root, &normal_resources)?;
+        resources = load_resources(app_root, &normal_resources, target_file, &mut diagnostics)?;
         for resource in dataset_resources {
             if resource.id == "__source_path__" || resource.id.ends_with(".mei") {
                 diagnostics.push(Diagnostic {
@@ -800,7 +801,21 @@ pub(super) fn compile_scene_payload(
             }
         }
     }
-    if !world_dataset_decls.is_empty() {
+    validate_config_refs(
+        app_root,
+        entry_decls,
+        scenes.values().next(),
+        target_file,
+        &mut diagnostics,
+    );
+    let has_config_ref_errors = diagnostics.iter().any(|diag| {
+        diag.severity == Severity::Error
+            && matches!(
+                diag.code.as_str(),
+                "missing_config_ref" | "invalid_config_ref"
+            )
+    });
+    if !world_dataset_decls.is_empty() && !has_config_ref_errors {
         let derived = materialize_legacy_datasets(app_root, &resources, &world_dataset_decls)?;
         for resource in derived {
             insert_resource_checked(&mut resources, resource, target_file, &mut diagnostics);
@@ -885,6 +900,15 @@ pub(super) fn compile_scene_payload(
             target_file,
             &mut diagnostics,
         );
+    }
+    if let Some(contract) = scene_contract.as_ref() {
+        let config = crate::mei_config::load_mei_config_for_app(app_root, None);
+        let resolver = ConfigRefResolver::new(&config);
+        if let Some(theme) = contract.scene.theme.as_deref() {
+            if decode_theme_ref_token(theme).is_some() {
+                resolver.validate_theme_token(theme, target_file, &mut diagnostics);
+            }
+        }
     }
 
     Ok(CompiledScenePayload {
@@ -1317,6 +1341,25 @@ fn binding_meta_from_object_field(value: Option<&Value>, field: &str) -> Option<
         .and_then(|map| map.get(field))
         .cloned()
         .filter(|value| value.is_object())
+}
+
+fn validate_config_refs(
+    app_root: &Path,
+    entry_decls: &Value,
+    scene: Option<&SceneDecl>,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let config = crate::mei_config::load_mei_config_for_app(app_root, None);
+    let resolver = ConfigRefResolver::new(&config);
+    walk_value_for_config_refs(entry_decls, target_file, &resolver, diagnostics);
+    if let Some(scene) = scene {
+        if let Some(theme) = scene.theme.as_deref() {
+            if decode_theme_ref_token(theme).is_some() {
+                resolver.validate_theme_token(theme, target_file, diagnostics);
+            }
+        }
+    }
 }
 
 fn binding_meta_from_value(value: &Value) -> Option<Value> {

@@ -3,8 +3,7 @@ use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
-    is_mei_script_target, source_language, visible_diagnostics_count, AssetShellKind,
-    DiagnosticsFilterMode,
+    is_mei_script_target, visible_diagnostics_count, AssetShellKind, DiagnosticsFilterMode,
 };
 use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::preview;
@@ -55,7 +54,6 @@ pub(super) fn manage_shell(
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
-    let source_lang = source_language(selected_target.as_str());
     let preview = preview::preview_view(
         compiled,
         app_path,
@@ -303,14 +301,65 @@ pub(super) fn manage_shell(
             ></div>
             {topbar}
             <div
-                class="workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0 [grid-template-columns:var(--workspace-left-aside)_minmax(0,1fr)]"
+                class="workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
                 id="workspace-root"
             >
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
                         {source_tree}
                     </div>
+                    <section
+                        id="manage-ops-panel"
+                        class="manage-ops-panel mt-2 rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[11px] text-slate-300"
+                        data-app-id=app_path.to_string()
+                    >
+                        <div class="mb-1 flex items-center justify-between gap-2">
+                            <strong class="text-slate-100">"运维配置"</strong>
+                            <span class="text-slate-500" data-ops-status>"…"</span>
+                            <button
+                                type="button"
+                                class="rounded border border-slate-600/70 px-1.5 py-0.5 text-[10px] text-slate-200"
+                                data-ops-refresh
+                            >
+                                "刷新"
+                            </button>
+                        </div>
+                        <pre
+                            class="max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-400"
+                            data-ops-body
+                        ></pre>
+                    </section>
                 </aside>
+                <div
+                    class="splitter splitter-left"
+                    data-workspace-splitter="left"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="调整左侧资源栏宽度"
+                >
+                    <button
+                        class="splitter-toggle"
+                        type="button"
+                        data-workspace-toggle="left"
+                        aria-label="折叠左侧资源栏"
+                        title="折叠左侧资源栏"
+                    >
+                        <span class="splitter-toggle-icon" aria-hidden="true">
+                            <svg
+                                viewBox="0 0 20 20"
+                                width="12"
+                                height="12"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M12.5 4.5L7.5 10l5 5.5"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         {main_tabs_nav}
@@ -335,13 +384,12 @@ pub(super) fn manage_shell(
                                         data-manage-tab-panel="source"
                                         hidden=!source_tab_active
                                     >
-                                        <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
-                                            <pre
-                                                class="whitespace-pre-wrap break-words rounded-xl border border-slate-700/60 bg-slate-950/45 p-4 font-mono text-[12px] leading-6 text-slate-200"
-                                                data-source-target=selected_target.clone()
-                                                data-source-lang=source_lang
-                                            >{source_panel.clone()}</pre>
-                                        </div>
+                                        {asset_codemirror_stack(
+                                            app_path,
+                                            selected_target.as_str(),
+                                            source_panel.as_str(),
+                                            asset_cm_lang,
+                                        )}
                                     </section>
                                     {if diagnostics_total > 0 {
                                         view! {

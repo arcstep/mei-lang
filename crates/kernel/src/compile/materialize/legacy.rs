@@ -3,6 +3,9 @@ use std::{collections::BTreeMap, path::Path};
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
 
+use crate::config_refs::{
+    ops_source_entry_to_decl, parse_config_ref_path, ConfigRefResolver, CONFIG_REF_SOURCE_KIND,
+};
 use crate::geojson::rows_from_geojson_value;
 use crate::model::{DatasetView, LoadedResource, SourceDecl};
 use crate::resolve_versioned_source_path;
@@ -49,21 +52,60 @@ pub(crate) fn materialize_legacy_datasets(
     Ok(compiled)
 }
 
+fn resolve_legacy_source_decl(
+    app_root: &Path,
+    source: &LegacySourceDecl,
+) -> Result<LegacySourceDecl> {
+    let kind = source.kind.as_deref().unwrap_or("");
+    if kind != CONFIG_REF_SOURCE_KIND {
+        return Ok(source.clone());
+    }
+    let source_path = source
+        .file
+        .as_deref()
+        .or(source.path.as_deref())
+        .unwrap_or("");
+    let Some(expr) = parse_config_ref_path(source_path) else {
+        return Err(anyhow!("invalid config ref source path `{source_path}`"));
+    };
+    let config = crate::mei_config::load_mei_config_for_app(app_root, None);
+    let resolver = ConfigRefResolver::new(&config);
+    let entry = resolver
+        .resolve_source_entry(expr.id.as_str())
+        .ok_or_else(|| anyhow!("missing config ref source id `{}`", expr.id))?;
+    let resolved = ops_source_entry_to_decl(entry);
+    Ok(LegacySourceDecl {
+        kind: Some(resolved.kind),
+        file: Some(resolved.path.clone()),
+        path: Some(resolved.path),
+        sheet: resolved.sheet,
+        header_row: resolved.header_row,
+        preview_rows: resolved.preview_rows,
+        page_size: resolved.page_size,
+        max_page_size: resolved.max_page_size,
+        table: resolved.table,
+        query: resolved.query,
+        connection: resolved.connection,
+    })
+}
+
 fn materialize_one_legacy_dataset(
     app_root: &Path,
     datasets: &mut BTreeMap<String, DatasetView>,
     decl: &LegacyDatasetDecl,
 ) -> Result<LoadedResource> {
+    let resolved_source = resolve_legacy_source_decl(app_root, &decl.source)?;
     let dataset_id = decl
         .data_ref
         .as_deref()
         .and_then(|value| value.strip_prefix("dataset."))
         .map(ToString::to_string)
         .unwrap_or_else(|| decl.dataset.key.clone());
-    let source_decl = legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, false);
+    let source_decl =
+        legacy_dataset_source_decl(&resolved_source, &decl.dataset.normalize, false);
     let mut source_truncated = false;
     let mut rows = if decl.dataset.kind == "dataframe" {
-        let snapshot = load_legacy_rows_from_source(app_root, &decl.source)?;
+        let snapshot = load_legacy_rows_from_source(app_root, &resolved_source)?;
         source_truncated = snapshot.truncated;
         snapshot.rows
     } else {
@@ -117,7 +159,11 @@ fn materialize_one_legacy_dataset(
         stage_schema: Vec::new(),
         columns,
         rows,
-        source: legacy_dataset_source_decl(&decl.source, &decl.dataset.normalize, source_truncated),
+        source: legacy_dataset_source_decl(
+            &resolved_source,
+            &decl.dataset.normalize,
+            source_truncated,
+        ),
         sources: Vec::new(),
         metrics,
         runtime_metric_defs,
@@ -265,6 +311,26 @@ fn legacy_dataset_source_decl(
     normalize: &BTreeMap<String, String>,
     preview_truncated: bool,
 ) -> SourceDecl {
+    if source.kind.as_deref() == Some(CONFIG_REF_SOURCE_KIND) {
+        let source_path = source
+            .file
+            .as_deref()
+            .or(source.path.as_deref())
+            .unwrap_or("");
+        return SourceDecl {
+            kind: CONFIG_REF_SOURCE_KIND.to_string(),
+            path: source_path.to_string(),
+            sheet: source.sheet.clone(),
+            header_row: source.header_row,
+            preview_rows: source.preview_rows,
+            page_size: source.page_size,
+            max_page_size: source.max_page_size,
+            table: source.table.clone(),
+            query: source.query.clone(),
+            connection: source.connection.clone(),
+            content: None,
+        };
+    }
     let source_path = source
         .file
         .as_deref()

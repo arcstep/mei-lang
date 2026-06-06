@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use serde::Deserialize;
+use mei_lang_kernel::load_mei_config_for_app;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -36,28 +36,6 @@ pub(crate) struct FileRevision {
 pub(crate) struct CachedExternalDataset {
     pub(crate) columns: Vec<String>,
     pub(crate) rows: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct WorkspaceMeiConfig {
-    #[serde(default)]
-    runtime: RuntimeConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct RuntimeConfig {
-    #[serde(default)]
-    file_cache: FileCacheConfig,
-}
-
-#[derive(Debug, Clone, Deserialize, Default)]
-struct FileCacheConfig {
-    #[serde(default)]
-    max_file_mb: Option<usize>,
-    #[serde(default)]
-    max_entries: Option<usize>,
-    #[serde(default)]
-    max_total_mb: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -163,17 +141,13 @@ impl ExternalFileDatasetCache {
 
 pub(crate) fn resolve_external_file_cache_settings(app_root: &Path) -> ExternalFileCacheSettings {
     let mut settings = ExternalFileCacheSettings::default();
-    if let Some(config) = read_workspace_mei_config(app_root) {
-        if let Some(max_file_mb) = config.runtime.file_cache.max_file_mb {
-            settings.max_file_bytes = max_file_mb.saturating_mul(1024 * 1024).max(1);
-        }
-        if let Some(max_entries) = config.runtime.file_cache.max_entries {
-            settings.max_entries = max_entries;
-        }
-        if let Some(max_total_mb) = config.runtime.file_cache.max_total_mb {
-            settings.max_total_bytes = max_total_mb.saturating_mul(1024 * 1024).max(1);
-        }
-    }
+    let cache = load_mei_config_for_app(app_root, None)
+        .runtime
+        .file_cache
+        .to_cache_settings();
+    settings.max_file_bytes = cache.max_file_bytes;
+    settings.max_entries = cache.max_entries;
+    settings.max_total_bytes = cache.max_total_bytes;
     if let Some(value) = env_usize("MEI_FILE_CACHE_MAX_FILE_MB") {
         settings.max_file_bytes = value.saturating_mul(1024 * 1024).max(1);
     }
@@ -265,12 +239,6 @@ pub(crate) fn clear_external_file_cache_for_app(app_root: &Path) -> usize {
 
 fn external_file_cache() -> &'static Mutex<ExternalFileDatasetCache> {
     EXTERNAL_FILE_CACHE.get_or_init(|| Mutex::new(ExternalFileDatasetCache::default()))
-}
-
-fn read_workspace_mei_config(app_root: &Path) -> Option<WorkspaceMeiConfig> {
-    let config_path = app_root.join(".mei-config.json");
-    let raw = fs::read_to_string(config_path).ok()?;
-    serde_json::from_str::<WorkspaceMeiConfig>(&raw).ok()
 }
 
 fn env_usize(key: &str) -> Option<usize> {

@@ -2,6 +2,7 @@ pub(crate) mod agent_api;
 mod compile_cache;
 mod datasets;
 pub(crate) mod observation;
+pub mod ops_api;
 pub mod pages;
 pub mod projection_api;
 pub mod scene_api;
@@ -53,6 +54,12 @@ pub fn router() -> Router<AppState> {
             "/api/datasets/recompute/*app_id",
             post(pages::dataset_recompute_api),
         )
+        .route("/api/ops/boundary", get(ops_api::ops_boundary_get))
+        .route(
+            "/api/ops/config/*app_id",
+            get(ops_api::ops_config_get).put(ops_api::ops_config_put),
+        )
+        .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route("/api/agent/config", get(agent_api::api_agent_config))
         .route("/api/agent/runtime", get(agent_api::api_agent_runtime))
         .route("/api/agent/skill", get(agent_api::api_agent_skill))

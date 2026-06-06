@@ -7,7 +7,6 @@ use super::UiRouteMode;
 pub enum ManageViewTab {
     Preview,
     Source,
-    Diff,
     Diagnostics,
 }
 
@@ -16,7 +15,6 @@ impl ManageViewTab {
         match self {
             ManageViewTab::Preview => "preview",
             ManageViewTab::Source => "source",
-            ManageViewTab::Diff => "diff",
             ManageViewTab::Diagnostics => "diagnostics",
         }
     }
@@ -26,7 +24,7 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
     match value.unwrap_or("").trim().to_ascii_lowercase().as_str() {
         "preview" => Some(ManageViewTab::Preview),
         "source" => Some(ManageViewTab::Source),
-        "diff" => Some(ManageViewTab::Diff),
+        "diff" => Some(ManageViewTab::Source),
         "diagnostics" => Some(ManageViewTab::Diagnostics),
         _ => None,
     }
@@ -83,9 +81,6 @@ pub(super) fn manage_view_tab_from_query(
         }
     });
     if script_target {
-        if matches!(next, ManageViewTab::Diff) {
-            return ManageViewTab::Source;
-        }
         if matches!(next, ManageViewTab::Diagnostics) && !has_diagnostics_tab {
             return ManageViewTab::Preview;
         }

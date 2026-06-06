@@ -1,3 +1,4 @@
+mod config_refs;
 mod dataset;
 mod panel_theme;
 mod refs_builtin;

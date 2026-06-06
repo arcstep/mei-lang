@@ -9,7 +9,6 @@
   const root = document.getElementById("workspace-root");
   const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
   const toggleButtons = Array.from(document.querySelectorAll("[data-workspace-toggle]"));
-  if (!root || !handles.length) return;
   const splitterPx = 8;
   const activateDragDeltaPx = 3;
   const minMain = 320;
@@ -33,6 +32,28 @@
       target: root
     }
   };
+  const activeHandles = handles.filter(function (handle) {
+    const side = handle && handle.getAttribute ? handle.getAttribute("data-workspace-splitter") : "";
+    return !!config[side];
+  });
+  const activeSides = Array.from(
+    new Set(
+      activeHandles
+        .map(function (handle) {
+          return handle.getAttribute("data-workspace-splitter") || "";
+        })
+        .concat(
+          toggleButtons
+            .map(function (button) {
+              return button.getAttribute("data-workspace-toggle") || "";
+            })
+            .filter(function (side) {
+              return !!config[side];
+            })
+        )
+    )
+  );
+  if (!root || !activeHandles.length || !activeSides.length) return;
   const collapsed = { left: false, right: false };
   function toggleButton(side) {
     return toggleButtons.find(function (button) {
@@ -73,15 +94,15 @@
     const meta = config[side];
     if (!meta || !meta.target) return meta ? meta.fallback : 0;
     const otherSide = side === "left" ? "right" : "left";
-    const otherWidth = readPx(otherSide);
+    const otherWidth = activeSides.includes(otherSide) ? readPx(otherSide) : 0;
     const rect = root.getBoundingClientRect();
-    const splittersTotalPx = splitterPx * 2;
+    const splittersTotalPx = activeHandles.length * splitterPx;
     return Math.max(
       meta.min,
       rect.width - otherWidth - splittersTotalPx - minMain
     );
   }
-  Object.keys(config).forEach((side) => {
+  activeSides.forEach((side) => {
     try {
       const meta = config[side];
       if (!meta.target) return;
@@ -218,7 +239,7 @@
     if (!side) return;
     toggleSide(side);
   }
-  handles.forEach((handle) => {
+  activeHandles.forEach((handle) => {
     handle.addEventListener("mousedown", onStart);
     handle.addEventListener("touchstart", onStart, { passive: false });
   });
@@ -226,7 +247,7 @@
     button.addEventListener("click", onToggleClick);
   });
   const onResize = function () {
-    Object.keys(config).forEach((side) => {
+    activeSides.forEach((side) => {
       const meta = config[side];
       if (!meta || !meta.target) return;
       if (collapsed[side]) {
@@ -240,7 +261,7 @@
   window.addEventListener("resize", onResize);
   boot.disposeWorkspaceSplitters = function () {
     onEnd();
-    handles.forEach((handle) => {
+    activeHandles.forEach((handle) => {
       handle.removeEventListener("mousedown", onStart);
       handle.removeEventListener("touchstart", onStart, { passive: false });
     });

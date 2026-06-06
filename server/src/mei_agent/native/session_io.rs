@@ -43,6 +43,7 @@ impl NativeAgent {
         )?;
         Ok(())
     }
+    #[allow(dead_code)]
     pub fn session_diff_blocking(
         &self,
         session_id: &str,
@@ -142,6 +143,7 @@ impl NativeAgent {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(super) fn query_last_assistant_tree_before_sort(
         conn: &Connection,
         session_id: &str,
@@ -164,6 +166,7 @@ impl NativeAgent {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn query_session_baseline_tree(
         conn: &Connection,
         session_id: &str,
@@ -180,6 +183,7 @@ impl NativeAgent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn revert_blocking(
         &self,
         session_id: &str,
@@ -292,6 +296,7 @@ impl NativeAgent {
         })
     }
 
+    #[allow(dead_code)]
     pub(super) fn collect_revert_snapshot(
         conn: &Connection,
         session_id: &str,
@@ -326,6 +331,7 @@ impl NativeAgent {
         Ok(json!({ "messages": messages }))
     }
 
+    #[allow(dead_code)]
     pub fn unrevert_blocking(&self, session_id: &str) -> Result<BridgeUnrevertSummary> {
         let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
         let journal: Result<(i64, String), rusqlite::Error> = db.query_row(

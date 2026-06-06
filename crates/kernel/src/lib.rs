@@ -1,8 +1,11 @@
 mod compile;
 mod compile_semantics;
+mod config_refs;
 mod eval;
 mod geojson;
+mod mei_config;
 mod model;
+mod ops_journal;
 mod runtime;
 mod runtime_resource_index;
 mod source_version;
@@ -56,6 +59,19 @@ pub use source_version::{
     write_upload_registry, ParsedVersionedUploadFile, UploadAliasRecord, UploadRegistry,
     UploadVersionRecord,
 };
+pub use config_refs::{
+    config_ref_to_json, decode_config_ref_value, decode_theme_ref_token, is_config_ref_source,
+    ops_source_entry_to_decl, parse_config_ref_path, source_decl_from_value, theme_ref_token,
+    walk_value_for_config_refs, ConfigRefExpr, ConfigRefKind, ConfigRefResolver,
+    CONFIG_REF_SOURCE_KIND, THEME_REF_PREFIX,
+};
+pub use mei_config::{
+    load_mei_config_for_app, merge_ops_section, resolve_mei_config_path, segment_mei_config_path,
+    write_mei_config, DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry,
+    OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig, MEI_CONFIG_FILENAME,
+    OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
+};
+pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,
     SceneLocator, SceneRegistry,

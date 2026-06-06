@@ -246,6 +246,7 @@ pub(crate) struct AppState {
     agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
     compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
     pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
+    #[allow(dead_code)] // 测试夹具保留；页面渲染走 GisTilesConfig::resolve_for_app。
     pub(crate) gis_tiles: Arc<gis_config::GisTilesConfig>,
 }
 
@@ -769,12 +770,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
         std::sync::Arc::new(resource_tool_bridge::SceneResourceToolExecutor::default()),
     )?);
     let gis_tiles = Arc::new(gis_config::GisTilesConfig::resolve());
-    tracing::info!(
-        tiles_base_url = %gis_tiles.base_url,
-        tiles_json_path = %gis_tiles.json_path,
-        tilejson_url = %gis_tiles.tilejson_url(),
-        "GIS basemap (Martin) — start tiles separately; see mei-projects/scripts/start_martin_docker.sh"
-    );
     let state = AppState {
         package_root: Arc::new(package_root.clone()),
         source_root: Arc::new(source_root.clone()),
@@ -787,14 +782,11 @@ async fn serve(args: ServeArgs) -> Result<()> {
         native_agent,
         gis_tiles: gis_tiles.clone(),
     };
-    tracing::info!(
+    tracing::debug!(
         cwd = ?std::env::current_dir(),
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
         package_root = %package_root.display(),
         source_root = %source_root.display(),
-        agent_mode = %preferred_mode,
-        agent_server_url = %preferred_server_url,
-        agent_auto_start = auto_agent,
         agent_backend = "native",
         "mei serve resolved paths"
     );

@@ -190,7 +190,8 @@ fn load_resources_from_capsule_file_recursive(
         .collect::<Vec<_>>();
 
     let (normal_resources, dataset_resources) = partition_world_resources(&world_resource_decls);
-    let mut resources = load_resources(app_root, &normal_resources)?;
+    let mut resources =
+        load_resources(app_root, &normal_resources, relative_path, &mut resolve_diagnostics)?;
     let mut world_dataset_decls = Vec::new();
     let mut world_metric_pack_decls = Vec::new();
 

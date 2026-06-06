@@ -1,14 +1,8 @@
 use std::{fs, path::Path};
 
 use mei_lang_app::{TopbarMenuConfig, TopbarMenuContext};
-use serde::Deserialize;
+use mei_lang_kernel::{segment_mei_config_path, MeiConfig};
 use std::collections::BTreeMap;
-
-#[derive(Debug, Deserialize)]
-struct MeiConfigMenuEnvelope {
-    #[serde(default)]
-    menu: Option<TopbarMenuConfig>,
-}
 
 fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
     if !path.is_file() {
@@ -30,34 +24,23 @@ fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
     }
 }
 
-fn read_menu_from_mei_config(path: &Path) -> Option<TopbarMenuConfig> {
-    if !path.is_file() {
+fn menu_from_mei_config(path: &Path) -> Option<TopbarMenuConfig> {
+    let config = MeiConfig::load_or_default(path);
+    if config.menu.is_null() {
         return None;
     }
-    let raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
+    match serde_json::from_value::<TopbarMenuConfig>(config.menu) {
+        Ok(menu) => Some(menu),
         Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "failed to read .mei-config.json");
-            return None;
-        }
-    };
-    match serde_json::from_str::<MeiConfigMenuEnvelope>(&raw) {
-        Ok(envelope) => {
-            if let Some(menu) = envelope.menu {
-                return Some(menu);
-            }
-            None
-        }
-        Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "failed to parse .mei-config.json menu envelope");
+            tracing::warn!(path = %path.display(), %error, "failed to parse .mei-config.json menu");
             None
         }
     }
 }
 
 fn load_topbar_menu_from_dir(dir: &Path) -> Option<TopbarMenuConfig> {
-    let modern = dir.join(".mei-config.json");
-    if let Some(menu) = read_menu_from_mei_config(&modern) {
+    let modern = segment_mei_config_path(dir);
+    if let Some(menu) = menu_from_mei_config(&modern) {
         return Some(menu);
     }
     read_topbar_menu_json(&dir.join("_menu.json"))

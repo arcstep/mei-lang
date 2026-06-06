@@ -8,9 +8,11 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "frame-stage/layout-audit.js",
     "frame-stage/lifecycle.js",
     "frame-stage/epilogue.js",
+    "workspace-splitters.js",
     "manage-tabs.js",
     "manage-source-lazy.js",
     "manage-diagnostics.js",
+    "manage-ops-panel.js",
     "spa-navigation.js",
 ];
 

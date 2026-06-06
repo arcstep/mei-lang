@@ -109,6 +109,7 @@ pub(crate) struct BridgePendingPermission {
     pub metadata: Value,
 }
 
+#[allow(dead_code)] // diff/revert HTTP 已下线；类型保留兼容外部 Agent 协议。
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BridgeSessionDiffQuery {
     #[serde(default, alias = "messageID")]
@@ -118,6 +119,7 @@ pub(crate) struct BridgeSessionDiffQuery {
     pub path: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct BridgeRevertRequest {
     #[serde(alias = "messageID")]
@@ -140,6 +142,7 @@ pub(crate) struct BridgeAbortSummary {
     pub aborted: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BridgeFileDiffSummary {
     pub file: String,
@@ -149,6 +152,7 @@ pub(crate) struct BridgeFileDiffSummary {
     pub after: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BridgeDiffSummary {
     pub session_id: String,
@@ -158,6 +162,7 @@ pub(crate) struct BridgeDiffSummary {
     pub files: Vec<BridgeFileDiffSummary>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BridgeRevertSummary {
     pub session_id: String,
@@ -166,6 +171,7 @@ pub(crate) struct BridgeRevertSummary {
     pub reverted: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct BridgeUnrevertSummary {
     pub session_id: String,
