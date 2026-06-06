@@ -57,6 +57,24 @@ def column(name, type, source = None, optional = False, unit = None):
         "unit": unit,
     })
 
+def _normalize_resource_source(source):
+    if source == None:
+        return {}
+    if type(source) == "dict" and source.get("__config_ref") != None:
+        return source
+    return _without_empty({
+        "kind": source.get("__source", "xlsx"),
+        "path": source.get("path"),
+        "sheet": source.get("sheet"),
+        "header_row": source.get("header_row"),
+        "preview_rows": source.get("preview_rows"),
+        "page_size": source.get("page_size"),
+        "max_page_size": source.get("max_page_size"),
+        "table": source.get("table"),
+        "query": source.get("query"),
+        "connection": source.get("connection"),
+    })
+
 def _resolve_resource_id(kind, id = None, key = None):
     dataset_id = id if id != None else key
     if dataset_id == None:
@@ -98,20 +116,7 @@ def dataset_resource(id = None, key = None, title = None, desc = None, purpose =
     for item in metrics:
         metric_map[item["key"]] = _metric_source(item)
 
-    source_node = {}
-    if source != None:
-        source_node = _without_empty({
-            "kind": source.get("__source", "xlsx"),
-            "path": source.get("path"),
-            "sheet": source.get("sheet"),
-            "header_row": source.get("header_row"),
-            "preview_rows": source.get("preview_rows"),
-            "page_size": source.get("page_size"),
-            "max_page_size": source.get("max_page_size"),
-            "table": source.get("table"),
-            "query": source.get("query"),
-            "connection": source.get("connection"),
-        })
+    source_node = _normalize_resource_source(source)
 
     return resource(
         id = dataset_id,
