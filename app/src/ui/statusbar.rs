@@ -9,19 +9,22 @@ use super::manage_routing::{is_ops_config_target, manage_tab_href, ManageViewTab
 use super::SourcePanelMeta;
 pub(super) fn statusbar_view(
     app_path: &str,
+    app_title: &str,
     route_mode: &'static str,
     current_target: &str,
     source_meta: Option<&SourcePanelMeta>,
-    compiled: &CompiledApp,
+    compiled: Option<&CompiledApp>,
     runtime_enabled: bool,
     show_compile_center: bool,
 ) -> AnyView {
-    let app_summary = format!("应用 {}", compiled.title);
+    let app_summary = format!("应用 {app_title}");
     let app_summary_title = format!("应用：{app_path}");
-    let route_mode_label = if route_mode == "manage" {
-        "管理态"
-    } else {
-        "访问态"
+    let route_mode_label = match route_mode {
+        "build" | "manage" => "构建",
+        "app" | "access" => "应用",
+        "config" => "配置",
+        "upload" => "上传",
+        _ => route_mode,
     };
     let file_label = if is_ops_config_target(current_target) {
         ".mei-config.json"
@@ -45,15 +48,25 @@ pub(super) fn statusbar_view(
     } else {
         format!("当前文件：{current_target}")
     };
-    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, current_target);
+    let (errors, warnings, infos) = compiled
+        .map(|compiled| compile_status_counts_for_display(compiled, current_target))
+        .unwrap_or((0, 0, 0));
     let error_tone = if errors > 0 { "danger" } else { "neutral" };
     let warning_tone = if warnings > 0 { "warn" } else { "neutral" };
     let info_tone = if infos > 0 { "info" } else { "neutral" };
-    let compile_summary = compile_status_summary(compiled, current_target);
-    let compile_summary_title = compile_status_title(compiled, current_target);
-    let compile_tone = compile_status_tone(compiled, current_target);
-    let (cur_errors, _, _) = compile_status_counts_for_target(compiled, current_target);
-    let diagnostics_tab_href = if show_compile_center && (errors > 0 || warnings > 0) {
+    let compile_summary = compiled
+        .map(|compiled| compile_status_summary(compiled, current_target))
+        .unwrap_or_else(|| "未触发编译".to_string());
+    let compile_summary_title = compiled
+        .map(|compiled| compile_status_title(compiled, current_target))
+        .unwrap_or_else(|| "当前页面未依赖编译结果".to_string());
+    let compile_tone = compiled
+        .map(|compiled| compile_status_tone(compiled, current_target))
+        .unwrap_or("neutral");
+    let (cur_errors, _, _) = compiled
+        .map(|compiled| compile_status_counts_for_target(compiled, current_target))
+        .unwrap_or((0, 0, 0));
+    let diagnostics_tab_href = if show_compile_center && compiled.is_some() && (errors > 0 || warnings > 0) {
         Some(manage_tab_href(
             app_path,
             Some(current_target),

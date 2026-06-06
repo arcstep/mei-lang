@@ -1,5 +1,3 @@
-use mei_lang_kernel::CompiledApp;
-
 use super::compile_status::{asset_dual_preview_source, is_world_capsule_target};
 use super::UiRouteMode;
 
@@ -34,22 +32,6 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
 
 pub(super) fn is_ops_config_target(target: &str) -> bool {
     target.trim() == OPS_CONFIG_TARGET
-}
-
-/// 若 `target_file` 是某条 scene route 的主文件，返回其 `scene_id`。
-pub(super) fn canonical_scene_for_script_target<'a>(
-    compiled: &'a CompiledApp,
-    target_file: Option<&'a str>,
-) -> Option<&'a str> {
-    let t = target_file?.trim();
-    if t.is_empty() {
-        return None;
-    }
-    compiled
-        .scene_routes
-        .iter()
-        .find(|r| r.target_file == t)
-        .map(|r| r.scene_id.as_str())
 }
 
 pub(super) fn encode_query_value(value: &str) -> String {

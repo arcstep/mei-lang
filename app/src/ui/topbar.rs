@@ -1,11 +1,10 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, WorkspaceAppMeta};
 use std::collections::BTreeMap;
 
 use super::manage_routing::{
-    access_scene_query, canonical_scene_for_script_target,
+    access_scene_query, encode_query_value,
 };
-use super::preview;
 use super::route::UiRouteMode;
 use super::view_routing::{
     app_scene_href, build_href, config_href, cross_app_href, upload_href,
@@ -201,38 +200,95 @@ fn infer_order_from_label(label: &str) -> Option<i32> {
     }
     digits.parse::<i32>().ok()
 }
+
+fn exported_scene_by_id<'a>(
+    routes: &'a [CompiledSceneRoute],
+    scene_id: Option<&str>,
+) -> Option<&'a str> {
+    let wanted = scene_id.map(str::trim).filter(|value| !value.is_empty())?;
+    routes
+        .iter()
+        .find(|route| route.scene_id == wanted && route.access_export)
+        .map(|route| route.scene_id.as_str())
+}
+
+fn canonical_scene_for_target<'a>(
+    routes: &'a [CompiledSceneRoute],
+    target_file: Option<&str>,
+) -> Option<&'a str> {
+    let target = target_file.map(str::trim).filter(|value| !value.is_empty())?;
+    routes
+        .iter()
+        .find(|route| route.target_file == target && route.access_export)
+        .map(|route| route.scene_id.as_str())
+}
+
+fn default_exported_scene(routes: &[CompiledSceneRoute]) -> Option<&str> {
+    routes
+        .iter()
+        .find(|route| route.access_export && route.is_default)
+        .or_else(|| routes.iter().find(|route| route.access_export))
+        .map(|route| route.scene_id.as_str())
+}
+
+fn preferred_access_scene<'a>(
+    route_mode: UiRouteMode,
+    routes: &'a [CompiledSceneRoute],
+    selected_scene: Option<&str>,
+    preview_target: Option<&str>,
+    active_scene: Option<&str>,
+    active_target_file: &str,
+) -> Option<&'a str> {
+    let build_target = preview_target
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or(Some(active_target_file));
+    let build_scene = if route_mode == UiRouteMode::Build {
+        canonical_scene_for_target(routes, build_target)
+    } else {
+        None
+    };
+    exported_scene_by_id(routes, selected_scene)
+        .or(build_scene)
+        .or_else(|| exported_scene_by_id(routes, active_scene))
+        .or_else(|| default_exported_scene(routes))
+}
+
+pub(super) fn access_scene_for_topbar<'a>(
+    route_mode: UiRouteMode,
+    compiled: &'a CompiledApp,
+    selected_scene: Option<&str>,
+    preview_target: Option<&str>,
+) -> Option<&'a str> {
+    preferred_access_scene(
+        route_mode,
+        &compiled.scene_routes,
+        selected_scene,
+        preview_target,
+        compiled.active_scene.as_deref(),
+        compiled.active_target_file.as_str(),
+    )
+}
+
+fn append_scene_query(base: String, scene_id: Option<&str>) -> String {
+    let Some(scene_id) = scene_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return base;
+    };
+    let sep = if base.contains('?') { '&' } else { '?' };
+    format!("{base}{sep}scene={}", encode_query_value(scene_id))
+}
+
 pub(super) fn topbar_view(
     apps: &[WorkspaceAppMeta],
-    compiled: &CompiledApp,
     active_app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     route_mode: UiRouteMode,
-    selected_scene: Option<&str>,
-    preview_target: Option<&str>,
+    access_scene_for_href: Option<&str>,
+    build_file: Option<&str>,
     active_tab: Option<&str>,
     upload_enabled: bool,
+    stage_enabled: bool,
 ) -> AnyView {
-    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let access_scene_for_href = selected_scene
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .filter(|sc| {
-            compiled
-                .scene_routes
-                .iter()
-                .any(|r| r.scene_id == *sc && r.access_export)
-        })
-        .filter(|sc| {
-            if route_mode == UiRouteMode::Build {
-                canonical_scene_for_script_target(
-                    compiled,
-                    Some(compiled.active_target_file.as_str()),
-                )
-                .is_some_and(|canon| canon == *sc)
-            } else {
-                compiled.active_scene.as_deref() == Some(*sc)
-            }
-        });
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
     let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
@@ -343,10 +399,10 @@ pub(super) fn topbar_view(
             .into_any()
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
-    let build_file = preview_target
+    let build_file = build_file
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| compiled.active_target_file.as_str());
+        .unwrap_or("main.mei");
     let app_href = if access_disabled {
         "#".to_string()
     } else {
@@ -357,8 +413,8 @@ pub(super) fn topbar_view(
         Some(build_file),
         active_tab,
     );
-    let config_href = config_href(active_app_path);
-    let upload_href = upload_href(active_app_path, None);
+    let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
+    let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
     let presentation_href = app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
     let mode_tabs = view! {
         <div class="mode-tabs inline-flex items-center">
@@ -461,4 +517,65 @@ pub(super) fn topbar_view(
         </header>
     }
     .into_any()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{preferred_access_scene, UiRouteMode};
+    use mei_lang_kernel::CompiledSceneRoute;
+
+    fn route(
+        scene_id: &str,
+        target_file: &str,
+        is_default: bool,
+        access_export: bool,
+    ) -> CompiledSceneRoute {
+        CompiledSceneRoute {
+            scene_id: scene_id.to_string(),
+            frame_id: None,
+            target_file: target_file.to_string(),
+            kind: "scene".to_string(),
+            title: None,
+            is_default,
+            access_export,
+        }
+    }
+
+    #[test]
+    fn preferred_access_scene_falls_back_to_default_exported_scene() {
+        let routes = vec![
+            route("private", "scenes/private.mei", false, false),
+            route("home", "scenes/home.mei", true, true),
+        ];
+        assert_eq!(
+            preferred_access_scene(
+                UiRouteMode::Config,
+                &routes,
+                None,
+                None,
+                None,
+                "main.mei",
+            ),
+            Some("home")
+        );
+    }
+
+    #[test]
+    fn preferred_access_scene_prefers_build_preview_target_scene() {
+        let routes = vec![
+            route("home", "scenes/home.mei", true, true),
+            route("detail", "scenes/detail.mei", false, true),
+        ];
+        assert_eq!(
+            preferred_access_scene(
+                UiRouteMode::Build,
+                &routes,
+                None,
+                Some("scenes/detail.mei"),
+                Some("home"),
+                "main.mei",
+            ),
+            Some("detail")
+        );
+    }
 }

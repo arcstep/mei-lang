@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta, WorkspaceNode};
 use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
@@ -25,10 +25,10 @@ pub use shell_upload::UploadFileEntry;
 use preview_chrome::{chrome_scripts_view, component_scripts};
 use shell_access::access_shell;
 use shell_config::config_shell;
-use shell_manage::manage_shell;
+use shell_manage::{manage_shell, manage_source_shell};
 use shell_upload::upload_shell;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SourcePanelMeta {
     pub line_count: usize,
     pub char_count: usize,
@@ -45,7 +45,7 @@ pub struct TopbarMenuConfig {
     pub items: Vec<TopbarMenuConfigItem>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct TopbarMenuContext {
     pub root: Option<TopbarMenuConfig>,
     pub by_segment: BTreeMap<String, TopbarMenuConfig>,
@@ -73,6 +73,64 @@ pub struct TopbarMenuConfigItem {
     pub order: Option<i32>,
 }
 
+fn render_document(
+    app_title: &str,
+    route_mode: UiRouteMode,
+    chrome_hidden: bool,
+    shell: AnyView,
+    component_scripts_view: AnyView,
+) -> String {
+    let shell_mode_class = match route_mode {
+        UiRouteMode::App if chrome_hidden => "app-view chrome-none",
+        UiRouteMode::App => "app-view",
+        UiRouteMode::Build => "build-view",
+        UiRouteMode::Config => "config-view",
+        UiRouteMode::Upload => "upload-view",
+    };
+    let body_class = format!("{shell_mode_class} sl-theme-dark");
+    let chrome_scripts = chrome_scripts_view(route_mode);
+
+    let manage_timing_meta = match route_mode {
+        UiRouteMode::Build => view! {
+            <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
+            <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
+        }
+        .into_any(),
+        _ => view! { <></> }.into_any(),
+    };
+
+    let page = view! {
+        <html lang="zh-CN">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
+                <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
+                <meta name="mei-view" content=route_mode.slug()/>
+                <title>{format!("{app_title} - MeiLang")}</title>
+                <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
+                <link rel="stylesheet" href="/app-bundles/styles.css"/>
+                <script
+                    type="module"
+                    src="/app-bundles/shoelace.js"
+                ></script>
+                {manage_timing_meta}
+            </head>
+            <body
+                class=body_class
+                data-mei-view=route_mode.slug()
+                data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
+                data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
+            >
+                {shell}
+                {component_scripts_view}
+                {chrome_scripts}
+            </body>
+        </html>
+    };
+    page.to_html()
+}
+
 pub fn render_page(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
@@ -91,14 +149,6 @@ pub fn render_page(
     upload_root_label: Option<&str>,
     upload_files: &[UploadFileEntry],
 ) -> String {
-    let shell_mode_class = match route_mode {
-        UiRouteMode::App if chrome_hidden => "app-view chrome-none",
-        UiRouteMode::App => "app-view",
-        UiRouteMode::Build => "build-view",
-        UiRouteMode::Config => "config-view",
-        UiRouteMode::Upload => "upload-view",
-    };
-    let body_class = format!("{shell_mode_class} sl-theme-dark");
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
             apps,
@@ -128,18 +178,20 @@ pub fn render_page(
         ),
         UiRouteMode::Config => config_shell(
             apps,
-            compiled,
+            compiled.title.as_str(),
             app_path,
             topbar_menu,
             upload_enabled,
+            selected_scene,
             source_meta,
         ),
         UiRouteMode::Upload => upload_shell(
             apps,
-            compiled,
+            compiled.title.as_str(),
             app_path,
             topbar_menu,
             upload_enabled,
+            selected_scene,
             upload_root_label.unwrap_or("upload"),
             upload_files,
             target,
@@ -147,47 +199,112 @@ pub fn render_page(
             source_meta,
         ),
     };
-    let chrome_scripts = chrome_scripts_view(route_mode);
+    render_document(
+        compiled.title.as_str(),
+        route_mode,
+        chrome_hidden,
+        shell,
+        component_scripts(compiled).into_any(),
+    )
+}
 
-    let manage_timing_meta = match route_mode {
-        UiRouteMode::Build => view! {
-            <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
-            <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
-        }
-        .into_any(),
-        _ => view! { <></> }.into_any(),
-    };
+pub fn render_config_page(
+    apps: &[WorkspaceAppMeta],
+    app_title: &str,
+    app_path: &str,
+    topbar_menu: Option<&TopbarMenuContext>,
+    source: Option<&str>,
+    source_meta: Option<&SourcePanelMeta>,
+    selected_scene: Option<&str>,
+    upload_enabled: bool,
+) -> String {
+    let _ = source;
+    let shell = config_shell(
+        apps,
+        app_title,
+        app_path,
+        topbar_menu,
+        upload_enabled,
+        selected_scene,
+        source_meta,
+    );
+    render_document(
+        app_title,
+        UiRouteMode::Config,
+        false,
+        shell,
+        view! { <></> }.into_any(),
+    )
+}
 
-    let page = view! {
-        <html lang="zh-CN">
-            <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
-                <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
-                <meta name="mei-view" content=route_mode.slug()/>
-                <title>{format!("{} - MeiLang", compiled.title)}</title>
-                <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
-                <link rel="stylesheet" href="/app-bundles/styles.css"/>
-                <script
-                    type="module"
-                    src="/app-bundles/shoelace.js"
-                ></script>
-                {manage_timing_meta}
-            </head>
-            <body
-                class=body_class
-                data-mei-view=route_mode.slug()
-                data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
-                data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
-            >
-                {shell}
-                {component_scripts(compiled)}
-                {chrome_scripts}
-            </body>
-        </html>
-    };
-    page.to_html()
+pub fn render_upload_page(
+    apps: &[WorkspaceAppMeta],
+    app_title: &str,
+    app_path: &str,
+    topbar_menu: Option<&TopbarMenuContext>,
+    target: Option<&str>,
+    source: Option<&str>,
+    source_meta: Option<&SourcePanelMeta>,
+    selected_scene: Option<&str>,
+    upload_enabled: bool,
+    upload_root_label: Option<&str>,
+    upload_files: &[UploadFileEntry],
+) -> String {
+    let shell = upload_shell(
+        apps,
+        app_title,
+        app_path,
+        topbar_menu,
+        upload_enabled,
+        selected_scene,
+        upload_root_label.unwrap_or("upload"),
+        upload_files,
+        target,
+        source,
+        source_meta,
+    );
+    render_document(
+        app_title,
+        UiRouteMode::Upload,
+        false,
+        shell,
+        view! { <></> }.into_any(),
+    )
+}
+
+pub fn render_build_source_page(
+    apps: &[WorkspaceAppMeta],
+    app_title: &str,
+    app_path: &str,
+    topbar_menu: Option<&TopbarMenuContext>,
+    file_tree: &[WorkspaceNode],
+    target: &str,
+    source: &str,
+    source_meta: Option<&SourcePanelMeta>,
+    selected_scene: Option<&str>,
+    active_tab: Option<&str>,
+    upload_enabled: bool,
+) -> String {
+    let shell = manage_source_shell(
+        apps,
+        app_title,
+        app_path,
+        topbar_menu,
+        file_tree,
+        target,
+        source,
+        source_meta,
+        selected_scene,
+        active_tab,
+        upload_enabled,
+    );
+    render_document(
+        app_title,
+        UiRouteMode::Build,
+        false,
+        shell,
+        view! { <></> }.into_any(),
+    )
 }
 
 #[cfg(test)]

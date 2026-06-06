@@ -1,5 +1,6 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use mei_lang_kernel::WorkspaceAppMeta;
+use serde::Serialize;
 
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
@@ -8,7 +9,7 @@ use super::topbar::topbar_view;
 use super::view_routing::upload_href;
 use super::{SourcePanelMeta, TopbarMenuContext};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct UploadFileEntry {
     pub path: String,
     pub name: String,
@@ -17,10 +18,11 @@ pub struct UploadFileEntry {
 
 pub(super) fn upload_shell(
     apps: &[WorkspaceAppMeta],
-    compiled: &CompiledApp,
+    app_title: &str,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     upload_enabled: bool,
+    access_scene: Option<&str>,
     upload_root_label: &str,
     files: &[UploadFileEntry],
     selected_file: Option<&str>,
@@ -30,17 +32,18 @@ pub(super) fn upload_shell(
     let selected = selected_file.unwrap_or("");
     let topbar = topbar_view(
         apps,
-        compiled,
         app_path,
         topbar_menu,
         UiRouteMode::Upload,
-        None,
+        access_scene,
         None,
         None,
         upload_enabled,
+        false,
     );
     let statusbar = statusbar_view(
         app_path,
+        app_title,
         UiRouteMode::Upload.slug(),
         if selected.is_empty() {
             upload_root_label
@@ -48,7 +51,7 @@ pub(super) fn upload_shell(
             selected
         },
         source_meta,
-        compiled,
+        None,
         false,
         false,
     );

@@ -7,7 +7,7 @@ use super::preview;
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
-use super::topbar::topbar_view;
+use super::topbar::{access_scene_for_topbar, topbar_view};
 use super::TopbarMenuContext;
 
 pub(super) fn access_shell(
@@ -37,27 +37,30 @@ pub(super) fn access_shell(
         file_target
     };
     let panel_tab = active_tab.unwrap_or("preview");
+    let topbar_access_scene =
+        access_scene_for_topbar(UiRouteMode::App, compiled, selected_scene, topbar_preview_target);
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let topbar = topbar_view(
         apps,
-        compiled,
         app_path,
         topbar_menu,
         UiRouteMode::App,
-        selected_scene,
-        topbar_preview_target,
+        topbar_access_scene,
+        Some(current_target),
         active_tab,
         upload_enabled,
+        stage_enabled,
     );
     let statusbar = statusbar_view(
         app_path,
+        compiled.title.as_str(),
         UiRouteMode::App.slug(),
         current_target,
         None,
-        compiled,
+        Some(compiled),
         true,
         false,
     );
-    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if chrome_hidden {
         "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"
     } else if stage_enabled {

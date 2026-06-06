@@ -3,6 +3,6 @@
 mod ui;
 
 pub use ui::{
-    render_page, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode,
-    UploadFileEntry,
+    render_build_source_page, render_config_page, render_page, render_upload_page,
+    SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode, UploadFileEntry,
 };

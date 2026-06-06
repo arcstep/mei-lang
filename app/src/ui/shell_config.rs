@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use mei_lang_kernel::WorkspaceAppMeta;
 
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
@@ -18,29 +18,31 @@ fn ops_editor_main_view(app_path: &str) -> impl IntoView {
 
 pub(super) fn config_shell(
     apps: &[WorkspaceAppMeta],
-    compiled: &CompiledApp,
+    app_title: &str,
     app_path: &str,
     topbar_menu: Option<&TopbarMenuContext>,
     upload_enabled: bool,
+    access_scene: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
 ) -> AnyView {
     let topbar = topbar_view(
         apps,
-        compiled,
         app_path,
         topbar_menu,
         UiRouteMode::Config,
-        None,
+        access_scene,
         None,
         None,
         upload_enabled,
+        false,
     );
     let statusbar = statusbar_view(
         app_path,
+        app_title,
         UiRouteMode::Config.slug(),
         ".mei-config.json",
         source_meta,
-        compiled,
+        None,
         false,
         false,
     );

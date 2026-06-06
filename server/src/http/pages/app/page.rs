@@ -1,17 +1,28 @@
-use std::time::Instant;
+use std::{
+    collections::BTreeMap,
+    hash::{Hash, Hasher},
+    path::Path,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::{Path as AxumPath, Query, State},
     http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use mei_lang_app::{render_page, UiRouteMode, UploadFileEntry};
-use mei_lang_kernel::{
-    discover_apps, load_mei_config_for_app, read_source_file, resolve_default_scene_from_root,
-    CompileOptions, CompiledApp, Severity,
+use mei_lang_app::{
+    render_build_source_page, render_config_page, render_page, render_upload_page,
+    SourcePanelMeta, TopbarMenuContext, UiRouteMode, UploadFileEntry,
 };
+use mei_lang_kernel::{
+    discover_apps, load_mei_config_for_app, read_source_file, resolve_app_entry_main,
+    resolve_default_scene_from_root, source_tree, CompileOptions, CompiledApp, Severity,
+    WorkspaceAppMeta,
+};
+use serde::Serialize;
+use serde_json::json;
 use std::fs;
-use std::path::Path;
 
 use crate::{AppError, AppState};
 
@@ -96,6 +107,136 @@ fn insert_manage_compile_request_headers(res: &mut Response, outcome: &CompileWi
     }
 }
 
+fn insert_page_render_cache_hit_header(res: &mut Response, cache_hit: bool) {
+    let value = if cache_hit { "1" } else { "0" };
+    if let Ok(header_value) = HeaderValue::from_str(value) {
+        res.headers_mut().insert(
+            HeaderName::from_static("x-mei-page-render-cache-hit"),
+            header_value,
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CachedPageRenderTemplate {
+    expires_at: Instant,
+    html: String,
+}
+
+const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
+const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 128;
+
+fn page_render_cache() -> &'static Mutex<BTreeMap<String, CachedPageRenderTemplate>> {
+    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedPageRenderTemplate>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+fn page_render_cache_ttl() -> Duration {
+    Duration::from_millis(PAGE_RENDER_CACHE_TTL_MS)
+}
+
+fn take_cached_page_render_template(key: &str) -> Option<String> {
+    let Ok(mut cache) = page_render_cache().lock() else {
+        return None;
+    };
+    let now = Instant::now();
+    cache.retain(|_, entry| entry.expires_at > now);
+    cache.get(key).map(|entry| entry.html.clone())
+}
+
+fn store_cached_page_render_template(key: String, html: &str) {
+    let Ok(mut cache) = page_render_cache().lock() else {
+        return;
+    };
+    cache.retain(|_, entry| entry.expires_at > Instant::now());
+    if cache.len() >= MAX_PAGE_RENDER_CACHE_ENTRIES {
+        cache.clear();
+    }
+    cache.insert(
+        key,
+        CachedPageRenderTemplate {
+            expires_at: Instant::now() + page_render_cache_ttl(),
+            html: html.to_string(),
+        },
+    );
+}
+
+fn hash_signature(value: &str) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn serialized_signature<T: Serialize + ?Sized>(value: &T) -> u64 {
+    serde_json::to_string(value)
+        .map(|raw| hash_signature(&raw))
+        .unwrap_or(0)
+}
+
+fn page_render_cache_key(
+    app_id: &str,
+    route_mode: UiRouteMode,
+    compile_revision: &str,
+    target: &str,
+    source: &str,
+    source_meta: Option<&SourcePanelMeta>,
+    selected_scene: Option<&str>,
+    preview_target: Option<&str>,
+    active_tab: Option<&str>,
+    diag_filter: Option<&str>,
+    chrome_hidden: bool,
+    upload_enabled: bool,
+    upload_root_label: Option<&str>,
+    topbar_menu: Option<&TopbarMenuContext>,
+    upload_files: &[UploadFileEntry],
+    gis: &crate::gis_config::GisTilesConfig,
+) -> Option<String> {
+    let compile_revision = compile_revision.trim();
+    if compile_revision.is_empty() {
+        return None;
+    }
+    let source_sig = hash_signature(source);
+    let source_meta_sig = source_meta.map(serialized_signature).unwrap_or(0);
+    let topbar_sig = topbar_menu.map(serialized_signature).unwrap_or(0);
+    let upload_sig = serialized_signature(upload_files);
+    let extra = json!({
+        "app_id": app_id,
+        "route_mode": route_mode.slug(),
+        "compile_revision": compile_revision,
+        "target": target,
+        "selected_scene": selected_scene.unwrap_or(""),
+        "preview_target": preview_target.unwrap_or(""),
+        "active_tab": active_tab.unwrap_or(""),
+        "diag_filter": diag_filter.unwrap_or(""),
+        "chrome_hidden": chrome_hidden,
+        "upload_enabled": upload_enabled,
+        "upload_root_label": upload_root_label.unwrap_or(""),
+        "source_sig": source_sig,
+        "source_meta_sig": source_meta_sig,
+        "topbar_sig": topbar_sig,
+        "upload_sig": upload_sig,
+        "gis_base_url": gis.base_url.as_str(),
+        "gis_json_path": gis.json_path.as_str(),
+    });
+    serde_json::to_string(&extra).ok()
+}
+
+fn render_page_template_with_cache(
+    cache_key: Option<String>,
+    render: impl FnOnce() -> String,
+) -> (String, bool) {
+    if let Some(ref key) = cache_key {
+        if let Some(html) = take_cached_page_render_template(key) {
+            return (html, true);
+        }
+    }
+    let html = render();
+    if let Some(key) = cache_key {
+        store_cached_page_render_template(key, &html);
+    }
+    (html, false)
+}
+
 fn upload_rel_from_config(app_root: &Path, source_root: &Path) -> Option<String> {
     let config = load_mei_config_for_app(app_root, Some(source_root));
     config
@@ -128,6 +269,24 @@ fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<UploadFileEnt
     }
     out.sort_by(|left, right| left.name.cmp(&right.name));
     out
+}
+
+fn app_title_for(apps: &[WorkspaceAppMeta], app_id: &str) -> String {
+    apps.iter()
+        .find(|app| app.id == app_id)
+        .map(|app| app.title.clone())
+        .unwrap_or_else(|| app_id.to_string())
+}
+
+fn lightweight_access_scene(
+    app_root: &Path,
+    query_scene: Option<&str>,
+) -> Option<String> {
+    query_scene
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty())
+        .map(str::to_string)
+        .or_else(|| resolve_default_scene_from_root(app_root).ok().flatten())
 }
 
 pub async fn app_page(
@@ -171,6 +330,7 @@ pub async fn app_page(
             "missing app id in route",
         ));
     }
+    let app_root = state.source_root.join(&app_id);
     tracing::info!(
         app_id = %app_id,
         route_mode = route_mode.slug(),
@@ -205,7 +365,6 @@ pub async fn app_page(
         }
     }
     if route_mode == UiRouteMode::Upload {
-        let app_root = state.source_root.join(&app_id);
         if upload_rel_from_config(&app_root, &state.source_root).is_none() {
             return Err(AppError::status(
                 axum::http::StatusCode::NOT_FOUND,
@@ -262,16 +421,163 @@ pub async fn app_page(
     let discover_started = Instant::now();
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
     let discover_ms = elapsed_ms(discover_started);
+    let app_title = app_title_for(&apps, &app_id);
     let chrome_hidden = query
         .chrome
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(false);
+    let topbar_menus = load_segment_topbar_menus(&state.source_root);
+    let upload_rel = upload_rel_from_config(&app_root, &state.source_root);
+    let upload_enabled = upload_rel.is_some();
+    let upload_files = upload_rel
+        .as_ref()
+        .map(|rel| list_upload_files(&app_root.join(rel), rel))
+        .unwrap_or_default();
+    let upload_root_label = upload_rel.as_deref().unwrap_or("upload");
+    let lightweight_scene = lightweight_access_scene(&app_root, query.scene.as_deref());
     let manage_file = if route_mode == UiRouteMode::Build {
         request_file.clone()
     } else {
         None
     };
+    if route_mode == UiRouteMode::Config {
+        let target = ".mei-config.json".to_string();
+        let source_path = app_root.join(&target);
+        let source_started = Instant::now();
+        let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+        let source_read_ms = elapsed_ms(source_started);
+        let source_meta = source_panel_meta(&source_path, &source);
+        let mut html = render_config_page(
+            &apps,
+            app_title.as_str(),
+            &app_id,
+            Some(&topbar_menus),
+            Some(source.as_str()),
+            Some(&source_meta),
+            lightweight_scene.as_deref(),
+            upload_enabled,
+        );
+        html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
+        html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
+        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+            &app_root,
+            Some(state.source_root.as_path()),
+            None,
+        );
+        html = fill_gis_tiles_placeholders(html, &gis);
+        tracing::info!(
+            app_id = %app_id,
+            route_mode = route_mode.slug(),
+            target = %target,
+            source_read_ms,
+            total_ms = elapsed_ms(app_started),
+            phase = "finish_light_config",
+            "app page request finished without compile"
+        );
+        return Ok(Html(html).into_response());
+    }
+    if route_mode == UiRouteMode::Upload {
+        let rel = upload_rel.clone().ok_or_else(|| {
+            AppError::status(
+                axum::http::StatusCode::NOT_FOUND,
+                "app has no paths.upload configured",
+            )
+        })?;
+        let target = if let Some(file) = request_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            format!("{rel}/{file}")
+        } else {
+            rel
+        };
+        let source_path = app_root.join(&target);
+        let source_started = Instant::now();
+        let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+        let source_read_ms = elapsed_ms(source_started);
+        let source_meta = source_panel_meta(&source_path, &source);
+        let mut html = render_upload_page(
+            &apps,
+            app_title.as_str(),
+            &app_id,
+            Some(&topbar_menus),
+            request_file.as_deref(),
+            Some(source.as_str()),
+            Some(&source_meta),
+            lightweight_scene.as_deref(),
+            upload_enabled,
+            Some(upload_root_label),
+            &upload_files,
+        );
+        html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
+        html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
+        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+            &app_root,
+            Some(state.source_root.as_path()),
+            None,
+        );
+        html = fill_gis_tiles_placeholders(html, &gis);
+        tracing::info!(
+            app_id = %app_id,
+            route_mode = route_mode.slug(),
+            target = %target,
+            source_read_ms,
+            total_ms = elapsed_ms(app_started),
+            phase = "finish_light_upload",
+            "app page request finished without compile"
+        );
+        return Ok(Html(html).into_response());
+    }
+    if route_mode == UiRouteMode::Build
+        && query
+            .tab
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|tab| tab.eq_ignore_ascii_case("source"))
+    {
+        let target = manage_file
+            .clone()
+            .unwrap_or_else(|| resolve_app_entry_main(&app_root));
+        let source_path = app_root.join(&target);
+        let source_started = Instant::now();
+        let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
+        let source_read_ms = elapsed_ms(source_started);
+        let source_meta = source_panel_meta(&source_path, &source);
+        let file_tree = source_tree(&app_root).unwrap_or_default();
+        let mut html = render_build_source_page(
+            &apps,
+            app_title.as_str(),
+            &app_id,
+            Some(&topbar_menus),
+            &file_tree,
+            target.as_str(),
+            source.as_str(),
+            Some(&source_meta),
+            lightweight_scene.as_deref(),
+            query.tab.as_deref(),
+            upload_enabled,
+        );
+        html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
+        html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
+        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+            &app_root,
+            Some(state.source_root.as_path()),
+            None,
+        );
+        html = fill_gis_tiles_placeholders(html, &gis);
+        tracing::info!(
+            app_id = %app_id,
+            route_mode = route_mode.slug(),
+            target = %target,
+            source_read_ms,
+            total_ms = elapsed_ms(app_started),
+            phase = "finish_light_build_source",
+            "app page request finished without compile"
+        );
+        return Ok(Html(html).into_response());
+    }
     let manage_script_file = manage_file
         .as_deref()
         .filter(|t| is_script_target(t))
@@ -358,15 +664,6 @@ pub async fn app_page(
                 let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
                 let source_read_ms = elapsed_ms(source_started);
                 let source_meta = source_panel_meta(&source_path, &source);
-                let topbar_menus = load_segment_topbar_menus(&state.source_root);
-                let app_root = state.source_root.join(&app_id);
-                let upload_rel = upload_rel_from_config(&app_root, &state.source_root);
-                let upload_enabled = upload_rel.is_some();
-                let upload_files = upload_rel
-                    .as_ref()
-                    .map(|rel| list_upload_files(&app_root.join(rel), rel))
-                    .unwrap_or_default();
-                let upload_root_label = upload_rel.as_deref().unwrap_or("upload");
                 let mut compiled = compile_error_fallback_app(
                     &state.source_root,
                     &app_id,
@@ -463,6 +760,7 @@ pub async fn app_page(
         }
     };
     let compile_cache_hit = compile_outcome.cache_hit;
+    let compile_revision = compile_outcome.compile_revision.clone();
     let compile_revision_scope = compile_outcome.revision_scope.clone();
     let compile_cache_validation = compile_outcome.cache_validation.clone();
     let compile_ms = compile_outcome.compile_ms;
@@ -541,33 +839,7 @@ pub async fn app_page(
         .as_deref()
         .or(compiled.active_scene.as_deref());
     let manage_default_file = default_file_for_scene(&compiled, scene_for_default);
-    let app_root = state.source_root.join(&app_id);
-    let upload_rel = upload_rel_from_config(&app_root, &state.source_root);
-    let upload_enabled = upload_rel.is_some();
-    let upload_files = upload_rel
-        .as_ref()
-        .map(|rel| list_upload_files(&app_root.join(rel), rel))
-        .unwrap_or_default();
-    let upload_root_label = upload_rel.as_deref().unwrap_or("upload");
-    let target = if route_mode == UiRouteMode::Config {
-        ".mei-config.json".to_string()
-    } else if route_mode == UiRouteMode::Upload {
-        let rel = upload_rel.clone().ok_or_else(|| {
-            AppError::status(
-                axum::http::StatusCode::NOT_FOUND,
-                "app has no paths.upload configured",
-            )
-        })?;
-        if let Some(file) = request_file
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            format!("{rel}/{file}")
-        } else {
-            rel
-        }
-    } else if route_mode == UiRouteMode::Build {
+    let target = if route_mode == UiRouteMode::Build {
         manage_file.clone().unwrap_or(manage_default_file)
     } else if let Some(static_file) = access_static_file.clone() {
         static_file
@@ -612,29 +884,6 @@ pub async fn app_page(
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_read_ms = elapsed_ms(source_started);
     let source_meta = source_panel_meta(&source_path, &source);
-    let topbar_menus = load_segment_topbar_menus(&state.source_root);
-    let render = |cc: &CompiledApp| {
-        let t = Instant::now();
-        let html = render_page(
-            &apps,
-            cc,
-            &app_id,
-            Some(&topbar_menus),
-            route_mode,
-            Some(target.as_str()),
-            Some(source.as_str()),
-            Some(&source_meta),
-            manage_scene_resolved.as_deref(),
-            normalized_preview_target.as_deref(),
-            query.tab.as_deref(),
-            query.diag_filter.as_deref(),
-            chrome_hidden,
-            upload_enabled,
-            Some(upload_root_label),
-            &upload_files,
-        );
-        (html, elapsed_ms(t))
-    };
     push_manage_page_pipeline_diag(
         &mut compiled,
         &app_id,
@@ -652,21 +901,58 @@ pub async fn app_page(
         None,
         elapsed_ms(app_started),
     );
-    let (html, ssr_http_response_body_ms, handler_html_ready_ms) = {
+    let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
+        &state.source_root.join(&app_id),
+        Some(state.source_root.as_path()),
+        None,
+    );
+    let render_cache_key = page_render_cache_key(
+        &app_id,
+        route_mode,
+        &compile_revision,
+        target.as_str(),
+        source.as_str(),
+        Some(&source_meta),
+        manage_scene_resolved.as_deref(),
+        normalized_preview_target.as_deref(),
+        query.tab.as_deref(),
+        query.diag_filter.as_deref(),
+        chrome_hidden,
+        upload_enabled,
+        Some(upload_root_label),
+        Some(&topbar_menus),
+        &upload_files,
+        &gis,
+    );
+    let (html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
-        let h = render(&compiled).0;
+        let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
+            let rendered = render_page(
+                &apps,
+                &compiled,
+                &app_id,
+                Some(&topbar_menus),
+                route_mode,
+                Some(target.as_str()),
+                Some(source.as_str()),
+                Some(&source_meta),
+                manage_scene_resolved.as_deref(),
+                normalized_preview_target.as_deref(),
+                query.tab.as_deref(),
+                query.diag_filter.as_deref(),
+                chrome_hidden,
+                upload_enabled,
+                Some(upload_root_label),
+                &upload_files,
+            );
+            fill_gis_tiles_placeholders(rendered, &gis)
+        });
         let ssr_emit_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);
         let h = fill_perf_placeholders(h, ssr_emit_ms, total_wall);
         let handler_ms = elapsed_ms(app_started);
         let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
-        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-            &state.source_root.join(&app_id),
-            Some(state.source_root.as_path()),
-            None,
-        );
-        let h = fill_gis_tiles_placeholders(h, &gis);
-        (h, ssr_emit_ms, handler_ms)
+        (h, cache_hit, ssr_emit_ms, handler_ms)
     };
     let mut res = Html(html).into_response();
     if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
@@ -679,11 +965,12 @@ pub async fn app_page(
             v,
         );
     }
+    insert_page_render_cache_hit_header(&mut res, page_render_cache_hit);
     insert_manage_compile_observability_headers(&mut res, &compiled);
     let request_meta = CompileWithCacheOutcome {
         compiled: compiled.clone(),
         cache_hit: compile_cache_hit,
-        compile_revision: String::new(),
+        compile_revision: compile_revision.clone(),
         revision_scope: compile_revision_scope.clone(),
         cache_validation: compile_cache_validation.clone(),
         cache_lookup_ms: compile_cache_lookup_ms,
@@ -699,6 +986,7 @@ pub async fn app_page(
         compile_ms,
         compile_cache_lookup_ms,
         source_read_ms,
+        page_render_cache_hit,
         handler_html_ready_ms,
         ssr_http_response_body_ms,
         total_ms = elapsed_ms(app_started),

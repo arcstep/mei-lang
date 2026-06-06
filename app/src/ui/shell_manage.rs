@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
+use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta, WorkspaceNode};
 
 use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
@@ -11,7 +11,7 @@ use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;
 use super::source_tree;
 use super::statusbar::statusbar_view;
-use super::topbar::topbar_view;
+use super::topbar::{access_scene_for_topbar, topbar_view};
 use super::{SourcePanelMeta, TopbarMenuContext};
 
 fn asset_codemirror_stack(
@@ -94,6 +94,7 @@ pub(super) fn manage_shell(
     );
     let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
     let script_target = is_mei_script_target(selected_target.as_str());
+    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let active_manage_tab = manage_view_tab_from_query(
         active_tab,
         script_target,
@@ -103,25 +104,30 @@ pub(super) fn manage_shell(
     );
     let topbar = topbar_view(
         apps,
-        compiled,
         app_path,
         topbar_menu,
         UiRouteMode::Build,
-        selected_scene.or(active_scene),
-        preview_target,
+        access_scene_for_topbar(
+            UiRouteMode::Build,
+            compiled,
+            selected_scene.or(active_scene),
+            preview_target,
+        ),
+        Some(selected_target.as_str()),
         active_tab,
         upload_enabled,
+        stage_enabled,
     );
     let statusbar = statusbar_view(
         app_path,
+        compiled.title.as_str(),
         UiRouteMode::Build.slug(),
         selected_target.as_str(),
         source_meta,
-        compiled,
+        Some(compiled),
         true,
         true,
     );
-    let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {
         "shell shell-surface frame-stage-enabled text-slate-200"
     } else {
@@ -404,6 +410,204 @@ pub(super) fn manage_shell(
                         } else {
                             non_script_main
                         }}
+                    </section>
+                </main>
+            </div>
+            {statusbar}
+        </div>
+    }
+    .into_any()
+}
+
+pub(super) fn manage_source_shell(
+    apps: &[WorkspaceAppMeta],
+    app_title: &str,
+    app_path: &str,
+    topbar_menu: Option<&TopbarMenuContext>,
+    file_tree: &[WorkspaceNode],
+    target: &str,
+    source: &str,
+    source_meta: Option<&SourcePanelMeta>,
+    selected_scene: Option<&str>,
+    active_tab: Option<&str>,
+    upload_enabled: bool,
+) -> AnyView {
+    let selected_target = target.to_string();
+    let source_panel = source.to_string();
+    let script_target = is_mei_script_target(selected_target.as_str());
+    let asset_shell = classify_asset_shell(selected_target.as_str());
+    let asset_cm_lang = codemirror_dataset_lang(selected_target.as_str());
+    let source_tree = source_tree::source_tree_view(
+        file_tree,
+        UiRouteMode::Build,
+        app_path,
+        selected_target.as_str(),
+        selected_scene,
+        &[],
+        selected_target.as_str(),
+        active_tab,
+    );
+    let active_manage_tab = manage_view_tab_from_query(
+        active_tab,
+        script_target,
+        false,
+        0,
+        selected_target.as_str(),
+    );
+    let topbar = topbar_view(
+        apps,
+        app_path,
+        topbar_menu,
+        UiRouteMode::Build,
+        selected_scene,
+        Some(selected_target.as_str()),
+        active_tab,
+        upload_enabled,
+        false,
+    );
+    let statusbar = statusbar_view(
+        app_path,
+        app_title,
+        UiRouteMode::Build.slug(),
+        selected_target.as_str(),
+        source_meta,
+        None,
+        false,
+        false,
+    );
+    let tab_specs: Vec<ManageViewTab> = if script_target || asset_shell == AssetShellKind::Dual {
+        vec![ManageViewTab::Preview, ManageViewTab::Source]
+    } else {
+        vec![]
+    };
+    let tab_links = tab_specs
+        .into_iter()
+        .map(|tab| {
+            let href = manage_tab_href(
+                app_path,
+                Some(selected_target.as_str()),
+                selected_target.as_str(),
+                script_target,
+                tab,
+                None,
+            );
+            let class = if tab == active_manage_tab {
+                "manage-view-tab is-active"
+            } else {
+                "manage-view-tab"
+            };
+            let label = match tab {
+                ManageViewTab::Preview => "预览",
+                ManageViewTab::Source => "只读源码",
+                ManageViewTab::Diagnostics => "调试",
+            };
+            view! {
+                <a
+                    class=class
+                    href=href
+                    role="tab"
+                    aria-selected=if tab == active_manage_tab { "true" } else { "false" }
+                    data-manage-tab=tab.slug()
+                >
+                    <span class="manage-view-tab-label">{label}</span>
+                </a>
+            }
+        })
+        .collect_view();
+    let main_tabs_nav = if script_target || asset_shell == AssetShellKind::Dual {
+        view! {
+            <nav
+                class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
+                role="tablist"
+                aria-label="构建主视图"
+            >
+                <div class="manage-view-tabs-cluster">
+                    <div class="manage-view-tabs-group" role="presentation">
+                        {tab_links}
+                    </div>
+                </div>
+            </nav>
+        }
+        .into_any()
+    } else {
+        view! { <></> }.into_any()
+    };
+    let main_panel = match asset_shell {
+        AssetShellKind::PreviewOnly | AssetShellKind::Unsupported => view! {
+            <section class="asset-preview-pane flex min-h-0 flex-1 flex-col overflow-hidden">
+                {asset_preview_body(
+                    app_path,
+                    selected_target.as_str(),
+                    source_panel.as_str(),
+                )}
+            </section>
+        }
+        .into_any(),
+        _ => view! {
+            <section class="source-panel source-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden">
+                {readonly_source_notice()}
+                {asset_codemirror_stack(
+                    app_path,
+                    selected_target.as_str(),
+                    source_panel.as_str(),
+                    asset_cm_lang,
+                )}
+            </section>
+        }
+        .into_any(),
+    };
+    view! {
+        <div class="shell shell-surface text-slate-200">
+            <div
+                id="tree-icons-sprite-root"
+                class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+                aria-hidden="true"
+                inner_html=source_tree::TREE_ICONS_SPRITE_SVG
+            ></div>
+            {topbar}
+            <div
+                class="workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+                id="workspace-root"
+            >
+                <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
+                    <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
+                        {source_tree}
+                    </div>
+                </aside>
+                <div
+                    class="splitter splitter-left"
+                    data-workspace-splitter="left"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="调整左侧资源栏宽度"
+                >
+                    <button
+                        class="splitter-toggle"
+                        type="button"
+                        data-workspace-toggle="left"
+                        aria-label="折叠左侧资源栏"
+                        title="折叠左侧资源栏"
+                    >
+                        <span class="splitter-toggle-icon" aria-hidden="true">
+                            <svg
+                                viewBox="0 0 20 20"
+                                width="12"
+                                height="12"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M12.5 4.5L7.5 10l5 5.5"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                <main class="main min-w-0 min-h-0 overflow-hidden px-0">
+                    <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
+                        {main_tabs_nav}
+                        {main_panel}
                     </section>
                 </main>
             </div>
