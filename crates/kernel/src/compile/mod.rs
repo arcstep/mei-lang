@@ -11,6 +11,10 @@ use walkdir::WalkDir;
 
 use crate::{
     eval::evaluate_mei_file,
+    mei_config::{
+        app_mei_config_path, load_mei_config_for_app, resolve_app_entry_main, resolve_app_main_path,
+        workspace_config_path, MEI_WORKSPACE_CONFIG_FILENAME,
+    },
     model::{
         CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, Severity,
         WorldMetricLedgerEntry,
@@ -140,29 +144,69 @@ fn catalog_focus_target<'a>(
         })
 }
 
-fn manage_preview_target(options: &CompileOptions) -> Option<&str> {
+fn manage_preview_target<'a>(
+    options: &'a CompileOptions,
+    app_entry_main: &str,
+) -> Option<&'a str> {
     // scene-first：Manage 可同时带 scene 锚与 preview_target（source-focus）；
     // 单文件预览裁剪仍由 preview_target 决定，不得因 scene 已设置而退回全量 compile。
     options
         .preview_target
         .as_deref()
         .map(str::trim)
-        .filter(|target| !target.is_empty() && *target != "main.mei")
+        .filter(|target| !target.is_empty() && *target != app_entry_main)
 }
 
 /// Manage 态打开 dataset 单文件预览时，只编译目标入口，避免扫全库 dataset 入口。
-fn is_dataset_manage_preview(options: &CompileOptions) -> bool {
-    manage_preview_target(options)
+fn is_dataset_manage_preview(options: &CompileOptions, app_entry_main: &str) -> bool {
+    manage_preview_target(options, app_entry_main)
         .is_some_and(|preview| preview.starts_with("data/") || preview.contains("/datasets/"))
 }
 
 /// Manage 态按 `?file=scenes/...` 预览 widget/layout 等：只编译该入口 scene，不编译 home 与其它路由。
-fn is_manage_entry_preview(options: &CompileOptions) -> bool {
-    manage_preview_target(options).is_some()
+fn is_manage_entry_preview(options: &CompileOptions, app_entry_main: &str) -> bool {
+    manage_preview_target(options, app_entry_main).is_some()
 }
 
-fn is_manage_preview_only_compile(options: &CompileOptions) -> bool {
-    is_dataset_manage_preview(options) || is_manage_entry_preview(options)
+fn is_manage_preview_only_compile(options: &CompileOptions, app_entry_main: &str) -> bool {
+    is_dataset_manage_preview(options, app_entry_main)
+        || is_manage_entry_preview(options, app_entry_main)
+}
+
+fn push_app_config_diagnostics(app_root: &Path, diagnostics: &mut Vec<Diagnostic>) {
+    let config_path = app_mei_config_path(app_root);
+    if !config_path.is_file() {
+        return;
+    }
+    let config = load_mei_config_for_app(app_root, None);
+    let entry_main = config.entry.main_rel();
+    let entry_path = app_root.join(&entry_main);
+    if !entry_path.is_file() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "invalid_entry_main".to_string(),
+            message: format!(
+                "`.mei-config.json` entry.main `{entry_main}` not found; update entry.main or create the file"
+            ),
+            source_path: Some(config_path.to_string_lossy().to_string()),
+        });
+    }
+    if config.has_legacy_workspace_fields() {
+        let has_workspace = app_root
+            .parent()
+            .map(workspace_config_path)
+            .is_some_and(|path| path.is_file());
+        if !has_workspace {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Warning,
+                code: "legacy_app_workspace_fields".to_string(),
+                message: format!(
+                    "`.mei-config.json` contains discover/menu/runtime fields that belong in `{MEI_WORKSPACE_CONFIG_FILENAME}` at the workspace segment root"
+                ),
+                source_path: Some(config_path.to_string_lossy().to_string()),
+            });
+        }
+    }
 }
 
 fn build_world_metric_ledger(
@@ -563,7 +607,7 @@ pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<Comp
 }
 
 pub fn resolve_default_scene_from_root(app_root: &Path) -> Result<Option<String>> {
-    let app_main = app_root.join("main.mei");
+    let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
     let app_decl =
@@ -586,7 +630,8 @@ pub fn compile_revision_plan_from_root_with_options(
     app_root: &Path,
     options: &CompileOptions,
 ) -> Result<CompileRevisionPlan> {
-    let app_main = app_root.join("main.mei");
+    let app_entry_main = resolve_app_entry_main(app_root);
+    let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
     let app_decl =
@@ -594,7 +639,7 @@ pub fn compile_revision_plan_from_root_with_options(
     let mut route_registry =
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
     let asset_map = load_component_assets(source_root)?;
-    let preview_only = is_manage_preview_only_compile(options);
+    let preview_only = is_manage_preview_only_compile(options, app_entry_main.as_str());
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     inject_discovered_entry_scene_routes(
         app_root,
@@ -657,9 +702,9 @@ pub fn compile_revision_plan_from_root_with_options(
                 .as_ref()
                 .map(|route| route.target_file.clone())
         })
-        .unwrap_or_else(|| "main.mei".to_string());
+        .unwrap_or_else(|| app_entry_main.clone());
 
-    let dataset_manage_preview = is_dataset_manage_preview(options);
+    let dataset_manage_preview = is_dataset_manage_preview(options, app_entry_main.as_str());
     let catalog_focus = catalog_focus_target(options, Some(primary_target.as_str()));
     let catalog_filter = if dataset_manage_preview {
         DatasetCatalogFilter::default()
@@ -669,12 +714,18 @@ pub fn compile_revision_plan_from_root_with_options(
 
     let mut token_parts = BTreeMap::<String, String>::new();
     let mut watched_paths = BTreeSet::<String>::new();
-    watched_paths.insert("main.mei".to_string());
-    if let Some(main_token) =
-        dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, "main.mei")
-    {
+    watched_paths.insert(app_entry_main.clone());
+    if let Some(main_token) = dependency_graph.dependency_fingerprint_for_target(
+        app_root,
+        &app_decls,
+        app_entry_main.as_str(),
+    ) {
         token_parts.insert("main".to_string(), main_token);
-        watched_paths.extend(dependency_graph.closure_for_target(app_root, &app_decls, "main.mei"));
+        watched_paths.extend(dependency_graph.closure_for_target(
+            app_root,
+            &app_decls,
+            app_entry_main.as_str(),
+        ));
     }
     if let Some(primary_token) =
         dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &primary_target)
@@ -741,7 +792,8 @@ pub fn compile_app_from_root_with_options(
         dependency_graph_cache_metrics_snapshot();
     let (content_hash_hits_before, content_hash_misses_before) =
         file_content_hash_cache_metrics_snapshot();
-    let app_main = app_root.join("main.mei");
+    let app_entry_main = resolve_app_entry_main(app_root);
+    let app_main = resolve_app_main_path(app_root);
     let app_decls = evaluate_mei_file(&app_main)?;
     let (app_decl, mut diagnostics) = decode_app_decl(&app_main, &app_decls);
     let app_decl =
@@ -750,7 +802,7 @@ pub fn compile_app_from_root_with_options(
         resolve_scene_routes(&app_main, &app_decl, &app_decls, &mut diagnostics);
 
     let asset_map = load_component_assets(source_root)?;
-    let preview_only = is_manage_preview_only_compile(&options);
+    let preview_only = is_manage_preview_only_compile(&options, app_entry_main.as_str());
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
     inject_discovered_entry_scene_routes(
         app_root,
@@ -791,6 +843,7 @@ pub fn compile_app_from_root_with_options(
             source_path: Some(app_main.to_string_lossy().to_string()),
         });
     }
+    push_app_config_diagnostics(app_root, &mut diagnostics);
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     let mut precompile_routes = Vec::<CompiledSceneRoute>::new();
     if preview_only {
@@ -898,7 +951,7 @@ pub fn compile_app_from_root_with_options(
                 &scene_registry,
                 dependency_fingerprint.as_deref(),
             );
-            if target_file == "main.mei" && payload.scene_contract.is_none() {
+            if target_file == app_entry_main && payload.scene_contract.is_none() {
                 let fallback_route = active_route_meta.clone().or_else(|| {
                     route_registry
                         .default_scene_id
@@ -959,17 +1012,20 @@ pub fn compile_app_from_root_with_options(
             });
         (Some(route_meta.scene_id), route_meta.target_file, payload)
     } else {
-        let dependency_fingerprint =
-            dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, "main.mei");
+        let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+            app_root,
+            &app_decls,
+            app_entry_main.as_str(),
+        );
         (
             None,
-            "main.mei".to_string(),
+            app_entry_main.clone(),
             compile_scene_payload_for_target(
                 app_root,
                 source_root,
                 &app_decls,
                 &asset_map,
-                "main.mei",
+                app_entry_main.as_str(),
                 None,
                 &scene_registry,
                 dependency_fingerprint.as_deref(),
@@ -994,7 +1050,7 @@ pub fn compile_app_from_root_with_options(
         .clone()
         .unwrap_or_else(|| app_decl.id.clone());
 
-    let dataset_manage_preview = is_dataset_manage_preview(&options);
+    let dataset_manage_preview = is_dataset_manage_preview(&options, app_entry_main.as_str());
     let catalog_focus = catalog_focus_target(&options, Some(active_target_file.as_str()));
     let catalog_seed_files =
         dependency_graph.catalog_seed_files(app_root, &app_decls, catalog_focus);

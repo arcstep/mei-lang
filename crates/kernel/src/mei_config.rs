@@ -1,4 +1,4 @@
-//! 统一 `.mei-config.json` 加载：discover / menu / runtime / ops 分层。
+//! App 级 `.mei-config.json` 与 workspace 级 `.mei-workspace.json` 分层加载。
 //!
 //! `.mei` 真源只读；宿主仅通过 ops 白名单对象写回配置，不写 `.mei`。
 
@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const MEI_CONFIG_FILENAME: &str = ".mei-config.json";
+pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = ".mei-workspace.json";
 pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
+pub const DEFAULT_APP_ENTRY_MAIN: &str = "main.mei";
 
 /// 可运维对象白名单（宿主写操作仅允许触及这些分类）。
 pub const OPS_OBJECT_KINDS: &[&str] = &[
@@ -26,8 +28,9 @@ pub const OPS_OBJECT_KINDS: &[&str] = &[
     "ops_param_ref",
 ];
 
+/// workspace / segment 级配置：发现规则、默认菜单与运行时回退。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct MeiConfig {
+pub struct WorkspaceConfig {
     #[serde(default, rename = "schemaVersion")]
     pub schema_version: u32,
     #[serde(default)]
@@ -36,8 +39,50 @@ pub struct MeiConfig {
     pub menu: Value,
     #[serde(default)]
     pub runtime: RuntimeConfig,
+}
+
+/// app 根目录 `.mei-config.json`：入口、路径、宿主能力与 ops。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MeiConfig {
+    #[serde(default, rename = "schemaVersion")]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub entry: AppEntryConfig,
+    #[serde(default)]
+    pub paths: AppPathsConfig,
+    #[serde(default)]
+    pub host: Value,
+    #[serde(default)]
+    pub features: AppFeaturesConfig,
+    /// 已迁移至 `.mei-workspace.json`；反序列化保留以兼容旧文件，运行时忽略。
+    #[serde(default)]
+    pub discover: DiscoverConfig,
+    #[serde(default)]
+    pub menu: Value,
+    #[serde(default)]
+    pub runtime: RuntimeConfig,
     #[serde(default)]
     pub ops: OpsConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppEntryConfig {
+    #[serde(default)]
+    pub main: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppPathsConfig {
+    #[serde(default)]
+    pub upload: Option<String>,
+    #[serde(default)]
+    pub prototype: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AppFeaturesConfig {
+    #[serde(default, rename = "aiChat")]
+    pub ai_chat: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -131,12 +176,44 @@ pub struct OpsBasemapEntry {
     pub style: Option<Value>,
 }
 
+impl AppEntryConfig {
+    pub fn main_rel(&self) -> String {
+        let trimmed = self.main.trim().trim_matches('/');
+        if trimmed.is_empty() {
+            DEFAULT_APP_ENTRY_MAIN.to_string()
+        } else {
+            trimmed.replace('\\', "/")
+        }
+    }
+}
+
 impl MeiConfig {
     pub fn load_from_path(path: &Path) -> Result<Self> {
         let raw = fs::read_to_string(path)
             .with_context(|| format!("failed to read mei config {}", path.display()))?;
         serde_json::from_str(&raw)
             .with_context(|| format!("failed to parse mei config {}", path.display()))
+    }
+
+    pub fn load_or_default(path: &Path) -> Self {
+        Self::load_from_path(path).unwrap_or_default()
+    }
+
+    pub fn has_legacy_workspace_fields(&self) -> bool {
+        !self.discover.skip_directories.is_empty()
+            || !self.menu.is_null()
+            || self.runtime.file_cache.max_file_mb.is_some()
+            || self.runtime.file_cache.max_entries.is_some()
+            || self.runtime.file_cache.max_total_mb.is_some()
+    }
+}
+
+impl WorkspaceConfig {
+    pub fn load_from_path(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace config {}", path.display()))?;
+        serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse workspace config {}", path.display()))
     }
 
     pub fn load_or_default(path: &Path) -> Self {
@@ -153,31 +230,21 @@ impl MeiConfig {
     }
 }
 
-/// 应用根优先，其次 workspace segment（`app_root` 的父目录）。
-pub fn resolve_mei_config_path(app_root: &Path, source_root: Option<&Path>) -> PathBuf {
-    let app_cfg = app_root.join(MEI_CONFIG_FILENAME);
-    if app_cfg.is_file() {
-        return app_cfg;
-    }
-    if let Some(segment) = source_root
-        .and_then(|root| app_root.strip_prefix(root).ok())
-        .and_then(|rel| rel.components().next())
-        .map(|c| c.as_os_str().to_string_lossy().to_string())
-    {
-        if let Some(root) = source_root {
-            let segment_cfg = root.join(segment).join(MEI_CONFIG_FILENAME);
-            if segment_cfg.is_file() {
-                return segment_cfg;
-            }
-        }
-    }
-    if let Some(parent) = app_root.parent() {
-        let parent_cfg = parent.join(MEI_CONFIG_FILENAME);
-        if parent_cfg.is_file() {
-            return parent_cfg;
-        }
-    }
-    app_cfg
+pub fn is_app_config_root(dir: &Path) -> bool {
+    dir.join(MEI_CONFIG_FILENAME).is_file()
+}
+
+pub fn app_mei_config_path(app_root: &Path) -> PathBuf {
+    app_root.join(MEI_CONFIG_FILENAME)
+}
+
+pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
+    segment_root.join(MEI_WORKSPACE_CONFIG_FILENAME)
+}
+
+/// 仅认 app 根目录的 `.mei-config.json`，不再向上/向 segment 回退。
+pub fn resolve_mei_config_path(app_root: &Path, _source_root: Option<&Path>) -> PathBuf {
+    app_mei_config_path(app_root)
 }
 
 pub fn load_mei_config_for_app(app_root: &Path, source_root: Option<&Path>) -> MeiConfig {
@@ -185,8 +252,36 @@ pub fn load_mei_config_for_app(app_root: &Path, source_root: Option<&Path>) -> M
     MeiConfig::load_or_default(&path)
 }
 
-pub fn segment_mei_config_path(segment_root: &Path) -> PathBuf {
-    segment_root.join(MEI_CONFIG_FILENAME)
+/// 迁移窗口：优先 `.mei-workspace.json`，否则回退读取 segment 级旧 `.mei-config.json`。
+pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
+    let modern = workspace_config_path(segment_root);
+    if modern.is_file() {
+        return WorkspaceConfig::load_or_default(&modern);
+    }
+    let legacy = segment_root.join(MEI_CONFIG_FILENAME);
+    if legacy.is_file() {
+        let legacy_app = MeiConfig::load_or_default(&legacy);
+        return WorkspaceConfig {
+            schema_version: legacy_app.schema_version,
+            discover: legacy_app.discover,
+            menu: legacy_app.menu,
+            runtime: legacy_app.runtime,
+        };
+    }
+    WorkspaceConfig::default()
+}
+
+pub fn resolve_app_entry_main(app_root: &Path) -> String {
+    let path = app_mei_config_path(app_root);
+    if path.is_file() {
+        MeiConfig::load_or_default(&path).entry.main_rel()
+    } else {
+        DEFAULT_APP_ENTRY_MAIN.to_string()
+    }
+}
+
+pub fn resolve_app_main_path(app_root: &Path) -> PathBuf {
+    app_root.join(resolve_app_entry_main(app_root))
 }
 
 pub fn write_mei_config(path: &Path, config: &MeiConfig) -> Result<()> {
@@ -273,13 +368,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_skip_normalizes_segments() {
-        let cfg = MeiConfig {
+    fn workspace_discover_skip_normalizes_segments() {
+        let cfg = WorkspaceConfig {
             discover: DiscoverConfig {
                 skip_directories: vec![" /foo/ ".into(), "nested/bad".into(), "ok".into()],
             },
             ..Default::default()
         };
         assert_eq!(cfg.discover_skip_directories(), vec!["foo", "ok"]);
+    }
+
+    #[test]
+    fn entry_main_defaults_to_main_mei() {
+        let entry = AppEntryConfig::default();
+        assert_eq!(entry.main_rel(), "main.mei");
+        let entry = AppEntryConfig {
+            main: " scenes/home.mei ".into(),
+        };
+        assert_eq!(entry.main_rel(), "scenes/home.mei");
     }
 }

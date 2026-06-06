@@ -1,7 +1,7 @@
 use std::{fs, path::Path};
 
 use mei_lang_app::{TopbarMenuConfig, TopbarMenuContext};
-use mei_lang_kernel::{segment_mei_config_path, MeiConfig};
+use mei_lang_kernel::{load_workspace_config, WorkspaceConfig};
 use std::collections::BTreeMap;
 
 fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
@@ -24,23 +24,22 @@ fn read_topbar_menu_json(path: &Path) -> Option<TopbarMenuConfig> {
     }
 }
 
-fn menu_from_mei_config(path: &Path) -> Option<TopbarMenuConfig> {
-    let config = MeiConfig::load_or_default(path);
+fn menu_from_workspace_config(config: &WorkspaceConfig) -> Option<TopbarMenuConfig> {
     if config.menu.is_null() {
         return None;
     }
-    match serde_json::from_value::<TopbarMenuConfig>(config.menu) {
+    match serde_json::from_value::<TopbarMenuConfig>(config.menu.clone()) {
         Ok(menu) => Some(menu),
         Err(error) => {
-            tracing::warn!(path = %path.display(), %error, "failed to parse .mei-config.json menu");
+            tracing::warn!(%error, "failed to parse workspace config menu");
             None
         }
     }
 }
 
 fn load_topbar_menu_from_dir(dir: &Path) -> Option<TopbarMenuConfig> {
-    let modern = segment_mei_config_path(dir);
-    if let Some(menu) = menu_from_mei_config(&modern) {
+    let workspace = load_workspace_config(dir);
+    if let Some(menu) = menu_from_workspace_config(&workspace) {
         return Some(menu);
     }
     read_topbar_menu_json(&dir.join("_menu.json"))

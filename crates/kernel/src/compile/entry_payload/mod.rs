@@ -73,7 +73,7 @@ pub(super) fn collect_ref_scene_files_from_value(
 }
 
 fn load_entry_decls(app_root: &Path, app_decls: &Value, target_file: &str) -> Result<Value> {
-    if target_file == "main.mei" {
+    if target_file == crate::mei_config::resolve_app_entry_main(app_root) {
         Ok(app_decls.clone())
     } else {
         let entry_path = app_root.join(target_file);

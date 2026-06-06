@@ -84,6 +84,7 @@ pub(super) fn compile_scene_payload(
 ) -> Result<CompiledScenePayload> {
     let mut diagnostics = Vec::new();
     let config = crate::mei_config::load_mei_config_for_app(app_root, None);
+    let app_entry_main = config.entry.main_rel();
     let resolver = ConfigRefResolver::new(&config);
     let mut scenes: BTreeMap<String, SceneDecl> = BTreeMap::new();
     let mut frames: BTreeMap<String, FrameDecl> = BTreeMap::new();
@@ -425,8 +426,9 @@ pub(super) fn compile_scene_payload(
         || !pending_world_metrics.is_empty()
         || had_pending_topology
         || had_pending_frame_layout;
-    let dataset_library_only =
-        has_dataset_library_content && !has_authoring_surface && target_file != "main.mei";
+    let dataset_library_only = has_dataset_library_content
+        && !has_authoring_surface
+        && target_file != app_entry_main;
 
     if top_level_legacy_dataset_count > 0
         || top_level_legacy_dataset_view_count > 0
@@ -563,7 +565,7 @@ pub(super) fn compile_scene_payload(
         }
     }
     let requires_scene_contract =
-        (route_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
+        (route_meta.is_some() || target_file != app_entry_main) && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
         let is_legacy_fragment = frame_decl_count > 0
             || !panels.is_empty()

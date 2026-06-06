@@ -8,7 +8,9 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use walkdir::WalkDir;
 
-use crate::mei_config::{segment_mei_config_path, MeiConfig};
+use crate::mei_config::{
+    is_app_config_root, load_workspace_config, resolve_app_entry_main, MEI_CONFIG_FILENAME,
+};
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
 fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
@@ -16,12 +18,66 @@ fn segment_discover_skip_dirs(segment_root: &Path) -> HashSet<String> {
         .into_iter()
         .map(str::to_string)
         .collect();
-    let path = segment_mei_config_path(segment_root);
-    let cfg = MeiConfig::load_or_default(&path);
+    let cfg = load_workspace_config(segment_root);
     for d in cfg.discover_skip_directories() {
         out.insert(d);
     }
     out
+}
+
+fn push_discovered_app(
+    app_root: &Path,
+    source_root: &Path,
+    apps: &mut Vec<WorkspaceAppMeta>,
+) -> Result<()> {
+    let Ok(relative) = app_root.strip_prefix(source_root) else {
+        return Ok(());
+    };
+    let id = relative.to_string_lossy().replace('\\', "/");
+    if id.is_empty() {
+        return Ok(());
+    }
+    apps.push(WorkspaceAppMeta {
+        id: id.clone(),
+        title: id,
+        root: app_root.to_string_lossy().to_string(),
+    });
+    Ok(())
+}
+
+/// 在 `root` 下发现 mei 应用：`.mei-config.json` 优先；否则回退 `main.mei`。
+/// 一旦目录被识别为 app root，不再继续深入其子树发现子应用。
+fn discover_apps_under(
+    root: &Path,
+    source_root: &Path,
+    skip_dirs: &HashSet<String>,
+    apps: &mut Vec<WorkspaceAppMeta>,
+) -> Result<()> {
+    if is_app_config_root(root) {
+        push_discovered_app(root, source_root, apps)?;
+        return Ok(());
+    }
+    if root.join("main.mei").is_file() {
+        push_discovered_app(root, source_root, apps)?;
+        return Ok(());
+    }
+    if !root.is_dir() {
+        return Ok(());
+    }
+    for child in fs::read_dir(root)
+        .with_context(|| format!("discover_apps: read_dir {}", root.display()))?
+    {
+        let child = child.context("discover_apps: read_dir entry")?;
+        if !child.file_type().context("discover_apps: file_type")?.is_dir() {
+            continue;
+        }
+        let name = child.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') || name.starts_with('_') || skip_dirs.contains(&name) {
+            continue;
+        }
+        discover_apps_under(&child.path(), source_root, skip_dirs, apps)?;
+    }
+    Ok(())
 }
 
 /// 仅在 `source_root` 的**一级子目录**下递归发现应用（不会把 `source_root/main.mei` 当作应用，
@@ -51,40 +107,7 @@ pub fn discover_apps(source_root: &Path) -> Result<Vec<WorkspaceAppMeta>> {
         }
         let child_root = child.path();
         let skip_dirs = segment_discover_skip_dirs(&child_root);
-        let skip = skip_dirs.clone();
-        let walker = WalkDir::new(&child_root)
-            .min_depth(1)
-            .into_iter()
-            .filter_entry(move |entry| {
-                if !entry.file_type().is_dir() {
-                    return true;
-                }
-                let seg = entry.file_name().to_string_lossy();
-                if seg.starts_with('_') || seg.starts_with('.') {
-                    return false;
-                }
-                !skip.contains(seg.as_ref())
-            });
-        for entry in walker.filter_map(|entry| entry.ok()) {
-            if !entry.file_type().is_file() || entry.file_name() != "main.mei" {
-                continue;
-            }
-            let Some(app_root) = entry.path().parent() else {
-                continue;
-            };
-            let Ok(relative) = app_root.strip_prefix(source_root) else {
-                continue;
-            };
-            let id = relative.to_string_lossy().replace('\\', "/");
-            if id.is_empty() {
-                continue;
-            }
-            apps.push(WorkspaceAppMeta {
-                id: id.clone(),
-                title: id,
-                root: app_root.to_string_lossy().to_string(),
-            });
-        }
+        discover_apps_under(&child_root, source_root, &skip_dirs, &mut apps)?;
     }
     apps.sort_by(|left, right| left.id.cmp(&right.id));
     Ok(apps)
@@ -124,7 +147,8 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
     if !file_name.ends_with(".mei") {
         return None;
     }
-    if file_name.eq_ignore_ascii_case("main.mei") {
+    let entry_main = resolve_app_entry_main(root);
+    if relative == entry_main || file_name.eq_ignore_ascii_case("main.mei") {
         return Some("main".into());
     }
     let path = root.join(relative);
@@ -138,6 +162,15 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
         return Some("fragment".into());
     }
     Some("mei".into())
+}
+
+fn should_include_source_tree_file(relative: &str) -> bool {
+    if relative == MEI_CONFIG_FILENAME {
+        return true;
+    }
+    !relative
+        .split('/')
+        .any(|seg| !seg.is_empty() && seg.starts_with('.'))
 }
 
 pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
@@ -155,10 +188,7 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
             .unwrap_or(path)
             .to_string_lossy()
             .replace('\\', "/");
-        if relative
-            .split('/')
-            .any(|seg| !seg.is_empty() && seg.starts_with('.'))
-        {
+        if !should_include_source_tree_file(&relative) {
             continue;
         }
         let parent = path
@@ -293,4 +323,90 @@ fn normalize_component_script_path(
         )
     })?;
     Ok(relative.to_string_lossy().replace('\\', "/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mei_config::{write_mei_config, MeiConfig};
+
+    fn temp_test_root(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "mei_kernel_test_{label}_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("temp test root");
+        dir
+    }
+
+    fn write_main_mei(dir: &Path, app_id: &str) {
+        fs::create_dir_all(dir).expect("mkdir app dir");
+        let body = format!(
+            r#"app(id="{app_id}")
+scene(id="home", target="home.mei")
+"#
+        );
+        fs::write(dir.join("main.mei"), body).expect("write main.mei");
+        fs::write(dir.join("home.mei"), "frame()").expect("write home.mei");
+    }
+
+    #[test]
+    fn discover_prefers_mei_config_over_nested_main() {
+        let root = temp_test_root("discover_config");
+        let segment = root.join("demo");
+        fs::create_dir_all(&segment).expect("mkdir segment");
+        let app = segment.join("myapp");
+        fs::create_dir_all(app.join("nested")).expect("mkdir");
+        write_mei_config(&app.join(MEI_CONFIG_FILENAME), &MeiConfig::default())
+            .expect("write config");
+        write_main_mei(&app.join("nested"), "nested-app");
+        write_main_mei(&segment.join("legacy"), "legacy-app");
+
+        let apps = discover_apps(&root).expect("discover");
+        let ids: Vec<_> = apps.iter().map(|app| app.id.as_str()).collect();
+        assert!(ids.contains(&"demo/myapp"));
+        assert!(!ids.iter().any(|id| id.contains("nested")));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn discover_falls_back_to_main_mei_without_config() {
+        let root = temp_test_root("discover_main");
+        let segment = root.join("examples");
+        write_main_mei(&segment.join("core/foo"), "foo");
+
+        let apps = discover_apps(&root).expect("discover");
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].id, "examples/core/foo");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn source_tree_includes_root_mei_config_only() {
+        let root = temp_test_root("source_tree");
+        fs::write(root.join(MEI_CONFIG_FILENAME), "{}").expect("root config");
+        fs::create_dir_all(root.join("sub")).expect("mkdir sub");
+        fs::write(root.join("sub/.mei-config.json"), "{}").expect("nested config");
+        fs::write(root.join("visible.txt"), "ok").expect("visible");
+
+        let nodes = source_tree(&root).expect("tree");
+        let paths: Vec<_> = flatten_paths(&nodes);
+        assert!(paths.contains(&".mei-config.json".to_string()));
+        assert!(!paths.iter().any(|p| p.contains("sub/.mei-config")));
+        assert!(paths.contains(&"visible.txt".to_string()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    fn flatten_paths(nodes: &[WorkspaceNode]) -> Vec<String> {
+        let mut out = Vec::new();
+        for node in nodes {
+            out.push(node.path.clone());
+            out.extend(flatten_paths(&node.children));
+        }
+        out
+    }
 }

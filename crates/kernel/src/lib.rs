@@ -66,10 +66,12 @@ pub use config_refs::{
     CONFIG_REF_SOURCE_KIND, THEME_REF_PREFIX,
 };
 pub use mei_config::{
-    load_mei_config_for_app, merge_ops_section, resolve_mei_config_path, segment_mei_config_path,
-    write_mei_config, DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry,
-    OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig, MEI_CONFIG_FILENAME,
-    OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
+    app_mei_config_path, load_mei_config_for_app, load_workspace_config, merge_ops_section,
+    resolve_app_entry_main, resolve_app_main_path, resolve_mei_config_path, workspace_config_path,
+    write_mei_config, AppEntryConfig, AppFeaturesConfig, AppPathsConfig, DiscoverConfig,
+    FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch,
+    OpsSourceEntry, RuntimeConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN, MEI_CONFIG_FILENAME,
+    MEI_WORKSPACE_CONFIG_FILENAME, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
 };
 pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};
 pub use typed_refs::{
