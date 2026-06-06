@@ -1,10 +1,10 @@
 //! 编译期 config ref 解码与解析（theme / source / basemap 等）。
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::mei_config::{MeiConfig, OpsBasemapEntry, OpsSourceEntry};
-use crate::model::{Diagnostic, Severity, SourceDecl};
+use crate::model::{Diagnostic, Severity, SourceDecl, ThemeDecl};
 
 pub const CONFIG_REF_SOURCE_KIND: &str = "__config_ref";
 pub const THEME_REF_PREFIX: &str = "@theme:";
@@ -150,6 +150,10 @@ impl<'a> ConfigRefResolver<'a> {
         self.config.ops.params.get(id)
     }
 
+    pub fn resolve_basemap_value(&self, id: &str) -> Option<Value> {
+        self.resolve_basemap_entry(id).map(ops_basemap_entry_to_value)
+    }
+
     pub fn resolve_source_decl(
         &self,
         expr: &ConfigRefExpr,
@@ -208,6 +212,81 @@ impl<'a> ConfigRefResolver<'a> {
         Some(theme.clone())
     }
 
+    pub fn resolve_config_ref_value(
+        &self,
+        expr: &ConfigRefExpr,
+        target_file: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) -> Option<Value> {
+        match expr.kind {
+            ConfigRefKind::Theme => self.resolve_theme_value(expr.id.as_str()).cloned().or_else(|| {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "missing_config_ref".to_string(),
+                    message: format!("theme_ref id `{}` not found in ops.themes", expr.id),
+                    source_path: Some(target_file.to_string()),
+                });
+                None
+            }),
+            ConfigRefKind::Basemap | ConfigRefKind::Mapspec => self
+                .resolve_basemap_value(expr.id.as_str())
+                .or_else(|| {
+                    diagnostics.push(Diagnostic {
+                        severity: Severity::Error,
+                        code: "missing_config_ref".to_string(),
+                        message: format!("basemap_ref id `{}` not found in ops.basemaps", expr.id),
+                        source_path: Some(target_file.to_string()),
+                    });
+                    None
+                }),
+            ConfigRefKind::OpsParam => self.resolve_ops_param(expr.id.as_str()).cloned().or_else(|| {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "missing_config_ref".to_string(),
+                    message: format!("ops_param_ref id `{}` not found in ops.params", expr.id),
+                    source_path: Some(target_file.to_string()),
+                });
+                None
+            }),
+            ConfigRefKind::Source | ConfigRefKind::DatasetSource => self
+                .resolve_source_decl(expr, target_file, diagnostics)
+                .and_then(|decl| serde_json::to_value(decl).ok()),
+            ConfigRefKind::Resource => None,
+        }
+    }
+
+    pub fn resolve_config_refs_in_value(
+        &self,
+        value: &Value,
+        target_file: &str,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) -> Value {
+        match value {
+            Value::Object(map) => {
+                if let Some(expr) = decode_config_ref_value(value) {
+                    return self
+                        .resolve_config_ref_value(&expr, target_file, diagnostics)
+                        .unwrap_or_else(|| value.clone());
+                }
+                let mut out = Map::new();
+                for (key, entry) in map {
+                    out.insert(
+                        key.clone(),
+                        self.resolve_config_refs_in_value(entry, target_file, diagnostics),
+                    );
+                }
+                Value::Object(out)
+            }
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|item| self.resolve_config_refs_in_value(item, target_file, diagnostics))
+                    .collect(),
+            ),
+            _ => value.clone(),
+        }
+    }
+
     pub fn validate_theme_token(
         &self,
         token: &str,
@@ -258,6 +337,50 @@ pub fn ops_source_entry_to_decl(entry: &OpsSourceEntry) -> SourceDecl {
         connection: entry.connection.clone(),
         content: None,
     }
+}
+
+pub fn ops_basemap_entry_to_value(entry: &OpsBasemapEntry) -> Value {
+    let mut map = Map::new();
+    if let Some(base_url) = entry
+        .tiles_base_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        map.insert("tilesUrl".to_string(), Value::String(base_url.to_string()));
+    }
+    if let Some(path) = entry
+        .tilejson_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        let normalized = if path.starts_with('/') {
+            path.to_string()
+        } else {
+            format!("/{path}")
+        };
+        map.insert("tilesJsonPath".to_string(), Value::String(normalized));
+    }
+    if let Some(style) = entry.style.as_ref().and_then(Value::as_object) {
+        for (key, value) in style {
+            map.insert(key.clone(), value.clone());
+        }
+    }
+    if let Some(layer_spec) = &entry.layer_spec {
+        map.insert("layerSpec".to_string(), layer_spec.clone());
+    }
+    Value::Object(map)
+}
+
+pub fn theme_decl_from_value(id: &str, value: Value) -> Result<ThemeDecl, String> {
+    let mut map = value
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("ops.themes.`{id}` must be an object"))?;
+    map.insert("kind".to_string(), Value::String("theme".to_string()));
+    map.insert("id".to_string(), Value::String(id.to_string()));
+    serde_json::from_value(Value::Object(map)).map_err(|error| error.to_string())
 }
 
 pub fn walk_value_for_config_refs(

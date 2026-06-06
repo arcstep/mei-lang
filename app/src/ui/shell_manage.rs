@@ -5,7 +5,9 @@ use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
     is_mei_script_target, visible_diagnostics_count, AssetShellKind, DiagnosticsFilterMode,
 };
-use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
+use super::manage_routing::{
+    is_ops_config_target, manage_tab_href, manage_view_tab_from_query, ManageViewTab,
+};
 use super::preview;
 use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;
@@ -38,6 +40,25 @@ fn asset_codemirror_stack(
     }
 }
 
+fn readonly_source_notice() -> impl IntoView {
+    view! {
+        <div class="manage-readonly-note mb-2 rounded-lg border border-slate-700/55 bg-slate-900/45 px-3 py-2 text-[11px] leading-5 text-slate-300">
+            <strong class="mr-2 text-slate-100">"只读查看"</strong>
+            <span>"当前页面只允许编辑 `.mei-config.json`；其他 `.mei` 与资源文件仅用于预览和只读源码查看。"</span>
+        </div>
+    }
+}
+
+fn ops_editor_main_view(app_path: &str) -> impl IntoView {
+    view! {
+        <section
+            id="manage-ops-editor-root"
+            class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-auto"
+            data-app-id=app_path.to_string()
+        ></section>
+    }
+}
+
 pub(super) fn manage_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
@@ -52,6 +73,7 @@ pub(super) fn manage_shell(
     diag_filter: Option<&str>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
+    let ops_config_target = is_ops_config_target(selected_target.as_str());
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(
@@ -83,7 +105,7 @@ pub(super) fn manage_shell(
         diag_filter_mode,
     );
     let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
-    let script_target = is_mei_script_target(selected_target.as_str());
+    let script_target = !ops_config_target && is_mei_script_target(selected_target.as_str());
     let active_manage_tab = manage_view_tab_from_query(
         active_tab,
         script_target,
@@ -108,7 +130,7 @@ pub(super) fn manage_shell(
         source_meta,
         compiled,
         true,
-        true,
+        !ops_config_target,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {
@@ -127,7 +149,7 @@ pub(super) fn manage_shell(
     let tab_specs: Vec<(ManageViewTab, String, Option<String>, bool)> = if script_target {
         let mut v = vec![
             (ManageViewTab::Preview, "预览".to_string(), None, false),
-            (ManageViewTab::Source, "源码".to_string(), None, false),
+            (ManageViewTab::Source, "只读源码".to_string(), None, false),
         ];
         if diagnostics_total > 0 {
             v.push((
@@ -141,7 +163,7 @@ pub(super) fn manage_shell(
     } else if asset_shell == AssetShellKind::Dual {
         vec![
             (ManageViewTab::Preview, "预览".to_string(), None, false),
-            (ManageViewTab::Source, "源码".to_string(), None, false),
+            (ManageViewTab::Source, "只读源码".to_string(), None, false),
         ]
     } else {
         vec![]
@@ -233,6 +255,7 @@ pub(super) fn manage_shell(
                     data-manage-tab-panel="source"
                     hidden=!asset_source_tab_active
                 >
+                    {readonly_source_notice()}
                     {asset_codemirror_stack(
                         app_path,
                         selected_target.as_str(),
@@ -248,6 +271,7 @@ pub(super) fn manage_shell(
                 class="source-panel source-pane flex min-h-0 flex-1 flex-col overflow-hidden"
                 data-asset-cm-only="1"
             >
+                {readonly_source_notice()}
                 {asset_codemirror_stack(
                     app_path,
                     selected_target.as_str(),
@@ -272,7 +296,9 @@ pub(super) fn manage_shell(
         .into_any(),
     };
 
-    let main_tabs_nav = if script_target || asset_shell == AssetShellKind::Dual {
+    let main_tabs_nav = if ops_config_target {
+        view! { <></> }.into_any()
+    } else if script_target || asset_shell == AssetShellKind::Dual {
         view! {
             <nav
                 class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
@@ -308,27 +334,6 @@ pub(super) fn manage_shell(
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
                         {source_tree}
                     </div>
-                    <section
-                        id="manage-ops-panel"
-                        class="manage-ops-panel mt-2 rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[11px] text-slate-300"
-                        data-app-id=app_path.to_string()
-                    >
-                        <div class="mb-1 flex items-center justify-between gap-2">
-                            <strong class="text-slate-100">"运维配置"</strong>
-                            <span class="text-slate-500" data-ops-status>"…"</span>
-                            <button
-                                type="button"
-                                class="rounded border border-slate-600/70 px-1.5 py-0.5 text-[10px] text-slate-200"
-                                data-ops-refresh
-                            >
-                                "刷新"
-                            </button>
-                        </div>
-                        <pre
-                            class="max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-400"
-                            data-ops-body
-                        ></pre>
-                    </section>
                 </aside>
                 <div
                     class="splitter splitter-left"
@@ -363,7 +368,9 @@ pub(super) fn manage_shell(
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         {main_tabs_nav}
-                        {if script_target {
+                        {if ops_config_target {
+                            ops_editor_main_view(app_path).into_any()
+                        } else if script_target {
                             view! {
                                 <>
                                     <section
@@ -384,6 +391,7 @@ pub(super) fn manage_shell(
                                         data-manage-tab-panel="source"
                                         hidden=!source_tab_active
                                     >
+                                        {readonly_source_notice()}
                                         {asset_codemirror_stack(
                                             app_path,
                                             selected_target.as_str(),

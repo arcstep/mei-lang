@@ -163,7 +163,7 @@ pub fn render_page(
 mod tests {
     use super::manage_routing::{
         access_scene_query, encode_query_value, manage_tab_href, manage_view_tab_from_query,
-        route_query, ManageViewTab,
+        route_query, ManageViewTab, OPS_CONFIG_TARGET,
     };
     use super::UiRouteMode;
 
@@ -197,6 +197,29 @@ mod tests {
             manage_view_tab_from_query(None, true, true, 2, "scenes/foo.world.mei"),
             ManageViewTab::Source
         ));
+    }
+
+    #[test]
+    fn manage_ops_config_target_stays_on_preview_tab() {
+        assert!(matches!(
+            manage_view_tab_from_query(Some("diagnostics"), false, true, 3, OPS_CONFIG_TARGET),
+            ManageViewTab::Preview
+        ));
+    }
+
+    #[test]
+    fn manage_ops_config_href_forces_preview_tab() {
+        assert_eq!(
+            manage_tab_href(
+                "spbjw",
+                Some(OPS_CONFIG_TARGET),
+                OPS_CONFIG_TARGET,
+                false,
+                ManageViewTab::Diagnostics,
+                Some("all")
+            ),
+            "/apps/manage/spbjw?file=.mei-config.json&tab=preview"
+        );
     }
 
     #[test]

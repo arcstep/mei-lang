@@ -38,7 +38,9 @@ use super::helpers::{
 };
 use super::CompiledScenePayload;
 use crate::model::WorldMetricLedgerEntry;
-use crate::config_refs::{decode_theme_ref_token, walk_value_for_config_refs, ConfigRefResolver};
+use crate::config_refs::{
+    decode_theme_ref_token, theme_decl_from_value, walk_value_for_config_refs, ConfigRefResolver,
+};
 use crate::typed_refs::{decode_binding_value, SceneRegistry};
 
 fn push_deprecated_ref_binding_diagnostic(
@@ -81,6 +83,8 @@ pub(super) fn compile_scene_payload(
     scene_registry: &SceneRegistry,
 ) -> Result<CompiledScenePayload> {
     let mut diagnostics = Vec::new();
+    let config = crate::mei_config::load_mei_config_for_app(app_root, None);
+    let resolver = ConfigRefResolver::new(&config);
     let mut scenes: BTreeMap<String, SceneDecl> = BTreeMap::new();
     let mut frames: BTreeMap<String, FrameDecl> = BTreeMap::new();
     let mut worlds: BTreeMap<String, crate::model::WorldDecl> = BTreeMap::new();
@@ -358,7 +362,9 @@ pub(super) fn compile_scene_payload(
                     }
                 }
                 "theme" => {
-                    let mut theme_decl = serde_json::from_value::<ThemeDecl>(value.clone())?;
+                    let theme_value =
+                        resolver.resolve_config_refs_in_value(value, target_file, &mut diagnostics);
+                    let mut theme_decl = serde_json::from_value::<ThemeDecl>(theme_value)?;
                     normalize_shared_context(
                         &mut theme_decl.shared,
                         &format!("theme `{}`.shared", theme_decl.id),
@@ -532,6 +538,30 @@ pub(super) fn compile_scene_payload(
                 None
             }
         });
+    if let Some(scene_decl) = selected_scene.as_ref() {
+        if let Some(theme_token) = scene_decl.theme.as_deref() {
+            if let Some(theme_id) = decode_theme_ref_token(theme_token) {
+                if !themes.iter().any(|item| item.id == theme_id) {
+                    if let Some(theme_value) = resolver.resolve_theme_token(theme_token) {
+                        let theme_value = resolver.resolve_config_refs_in_value(
+                            &theme_value,
+                            target_file,
+                            &mut diagnostics,
+                        );
+                        match theme_decl_from_value(theme_id.as_str(), theme_value) {
+                            Ok(theme_decl) => themes.push(theme_decl),
+                            Err(message) => diagnostics.push(Diagnostic {
+                                severity: Severity::Error,
+                                code: "invalid_config_ref".to_string(),
+                                message,
+                                source_path: Some(target_file.to_string()),
+                            }),
+                        }
+                    }
+                }
+            }
+        }
+    }
     let requires_scene_contract =
         (route_meta.is_some() || target_file != "main.mei") && !dataset_library_only;
     if requires_scene_contract && selected_scene.is_none() {
@@ -885,6 +915,7 @@ pub(super) fn compile_scene_payload(
         }
     });
     if let Some(ref mut contract) = scene_contract {
+        resolve_scene_contract_config_refs(contract, &resolver, target_file, &mut diagnostics);
         super::super::projection_assembly::lower_projection_assembly_in_panels(
             &mut contract.panels,
             &resources,
@@ -1036,7 +1067,9 @@ fn upsert_panel(panels: &mut Vec<PanelDecl>, panel: PanelDecl) {
 fn selected_custom_theme_shared(scene: &SceneDecl, themes: &[ThemeDecl]) -> Value {
     let theme_id = scene
         .theme
-        .clone()
+        .as_deref()
+        .and_then(decode_theme_ref_token)
+        .or_else(|| scene.theme.clone())
         .or_else(|| scene.profile.clone())
         .unwrap_or_else(|| "page".to_string());
     themes
@@ -1045,6 +1078,36 @@ fn selected_custom_theme_shared(scene: &SceneDecl, themes: &[ThemeDecl]) -> Valu
         .or_else(|| themes.first())
         .map(|theme| theme.shared.clone())
         .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn resolve_scene_contract_config_refs(
+    contract: &mut SceneContract,
+    resolver: &ConfigRefResolver<'_>,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let raw = match serde_json::to_value(&*contract) {
+        Ok(value) => value,
+        Err(error) => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_config_ref".to_string(),
+                message: format!("failed to serialize scene contract for config ref resolution: {error}"),
+                source_path: Some(target_file.to_string()),
+            });
+            return;
+        }
+    };
+    let resolved = resolver.resolve_config_refs_in_value(&raw, target_file, diagnostics);
+    match serde_json::from_value::<SceneContract>(resolved) {
+        Ok(next) => *contract = next,
+        Err(error) => diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "invalid_config_ref".to_string(),
+            message: format!("failed to decode resolved scene contract: {error}"),
+            source_path: Some(target_file.to_string()),
+        }),
+    }
 }
 
 fn normalize_shared_context(

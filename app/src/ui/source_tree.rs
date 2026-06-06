@@ -1,7 +1,9 @@
 use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
-use super::manage_routing::{access_scene_route_suffix, encode_query_value};
+use super::manage_routing::{
+    access_scene_route_suffix, encode_query_value, is_ops_config_target, OPS_CONFIG_TARGET,
+};
 use super::UiRouteMode;
 
 /// 与 `app/assets/favicon.svg` 相同的梅花铜钱外轮廓（viewBox 32×32）。
@@ -44,6 +46,10 @@ pub(super) fn source_tree_view(
     omit_file_query_when_path: &str,
     active_tab: Option<&str>,
 ) -> AnyView {
+    let mut item_views = Vec::new();
+    if route_mode == UiRouteMode::Manage {
+        item_views.push(config_tree_item(app_path, selected_target));
+    }
     let items = nodes
         .iter()
         .map(|node| {
@@ -124,8 +130,46 @@ pub(super) fn source_tree_view(
                 .into_any()
             }
         })
-        .collect_view();
+        .collect::<Vec<_>>();
+    item_views.extend(items);
+    let items = item_views.into_iter().collect_view();
     view! { <ul class="tree m-0 grid list-none gap-0.5 p-0">{items}</ul> }.into_any()
+}
+
+fn config_tree_item(app_path: &str, selected_target: &str) -> AnyView {
+    let href = source_href(
+        UiRouteMode::Manage,
+        app_path,
+        OPS_CONFIG_TARGET,
+        None,
+        Some(OPS_CONFIG_TARGET),
+        None,
+    );
+    let class = if is_ops_config_target(selected_target) {
+        "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[13px] font-medium text-sky-100 transition-colors"
+    } else {
+        "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[13px] text-slate-300 transition-colors hover:text-slate-100"
+    };
+    let icon = tree_sprite_icon(
+        "i-json",
+        "配置文件 .mei-config.json",
+        "inline-flex h-4 w-4 items-center justify-center",
+    );
+    view! {
+        <li class="tree-node tree-node-ops-config">
+            <a
+                class=class
+                href=href
+                data-preserve-manage-tab="0"
+                data-manage-config-link="1"
+                title="配置文件 .mei-config.json"
+            >
+                <span class="shrink-0" aria-hidden="true">{icon}</span>
+                <span class="min-w-0 flex-1 truncate">".mei-config.json"</span>
+            </a>
+        </li>
+    }
+    .into_any()
 }
 
 fn file_row_icon(node: &WorkspaceNode) -> AnyView {
@@ -183,7 +227,7 @@ fn source_href(
     _path: &str,
     selected_scene: Option<&str>,
     file_for_link: Option<&str>,
-    _active_tab: Option<&str>,
+    active_tab: Option<&str>,
 ) -> String {
     match route_mode {
         UiRouteMode::Access => {
@@ -211,6 +255,11 @@ fn source_href(
                 let t = f.trim();
                 if !t.is_empty() {
                     parts.push(format!("file={}", encode_query_value(t)));
+                    if is_ops_config_target(t) {
+                        parts.push("tab=preview".to_string());
+                    } else if let Some(tab) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
+                        parts.push(format!("tab={}", encode_query_value(tab)));
+                    }
                 }
             }
             if parts.is_empty() {

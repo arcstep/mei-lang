@@ -11177,7 +11177,7 @@
       if (
         item instanceof HTMLElement &&
         item.matches &&
-        item.matches("a.manage-view-tab[data-manage-tab]")
+        item.matches("a.manage-view-tab[data-manage-tab], a[data-manage-config-link='1']")
       ) {
         return true;
       }

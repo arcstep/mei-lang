@@ -1,4 +1,4 @@
-use mei_lang_kernel::{PanelDecl, SceneContract, ThemeDecl};
+use mei_lang_kernel::{decode_theme_ref_token, PanelDecl, SceneContract, ThemeDecl};
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,9 @@ pub(super) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
     let mut theme_id = scene_contract
         .scene
         .theme
-        .clone()
+        .as_deref()
+        .and_then(decode_theme_ref_token)
+        .or_else(|| scene_contract.scene.theme.clone())
         .or_else(|| scene_contract.scene.profile.clone())
         .unwrap_or_else(|| "page".to_string());
     let mut theme = builtin_theme(theme_id.as_str());
