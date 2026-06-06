@@ -129,6 +129,10 @@
 
   boot.scheduleFrameViewportRelayout = scheduleViewportRelayout;
   boot.disposeFrameStage = () => {
+    if (metricPrefetchTimer != null) {
+      window.clearTimeout(metricPrefetchTimer);
+      metricPrefetchTimer = null;
+    }
     window.removeEventListener("resize", onWindowResize);
     window.visualViewport?.removeEventListener("resize", onWindowResize);
     window.visualViewport?.removeEventListener("scroll", onWindowResize);

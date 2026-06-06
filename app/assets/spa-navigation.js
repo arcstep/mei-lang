@@ -3341,13 +3341,38 @@
       if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
         item.matches(
-          "a.manage-view-tab[data-manage-tab], a[data-mei-view='config'], a[data-mei-view='upload'], a[data-manage-config-link='1']",
+          "a.manage-view-tab[data-manage-tab], [data-mei-view='config'], [data-mei-view='upload'], a[data-manage-config-link='1']",
         )
       ) {
         return true;
       }
     }
     return false;
+  }
+
+  function shouldAbortRuntimeForBypassNavigation(event) {
+    const path = event.composedPath ? event.composedPath() : [];
+    for (const item of path) {
+      if (!(item instanceof HTMLElement) || !item.matches) continue;
+      if (
+        item.matches(
+          "[data-mei-view='config'], [data-mei-view='upload'], a[data-manage-config-link='1']",
+        )
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function requestRuntimeAbort(reason) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("mei:abort-runtime-queries", {
+          detail: { reason: String(reason || "").trim() },
+        }),
+      );
+    } catch (_) {}
   }
 
   function normalizePath(rawUrl) {
@@ -3956,6 +3981,7 @@
     const navigationId = currentNavigationId;
     spaNavigationInFlight += 1;
     boot._spaInFlight = spaNavigationInFlight;
+    requestRuntimeAbort("spa_navigation");
     closeDrilldownOverlay();
     let currentUrl = null;
     let nextUrl = null;
@@ -4008,7 +4034,12 @@
       if (event.defaultPrevented) return;
       if (event.button !== 0) return;
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      if (shouldBypassSpaClick(event)) return;
+      if (shouldBypassSpaClick(event)) {
+        if (shouldAbortRuntimeForBypassNavigation(event)) {
+          requestRuntimeAbort("full_navigation_bypass");
+        }
+        return;
+      }
       const target = resolveClickTarget(event);
       if (!target) return;
       if (target.download) return;

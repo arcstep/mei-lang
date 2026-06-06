@@ -20,6 +20,16 @@
     }
   }
 
+  function requestRuntimeAbort(reason) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("mei:abort-runtime-queries", {
+          detail: { reason: String(reason || "").trim() },
+        }),
+      );
+    } catch (_) {}
+  }
+
   function installManageTabs() {
     if (typeof boot.disposeManageTabs === "function") {
       try {
@@ -140,6 +150,9 @@
       syncDatasets(active);
       if (opts.emit !== false) {
         emitTabChange(active);
+      }
+      if (active !== "preview") {
+        requestRuntimeAbort(`manage_tab:${active}`);
       }
       if (active === "preview") {
         window.dispatchEvent(
