@@ -360,16 +360,38 @@
   let loadingVisibleAt = 0;
   let drilldownContextRetryTimer = null;
 
+  function isAppRoute(pathname = window.location.pathname) {
+    const path = String(pathname || "");
+    return path.startsWith("/apps/app/") || path.startsWith("/apps/access/");
+  }
+
+  function isBuildRoute(pathname = window.location.pathname) {
+    const path = String(pathname || "");
+    return path.startsWith("/apps/build/") || path.startsWith("/apps/manage/");
+  }
+
+  function isConfigRoute(pathname = window.location.pathname) {
+    return String(pathname || "").startsWith("/apps/config/");
+  }
+
+  function isUploadRoute(pathname = window.location.pathname) {
+    return String(pathname || "").startsWith("/apps/upload/");
+  }
+
+  function isStandaloneViewRoute(pathname = window.location.pathname) {
+    return isConfigRoute(pathname) || isUploadRoute(pathname);
+  }
+
   function isAccessRoute(pathname = window.location.pathname) {
-    return String(pathname || "").startsWith("/apps/access/");
+    return isAppRoute(pathname);
   }
 
   function isManageRoute(pathname = window.location.pathname) {
-    return String(pathname || "").startsWith("/apps/manage/");
+    return isBuildRoute(pathname);
   }
 
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
-    return isAccessRoute(pathname) || isManageRoute(pathname);
+    return isAppRoute(pathname) || isBuildRoute(pathname);
   }
 
   function isBoardLinkConfig(popup) {
@@ -3312,14 +3334,15 @@
     return null;
   }
 
-  /** 仅管理视图 Tab 走客户端切换；顶栏、资源树与其它 /apps/ 链路由全局 SPA 拦截。 */
+  /** 构建页内 Tab 走客户端切换；配置/上传独立壳整页导航；应用↔构建与其它 /apps/ 链路由 SPA 拦截。 */
   function shouldBypassSpaClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     for (const item of path) {
+      if (!(item instanceof HTMLElement) || !item.matches) continue;
       if (
-        item instanceof HTMLElement &&
-        item.matches &&
-        item.matches("a.manage-view-tab[data-manage-tab], a[data-manage-config-link='1']")
+        item.matches(
+          "a.manage-view-tab[data-manage-tab], a[data-mei-view='config'], a[data-mei-view='upload'], a[data-manage-config-link='1']",
+        )
       ) {
         return true;
       }

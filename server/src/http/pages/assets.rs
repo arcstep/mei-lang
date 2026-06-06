@@ -112,18 +112,22 @@ pub async fn workspace_app_asset(
 
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {
     match mode {
-        "manage.js" | "manage" => Some(BUNDLE_MANAGE_SCRIPTS),
+        "manage.js" | "manage" | "build.js" | "build" => Some(BUNDLE_MANAGE_SCRIPTS),
         "manage-source.js" | "manage-source" => Some(BUNDLE_MANAGE_SOURCE_SCRIPTS),
-        "access.js" | "access" => Some(BUNDLE_ACCESS_SCRIPTS),
+        "access.js" | "access" | "app.js" | "app" => Some(BUNDLE_ACCESS_SCRIPTS),
+        "config.js" | "config" => Some(BUNDLE_CONFIG_SCRIPTS),
+        "upload.js" | "upload" => Some(BUNDLE_UPLOAD_SCRIPTS),
         _ => None,
     }
 }
 
 fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
     match mode {
-        "manage.js" | "manage" => Some("dist/manage.bundle.js"),
+        "manage.js" | "manage" | "build.js" | "build" => Some("dist/manage.bundle.js"),
         "manage-source.js" | "manage-source" => Some("dist/manage-source.bundle.js"),
-        "access.js" | "access" => Some("dist/access.bundle.js"),
+        "access.js" | "access" | "app.js" | "app" => Some("dist/access.bundle.js"),
+        "config.js" | "config" => Some("dist/config.bundle.js"),
+        "upload.js" | "upload" => Some("dist/upload.bundle.js"),
         "shoelace.js" | "shoelace" => Some("dist/shoelace.bundle.js"),
         "styles.css" | "styles" => Some("dist/styles.bundle.css"),
         _ => None,

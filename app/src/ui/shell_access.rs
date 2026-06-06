@@ -20,6 +20,7 @@ pub(super) fn access_shell(
     source: Option<&str>,
     active_tab: Option<&str>,
     chrome_hidden: bool,
+    upload_enabled: bool,
 ) -> AnyView {
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
@@ -28,7 +29,7 @@ pub(super) fn access_shell(
     let preview = if static_asset {
         asset_preview_body(app_path, current_target, source.unwrap_or(""))
     } else {
-        preview::preview_view(compiled, app_path, current_target, UiRouteMode::Access)
+        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App)
     };
     let topbar_preview_target = if static_asset {
         None
@@ -41,14 +42,15 @@ pub(super) fn access_shell(
         compiled,
         app_path,
         topbar_menu,
-        UiRouteMode::Access,
+        UiRouteMode::App,
         selected_scene,
         topbar_preview_target,
         active_tab,
+        upload_enabled,
     );
     let statusbar = statusbar_view(
         app_path,
-        UiRouteMode::Access.slug(),
+        UiRouteMode::App.slug(),
         current_target,
         None,
         compiled,
@@ -110,7 +112,7 @@ pub(super) fn access_shell(
                         {agent_panel::panel_view(
                             compiled,
                             app_path,
-                            UiRouteMode::Access,
+                            UiRouteMode::App,
                             current_target,
                             false,
                             panel_tab,

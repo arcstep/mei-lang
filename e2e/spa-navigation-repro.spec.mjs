@@ -14,7 +14,7 @@ const SCENARIOS = [
   {
     id: "examples_sidebar_main_to_home",
     label: "examples 侧栏 main.mei → home.mei（用户日志路径）",
-    open: `${BASE}/apps/manage/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
+    open: `${BASE}/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
     action: async (page) => {
       await page
         .locator('aside.sidebar.left a.tree-link[href*="file=home.mei"]')
@@ -26,7 +26,7 @@ const SCENARIOS = [
   {
     id: "examples_sidebar_home_to_main",
     label: "examples 侧栏 home.mei → main.mei",
-    open: `${BASE}/apps/manage/examples/core/02-external-scene-file?file=home.mei&tab=preview`,
+    open: `${BASE}/apps/build/examples/core/02-external-scene-file?file=home.mei&tab=preview`,
     action: async (page) => {
       await page
         .locator('aside.sidebar.left a.tree-link[href*="file=main.mei"]')
@@ -38,7 +38,7 @@ const SCENARIOS = [
   {
     id: "spbjw_sidebar_home_to_main",
     label: "spbjw 侧栏 home.mei → main.mei",
-    open: `${BASE}/apps/manage/spbjw?file=scenes/home.mei&tab=preview`,
+    open: `${BASE}/apps/build/spbjw?file=scenes/home.mei&tab=preview`,
     action: async (page) => {
       await page.getByRole("link", { name: "main.mei" }).click();
     },
@@ -47,7 +47,7 @@ const SCENARIOS = [
   {
     id: "examples_double_click_home",
     label: "examples 侧栏 home 连续双击（导航竞态）",
-    open: `${BASE}/apps/manage/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
+    open: `${BASE}/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
     action: async (page) => {
       const link = page
         .locator('aside.sidebar.left a.tree-link[href*="file=home.mei"]')
@@ -59,7 +59,7 @@ const SCENARIOS = [
   {
     id: "examples_click_before_spa_mounted",
     label: "examples 在 SPA 挂载前点击 home（模拟抢跑整页导航）",
-    open: `${BASE}/apps/manage/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
+    open: `${BASE}/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview`,
     waitUntil: "commit",
     skipMountWait: true,
     action: async (page) => {
@@ -73,11 +73,11 @@ const SCENARIOS = [
   {
     id: "spbjw_topbar_templates",
     label: "spbjw 顶栏 模板库 → cockpit",
-    open: `${BASE}/apps/manage/spbjw?file=scenes/home.mei&tab=preview`,
+    open: `${BASE}/apps/build/spbjw?file=scenes/home.mei&tab=preview`,
     action: async (page) => {
       await page.getByRole("button", { name: "模板库", exact: true }).click();
       await page
-        .locator(".app-group-menu a[href*='/apps/manage/templates']")
+        .locator(".app-group-menu a[href*='/apps/build/templates']")
         .first()
         .click();
     },
@@ -106,7 +106,7 @@ async function runScenario(page, scenario, waitUntilDefault) {
     const url = req.url();
     if (url.includes("/app-bundles/manage.js")) manageJsAfterOpen += 1;
     if (req.headers()[SPA_HEADER] === "1") spaFetches.push(url);
-    if (url.includes("/apps/manage/") && !url.includes("/app-")) {
+    if (url.includes("/apps/build/") && !url.includes("/app-")) {
       if (!req.headers()[SPA_HEADER]) managePageWithoutSpa.push(url);
     }
   };

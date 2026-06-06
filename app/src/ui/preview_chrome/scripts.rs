@@ -4,20 +4,31 @@ use mei_lang_kernel::CompiledApp;
 use super::super::route::UiRouteMode;
 
 pub(super) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
-    if route_mode == UiRouteMode::Manage {
-        view! {
+    match route_mode {
+        UiRouteMode::Build => view! {
             <>
                 <script defer src="/app-bundles/manage.js"></script>
             </>
         }
-        .into_any()
-    } else {
-        view! {
+        .into_any(),
+        UiRouteMode::App => view! {
             <>
                 <script defer src="/app-bundles/access.js"></script>
             </>
         }
-        .into_any()
+        .into_any(),
+        UiRouteMode::Config => view! {
+            <>
+                <script defer src="/app-bundles/config.js"></script>
+            </>
+        }
+        .into_any(),
+        UiRouteMode::Upload => view! {
+            <>
+                <script defer src="/app-bundles/upload.js"></script>
+            </>
+        }
+        .into_any(),
     }
 }
 

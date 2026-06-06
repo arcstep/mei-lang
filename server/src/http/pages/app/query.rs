@@ -1,15 +1,15 @@
-/// 访问态 URL 中 `/scene/<id>` 的固定标记（`scene_id` 为单段，可含百分号编码）。
+/// 应用视图 URL 中 `/scene/<id>` 的固定标记（`scene_id` 为单段，可含百分号编码）。
 pub(crate) const ACCESS_SCENE_PATH_MARK: &str = "/scene/";
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AppQuery {
-    /// 仅管理态：当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
-    /// 访问态禁止携带：若出现则 307 重定向到剥离 `file`/`target` 后的 URL（发布面不得深链内部路径）。
+    /// 构建/上传视图：当前打开的源码/资源路径（相对 app 根）。兼容旧链接 `target=`。
+    /// 应用视图禁止携带脚本 `file`：若出现则 307 重定向到剥离 `file`/`target` 后的 URL。
     #[serde(default, alias = "target")]
     pub file: Option<String>,
     pub scene: Option<String>,
     pub tab: Option<String>,
-    /// 管理态调试页：编译诊断范围。`all` = 全部诊断；缺省或其它 = 当前文件。
+    /// 构建视图调试页：编译诊断范围。`all` = 全部诊断；缺省或其它 = 当前文件。
     pub diag_filter: Option<String>,
     pub chrome: Option<String>,
 }
@@ -30,9 +30,7 @@ fn percent_encode_query_component(value: &str) -> String {
     out
 }
 
-/// 从 `/apps/access/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
-/// `scene_id` 必须为单路径段（不含未编码的 `/`）；路径不含 `/scene/` 时返回 `None`。
-/// 含 `/scene/` 但格式非法时返回 `Some(Err)` 以便与「普通 app 路径」区分。
+/// 从 `/apps/app/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
 pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(String, String)>, ()> {
     let raw = raw_app_path.trim_start_matches('/');
     if !raw.contains(ACCESS_SCENE_PATH_MARK) {
@@ -51,7 +49,7 @@ pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(Stri
     Ok(Some((app, scene)))
 }
 
-/// 访问态 canonical：`/apps/access/<app>/scene/<scene_id>?tab=…&chrome=…`（不再用 `?scene=` 作为主定位）。
+/// 应用视图 canonical：`/apps/app/<app>/scene/<scene_id>?tab=…&chrome=…`
 pub(crate) fn access_canonical_location(
     app_id: &str,
     scene_id: &str,
@@ -60,7 +58,7 @@ pub(crate) fn access_canonical_location(
 ) -> String {
     let sid = scene_id.trim();
     let mut out = format!(
-        "/apps/access/{}{ACCESS_SCENE_PATH_MARK}{}",
+        "/apps/app/{}{ACCESS_SCENE_PATH_MARK}{}",
         app_id.trim_start_matches('/'),
         percent_encode_query_component(sid)
     );
@@ -78,7 +76,7 @@ pub(crate) fn access_canonical_location(
     out
 }
 
-/// 访问态允许的 query：`tab`、`chrome`（不含 `file`/`target`；`scene` 已收口到 path）。
+/// 应用视图允许的 query：`tab`、`chrome`（不含脚本 `file`/`target`）。
 pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
     if let Some(scene) = query
         .scene
@@ -111,8 +109,79 @@ pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery)
         parts.push(format!("chrome={}", percent_encode_query_component(chrome)));
     }
     if parts.is_empty() {
-        format!("/apps/access/{app_id}")
+        format!("/apps/app/{app_id}")
     } else {
-        format!("/apps/access/{app_id}?{}", parts.join("&"))
+        format!("/apps/app/{app_id}?{}", parts.join("&"))
     }
+}
+
+fn build_query_suffix(query: &AppQuery) -> String {
+    let mut parts = Vec::new();
+    if let Some(file) = query
+        .file
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("file={}", percent_encode_query_component(file)));
+    }
+    if let Some(tab) = query
+        .tab
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("tab={}", percent_encode_query_component(tab)));
+    }
+    if let Some(filter) = query
+        .diag_filter
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!(
+            "diag_filter={}",
+            percent_encode_query_component(filter)
+        ));
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
+}
+
+/// 旧 `/apps/access/...` → `/apps/app/...`
+pub(crate) fn legacy_access_redirect_location(
+    app_id_raw: &str,
+    query: &AppQuery,
+) -> Option<String> {
+    let (app_id, scene) = match parse_access_scene_path(app_id_raw) {
+        Ok(Some((app, scene))) => (app, Some(scene)),
+        Ok(None) => (app_id_raw.trim_start_matches('/').to_string(), None),
+        Err(()) => return None,
+    };
+    if let Some(scene_id) = scene {
+        return Some(access_canonical_location(
+            &app_id,
+            &scene_id,
+            query.tab.as_deref(),
+            query.chrome.as_deref(),
+        ));
+    }
+    Some(access_sanitized_redirect_location(&app_id, query))
+}
+
+/// 旧 `/apps/manage/...` → `/apps/build/...` 或 `/apps/config/...`
+pub(crate) fn legacy_manage_redirect_location(app_id: &str, query: &AppQuery) -> String {
+    let app = app_id.trim_start_matches('/');
+    if query
+        .file
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|f| f == ".mei-config.json")
+    {
+        return format!("/apps/config/{app}");
+    }
+    format!("/apps/build/{app}{}", build_query_suffix(query))
 }

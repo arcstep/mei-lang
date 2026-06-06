@@ -5,9 +5,7 @@ use super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
     is_mei_script_target, visible_diagnostics_count, AssetShellKind, DiagnosticsFilterMode,
 };
-use super::manage_routing::{
-    is_ops_config_target, manage_tab_href, manage_view_tab_from_query, ManageViewTab,
-};
+use super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::preview;
 use super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::route::UiRouteMode;
@@ -44,18 +42,8 @@ fn readonly_source_notice() -> impl IntoView {
     view! {
         <div class="manage-readonly-note mb-2 rounded-lg border border-slate-700/55 bg-slate-900/45 px-3 py-2 text-[11px] leading-5 text-slate-300">
             <strong class="mr-2 text-slate-100">"只读查看"</strong>
-            <span>"当前页面只允许编辑 `.mei-config.json`；其他 `.mei` 与资源文件仅用于预览和只读源码查看。"</span>
+            <span>"构建视图中的 `.mei` 与资源文件仅用于预览和只读源码查看；应用配置请切换到「配置」视图。"</span>
         </div>
-    }
-}
-
-fn ops_editor_main_view(app_path: &str) -> impl IntoView {
-    view! {
-        <section
-            id="manage-ops-editor-root"
-            class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-auto"
-            data-app-id=app_path.to_string()
-        ></section>
     }
 }
 
@@ -71,16 +59,16 @@ pub(super) fn manage_shell(
     preview_target: Option<&str>,
     active_tab: Option<&str>,
     diag_filter: Option<&str>,
+    upload_enabled: bool,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
-    let ops_config_target = is_ops_config_target(selected_target.as_str());
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(
         compiled,
         app_path,
         selected_target.as_str(),
-        UiRouteMode::Manage,
+        UiRouteMode::Build,
     );
     let active_scene = compiled.active_scene.as_deref();
     let scene_target_pairs = compiled
@@ -90,7 +78,7 @@ pub(super) fn manage_shell(
         .collect::<Vec<_>>();
     let source_tree = source_tree::source_tree_view(
         &compiled.file_tree,
-        UiRouteMode::Manage,
+        UiRouteMode::Build,
         app_path,
         selected_target.as_str(),
         selected_scene.or(active_scene),
@@ -105,7 +93,7 @@ pub(super) fn manage_shell(
         diag_filter_mode,
     );
     let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
-    let script_target = !ops_config_target && is_mei_script_target(selected_target.as_str());
+    let script_target = is_mei_script_target(selected_target.as_str());
     let active_manage_tab = manage_view_tab_from_query(
         active_tab,
         script_target,
@@ -118,19 +106,20 @@ pub(super) fn manage_shell(
         compiled,
         app_path,
         topbar_menu,
-        UiRouteMode::Manage,
+        UiRouteMode::Build,
         selected_scene.or(active_scene),
         preview_target,
         active_tab,
+        upload_enabled,
     );
     let statusbar = statusbar_view(
         app_path,
-        UiRouteMode::Manage.slug(),
+        UiRouteMode::Build.slug(),
         selected_target.as_str(),
         source_meta,
         compiled,
         true,
-        !ops_config_target,
+        true,
     );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let shell_class = if stage_enabled {
@@ -296,9 +285,7 @@ pub(super) fn manage_shell(
         .into_any(),
     };
 
-    let main_tabs_nav = if ops_config_target {
-        view! { <></> }.into_any()
-    } else if script_target || asset_shell == AssetShellKind::Dual {
+    let main_tabs_nav = if script_target || asset_shell == AssetShellKind::Dual {
         view! {
             <nav
                 class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
@@ -368,9 +355,7 @@ pub(super) fn manage_shell(
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
                         {main_tabs_nav}
-                        {if ops_config_target {
-                            ops_editor_main_view(app_path).into_any()
-                        } else if script_target {
+                        {if script_target {
                             view! {
                                 <>
                                     <section

@@ -166,7 +166,12 @@
       try {
         const url = new URL(target.href, window.location.href);
         if (url.origin !== window.location.origin) return;
-        if (!url.pathname.startsWith("/apps/manage/")) return;
+        if (
+          !url.pathname.startsWith("/apps/build/") &&
+          !url.pathname.startsWith("/apps/manage/")
+        ) {
+          return;
+        }
         url.searchParams.set("tab", resolveRenderableTab(currentTab));
         target.href = url.toString();
       } catch (_) {}

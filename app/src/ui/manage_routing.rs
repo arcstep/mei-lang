@@ -139,7 +139,7 @@ pub(super) fn manage_tab_href(
             }
         }
     }
-    format!("/apps/manage/{app_path}?{}", query.join("&"))
+    format!("/apps/build/{app_path}?{}", query.join("&"))
 }
 
 /// 访问态 canonical 路径后缀：`/scene/<id>?tab=…&chrome=…`（`scene_id` 经 `encode_query_value` 编码）。
@@ -176,13 +176,14 @@ pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
     access_scene_route_suffix(selected_scene, None, None)
 }
 
+#[allow(dead_code)]
 pub(super) fn route_query(
     route_mode: UiRouteMode,
     selected_scene: Option<&str>,
     _preview_target: Option<&str>,
     active_tab: Option<&str>,
 ) -> String {
-    if route_mode == UiRouteMode::Access {
+    if route_mode == UiRouteMode::App {
         access_scene_route_suffix(selected_scene, active_tab, None)
     } else {
         String::new()

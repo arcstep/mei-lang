@@ -39,6 +39,12 @@ async function loadManifest() {
       "bundle-manifest.json must contain manageScripts, accessScripts, styles arrays",
     );
   }
+  if (!Array.isArray(m.configScripts)) {
+    m.configScripts = [];
+  }
+  if (!Array.isArray(m.uploadScripts)) {
+    m.uploadScripts = [];
+  }
   if (!Array.isArray(m.manageSourceScripts)) {
     m.manageSourceScripts = [];
   }
@@ -53,6 +59,10 @@ ${rustSliceConst("BUNDLE_MANAGE_SCRIPTS", manifest.manageScripts)}
 ${rustSliceConst("BUNDLE_MANAGE_SOURCE_SCRIPTS", manifest.manageSourceScripts)}
 
 ${rustSliceConst("BUNDLE_ACCESS_SCRIPTS", manifest.accessScripts)}
+
+${rustSliceConst("BUNDLE_CONFIG_SCRIPTS", manifest.configScripts)}
+
+${rustSliceConst("BUNDLE_UPLOAD_SCRIPTS", manifest.uploadScripts)}
 
 ${rustSliceConst("BUNDLE_STYLES_ORDER", manifest.styles)}
 `;
@@ -111,6 +121,14 @@ async function main() {
       ? await concatScripts("manage-source.bundle.js", manifest.manageSourceScripts)
       : null;
   const accessOut = await concatScripts("access.bundle.js", manifest.accessScripts);
+  const configOut =
+    manifest.configScripts.length > 0
+      ? await concatScripts("config.bundle.js", manifest.configScripts)
+      : null;
+  const uploadOut =
+    manifest.uploadScripts.length > 0
+      ? await concatScripts("upload.bundle.js", manifest.uploadScripts)
+      : null;
   const shoelaceOut = await bundleShoelace();
   const stylesOut = await concatStyles("styles.bundle.css", manifest.styles);
   console.log("[assets:build] generated:");
@@ -120,6 +138,12 @@ async function main() {
     console.log(`- ${path.relative(root, manageSourceOut)}`);
   }
   console.log(`- ${path.relative(root, accessOut)}`);
+  if (configOut) {
+    console.log(`- ${path.relative(root, configOut)}`);
+  }
+  if (uploadOut) {
+    console.log(`- ${path.relative(root, uploadOut)}`);
+  }
   console.log(`- ${path.relative(root, shoelaceOut)}`);
   console.log(`- ${path.relative(root, stylesOut)}`);
 }

@@ -328,7 +328,7 @@ mod agent_http_tests {
     async fn context_preview_scene_id_matches_query() {
         let state = test_support::test_app_state().expect("app state");
         let app = http::router().with_state(state);
-        let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=build&resourceVisibility=allow_direct_refs";
+        let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&resourceVisibility=allow_direct_refs";
         let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);

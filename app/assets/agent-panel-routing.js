@@ -51,7 +51,12 @@
       const fromDataset = String(root.dataset.app || "").trim();
       try {
         const path = window.location.pathname || "";
-        const prefixes = ["/apps/manage/", "/apps/access/"];
+        const prefixes = [
+          "/apps/build/",
+          "/apps/manage/",
+          "/apps/app/",
+          "/apps/access/",
+        ];
         for (const prefix of prefixes) {
           if (!path.startsWith(prefix)) continue;
           let rest = path.slice(prefix.length);

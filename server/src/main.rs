@@ -887,11 +887,23 @@ fn route_kind_and_app_id(method: &Method, uri: &Uri) -> (&'static str, String) {
             .trim_start_matches('/')
             .to_string()
     };
+    if *method == Method::GET && path.starts_with("/apps/build/") {
+        return ("build_page", app_tail("/apps/build/"));
+    }
+    if *method == Method::GET && path.starts_with("/apps/app/") {
+        return ("app_page", app_tail("/apps/app/"));
+    }
+    if *method == Method::GET && path.starts_with("/apps/config/") {
+        return ("config_page", app_tail("/apps/config/"));
+    }
+    if *method == Method::GET && path.starts_with("/apps/upload/") {
+        return ("upload_page", app_tail("/apps/upload/"));
+    }
     if *method == Method::GET && path.starts_with("/apps/manage/") {
-        return ("manage_page", app_tail("/apps/manage/"));
+        return ("manage_page_legacy", app_tail("/apps/manage/"));
     }
     if *method == Method::GET && path.starts_with("/apps/access/") {
-        return ("access_page", app_tail("/apps/access/"));
+        return ("access_page_legacy", app_tail("/apps/access/"));
     }
     if *method == Method::POST && path.starts_with("/api/datasets/query/") {
         return ("dataset_query", app_tail("/api/datasets/query/"));

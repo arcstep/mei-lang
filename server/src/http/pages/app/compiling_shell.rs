@@ -14,8 +14,10 @@ pub(crate) fn render_compiling_shell(
 ) -> String {
     let app_esc = html_escape_min(app_id.trim_start_matches('/'));
     let mode_label = match route_mode {
-        UiRouteMode::Manage => "管理态",
-        UiRouteMode::Access => "访问态",
+        UiRouteMode::Build => "构建视图",
+        UiRouteMode::App => "应用视图",
+        UiRouteMode::Config => "配置视图",
+        UiRouteMode::Upload => "上传视图",
     };
     let scene_line = scene_hint
         .map(str::trim)
@@ -141,7 +143,7 @@ mod tests {
 
     #[test]
     fn compiling_shell_escapes_app_id() {
-        let html = render_compiling_shell(UiRouteMode::Manage, "<bad>", None);
+        let html = render_compiling_shell(UiRouteMode::Build, "<bad>", None);
         assert!(html.contains("&lt;bad&gt;"));
         assert!(!html.contains("<bad>"));
     }

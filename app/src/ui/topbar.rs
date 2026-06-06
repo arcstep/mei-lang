@@ -3,11 +3,13 @@ use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use std::collections::BTreeMap;
 
 use super::manage_routing::{
-    access_scene_query, access_scene_route_suffix, canonical_scene_for_script_target,
-    encode_query_value, route_query,
+    access_scene_query, canonical_scene_for_script_target,
 };
 use super::preview;
 use super::route::UiRouteMode;
+use super::view_routing::{
+    app_scene_href, build_href, config_href, cross_app_href, upload_href,
+};
 use super::{TopbarMenuConfig, TopbarMenuContext};
 #[derive(Debug, Clone)]
 struct TopbarMenuItem {
@@ -208,9 +210,9 @@ pub(super) fn topbar_view(
     selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
+    upload_enabled: bool,
 ) -> AnyView {
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let route_query = route_query(route_mode, selected_scene, preview_target, active_tab);
     let access_scene_for_href = selected_scene
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -221,7 +223,7 @@ pub(super) fn topbar_view(
                 .any(|r| r.scene_id == *sc && r.access_export)
         })
         .filter(|sc| {
-            if route_mode == UiRouteMode::Manage {
+            if route_mode == UiRouteMode::Build {
                 canonical_scene_for_script_target(
                     compiled,
                     Some(compiled.active_target_file.as_str()),
@@ -275,13 +277,7 @@ pub(super) fn topbar_view(
                     } else {
                         "app-tab app-tab-sub"
                     };
-                    let href = if route_mode == UiRouteMode::Access
-                        && item.app_id.as_str() != active_app_path
-                    {
-                        format!("/apps/manage/{}", item.app_id)
-                    } else {
-                        format!("/apps/{}/{}{}", route_mode.slug(), item.app_id, route_query)
-                    };
+                    let href = cross_app_href(route_mode, &item.app_id);
                     view! { <a class=class href=href>{item.label.clone()}</a> }
                 })
                 .collect_view();
@@ -296,18 +292,7 @@ pub(super) fn topbar_view(
                             } else {
                                 "app-tab app-tab-sub"
                             };
-                            let href = if route_mode == UiRouteMode::Access
-                                && item.app_id.as_str() != active_app_path
-                            {
-                                format!("/apps/manage/{}", item.app_id)
-                            } else {
-                                format!(
-                                    "/apps/{}/{}{}",
-                                    route_mode.slug(),
-                                    item.app_id,
-                                    route_query
-                                )
-                            };
+                            let href = cross_app_href(route_mode, &item.app_id);
                             view! { <a class=class href=href>{item.label.clone()}</a> }
                         })
                         .collect_view();
@@ -358,75 +343,72 @@ pub(super) fn topbar_view(
             .into_any()
         })
         .unwrap_or_else(|| view! { <></> }.into_any());
-    let manage_href = if route_mode == UiRouteMode::Access {
-        let mut parts = Vec::new();
-        let file = preview_target
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| compiled.active_target_file.as_str());
-        if !file.trim().is_empty() {
-            parts.push(format!("file={}", encode_query_value(file.trim())));
-        }
-        if let Some(t) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
-            parts.push(format!("tab={}", encode_query_value(t)));
-        }
-        if parts.is_empty() {
-            format!("/apps/manage/{active_app_path}")
-        } else {
-            format!("/apps/manage/{active_app_path}?{}", parts.join("&"))
-        }
-    } else {
-        format!("/apps/manage/{}{}", active_app_path, route_query)
-    };
-    let access_href = if access_disabled {
+    let build_file = preview_target
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| compiled.active_target_file.as_str());
+    let app_href = if access_disabled {
         "#".to_string()
     } else {
-        format!("/apps/access/{}{}", active_app_path, access_entry_query)
+        app_scene_href(active_app_path, access_scene_for_href, active_tab, None)
     };
-    let presentation_suffix = access_scene_route_suffix(access_scene_for_href, None, Some("none"));
-    let presentation_href = format!("/apps/access/{}{}", active_app_path, presentation_suffix);
+    let build_href = build_href(
+        active_app_path,
+        Some(build_file),
+        active_tab,
+    );
+    let config_href = config_href(active_app_path);
+    let upload_href = upload_href(active_app_path, None);
+    let presentation_href = app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
     let mode_tabs = view! {
         <div class="mode-tabs inline-flex items-center">
-            <sl-button-group class="mode-tab-group" label="模式切换">
+            <sl-button-group class="mode-tab-group" label="视图切换" data-mei-view-tabs="1">
                 <sl-button
-                    class=if route_mode == UiRouteMode::Manage { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    class=if route_mode == UiRouteMode::App { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                     size="small"
-                    href=manage_href
-                    title="编辑态"
-                    aria-label="编辑态"
+                    href=app_href.clone()
+                    disabled=access_disabled
+                    title=if access_disabled { "当前没有可发布的 scene route" } else { "应用" }
+                    aria-label="应用"
+                    data-mei-view="app"
                 >
-                    <span class="mode-btn-content">
-                        <span class="mode-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M12 20h9"/>
-                                <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
-                            </svg>
-                        </span>
-                        <span class="mode-label">"管理"</span>
-                    </span>
+                    <span class="mode-label">"应用"</span>
+                </sl-button>
+                {if upload_enabled {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=upload_href.clone()
+                            title="上传"
+                            aria-label="上传"
+                            data-mei-view="upload"
+                        >
+                            <span class="mode-label">"上传"</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
+                <sl-button
+                    class=if route_mode == UiRouteMode::Config { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    size="small"
+                    href=config_href.clone()
+                    title="配置"
+                    aria-label="配置"
+                    data-mei-view="config"
+                >
+                    <span class="mode-label">"配置"</span>
                 </sl-button>
                 <sl-button
-                    class=if route_mode == UiRouteMode::Access { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                    class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
                     size="small"
-                    href=access_href
-                    disabled=access_disabled
-                    title=if access_disabled {
-                        "当前文件没有可发布的 scene route，无法进入访问态"
-                    } else {
-                        "访问态"
-                    }
-                    aria-label=if access_disabled { "访问态（不可用）" } else { "访问态" }
+                    href=build_href.clone()
+                    title="构建"
+                    aria-label="构建"
+                    data-mei-view="build"
                 >
-                    <span class="mode-btn-content">
-                        <span class="mode-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="4" width="18" height="14" rx="2"/>
-                                <path d="M8 20h8"/>
-                                <path d="M12 18v2"/>
-                            </svg>
-                        </span>
-                        <span class="mode-label">"访问"</span>
-                    </span>
+                    <span class="mode-label">"构建"</span>
                 </sl-button>
             </sl-button-group>
         </div>

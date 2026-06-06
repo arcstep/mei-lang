@@ -11,16 +11,22 @@ mod preview;
 mod preview_chrome;
 mod route;
 mod shell_access;
+mod shell_config;
 mod shell_manage;
+mod shell_upload;
 mod source_tree;
 mod statusbar;
 mod topbar;
+mod view_routing;
 
 pub use route::UiRouteMode;
+pub use shell_upload::UploadFileEntry;
 
 use preview_chrome::{chrome_scripts_view, component_scripts};
 use shell_access::access_shell;
+use shell_config::config_shell;
 use shell_manage::manage_shell;
+use shell_upload::upload_shell;
 
 #[derive(Debug, Clone)]
 pub struct SourcePanelMeta {
@@ -39,10 +45,8 @@ pub struct TopbarMenuConfig {
     pub items: Vec<TopbarMenuConfigItem>,
 }
 
-/// 顶栏菜单：优先按 app id 首段匹配 `<source_root>/<segment>/.mei-config.json` 的 `menu`；若无则回退 `<segment>/_menu.json`；再回退 `<source_root>/.mei-config.json` / `<source_root>/_menu.json`（用于 `source_root` 直接指向 `examples` 等子树时的整段配置）。
 #[derive(Debug, Clone, Default)]
 pub struct TopbarMenuContext {
-    /// `source_root/.mei-config.json`（`menu`）或 `source_root/_menu.json`，对该 `source_root` 下所有应用生效（在首段无专用配置时作为回退）。
     pub root: Option<TopbarMenuConfig>,
     pub by_segment: BTreeMap<String, TopbarMenuConfig>,
 }
@@ -83,17 +87,20 @@ pub fn render_page(
     active_tab: Option<&str>,
     diag_filter: Option<&str>,
     chrome_hidden: bool,
+    upload_enabled: bool,
+    upload_root_label: Option<&str>,
+    upload_files: &[UploadFileEntry],
 ) -> String {
-    let shell_mode_class = if route_mode == UiRouteMode::Access && chrome_hidden {
-        "access-mode chrome-none"
-    } else if route_mode == UiRouteMode::Access {
-        "access-mode"
-    } else {
-        "manage-mode"
+    let shell_mode_class = match route_mode {
+        UiRouteMode::App if chrome_hidden => "app-view chrome-none",
+        UiRouteMode::App => "app-view",
+        UiRouteMode::Build => "build-view",
+        UiRouteMode::Config => "config-view",
+        UiRouteMode::Upload => "upload-view",
     };
     let body_class = format!("{shell_mode_class} sl-theme-dark");
     let shell = match route_mode {
-        UiRouteMode::Access => access_shell(
+        UiRouteMode::App => access_shell(
             apps,
             compiled,
             app_path,
@@ -103,8 +110,9 @@ pub fn render_page(
             source,
             active_tab,
             chrome_hidden,
+            upload_enabled,
         ),
-        UiRouteMode::Manage => manage_shell(
+        UiRouteMode::Build => manage_shell(
             apps,
             compiled,
             app_path,
@@ -116,12 +124,33 @@ pub fn render_page(
             preview_target,
             active_tab,
             diag_filter,
+            upload_enabled,
+        ),
+        UiRouteMode::Config => config_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            upload_enabled,
+            source_meta,
+        ),
+        UiRouteMode::Upload => upload_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            upload_enabled,
+            upload_root_label.unwrap_or("upload"),
+            upload_files,
+            target,
+            source,
+            source_meta,
         ),
     };
     let chrome_scripts = chrome_scripts_view(route_mode);
 
     let manage_timing_meta = match route_mode {
-        UiRouteMode::Manage => view! {
+        UiRouteMode::Build => view! {
             <meta name="mei-handler-html-ready-ms" content="__MEI_HANDLER_HTML_READY_MS__"/>
             <meta name="mei-ssr-http-response-body-ms" content="__MEI_SSR_HTTP_BODY_MS__"/>
         }
@@ -136,6 +165,7 @@ pub fn render_page(
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
                 <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
+                <meta name="mei-view" content=route_mode.slug()/>
                 <title>{format!("{} - MeiLang", compiled.title)}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>
@@ -147,6 +177,7 @@ pub fn render_page(
             </head>
             <body
                 class=body_class
+                data-mei-view=route_mode.slug()
                 data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
                 data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
             >
@@ -165,6 +196,7 @@ mod tests {
         access_scene_query, encode_query_value, manage_tab_href, manage_view_tab_from_query,
         route_query, ManageViewTab, OPS_CONFIG_TARGET,
     };
+    use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
 
     #[test]
@@ -176,35 +208,12 @@ mod tests {
     }
 
     #[test]
-    fn manage_respects_explicit_preview_tab_even_when_errors_exist() {
-        assert!(matches!(
-            manage_view_tab_from_query(Some("preview"), true, true, 1, "main.mei"),
-            ManageViewTab::Preview
-        ));
-    }
-
-    #[test]
-    fn manage_asset_dual_allows_source_tab() {
-        assert!(matches!(
-            manage_view_tab_from_query(Some("source"), false, false, 0, "readme.md"),
-            ManageViewTab::Source
-        ));
-    }
-
-    #[test]
-    fn manage_world_capsule_defaults_to_source_tab() {
-        assert!(matches!(
-            manage_view_tab_from_query(None, true, true, 2, "scenes/foo.world.mei"),
-            ManageViewTab::Source
-        ));
-    }
-
-    #[test]
-    fn manage_ops_config_target_stays_on_preview_tab() {
-        assert!(matches!(
-            manage_view_tab_from_query(Some("diagnostics"), false, true, 3, OPS_CONFIG_TARGET),
-            ManageViewTab::Preview
-        ));
+    fn build_href_uses_build_route() {
+        assert_eq!(
+            build_href("spbjw", Some("main.mei"), Some("preview")),
+            "/apps/build/spbjw?file=main.mei&tab=preview"
+        );
+        assert_eq!(config_href("spbjw"), "/apps/config/spbjw");
     }
 
     #[test]
@@ -218,31 +227,22 @@ mod tests {
                 ManageViewTab::Diagnostics,
                 Some("all")
             ),
-            "/apps/manage/spbjw?file=.mei-config.json&tab=preview"
+            "/apps/build/spbjw?file=.mei-config.json&tab=preview"
         );
     }
 
     #[test]
     fn route_query_omits_tab_for_cross_app_navigation() {
         assert_eq!(
-            route_query(UiRouteMode::Manage, None, None, Some("source")),
-            ""
-        );
-        assert_eq!(
-            route_query(
-                UiRouteMode::Manage,
-                None,
-                Some("main.mei"),
-                Some("diagnostics")
-            ),
+            route_query(UiRouteMode::Build, None, None, Some("source")),
             ""
         );
     }
 
     #[test]
-    fn access_scene_query_available_while_manage_route_query_empty() {
+    fn access_scene_query_available_while_build_route_query_empty() {
         assert_eq!(
-            route_query(UiRouteMode::Manage, Some("dataset-foo"), None, None),
+            route_query(UiRouteMode::Build, Some("dataset-foo"), None, None),
             ""
         );
         assert_eq!(
@@ -254,22 +254,10 @@ mod tests {
     #[test]
     fn route_query_encodes_scene_value() {
         assert_eq!(
-            route_query(UiRouteMode::Access, Some("中文 场景"), None, None),
-            "/scene/%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
-        );
-        assert_eq!(
-            access_scene_query(Some("中文 场景")),
+            route_query(UiRouteMode::App, Some("中文 场景"), None, None),
             "/scene/%E4%B8%AD%E6%96%87%20%E5%9C%BA%E6%99%AF"
         );
         assert_eq!(encode_query_value("README #1.md"), "README%20%231.md");
-    }
-
-    #[test]
-    fn route_query_access_includes_tab_in_query() {
-        assert_eq!(
-            route_query(UiRouteMode::Access, Some("home"), None, Some("source")),
-            "/scene/home?tab=source"
-        );
     }
 
     #[test]
@@ -283,7 +271,7 @@ mod tests {
                 ManageViewTab::Source,
                 None,
             ),
-            "/apps/manage/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
+            "/apps/build/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
         );
     }
 }

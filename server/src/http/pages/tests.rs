@@ -147,8 +147,8 @@ async fn app_bundle_returns_merged_javascript() {
     let script = String::from_utf8(body.to_vec()).expect("bundle body utf8");
     assert!(script.contains("meiLangBoot"));
     assert!(
-        script.contains("MeiAgentScopeParams"),
-        "bundle should include scope-params.js"
+        script.contains("manageDiagnosticsMounted"),
+        "bundle should include manage-diagnostics.js"
     );
     assert!(
         script.contains("spaNavigationMounted") || script.contains("spa-navigation"),
@@ -244,7 +244,7 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
 
     let response = app_page(
         State(state),
-        AxumPath(("manage".to_string(), "bad-app".to_string())),
+        AxumPath(("build".to_string(), "bad-app".to_string())),
         Query(AppQuery {
             file: None,
             scene: None,
@@ -296,7 +296,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
 
     let response = app_page(
         State(state),
-        AxumPath(("manage".to_string(), "multi-scene".to_string())),
+        AxumPath(("build".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: Some("details.mei".to_string()),
             scene: Some("home".to_string()),
@@ -315,7 +315,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
     let html = String::from_utf8(body.to_vec()).expect("response body utf8");
     assert!(html.contains("DETAILS_VIEW"));
     assert!(
-        html.contains("/apps/access/multi-scene") && html.contains("/scene/details"),
+        html.contains("/apps/app/multi-scene") && html.contains("/scene/details"),
         "expected access URL to use canonical /scene/details path: {}",
         html.chars().take(1200).collect::<String>()
     );
@@ -364,7 +364,7 @@ async fn access_static_html_file_renders_without_scene_redirect() {
 
     let response = app_page(
         State(state.clone()),
-        AxumPath(("access".to_string(), "html-app".to_string())),
+        AxumPath(("app".to_string(), "html-app".to_string())),
         Query(AppQuery {
             file: Some("demo/index.html".to_string()),
             scene: None,
@@ -434,7 +434,7 @@ async fn access_mei_file_query_still_strips_file_param() {
 
     let response = app_page(
         State(state),
-        AxumPath(("access".to_string(), "multi-scene".to_string())),
+        AxumPath(("app".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: Some("details.mei".to_string()),
             scene: Some("details".to_string()),
@@ -495,7 +495,7 @@ async fn manage_html_preview_uses_document_iframe() {
 
     let response = app_page(
         State(state),
-        AxumPath(("manage".to_string(), "html-app".to_string())),
+        AxumPath(("build".to_string(), "html-app".to_string())),
         Query(AppQuery {
             file: Some("demo/index.html".to_string()),
             scene: None,
@@ -547,7 +547,7 @@ async fn access_root_redirects_to_default_scene_path() {
 
     let response = app_page(
         State(state),
-        AxumPath(("access".to_string(), "multi-scene".to_string())),
+        AxumPath(("app".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: None,
             scene: None,
@@ -565,7 +565,7 @@ async fn access_root_redirects_to_default_scene_path() {
             .headers()
             .get("location")
             .and_then(|value| value.to_str().ok()),
-        Some("/apps/access/multi-scene/scene/home?tab=preview&chrome=none")
+        Some("/apps/app/multi-scene/scene/home?tab=preview&chrome=none")
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -611,7 +611,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
             .headers()
             .get("location")
             .and_then(|value| value.to_str().ok()),
-        Some("/apps/manage/020-good")
+        Some("/apps/build/020-good")
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -689,10 +689,10 @@ async fn spbjw_home_indicator_metrics_use_inspection_check_date_xlsx() {
     let payload = serde_json::json!({
         "scene_id": "home",
         "target": "scenes/home.mei",
-        "dataset_id": "__world_metrics__::scenes/2_行政检查/指标体系.mei::metrics",
+        "dataset_id": "__world_metrics__::scenes/03-指标体系.mei::metrics",
         "metric_ids": [
-            "scenes/2_行政检查/指标体系.mei::inspection_frequency_reduction_rate",
-            "scenes/2_行政检查/指标体系.mei::penalty_revenue_growth_rate"
+            "scenes/03-指标体系.mei::inspection_frequency_reduction_rate",
+            "scenes/03-指标体系.mei::penalty_revenue_growth_rate"
         ]
     });
     let req = Request::builder()

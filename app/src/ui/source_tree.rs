@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
 use super::manage_routing::{
-    access_scene_route_suffix, encode_query_value, is_ops_config_target,
+    access_scene_route_suffix, encode_query_value,
 };
 use super::UiRouteMode;
 
@@ -77,7 +77,7 @@ pub(super) fn source_tree_view(
                 }
                 .into_any()
             } else {
-                let scene_for_link = if route_mode == UiRouteMode::Access {
+                let scene_for_link = if route_mode == UiRouteMode::App {
                     scene_target_pairs
                         .iter()
                         .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
@@ -85,7 +85,7 @@ pub(super) fn source_tree_view(
                 } else {
                     None
                 };
-                let file_for_link = if route_mode == UiRouteMode::Manage {
+                let file_for_link = if route_mode == UiRouteMode::Build {
                     Some(node.path.as_str())
                 } else {
                     None
@@ -110,8 +110,7 @@ pub(super) fn source_tree_view(
                 };
                 let icon = file_row_icon(node);
                 let file_path = node.path.clone();
-                let manage_config_link = route_mode == UiRouteMode::Manage
-                    && is_ops_config_target(node.path.as_str());
+                let manage_config_link = false;
                 view! {
                     <li class="tree-node">
                         <a
@@ -192,42 +191,44 @@ fn source_href(
     active_tab: Option<&str>,
 ) -> String {
     match route_mode {
-        UiRouteMode::Access => {
+        UiRouteMode::App => {
             if let Some(scene) = selected_scene.map(str::trim).filter(|s| !s.is_empty()) {
                 let suffix = access_scene_route_suffix(Some(scene), None, None);
-                format!("/apps/access/{app_path}{suffix}")
+                format!("/apps/app/{app_path}{suffix}")
             } else {
-                let mut parts = Vec::new();
-                if let Some(f) = file_for_link {
-                    let t = f.trim();
-                    if !t.is_empty() {
-                        parts.push(format!("file={}", encode_query_value(t)));
-                    }
-                }
-                if parts.is_empty() {
-                    format!("/apps/manage/{app_path}")
-                } else {
-                    format!("/apps/manage/{app_path}?{}", parts.join("&"))
-                }
+                format!("/apps/app/{app_path}")
             }
         }
-        UiRouteMode::Manage => {
+        UiRouteMode::Build => {
             let mut parts = Vec::new();
             if let Some(f) = file_for_link {
                 let t = f.trim();
                 if !t.is_empty() {
                     parts.push(format!("file={}", encode_query_value(t)));
-                    if is_ops_config_target(t) {
-                        parts.push("tab=preview".to_string());
-                    } else if let Some(tab) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Some(tab) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
                         parts.push(format!("tab={}", encode_query_value(tab)));
                     }
                 }
             }
             if parts.is_empty() {
-                format!("/apps/manage/{app_path}")
+                format!("/apps/build/{app_path}")
             } else {
-                format!("/apps/manage/{app_path}?{}", parts.join("&"))
+                format!("/apps/build/{app_path}?{}", parts.join("&"))
+            }
+        }
+        UiRouteMode::Config => format!("/apps/config/{app_path}"),
+        UiRouteMode::Upload => {
+            let mut parts = Vec::new();
+            if let Some(f) = file_for_link {
+                let t = f.trim();
+                if !t.is_empty() {
+                    parts.push(format!("file={}", encode_query_value(t)));
+                }
+            }
+            if parts.is_empty() {
+                format!("/apps/upload/{app_path}")
+            } else {
+                format!("/apps/upload/{app_path}?{}", parts.join("&"))
             }
         }
     }

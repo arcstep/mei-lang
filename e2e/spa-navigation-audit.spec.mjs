@@ -7,11 +7,11 @@
 import { test, expect } from "@playwright/test";
 
 const EXAMPLES_MAIN =
-  "/apps/manage/examples/core/02-external-scene-file?file=main.mei&tab=preview";
+  "/apps/build/examples/core/02-external-scene-file?file=main.mei&tab=preview";
 const EXAMPLES_HOME =
-  "/apps/manage/examples/core/02-external-scene-file?file=home.mei&tab=preview";
+  "/apps/build/examples/core/02-external-scene-file?file=home.mei&tab=preview";
 const SPBJW_HOME =
-  "/apps/manage/spbjw?file=scenes/home.mei&tab=preview";
+  "/apps/build/spbjw?file=scenes/home.mei&tab=preview";
 
 const SPA_HEADER = "x-mei-spa-nav";
 const IDLE_MS = 30000;
@@ -180,7 +180,7 @@ test.describe("SPA 审计（对齐用户操作路径）", () => {
     const report = await auditScenario(page, async () => {
       await page.getByRole("button", { name: "模板库", exact: true }).click();
       await page
-        .locator(".app-group-menu a[href*='/apps/manage/templates']")
+        .locator(".app-group-menu a[href*='/apps/build/templates']")
         .first()
         .click();
     });
@@ -191,26 +191,26 @@ test.describe("SPA 审计（对齐用户操作路径）", () => {
     expect(report.ui.href).toMatch(/\/apps\/manage\/templates/);
   });
 
-  test("E. spbjw：管理 → 访问 → 管理", async ({ page }) => {
+  test("E. spbjw：构建 → 应用 → 构建", async ({ page }) => {
     await openManage(page, SPBJW_HOME);
-    const accessBtn = page
-      .locator('header.topbar-shell sl-button[href*="/apps/access/"]')
+    const appBtn = page
+      .locator('header.topbar-shell sl-button[href*="/apps/app/"]')
       .first();
-    const manageBtn = page
-      .locator('header.topbar-shell sl-button[href*="/apps/manage/"]')
+    const buildBtn = page
+      .locator('header.topbar-shell sl-button[href*="/apps/build/"]')
       .first();
 
     const report = await auditScenario(page, async () => {
-      await accessBtn.click();
-      await page.waitForURL(/\/apps\/access\//, { timeout: 20000 });
+      await appBtn.click();
+      await page.waitForURL(/\/apps\/app\//, { timeout: 20000 });
       await waitIdleOrRecord(page, 20000);
-      await manageBtn.click();
+      await buildBtn.click();
     });
     console.log("[audit E]", JSON.stringify(report, null, 2));
 
     expect(report.spaFetchCount).toBeGreaterThan(0);
     expect(report.idle).toBe(true);
-    expect(report.ui.href).toMatch(/\/apps\/manage\//);
+    expect(report.ui.href).toMatch(/\/apps\/build\//);
   });
 
   test("F. API：navigateSpa(home) 后遮罩必须清除", async ({ page }) => {

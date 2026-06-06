@@ -4,6 +4,7 @@ mod datasets;
 pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
+pub mod upload_api;
 pub mod projection_api;
 pub mod scene_api;
 
@@ -60,6 +61,10 @@ pub fn router() -> Router<AppState> {
             get(ops_api::ops_config_get).put(ops_api::ops_config_put),
         )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
+        .route(
+            "/api/upload/*app_id",
+            post(upload_api::upload_file_post).delete(upload_api::upload_file_delete),
+        )
         .route("/api/agent/config", get(agent_api::api_agent_config))
         .route("/api/agent/runtime", get(agent_api::api_agent_runtime))
         .route("/api/agent/skill", get(agent_api::api_agent_skill))

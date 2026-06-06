@@ -3352,3 +3352,20 @@ a.tree-link {
   }
   .sidebar, .main { height: auto; }
 }
+
+.config-view-shell,
+.upload-view-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.config-view-main,
+.upload-workspace {
+  min-height: 0;
+}
+
+.upload-workspace {
+  display: grid;
+  grid-template-columns: minmax(16rem, 18rem) minmax(0, 1fr);
+}

@@ -2,4 +2,7 @@
 
 mod ui;
 
-pub use ui::{render_page, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode};
+pub use ui::{
+    render_page, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode,
+    UploadFileEntry,
+};

@@ -25,5 +25,5 @@ pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> 
             state.source_root.display()
         ))
     })?;
-    Ok(Redirect::to(&format!("/apps/manage/{}", first.id)))
+    Ok(Redirect::to(&format!("/apps/build/{}", first.id)))
 }

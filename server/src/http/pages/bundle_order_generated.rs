@@ -12,7 +12,6 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "manage-tabs.js",
     "manage-source-lazy.js",
     "manage-diagnostics.js",
-    "manage-ops-panel.js",
     "spa-navigation.js",
 ];
 
@@ -55,6 +54,14 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "agent-panel.js",
     "workspace-splitters.js",
     "spa-navigation.js",
+];
+
+pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
+    "manage-ops-panel.js",
+];
+
+pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
+    "upload-upload-panel.js",
 ];
 
 pub(super) const BUNDLE_STYLES_ORDER: &[&str] = &[

@@ -5,11 +5,13 @@ use axum::{
     http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use mei_lang_app::{render_page, UiRouteMode};
+use mei_lang_app::{render_page, UiRouteMode, UploadFileEntry};
 use mei_lang_kernel::{
-    discover_apps, read_source_file, resolve_default_scene_from_root, CompileOptions, CompiledApp,
-    Severity,
+    discover_apps, load_mei_config_for_app, read_source_file, resolve_default_scene_from_root,
+    CompileOptions, CompiledApp, Severity,
 };
+use std::fs;
+use std::path::Path;
 
 use crate::{AppError, AppState};
 
@@ -26,7 +28,8 @@ use super::super::util::{
 };
 use super::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
 use super::query::{
-    access_canonical_location, access_sanitized_redirect_location, parse_access_scene_path,
+    access_canonical_location, access_sanitized_redirect_location,
+    legacy_access_redirect_location, legacy_manage_redirect_location, parse_access_scene_path,
     AppQuery,
 };
 use super::scene::{canonical_scene_for_target, default_file_for_scene, manage_scene_for_render};
@@ -93,12 +96,55 @@ fn insert_manage_compile_request_headers(res: &mut Response, outcome: &CompileWi
     }
 }
 
+fn upload_rel_from_config(app_root: &Path, source_root: &Path) -> Option<String> {
+    let config = load_mei_config_for_app(app_root, Some(source_root));
+    config
+        .paths
+        .upload
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.replace('\\', "/"))
+}
+
+fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<UploadFileEntry> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(upload_root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue;
+        }
+        out.push(UploadFileEntry {
+            path: name.clone(),
+            name,
+            is_dir: file_type.is_dir(),
+        });
+    }
+    out.sort_by(|left, right| left.name.cmp(&right.name));
+    out
+}
+
 pub async fn app_page(
     State(state): State<AppState>,
     AxumPath((mode, app_id_raw)): AxumPath<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Result<Response, AppError> {
     let app_started = Instant::now();
+    if mode == "access" {
+        if let Some(location) = legacy_access_redirect_location(&app_id_raw, &query) {
+            return Ok(Redirect::temporary(&location).into_response());
+        }
+    }
+    if mode == "manage" {
+        let location = legacy_manage_redirect_location(&app_id_raw, &query);
+        return Ok(Redirect::temporary(&location).into_response());
+    }
     let route_mode = UiRouteMode::from_slug(&mode);
     let app_id_trimmed = app_id_raw.trim_start_matches('/').to_string();
     let (app_id, url_path_scene) = match parse_access_scene_path(&app_id_trimmed) {
@@ -114,7 +160,7 @@ pub async fn app_page(
                 .into_response());
         }
     };
-    let access_path_scene = if route_mode == UiRouteMode::Access {
+    let access_path_scene = if route_mode == UiRouteMode::App {
         url_path_scene.clone()
     } else {
         None
@@ -139,7 +185,16 @@ pub async fn app_page(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    if route_mode == UiRouteMode::Access {
+    if route_mode == UiRouteMode::Build {
+        if request_file
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|file| file == ".mei-config.json")
+        {
+            return Ok(Redirect::temporary(&format!("/apps/config/{app_id}")).into_response());
+        }
+    }
+    if route_mode == UiRouteMode::App {
         if let Some(ref file) = request_file {
             if is_script_target(file) {
                 return Ok(Redirect::temporary(&access_sanitized_redirect_location(
@@ -149,7 +204,16 @@ pub async fn app_page(
             }
         }
     }
-    let access_static_file = if route_mode == UiRouteMode::Access {
+    if route_mode == UiRouteMode::Upload {
+        let app_root = state.source_root.join(&app_id);
+        if upload_rel_from_config(&app_root, &state.source_root).is_none() {
+            return Err(AppError::status(
+                axum::http::StatusCode::NOT_FOUND,
+                "app has no paths.upload configured",
+            ));
+        }
+    }
+    let access_static_file = if route_mode == UiRouteMode::App {
         request_file
             .as_ref()
             .filter(|t| !is_script_target(t))
@@ -157,7 +221,7 @@ pub async fn app_page(
     } else {
         None
     };
-    if route_mode == UiRouteMode::Access && access_static_file.is_none() {
+    if route_mode == UiRouteMode::App && access_static_file.is_none() {
         let q_scene = query
             .scene
             .as_deref()
@@ -203,7 +267,7 @@ pub async fn app_page(
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
         .unwrap_or(false);
-    let manage_file = if route_mode == UiRouteMode::Manage {
+    let manage_file = if route_mode == UiRouteMode::Build {
         request_file.clone()
     } else {
         None
@@ -212,12 +276,12 @@ pub async fn app_page(
         .as_deref()
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
-    let normalized_preview_target = if route_mode == UiRouteMode::Manage {
+    let normalized_preview_target = if route_mode == UiRouteMode::Build {
         manage_script_file.clone()
     } else {
         None
     };
-    let compile_scene = if route_mode == UiRouteMode::Access || route_mode == UiRouteMode::Manage {
+    let compile_scene = if route_mode == UiRouteMode::App || route_mode == UiRouteMode::Build {
         url_path_scene.clone().or_else(|| query.scene.clone())
     } else {
         query.scene.clone()
@@ -282,7 +346,7 @@ pub async fn app_page(
                     compile_ms,
                     "failed to compile app page"
                 );
-                let target = if route_mode == UiRouteMode::Manage {
+                let target = if route_mode == UiRouteMode::Build {
                     manage_file
                         .clone()
                         .unwrap_or_else(|| "main.mei".to_string())
@@ -295,6 +359,14 @@ pub async fn app_page(
                 let source_read_ms = elapsed_ms(source_started);
                 let source_meta = source_panel_meta(&source_path, &source);
                 let topbar_menus = load_segment_topbar_menus(&state.source_root);
+                let app_root = state.source_root.join(&app_id);
+                let upload_rel = upload_rel_from_config(&app_root, &state.source_root);
+                let upload_enabled = upload_rel.is_some();
+                let upload_files = upload_rel
+                    .as_ref()
+                    .map(|rel| list_upload_files(&app_root.join(rel), rel))
+                    .unwrap_or_default();
+                let upload_root_label = upload_rel.as_deref().unwrap_or("upload");
                 let mut compiled = compile_error_fallback_app(
                     &state.source_root,
                     &app_id,
@@ -319,6 +391,9 @@ pub async fn app_page(
                         query.tab.as_deref(),
                         query.diag_filter.as_deref(),
                         chrome_hidden,
+                        upload_enabled,
+                        Some(upload_root_label),
+                        &upload_files,
                     );
                     (html, elapsed_ms(t))
                 };
@@ -356,8 +431,8 @@ pub async fn app_page(
                     (h, ssr_emit_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
-                if route_mode == UiRouteMode::Manage {
-                    if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
+    if matches!(route_mode, UiRouteMode::Build) {
+        if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
                         res.headers_mut()
                             .insert(HeaderName::from_static("x-mei-handler-html-ready-ms"), v);
                     }
@@ -393,7 +468,7 @@ pub async fn app_page(
     let compile_ms = compile_outcome.compile_ms;
     let compile_cache_lookup_ms = compile_outcome.cache_lookup_ms;
     let mut compiled = compile_outcome.compiled;
-    if route_mode == UiRouteMode::Access && access_static_file.is_none() {
+    if route_mode == UiRouteMode::App && access_static_file.is_none() {
         if access_path_scene.is_none() {
             let sid = compiled
                 .active_scene
@@ -408,7 +483,7 @@ pub async fn app_page(
                 ))
                 .into_response());
             }
-            let loc = format!("/apps/manage/{}", app_id.trim_start_matches('/'));
+            let loc = format!("/apps/build/{}", app_id.trim_start_matches('/'));
             return Ok(Redirect::temporary(&loc).into_response());
         }
         let requested = access_path_scene.as_ref().expect("access_path_scene");
@@ -422,7 +497,7 @@ pub async fn app_page(
                     Html(format!(
                         "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景未导出</title></head><body>\
                          <p>场景 <code>{scene_esc}</code> 在应用 <code>{app_esc}</code> 中未开启 Access 导出（access_export=false）。</p>\
-                         <p><a href=\"/apps/manage/{app_esc}\">返回管理态</a></p></body></html>",
+                         <p><a href=\"/apps/build/{app_esc}\">返回构建视图</a></p></body></html>",
                     )),
                 )
                     .into_response());
@@ -437,7 +512,7 @@ pub async fn app_page(
                 Html(format!(
                     "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景不存在</title></head><body>\
                      <p>应用 <code>{app_esc}</code> 中不存在场景 <code>{scene_esc}</code>（或无法绑定到当前编译结果）。</p>\
-                     <p><a href=\"/apps/manage/{manage_href_app}\">返回管理态</a></p></body></html>",
+                     <p><a href=\"/apps/build/{manage_href_app}\">返回构建视图</a></p></body></html>",
                 )),
             )
                 .into_response());
@@ -445,7 +520,7 @@ pub async fn app_page(
     }
     let manage_scene_resolved = if access_static_file.is_some() {
         None
-    } else if route_mode == UiRouteMode::Access {
+    } else if route_mode == UiRouteMode::App {
         access_path_scene.clone()
     } else {
         canonical_scene_for_target(&compiled, manage_file.as_deref())
@@ -466,7 +541,33 @@ pub async fn app_page(
         .as_deref()
         .or(compiled.active_scene.as_deref());
     let manage_default_file = default_file_for_scene(&compiled, scene_for_default);
-    let target = if route_mode == UiRouteMode::Manage {
+    let app_root = state.source_root.join(&app_id);
+    let upload_rel = upload_rel_from_config(&app_root, &state.source_root);
+    let upload_enabled = upload_rel.is_some();
+    let upload_files = upload_rel
+        .as_ref()
+        .map(|rel| list_upload_files(&app_root.join(rel), rel))
+        .unwrap_or_default();
+    let upload_root_label = upload_rel.as_deref().unwrap_or("upload");
+    let target = if route_mode == UiRouteMode::Config {
+        ".mei-config.json".to_string()
+    } else if route_mode == UiRouteMode::Upload {
+        let rel = upload_rel.clone().ok_or_else(|| {
+            AppError::status(
+                axum::http::StatusCode::NOT_FOUND,
+                "app has no paths.upload configured",
+            )
+        })?;
+        if let Some(file) = request_file
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            format!("{rel}/{file}")
+        } else {
+            rel
+        }
+    } else if route_mode == UiRouteMode::Build {
         manage_file.clone().unwrap_or(manage_default_file)
     } else if let Some(static_file) = access_static_file.clone() {
         static_file
@@ -528,6 +629,9 @@ pub async fn app_page(
             query.tab.as_deref(),
             query.diag_filter.as_deref(),
             chrome_hidden,
+            upload_enabled,
+            Some(upload_root_label),
+            &upload_files,
         );
         (html, elapsed_ms(t))
     };

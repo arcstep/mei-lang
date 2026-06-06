@@ -61,8 +61,8 @@ pub(super) fn effective_viewport_overflow(
     route: UiRouteMode,
 ) -> String {
     match route {
-        UiRouteMode::Manage => "debug".to_string(),
-        UiRouteMode::Access => "clip".to_string(),
+        UiRouteMode::Build | UiRouteMode::Config | UiRouteMode::Upload => "debug".to_string(),
+        UiRouteMode::App => "clip".to_string(),
     }
 }
 
@@ -165,13 +165,13 @@ pub(super) fn effective_viewport_safe_inset(
     route: UiRouteMode,
 ) -> (f64, f64, f64, f64) {
     match route {
-        UiRouteMode::Manage => (
+        UiRouteMode::Build | UiRouteMode::Config | UiRouteMode::Upload => (
             viewport.edit_safe_top,
             viewport.edit_safe_right,
             viewport.edit_safe_bottom,
             viewport.edit_safe_left,
         ),
-        UiRouteMode::Access => (
+        UiRouteMode::App => (
             viewport.safe_top,
             viewport.safe_right,
             viewport.safe_bottom,
@@ -254,7 +254,7 @@ pub(super) fn frame_viewport_style_page_flow_for_route(
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
     // Manage：水平留白交给 frame grid padding；视窗铺满中间栏，避免「视窗缩窄 + 右侧对齐」假象。
-    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Manage {
+    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Build {
         (safe_top, 0.0, safe_bottom, 0.0)
     } else {
         (safe_top, safe_right, safe_bottom, safe_left)
@@ -278,7 +278,7 @@ pub(super) fn frame_viewport_style_fluid_width_for_route(
 ) -> String {
     let (safe_top, safe_right, safe_bottom, safe_left) =
         effective_viewport_safe_inset(viewport, route);
-    if route == UiRouteMode::Manage {
+    if route == UiRouteMode::Build {
         return frame_viewport_style_with_safe(
             viewport,
             "debug",

@@ -6,15 +6,15 @@ import { test, expect } from "@playwright/test";
 /** 与 playwright.config 的 baseURL 一致；勿写死 3000 */
 const EXAMPLES_MANAGE =
   process.env.MEI_SPA_EXAMPLES_URL ||
-  "/apps/manage/examples/core/02-external-scene-file?file=home.mei&tab=preview";
+  "/apps/build/examples/core/02-external-scene-file?file=home.mei&tab=preview";
 
 const SPBJW_MANAGE =
   process.env.MEI_SPA_MANAGE_URL ||
-  "/apps/manage/spbjw?file=scenes/home.mei&tab=preview";
+  "/apps/build/spbjw?file=scenes/home.mei&tab=preview";
 
 const SPBJW_EFFECTIVENESS_MANAGE =
   process.env.MEI_SPA_EFFECTIVENESS_URL ||
-  "/apps/manage/spbjw?file=scenes/5_问题办理/监督成效.mei&tab=preview";
+  "/apps/build/spbjw?file=scenes/08-监督成效.mei&tab=preview";
 
 const SPA_HEADER = "x-mei-spa-nav";
 
@@ -143,13 +143,13 @@ test.describe("spbjw 完整壳", () => {
     await expect(groupTrigger).toBeVisible({ timeout: 10000 });
     await groupTrigger.click();
     const appLink = page
-      .locator(".app-group-menu a[href*='/apps/manage/templates']")
+      .locator(".app-group-menu a[href*='/apps/build/templates']")
       .first();
     await expect(appLink).toBeVisible();
     await expectSpaFetch(
       page,
       () => appLink.click(),
-      (url) => url.includes("/apps/manage/templates"),
+      (url) => url.includes("/apps/build/templates"),
     );
     await waitSpaIdle(page, 20000);
   });
@@ -169,34 +169,34 @@ test.describe("spbjw 完整壳", () => {
     tracker.stop();
   });
 
-  test("顶栏 访问/管理：SPA + 允许首次 access.js", async ({ page }) => {
-    const accessBtn = page
-      .locator('header.topbar-shell sl-button[href*="/apps/access/"]')
+  test("顶栏 应用/构建：SPA + 允许首次 access.js", async ({ page }) => {
+    const appBtn = page
+      .locator('header.topbar-shell sl-button[href*="/apps/app/"]')
       .first();
-    const manageBtn = page
-      .locator('header.topbar-shell sl-button[href*="/apps/manage/"]')
+    const buildBtn = page
+      .locator('header.topbar-shell sl-button[href*="/apps/build/"]')
       .first();
-    await expect(accessBtn).toBeVisible();
-    await expect(manageBtn).toBeVisible();
+    await expect(appBtn).toBeVisible();
+    await expect(buildBtn).toBeVisible();
     const tracker = trackHostBundleLoads(page);
     const before = tracker.counts();
     await expectSpaFetch(
       page,
-      () => accessBtn.click(),
-      (url) => url.includes("/apps/access/"),
+      () => appBtn.click(),
+      (url) => url.includes("/apps/app/"),
     );
     await waitSpaIdle(page, 20000);
-    await expect(page).toHaveURL(/\/apps\/access\//);
+    await expect(page).toHaveURL(/\/apps\/app\//);
     let mid = tracker.counts();
     expect(mid.manage).toBe(before.manage);
     expect(mid.access).toBeLessThanOrEqual(before.access + 1);
     await expectSpaFetch(
       page,
-      () => manageBtn.click(),
-      (url) => url.includes("/apps/manage/"),
+      () => buildBtn.click(),
+      (url) => url.includes("/apps/build/"),
     );
     await waitSpaIdle(page, 20000);
-    await expect(page).toHaveURL(/\/apps\/manage\//);
+    await expect(page).toHaveURL(/\/apps\/build\//);
     mid = tracker.counts();
     expect(mid.manage).toBeLessThanOrEqual(before.manage + 1);
     tracker.stop();

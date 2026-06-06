@@ -54,7 +54,7 @@ pub(super) fn preview_view(
             if let Some(vp) = vp {
                 let viewport_explicit = viewport::frame_viewport_is_explicit(&frame_props);
                 let overflow_mode = viewport::effective_viewport_overflow(&vp, route_mode);
-                let is_manage = route_mode == UiRouteMode::Manage;
+                let is_manage = route_mode == UiRouteMode::Build;
                 let content_bounds =
                     viewport::frame_stage_content_bounds_for_viewport(&frame_props, &vp);
                 let fluid_height = vp.fluid_height;

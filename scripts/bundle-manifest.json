@@ -11,7 +11,6 @@
     "manage-tabs.js",
     "manage-source-lazy.js",
     "manage-diagnostics.js",
-    "manage-ops-panel.js",
     "spa-navigation.js"
   ],
   "manageSourceScripts": [
@@ -52,6 +51,12 @@
     "agent-panel.js",
     "workspace-splitters.js",
     "spa-navigation.js"
+  ],
+  "configScripts": [
+    "manage-ops-panel.js"
+  ],
+  "uploadScripts": [
+    "upload-upload-panel.js"
   ],
   "styles": [
     "app-shell.css",
