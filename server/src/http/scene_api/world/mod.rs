@@ -1,6 +1,7 @@
 mod analysis_contract_llm;
 mod assets;
 mod bundle;
+#[cfg(test)]
 mod dataset_llm;
 #[cfg(test)]
 mod integration_access_contract;
@@ -12,7 +13,6 @@ mod summaries;
 mod util;
 
 pub(crate) use assets::{query_world_asset, query_world_assets};
-pub(crate) use dataset_llm::{query_world_dataset, query_world_dataset_metrics};
 pub(crate) use runtime_peek::query_world_runtime;
 pub(crate) use snapshot::{build_world_context_snapshot, build_world_context_snapshot_cached};
 

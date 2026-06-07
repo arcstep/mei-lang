@@ -23,6 +23,7 @@ use mei_lang_kernel::{
     compile_app_with_options, compile_revision_plan_from_root_with_options, CompileOptions,
     CompileWatchedFile, CompiledApp, Diagnostic, Severity,
 };
+use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
 use serde_json::json;
 use std::time::Instant;
@@ -51,6 +52,7 @@ enum Command {
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
+    Export(ExportArgs),
     Query(QueryArgs),
     Runtime(RuntimeArgs),
     Mcp(McpArgs),
@@ -104,6 +106,79 @@ struct InspectWorldArgs {
 struct InspectInventoryArgs {
     #[command(flatten)]
     app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+struct ExportArgs {
+    #[command(subcommand)]
+    command: ExportCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum ExportCommand {
+    Inventory(ExportInventoryArgs),
+    SemanticDag(ExportSemanticDagArgs),
+    Contracts(ExportContractsArgs),
+    EvalPlan(ExportEvalPlanArgs),
+    RuntimeTrace(ExportRuntimeTraceArgs),
+}
+
+#[derive(Args, Clone)]
+struct ExportInventoryArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    write_store: bool,
+}
+
+#[derive(Args, Clone)]
+struct ExportSemanticDagArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long = "dataset-id")]
+    dataset_id: String,
+    #[arg(long = "metric-id")]
+    metric_ids: Vec<String>,
+    #[arg(long)]
+    write_store: bool,
+}
+
+#[derive(Args, Clone)]
+struct ExportContractsArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long = "dataset-id")]
+    dataset_id: String,
+    #[arg(long = "metric-id")]
+    metric_ids: Vec<String>,
+    #[arg(long)]
+    write_store: bool,
+}
+
+#[derive(Args, Clone)]
+struct ExportEvalPlanArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long = "dataset-id")]
+    dataset_id: String,
+    #[arg(long = "metric-id")]
+    metric_ids: Vec<String>,
+    #[arg(long)]
+    search: Option<String>,
+    #[arg(long = "filter")]
+    filters: Vec<String>,
+    #[arg(long)]
+    write_store: bool,
+}
+
+#[derive(Args, Clone)]
+struct ExportRuntimeTraceArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+    #[arg(long)]
+    trace_limit: Option<usize>,
+    #[arg(long)]
+    write_store: bool,
 }
 
 #[derive(Args, Clone)]
@@ -285,6 +360,7 @@ async fn main() -> Result<()> {
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),
+        Command::Export(args) => export_command(args),
         Command::Query(args) => query_command(args),
         Command::Runtime(args) => runtime_command(args),
         Command::Mcp(args) => mcp_command(args),
@@ -466,7 +542,7 @@ fn inspect_world_command(args: InspectWorldArgs) -> Result<()> {
         anyhow::bail!("--app is required");
     }
     let scope = world_scope_from_selector(&args.app);
-    let snapshot = http::scene_api::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
+    let snapshot = toolchain::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "inspect.world",
@@ -485,7 +561,7 @@ fn inspect_inventory_command(args: InspectInventoryArgs) -> Result<()> {
         anyhow::bail!("--app is required");
     }
     let scope = world_scope_from_selector(&args.app);
-    let snapshot = http::scene_api::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
+    let snapshot = toolchain::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "inspect.inventory",
@@ -495,6 +571,106 @@ fn inspect_inventory_command(args: InspectInventoryArgs) -> Result<()> {
         "inventory": snapshot.resource_inventory,
     });
     print_json_output(&output, args.app.json)
+}
+
+fn export_command(args: ExportArgs) -> Result<()> {
+    match args.command {
+        ExportCommand::Inventory(args) => export_inventory_command(args),
+        ExportCommand::SemanticDag(args) => export_semantic_dag_command(args),
+        ExportCommand::Contracts(args) => export_contracts_command(args),
+        ExportCommand::EvalPlan(args) => export_eval_plan_command(args),
+        ExportCommand::RuntimeTrace(args) => export_runtime_trace_command(args),
+    }
+}
+
+fn export_inventory_command(args: ExportInventoryArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    let scope = world_scope_from_selector(&args.app).unwrap_or_default();
+    let envelope = toolchain::export_inventory_snapshot(
+        &source_root,
+        app_id,
+        &scope,
+        HeadlessExportOptions {
+            write_store: args.write_store,
+        },
+    )?;
+    print_json_output(&envelope, args.app.json)
+}
+
+fn export_semantic_dag_command(args: ExportSemanticDagArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    let scope = world_scope_from_selector(&args.app).unwrap_or_default();
+    let envelope = toolchain::export_semantic_dag(
+        &source_root,
+        app_id,
+        &scope,
+        args.dataset_id.trim(),
+        &args.metric_ids,
+        HeadlessExportOptions {
+            write_store: args.write_store,
+        },
+    )?;
+    print_json_output(&envelope, args.app.json)
+}
+
+fn export_contracts_command(args: ExportContractsArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    let scope = world_scope_from_selector(&args.app).unwrap_or_default();
+    let envelope = toolchain::export_analysis_contracts(
+        &source_root,
+        app_id,
+        &scope,
+        args.dataset_id.trim(),
+        &args.metric_ids,
+        HeadlessExportOptions {
+            write_store: args.write_store,
+        },
+    )?;
+    print_json_output(&envelope, args.app.json)
+}
+
+fn export_eval_plan_command(args: ExportEvalPlanArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    let scope = world_scope_from_selector(&args.app).unwrap_or_default();
+    let filters = parse_cli_filters(&args.filters)?;
+    let envelope = toolchain::export_eval_plan(
+        &source_root,
+        app_id,
+        &scope,
+        args.dataset_id.trim(),
+        &args.metric_ids,
+        args.search.as_deref(),
+        &filters,
+        HeadlessExportOptions {
+            write_store: args.write_store,
+        },
+    )?;
+    print_json_output(&envelope, args.app.json)
+}
+
+fn export_runtime_trace_command(args: ExportRuntimeTraceArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    let scope = world_scope_from_selector(&args.app).unwrap_or_default();
+    let envelope = toolchain::export_runtime_trace(
+        &source_root,
+        app_id,
+        &scope,
+        args.trace_limit,
+        HeadlessExportOptions {
+            write_store: args.write_store,
+        },
+    )?;
+    print_json_output(&envelope, args.app.json)
 }
 
 fn query_command(args: QueryArgs) -> Result<()> {
@@ -578,12 +754,7 @@ fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
         anyhow::bail!("--app is required");
     }
     let scope = world_scope_from_selector(&args.app);
-    let result = http::scene_api::query_resource_get(
-        &source_root,
-        app_id,
-        scope.as_ref(),
-        args.id.trim(),
-    )?;
+    let result = toolchain::query_world_asset(&source_root, app_id, scope.as_ref(), args.id.trim())?;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "query.resource",
@@ -609,12 +780,8 @@ fn runtime_peek_command(args: RuntimePeekArgs) -> Result<()> {
         anyhow::bail!("--app is required");
     }
     let scope = world_scope_from_selector(&args.app);
-    let result = http::scene_api::query_resource_runtime_peek(
-        &source_root,
-        app_id,
-        scope.as_ref(),
-        args.trace_limit,
-    )?;
+    let result =
+        toolchain::query_world_runtime(&source_root, app_id, scope.as_ref(), args.trace_limit)?;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "runtime.peek",
@@ -661,6 +828,31 @@ fn mcp_describe_command(args: McpDescribeArgs) -> Result<()> {
                     "name": "mei_inspect_inventory",
                     "description": "Return the app inventory/resource index for the selected scope.",
                     "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "mei_export_inventory",
+                    "description": "Export the inventory snapshot envelope and optionally persist it into app_root/.mei.",
+                    "backed_by": "mei export inventory --app <app> [--scene <scene>] [--target-file <file>] [--write-store] --json"
+                },
+                {
+                    "name": "mei_export_semantic_dag",
+                    "description": "Export runtime metric defs plus the compile-derived semantic DAG for a dataset.",
+                    "backed_by": "mei export semantic-dag --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--write-store] --json"
+                },
+                {
+                    "name": "mei_export_analysis_contracts",
+                    "description": "Export runtime analysis contracts for a dataset and selected metrics.",
+                    "backed_by": "mei export contracts --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--write-store] --json"
+                },
+                {
+                    "name": "mei_export_eval_plan",
+                    "description": "Export the headless EvalPlan for a dataset/metric selection under the requested filter scope.",
+                    "backed_by": "mei export eval-plan --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--filter key=value]... [--search text] [--scene <scene>] [--write-store] --json"
+                },
+                {
+                    "name": "mei_export_runtime_trace",
+                    "description": "Export a bounded runtime trace envelope for the selected app scope.",
+                    "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] [--write-store] --json"
                 },
                 {
                     "name": "mei_query_dataset",
@@ -724,6 +916,11 @@ fn mcp_describe_command(args: McpDescribeArgs) -> Result<()> {
                     "name": "resource_runtime_peek",
                     "description": "Peek runtime phase/result/actions for the current scope.",
                     "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json"
+                },
+                {
+                    "name": "resource_runtime_trace_export",
+                    "description": "Export a bounded runtime trace envelope for the current scope.",
+                    "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] --json"
                 }
             ],
             "write_policy": {

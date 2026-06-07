@@ -175,6 +175,15 @@ pub(crate) fn build_eval_plan(
     }
 }
 
+pub fn build_runtime_eval_plan(
+    metric_defs: &BTreeMap<String, Value>,
+    metric_ids: Option<&[String]>,
+    datasets: &BTreeMap<String, DatasetView>,
+    scope: &RuntimeMetricEvalScope,
+) -> EvalPlan {
+    build_eval_plan(metric_defs, metric_ids, datasets, scope)
+}
+
 fn selected_metric_ids(
     metric_defs: &BTreeMap<String, Value>,
     metric_ids: Option<&[String]>,

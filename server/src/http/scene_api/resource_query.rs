@@ -4,16 +4,14 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use mei_lang_toolchain as toolchain;
+
 use super::types::{
     ResourceQueryToolSpec, WorldAssetGetResponse, WorldAssetListResponse, WorldRuntimePeekResponse,
     WorldScope,
 };
-use super::world::{
-    query_world_asset, query_world_assets, query_world_dataset, query_world_dataset_metrics,
-    query_world_runtime,
-};
 
-pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v5";
+pub(crate) const RESOURCE_QUERY_SCHEMA_VERSION: &str = toolchain::RESOURCE_QUERY_SCHEMA_VERSION;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[allow(dead_code)]
@@ -88,53 +86,7 @@ pub struct DatasetMetricQueryToolInput {
 }
 
 pub(crate) fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
-    vec![
-        ResourceQueryToolSpec {
-            id: "dataset_query".to_string(),
-            status: "phase2_api_ready".to_string(),
-            purpose:
-                "按 dataset 资源 id 查询有界结果（schema+filters+metric ids+sample rows+analysis_contracts_preview）；对应 LLM 工具名 dataset_query"
-                    .to_string(),
-            input: "{id: string, search?: string, filters?: object, columns?: string[], limit?: number, scene_id?, target_file?}"
-                .to_string(),
-            output:
-                "bounded: {dataset{schema_preview,filters,metric_ids,analysis_contracts_preview}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."
-                    .to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "dataset_metric".to_string(),
-            status: "phase2_api_ready".to_string(),
-            purpose:
-                "按 dataset 资源 id 查询运行时指标值（count/rate/trend 等聚合）及 analysis_contract 摘要；对应 LLM 工具名 dataset_metric"
-                    .to_string(),
-            input: "{id: string, metric_ids?: string[], search?: string, filters?: object, scene_id?, target_file?}"
-                .to_string(),
-            output:
-                "bounded: {dataset_id, total_rows, metrics, analysis_contracts}; when metric_ids omitted returns all runtime metrics for the dataset. analysis_contracts mirrors host UI explain/popup contract."
-                    .to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_list".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "列出当前 world 下的 assets（与 LLM 工具 resource_list 一致）".to_string(),
-            input: "{kind?: string, limit?: number, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldAssetListResponse JSON".to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_get".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "按 id 获取单个 world asset/entity（与 LLM 工具 resource_get 一致）".to_string(),
-            input: "{id: string, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldAssetGetResponse JSON".to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_runtime_peek".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "窥视 world runtime 状态（与 LLM 工具 resource_runtime_peek 一致）".to_string(),
-            input: "{trace_limit?: number, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldRuntimePeekResponse JSON".to_string(),
-        },
-    ]
+    toolchain::default_resource_query_tools()
 }
 
 pub(crate) fn query_resource_list(
@@ -144,7 +96,7 @@ pub(crate) fn query_resource_list(
     kind: Option<&str>,
     limit: Option<usize>,
 ) -> Result<WorldAssetListResponse> {
-    query_world_assets(source_root, app_id, scope, kind, limit)
+    toolchain::query_world_assets(source_root, app_id, scope, kind, limit)
 }
 
 pub(crate) fn query_resource_get(
@@ -153,7 +105,7 @@ pub(crate) fn query_resource_get(
     scope: Option<&WorldScope>,
     id: &str,
 ) -> Result<WorldAssetGetResponse> {
-    query_world_asset(source_root, app_id, scope, id)
+    toolchain::query_world_asset(source_root, app_id, scope, id)
 }
 
 pub(crate) fn query_resource_runtime_peek(
@@ -162,7 +114,7 @@ pub(crate) fn query_resource_runtime_peek(
     scope: Option<&WorldScope>,
     trace_limit: Option<usize>,
 ) -> Result<WorldRuntimePeekResponse> {
-    query_world_runtime(source_root, app_id, scope, trace_limit)
+    toolchain::query_world_runtime(source_root, app_id, scope, trace_limit)
 }
 
 pub(crate) fn query_resource_dataset(
@@ -175,7 +127,7 @@ pub(crate) fn query_resource_dataset(
     columns: Option<&[String]>,
     limit: Option<usize>,
 ) -> Result<Value> {
-    query_world_dataset(
+    toolchain::query_world_dataset(
         source_root,
         app_id,
         scope,
@@ -196,7 +148,7 @@ pub(crate) fn query_resource_dataset_metric(
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
 ) -> Result<Value> {
-    query_world_dataset_metrics(source_root, app_id, scope, id, metric_ids, search, filters)
+    toolchain::query_world_dataset_metrics(source_root, app_id, scope, id, metric_ids, search, filters)
 }
 
 #[cfg(test)]

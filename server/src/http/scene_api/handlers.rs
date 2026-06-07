@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use mei_lang_toolchain as toolchain;
 use mei_lang_kernel::{
     compile_app, initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step,
 };
@@ -15,10 +16,7 @@ use super::types::{
     WorldAssetListQuery, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimePeekQuery,
     WorldRuntimePeekResponse, WorldScopeQuery,
 };
-use super::{
-    build_world_context_snapshot, query_resource_get, query_resource_list,
-    query_resource_runtime_peek,
-};
+use super::{query_resource_get, query_resource_list, query_resource_runtime_peek};
 
 fn map_world_bundle_error(err: AnyhowError) -> AppError {
     let msg = err.to_string();
@@ -40,7 +38,7 @@ pub async fn world_context_api(
 ) -> Result<Json<WorldContextSnapshot>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
     let scope = scope_query.to_scope();
-    let snapshot = build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
+    let snapshot = toolchain::build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
         .map_err(map_world_bundle_error)?;
     Ok(Json(snapshot))
 }

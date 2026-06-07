@@ -1499,6 +1499,15 @@ pub fn build_runtime_analysis_contracts(
     materialize::build_analysis_contracts(metric_defs, root_dataset_id)
 }
 
+pub fn build_runtime_eval_plan(
+    metric_defs: &BTreeMap<String, Value>,
+    metric_ids: Option<&[String]>,
+    datasets: &BTreeMap<String, crate::model::DatasetView>,
+    scope: &analysis::eval_context::RuntimeMetricEvalScope,
+) -> EvalPlan {
+    materialize::build_runtime_eval_plan(metric_defs, metric_ids, datasets, scope)
+}
+
 pub fn runtime_analysis_closure_metric_ids(
     graph: &crate::model::AnalysisGraph,
     focus_ids: &[String],

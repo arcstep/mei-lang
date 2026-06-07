@@ -1,8 +1,10 @@
 [workspace]
 members = [
   "app",
+  "crates/datasets",
   "crates/kernel",
   "crates/lsp",
+  "crates/toolchain",
   "server",
 ]
 resolver = "2"

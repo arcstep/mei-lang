@@ -26,9 +26,9 @@ pub(crate) use metric_cache_key::{
 pub(crate) use metric_dataframe::clear_metric_dataframe_result_cache;
 pub use metric_dataframe::query_metric_dataframe;
 pub(crate) use metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
-pub(crate) use metric_locate::{
-    locate_runtime_metric_resource, metric_ids_visible_for_dataset, plan_access_metric_eval_for_ids,
-};
+pub(crate) use metric_locate::plan_access_metric_eval_for_ids;
+#[cfg(test)]
+pub(crate) use metric_locate::metric_ids_visible_for_dataset;
 pub use query::query_dataset_rows;
 pub use types::{DatasetQueryOptions, TableColumnMeta, TableSummary};
 

@@ -19,7 +19,7 @@ pub use compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_with_options, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,
-    evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
+    build_runtime_eval_plan, evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
     evaluate_runtime_metric_defs_with_scope_and_dag,
     imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
     materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,

@@ -9,8 +9,8 @@ pub(super) use analysis_graph::{
     build_analysis_graph,
 };
 pub use eval_plan::{
-    EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope,
-    RuntimeMetricEvalReport,
+    build_runtime_eval_plan, EvalPlan, EvalPlanEdge, EvalPlanEdgeKind, EvalPlanNode,
+    EvalPlanNodeKind, EvalPlanScope, RuntimeMetricEvalReport,
 };
 pub(super) use legacy::materialize_legacy_datasets;
 pub(super) use metric_packs::materialize_metric_packs;

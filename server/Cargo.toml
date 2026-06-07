@@ -19,6 +19,7 @@ csv.workspace = true
 dotenvy = "0.15"
 mei-lang-app = { path = "../app" }
 mei-lang-kernel = { path = "../crates/kernel" }
+mei-lang-toolchain = { path = "../crates/toolchain" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }

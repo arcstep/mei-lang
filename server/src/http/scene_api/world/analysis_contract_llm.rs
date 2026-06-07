@@ -4,12 +4,17 @@
 //! tools should see the same derived contracts in a size-limited form instead of
 //! inventing parallel drilldown semantics.
 
+#[cfg(test)]
 use std::collections::BTreeMap;
 
+#[cfg(test)]
 use mei_lang_kernel::{resolve_runtime_metric_def_key, CompiledApp, DatasetView};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::Map;
 
 use super::json_shrink::json_serialized_len;
+#[cfg(test)]
 use crate::http::datasets::locate_runtime_metric_resource;
 use crate::http::scene_api::types::WorldRuntimeBundle;
 
@@ -18,6 +23,7 @@ const MAX_TABS: usize = 12;
 const MAX_BLOCK_KINDS: usize = 16;
 const MAX_CONTRACTS_IN_PREVIEW: usize = 48;
 
+#[cfg(test)]
 pub(crate) fn lookup_runtime_analysis_contract(
     dataset: &DatasetView,
     resource_id: &str,
@@ -116,6 +122,7 @@ pub(crate) fn summarize_analysis_contract_for_llm(contract: &Value) -> Value {
     })
 }
 
+#[cfg(test)]
 pub(crate) fn build_dataset_analysis_contracts_preview_for_access(
     compiled: &CompiledApp,
     primary_dataset: &DatasetView,
@@ -162,6 +169,7 @@ pub(crate) fn build_dataset_analysis_contracts_preview_for_access(
 }
 
 #[allow(dead_code)] // exercised by unit tests in this module
+#[cfg(test)]
 pub(crate) fn build_dataset_analysis_contracts_preview(
     dataset: &DatasetView,
     resource_id: &str,
@@ -191,6 +199,7 @@ pub(crate) fn build_dataset_analysis_contracts_preview(
     Value::Object(preview)
 }
 
+#[cfg(test)]
 pub(crate) fn contract_hint_when_empty(contracts: &BTreeMap<String, Value>) -> Option<String> {
     if contracts.is_empty() {
         Some("no_runtime_analysis_contracts_for_requested_metrics".to_string())
@@ -199,6 +208,7 @@ pub(crate) fn contract_hint_when_empty(contracts: &BTreeMap<String, Value>) -> O
     }
 }
 
+#[cfg(test)]
 pub(crate) fn contract_hint_when_preview_empty(preview: &Value) -> Option<String> {
     match preview.as_object() {
         Some(map) if map.is_empty() => {
@@ -208,6 +218,7 @@ pub(crate) fn contract_hint_when_preview_empty(preview: &Value) -> Option<String
     }
 }
 
+#[cfg(test)]
 pub(crate) fn contract_attachment_stats(
     contracts: &BTreeMap<String, Value>,
     requested_metric_count: usize,
@@ -241,6 +252,7 @@ pub(crate) fn contract_attachment_stats(
     stats
 }
 
+#[cfg(test)]
 pub(crate) fn contract_preview_stats(
     preview: &Value,
     visible_metric_count: usize,
@@ -279,6 +291,7 @@ pub(crate) fn contract_preview_stats(
     stats
 }
 
+#[cfg(test)]
 pub(crate) fn build_metric_analysis_contract_attachments(
     compiled: &CompiledApp,
     primary_dataset: &DatasetView,

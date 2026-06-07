@@ -2050,6 +2050,7 @@ dependencies = [
  "dotenvy",
  "mei-lang-app",
  "mei-lang-kernel",
+ "mei-lang-toolchain",
  "reqwest",
  "rusqlite",
  "serde",
@@ -2061,6 +2062,20 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "mei-lang-toolchain"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "csv",
+ "mei-lang-kernel",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

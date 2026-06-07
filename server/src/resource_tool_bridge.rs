@@ -2,13 +2,13 @@
 
 use std::path::Path;
 
+use mei_lang_toolchain as toolchain;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
 use crate::http::scene_api::{
-    query_resource_dataset, query_resource_dataset_metric, query_resource_get, query_resource_list,
-    query_resource_runtime_peek, WorldAssetListResponse, WorldScope,
+    query_resource_dataset, query_resource_dataset_metric, WorldAssetListResponse, WorldScope,
 };
 use crate::mei_agent::agent_scope_profile::{
     resource_world_tools_precheck, validate_dataset_world_scope_merge,
@@ -222,7 +222,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .and_then(Value::as_u64)
                     .map(|u| u as usize);
                 let mut response =
-                    match query_resource_list(source_root, app, scope_ref, kind, limit) {
+                    match toolchain::query_world_assets(source_root, app, scope_ref, kind, limit) {
                         Ok(r) => r,
                         Err(e) => return Self::json_result::<WorldAssetListResponse>(Err(e)),
                     };
@@ -252,7 +252,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                         scope.resource_visibility.as_slug()
                     );
                 }
-                Self::json_result(query_resource_get(source_root, app, scope_ref, id))
+                Self::json_result(toolchain::query_world_asset(source_root, app, scope_ref, id))
             }
             "resource_runtime_peek" => {
                 if let Err(e) = resource_world_tools_precheck(scope) {
@@ -262,7 +262,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .get("trace_limit")
                     .and_then(Value::as_u64)
                     .map(|u| u as usize);
-                Self::json_result(query_resource_runtime_peek(
+                Self::json_result(toolchain::query_world_runtime(
                     source_root,
                     app,
                     scope_ref,
