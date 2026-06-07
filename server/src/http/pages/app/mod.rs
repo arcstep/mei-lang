@@ -10,7 +10,7 @@ pub use page::app_page;
 pub(crate) type AppQuery = query::AppQuery;
 
 use axum::{extract::State, response::Redirect};
-use mei_lang_kernel::discover_apps;
+use mei_lang_kernel::{discover_apps, HostSurface};
 
 use crate::{AppError, AppState};
 
@@ -25,5 +25,12 @@ pub async fn index(State(state): State<AppState>) -> Result<Redirect, AppError> 
             state.source_root.display()
         ))
     })?;
-    Ok(Redirect::to(&format!("/apps/build/{}", first.id)))
+    let mode = match std::env::var("MEI_HOST_SURFACE")
+        .ok()
+        .map(|value| HostSurface::from_host_surface_flag(&value))
+    {
+        Some(HostSurface::AccessOnlyHost) => "access-only",
+        _ => "build",
+    };
+    Ok(Redirect::to(&format!("/apps/{mode}/{}", first.id)))
 }

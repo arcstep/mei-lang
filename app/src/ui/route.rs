@@ -9,7 +9,7 @@ pub enum UiRouteMode {
 impl UiRouteMode {
     pub fn from_slug(value: &str) -> Self {
         match value {
-            "app" | "access" | "run" => Self::App,
+            "app" | "access" | "run" | "access-only" | "access_only" => Self::App,
             "build" | "manage" => Self::Build,
             "config" => Self::Config,
             "upload" => Self::Upload,
@@ -49,5 +49,16 @@ impl UiRouteMode {
 
     pub fn uses_full_page_navigation(self) -> bool {
         matches!(self, Self::Config | Self::Upload)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UiRouteMode;
+
+    #[test]
+    fn access_only_slug_maps_to_app_mode() {
+        assert_eq!(UiRouteMode::from_slug("access-only"), UiRouteMode::App);
+        assert_eq!(UiRouteMode::from_slug("access_only"), UiRouteMode::App);
     }
 }

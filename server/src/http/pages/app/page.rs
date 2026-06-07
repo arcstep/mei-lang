@@ -17,7 +17,8 @@ use mei_lang_app::{
 };
 use mei_lang_kernel::{
     discover_apps, load_mei_config_for_app, read_source_file, resolve_app_entry_main,
-    resolve_default_scene_from_root, source_tree, CompileOptions, CompiledApp, Severity,
+    resolve_default_scene_from_root, source_tree, CompileOptions, CompiledApp, HostSurface,
+    Severity,
     WorkspaceAppMeta,
 };
 use serde::Serialize;
@@ -289,6 +290,13 @@ fn lightweight_access_scene(
         .or_else(|| resolve_default_scene_from_root(app_root).ok().flatten())
 }
 
+fn access_only_surface_enabled() -> bool {
+    std::env::var("MEI_HOST_SURFACE")
+        .ok()
+        .map(|value| HostSurface::from_host_surface_flag(&value))
+        .is_some_and(|surface| surface == HostSurface::AccessOnlyHost)
+}
+
 pub async fn app_page(
     State(state): State<AppState>,
     AxumPath((mode, app_id_raw)): AxumPath<(String, String)>,
@@ -331,6 +339,36 @@ pub async fn app_page(
         ));
     }
     let app_root = state.source_root.join(&app_id);
+    let access_only_surface = access_only_surface_enabled();
+    if access_only_surface && route_mode != UiRouteMode::App {
+        let desired_scene = url_path_scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|scene| !scene.is_empty())
+            .map(str::to_string)
+            .or_else(|| {
+                query
+                    .scene
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|scene| !scene.is_empty())
+                    .map(str::to_string)
+            })
+            .or_else(|| resolve_default_scene_from_root(&app_root).ok().flatten());
+        if let Some(scene_id) = desired_scene {
+            return Ok(Redirect::temporary(&access_canonical_location(
+                &app_id,
+                &scene_id,
+                query.tab.as_deref(),
+                Some("none"),
+            ))
+            .into_response());
+        }
+        return Err(AppError::status(
+            StatusCode::NOT_FOUND,
+            "access-only surface requires a resolvable scene entrypoint",
+        ));
+    }
     tracing::info!(
         app_id = %app_id,
         route_mode = route_mode.slug(),
@@ -422,7 +460,8 @@ pub async fn app_page(
     let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
     let discover_ms = elapsed_ms(discover_started);
     let app_title = app_title_for(&apps, &app_id);
-    let chrome_hidden = query
+    let chrome_hidden = access_only_surface
+        || query
         .chrome
         .as_deref()
         .map(|value| value.eq_ignore_ascii_case("none"))
