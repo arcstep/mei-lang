@@ -71,6 +71,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("local_only".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let vis = resolve_resource_visibility(&req, policy_access_ask());
         assert_eq!(vis, ResourceVisibility::LocalOnly);

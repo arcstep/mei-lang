@@ -3,6 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use mei_lang_kernel::{host_runtime_capabilities_catalog, host_runtime_contract_descriptor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -88,6 +89,12 @@ pub struct OpencodeContextPreviewQuery {
     pub route_mode: Option<String>,
     #[serde(default, alias = "resourceVisibility")]
     pub resource_visibility: Option<String>,
+    #[serde(default, alias = "browserContext")]
+    pub browser_context: Option<String>,
+    #[serde(default, alias = "hostProtocol")]
+    pub host_protocol: Option<String>,
+    #[serde(default, alias = "hostContractSchema")]
+    pub host_contract_schema: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +119,9 @@ pub struct OpencodeContextPreviewResponse {
     pub query_schema_version: String,
     #[serde(default)]
     pub query_tools: Vec<Value>,
+    #[serde(default)]
+    pub runtime_capabilities: Vec<String>,
+    pub host_contract: Value,
     pub resource_inventory: Value,
     #[serde(default)]
     pub preview_error: Option<String>,
@@ -124,6 +134,22 @@ pub struct OpencodeContextPreviewResponse {
     pub scope_boundary: ScopeBoundaryView,
     #[serde(default)]
     pub skill_status: Option<Value>,
+    #[serde(default)]
+    pub browser_context_echo: Option<Value>,
+    #[serde(default)]
+    pub host_protocol_echo: Option<Value>,
+    #[serde(default)]
+    pub host_contract_schema_echo: Option<String>,
+}
+
+fn parse_browser_context_query(raw: Option<&str>) -> Option<Value> {
+    let text = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    serde_json::from_str::<Value>(text).ok()
+}
+
+fn parse_host_protocol_query(raw: Option<&str>) -> Option<Value> {
+    let text = raw.map(str::trim).filter(|value| !value.is_empty())?;
+    serde_json::from_str::<Value>(text).ok()
 }
 
 pub async fn api_agent_context_preview(
@@ -145,6 +171,9 @@ pub async fn api_agent_context_preview(
         agent: None,
         model: None,
         resource_visibility: query.resource_visibility.clone(),
+        browser_context: parse_browser_context_query(query.browser_context.as_deref()),
+        host_protocol: parse_host_protocol_query(query.host_protocol.as_deref()),
+        host_contract_schema: query.host_contract_schema.clone(),
     };
     let policy = AgentModePolicy::from_request(&request);
     if let Err(error) = policy.validate() {
@@ -225,6 +254,10 @@ pub async fn api_agent_context_preview(
         .into_iter()
         .map(|item| serde_json::to_value(item).unwrap_or(Value::Null))
         .collect::<Vec<_>>();
+    let runtime_capabilities = host_runtime_capabilities_catalog()
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect::<Vec<_>>();
     let skill_status = None;
     let binding_scope = "scene".to_string();
     let edit_scope = "read_only".to_string();
@@ -241,6 +274,8 @@ pub async fn api_agent_context_preview(
         system_prompt: request.system.unwrap_or_default(),
         query_schema_version: RESOURCE_QUERY_SCHEMA_VERSION.to_string(),
         query_tools,
+        runtime_capabilities,
+        host_contract: host_runtime_contract_descriptor(),
         resource_inventory,
         preview_error: preview_error_owned,
         profile_summary,
@@ -248,6 +283,9 @@ pub async fn api_agent_context_preview(
         scope_digest,
         scope_boundary,
         skill_status,
+        browser_context_echo: request.browser_context.clone(),
+        host_protocol_echo: request.host_protocol.clone(),
+        host_contract_schema_echo: request.host_contract_schema.clone(),
     })
     .into_response()
 }
@@ -311,6 +349,13 @@ mod agent_http_tests {
         assert_eq!(b["binding_scope"], "scene");
         assert_eq!(b["resource_visibility"], "allow_direct_refs");
         assert_eq!(b["edit_scope"], "read_only");
+        assert_eq!(v["host_contract"]["protocol_schema"], "mei-host-runtime-protocol-v1");
+        assert!(
+            v["runtime_capabilities"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty()),
+            "runtime_capabilities should be non-empty"
+        );
         let inv = v.get("resource_inventory").and_then(|x| x.as_object());
         assert!(inv.is_some(), "resource_inventory object");
         let items = inv.unwrap().get("items").and_then(|x| x.as_array());
@@ -370,5 +415,91 @@ mod agent_http_tests {
             "preview_error should surface degraded snapshot reason"
         );
         assert!(v.get("resource_inventory").is_none() || v["resource_inventory"].is_null());
+    }
+
+    #[tokio::test]
+    async fn context_preview_accepts_app_route_mode_alias_as_access() {
+        let state = test_support::test_app_state().expect("app state");
+        let app = http::router().with_state(state);
+        let uri = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=app";
+        let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            v["profile_summary"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("route=access"),
+            "profile summary should normalize route_mode=app as access"
+        );
+    }
+
+    #[tokio::test]
+    async fn context_preview_scope_digest_changes_with_browser_context() {
+        let state = test_support::test_app_state().expect("app state");
+        let app = http::router().with_state(state);
+        let uri1 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&browser_context=%7B%22schema%22%3A%22access_browser_context_v1%22%2C%22active_query_state_ids%22%3A%5B%22q1%22%5D%7D";
+        let req1 = Request::builder().uri(uri1).body(Body::empty()).unwrap();
+        let response1 = app.clone().oneshot(req1).await.unwrap();
+        assert_eq!(response1.status(), StatusCode::OK);
+        let body1 = to_bytes(response1.into_body(), usize::MAX).await.unwrap();
+        let v1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+        let digest1 = v1["scope_digest"].as_str().unwrap_or_default().to_string();
+        assert!(!digest1.is_empty(), "scope_digest should not be empty");
+
+        let uri2 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&browser_context=%7B%22schema%22%3A%22access_browser_context_v1%22%2C%22active_query_state_ids%22%3A%5B%22q2%22%5D%7D";
+        let req2 = Request::builder().uri(uri2).body(Body::empty()).unwrap();
+        let response2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(response2.status(), StatusCode::OK);
+        let body2 = to_bytes(response2.into_body(), usize::MAX).await.unwrap();
+        let v2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        let digest2 = v2["scope_digest"].as_str().unwrap_or_default().to_string();
+        assert!(!digest2.is_empty(), "scope_digest should not be empty");
+        assert_ne!(
+            digest1, digest2,
+            "scope_digest should change when browser_context changes"
+        );
+        assert_eq!(
+            v2["browser_context_echo"]["active_query_state_ids"][0],
+            "q2"
+        );
+    }
+
+    #[tokio::test]
+    async fn context_preview_echoes_host_protocol_and_affects_scope_digest() {
+        let state = test_support::test_app_state().expect("app state");
+        let app = http::router().with_state(state);
+        let uri1 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&host_protocol=%7B%22schema%22%3A%22mei-host-runtime-protocol-v1%22%2C%22surface%22%3A%22access_host%22%2C%22route_mode%22%3A%22access%22%2C%22mode%22%3A%22ask%22%7D&host_contract_schema=mei-host-runtime-contract-v1";
+        let req1 = Request::builder().uri(uri1).body(Body::empty()).unwrap();
+        let response1 = app.clone().oneshot(req1).await.unwrap();
+        assert_eq!(response1.status(), StatusCode::OK);
+        let body1 = to_bytes(response1.into_body(), usize::MAX).await.unwrap();
+        let v1: serde_json::Value = serde_json::from_slice(&body1).unwrap();
+        let digest1 = v1["scope_digest"].as_str().unwrap_or_default().to_string();
+        assert!(!digest1.is_empty(), "scope_digest should not be empty");
+        assert_eq!(
+            v1["host_protocol_echo"]["schema"],
+            "mei-host-runtime-protocol-v1"
+        );
+        assert_eq!(
+            v1["host_contract_schema_echo"],
+            "mei-host-runtime-contract-v1"
+        );
+
+        let uri2 = "/api/agent/context/preview?app_id=examples%2Fds%2F01-dataset-baseline&scene_id=home&target_file=main.mei&mode=ask&route_mode=access&host_protocol=%7B%22schema%22%3A%22mei-host-runtime-protocol-v1%22%2C%22surface%22%3A%22authoring_host%22%2C%22route_mode%22%3A%22access%22%2C%22mode%22%3A%22ask%22%7D";
+        let req2 = Request::builder().uri(uri2).body(Body::empty()).unwrap();
+        let response2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(response2.status(), StatusCode::OK);
+        let body2 = to_bytes(response2.into_body(), usize::MAX).await.unwrap();
+        let v2: serde_json::Value = serde_json::from_slice(&body2).unwrap();
+        let digest2 = v2["scope_digest"].as_str().unwrap_or_default().to_string();
+        assert!(!digest2.is_empty(), "scope_digest should not be empty");
+        assert_ne!(
+            digest1, digest2,
+            "scope_digest should change when host_protocol changes"
+        );
+        assert_eq!(v2["host_protocol_echo"]["surface"], "authoring_host");
     }
 }

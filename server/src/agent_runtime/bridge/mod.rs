@@ -60,6 +60,9 @@ mod tests {
                 model_id: "qwen-max".to_string(),
             }),
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let body = prompt_body(req);
         assert_eq!(body["system"], json!("system prompt"));

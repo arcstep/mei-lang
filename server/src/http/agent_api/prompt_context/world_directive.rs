@@ -337,6 +337,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("local_only".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
         let resp = err.into_response();
@@ -357,6 +360,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
         let resp = err.into_response();
@@ -377,6 +383,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         apply_world_directive_to_prompt(&state, &mut request).expect("runtime directive");
         assert!(request.text.contains("[World Query Result]"));
@@ -397,6 +406,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         apply_world_directive_to_prompt(&state, &mut request).expect("assets directive");
         let marker = "[World Query Result]";
@@ -430,6 +442,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let err = apply_world_directive_to_prompt(&state, &mut request).unwrap_err();
         let resp = err.into_response();

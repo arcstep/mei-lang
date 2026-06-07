@@ -46,6 +46,8 @@ pub(crate) fn build_meilang_system_prompt(
             concat!(
                 "Tool-first information policy (ask mode):\n",
                 "- Ask mode is **world-first**: treat injected `[World — catalog]` / runtime summaries as the primary truth for business Q&A.\n",
+                "- Treat injected `[Browser — context]` (active query_state / tab / overlay hints) as request-time runtime truth for UI state; when it changes, recompute answer scope.\n",
+                "- Respect injected `[Host — protocol]` and `host_contract_schema` as runtime contract metadata; do not infer capabilities beyond that envelope.\n",
                 "- Do not guess resource ids, dataset fields, or `.mei` source you have not read.\n",
                 "- For dataset resources, use `dataset_query` for schema/rows and `dataset_metric` for aggregated asks (count/rate/trend/summary-card values); do not read spreadsheets with `read_file`.\n",
                 "- Use `read_file` only for small, scoped evidence paths allowed by the current resource visibility (usually under the active app folder).\n",
@@ -172,6 +174,9 @@ mod tests {
                 agent: None,
                 model: None,
                 resource_visibility: None,
+                browser_context: None,
+                host_protocol: None,
+                host_contract_schema: None,
             },
             Some("compact-session-ctx"),
         )

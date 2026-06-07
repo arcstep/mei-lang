@@ -1,4 +1,5 @@
 use std::fs;
+use std::hash::{Hash, Hasher};
 
 use crate::http::scene_api::WorldContextSnapshot;
 use crate::{agent_runtime::bridge::BridgePromptRequest, AppState, SessionContextSnapshot};
@@ -77,6 +78,9 @@ fn build_dynamic_mei_context(
             lines.push(format!("target: {target} (invalid relative path)"));
         }
     }
+    append_host_protocol_lines(&mut lines, request.host_protocol.as_ref());
+    append_host_contract_schema_line(&mut lines, request.host_contract_schema.as_deref());
+    append_browser_context_lines(&mut lines, request.browser_context.as_ref());
     if let Some(snapshot) = world_snapshot {
         append_world_context_snapshot_lines(&mut lines, snapshot);
     } else if let Some(message) = world_snapshot_error {
@@ -154,6 +158,113 @@ fn build_dynamic_mei_context(
     Some(lines.join("\n"))
 }
 
+fn append_browser_context_lines(lines: &mut Vec<String>, browser_context: Option<&serde_json::Value>) {
+    let Some(ctx) = browser_context.and_then(|value| value.as_object()) else {
+        return;
+    };
+    let view_tab = ctx
+        .get("view_tab")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let overlay_open = ctx
+        .get("overlay_open")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let active_ids = ctx
+        .get("active_query_state_ids")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    lines.push(String::new());
+    lines.push("[Browser — context]".to_string());
+    lines.push(format!(
+        "view_tab={} overlay_open={} query_states={}",
+        view_tab,
+        if overlay_open { "true" } else { "false" },
+        active_ids.len()
+    ));
+    let ids = active_ids
+        .iter()
+        .filter_map(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .take(8)
+        .collect::<Vec<_>>();
+    if !ids.is_empty() {
+        lines.push(format!("active_query_state_ids: {}", ids.join(", ")));
+    }
+}
+
+fn append_host_protocol_lines(lines: &mut Vec<String>, host_protocol: Option<&serde_json::Value>) {
+    let Some(host) = host_protocol.and_then(|value| value.as_object()) else {
+        return;
+    };
+    let schema = host
+        .get("schema")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let surface = host
+        .get("surface")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let route_mode = host
+        .get("route_mode")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    let mode = host
+        .get("mode")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    lines.push(String::new());
+    lines.push("[Host — protocol]".to_string());
+    lines.push(format!(
+        "schema={} surface={} route_mode={} mode={}",
+        schema, surface, route_mode, mode
+    ));
+}
+
+fn append_host_contract_schema_line(lines: &mut Vec<String>, schema: Option<&str>) {
+    let schema = schema
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("-");
+    lines.push(format!("host_contract_schema={schema}"));
+}
+
+fn browser_context_digest(request: &BridgePromptRequest) -> String {
+    let Some(value) = request.browser_context.as_ref() else {
+        return "na".to_string();
+    };
+    let Ok(raw) = serde_json::to_vec(value) else {
+        return "invalid".to_string();
+    };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    raw.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn host_protocol_digest(request: &BridgePromptRequest) -> String {
+    let Some(value) = request.host_protocol.as_ref() else {
+        return "na".to_string();
+    };
+    let Ok(raw) = serde_json::to_vec(value) else {
+        return "invalid".to_string();
+    };
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    raw.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 pub(crate) fn build_dynamic_session_context_preview(
     state: &AppState,
     request: &BridgePromptRequest,
@@ -172,10 +283,18 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let bundle = AgentScopeBundle::resolve(state, request)?;
     let rv = bundle.profile.resource_visibility.as_slug();
     let reach = bundle.reach_digest.clone();
+    let browser = browser_context_digest(request);
+    let host_protocol = host_protocol_digest(request);
+    let host_contract_schema = request
+        .host_contract_schema
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("na");
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v8|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|mei_revision={revision}"
+        "v=world-context-v11|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|browser={browser}|host_protocol={host_protocol}|host_contract_schema={host_contract_schema}|mei_revision={revision}"
     ))
 }
 
@@ -285,11 +404,14 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let signature = build_context_signature(&state, &request).expect("signature");
         assert!(signature.contains("scene=scene-a"));
         assert!(signature.contains("target=main.mei"));
-        assert!(signature.contains("v=world-context-v8"));
+        assert!(signature.contains("v=world-context-v11"));
 
         let mut changed = request.clone();
         changed.resource_visibility = Some("local_only".into());
@@ -315,6 +437,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(
@@ -339,6 +464,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(ctx.contains("[Ask mode — world-first]"));
@@ -362,6 +490,9 @@ mod tests {
             agent: None,
             model: None,
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let ctx = build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(ctx.contains("[Build mode — current target .mei snapshot]"));

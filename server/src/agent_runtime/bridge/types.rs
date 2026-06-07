@@ -41,6 +41,15 @@ pub(crate) struct BridgePromptRequest {
     /// 业务层「可读引用」范围：`local_only` | `allow_direct_refs` | `allow_scene_reachable`（大小写不敏感）。
     #[serde(default, alias = "resourceVisibility")]
     pub resource_visibility: Option<String>,
+    /// 浏览器访问态最小上下文（query_state / tab / overlay 等），由前端与 preview/send 共源注入。
+    #[serde(default, alias = "browserContext")]
+    pub browser_context: Option<Value>,
+    /// 宿主 runtime protocol 元数据（schema/surface/route/mode），用于 preview/send 协议对齐与回显。
+    #[serde(default, alias = "hostProtocol")]
+    pub host_protocol: Option<Value>,
+    /// 宿主 contract schema（用于跨 CLI/MCP/preview/send 的契约版本对齐）。
+    #[serde(default, alias = "hostContractSchema")]
+    pub host_contract_schema: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

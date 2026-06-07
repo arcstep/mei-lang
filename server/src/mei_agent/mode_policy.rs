@@ -38,7 +38,7 @@ pub(crate) struct AgentModePolicy {
 
 fn normalize_route_mode(value: Option<&str>) -> RouteMode {
     match value.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
-        Some("access") | Some("run") => RouteMode::Access,
+        Some("access") | Some("run") | Some("app") => RouteMode::Access,
         _ => RouteMode::Manage,
     }
 }
@@ -97,6 +97,9 @@ mod tests {
             agent: agent.map(str::to_string),
             model: None,
             resource_visibility: None,
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         }
     }
 
@@ -105,6 +108,13 @@ mod tests {
         let req = request(None, Some("access"), Some("plan"));
         let policy = AgentModePolicy::from_request(&req);
         assert_eq!(policy.mode, AgentMode::Ask);
+        assert_eq!(policy.route_mode, RouteMode::Access);
+    }
+
+    #[test]
+    fn app_route_alias_maps_to_access_mode() {
+        let req = request(Some("ask"), Some("app"), None);
+        let policy = AgentModePolicy::from_request(&req);
         assert_eq!(policy.route_mode, RouteMode::Access);
     }
 

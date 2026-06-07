@@ -308,6 +308,9 @@ mod resource_tool_bridge_tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let policy = AgentModePolicy::from_request(&request);
         let _ = policy.validate();
@@ -342,6 +345,9 @@ mod resource_tool_bridge_tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let policy = AgentModePolicy::from_request(&request);
         let _ = policy.validate();
@@ -376,6 +382,9 @@ mod resource_tool_bridge_tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let policy = AgentModePolicy::from_request(&request);
         let _ = policy.validate();
@@ -410,6 +419,9 @@ mod resource_tool_bridge_tests {
             agent: None,
             model: None,
             resource_visibility: Some("local_only".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let policy = AgentModePolicy::from_request(&request);
         let _ = policy.validate();
@@ -440,6 +452,9 @@ mod resource_tool_bridge_tests {
             agent: None,
             model: None,
             resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
         };
         let policy = AgentModePolicy::from_request(&request);
         let _ = policy.validate();
