@@ -14,7 +14,6 @@ mod util;
 pub use app::{app_page, index};
 pub use assets::{app_asset, app_bundle, workspace_app_asset};
 pub use components::component_asset;
-pub(crate) use components::resolve_components_root;
 pub use dataset_api::{dataset_query_api, dataset_recompute_api};
 pub use metric_api::dataset_metric_api;
 

@@ -598,7 +598,7 @@ pub async fn app_page(
         preview_target: normalized_preview_target.clone(),
     };
     let compile_outcome = if compile_bootstrap_enabled()
-        && !recent_compile_failure(&app_id, &compile_options)
+        && !recent_compile_failure(&state, &app_id, &compile_options)
     {
         let peek_started = Instant::now();
         match peek_compile_cache_hit(&state, &app_id, &compile_options, components_root.as_path()) {

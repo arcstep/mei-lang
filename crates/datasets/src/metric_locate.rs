@@ -1,5 +1,3 @@
-//! Resolve runtime metric defs across business datasets and `__world_metrics__`.
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{anyhow, Result};
@@ -10,7 +8,7 @@ use mei_lang_kernel::{
 
 const WORLD_METRICS_RESOURCE_ID: &str = "__world_metrics__";
 
-pub(crate) struct AccessMetricEvalPlan<'a> {
+pub struct AccessMetricEvalPlan<'a> {
     pub primary: &'a LoadedResource,
     pub primary_dataset: &'a DatasetView,
     pub owner: &'a LoadedResource,
@@ -31,7 +29,7 @@ fn try_resolve_metric_on_resource<'a>(
     Some((resource, resolved))
 }
 
-pub(crate) fn locate_runtime_metric_resource<'a>(
+pub fn locate_runtime_metric_resource<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
     metric_id: &str,
@@ -123,7 +121,7 @@ fn plan_access_metric_eval<'a>(
     })
 }
 
-pub(crate) fn plan_access_metric_eval_for_ids<'a>(
+pub fn plan_access_metric_eval_for_ids<'a>(
     compiled: &'a CompiledApp,
     dataset_selector: &str,
     metric_ids: &[String],
@@ -177,7 +175,7 @@ pub(crate) fn plan_access_metric_eval_for_ids<'a>(
     })
 }
 
-pub(crate) fn metric_ids_visible_for_dataset(
+pub fn metric_ids_visible_for_dataset(
     compiled: &CompiledApp,
     primary_dataset: &DatasetView,
     world_metrics_decl: Option<&BTreeMap<String, serde_json::Value>>,

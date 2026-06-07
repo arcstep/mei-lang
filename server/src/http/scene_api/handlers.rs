@@ -5,9 +5,6 @@ use axum::{
     Json,
 };
 use mei_lang_toolchain as toolchain;
-use mei_lang_kernel::{
-    compile_app, initial_runtime_state, project_runtime_view, render_runtime_html, runtime_step,
-};
 
 use crate::{AppError, AppState};
 
@@ -108,31 +105,17 @@ pub async fn sim_step_api(
     Json(request): Json<SimStepRequest>,
 ) -> Result<Json<SimStepResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let compiled = compile_app(&state.source_root, app_id).map_err(AppError::from)?;
-    let contract = compiled.scene_contract.ok_or_else(|| {
-        AppError::msg(format!(
-            "app `{}` does not provide a scene contract",
-            app_id
-        ))
-    })?;
-    let current_state = request
-        .state
-        .clone()
-        .unwrap_or_else(|| initial_runtime_state(&contract, 1));
-    let next_state = runtime_step(&contract, request.state, &request.intent);
-    let trace_delta = if next_state.trace_events.len() > current_state.trace_events.len() {
-        next_state.trace_events[current_state.trace_events.len()..].to_vec()
-    } else if request.intent.kind == "sync" {
-        next_state.trace_events.clone()
-    } else {
-        Vec::new()
-    };
-    let scene_view = project_runtime_view(&contract, &next_state);
-    let html = render_runtime_html(&scene_view, &next_state);
+    let result = toolchain::runtime_sim_step(
+        &state.source_root,
+        app_id,
+        request.state,
+        request.intent,
+    )
+    .map_err(AppError::from)?;
     Ok(Json(SimStepResponse {
-        state: next_state,
-        scene_view,
-        trace_delta,
-        html,
+        state: result.state,
+        scene_view: result.scene_view,
+        trace_delta: result.trace_delta,
+        html: result.html,
     }))
 }

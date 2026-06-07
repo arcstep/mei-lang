@@ -5,8 +5,8 @@ use std::time::Instant;
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    compile_app_with_options, decode_ref_value, initial_runtime_state, project_runtime_view,
-    CompiledApp, PanelDecl, RefKind, ResourceDecl, RuntimeState, UiNodeDecl,
+    decode_ref_value, initial_runtime_state, project_runtime_view, CompiledApp, PanelDecl,
+    RefKind, ResourceDecl, RuntimeState, UiNodeDecl,
 };
 use serde_json::{json, Value};
 
@@ -238,8 +238,11 @@ pub fn load_world_runtime_bundle(
     app_id: &str,
     scope: Option<&WorldScope>,
 ) -> Result<WorldRuntimeBundle> {
+    let components_root = crate::resolve_components_root(source_root);
     load_world_runtime_bundle_with(source_root, app_id, scope, |options| {
-        compile_app_with_options(source_root, app_id, options)
+        crate::compile_app_with_cache(source_root, app_id, options, components_root.as_path())
+            .map(|outcome| outcome.compiled)
+            .map_err(|failure| failure.error)
     })
 }
 

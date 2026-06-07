@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use mei_lang_kernel::{resolve_runtime_metric_def_key, CompiledApp, DatasetView};
 use serde_json::{json, Map, Value};
 
-use crate::datasets::{locate_runtime_metric_resource, metric_ids_visible_for_dataset};
+use mei_lang_datasets::{locate_runtime_metric_resource, metric_ids_visible_for_dataset};
 
 const MAX_NOTE_CHARS: usize = 240;
 const MAX_TABS: usize = 12;

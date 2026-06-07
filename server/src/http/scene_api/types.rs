@@ -18,15 +18,11 @@ pub struct SimStepResponse {
     pub html: String,
 }
 
-pub(crate) type WorldRuntimeBundle = toolchain::WorldRuntimeBundle;
 pub(crate) type WorldScope = toolchain::WorldScope;
 pub type ResourceQueryToolSpec = toolchain::ResourceQueryToolSpec;
 pub type ResourceInventoryItem = toolchain::ResourceInventoryItem;
 pub type ResourceInventorySnapshot = toolchain::ResourceInventorySnapshot;
-pub type WorldRuntimeSummary = toolchain::WorldRuntimeSummary;
-pub type WorldSnapshotSummary = toolchain::WorldSnapshotSummary;
 pub type WorldContextSnapshot = toolchain::WorldContextSnapshot;
-pub type WorldAssetListItem = toolchain::WorldAssetListItem;
 pub type WorldAssetListResponse = toolchain::WorldAssetListResponse;
 pub type WorldAssetGetResponse = toolchain::WorldAssetGetResponse;
 pub type WorldRuntimePeekResponse = toolchain::WorldRuntimePeekResponse;

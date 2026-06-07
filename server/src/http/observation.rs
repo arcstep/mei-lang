@@ -40,28 +40,6 @@ impl CompileObservation {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn for_world_bundle(
-        app_id: &str,
-        scene_id: &str,
-        target_file: Option<&str>,
-        load_world_bundle_ms: u64,
-    ) -> Self {
-        Self {
-            app_id: app_id.to_string(),
-            scene_id: scene_id.to_string(),
-            target_file: target_file
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(str::to_string),
-            compile_revision: None,
-            compile_ms: load_world_bundle_ms,
-            compile_cache_hit: 0,
-            compile_cache_lookup_ms: 0,
-            compile_cache_lock_wait_ms: 0,
-        }
-    }
-
     pub(crate) fn write_perf(&self, perf: &mut BTreeMap<String, u64>) {
         perf.insert("compile_ms".to_string(), self.compile_ms);
         perf.insert("compile_cache_hit".to_string(), self.compile_cache_hit);

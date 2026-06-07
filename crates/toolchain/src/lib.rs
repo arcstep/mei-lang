@@ -1,9 +1,11 @@
 mod access_query;
 mod analysis_contract;
 mod artifact_store;
-mod datasets;
+mod compile_report;
+mod compile_service;
 mod export;
 mod observation;
+mod runtime_sim;
 mod types;
 mod world;
 
@@ -14,11 +16,18 @@ pub use artifact_store::{
     toolchain_artifact_store_root, ArtifactStoreManifest, ArtifactStoreWriteResult,
     ArtifactWriteContext, TOOLCHAIN_ARTIFACT_STORE_VERSION,
 };
+pub use compile_service::{
+    clear_compile_cache_for_app, compile_app_with_cache, env_flag_enabled, is_compile_inflight,
+    peek_compile_cache, peek_compile_cache_hit, recent_compile_failure,
+    resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit,
+};
+pub use compile_report::{compile_report, CompileReport};
 pub use export::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot,
     export_runtime_trace, export_semantic_dag, HeadlessArtifactEnvelope,
     HeadlessArtifactKind, HeadlessExportOptions, HEADLESS_EXPORT_SCHEMA_VERSION,
 };
+pub use runtime_sim::{runtime_sim_step, RuntimeSimStepResult};
 pub use types::{
     ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorldAssetGetResponse,
     WorldAssetListItem, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimeBundle,

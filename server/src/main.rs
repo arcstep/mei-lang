@@ -20,8 +20,7 @@ use axum::{
 };
 use clap::{Args, Parser, Subcommand};
 use mei_lang_kernel::{
-    compile_app_with_options, compile_revision_plan_from_root_with_options, CompileOptions,
-    CompileWatchedFile, CompiledApp, Diagnostic, Severity,
+    CompileOptions, CompileWatchedFile, CompiledApp, Diagnostic, Severity,
 };
 use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
@@ -319,12 +318,14 @@ pub(crate) struct AppState {
     agent_auto_start: bool,
     agent_runtime: Arc<Mutex<agent_runtime::ManagedOpencodeRuntime>>,
     agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
+    #[allow(dead_code)] // compile state migrated to shared toolchain compile service; field kept for fixture compatibility.
     compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
     pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
     #[allow(dead_code)] // 测试夹具保留；页面渲染走 GisTilesConfig::resolve_for_app。
     pub(crate) gis_tiles: Arc<gis_config::GisTilesConfig>,
 }
 
+#[allow(dead_code)] // kept as compatibility shell while legacy fixtures still instantiate AppState with compile_cache.
 #[derive(Clone)]
 pub(crate) struct CachedCompiledApp {
     pub coarse_revision: u128,
@@ -497,10 +498,8 @@ fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
         anyhow::bail!("--app is required");
     }
     let options = compile_options_from_selector(&args.app);
-    let app_root = source_root.join(app_id);
-    let revision_plan =
-        compile_revision_plan_from_root_with_options(&source_root, &app_root, &options)?;
-    let compiled = compile_app_with_options(&source_root, app_id, options.clone())?;
+    let report = toolchain::compile_report(&source_root, app_id, options.clone())?;
+    let compiled = report.compiled;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": command,
@@ -519,9 +518,9 @@ fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
         "diagnostics": compiled.diagnostics,
         "scene_routes": compiled.scene_routes,
         "revision": {
-            "token": revision_plan.token,
-            "components_revision": revision_plan.components_revision,
-            "watched_files": watched_files_json(&revision_plan.watched_files),
+            "token": report.revision_token,
+            "components_revision": report.components_revision,
+            "watched_files": watched_files_json(&report.watched_files),
         }
     });
     print_json_output(&output, args.app.json)

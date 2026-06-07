@@ -14,7 +14,7 @@ use crate::analysis_contract::{
     build_metric_analysis_contract_attachments, contract_attachment_stats,
     contract_hint_when_empty, contract_hint_when_preview_empty, contract_preview_stats,
 };
-use crate::datasets::{
+use mei_lang_datasets::{
     hydrate_file_backed_datasets_for_metric_defs, metric_ids_visible_for_dataset,
     metric_request_revision_fingerprint, normalize_query_filters, normalize_query_search,
     plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,

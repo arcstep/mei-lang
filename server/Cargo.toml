@@ -18,6 +18,7 @@ clap.workspace = true
 csv.workspace = true
 dotenvy = "0.15"
 mei-lang-app = { path = "../app" }
+mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-lang-toolchain = { path = "../crates/toolchain" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }

@@ -2009,6 +2009,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mei-lang-datasets"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "csv",
+ "mei-lang-kernel",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tracing",
+]
+
+[[package]]
 name = "mei-lang-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2049,6 +2063,7 @@ dependencies = [
  "csv",
  "dotenvy",
  "mei-lang-app",
+ "mei-lang-datasets",
  "mei-lang-kernel",
  "mei-lang-toolchain",
  "reqwest",
@@ -2071,11 +2086,13 @@ dependencies = [
  "anyhow",
  "chrono",
  "csv",
+ "mei-lang-datasets",
  "mei-lang-kernel",
  "rusqlite",
  "serde",
  "serde_json",
  "tracing",
+ "walkdir",
 ]
 
 [[package]]
