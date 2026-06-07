@@ -1485,20 +1485,26 @@
       detail?.scene_id,
       resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
+    const explicitDatasetId = nonEmptyString(runtimeRefConfig.datasetId, config?.datasetId);
+    const detailDatasetId = nonEmptyString(detail?.dataset_id);
+    const safeDetailDatasetId = isWorldMetricsOwnerDatasetId(detailDatasetId) ? "" : detailDatasetId;
+    const mappedDatasetId = sceneId ? nonEmptyString(DRILLDOWN_DATASET_BY_SCENE[sceneId]) : "";
     const tableMetricId = nonEmptyString(config?.tableMetricId, detail?.table_metric_id);
     if (tableMetricId) {
       return nonEmptyString(
-        runtimeRefConfig.datasetId,
-        detail?.dataset_id,
-        config?.datasetId,
+        explicitDatasetId,
+        detail?.explain_detail_dataset,
+        mappedDatasetId,
+        safeDetailDatasetId,
+        detailDatasetId,
       );
     }
     return nonEmptyString(
       detail?.explain_detail_dataset,
-      runtimeRefConfig.datasetId,
-      config?.datasetId,
-      sceneId ? DRILLDOWN_DATASET_BY_SCENE[sceneId] : "",
-      detail?.dataset_id,
+      explicitDatasetId,
+      mappedDatasetId,
+      safeDetailDatasetId,
+      detailDatasetId,
     );
   }
 
@@ -1585,6 +1591,7 @@
       detail?.dataset_scene_id,
       detail?.scene_id !== boardSceneId ? detail?.scene_id : "",
       detail?.__mei_runtime_ref?.scene_id,
+      resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
     const ownerScenePath = resolveMetricOwnerScenePath(projectionSlots, detail);
     const projection = normalizeProjection(
@@ -1944,25 +1951,36 @@
     };
   }
 
-  function resolveAccessAppPath(pathname = window.location.pathname) {
+  function resolveAppPathByPrefixes(pathname, prefixes) {
     const raw = String(pathname || "");
-    const prefix = "/apps/access/";
-    if (!raw.startsWith(prefix)) return "";
-    const tail = raw.slice(prefix.length);
-    const marker = tail.indexOf("/scene/");
-    const app = marker >= 0 ? tail.slice(0, marker) : tail;
-    return String(app || "").trim();
+    if (!raw || !Array.isArray(prefixes)) return "";
+    for (const prefix of prefixes) {
+      const normalizedPrefix = String(prefix || "");
+      if (!normalizedPrefix || !raw.startsWith(normalizedPrefix)) continue;
+      const tail = raw.slice(normalizedPrefix.length);
+      const slash = tail.indexOf("/");
+      const app = slash >= 0 ? tail.slice(0, slash) : tail;
+      const trimmed = String(app || "").trim();
+      if (trimmed) return trimmed;
+    }
+    return "";
+  }
+
+  function resolveAccessAppPath(pathname = window.location.pathname) {
+    return resolveAppPathByPrefixes(pathname, ["/apps/access/"]);
   }
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
-    const accessApp = resolveAccessAppPath(pathname);
-    if (accessApp) return accessApp;
-    const raw = String(pathname || "");
-    const managePrefix = "/apps/manage/";
-    if (!raw.startsWith(managePrefix)) return "";
-    const tail = raw.slice(managePrefix.length);
-    const slash = tail.indexOf("/");
-    return String(slash >= 0 ? tail.slice(0, slash) : tail).trim();
+    return nonEmptyString(
+      resolveAccessAppPath(pathname),
+      resolveAppPathByPrefixes(pathname, [
+        "/apps/app/",
+        "/apps/upload/",
+        "/apps/config/",
+        "/apps/build/",
+        "/apps/manage/",
+      ]),
+    );
   }
 
   function resolvePopupDebugHost() {
@@ -2236,7 +2254,8 @@
       detail?.host_scene_file,
       detail?.scene_path,
     );
-    const datasetId = resolveDrilldownDatasetId(detail, config) || sceneId;
+    const datasetId = resolveDrilldownDatasetId(detail, config);
+    if (!datasetId) return null;
     const metricId = nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId);
     const runtimeRef = metricId
       ? {
@@ -2444,10 +2463,28 @@
     }
     const props = buildDrilldownTableProps(detail, config);
     if (!props) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: "未解析到下钻明细表所需 scene_id 或 dataset_id",
+        phase: "table_mount_setup",
+        detail,
+        config,
+        datasetId: resolveDrilldownDatasetId(detail, config),
+        metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+      });
       return false;
     }
     const registered = await ensureDrilldownTableRegistered();
     if (!registered) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: "未注册 mei-cockpit-data-table（可能是组件脚本加载失败）",
+        phase: "table_mount_register",
+        detail,
+        config,
+        datasetId: resolveDrilldownDatasetId(detail, config),
+        metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+      });
       return false;
     }
     host.replaceChildren();
