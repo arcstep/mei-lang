@@ -219,18 +219,17 @@ impl NativeAgent {
         let llm_ok = native_llm_env_ready();
         let (vcs_detected, vcs_branch) = self.vcs_summary_blocking();
         let wt = self.worktree_string();
-        let mut history_reason = if vcs_detected {
-            None
-        } else {
-            Some("native: message-level soft revert; git diff requires a worktree".to_string())
-        };
+        use crate::http::agent_api::AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT;
+
+        let mut history_reason =
+            Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
         if !llm_ok {
             history_reason = Some(
                 "内置助手缺少 LLM 环境变量：若设置了 OPENAI_IMITATORS，则每个前缀需 {PREFIX}_BASE_URL、{PREFIX}_API_KEY、{PREFIX}_COMPLETION_MODEL（逗号分隔多模型时首项为默认）；未设置时沿用 QWEN_* 或 MEI_LLM_OPENAI_*。可用 MEI_LLM_DEFAULT_PROVIDER 指定默认前缀。"
                     .to_string(),
             );
         }
-        let history_available = llm_ok && vcs_detected;
+        let history_available = false;
         BridgeHealthResponse {
             server_url: "mei://native-agent".to_string(),
             healthy: llm_ok,

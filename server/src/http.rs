@@ -1,6 +1,7 @@
 pub(crate) mod agent_api;
 pub mod auth_api;
 mod compile_cache;
+pub(crate) mod host_error_page;
 mod datasets;
 pub(crate) mod observation;
 pub mod ops_api;
@@ -11,10 +12,11 @@ pub mod scene_api;
 
 use axum::{
     http::StatusCode,
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Json, Redirect, Response},
     routing::{get, post},
     Router,
 };
+use serde_json::json;
 
 use crate::AppState;
 
@@ -145,10 +147,18 @@ pub fn router() -> Router<AppState> {
             get(pages::workspace_app_asset),
         )
         .route("/workspace-components/*path", get(pages::component_asset))
+        .fallback(host_error_page::fallback_handler)
 }
 
 pub(crate) fn error_response(error: impl std::fmt::Display) -> Response {
     let message = error.to_string();
     tracing::error!(status = %StatusCode::INTERNAL_SERVER_ERROR, error = %message, "request failed");
-    (StatusCode::INTERNAL_SERVER_ERROR, message).into_response()
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(json!({
+            "error": message,
+            "status": StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+        })),
+    )
+        .into_response()
 }

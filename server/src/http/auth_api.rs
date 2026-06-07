@@ -12,6 +12,7 @@ use crate::{
         clear_cookie_header_value, cookie_header_value, hash_password, load_auth_runtime,
         update_workspace_user_password, AuthEnforcement, AuthPrincipal,
     },
+    http::host_error_page,
     AppState,
 };
 
@@ -105,9 +106,9 @@ fn html_escape(value: &str) -> String {
 fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> String {
     let next_escaped = html_escape(next);
     let setup_notice = if !auth_ready {
-        r#"<p class="setup">当前宿主未启用登录要求（调试模式）。</p>"#
+        r#"<p class="mei-host-shell__setup">当前宿主未启用登录要求（调试模式）。</p>"#
     } else if !auth_configured {
-        r#"<p class="setup">认证尚未配置用户。请在工作区根目录 <code>.mei-workspace.json</code> 的 <code>auth.users[]</code> 中写入 <code>passwordHash</code>（禁止明文密码），并执行 <code>mei host auth ensure-keys</code> + <code>mei host auth bootstrap-users</code>（或 <code>add-user --password-stdin</code>）。</p>"#
+        r#"<p class="mei-host-shell__setup">认证尚未配置用户。请在工作区根目录 <code>.mei-workspace.json</code> 的 <code>auth.users[]</code> 中写入 <code>passwordHash</code>（禁止明文密码），并执行 <code>mei host auth ensure-keys</code> + <code>mei host auth bootstrap-users</code>（或 <code>add-user --password-stdin</code>）。</p>"#
     } else {
         ""
     };
@@ -116,67 +117,10 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
     } else {
         " disabled"
     };
-    format!(
-        r#"<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>登录 - MeiLang</title>
-    <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml" />
-    <style>
-      body {{
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: #0b1220;
-        color: #e2e8f0;
-        font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-      }}
-      .card {{
-        width: min(92vw, 420px);
-        padding: 24px;
-        border-radius: 14px;
-        background: #111a2c;
-        border: 1px solid #22304a;
-      }}
-      h1 {{ margin: 0 0 14px; font-size: 20px; }}
-      p {{ margin: 0 0 14px; color: #94a3b8; font-size: 13px; line-height: 1.5; }}
-      label {{ display: block; margin: 10px 0 6px; font-size: 13px; color: #cbd5e1; }}
-      input {{
-        width: 100%;
-        box-sizing: border-box;
-        border-radius: 8px;
-        border: 1px solid #334155;
-        background: #0f172a;
-        color: #e2e8f0;
-        padding: 10px;
-        font-size: 14px;
-      }}
-      button {{
-        margin-top: 14px;
-        width: 100%;
-        border: none;
-        border-radius: 8px;
-        background: #0ea5e9;
-        color: #041320;
-        font-size: 14px;
-        font-weight: 600;
-        padding: 10px;
-        cursor: pointer;
-      }}
-      #error {{ min-height: 20px; color: #fda4af; margin-top: 10px; font-size: 12px; }}
-      .setup {{ color: #fbbf24; font-size: 12px; line-height: 1.6; margin-bottom: 12px; }}
-      .setup code {{ color: #fde68a; }}
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <h1>MeiLang 登录</h1>
-      <p>密码字段会使用宿主公钥加密后再提交。</p>
+    let card_inner = format!(
+        r#"<p class="mei-host-shell__message">密码字段会使用宿主公钥加密后再提交。</p>
       {setup_notice}
-      <form id="login-form">
+      <form class="mei-host-shell__form" id="login-form">
         <label for="username">用户名</label>
         <input id="username" name="username" autocomplete="username" required />
         <label for="password">密码</label>
@@ -184,8 +128,7 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
         <input id="next" type="hidden" value="{next_escaped}" />
         <button type="submit"{form_disabled}>登录</button>
       </form>
-      <div id="error"></div>
-    </main>
+      <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
     <script>
       const errorBox = document.getElementById('error');
       function clearError() {{ errorBox.textContent = ''; }}
@@ -250,40 +193,17 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
           setError(error && error.message ? error.message : '登录失败');
         }}
       }});
-    </script>
-  </body>
-</html>"#
-    )
+    </script>"#
+    );
+    host_error_page::render_auth_card_page("登录 - MeiLang", "MeiLang 登录", card_inner.as_str())
 }
 
 fn change_password_page_html(username: &str, role: &str) -> String {
     let user = html_escape(username);
     let role = html_escape(role);
-    format!(
-        r#"<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>修改密码 - MeiLang</title>
-    <style>
-      body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: #0b1220; color: #e2e8f0; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
-      .card {{ width: min(92vw, 460px); padding: 24px; border-radius: 14px; background: #111a2c; border: 1px solid #22304a; }}
-      h1 {{ margin: 0 0 6px; font-size: 20px; }}
-      .meta {{ color: #94a3b8; margin-bottom: 14px; font-size: 12px; }}
-      label {{ display: block; margin: 10px 0 6px; font-size: 13px; color: #cbd5e1; }}
-      input {{ width: 100%; box-sizing: border-box; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; padding: 10px; font-size: 14px; }}
-      button {{ margin-top: 14px; width: 100%; border: none; border-radius: 8px; background: #22c55e; color: #052312; font-size: 14px; font-weight: 600; padding: 10px; cursor: pointer; }}
-      #error {{ min-height: 20px; color: #fda4af; margin-top: 10px; font-size: 12px; }}
-      #ok {{ min-height: 20px; color: #86efac; margin-top: 8px; font-size: 12px; }}
-      .back {{ display: inline-block; margin-top: 12px; color: #7dd3fc; font-size: 12px; }}
-    </style>
-  </head>
-  <body>
-    <main class="card">
-      <h1>修改密码</h1>
-      <div class="meta">当前账户：{user}（{role}）</div>
-      <form id="change-password-form">
+    let card_inner = format!(
+        r#"<div class="mei-host-shell__meta">当前账户：{user}（{role}）</div>
+      <form class="mei-host-shell__form" id="change-password-form">
         <label for="current-password">当前密码</label>
         <input id="current-password" type="password" autocomplete="current-password" required />
         <label for="new-password">新密码</label>
@@ -292,10 +212,9 @@ fn change_password_page_html(username: &str, role: &str) -> String {
         <input id="confirm-password" type="password" autocomplete="new-password" required />
         <button type="submit">确认修改</button>
       </form>
-      <div id="error"></div>
-      <div id="ok"></div>
-      <a class="back" href="/">返回应用</a>
-    </main>
+      <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
+      <div id="ok" class="mei-host-shell__feedback mei-host-shell__feedback--ok"></div>
+      <a class="mei-host-shell__link" href="/">返回首页</a>
     <script>
       const errorBox = document.getElementById('error');
       const okBox = document.getElementById('ok');
@@ -370,10 +289,9 @@ fn change_password_page_html(username: &str, role: &str) -> String {
           setError(error && error.message ? error.message : '修改失败');
         }}
       }});
-    </script>
-  </body>
-</html>"#
-    )
+    </script>"#
+    );
+    host_error_page::render_auth_card_page("修改密码 - MeiLang", "修改密码", card_inner.as_str())
 }
 
 pub async fn login_page(

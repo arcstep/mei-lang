@@ -28,7 +28,7 @@ impl UiRouteMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::App => "应用",
+            Self::App => "访问",
             Self::Build => "构建",
             Self::Config => "配置",
             Self::Upload => "上传",

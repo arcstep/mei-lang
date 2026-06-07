@@ -25,7 +25,11 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs;
 
-use crate::{auth::{AuthEnforcement, AuthPrincipal}, AppError, AppState};
+use crate::{
+    auth::{AuthEnforcement, AuthPrincipal},
+    http::host_error_page::{self, HostShellAction},
+    AppError, AppState,
+};
 
 use super::super::super::compile_cache::{
     compile_app_with_cache, peek_compile_cache_hit, recent_compile_failure,
@@ -59,6 +63,7 @@ fn account_view_for_principal(principal: Option<&AuthPrincipal>) -> Option<HostA
         username: principal.username.clone(),
         profile: principal.profile.clone(),
         role: principal.role_slug().to_string(),
+        capabilities: principal.capabilities(),
     })
 }
 
@@ -342,9 +347,17 @@ pub async fn app_page(
         Err(()) => {
             return Ok((
                 StatusCode::NOT_FOUND,
-                Html(
-                    "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景路径无效</title></head><body><p>地址中的 <code>/scene/&lt;id&gt;</code> 无效。</p></body></html>".to_string(),
-                ),
+                Html(host_error_page::render_error_page(
+                    StatusCode::NOT_FOUND,
+                    "场景路径无效",
+                    "地址中的 /scene/<id> 格式无效，请检查链接是否正确。",
+                    Some("/apps/app/.../scene/<id>"),
+                    &[HostShellAction {
+                        href: "/".to_string(),
+                        label: "返回首页".to_string(),
+                        primary: true,
+                    }],
+                )),
             )
                 .into_response());
         }
@@ -362,6 +375,16 @@ pub async fn app_page(
     }
     let app_root = state.source_root.join(&app_id);
     let access_only_surface = access_only_surface_enabled();
+    if auth_enabled {
+        if let Some(ref auth_principal) = principal {
+            if !auth_principal.can_access_host_route_mode(route_mode.slug()) {
+                return Ok(host_error_page::forbidden_html_response(&format!(
+                    "当前角色无法访问「{}」视图",
+                    route_mode.label()
+                )));
+            }
+        }
+    }
     if access_only_surface && route_mode != UiRouteMode::App {
         let desired_scene = url_path_scene
             .as_deref()
@@ -479,7 +502,12 @@ pub async fn app_page(
         }
     }
     let discover_started = Instant::now();
-    let apps = discover_apps(&state.source_root).map_err(AppError::from)?;
+    let mut apps = discover_apps(&state.source_root).map_err(AppError::from)?;
+    if auth_enabled {
+        if let Some(ref auth_principal) = principal {
+            apps.retain(|app| auth_principal.can_access_app(app.id.as_str()));
+        }
+    }
     let discover_ms = elapsed_ms(discover_started);
     let app_title = app_title_for(&apps, &app_id);
     let chrome_hidden = access_only_surface
@@ -859,12 +887,26 @@ pub async fn app_page(
             if !route.access_export {
                 let app_esc = html_escape_min(app_id.trim_start_matches('/'));
                 let scene_esc = html_escape_min(rt);
+                let detail = format!("app={app_esc} scene={scene_esc}");
                 return Ok((
                     StatusCode::FORBIDDEN,
-                    Html(format!(
-                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景未导出</title></head><body>\
-                         <p>场景 <code>{scene_esc}</code> 在应用 <code>{app_esc}</code> 中未开启 Access 导出（access_export=false）。</p>\
-                         <p><a href=\"/apps/build/{app_esc}\">返回构建视图</a></p></body></html>",
+                    Html(host_error_page::render_error_page(
+                        StatusCode::FORBIDDEN,
+                        "场景未导出",
+                        "该场景未开启访问侧导出（access_export=false）。",
+                        Some(detail.as_str()),
+                        &[
+                            HostShellAction {
+                                href: format!("/apps/build/{app_esc}"),
+                                label: "返回构建视图".to_string(),
+                                primary: true,
+                            },
+                            HostShellAction {
+                                href: "/".to_string(),
+                                label: "返回首页".to_string(),
+                                primary: false,
+                            },
+                        ],
                     )),
                 )
                     .into_response());
@@ -874,12 +916,19 @@ pub async fn app_page(
             let app_esc = html_escape_min(app_id.trim_start_matches('/'));
             let scene_esc = html_escape_min(rt);
             let manage_href_app = app_id.trim_start_matches('/');
+            let detail = format!("app={app_esc} scene={scene_esc}");
             return Ok((
                 StatusCode::NOT_FOUND,
-                Html(format!(
-                    "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>场景不存在</title></head><body>\
-                     <p>应用 <code>{app_esc}</code> 中不存在场景 <code>{scene_esc}</code>（或无法绑定到当前编译结果）。</p>\
-                     <p><a href=\"/apps/build/{manage_href_app}\">返回构建视图</a></p></body></html>",
+                Html(host_error_page::render_error_page(
+                    StatusCode::NOT_FOUND,
+                    "场景不存在",
+                    "该场景不存在，或无法绑定到当前编译结果。",
+                    Some(detail.as_str()),
+                    &[HostShellAction {
+                        href: format!("/apps/build/{manage_href_app}"),
+                        label: "返回构建视图".to_string(),
+                        primary: true,
+                    }],
                 )),
             )
                 .into_response());
@@ -888,12 +937,26 @@ pub async fn app_page(
             if !principal.can_access_scene(&app_id, rt) {
                 let app_esc = html_escape_min(app_id.trim_start_matches('/'));
                 let scene_esc = html_escape_min(rt);
+                let detail = format!("app={app_esc} scene={scene_esc}");
                 return Ok((
                     StatusCode::FORBIDDEN,
-                    Html(format!(
-                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>访问受限</title></head><body>\
-                         <p>当前账号未被授权访问应用 <code>{app_esc}</code> 的场景 <code>{scene_esc}</code>。</p>\
-                         <p><a href=\"/login\">重新登录</a></p></body></html>",
+                    Html(host_error_page::render_error_page(
+                        StatusCode::FORBIDDEN,
+                        "访问受限",
+                        "当前账号未被授权访问此应用场景。",
+                        Some(detail.as_str()),
+                        &[
+                            HostShellAction {
+                                href: "/login".to_string(),
+                                label: "重新登录".to_string(),
+                                primary: true,
+                            },
+                            HostShellAction {
+                                href: "/".to_string(),
+                                label: "返回首页".to_string(),
+                                primary: false,
+                            },
+                        ],
                     )),
                 )
                     .into_response());

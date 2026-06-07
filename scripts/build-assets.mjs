@@ -98,6 +98,12 @@ async function bundleShoelace() {
   return outputPath;
 }
 
+function stripJsSourceMapReference(js) {
+  return String(js || "")
+    .replace(/\/\/# sourceMappingURL=.*\r?\n?$/u, "")
+    .replace(/\/\*# sourceMappingURL=.*?\*\/\s*$/u, "");
+}
+
 async function copyRuntimeVendorAssets() {
   const echartsSrc = path.join(root, "node_modules", "echarts", "dist", "echarts.min.js");
   const maplibreJsSrc = path.join(root, "node_modules", "maplibre-gl", "dist", "maplibre-gl.js");
@@ -107,7 +113,8 @@ async function copyRuntimeVendorAssets() {
   await mkdir(echartsDstDir, { recursive: true });
   await mkdir(maplibreDstDir, { recursive: true });
   await copyFile(echartsSrc, path.join(echartsDstDir, "echarts.min.js"));
-  await copyFile(maplibreJsSrc, path.join(maplibreDstDir, "maplibre-gl.js"));
+  const maplibreJs = stripJsSourceMapReference(await readFile(maplibreJsSrc, "utf8"));
+  await writeFile(path.join(maplibreDstDir, "maplibre-gl.js"), maplibreJs, "utf8");
   await copyFile(maplibreCssSrc, path.join(maplibreDstDir, "maplibre-gl.css"));
 }
 

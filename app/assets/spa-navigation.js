@@ -4043,11 +4043,34 @@
       console.error("[spa-navigation] navigation failed", error);
       if (error && error.name === "AbortError") {
         console.warn("[spa-navigation] fetch timeout", url);
+        if (window.MeiHostHttpFeedback && typeof window.MeiHostHttpFeedback.notify === "function") {
+          window.MeiHostHttpFeedback.notify({
+            status: 504,
+            url: url,
+            title: "页面加载超时",
+            message: "SPA 导航等待宿主响应超时，请稍后重试或刷新页面。",
+          });
+        }
         return;
       }
       if (error && error.meiSpaHardNav) {
         window.location.assign(url);
         return;
+      }
+      const statusMatch =
+        error && error.message && String(error.message).match(/navigation failed:\s*(\d{3})/);
+      const status = statusMatch ? Number(statusMatch[1]) : 500;
+      if (window.MeiHostHttpFeedback && typeof window.MeiHostHttpFeedback.notify === "function") {
+        window.MeiHostHttpFeedback.notify({
+          status: status,
+          url: url,
+          title: status === 404 ? "页面不存在" : "页面加载失败",
+          message:
+            (error && error.message ? String(error.message) : "导航失败") +
+            "。可尝试刷新或联系管理员。",
+        });
+      } else {
+        window.location.assign(url);
       }
     } finally {
       spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);

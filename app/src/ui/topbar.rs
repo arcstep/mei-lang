@@ -9,7 +9,7 @@ use super::route::UiRouteMode;
 use super::view_routing::{
     app_scene_href, build_href, config_href, cross_app_href, upload_href,
 };
-use super::{HostAccountView, TopbarMenuConfig, TopbarMenuContext};
+use super::{HostAccountView, HostCapabilities, TopbarMenuConfig, TopbarMenuContext};
 #[derive(Debug, Clone)]
 struct TopbarMenuItem {
     app_id: String,
@@ -270,6 +270,20 @@ pub(super) fn access_scene_for_topbar<'a>(
     )
 }
 
+fn auth_surface_tabs_visible(
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
+) -> (bool, bool, bool) {
+    let caps = if auth_enabled {
+        auth_account
+            .map(|account| account.capabilities)
+            .unwrap_or_else(|| HostCapabilities::from_role_slug("guest"))
+    } else {
+        HostCapabilities::auth_disabled()
+    };
+    (caps.config_upload, caps.config_upload, caps.build_view)
+}
+
 fn append_scene_query(base: String, scene_id: Option<&str>) -> String {
     let Some(scene_id) = scene_id.map(str::trim).filter(|value| !value.is_empty()) else {
         return base;
@@ -418,6 +432,8 @@ pub(super) fn topbar_view(
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
     let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
     let presentation_href = app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
+    let (show_config_tab, show_upload_tab, show_build_tab) =
+        auth_surface_tabs_visible(auth_enabled, auth_account);
     let mode_tabs = view! {
         <div class="mode-tabs inline-flex items-center">
             <sl-button-group class="mode-tab-group" label="视图切换" data-mei-view-tabs="1">
@@ -426,13 +442,13 @@ pub(super) fn topbar_view(
                     size="small"
                     href=app_href.clone()
                     disabled=access_disabled
-                    title=if access_disabled { "当前没有可发布的 scene route" } else { "应用" }
-                    aria-label="应用"
+                    title=if access_disabled { "当前没有可发布的 scene route" } else { "访问" }
+                    aria-label="访问"
                     data-mei-view="app"
                 >
-                    <span class="mode-label">"应用"</span>
+                    <span class="mode-label">"访问"</span>
                 </sl-button>
-                {if upload_enabled {
+                {if upload_enabled && show_upload_tab {
                     view! {
                         <sl-button
                             class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
@@ -448,26 +464,38 @@ pub(super) fn topbar_view(
                 } else {
                     view! { <></> }.into_any()
                 }}
-                <sl-button
-                    class=if route_mode == UiRouteMode::Config { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                    size="small"
-                    href=config_href.clone()
-                    title="配置"
-                    aria-label="配置"
-                    data-mei-view="config"
-                >
-                    <span class="mode-label">"配置"</span>
-                </sl-button>
-                <sl-button
-                    class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
-                    size="small"
-                    href=build_href.clone()
-                    title="构建"
-                    aria-label="构建"
-                    data-mei-view="build"
-                >
-                    <span class="mode-label">"构建"</span>
-                </sl-button>
+                {if show_config_tab {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Config { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=config_href.clone()
+                            title="配置"
+                            aria-label="配置"
+                            data-mei-view="config"
+                        >
+                            <span class="mode-label">"配置"</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
+                {if show_build_tab {
+                    view! {
+                        <sl-button
+                            class=if route_mode == UiRouteMode::Build { "mode-tab-btn is-active" } else { "mode-tab-btn" }
+                            size="small"
+                            href=build_href.clone()
+                            title="构建"
+                            aria-label="构建"
+                            data-mei-view="build"
+                        >
+                            <span class="mode-label">"构建"</span>
+                        </sl-button>
+                    }.into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
             </sl-button-group>
         </div>
     };

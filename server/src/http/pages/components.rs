@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use axum::{
+    body::Body,
     extract::{Path as AxumPath, State},
+    http::StatusCode,
     response::Response,
 };
 
@@ -59,19 +61,33 @@ fn resolve_component_asset_path(components_root: &Path, request_path: &str) -> s
     requested
 }
 
+fn is_missing_optional_source_map(request_path: &str, asset_path: &Path) -> bool {
+    request_path.ends_with(".js.map") && !asset_path.exists()
+}
+
 pub async fn component_asset(
     State(state): State<AppState>,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
     let components_root = resolve_components_root(&state.source_root);
-    serve_static_asset(resolve_component_asset_path(&components_root, &path), "component asset")
+    let asset_path = resolve_component_asset_path(&components_root, &path);
+    if is_missing_optional_source_map(path.as_str(), asset_path.as_path()) {
+        // vendor 包常带 sourceMappingURL 但未随仓分发 .map；浏览器探测失败不应记 404 错误。
+        return Ok(Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .body(Body::empty())
+            .expect("empty source-map probe response"));
+    }
+    serve_static_asset(asset_path, "component asset")
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::{maplibre_glyph_fallback_asset_path, parse_glyph_range};
+    use super::{
+        is_missing_optional_source_map, maplibre_glyph_fallback_asset_path, parse_glyph_range,
+    };
 
     #[test]
     fn glyph_range_parser_accepts_positive_closed_ranges() {
@@ -79,6 +95,19 @@ mod tests {
         assert_eq!(parse_glyph_range("8192-8447"), Some((8192, 8447)));
         assert_eq!(parse_glyph_range("10-9"), None);
         assert_eq!(parse_glyph_range("oops"), None);
+    }
+
+    #[test]
+    fn missing_js_map_is_treated_as_optional_probe() {
+        let path = Path::new("/tmp/_components/vendor/maplibre/maplibre-gl.js.map");
+        assert!(is_missing_optional_source_map(
+            "vendor/maplibre/maplibre-gl.js.map",
+            path
+        ));
+        assert!(!is_missing_optional_source_map(
+            "vendor/maplibre/maplibre-gl.js",
+            path
+        ));
     }
 
     #[test]

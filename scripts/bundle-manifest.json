@@ -1,5 +1,6 @@
 {
   "manageScripts": [
+    "host-http-feedback.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -26,6 +27,7 @@
     "source-highlight.js"
   ],
   "accessScripts": [
+    "host-http-feedback.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -53,9 +55,11 @@
     "spa-navigation.js"
   ],
   "configScripts": [
+    "host-http-feedback.js",
     "manage-ops-panel.js"
   ],
   "uploadScripts": [
+    "host-http-feedback.js",
     "upload-upload-panel.js"
   ],
   "styles": [

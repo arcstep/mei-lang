@@ -343,20 +343,36 @@
       };
     }
 
+    function isAuthoringWritebackRetired(status, detail) {
+      return (
+        Number(status) === 410 &&
+        String(detail || "").indexOf("authoring_writeback_retired") >= 0
+      );
+    }
+
     async function fetchSessionDiff(messageId) {
-      if (!state.sessionId) return null;
+      if (!state.sessionId || !RT.panelAuthoringEnabled()) return null;
       const params = new URLSearchParams();
       const mid = String(messageId || "").trim();
       if (mid) params.set("message_id", mid);
       const pathKey = sourceTargetKey();
       if (pathKey) params.set("path", pathKey);
       const qs = params.toString();
-      return $U.fetchJson(
+      const url =
         "/api/agent/session/" +
-          encodeURIComponent(state.sessionId) +
-          "/diff" +
-          (qs ? "?" + qs : ""),
-      );
+        encodeURIComponent(state.sessionId) +
+        "/diff" +
+        (qs ? "?" + qs : "");
+      const response = await fetch(url);
+      if (!response.ok) {
+        let detail = "";
+        try {
+          detail = (await response.text()).trim();
+        } catch (_) {}
+        if (isAuthoringWritebackRetired(response.status, detail)) return null;
+        throw new Error(detail || url + " -> " + response.status);
+      }
+      return response.json();
     }
 
     /** 与 `GET .../diff` 语义一致：占位快照或空 diff 不算「有改动」，避免误触发整页 reload。 */

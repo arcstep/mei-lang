@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod agent_panel;
+mod capabilities;
 mod compile_status;
 mod manage_routing;
 mod preview;
@@ -19,6 +20,7 @@ mod statusbar;
 mod topbar;
 mod view_routing;
 
+pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_upload::UploadFileEntry;
 
@@ -35,7 +37,7 @@ pub struct SourcePanelMeta {
     pub last_modified_label: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostAccountView {
     #[serde(default)]
     pub logged_in: bool,
@@ -45,6 +47,20 @@ pub struct HostAccountView {
     pub profile: String,
     #[serde(default)]
     pub role: String,
+    #[serde(default)]
+    pub capabilities: HostCapabilities,
+}
+
+impl Default for HostAccountView {
+    fn default() -> Self {
+        Self {
+            logged_in: false,
+            username: String::new(),
+            profile: String::new(),
+            role: String::new(),
+            capabilities: HostCapabilities::auth_disabled(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -126,6 +142,13 @@ fn render_document(
     } else {
         "0"
     };
+    let auth_capabilities_meta = if auth_enabled {
+        auth_account
+            .map(|view| serde_json::to_string(&view.capabilities).unwrap_or_default())
+            .unwrap_or_default()
+    } else {
+        serde_json::to_string(&HostCapabilities::auth_disabled()).unwrap_or_default()
+    };
 
     let manage_timing_meta = match route_mode {
         UiRouteMode::Build => view! {
@@ -147,9 +170,11 @@ fn render_document(
                 <meta name="mei-auth-user" content=auth_user_meta/>
                 <meta name="mei-auth-role" content=auth_role_meta/>
                 <meta name="mei-auth-logged-in" content=auth_logged_in_meta/>
+                <meta name="mei-auth-capabilities" content=auth_capabilities_meta.clone()/>
                 <title>{format!("{app_title} - MeiLang")}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>
+                <script defer src="/app-assets/host-http-feedback.js"></script>
                 <script
                     type="module"
                     src="/app-bundles/shoelace.js"
@@ -164,6 +189,7 @@ fn render_document(
                 data-mei-auth-user=auth_user_meta
                 data-mei-auth-role=auth_role_meta
                 data-mei-auth-logged-in=auth_logged_in_meta
+                data-mei-auth-capabilities=auth_capabilities_meta
             >
                 {shell}
                 {component_scripts_view}

@@ -26,6 +26,15 @@ use crate::{
     AppState,
 };
 
+/// 与编辑侧外置化一致：宿主不再通过内置 Agent 改写 `.mei`（见 `topics/50`、`implementation/host/60`）。
+pub(crate) const AUTHORING_WRITEBACK_RETIRED_ERROR: &str = "authoring_writeback_retired";
+
+pub(crate) const AUTHORING_WRITEBACK_RETIRED_MESSAGE: &str =
+    "宿主内置编辑侧 AI 代码写回已下线；请使用外部开发工具编辑 `.mei`，或通过 /api/ops/journal 查看运维变更。";
+
+pub(crate) const AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT: &str =
+    "宿主内置编辑侧 AI 写回已下线（diff / Undo / Redo 不可用）；源码修改请交给 Cursor / Codex 等外部工具。";
+
 use crate::http::agent_api::{
     permissions::{
         collect_and_reject_blocked_permissions, normalize_session_messages_limit,
@@ -162,9 +171,7 @@ pub async fn api_agent_session_diff(
     _session_id: Path<String>,
     _query: Query<BridgeSessionDiffQuery>,
 ) -> Response {
-    authoring_writeback_retired_response(
-        "agent session diff 已下线；`.mei` 只读，请使用 /api/ops/journal 查看运维变更。",
-    )
+    authoring_writeback_retired_response("agent session diff 已随编辑侧写回能力一并下线。")
 }
 
 pub async fn api_agent_abort_session(
@@ -186,26 +193,22 @@ pub async fn api_agent_revert_session(
     _session_id: Path<String>,
     _request: Json<BridgeRevertRequest>,
 ) -> Response {
-    authoring_writeback_retired_response(
-        "agent revert 已下线；请通过 /api/ops/config 与 ops journal 管理配置回滚。",
-    )
+    authoring_writeback_retired_response("agent revert 已随编辑侧写回能力一并下线。")
 }
 
 pub async fn api_agent_unrevert_session(
     _state: State<AppState>,
     _session_id: Path<String>,
 ) -> Response {
-    authoring_writeback_retired_response(
-        "agent unrevert 已下线；请通过 /api/ops/config 与 ops journal 管理配置回滚。",
-    )
+    authoring_writeback_retired_response("agent unrevert 已随编辑侧写回能力一并下线。")
 }
 
-fn authoring_writeback_retired_response(message: &str) -> Response {
+fn authoring_writeback_retired_response(detail: &str) -> Response {
     (
         StatusCode::GONE,
         Json(serde_json::json!({
-            "error": "authoring_writeback_retired",
-            "message": message,
+            "error": AUTHORING_WRITEBACK_RETIRED_ERROR,
+            "message": format!("{detail} {}", AUTHORING_WRITEBACK_RETIRED_MESSAGE),
         })),
     )
         .into_response()

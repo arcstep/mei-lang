@@ -1,0 +1,307 @@
+/* 宿主独立壳页：登录 / 改密 / HTTP 错误（梅花铜钱） */
+
+.mei-host-shell {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+  background: radial-gradient(120% 90% at 50% -10%, rgba(251, 113, 133, 0.12), transparent 55%),
+    linear-gradient(180deg, #0b1220 0%, #0a1628 48%, #070d18 100%);
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.mei-host-shell__watermark {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  color: rgba(251, 113, 133, 0.06);
+  z-index: 0;
+}
+
+.mei-host-shell__watermark svg {
+  width: min(72vw, 420px);
+  height: auto;
+}
+
+.mei-host-shell__card {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 460px);
+  padding: 24px 24px 20px;
+  border-radius: 16px;
+  background: rgba(17, 26, 44, 0.94);
+  border: 1px solid rgba(34, 48, 74, 0.95);
+  box-shadow: 0 24px 64px rgba(2, 8, 23, 0.45);
+}
+
+.mei-host-shell__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.mei-host-shell__coin {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  color: #fb7185;
+}
+
+.mei-host-shell__coin svg {
+  width: 100%;
+  height: 100%;
+}
+
+.mei-host-shell__brand-text {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.mei-host-shell__status {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #fda4af;
+  margin: 4px 0 10px;
+}
+
+.mei-host-shell__title {
+  margin: 0 0 12px;
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.mei-host-shell__message {
+  margin: 0 0 10px;
+  color: #cbd5e1;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.mei-host-shell__detail {
+  margin: 0 0 10px;
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.mei-host-shell__detail code {
+  color: #fde68a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.mei-host-shell__hint {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  color: #94a3b8;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.mei-host-shell__hint strong {
+  color: #f8fafc;
+}
+
+.mei-host-shell__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.mei-host-shell__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: 1px solid rgba(51, 65, 85, 0.95);
+  background: rgba(15, 23, 42, 0.9);
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.mei-host-shell__btn--primary {
+  border-color: rgba(14, 165, 233, 0.55);
+  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
+  color: #041320;
+}
+
+.mei-host-shell__form label {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+.mei-host-shell__form input {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 10px;
+  font-size: 14px;
+}
+
+.mei-host-shell__form button {
+  margin-top: 14px;
+  width: 100%;
+  border: none;
+  border-radius: 8px;
+  background: #0ea5e9;
+  color: #041320;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.mei-host-shell__form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mei-host-shell__meta {
+  color: #94a3b8;
+  margin: -4px 0 14px;
+  font-size: 12px;
+}
+
+.mei-host-shell__setup {
+  color: #fbbf24;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.mei-host-shell__setup code {
+  color: #fde68a;
+}
+
+.mei-host-shell__feedback {
+  min-height: 20px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+
+.mei-host-shell__feedback--error {
+  color: #fda4af;
+}
+
+.mei-host-shell__feedback--ok {
+  color: #86efac;
+}
+
+.mei-host-shell__link {
+  display: inline-block;
+  margin-top: 12px;
+  color: #7dd3fc;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+/* 应用内 API 错误横幅 */
+#mei-host-http-feedback-root {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10050;
+  display: grid;
+  gap: 8px;
+  width: min(92vw, 420px);
+  pointer-events: none;
+}
+
+.mei-host-http-banner {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 12px 12px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 16px 40px rgba(2, 8, 23, 0.45);
+  color: #e2e8f0;
+  animation: mei-host-banner-in 180ms ease-out;
+}
+
+.mei-host-http-banner--warn {
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.mei-host-http-banner__code {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fda4af;
+  min-width: 42px;
+}
+
+.mei-host-http-banner--warn .mei-host-http-banner__code {
+  color: #fbbf24;
+}
+
+.mei-host-http-banner__body {
+  min-width: 0;
+}
+
+.mei-host-http-banner__title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.mei-host-http-banner__message {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: break-word;
+}
+
+.mei-host-http-banner__hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.mei-host-http-banner__close {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+@keyframes mei-host-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

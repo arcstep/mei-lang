@@ -81,6 +81,9 @@ pub struct AuthUserConfig {
     pub roles: Vec<String>,
     #[serde(default, rename = "appAllowlist")]
     pub app_allowlist: Vec<String>,
+    /// 显式禁止访问的工作区 mei 应用 id；空 `appAllowlist` 时默认允许除 denylist 外全部应用。
+    #[serde(default, rename = "appDenylist")]
+    pub app_denylist: Vec<String>,
     #[serde(default, rename = "sceneAllowlist")]
     pub scene_allowlist: BTreeMap<String, Vec<String>>,
     #[serde(default)]

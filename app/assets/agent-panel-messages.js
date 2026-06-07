@@ -460,6 +460,11 @@
 
   async function hydrateBuildDiffMeta(messages) {
     if (!Array.isArray(messages) || !state.sessionId) return;
+    if (!api.panelAuthoringEnabled()) {
+      CHR.renderHistoryButtons();
+      SRC.setDiffTabBadge(0, 0);
+      return;
+    }
     if (api.historyUnavailableReason()) {
       CHR.renderHistoryButtons();
       SRC.setDiffTabBadge(0, 0);
@@ -487,7 +492,10 @@
           }
         }
         changed = true;
-      } catch (_) {}
+      } catch (_) {
+        api.setMessageMeta(messageId, { hasDiff: false });
+        changed = true;
+      }
     }
     if (changed) {
       state.messages = state.messages.map(function (row) {

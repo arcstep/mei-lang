@@ -15,7 +15,7 @@ pub(crate) fn render_compiling_shell(
     let app_esc = html_escape_min(app_id.trim_start_matches('/'));
     let mode_label = match route_mode {
         UiRouteMode::Build => "构建视图",
-        UiRouteMode::App => "应用视图",
+        UiRouteMode::App => "访问视图",
         UiRouteMode::Config => "配置视图",
         UiRouteMode::Upload => "上传视图",
     };

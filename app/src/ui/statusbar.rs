@@ -21,7 +21,7 @@ pub(super) fn statusbar_view(
     let app_summary_title = format!("应用：{app_path}");
     let route_mode_label = match route_mode {
         "build" | "manage" => "构建",
-        "app" | "access" => "应用",
+        "app" | "access" => "访问",
         "config" => "配置",
         "upload" => "上传",
         _ => route_mode,

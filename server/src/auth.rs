@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::Sha256;
 
-use crate::AppState;
+use crate::{http::host_error_page, AppState};
 
 const DEFAULT_JWT_COOKIE_NAME: &str = "mei_auth_token";
 const DEFAULT_JWT_TTL_SECONDS: u64 = 8 * 60 * 60;
@@ -84,6 +84,8 @@ pub struct AuthClaims {
     #[serde(default)]
     pub app_allowlist: Vec<String>,
     #[serde(default)]
+    pub app_denylist: Vec<String>,
+    #[serde(default)]
     pub scene_allowlist: BTreeMap<String, Vec<String>>,
     pub iat: usize,
     pub exp: usize,
@@ -95,6 +97,7 @@ pub struct AuthPrincipal {
     pub profile: String,
     pub role: AuthRole,
     pub app_allowlist: BTreeSet<String>,
+    pub app_denylist: BTreeSet<String>,
     pub scene_allowlist: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -103,6 +106,12 @@ impl AuthPrincipal {
         let role = AuthRole::from_slug(&claims.role).unwrap_or(AuthRole::Guest);
         let app_allowlist = claims
             .app_allowlist
+            .iter()
+            .map(|value| normalize_id(value))
+            .filter(|value| !value.is_empty())
+            .collect::<BTreeSet<_>>();
+        let app_denylist = claims
+            .app_denylist
             .iter()
             .map(|value| normalize_id(value))
             .filter(|value| !value.is_empty())
@@ -127,6 +136,7 @@ impl AuthPrincipal {
             profile: claims.profile.clone(),
             role,
             app_allowlist,
+            app_denylist,
             scene_allowlist,
         }
     }
@@ -135,22 +145,59 @@ impl AuthPrincipal {
         self.role.as_str()
     }
 
-    pub fn can_use_authoring_surface(&self) -> bool {
+    /// 配置/上传视图与对应写 API（admin、super）。
+    pub fn can_use_config_upload_surface(&self) -> bool {
         matches!(self.role, AuthRole::Admin | AuthRole::Super)
+    }
+
+    /// 构建视图路由（仅 super）。
+    pub fn can_use_build_surface(&self) -> bool {
+        matches!(self.role, AuthRole::Super)
+    }
+
+    /// 访问侧 Agent（问答/会话/上下文预览）；guest/admin/super 均可用。
+    pub fn can_use_access_agent_api(&self) -> bool {
+        true
     }
 
     pub fn can_manage_sensitive_api(&self) -> bool {
         matches!(self.role, AuthRole::Super)
     }
 
+    /// 与页面 `data-mei-auth-capabilities` 及 `authorize_path` 共用真源。
+    pub fn capabilities(&self) -> mei_lang_app::HostCapabilities {
+        mei_lang_app::HostCapabilities {
+            access_view: true,
+            config_upload: self.can_use_config_upload_surface(),
+            build_view: self.can_use_build_surface(),
+            access_agent: self.can_use_access_agent_api(),
+            authoring_agent: self.can_use_build_surface(),
+            agent_control: self.can_manage_sensitive_api(),
+            runtime_components: true,
+        }
+    }
+
+    pub fn can_access_host_route_mode(&self, mode: &str) -> bool {
+        match mode {
+            "app" | "access" | "access-only" | "run" => true,
+            "upload" | "config" => self.can_use_config_upload_surface(),
+            "build" | "manage" => self.can_use_build_surface(),
+            _ => false,
+        }
+    }
+
     pub fn can_access_app(&self, app_id: &str) -> bool {
         if !matches!(self.role, AuthRole::Guest) {
             return true;
         }
-        if self.app_allowlist.is_empty() {
+        let app_id = normalize_id(app_id);
+        if self.app_denylist.contains(&app_id) {
             return false;
         }
-        self.app_allowlist.contains(&normalize_id(app_id))
+        if self.app_allowlist.is_empty() {
+            return true;
+        }
+        self.app_allowlist.contains(&app_id)
     }
 
     pub fn can_access_scene(&self, app_id: &str, scene_id: &str) -> bool {
@@ -174,6 +221,7 @@ struct AuthUserRecord {
     password_hash: String,
     role: AuthRole,
     app_allowlist: Vec<String>,
+    app_denylist: Vec<String>,
     scene_allowlist: BTreeMap<String, Vec<String>>,
 }
 
@@ -255,6 +303,12 @@ fn parse_user_record(user: &AuthUserConfig) -> Option<AuthUserRecord> {
             .map(|value| normalize_id(value))
             .filter(|value| !value.is_empty())
             .collect(),
+        app_denylist: user
+            .app_denylist
+            .iter()
+            .map(|value| normalize_id(value))
+            .filter(|value| !value.is_empty())
+            .collect(),
         scene_allowlist: user
             .scene_allowlist
             .iter()
@@ -297,7 +351,7 @@ fn workspace_auth_lock(source_root: &Path) -> Result<Arc<Mutex<()>>> {
         .clone())
 }
 
-fn normalize_app_allowlist(values: &[String]) -> Vec<String> {
+fn normalize_app_id_list(values: &[String]) -> Vec<String> {
     let mut normalized = values
         .iter()
         .map(|value| normalize_id(value))
@@ -377,6 +431,7 @@ impl AuthRuntime {
             profile: user.profile.clone(),
             role: user.role.as_str().to_string(),
             app_allowlist: user.app_allowlist.clone(),
+            app_denylist: user.app_denylist.clone(),
             scene_allowlist: user.scene_allowlist.clone(),
             iat,
             exp,
@@ -545,6 +600,7 @@ pub fn upsert_workspace_user(
     role: AuthRole,
     password_hash: &str,
     app_allowlist: &[String],
+    app_denylist: &[String],
     scene_allowlist: &BTreeMap<String, Vec<String>>,
 ) -> Result<()> {
     let normalized_username = username.trim().to_string();
@@ -553,7 +609,8 @@ pub fn upsert_workspace_user(
     }
     validate_password_hash_format(password_hash)?;
     let role_list = vec![role.as_str().to_string()];
-    let normalized_app_allowlist = normalize_app_allowlist(app_allowlist);
+    let normalized_app_allowlist = normalize_app_id_list(app_allowlist);
+    let normalized_app_denylist = normalize_app_id_list(app_denylist);
     let normalized_scene_allowlist = normalize_scene_allowlist(scene_allowlist);
     let profile_value = profile.trim().to_string();
     let password_hash_value = password_hash.trim().to_string();
@@ -566,6 +623,7 @@ pub fn upsert_workspace_user(
             "username": normalized_username,
             "role": role.as_str(),
             "app_allowlist_count": normalized_app_allowlist.len(),
+            "app_denylist_count": normalized_app_denylist.len(),
             "scene_allowlist_count": normalized_scene_allowlist.len(),
         }),
         |auth| {
@@ -574,12 +632,14 @@ pub fn upsert_workspace_user(
             let mut updated = false;
             for user in &mut auth.users {
                 if normalize_id(&user.username) == normalized_username_id {
-                    let current_app = normalize_app_allowlist(&user.app_allowlist);
+                    let current_app = normalize_app_id_list(&user.app_allowlist);
+                    let current_deny = normalize_app_id_list(&user.app_denylist);
                     let current_scene = normalize_scene_allowlist(&user.scene_allowlist);
                     let needs_update = user.profile.trim() != profile_value
                         || user.password_hash.trim() != password_hash_value
                         || user.roles != role_list
                         || current_app != normalized_app_allowlist
+                        || current_deny != normalized_app_denylist
                         || current_scene != normalized_scene_allowlist
                         || user.disabled;
                     if needs_update {
@@ -587,6 +647,7 @@ pub fn upsert_workspace_user(
                         user.roles = role_list.clone();
                         user.password_hash = password_hash_value.clone();
                         user.app_allowlist = normalized_app_allowlist.clone();
+                        user.app_denylist = normalized_app_denylist.clone();
                         user.scene_allowlist = normalized_scene_allowlist.clone();
                         user.disabled = false;
                         changed = true;
@@ -602,6 +663,7 @@ pub fn upsert_workspace_user(
                     password_hash: password_hash_value.clone(),
                     roles: role_list.clone(),
                     app_allowlist: normalized_app_allowlist.clone(),
+                    app_denylist: normalized_app_denylist.clone(),
                     scene_allowlist: normalized_scene_allowlist.clone(),
                     disabled: false,
                 });
@@ -852,6 +914,38 @@ fn is_api_path(path: &str) -> bool {
     path.starts_with("/api/")
 }
 
+fn is_super_only_agent_path(path: &str) -> bool {
+    path == "/api/agent/start"
+        || path == "/api/agent/stop"
+        || path.starts_with("/api/agent/skill/sync")
+}
+
+fn is_authoring_agent_path(path: &str) -> bool {
+    path.starts_with("/api/agent/session/")
+        && (path.ends_with("/diff")
+            || path.ends_with("/revert")
+            || path.ends_with("/unrevert"))
+}
+
+fn authorize_agent_path(path: &str, caps: &mei_lang_app::HostCapabilities) -> Result<()> {
+    if is_super_only_agent_path(path) {
+        if !caps.agent_control {
+            anyhow::bail!("current role cannot access agent control api");
+        }
+        return Ok(());
+    }
+    if is_authoring_agent_path(path) {
+        if !caps.authoring_agent {
+            anyhow::bail!("current role cannot access authoring agent api");
+        }
+        return Ok(());
+    }
+    if !caps.access_agent {
+        anyhow::bail!("current role cannot access access agent api");
+    }
+    Ok(())
+}
+
 fn percent_encode_component(raw: &str) -> String {
     let mut out = String::new();
     for b in raw.as_bytes() {
@@ -885,16 +979,20 @@ fn unauthorized_response(path: &str, uri: &axum::http::Uri) -> Response {
 
 fn forbidden_response(path: &str, message: &str) -> Response {
     if is_api_path(path) {
-        return (StatusCode::FORBIDDEN, Json(json!({"error": message}))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({
+                "error": message,
+                "status": StatusCode::FORBIDDEN.as_u16(),
+            })),
+        )
+            .into_response();
     }
-    (
-        StatusCode::FORBIDDEN,
-        format!("forbidden: {message}. <a href=\"/login\">重新登录</a>"),
-    )
-        .into_response()
+    host_error_page::forbidden_html_response(message)
 }
 
 fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
+    let caps = principal.capabilities();
     if let Some((mode, app_id, scene_id)) = extract_app_route_context(path) {
         if !principal.can_access_app(app_id.as_str()) {
             anyhow::bail!("app `{app_id}` is not in guest allowlist");
@@ -904,10 +1002,14 @@ fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
                 anyhow::bail!("scene `{scene_id}` is not in guest allowlist");
             }
         }
-        if mode == "build" || mode == "config" || mode == "upload" {
-            if !principal.can_use_authoring_surface() {
-                anyhow::bail!("current role cannot access authoring routes");
-            }
+        let route_allowed = match mode.as_str() {
+            "app" | "access" | "access-only" | "run" => caps.access_view,
+            "upload" | "config" => caps.config_upload,
+            "build" | "manage" => caps.build_view,
+            _ => false,
+        };
+        if !route_allowed {
+            anyhow::bail!("current role cannot access `{mode}` routes");
         }
         return Ok(());
     }
@@ -917,19 +1019,18 @@ fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
         }
     }
     if path.starts_with("/api/ops/") || path.starts_with("/api/upload/") {
-        if !principal.can_use_authoring_surface() {
+        if !caps.config_upload {
             anyhow::bail!("current role cannot access write api");
         }
     }
     if path.starts_with("/api/agent/") {
-        if !principal.can_manage_sensitive_api() {
-            anyhow::bail!("current role cannot access agent control api");
-        }
+        return authorize_agent_path(path, &caps);
     }
     if path.starts_with("/workspace-components/") {
-        if !principal.can_use_authoring_surface() {
+        if !caps.runtime_components {
             anyhow::bail!("current role cannot access component assets");
         }
+        return Ok(());
     }
     Ok(())
 }
@@ -1016,7 +1117,7 @@ mod tests {
         body::Body,
         http::{header, Request, StatusCode},
         middleware,
-        routing::get,
+        routing::{get, post},
         Router,
     };
     use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
@@ -1073,6 +1174,7 @@ mod tests {
             AuthRole::Guest,
             hash.as_str(),
             &app_allow,
+            &[],
             &BTreeMap::new(),
         )
         .expect("upsert guest");
@@ -1087,6 +1189,7 @@ mod tests {
             "管理员",
             AuthRole::Admin,
             hash.as_str(),
+            &[],
             &[],
             &BTreeMap::new(),
         )
@@ -1115,6 +1218,114 @@ mod tests {
     fn temporary_password_meets_complexity() {
         let password = generate_temporary_password();
         assert!(validate_password_complexity(password.as_str()).is_ok());
+    }
+
+    #[test]
+    fn guest_empty_allowlist_allows_workspace_apps_except_denylist() {
+        let principal = AuthPrincipal {
+            username: "guest".to_string(),
+            profile: "访客".to_string(),
+            role: AuthRole::Guest,
+            app_allowlist: BTreeSet::new(),
+            app_denylist: ["blocked".to_string()].into_iter().collect(),
+            scene_allowlist: BTreeMap::new(),
+        };
+        assert!(principal.can_access_app("demo"));
+        assert!(!principal.can_access_app("blocked"));
+    }
+
+    #[test]
+    fn guest_non_empty_allowlist_restricts_apps() {
+        let principal = AuthPrincipal {
+            username: "guest".to_string(),
+            profile: "访客".to_string(),
+            role: AuthRole::Guest,
+            app_allowlist: ["demo".to_string()].into_iter().collect(),
+            app_denylist: BTreeSet::new(),
+            scene_allowlist: BTreeMap::new(),
+        };
+        assert!(principal.can_access_app("demo"));
+        assert!(!principal.can_access_app("blocked"));
+    }
+
+    fn principal_for_role(role: AuthRole) -> AuthPrincipal {
+        AuthPrincipal {
+            username: role.as_str().to_string(),
+            profile: String::new(),
+            role,
+            app_allowlist: BTreeSet::new(),
+            app_denylist: BTreeSet::new(),
+            scene_allowlist: BTreeMap::new(),
+        }
+    }
+
+    fn assert_authorize_path(path: &str, principal: &AuthPrincipal, expect_ok: bool) {
+        let result = authorize_path(path, principal);
+        if expect_ok {
+            assert!(result.is_ok(), "expected allow path={path}: {result:?}");
+        } else {
+            assert!(result.is_err(), "expected deny path={path}");
+        }
+    }
+
+    #[test]
+    fn host_capability_matrix_matches_role_and_authorize_path() {
+        use mei_lang_app::HostCapabilities;
+
+        for (role, caps) in [
+            (AuthRole::Guest, HostCapabilities::from_role_slug("guest")),
+            (AuthRole::Admin, HostCapabilities::from_role_slug("admin")),
+            (AuthRole::Super, HostCapabilities::from_role_slug("super")),
+        ] {
+            let principal = principal_for_role(role);
+            assert_eq!(principal.capabilities(), caps);
+
+            assert_authorize_path("/apps/app/demo/scene/home", &principal, caps.access_view);
+            assert_authorize_path("/apps/config/demo", &principal, caps.config_upload);
+            assert_authorize_path("/apps/upload/demo", &principal, caps.config_upload);
+            assert_authorize_path("/apps/build/demo", &principal, caps.build_view);
+            assert_authorize_path(
+                "/workspace-components/chart/echarts/column.js",
+                &principal,
+                caps.runtime_components,
+            );
+            assert_authorize_path("/api/agent/session", &principal, caps.access_agent);
+            assert_authorize_path("/api/agent/model/probe", &principal, caps.access_agent);
+            assert_authorize_path("/api/agent/start", &principal, caps.agent_control);
+            assert_authorize_path(
+                "/api/agent/session/s1/revert",
+                &principal,
+                caps.authoring_agent,
+            );
+            assert_authorize_path("/api/ops/config/demo", &principal, caps.config_upload);
+            assert_authorize_path("/api/upload/demo", &principal, caps.config_upload);
+        }
+    }
+
+    #[test]
+    fn route_mode_matrix_matches_role_defaults() {
+        let guest = AuthPrincipal {
+            username: "g".into(),
+            profile: String::new(),
+            role: AuthRole::Guest,
+            app_allowlist: BTreeSet::new(),
+            app_denylist: BTreeSet::new(),
+            scene_allowlist: BTreeMap::new(),
+        };
+        let admin = AuthPrincipal {
+            role: AuthRole::Admin,
+            ..guest.clone()
+        };
+        let super_user = AuthPrincipal {
+            role: AuthRole::Super,
+            ..guest.clone()
+        };
+        assert!(guest.can_access_host_route_mode("app"));
+        assert!(!guest.can_access_host_route_mode("config"));
+        assert!(!guest.can_access_host_route_mode("build"));
+        assert!(admin.can_access_host_route_mode("upload"));
+        assert!(!admin.can_access_host_route_mode("build"));
+        assert!(super_user.can_access_host_route_mode("build"));
     }
 
     #[test]
@@ -1150,6 +1361,7 @@ mod tests {
             "访客",
             AuthRole::Guest,
             hash.as_str(),
+            &[],
             &[],
             &BTreeMap::new(),
         )
@@ -1275,6 +1487,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn middleware_allows_guest_runtime_assets_and_access_agent() {
+        let source_root = temp_source_root("guest-runtime");
+        bootstrap_guest_user(source_root.as_path(), &[]);
+        let token = token_for(source_root.as_path(), "guest01", "GuestPwd1!safe");
+        let runtime = load_auth_runtime(source_root.as_path()).expect("runtime");
+        let state = make_state(source_root.clone(), AuthEnforcement::Required);
+        let app = Router::new()
+            .route(
+                "/workspace-components/chart/echarts/column.js",
+                get(|| async { "ok" }),
+            )
+            .route("/api/agent/model/probe", get(|| async { "ok" }))
+            .route("/api/agent/session", get(|| async { "ok" }))
+            .route("/api/agent/start", post(|| async { "ok" }))
+            .layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
+            .with_state(state);
+        let cookie = format!("{}={}", runtime.cookie_name, token);
+
+        for path in [
+            "/workspace-components/chart/echarts/column.js",
+            "/api/agent/model/probe",
+            "/api/agent/session",
+        ] {
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(path)
+                        .header(header::COOKIE, cookie.as_str())
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(resp.status(), StatusCode::OK, "path={path}");
+        }
+
+        let resp_start = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/agent/start")
+                    .header(header::COOKIE, cookie.as_str())
+                    .body(Body::empty())
+                    .expect("start request"),
+            )
+            .await
+            .expect("start response");
+        assert_eq!(resp_start.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn middleware_blocks_guest_authoring_and_unauthorized_app() {
         let source_root = temp_source_root("guest-deny");
         bootstrap_guest_user(source_root.as_path(), &["demo"]);
@@ -1334,6 +1600,7 @@ mod tests {
         let state = make_state(source_root.clone(), AuthEnforcement::Required);
         let app = Router::new()
             .route("/apps/build/demo", get(|| async { "ok" }))
+            .route("/apps/config/demo", get(|| async { "ok" }))
             .route("/api/ops/config/demo", get(|| async { "ok" }))
             .layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -1348,7 +1615,15 @@ mod tests {
             .body(Body::empty())
             .expect("build req");
         let build_resp = app.clone().oneshot(build_req).await.expect("build resp");
-        assert_eq!(build_resp.status(), StatusCode::OK);
+        assert_eq!(build_resp.status(), StatusCode::FORBIDDEN);
+
+        let config_req = Request::builder()
+            .uri("/apps/config/demo")
+            .header(header::COOKIE, cookie.as_str())
+            .body(Body::empty())
+            .expect("config req");
+        let config_resp = app.clone().oneshot(config_req).await.expect("config resp");
+        assert_eq!(config_resp.status(), StatusCode::OK);
 
         let api_req = Request::builder()
             .uri("/api/ops/config/demo")

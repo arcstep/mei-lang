@@ -1156,6 +1156,7 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         auth::AuthRole::Super,
         super_hash.as_str(),
         &[],
+        &[],
         &BTreeMap::new(),
     )?;
 
@@ -1169,6 +1170,7 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         args.admin_profile.as_str(),
         auth::AuthRole::Admin,
         admin_hash.as_str(),
+        &[],
         &[],
         &BTreeMap::new(),
     )?;
@@ -1184,6 +1186,7 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         auth::AuthRole::Guest,
         guest_hash.as_str(),
         &guest_app_allow,
+        &[],
         &guest_scene_allow,
     )?;
 
@@ -1252,6 +1255,7 @@ fn host_auth_add_user_command(args: HostAuthAddUserArgs) -> Result<()> {
         role,
         password_hash.as_str(),
         &app_allow,
+        &[],
         &scene_allow,
     )?;
     let runtime = auth::load_auth_runtime(&source_root)?;
@@ -1330,6 +1334,7 @@ fn host_auth_describe_command(args: HostAuthDescribeArgs) -> Result<()> {
                 "roles": user.roles,
                 "disabled": user.disabled,
                 "app_allowlist": user.app_allowlist,
+                "app_denylist": user.app_denylist,
                 "scene_allowlist": user.scene_allowlist,
                 "password_hash_present": !user.password_hash.trim().is_empty(),
             })

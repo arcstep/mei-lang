@@ -3378,3 +3378,90 @@ a.tree-link {
   outline: 2px dashed rgba(56, 189, 248, 0.85);
   outline-offset: 2px;
 }
+
+/* 宿主 API 错误横幅（host-http-feedback.js） */
+#mei-host-http-feedback-root {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10050;
+  display: grid;
+  gap: 8px;
+  width: min(92vw, 420px);
+  pointer-events: none;
+}
+
+.mei-host-http-banner {
+  pointer-events: auto;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 12px 12px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(15, 23, 42, 0.96);
+  box-shadow: 0 16px 40px rgba(2, 8, 23, 0.45);
+  color: #e2e8f0;
+  animation: mei-host-banner-in 180ms ease-out;
+}
+
+.mei-host-http-banner--warn {
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.mei-host-http-banner__code {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fda4af;
+  min-width: 42px;
+}
+
+.mei-host-http-banner--warn .mei-host-http-banner__code {
+  color: #fbbf24;
+}
+
+.mei-host-http-banner__body {
+  min-width: 0;
+}
+
+.mei-host-http-banner__title {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.mei-host-http-banner__message {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5e1;
+  word-break: break-word;
+}
+
+.mei-host-http-banner__hint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.mei-host-http-banner__close {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+
+@keyframes mei-host-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

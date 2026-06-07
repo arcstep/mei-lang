@@ -16,6 +16,7 @@ use crate::{
     AppState,
 };
 
+use crate::http::agent_api::AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT;
 use crate::http::error_response;
 
 #[derive(Debug, Deserialize)]
@@ -131,8 +132,9 @@ pub async fn api_agent_health(State(state): State<AppState>) -> Response {
                     "当前 worktree 未检测到 Git/VCS；Undo/Redo 与自动刷新不可用。".to_string(),
                 );
             } else {
-                status.history_available = true;
-                status.history_reason = None;
+                status.history_available = false;
+                status.history_reason =
+                    Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
             }
             Json(status).into_response()
         }

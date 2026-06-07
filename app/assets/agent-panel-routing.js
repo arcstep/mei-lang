@@ -85,6 +85,15 @@
       return "manage";
     }
 
+    /** 与 SSR `data-history-actions` / `data-source-views` 一致：访问壳不拉作者写回 diff。 */
+    function panelAuthoringEnabled() {
+      const history = String(root.dataset.historyActions || "").trim().toLowerCase();
+      const sourceViews = String(root.dataset.sourceViews || "").trim().toLowerCase();
+      if (history === "true" || sourceViews === "true") return true;
+      if (history === "false" && sourceViews === "false") return false;
+      return normalizeRouteMode(root.dataset.mode) !== "access";
+    }
+
     function sessionBindingKind() {
       return "scene";
     }
@@ -216,6 +225,7 @@
       deltaDebugStorageKey: deltaDebugStorageKey,
       normalizeAgentMode: normalizeAgentMode,
       normalizeRouteMode: normalizeRouteMode,
+      panelAuthoringEnabled: panelAuthoringEnabled,
       buildBoundSessionTitle: buildBoundSessionTitle,
       parseBoundSessionTitle: parseBoundSessionTitle,
     };

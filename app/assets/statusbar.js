@@ -25,7 +25,15 @@
   async function fetchJson(url, options) {
     const response = await fetch(url, options);
     if (!response.ok) {
-      throw new Error("request failed: " + response.status);
+      let detail = "";
+      try {
+        detail = (await response.clone().text()).trim();
+      } catch (_) {}
+      const error = new Error(
+        detail ? "request failed: " + response.status + " " + detail : "request failed: " + response.status,
+      );
+      error.httpStatus = response.status;
+      throw error;
     }
     return response.json();
   }
@@ -100,6 +108,16 @@
       const summary = modelServiceSummary(probe, "");
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     } catch (error) {
+      const status = Number(error && error.httpStatus) || 0;
+      if (status === 403) {
+        setChip(
+          nodes.modelService,
+          "模型服务 无权限",
+          "danger",
+          "HTTP 403：当前角色无法访问 /api/agent/model/probe（通常为 guest）。请向管理员反馈 HTTP 403。",
+        );
+        return;
+      }
       const summary = modelServiceSummary(null, String(error && error.message ? error.message : error || ""));
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     }

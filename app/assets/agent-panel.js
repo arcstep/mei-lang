@@ -217,6 +217,7 @@
   }
 
   function historyUnavailableReason() {
+    if (!RT.panelAuthoringEnabled()) return "";
     if (!state.health || state.health.history_available !== false) return "";
     return String(state.health.history_reason || "").trim();
   }
@@ -271,6 +272,7 @@
     currentSessionBindingFingerprint: RT.currentSessionBindingFingerprint,
     normalizeRouteMode: RT.normalizeRouteMode,
     normalizeAgentMode: RT.normalizeAgentMode,
+    panelAuthoringEnabled: RT.panelAuthoringEnabled,
     buildBoundSessionTitle: RT.buildBoundSessionTitle,
     parseBoundSessionTitle: RT.parseBoundSessionTitle,
     historyUnavailableReason: historyUnavailableReason,
