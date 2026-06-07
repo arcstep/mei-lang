@@ -40,6 +40,11 @@ pub(super) struct RuntimeSceneAnchor {
     pub scene_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct HostMetaOptions {
+    pub include_scene_drilldown_context: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 struct MetricDrilldownMeta {
     analysis_contract: Option<Value>,
@@ -185,8 +190,8 @@ pub(super) fn attach_host_meta(
     compiled: &CompiledApp,
     app_path: &str,
     theme_components: &serde_json::Value,
-    shared_context: &serde_json::Value,
     preview_scene_path: Option<&str>,
+    options: HostMetaOptions,
 ) -> Value {
     let mut anchor = RuntimeSceneAnchor::from_compiled(compiled);
     if let Some(path) = preview_scene_path.map(str::trim).filter(|s| !s.is_empty()) {
@@ -198,40 +203,71 @@ pub(super) fn attach_host_meta(
         .filter(|s| !s.is_empty())
         .unwrap_or(compiled.active_target_file.as_str());
     if let Some(map) = props.as_object_mut() {
+        let mut host_meta = serde_json::Map::new();
+        host_meta.insert("app_id".to_string(), Value::String(compiled.app_id.clone()));
+        host_meta.insert("app_path".to_string(), Value::String(app_path.to_string()));
+        host_meta.insert(
+            "active_scene_id".to_string(),
+            Value::String(anchor.scene_id.clone()),
+        );
+        host_meta.insert(
+            "active_target_file".to_string(),
+            Value::String(active_target_file.to_string()),
+        );
+        host_meta.insert(
+            "entry_target".to_string(),
+            Value::String(active_target_file.to_string()),
+        );
+        host_meta.insert(
+            "compile_epoch".to_string(),
+            Value::String(format!(
+                "{}|{}|{}",
+                scene_payload_cache_epoch(),
+                dataset_materialize_cache_epoch(),
+                active_target_file
+            )),
+        );
+        host_meta.insert(
+            "step_api".to_string(),
+            Value::String(format!("/api/sim/step/{}", app_path)),
+        );
+        host_meta.insert(
+            "runtime_capabilities".to_string(),
+            json!({
+                "rows_query": {
+                    "enabled": true,
+                    "api": format!("/api/datasets/query/{}", app_path),
+                    "scene_qualified": true,
+                },
+                "metric_query": {
+                    "enabled": true,
+                    "api": format!("/api/datasets/metrics/{}", app_path),
+                    "scene_qualified": true,
+                },
+            }),
+        );
+        host_meta.insert("components".to_string(), theme_components.clone());
+        if options.include_scene_drilldown_context {
+            host_meta.insert(
+                "scene_local_nav_by_target".to_string(),
+                json!(compiled.scene_local_nav_by_target),
+            );
+            host_meta.insert(
+                "scene_bindings_by_id".to_string(),
+                json!(compiled.scene_bindings_by_id),
+            );
+            host_meta.insert(
+                "scene_examples_by_id".to_string(),
+                json!(compiled.scene_examples_by_id),
+            );
+            host_meta.insert(
+                "scene_projection_assembly_by_id".to_string(),
+                json!(compiled.scene_projection_assembly_by_id),
+            );
+        }
         map.insert(
             "_mei".to_string(),
-            json!({
-                "app_id": compiled.app_id,
-                "app_path": app_path,
-                "active_scene_id": anchor.scene_id,
-                "active_target_file": active_target_file,
-                "entry_target": active_target_file,
-                "compile_epoch": format!(
-                    "{}|{}|{}",
-                    scene_payload_cache_epoch(),
-                    dataset_materialize_cache_epoch(),
-                    active_target_file
-                ),
-                "step_api": format!("/api/sim/step/{}", app_path),
-                "runtime_capabilities": {
-                    "rows_query": {
-                        "enabled": true,
-                        "api": format!("/api/datasets/query/{}", app_path),
-                        "scene_qualified": true,
-                    },
-                    "metric_query": {
-                        "enabled": true,
-                        "api": format!("/api/datasets/metrics/{}", app_path),
-                        "scene_qualified": true,
-                    },
-                },
-                "components": theme_components.clone(),
-                "shared": shared_context.clone(),
-                "scene_local_nav_by_target": compiled.scene_local_nav_by_target.clone(),
-                "scene_bindings_by_id": compiled.scene_bindings_by_id.clone(),
-                "scene_examples_by_id": compiled.scene_examples_by_id.clone(),
-                "scene_projection_assembly_by_id": compiled.scene_projection_assembly_by_id.clone(),
-            }),
+            Value::Object(host_meta),
         );
     }
     props

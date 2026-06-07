@@ -18,7 +18,6 @@ use super::metric_hydrate::{
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeMetricWorkset {
-    pub resolved_metric_ids: Vec<String>,
     pub closure_metric_ids: Vec<String>,
     pub eval_metric_ids: Option<Vec<String>>,
     pub defs_for_hydrate: BTreeMap<String, Value>,
@@ -217,7 +216,6 @@ pub(crate) fn runtime_metric_workset(
     );
     if requested_metric_ids.is_empty() {
         return RuntimeMetricWorkset {
-            resolved_metric_ids,
             closure_metric_ids: Vec::new(),
             eval_metric_ids: None,
             defs_for_hydrate: dataset.runtime_metric_defs.clone(),
@@ -231,7 +229,6 @@ pub(crate) fn runtime_metric_workset(
         closure_metric_ids.clone()
     };
     RuntimeMetricWorkset {
-        resolved_metric_ids,
         closure_metric_ids,
         defs_for_hydrate: select_metric_defs(&dataset.runtime_metric_defs, &eval_metric_ids),
         eval_metric_ids: Some(eval_metric_ids),
@@ -896,7 +893,6 @@ mod tests {
         };
         let workset =
             runtime_metric_workset("warning_list", &["sales_total".to_string()], &dataset);
-        assert_eq!(workset.resolved_metric_ids, vec!["sales_total".to_string()]);
         assert_eq!(
             workset.eval_metric_ids,
             Some(vec![

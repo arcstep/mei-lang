@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use super::resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor};
+use super::resolve::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor};
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
     frame_backdrop_css_vars, frame_stage_content_bounds, frame_viewport_letterbox_style,
@@ -1020,7 +1020,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
 }
 
 #[test]
-fn attach_host_meta_exposes_shared_context_to_components() {
+fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
     let compiled = CompiledApp {
         app_id: "preview-shared".to_string(),
         active_scene: Some("home".to_string()),
@@ -1088,8 +1088,8 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         &compiled,
         "apps/preview-shared",
         &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
-        &json!({"layout": {"rail_width": "520px"}}),
         Some("scenes/home.mei"),
+        HostMetaOptions::default(),
     );
     assert_eq!(
         props
@@ -1129,6 +1129,37 @@ fn attach_host_meta_exposes_shared_context_to_components() {
     assert_eq!(
         props
             .get("_mei")
+            .and_then(|value| value.get("components"))
+            .and_then(|value| value.get("dataset_table"))
+            .and_then(|value| value.get("cell_preview_max_chars"))
+            .and_then(Value::as_i64),
+        Some(18)
+    );
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("shared"))
+        .is_none());
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("scene_local_nav_by_target"))
+        .is_none());
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("scene_bindings_by_id"))
+        .is_none());
+    let drilldown_props = attach_host_meta(
+        json!({"value": 1}),
+        &compiled,
+        "apps/preview-shared",
+        &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
+        Some("scenes/home.mei"),
+        HostMetaOptions {
+            include_scene_drilldown_context: true,
+        },
+    );
+    assert_eq!(
+        drilldown_props
+            .get("_mei")
             .and_then(|value| value.get("scene_local_nav_by_target"))
             .and_then(|value| value.get("templates/cockpit/drilldown/metric-explain-board.mei"))
             .and_then(|value| value.get("kind"))
@@ -1136,16 +1167,7 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         Some("metric_explain_board")
     );
     assert_eq!(
-        props
-            .get("_mei")
-            .and_then(|value| value.get("shared"))
-            .and_then(|value| value.get("layout"))
-            .and_then(|value| value.get("rail_width"))
-            .and_then(Value::as_str),
-        Some("520px")
-    );
-    assert_eq!(
-        props
+        drilldown_props
             .get("_mei")
             .and_then(|value| value.get("scene_bindings_by_id"))
             .and_then(|value| value.get("inspection_total_popup"))
@@ -1155,7 +1177,7 @@ fn attach_host_meta_exposes_shared_context_to_components() {
         Some("metric")
     );
     assert_eq!(
-        props
+        drilldown_props
             .get("_mei")
             .and_then(|value| value.get("scene_projection_assembly_by_id"))
             .and_then(|value| value.get("inspection_total_popup"))

@@ -455,6 +455,19 @@ pub(super) fn diagnostics_view(
                     "尚无懒加载查询记录。"
                 </div>
             </div>
+            <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-cyan-500/25">
+                <strong class="text-xs font-semibold text-slate-50">"render_trace"</strong>
+                <span class="text-xs leading-5 text-slate-300">
+                    "记录图表/地图从空白到出内容的关键阶段：如 runtime query、ECharts / MapLibre 本体加载、底图 style load、layer 同步完成。"
+                    "用于定位“编译后页面空白很久”到底卡在哪一段。"
+                </span>
+                <div
+                    id="mei-render-trace-diagnostics"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                >
+                    "尚无组件渲染追踪。"
+                </div>
+            </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-emerald-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"agent_sse_delta"</strong>
                 <span class="text-xs leading-5 text-slate-300">

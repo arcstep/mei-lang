@@ -15,7 +15,7 @@ use super::theme::{
     resolve_shared_refs, ThemeResolved,
 };
 use super::{
-    resolve::{attach_host_meta, resolve_value, RuntimeSceneAnchor},
+    resolve::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor},
     PreviewRuntimeContext,
 };
 
@@ -367,6 +367,9 @@ fn block_view(
         scene_id: scene_contract.scene.id.clone(),
         scene_path: Some(preview_scene_path.to_string()),
     };
+    let host_meta_options = HostMetaOptions {
+        include_scene_drilldown_context: block.use_key == "mei.text",
+    };
     let props = attach_host_meta(
         resolve_value(
             &block.props,
@@ -380,8 +383,8 @@ fn block_view(
         compiled,
         app_path,
         &theme.components,
-        &theme.shared,
         Some(preview_scene_path),
+        host_meta_options,
     );
     let tag = compiled
         .component_assets

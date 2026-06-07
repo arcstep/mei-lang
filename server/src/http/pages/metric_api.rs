@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
@@ -21,10 +21,9 @@ use crate::{AppError, AppState};
 use super::super::compile_cache::compile_app_with_cache;
 use super::super::datasets::{
     eval_node_cache_key, hydrate_file_backed_datasets_for_metric_defs,
-    metric_request_revision_fingerprint, metric_scope_cache_key, normalize_query_filters,
-    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
-    query_state_from_request, runtime_metric_eval_scope, runtime_metric_workset,
-    serialize_cache_value, DatasetQueryOptions,
+    metric_request_revision_fingerprint, normalize_query_filters, normalize_query_search,
+    plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
+    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value, DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
 use super::scene_qualified::{
@@ -40,6 +39,8 @@ struct CachedMetricResponse {
     expires_at: Instant,
     total_rows: usize,
     metrics_map: BTreeMap<String, MetricContract>,
+    covered_metric_ids: BTreeSet<String>,
+    complete: bool,
 }
 
 fn metric_response_cache() -> &'static Mutex<BTreeMap<String, CachedMetricResponse>> {
@@ -82,12 +83,11 @@ fn runtime_metric_scope_requested(
         || !filter_intents.is_empty()
 }
 
-fn metric_response_cache_key(
+fn metric_response_cache_scope_key(
     app_id: &str,
     scene_id: &str,
     scene_path: Option<&str>,
     dataset_id: &str,
-    metric_scope_key: &str,
     query: &DatasetQueryOptions,
     compile_revision: &str,
     dependency_revision_key: &str,
@@ -95,7 +95,7 @@ fn metric_response_cache_key(
     let group = serialize_cache_value(&query.group);
     let time_range = serialize_cache_value(&query.time_range);
     format!(
-        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|metric_ids={metric_scope_key}|search={}|filters={}|group={}|time_range={}",
+        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|search={}|filters={}|group={}|time_range={}",
         scene_path.unwrap_or(""),
         query.search.as_deref().unwrap_or(""),
         serialize_cache_value(&query.filters),
@@ -104,30 +104,64 @@ fn metric_response_cache_key(
     )
 }
 
-fn take_cached_metric_response(key: &str) -> Option<CachedMetricResponse> {
+fn cached_metric_response_covers_request(
+    entry: &CachedMetricResponse,
+    requested_metric_ids: &BTreeSet<String>,
+    request_all_metrics: bool,
+) -> bool {
+    if request_all_metrics {
+        return entry.complete;
+    }
+    requested_metric_ids
+        .iter()
+        .all(|metric_id| entry.covered_metric_ids.contains(metric_id))
+}
+
+fn take_cached_metric_response(
+    key: &str,
+    requested_metric_ids: &BTreeSet<String>,
+    request_all_metrics: bool,
+) -> Option<CachedMetricResponse> {
     let Ok(mut cache) = metric_response_cache().lock() else {
         return None;
     };
     let now = Instant::now();
     cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).cloned()
+    let entry = cache.get(key)?;
+    cached_metric_response_covers_request(entry, requested_metric_ids, request_all_metrics)
+        .then(|| entry.clone())
 }
 
 fn store_cached_metric_response(
     key: String,
     total_rows: usize,
     metrics_map: &BTreeMap<String, MetricContract>,
+    covered_metric_ids: &BTreeSet<String>,
+    complete: bool,
 ) {
     let Ok(mut cache) = metric_response_cache().lock() else {
         return;
     };
     cache.retain(|_, entry| entry.expires_at > Instant::now());
+    let expires_at = Instant::now() + metric_response_cache_ttl();
+    if let Some(existing) = cache.get_mut(&key) {
+        existing.expires_at = expires_at;
+        existing.total_rows = total_rows;
+        existing.metrics_map.extend(metrics_map.clone());
+        existing
+            .covered_metric_ids
+            .extend(covered_metric_ids.iter().cloned());
+        existing.complete |= complete;
+        return;
+    }
     cache.insert(
         key,
         CachedMetricResponse {
-            expires_at: Instant::now() + metric_response_cache_ttl(),
+            expires_at,
             total_rows,
             metrics_map: metrics_map.clone(),
+            covered_metric_ids: covered_metric_ids.clone(),
+            complete,
         },
     );
 }
@@ -414,6 +448,14 @@ pub async fn dataset_metric_api(
         &access_plan.request_metric_ids,
         owner_dataset,
     );
+    let request_all_metrics = request.metric_ids.is_empty();
+    let requested_eval_metric_ids = workset
+        .eval_metric_ids
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
     let metric_ids = workset.eval_metric_ids.as_deref();
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
     let dependency_revision_key = metric_request_revision_fingerprint(
@@ -422,25 +464,21 @@ pub async fn dataset_metric_api(
         &access_plan.owner.id,
         &defs_for_hydrate,
     );
-    let response_cache_key = metric_response_cache_key(
+    let response_cache_key = metric_response_cache_scope_key(
         &app_id,
         &scene_ctx.scene_id,
         scene_ctx.scene_path.as_deref(),
         &access_plan.owner.id,
-        &metric_scope_cache_key(if request.metric_ids.is_empty() {
-            &workset.resolved_metric_ids
-        } else {
-            workset
-                .eval_metric_ids
-                .as_deref()
-                .unwrap_or(workset.closure_metric_ids.as_slice())
-        }),
         &query,
         &compile_outcome.compile_revision,
         &dependency_revision_key,
     );
     let response_cache_lookup_started = Instant::now();
-    if let Some(cached) = take_cached_metric_response(&response_cache_key) {
+    if let Some(cached) = take_cached_metric_response(
+        &response_cache_key,
+        &requested_eval_metric_ids,
+        request_all_metrics,
+    ) {
         let mut perf = BTreeMap::new();
         compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
@@ -450,13 +488,21 @@ pub async fn dataset_metric_api(
         eval_observation.insert_counter("eval_memo_hits", 0);
         eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
         eval_observation.insert_counter("eval_memo_eval_node_cache_misses", 0);
-        eval_observation.write_perf(&mut perf);
         perf.insert(
             "response_cache_lookup_ms".to_string(),
             elapsed_ms(response_cache_lookup_started),
         );
+        eval_observation.insert_counter(
+            "response_cache_metric_coverage".to_string(),
+            cached.covered_metric_ids.len() as u64,
+        );
+        eval_observation.insert_counter(
+            "response_cache_complete".to_string(),
+            u64::from(cached.complete),
+        );
         let total_ms = elapsed_ms(request_started);
         perf.insert("total_ms".to_string(), total_ms);
+        eval_observation.write_perf(&mut perf);
         return Ok(Json(MetricQueryResponse {
             scene_id: scene_ctx.scene_id,
             scene_path: scene_ctx.scene_path,
@@ -695,7 +741,13 @@ pub async fn dataset_metric_api(
         total_ms,
         "metric query finished"
     );
-    store_cached_metric_response(response_cache_key, runtime_dataset.rows.len(), &metrics_map);
+    store_cached_metric_response(
+        response_cache_key,
+        runtime_dataset.rows.len(),
+        &metrics_map,
+        &requested_eval_metric_ids,
+        request_all_metrics,
+    );
     Ok(Json(MetricQueryResponse {
         scene_id: scene_ctx.scene_id,
         scene_path: scene_ctx.scene_path,
@@ -708,11 +760,16 @@ pub async fn dataset_metric_api(
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        cached_metric_response_covers_request, clear_metric_response_cache,
+        store_cached_metric_response, take_cached_metric_response, CachedMetricResponse,
+    };
     use super::runtime_metric_scope_requested;
     use mei_lang_kernel::{
         FilterIntent, FilterIntentSource, FilterOperator, QueryState, QueryTimeRange,
     };
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::time::Instant;
 
     #[test]
     fn runtime_metric_scope_requested_is_false_for_context_free_request() {
@@ -748,5 +805,56 @@ mod tests {
                 source: FilterIntentSource::FilterBar,
             }],
         ));
+    }
+
+    #[test]
+    fn cached_metric_response_only_covers_all_metrics_when_complete() {
+        let entry = CachedMetricResponse {
+            expires_at: Instant::now(),
+            total_rows: 0,
+            metrics_map: BTreeMap::new(),
+            covered_metric_ids: BTreeSet::from(["a".to_string(), "b".to_string()]),
+            complete: false,
+        };
+        assert!(cached_metric_response_covers_request(
+            &entry,
+            &BTreeSet::from(["a".to_string()]),
+            false
+        ));
+        assert!(!cached_metric_response_covers_request(
+            &entry,
+            &BTreeSet::new(),
+            true
+        ));
+    }
+
+    #[test]
+    fn metric_response_cache_merges_partial_metric_coverage_by_scope() {
+        clear_metric_response_cache();
+        let key = "scope-key".to_string();
+        store_cached_metric_response(
+            key.clone(),
+            12,
+            &BTreeMap::new(),
+            &BTreeSet::from(["metric.a".to_string()]),
+            false,
+        );
+        store_cached_metric_response(
+            key.clone(),
+            12,
+            &BTreeMap::new(),
+            &BTreeSet::from(["metric.b".to_string()]),
+            false,
+        );
+        let cached = take_cached_metric_response(
+            &key,
+            &BTreeSet::from(["metric.a".to_string(), "metric.b".to_string()]),
+            false,
+        )
+        .expect("merged cache entry");
+        assert_eq!(cached.total_rows, 12);
+        assert!(cached.covered_metric_ids.contains("metric.a"));
+        assert!(cached.covered_metric_ids.contains("metric.b"));
+        clear_metric_response_cache();
     }
 }
