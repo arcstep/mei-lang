@@ -900,7 +900,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
         native_agent,
     };
 
-    let response = index(State(state))
+    let response = index(State(state), None)
         .await
         .expect("render index redirect")
         .into_response();
@@ -939,7 +939,7 @@ async fn index_redirects_to_access_only_entry_when_surface_enabled() {
         native_agent,
     };
 
-    let response = index(State(state))
+    let response = index(State(state), None)
         .await
         .expect("render index redirect")
         .into_response();

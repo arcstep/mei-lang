@@ -9,8 +9,9 @@ use serde_json::json;
 
 use crate::{
     auth::{
-        clear_cookie_header_value, cookie_header_value, hash_password, load_auth_runtime,
-        update_workspace_user_password, AuthEnforcement, AuthPrincipal,
+        authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
+        load_auth_runtime, sanitize_next_path, update_workspace_user_password, AuthEnforcement,
+        AuthPrincipal,
     },
     http::host_error_page,
     AppState,
@@ -81,18 +82,6 @@ struct SessionPayload {
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(json!({"error": message.into()}))).into_response()
-}
-
-fn sanitize_next(next: Option<&str>) -> String {
-    let raw = next.unwrap_or("/").trim();
-    if raw.is_empty() {
-        return "/".to_string();
-    }
-    if raw.starts_with('/') && !raw.starts_with("//") {
-        raw.to_string()
-    } else {
-        "/".to_string()
-    }
 }
 
 fn html_escape(value: &str) -> String {
@@ -306,11 +295,17 @@ pub async fn login_page(
         Ok(value) => value,
         Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     };
-    if principal.is_some() && runtime.enabled {
-        return Redirect::temporary(&sanitize_next(query.next.as_deref())).into_response();
+    if let Some(Extension(principal)) = principal {
+        if runtime.enabled {
+            return Redirect::temporary(&authorize_next_path(
+                query.next.as_deref(),
+                &principal,
+            ))
+            .into_response();
+        }
     }
     Html(login_page_html(
-        sanitize_next(query.next.as_deref()).as_str(),
+        sanitize_next_path(query.next.as_deref()).as_str(),
         auth_login_ready(&state, &runtime),
         runtime.enabled,
     ))
@@ -328,7 +323,8 @@ pub async fn logout_page(
         Ok(value) => value,
         Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     };
-    let mut response = Redirect::temporary(&sanitize_next(query.next.as_deref())).into_response();
+    let mut response =
+        Redirect::temporary(&sanitize_next_path(query.next.as_deref())).into_response();
     let value = clear_cookie_header_value(runtime.cookie_name.as_str());
     if let Ok(header_value) = HeaderValue::from_str(&value) {
         response.headers_mut().insert(header::SET_COOKIE, header_value);
@@ -447,11 +443,13 @@ pub async fn auth_login(
         token.as_str(),
         runtime.jwt_ttl_seconds,
     );
+    let principal = AuthPrincipal::from_claims(&claims);
+    let next = authorize_next_path(body.next.as_deref(), &principal);
     let mut response = (
         StatusCode::OK,
         Json(json!({
             "ok": true,
-            "next": sanitize_next(body.next.as_deref()),
+            "next": next,
             "user": {
                 "username": claims.sub,
                 "profile": claims.profile,

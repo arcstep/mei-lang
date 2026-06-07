@@ -991,6 +991,32 @@ fn forbidden_response(path: &str, message: &str) -> Response {
     host_error_page::forbidden_html_response(message)
 }
 
+pub fn sanitize_next_path(next: Option<&str>) -> String {
+    let raw = next.unwrap_or("/").trim();
+    if raw.is_empty() {
+        return "/".to_string();
+    }
+    if raw.starts_with('/') && !raw.starts_with("//") {
+        raw.to_string()
+    } else {
+        "/".to_string()
+    }
+}
+
+/// 登录后 `next`：无权访问的目标回落到 `/`（由 index 按角色再选 landing）。
+pub fn authorize_next_path(next: Option<&str>, principal: &AuthPrincipal) -> String {
+    let next = sanitize_next_path(next);
+    if next == "/" {
+        return next;
+    }
+    let path = next.split('?').next().unwrap_or(next.as_str());
+    if authorize_path(path, principal).is_ok() {
+        next
+    } else {
+        "/".to_string()
+    }
+}
+
 fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     let caps = principal.capabilities();
     if let Some((mode, app_id, scene_id)) = extract_app_route_context(path) {
@@ -1266,6 +1292,22 @@ mod tests {
         } else {
             assert!(result.is_err(), "expected deny path={path}");
         }
+    }
+
+    #[test]
+    fn authorize_next_path_rejects_build_landing_for_admin() {
+        let admin = principal_for_role(AuthRole::Admin);
+        assert_eq!(
+            authorize_next_path(
+                Some("/apps/build/demo?tab=preview"),
+                &admin
+            ),
+            "/"
+        );
+        assert_eq!(
+            authorize_next_path(Some("/apps/app/demo/scene/home"), &admin),
+            "/apps/app/demo/scene/home"
+        );
     }
 
     #[test]

@@ -19,12 +19,12 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  color: rgba(251, 113, 133, 0.06);
+  color: rgba(251, 113, 133, 0.11);
   z-index: 0;
 }
 
 .mei-host-shell__watermark svg {
-  width: min(72vw, 420px);
+  width: min(96vw, 720px);
   height: auto;
 }
 
@@ -34,9 +34,12 @@
   width: min(92vw, 460px);
   padding: 24px 24px 20px;
   border-radius: 16px;
-  background: rgba(17, 26, 44, 0.94);
-  border: 1px solid rgba(34, 48, 74, 0.95);
-  box-shadow: 0 24px 64px rgba(2, 8, 23, 0.45);
+  /* 前景约 80% 透明，露出背景铜钱纹样 */
+  background: rgba(17, 26, 44, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: 0 24px 64px rgba(2, 8, 23, 0.35);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(14px) saturate(1.15);
 }
 
 .mei-host-shell__brand {
@@ -105,8 +108,8 @@
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(51, 65, 85, 0.8);
+  background: rgba(15, 23, 42, 0.35);
+  border: 1px solid rgba(51, 65, 85, 0.45);
   color: #94a3b8;
   font-size: 12px;
   line-height: 1.55;
@@ -130,8 +133,8 @@
   min-height: 36px;
   padding: 0 14px;
   border-radius: 9px;
-  border: 1px solid rgba(51, 65, 85, 0.95);
-  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(51, 65, 85, 0.55);
+  background: rgba(15, 23, 42, 0.45);
   color: #e2e8f0;
   font-size: 13px;
   font-weight: 600;
@@ -155,8 +158,8 @@
   width: 100%;
   box-sizing: border-box;
   border-radius: 8px;
-  border: 1px solid #334155;
-  background: #0f172a;
+  border: 1px solid rgba(51, 65, 85, 0.65);
+  background: rgba(15, 23, 42, 0.55);
   color: #e2e8f0;
   padding: 10px;
   font-size: 14px;
