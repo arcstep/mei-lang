@@ -19,9 +19,7 @@ use axum::{
     Router,
 };
 use clap::{Args, Parser, Subcommand};
-use mei_lang_kernel::{
-    CompileOptions, CompileWatchedFile, CompiledApp, Diagnostic, Severity,
-};
+use mei_lang_kernel::{CompileOptions, CompileWatchedFile, Diagnostic, Severity};
 use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
 use serde_json::json;
@@ -318,21 +316,7 @@ pub(crate) struct AppState {
     agent_auto_start: bool,
     agent_runtime: Arc<Mutex<agent_runtime::ManagedOpencodeRuntime>>,
     agent_session_context: Arc<Mutex<HashMap<String, SessionContextSnapshot>>>,
-    #[allow(dead_code)] // compile state migrated to shared toolchain compile service; field kept for fixture compatibility.
-    compile_cache: Arc<Mutex<HashMap<String, CachedCompiledApp>>>,
     pub(crate) native_agent: Arc<mei_agent::NativeAgent>,
-    #[allow(dead_code)] // 测试夹具保留；页面渲染走 GisTilesConfig::resolve_for_app。
-    pub(crate) gis_tiles: Arc<gis_config::GisTilesConfig>,
-}
-
-#[allow(dead_code)] // kept as compatibility shell while legacy fixtures still instantiate AppState with compile_cache.
-#[derive(Clone)]
-pub(crate) struct CachedCompiledApp {
-    pub coarse_revision: u128,
-    pub compile_revision: String,
-    pub watched_files: Vec<CompileWatchedFile>,
-    pub components_revision: u128,
-    pub compiled: CompiledApp,
 }
 
 #[derive(Clone)]
@@ -965,7 +949,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
         source_root.clone(),
         std::sync::Arc::new(resource_tool_bridge::SceneResourceToolExecutor::default()),
     )?);
-    let gis_tiles = Arc::new(gis_config::GisTilesConfig::resolve());
     let state = AppState {
         package_root: Arc::new(package_root.clone()),
         source_root: Arc::new(source_root.clone()),
@@ -974,9 +957,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         agent_auto_start: auto_agent,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: gis_tiles.clone(),
     };
     tracing::debug!(
         cwd = ?std::env::current_dir(),
@@ -1237,9 +1218,7 @@ pub(crate) mod test_support {
                 crate::agent_runtime::ManagedOpencodeRuntime::default(),
             )),
             agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-            compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
-            gis_tiles: Arc::new(super::gis_config::GisTilesConfig::resolve()),
         })
     }
 }

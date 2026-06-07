@@ -131,9 +131,7 @@ async fn app_bundle_returns_merged_javascript() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_bundle(State(state), AxumPath("manage.js".to_string()))
@@ -169,9 +167,7 @@ async fn app_bundle_supports_shoelace_mode() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_bundle(State(state), AxumPath("shoelace.js".to_string()))
@@ -197,9 +193,7 @@ async fn app_bundle_supports_styles_mode() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
     let response = app_bundle(State(state), AxumPath("styles.css".to_string()))
         .await
@@ -237,9 +231,7 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -289,9 +281,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -357,9 +347,7 @@ async fn access_static_html_file_renders_without_scene_redirect() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -427,9 +415,7 @@ async fn access_mei_file_query_still_strips_file_param() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -488,9 +474,7 @@ async fn manage_html_preview_uses_document_iframe() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -540,9 +524,7 @@ async fn access_root_redirects_to_default_scene_path() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = app_page(
@@ -596,9 +578,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
         agent_auto_start: false,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-        compile_cache: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
-        gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
     };
 
     let response = index(State(state))
@@ -721,6 +701,56 @@ async fn spbjw_home_indicator_metrics_use_inspection_check_date_xlsx() {
             "metric `{id}` should be non-zero when backed by upload/5.行政检查结果清单.xlsx 检查日期, got {value}"
         );
     }
+}
+
+#[tokio::test]
+async fn http_dataset_query_aligns_with_toolchain_access_query() {
+    use axum::{
+        body::Body,
+        body::to_bytes,
+        http::{Request, StatusCode},
+    };
+    use std::collections::BTreeMap;
+    use tower::ServiceExt;
+
+    let state = crate::test_support::test_app_state().expect("app state");
+    let source_root = state.source_root.as_path();
+    let app_id = "examples/ds/01-dataset-baseline";
+    mei_lang_toolchain::clear_compile_cache_for_app(source_root, app_id);
+    let toolchain_payload = mei_lang_toolchain::query_world_dataset(
+        source_root,
+        app_id,
+        None,
+        "sales_data",
+        None,
+        &BTreeMap::new(),
+        None,
+        None,
+    )
+    .expect("toolchain dataset query");
+
+    let app = crate::http::router().with_state(state);
+    let payload = serde_json::json!({
+        "scene_id": "home",
+        "dataset_id": "sales_data",
+        "page": 1,
+        "page_size": 5
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/datasets/query/examples%2Fds%2F01-dataset-baseline")
+        .header("content-type", "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let http_payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(http_payload["dataset_id"], toolchain_payload["id"]);
+    assert_eq!(http_payload["scene_id"], toolchain_payload["scene_id"]);
+    assert!(http_payload["total"].as_u64().unwrap_or(0) > 0);
+    assert!(toolchain_payload["sample_rows"].as_array().unwrap().len() > 0);
 }
 
 #[test]

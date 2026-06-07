@@ -195,3 +195,156 @@ pub fn metric_ids_visible_for_dataset(
     }
     ids.into_iter().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::{MetricContract, MetricShape, SourceDecl};
+    use serde_json::json;
+
+    fn orders_dataset() -> DatasetView {
+        DatasetView {
+            id: "orders".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: vec!["amount".to_string()],
+            rows: vec![json!({"amount": 10})],
+            source: SourceDecl {
+                kind: "derived".to_string(),
+                path: "dataset_view:orders".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        }
+    }
+
+    fn world_metrics_dataset() -> DatasetView {
+        let mut runtime_metric_defs = BTreeMap::new();
+        runtime_metric_defs.insert(
+            "orders_total".to_string(),
+            json!({"id": "orders_total", "shape": "scalar_map"}),
+        );
+        let mut runtime_analysis_contracts = BTreeMap::new();
+        runtime_analysis_contracts.insert(
+            "orders_total".to_string(),
+            json!({
+                "focus_node_id": "orders_total",
+                "root_dataset_id": "orders",
+                "title": "订单总额",
+                "tabs": ["definition"],
+            }),
+        );
+        DatasetView {
+            id: WORLD_METRICS_RESOURCE_ID.to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "world_metrics".to_string(),
+                path: String::new(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::from([(
+                "orders_total".to_string(),
+                MetricContract {
+                    id: "orders_total".to_string(),
+                    label: None,
+                    unit: None,
+                    value_format: None,
+                    purpose: None,
+                    shape: MetricShape::Scalar,
+                    schema: Vec::new(),
+                    dataset: None,
+                    transforms: Vec::new(),
+                    value: json!(1),
+                },
+            )]),
+            runtime_metric_defs,
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts,
+        }
+    }
+
+    fn compiled_with_split_metrics() -> CompiledApp {
+        CompiledApp {
+            app_id: "test".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![
+                LoadedResource {
+                    id: "orders".to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(orders_dataset()),
+                },
+                LoadedResource {
+                    id: WORLD_METRICS_RESOURCE_ID.to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(world_metrics_dataset()),
+                },
+            ],
+            world_metrics: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn locate_runtime_metric_resource_finds_world_metrics_owner() {
+        let compiled = compiled_with_split_metrics();
+        let (owner, resolved) =
+            locate_runtime_metric_resource(&compiled, "orders", "orders_total").expect("locate");
+        assert_eq!(owner.id, WORLD_METRICS_RESOURCE_ID);
+        assert_eq!(resolved, "orders_total");
+    }
+
+    #[test]
+    fn plan_access_metric_eval_for_ids_uses_world_metrics_owner() {
+        let compiled = compiled_with_split_metrics();
+        let plan =
+            plan_access_metric_eval_for_ids(&compiled, "orders", &["orders_total".to_string()])
+                .expect("plan");
+        assert_eq!(plan.primary.id, "orders");
+        assert_eq!(plan.owner.id, WORLD_METRICS_RESOURCE_ID);
+        assert!(plan.primary_dataset.runtime_metric_defs.is_empty());
+        assert!(!plan.owner_dataset.runtime_metric_defs.is_empty());
+    }
+}

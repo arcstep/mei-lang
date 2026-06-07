@@ -21,22 +21,12 @@ use std::path::Path;
 use anyhow::Result;
 use mei_lang_toolchain as toolchain;
 
-use crate::AppState;
-
 pub(crate) fn build_world_context_snapshot(
     source_root: &Path,
     app_id: &str,
     scope: Option<&WorldScope>,
 ) -> Result<WorldContextSnapshot> {
     toolchain::build_world_context_snapshot(source_root, app_id, scope)
-}
-
-pub(crate) fn build_world_context_snapshot_cached(
-    state: &AppState,
-    app_id: &str,
-    scope: Option<&WorldScope>,
-) -> Result<WorldContextSnapshot> {
-    toolchain::build_world_context_snapshot(&state.source_root, app_id, scope)
 }
 
 pub(crate) fn query_world_assets(

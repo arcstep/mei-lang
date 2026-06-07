@@ -22,14 +22,19 @@ pub fn compile_report(
     options: CompileOptions,
 ) -> Result<CompileReport> {
     let app_root = source_root.join(app_id);
+    let components_root = crate::resolve_components_root(source_root);
+    let outcome = crate::compile_app_with_cache(
+        source_root,
+        app_id,
+        options.clone(),
+        components_root.as_path(),
+    )
+    .map_err(|failure| failure.error)?;
     let revision_plan =
         compile_revision_plan_from_root_with_options(source_root, &app_root, &options)?;
-    let components_root = crate::resolve_components_root(source_root);
-    let outcome = crate::compile_app_with_cache(source_root, app_id, options, components_root.as_path())
-        .map_err(|failure| failure.error)?;
     Ok(CompileReport {
         compiled: outcome.compiled,
-        revision_token: revision_plan.token,
+        revision_token: outcome.compile_revision,
         components_revision: revision_plan.components_revision,
         watched_files: revision_plan.watched_files,
         cache_hit: outcome.cache_hit,

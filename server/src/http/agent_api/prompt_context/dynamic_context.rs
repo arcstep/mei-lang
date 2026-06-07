@@ -253,9 +253,7 @@ mod tests {
             agent_auto_start: false,
             agent_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
             agent_session_context: Arc::new(Mutex::new(HashMap::new())),
-            compile_cache: Arc::new(Mutex::new(HashMap::new())),
             native_agent,
-            gis_tiles: Arc::new(crate::gis_config::GisTilesConfig::resolve()),
         }
     }
 

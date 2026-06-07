@@ -22,6 +22,7 @@ pub use compile_service::{
     resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit,
 };
 pub use compile_report::{compile_report, CompileReport};
+pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use export::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot,
     export_runtime_trace, export_semantic_dag, HeadlessArtifactEnvelope,

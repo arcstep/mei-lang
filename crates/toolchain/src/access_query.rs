@@ -3,10 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope, locate_dataset_resource, resolve_runtime_metric_def_key,
-    DatasetView, MetricContract,
-};
+use mei_lang_kernel::{locate_dataset_resource, DatasetView};
 use serde_json::{json, Value};
 
 use crate::analysis_contract::{
@@ -15,10 +12,9 @@ use crate::analysis_contract::{
     contract_hint_when_empty, contract_hint_when_preview_empty, contract_preview_stats,
 };
 use mei_lang_datasets::{
-    hydrate_file_backed_datasets_for_metric_defs, metric_ids_visible_for_dataset,
-    metric_request_revision_fingerprint, normalize_query_filters, normalize_query_search,
-    plan_access_metric_eval_for_ids, query_dataset_rows, query_state_from_request,
-    runtime_metric_eval_scope, runtime_metric_workset, DatasetQueryOptions,
+    evaluate_runtime_metrics_from_plan, metric_ids_visible_for_dataset, normalize_query_filters,
+    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
+    query_state_from_request, RuntimeMetricEvalMode, DatasetQueryOptions,
 };
 use crate::observation::{CompileObservation, EvalObservation, ExposureManifest};
 use crate::types::WorldScope;
@@ -430,110 +426,29 @@ pub fn query_world_dataset_metrics(
     let bundle = load_world_runtime_bundle(source_root, app_id, scope)?;
     let load_bundle_ms = request_started.elapsed().as_millis() as u64;
     let plan_eval_started = Instant::now();
+    let request_all_metrics = metric_ids.is_empty();
     let eval_plan = plan_access_metric_eval_for_ids(&bundle.compiled, dataset_id, metric_ids)?;
     let plan_eval_ms = plan_eval_started.elapsed().as_millis() as u64;
     let primary_dataset = eval_plan.primary_dataset;
-    let owner_dataset = eval_plan.owner_dataset;
 
     let app_root = source_root.join(app_id);
     let normalized_search = normalize_query_search(search);
     let normalized_filters = normalize_query_filters(filters);
     let effective_query_state =
         query_state_from_request(&normalized_filters, normalized_search.as_deref(), None);
-    let query_options = DatasetQueryOptions {
-        page: 1,
-        page_size: 0,
-        search: effective_query_state.search.clone(),
-        filters: effective_query_state.filters.clone(),
-        group: effective_query_state.group.clone(),
-        time_range: effective_query_state.time_range.clone(),
-        collect_all: true,
-        ..DatasetQueryOptions::default()
-    };
-    let query_rows_started = Instant::now();
-    let filtered_rows = query_dataset_rows(&app_root, primary_dataset, query_options)?;
-    let query_rows_ms = query_rows_started.elapsed().as_millis() as u64;
-
-    let mut runtime_dataset = primary_dataset.clone();
-    runtime_dataset.rows = filtered_rows.rows.clone();
-    if !filtered_rows.columns.is_empty() {
-        runtime_dataset.columns = filtered_rows.columns.clone();
-    }
-
-    let mut datasets = bundle
-        .compiled
-        .resources
-        .iter()
-        .filter_map(|resource| resource.dataset.clone().map(|dataset| (resource.id.clone(), dataset)))
-        .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
-            acc.insert(resource_id, dataset.clone());
-            acc.entry(dataset.id.clone()).or_insert(dataset);
-            acc
-        });
-    datasets.insert(eval_plan.primary.id.clone(), runtime_dataset.clone());
-    let workset = runtime_metric_workset(
-        &eval_plan.owner.id,
-        &eval_plan.request_metric_ids,
-        owner_dataset,
-    );
-    let metric_filter = workset.eval_metric_ids.as_deref();
-    let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let dependency_revision_key = metric_request_revision_fingerprint(
+    let eval_outcome = evaluate_runtime_metrics_from_plan(
+        &bundle.compiled,
         &app_root,
-        &datasets,
-        &eval_plan.owner.id,
-        &defs_for_hydrate,
-    );
-    let hydrate_started = Instant::now();
-    hydrate_file_backed_datasets_for_metric_defs(
-        &app_root,
-        &mut datasets,
-        &defs_for_hydrate,
-        &DatasetQueryOptions {
-            page: 1,
-            page_size: 0,
-            search: effective_query_state.search.clone(),
-            filters: effective_query_state.filters.clone(),
-            group: effective_query_state.group.clone(),
-            time_range: effective_query_state.time_range.clone(),
-            collect_all: true,
-            ..DatasetQueryOptions::default()
-        },
-    )?;
-    let hydrate_ms = hydrate_started.elapsed().as_millis() as u64;
-    let eval_scope_started = Instant::now();
-    let eval_scope = runtime_metric_eval_scope(
-        Some(primary_dataset),
-        &eval_plan.primary.id,
+        &eval_plan,
         &bundle.contract.scene.id,
         Some(bundle.active_target_file.as_str()),
-        effective_query_state.search.as_deref(),
-        &effective_query_state.filters,
-        Some(&effective_query_state),
+        &effective_query_state,
         &[],
-        &dependency_revision_key,
+        RuntimeMetricEvalMode::WithoutDag,
+        request_all_metrics,
     )?;
-    let eval_scope_ms = eval_scope_started.elapsed().as_millis() as u64;
-    let metric_eval_started = Instant::now();
-    let metrics_map = evaluate_runtime_metric_defs_with_scope(
-        &owner_dataset.runtime_metric_defs,
-        &runtime_dataset.rows,
-        &datasets,
-        metric_filter,
-        &eval_scope,
-    )?;
-    let metric_eval_ms = metric_eval_started.elapsed().as_millis() as u64;
-    let metrics = if metric_ids.is_empty() {
-        metrics_map.into_values().collect::<Vec<_>>()
-    } else {
-        project_requested_metrics(
-            &eval_plan.owner.id,
-            &eval_plan.request_metric_ids,
-            &owner_dataset.runtime_metric_defs,
-            &metrics_map,
-        )
-    };
-    let requested_metric_ids = eval_plan.request_metric_ids.clone();
+    let metrics = eval_outcome.metrics;
+    let requested_metric_ids = eval_outcome.request_metric_ids.clone();
     let contract_attachment_started = Instant::now();
     let analysis_contracts = build_metric_analysis_contract_attachments(
         &bundle.compiled,
@@ -551,7 +466,7 @@ pub fn query_world_dataset_metrics(
     );
     let mut eval_observation = EvalObservation::new(false);
     eval_observation.insert_counter("metrics_returned", metrics.len() as u64);
-    eval_observation.insert_counter("total_rows", runtime_dataset.rows.len() as u64);
+    eval_observation.insert_counter("total_rows", eval_outcome.total_rows as u64);
     let exposure_manifest = ExposureManifest::for_scene_scope(
         app_id,
         &bundle.contract.scene.id,
@@ -562,10 +477,10 @@ pub fn query_world_dataset_metrics(
     compile_observation.write_perf(&mut perf);
     perf.insert("load_world_bundle_ms".to_string(), load_bundle_ms);
     perf.insert("plan_access_metric_eval_ms".to_string(), plan_eval_ms);
-    perf.insert("dataset_query_rows_ms".to_string(), query_rows_ms);
-    perf.insert("hydrate_datasets_ms".to_string(), hydrate_ms);
-    perf.insert("build_eval_scope_ms".to_string(), eval_scope_ms);
-    perf.insert("metric_eval_ms".to_string(), metric_eval_ms);
+    perf.insert("dataset_query_rows_ms".to_string(), eval_outcome.query_ms);
+    perf.insert("hydrate_datasets_ms".to_string(), eval_outcome.hydrate_ms);
+    perf.insert("build_eval_scope_ms".to_string(), eval_outcome.eval_scope_ms);
+    perf.insert("metric_eval_ms".to_string(), eval_outcome.metric_eval_ms);
     perf.insert(
         "build_analysis_contract_attachments_ms".to_string(),
         contract_attachment_ms,
@@ -583,7 +498,7 @@ pub fn query_world_dataset_metrics(
         "app_id": app_id,
         "scene_id": bundle.contract.scene.id,
         "dataset_id": dataset_id,
-        "total_rows": runtime_dataset.rows.len(),
+        "total_rows": eval_outcome.total_rows,
         "metrics": metrics,
         "analysis_contracts": analysis_contracts,
         "contract_hint": contract_hint,
@@ -597,27 +512,10 @@ pub fn query_world_dataset_metrics(
     }))
 }
 
-fn project_requested_metrics(
-    resource_id: &str,
-    request_metric_ids: &[String],
-    runtime_metric_defs: &BTreeMap<String, Value>,
-    metrics_map: &BTreeMap<String, MetricContract>,
-) -> Vec<MetricContract> {
-    request_metric_ids
-        .iter()
-        .filter_map(|metric_id| {
-            let resolved =
-                resolve_runtime_metric_def_key(resource_id, metric_id, runtime_metric_defs)?;
-            let mut metric = metrics_map.get(&resolved)?.clone();
-            metric.id = metric_id.clone();
-            Some(metric)
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{normalize_dataset_columns, project_requested_metrics};
+    use super::normalize_dataset_columns;
+    use mei_lang_datasets::project_requested_metrics;
     use mei_lang_kernel::{DatasetView, MetricContract, MetricShape, SourceDecl};
     use serde_json::json;
     use std::collections::BTreeMap;

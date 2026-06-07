@@ -1,33 +1,20 @@
-#[path = "../../../server/src/http/datasets/csv_dataset.rs"]
 mod csv_dataset;
-#[path = "../../../server/src/http/datasets/db_dataset.rs"]
 mod db_dataset;
-#[path = "../../../server/src/http/datasets/file_cache.rs"]
 mod file_cache;
-#[path = "../../../server/src/http/datasets/geojson_dataset.rs"]
 mod geojson_dataset;
-#[path = "../../../server/src/http/datasets/json_dataset.rs"]
 mod json_dataset;
-#[path = "../../../server/src/http/datasets/metric_cache_key.rs"]
+mod metric_access;
 mod metric_cache_key;
-#[path = "../../../server/src/http/datasets/metric_dataframe.rs"]
 mod metric_dataframe;
-#[path = "../../../server/src/http/datasets/metric_hydrate.rs"]
 mod metric_hydrate;
 mod metric_locate;
-#[path = "../../../server/src/http/datasets/paginate.rs"]
+mod metric_response_cache;
 mod paginate;
-#[path = "../../../server/src/http/datasets/paths.rs"]
 mod paths;
-#[path = "../../../server/src/http/datasets/query.rs"]
 mod query;
-#[path = "../../../server/src/http/datasets/table_contract.rs"]
 pub mod table_contract;
-#[path = "../../../server/src/http/datasets/types.rs"]
 mod types;
-#[path = "../../../server/src/http/datasets/util.rs"]
 mod util;
-#[path = "../../../server/src/http/datasets/xlsx_dataset.rs"]
 mod xlsx_dataset;
 
 use std::collections::BTreeMap;
@@ -41,9 +28,19 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
+pub use metric_access::{
+    build_compiled_datasets_map, collect_all_query_options, evaluate_runtime_metrics,
+    evaluate_runtime_metrics_from_plan, runtime_metric_scope_requested, RuntimeMetricEvalMode,
+    RuntimeMetricEvalOutcome,
+};
 pub use metric_locate::{
     plan_access_metric_eval_for_ids, AccessMetricEvalPlan, locate_runtime_metric_resource,
     metric_ids_visible_for_dataset,
+};
+pub use metric_response_cache::{
+    cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
+    metric_response_cache_scope_key, store_cached_metric_response, take_cached_metric_response,
+    CachedMetricResponse,
 };
 pub use query::query_dataset_rows;
 pub use table_contract::{
@@ -187,6 +184,9 @@ pub fn project_requested_metrics(
     runtime_metric_defs: &BTreeMap<String, Value>,
     metrics_map: &BTreeMap<String, MetricContract>,
 ) -> Vec<MetricContract> {
+    if request_metric_ids.is_empty() {
+        return metrics_map.values().cloned().collect();
+    }
     request_metric_ids
         .iter()
         .filter_map(|metric_id| {
