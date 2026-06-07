@@ -80,8 +80,9 @@
     }
 
     function normalizeRouteMode(value) {
-      const mode = String(value || "").toLowerCase();
-      return mode === "access" ? "access" : "manage";
+      const mode = String(value || "").trim().toLowerCase();
+      if (mode === "access" || mode === "app" || mode === "run") return "access";
+      return "manage";
     }
 
     function sessionBindingKind() {

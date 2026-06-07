@@ -24,6 +24,143 @@
       return {};
     }
 
+    const SESSION_PATCH_STORAGE_PREFIX = "mei.agent.session_patch.v1";
+
+    function cssEscape(value) {
+      if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(String(value || ""));
+      }
+      return String(value || "").replace(/["\\]/g, "\\$&");
+    }
+
+    function safeParseJson(raw) {
+      const text = String(raw || "").trim();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function sessionPatchStorageKey() {
+      const app = String(root.dataset.app || api.currentAppKey() || "").trim() || "unknown";
+      const scene = String(api.currentSceneId() || "").trim() || "scene";
+      const sid = String(state.sessionId || "").trim() || "session";
+      return [SESSION_PATCH_STORAGE_PREFIX, app, scene, sid].join(":");
+    }
+
+    function clearSessionPatchDomEffects() {
+      document
+        .querySelectorAll("[data-mei-session-patch-hidden='1'],[data-mei-session-patch-highlight='1']")
+        .forEach(function (node) {
+          node.removeAttribute("data-mei-session-patch-hidden");
+          node.removeAttribute("data-mei-session-patch-highlight");
+        });
+    }
+
+    function loadSessionPatchesFromStorage() {
+      if (!window.sessionStorage) return [];
+      try {
+        const raw = window.sessionStorage.getItem(sessionPatchStorageKey());
+        const parsed = safeParseJson(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveSessionPatchesToStorage(offers) {
+      if (!window.sessionStorage) return;
+      try {
+        const rows = Array.isArray(offers) ? offers : [];
+        if (!rows.length) {
+          window.sessionStorage.removeItem(sessionPatchStorageKey());
+          return;
+        }
+        window.sessionStorage.setItem(sessionPatchStorageKey(), JSON.stringify(rows));
+      } catch (_) {}
+    }
+
+    function extractSessionPatchOffers(rawMessages) {
+      const offers = [];
+      (Array.isArray(rawMessages) ? rawMessages : []).forEach(function (raw) {
+        if (!raw || String(raw.role || "") !== "assistant") return;
+        const parts = Array.isArray(raw.parts) ? raw.parts : [];
+        parts.forEach(function (part) {
+          if (!part || String(part.part_type || "") !== "tool") return;
+          const tool = part.tool || null;
+          if (!tool || String(tool.tool || "") !== "propose_session_patch") return;
+          if (String(tool.status || "") !== "completed") return;
+          const payload = safeParseJson(tool.output);
+          const patch = payload && payload.patch && typeof payload.patch === "object" ? payload.patch : null;
+          const ops = Array.isArray(patch && patch.ops) ? patch.ops : [];
+          if (!patch || !ops.length) return;
+          offers.push({
+            offer_id: String(payload.call_id || tool.call_id || part.part_id || "").trim(),
+            summary: String(payload.summary || "").trim(),
+            patch: {
+              schema: String(patch.schema || "mei_session_patch_v1"),
+              patch_id: String(patch.patch_id || "").trim(),
+              ops: ops,
+            },
+          });
+        });
+      });
+      return offers;
+    }
+
+    function applySessionPatchesToDom(offers) {
+      clearSessionPatchDomEffects();
+      let opCount = 0;
+      (Array.isArray(offers) ? offers : []).forEach(function (offer) {
+        const ops = Array.isArray(offer && offer.patch && offer.patch.ops) ? offer.patch.ops : [];
+        ops.forEach(function (rawOp) {
+          const op = rawOp && typeof rawOp === "object" ? rawOp : {};
+          const type = String(op.type || "").trim();
+          if (!type) return;
+          if (type === "focus_query_state") {
+            opCount += 1;
+            return;
+          }
+          const panelId = String(op.panel_id || "").trim();
+          if (!panelId) return;
+          const selector = "[data-mei-panel-id='" + cssEscape(panelId) + "']";
+          const nodes = Array.from(document.querySelectorAll(selector));
+          if (!nodes.length) return;
+          if (type === "hide_panel") {
+            nodes.forEach(function (node) {
+              node.setAttribute("data-mei-session-patch-hidden", "1");
+            });
+            opCount += 1;
+            return;
+          }
+          if (type === "highlight_panel") {
+            nodes.forEach(function (node) {
+              node.setAttribute("data-mei-session-patch-highlight", "1");
+            });
+            opCount += 1;
+            return;
+          }
+          if (type === "move_panel_front") {
+            nodes.forEach(function (node) {
+              const parent = node.parentElement;
+              if (parent && parent.firstElementChild !== node) {
+                parent.insertBefore(node, parent.firstElementChild);
+              }
+            });
+            opCount += 1;
+          }
+        });
+      });
+      window.__meiAccessSessionPatchState = {
+        schema: "mei_session_patch_state_v1",
+        offer_count: Array.isArray(offers) ? offers.length : 0,
+        op_count: opCount,
+      };
+      return opCount;
+    }
+
     function __meiSes() {
       return api.transport.ses;
     }
@@ -832,6 +969,10 @@
       __meiSes().closeEventStream();
       CHR.clearDeltaDebugLog();
       state.lastMessagesFingerprint = "";
+      state.sessionPatches = [];
+      state.sessionPatchFingerprint = "";
+      saveSessionPatchesToStorage([]);
+      applySessionPatchesToDom([]);
       resetPendingPermissionState();
       state.progress = {
         visible: false,
@@ -849,6 +990,20 @@
         "/messages?limit=80",
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
+    let sessionPatches = extractSessionPatchOffers(list);
+    if (!sessionPatches.length) {
+      sessionPatches = loadSessionPatchesFromStorage();
+    }
+    const patchFingerprint = JSON.stringify(sessionPatches);
+    if (patchFingerprint !== String(state.sessionPatchFingerprint || "")) {
+      state.sessionPatches = sessionPatches.slice();
+      state.sessionPatchFingerprint = patchFingerprint;
+      saveSessionPatchesToStorage(sessionPatches);
+      applySessionPatchesToDom(sessionPatches);
+      state.contextPreviewScopeKey = "";
+      state.contextPreviewFetchedAtMs = 0;
+      CTX.refreshContextPreview(true).catch(function () {});
+    }
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
     state.progress = api.deriveProgressFromMessages(list);
     CHR.renderProgressStrip();
@@ -960,30 +1115,25 @@
   async function postPromptWithCurrentSession(text, controller) {
     const host =
       typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
-    const coords =
-      host && typeof host.build === "function"
-        ? host.build(api)
+    const body =
+      host && typeof host.buildPromptRequestBody === "function"
+        ? host.buildPromptRequestBody(api, text, {
+            resourceVisibility: CTX.currentResourceVisibility(),
+            browserContext:
+              typeof api.collectBrowserContext === "function"
+                ? api.collectBrowserContext()
+                : null,
+          })
         : {
+            text: text,
             app_id: String(root.dataset.app || ""),
             scene_id: api.currentSceneId(),
             target_file: api.currentTargetKey(),
             mode: api.normalizeAgentMode(state.agentMode),
             route_mode: api.normalizeRouteMode(root.dataset.mode),
+            agent: api.normalizeAgentMode(state.agentMode),
             resource_visibility: CTX.currentResourceVisibility(),
           };
-    if (!coords.resource_visibility && CTX && CTX.currentResourceVisibility) {
-      coords.resource_visibility = CTX.currentResourceVisibility();
-    }
-    const body = {
-      text: text,
-      app_id: coords.app_id,
-      scene_id: coords.scene_id,
-      target_file: coords.target_file,
-      mode: coords.mode,
-      route_mode: coords.route_mode,
-      agent: coords.mode,
-      resource_visibility: coords.resource_visibility,
-    };
     const mref = CHR.getSelectedCompletionModelRef();
     if (mref) {
       body.model = { providerID: mref.provider_id, modelID: mref.model_id };

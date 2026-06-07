@@ -289,6 +289,7 @@
     sessionBindingKind: RT.sessionBindingKind,
     currentSceneId: RT.currentSceneId,
     currentTargetKey: RT.currentTargetKey,
+    collectBrowserContext: CTX.collectBrowserContext,
   };
   const MSG =
     typeof window.__meiAgentPanelInstallMessages === "function"
@@ -585,6 +586,14 @@
   };
   document.addEventListener("mei:manage-context-change", onManageContextChange);
 
+  const onBrowserQueryStateChange = function () {
+    state.contextPreviewScopeKey = "";
+    state.contextPreviewFetchedAtMs = 0;
+    state.contextPreviewBackoffUntilMs = 0;
+    CTX.refreshContextPreview(true).catch(function () {});
+  };
+  document.addEventListener("mei:query-state-change", onBrowserQueryStateChange);
+
   restoreRevertedState();
   CHR.restoreAgentMode();
   AF.restoreAccessFloatingPanel();
@@ -620,6 +629,7 @@
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
+    document.removeEventListener("mei:query-state-change", onBrowserQueryStateChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
     document.removeEventListener("pointermove", AF.continueAccessFloatingDrag);
     document.removeEventListener("pointerup", AF.endAccessFloatingDrag);

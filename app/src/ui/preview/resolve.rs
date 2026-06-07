@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mei_lang_kernel::{
     dataset_materialize_cache_epoch, resolve_dataset_resource_id, resolve_dataset_selector_value,
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor,
     resolve_runtime_metric_def_key, scene_payload_cache_epoch, CompiledApp, LoadedResource,
     RuntimeResourceIndex, SceneContract,
 };
@@ -244,6 +245,8 @@ pub(super) fn attach_host_meta(
                     "api": format!("/api/datasets/metrics/{}", app_path),
                     "scene_qualified": true,
                 },
+                "catalog": host_runtime_capabilities_catalog(),
+                "host_contract": host_runtime_contract_descriptor(),
             }),
         );
         host_meta.insert("components".to_string(), theme_components.clone());

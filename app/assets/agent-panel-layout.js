@@ -99,6 +99,8 @@
       contextPreviewBackoffUntilMs: 0,
       contextPreviewFetchedAtMs: 0,
       contextPreviewScopeKey: "",
+      sessionPatches: [],
+      sessionPatchFingerprint: "",
       modelProbe: null,
       modelProbeFetchedAtMs: 0,
       modelProbeFailureStreak: 0,

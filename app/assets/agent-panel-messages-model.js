@@ -28,6 +28,7 @@
       if (name === "resource_get" && fp) return "resource_get · id=" + fp;
       if (name === "resource_list") return "resource_list";
       if (name === "resource_runtime_peek") return "resource_runtime_peek";
+      if (name === "propose_session_patch") return "propose_session_patch";
       if (name === "skill_list") return "skill_list";
       if (fp) return name + " · filePath=" + fp;
       if (title && title !== name) return name + " · " + title;

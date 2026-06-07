@@ -3369,3 +3369,12 @@ a.tree-link {
   display: grid;
   grid-template-columns: minmax(16rem, 18rem) minmax(0, 1fr);
 }
+
+[data-mei-session-patch-hidden="1"] {
+  display: none !important;
+}
+
+[data-mei-session-patch-highlight="1"] {
+  outline: 2px dashed rgba(56, 189, 248, 0.85);
+  outline-offset: 2px;
+}
