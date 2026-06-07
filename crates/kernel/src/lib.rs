@@ -3,6 +3,7 @@ mod compile_semantics;
 mod config_refs;
 mod eval;
 mod geojson;
+mod host_contract;
 mod mei_config;
 mod model;
 mod ops_journal;
@@ -33,6 +34,10 @@ pub use compile_semantics::COMPILE_SEMANTICS_GENERATION;
 
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
+pub use host_contract::{
+    host_protocol_descriptor, host_runtime_capabilities_catalog, host_runtime_contract_descriptor,
+    HostSurface, HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
+};
 pub use model::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, BlockDecl, ColumnSchema, CompiledApp,
     CompiledSceneRoute, ComponentAsset, DataRef, DataTransform, DatasetSourceRef, DatasetView,

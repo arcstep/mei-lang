@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 
+use mei_lang_kernel::{
+    host_runtime_capabilities_catalog, HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
+};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +130,10 @@ pub struct ExposureManifest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_capabilities: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_protocol_schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_contract_schema: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub query_schema_version: Option<String>,
 }
 
@@ -158,10 +165,12 @@ impl ExposureManifest {
                 "resource_get".to_string(),
                 "resource_runtime_peek".to_string(),
             ],
-            runtime_capabilities: vec![
-                "rows_query(scene_qualified)".to_string(),
-                "metric_query(scene_qualified)".to_string(),
-            ],
+            runtime_capabilities: host_runtime_capabilities_catalog()
+                .iter()
+                .map(|value| (*value).to_string())
+                .collect(),
+            host_protocol_schema: Some(HOST_RUNTIME_PROTOCOL_SCHEMA.to_string()),
+            host_contract_schema: Some(HOST_RUNTIME_CONTRACT_SCHEMA.to_string()),
             query_schema_version: query_schema_version.map(str::to_string),
         }
     }
@@ -199,5 +208,13 @@ mod tests {
             .resource_tools
             .iter()
             .any(|name| name == "dataset_query"));
+        assert_eq!(
+            manifest.host_protocol_schema.as_deref(),
+            Some("mei-host-runtime-protocol-v1")
+        );
+        assert_eq!(
+            manifest.host_contract_schema.as_deref(),
+            Some("mei-host-runtime-contract-v1")
+        );
     }
 }
