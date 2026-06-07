@@ -19,7 +19,10 @@ use axum::{
     Router,
 };
 use clap::{Args, Parser, Subcommand};
-use mei_lang_kernel::{CompileOptions, CompileWatchedFile, Diagnostic, Severity};
+use mei_lang_kernel::{
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, HostSurface,
+    CompileOptions, CompileWatchedFile, Diagnostic, Severity,
+};
 use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
 use serde_json::json;
@@ -46,6 +49,7 @@ struct Cli {
 enum Command {
     Serve(ServeArgs),
     Agent(AgentArgs),
+    Host(HostArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
@@ -59,6 +63,23 @@ enum Command {
 struct AgentArgs {
     #[command(subcommand)]
     command: AgentCommand,
+}
+
+#[derive(Args, Clone)]
+struct HostArgs {
+    #[command(subcommand)]
+    command: HostCommand,
+}
+
+#[derive(Subcommand, Clone)]
+enum HostCommand {
+    Describe(HostDescribeArgs),
+}
+
+#[derive(Args, Clone)]
+struct HostDescribeArgs {
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args, Clone)]
@@ -91,6 +112,7 @@ struct InspectArgs {
 enum InspectCommand {
     World(InspectWorldArgs),
     Inventory(InspectInventoryArgs),
+    Layout(InspectLayoutArgs),
 }
 
 #[derive(Args, Clone)]
@@ -101,6 +123,12 @@ struct InspectWorldArgs {
 
 #[derive(Args, Clone)]
 struct InspectInventoryArgs {
+    #[command(flatten)]
+    app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+struct InspectLayoutArgs {
     #[command(flatten)]
     app: CliAppSelectorArgs,
 }
@@ -271,6 +299,8 @@ struct McpDescribeArgs {
 struct ServeArgs {
     #[arg(long, default_value = "../workspaces")]
     source_root: PathBuf,
+    #[arg(long, default_value = "full", value_parser = ["full", "access-only"])]
+    host_surface: String,
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
     #[arg(long, default_value_t = 9527)]
@@ -342,6 +372,7 @@ async fn main() -> Result<()> {
         Command::Agent(args) => agent_command(AgentRuntimeArgs {
             command: args.command,
         }),
+        Command::Host(args) => host_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),
@@ -365,12 +396,18 @@ fn resolve_cli_source_root(package_root: &std::path::Path, raw: &PathBuf) -> Res
     } else {
         package_root.join(raw)
     };
-    fs::create_dir_all(&source_root).with_context(|| {
-        format!(
-            "failed to create or access source root {}",
+    if !source_root.exists() {
+        anyhow::bail!(
+            "source root `{}` does not exist; create it first or pass a valid --source-root",
             source_root.display()
-        )
-    })?;
+        );
+    }
+    if !source_root.is_dir() {
+        anyhow::bail!(
+            "source root `{}` is not a directory; pass a directory path to --source-root",
+            source_root.display()
+        );
+    }
     source_root.canonicalize().with_context(|| {
         format!(
             "failed to canonicalize source root {}",
@@ -405,6 +442,56 @@ fn world_scope_from_selector(args: &CliAppSelectorArgs) -> Option<http::scene_ap
             target_file,
         })
     }
+}
+
+fn inspect_layout_for_app(source_root: &std::path::Path, app_id: &str) -> toolchain::SourceLayoutInspection {
+    toolchain::inspect_source_layout(source_root, app_id)
+}
+
+fn ensure_cli_layout_ready(layout: &toolchain::SourceLayoutInspection) -> Result<()> {
+    let errors: Vec<&toolchain::LayoutCheck> = layout
+        .checks
+        .iter()
+        .filter(|item| item.level == "error")
+        .collect();
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let summary = errors
+        .iter()
+        .map(|item| {
+            if let Some(hint) = item.hint.as_deref() {
+                format!("- {} ({hint})", item.message)
+            } else {
+                format!("- {}", item.message)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    anyhow::bail!(
+        "layout checks failed for app `{}`:\n{}\nRun `mei inspect layout --app {} --source-root {}` for full report.",
+        layout.app_id,
+        summary,
+        layout.app_id,
+        layout.roots.source_root
+    );
+}
+
+fn attach_layout_to_envelope(
+    envelope: &mut toolchain::HeadlessArtifactEnvelope,
+    layout: &toolchain::SourceLayoutInspection,
+) -> Result<()> {
+    let layout_value = serde_json::to_value(layout)?;
+    if let Some(obj) = envelope.artifact.as_object_mut() {
+        obj.insert("layout".to_string(), layout_value);
+    } else {
+        let current = envelope.artifact.clone();
+        envelope.artifact = json!({
+            "value": current,
+            "layout": layout_value,
+        });
+    }
+    Ok(())
 }
 
 fn parse_cli_filters(filters: &[String]) -> Result<std::collections::BTreeMap<String, String>> {
@@ -481,6 +568,8 @@ fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let options = compile_options_from_selector(&args.app);
     let report = toolchain::compile_report(&source_root, app_id, options.clone())?;
     let compiled = report.compiled;
@@ -505,7 +594,8 @@ fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
             "token": report.revision_token,
             "components_revision": report.components_revision,
             "watched_files": watched_files_json(&report.watched_files),
-        }
+        },
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -514,6 +604,7 @@ fn inspect_command(args: InspectArgs) -> Result<()> {
     match args.command {
         InspectCommand::World(args) => inspect_world_command(args),
         InspectCommand::Inventory(args) => inspect_inventory_command(args),
+        InspectCommand::Layout(args) => inspect_layout_command(args),
     }
 }
 
@@ -524,6 +615,8 @@ fn inspect_world_command(args: InspectWorldArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let snapshot = toolchain::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
     let output = json!({
@@ -532,6 +625,7 @@ fn inspect_world_command(args: InspectWorldArgs) -> Result<()> {
         "app_id": app_id,
         "scope": scope_json(scope.as_ref()),
         "world_context": snapshot,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -543,6 +637,8 @@ fn inspect_inventory_command(args: InspectInventoryArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let snapshot = toolchain::build_world_context_snapshot(&source_root, app_id, scope.as_ref())?;
     let output = json!({
@@ -552,6 +648,24 @@ fn inspect_inventory_command(args: InspectInventoryArgs) -> Result<()> {
         "scope": scope_json(scope.as_ref()),
         "active_target_file": snapshot.active_target_file,
         "inventory": snapshot.resource_inventory,
+        "layout": layout,
+    });
+    print_json_output(&output, args.app.json)
+}
+
+fn inspect_layout_command(args: InspectLayoutArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "inspect.layout",
+        "app_id": app_id,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -570,8 +684,13 @@ fn export_inventory_command(args: ExportInventoryArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
     let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app).unwrap_or_default();
-    let envelope = toolchain::export_inventory_snapshot(
+    let mut envelope = toolchain::export_inventory_snapshot(
         &source_root,
         app_id,
         &scope,
@@ -579,6 +698,7 @@ fn export_inventory_command(args: ExportInventoryArgs) -> Result<()> {
             write_store: args.write_store,
         },
     )?;
+    attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
 }
 
@@ -586,8 +706,13 @@ fn export_semantic_dag_command(args: ExportSemanticDagArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
     let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app).unwrap_or_default();
-    let envelope = toolchain::export_semantic_dag(
+    let mut envelope = toolchain::export_semantic_dag(
         &source_root,
         app_id,
         &scope,
@@ -597,6 +722,7 @@ fn export_semantic_dag_command(args: ExportSemanticDagArgs) -> Result<()> {
             write_store: args.write_store,
         },
     )?;
+    attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
 }
 
@@ -604,8 +730,13 @@ fn export_contracts_command(args: ExportContractsArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
     let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app).unwrap_or_default();
-    let envelope = toolchain::export_analysis_contracts(
+    let mut envelope = toolchain::export_analysis_contracts(
         &source_root,
         app_id,
         &scope,
@@ -615,6 +746,7 @@ fn export_contracts_command(args: ExportContractsArgs) -> Result<()> {
             write_store: args.write_store,
         },
     )?;
+    attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
 }
 
@@ -622,9 +754,14 @@ fn export_eval_plan_command(args: ExportEvalPlanArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
     let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app).unwrap_or_default();
     let filters = parse_cli_filters(&args.filters)?;
-    let envelope = toolchain::export_eval_plan(
+    let mut envelope = toolchain::export_eval_plan(
         &source_root,
         app_id,
         &scope,
@@ -636,6 +773,7 @@ fn export_eval_plan_command(args: ExportEvalPlanArgs) -> Result<()> {
             write_store: args.write_store,
         },
     )?;
+    attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
 }
 
@@ -643,8 +781,13 @@ fn export_runtime_trace_command(args: ExportRuntimeTraceArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
     let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app).unwrap_or_default();
-    let envelope = toolchain::export_runtime_trace(
+    let mut envelope = toolchain::export_runtime_trace(
         &source_root,
         app_id,
         &scope,
@@ -653,6 +796,7 @@ fn export_runtime_trace_command(args: ExportRuntimeTraceArgs) -> Result<()> {
             write_store: args.write_store,
         },
     )?;
+    attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
 }
 
@@ -671,6 +815,8 @@ fn query_dataset_command(args: QueryDatasetArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let filters = parse_cli_filters(&args.filters)?;
     let columns = if args.columns.is_empty() {
@@ -695,6 +841,7 @@ fn query_dataset_command(args: QueryDatasetArgs) -> Result<()> {
         "scope": scope_json(scope.as_ref()),
         "dataset_id": args.id.trim(),
         "result": result,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -706,6 +853,8 @@ fn query_metric_command(args: QueryMetricArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let filters = parse_cli_filters(&args.filters)?;
     let result = http::scene_api::query_resource_dataset_metric(
@@ -725,6 +874,7 @@ fn query_metric_command(args: QueryMetricArgs) -> Result<()> {
         "dataset_id": args.id.trim(),
         "metric_ids": args.metric_ids,
         "result": result,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -736,6 +886,8 @@ fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let result = toolchain::query_world_asset(&source_root, app_id, scope.as_ref(), args.id.trim())?;
     let output = json!({
@@ -745,6 +897,7 @@ fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
         "scope": scope_json(scope.as_ref()),
         "resource_id": args.id.trim(),
         "result": result,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -755,6 +908,21 @@ fn runtime_command(args: RuntimeArgs) -> Result<()> {
     }
 }
 
+fn host_command(args: HostArgs) -> Result<()> {
+    match args.command {
+        HostCommand::Describe(args) => host_describe_command(args),
+    }
+}
+
+fn host_describe_command(args: HostDescribeArgs) -> Result<()> {
+    let output = json!({
+        "schema_version": "mei-cli-v1",
+        "command": "host.describe",
+        "host_contract": host_runtime_contract_descriptor(),
+    });
+    print_json_output(&output, args.json)
+}
+
 fn runtime_peek_command(args: RuntimePeekArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
@@ -762,6 +930,8 @@ fn runtime_peek_command(args: RuntimePeekArgs) -> Result<()> {
     if app_id.is_empty() {
         anyhow::bail!("--app is required");
     }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let result =
         toolchain::query_world_runtime(&source_root, app_id, scope.as_ref(), args.trace_limit)?;
@@ -770,7 +940,10 @@ fn runtime_peek_command(args: RuntimePeekArgs) -> Result<()> {
         "command": "runtime.peek",
         "app_id": app_id,
         "scope": scope_json(scope.as_ref()),
+        "runtime_capabilities": host_runtime_capabilities_catalog(),
+        "host_contract": host_runtime_contract_descriptor(),
         "result": result,
+        "layout": layout,
     });
     print_json_output(&output, args.app.json)
 }
@@ -787,81 +960,181 @@ fn mcp_describe_command(args: McpDescribeArgs) -> Result<()> {
         "editor" => json!({
             "schema_version": "mei-mcp-surface-v1",
             "surface": "editor",
+            "profile": "editor_readonly_minimal_v1",
             "transport": {
-                "status": "descriptor_ready",
-                "recommended": "wrap these commands in stdio MCP host or editor-native adapter"
+                "status": "adapter_ready",
+                "recommended": "run `npm run mcp:editor-adapter` for stdio MCP and `npm run test:mcp:editor-adapter` for smoke validation"
+            },
+            "adapter": {
+                "reference": "scripts/mcp/mei-editor-stdio-adapter.mjs",
+                "entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs",
+                "smoke_test": "npm run test:mcp:editor-adapter"
+            },
+            "runtime": {
+                "cli_entrypoint": "mei",
+                "lsp_entrypoint": "mei-lsp (stdio)",
+                "adapter_entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs"
             },
             "tools": [
                 {
                     "name": "mei_check",
                     "description": "Compile an app and return diagnostics plus revision metadata.",
-                    "backed_by": "mei check --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei check --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "mei_compile",
                     "description": "Compile an app and return the same JSON contract as check for scripted consumers.",
-                    "backed_by": "mei compile --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei compile --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
+                },
+                {
+                    "name": "mei_host_describe",
+                    "description": "Return machine-readable host runtime contract descriptor.",
+                    "backed_by": "mei host describe --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    }
                 },
                 {
                     "name": "mei_inspect_world",
                     "description": "Return the structured world/runtime snapshot for the selected app scope.",
-                    "backed_by": "mei inspect world --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei inspect world --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "mei_inspect_inventory",
                     "description": "Return the app inventory/resource index for the selected scope.",
-                    "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json"
-                },
-                {
-                    "name": "mei_export_inventory",
-                    "description": "Export the inventory snapshot envelope and optionally persist it into app_root/.mei.",
-                    "backed_by": "mei export inventory --app <app> [--scene <scene>] [--target-file <file>] [--write-store] --json"
-                },
-                {
-                    "name": "mei_export_semantic_dag",
-                    "description": "Export runtime metric defs plus the compile-derived semantic DAG for a dataset.",
-                    "backed_by": "mei export semantic-dag --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--write-store] --json"
-                },
-                {
-                    "name": "mei_export_analysis_contracts",
-                    "description": "Export runtime analysis contracts for a dataset and selected metrics.",
-                    "backed_by": "mei export contracts --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--write-store] --json"
-                },
-                {
-                    "name": "mei_export_eval_plan",
-                    "description": "Export the headless EvalPlan for a dataset/metric selection under the requested filter scope.",
-                    "backed_by": "mei export eval-plan --app <app> --dataset-id <dataset_id> [--metric-id <metric>]... [--filter key=value]... [--search text] [--scene <scene>] [--write-store] --json"
-                },
-                {
-                    "name": "mei_export_runtime_trace",
-                    "description": "Export a bounded runtime trace envelope for the selected app scope.",
-                    "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] [--write-store] --json"
+                    "backed_by": "mei inspect inventory --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "mei_query_dataset",
                     "description": "Run bounded dataset row/schema queries.",
-                    "backed_by": "mei query dataset --app <app> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json"
+                    "backed_by": "mei query dataset --app <app> --source-root <dir> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "dataset_id": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "search": { "type": "string" },
+                            "filters": {
+                                "type": "object",
+                                "additionalProperties": { "type": "string" }
+                            },
+                            "columns": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            },
+                            "limit": { "type": "integer", "minimum": 1 }
+                        },
+                        "required": ["app", "dataset_id"]
+                    }
                 },
                 {
                     "name": "mei_query_metric",
                     "description": "Run bounded runtime metric queries for a dataset.",
-                    "backed_by": "mei query metric --app <app> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json"
+                    "backed_by": "mei query metric --app <app> --source-root <dir> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "dataset_id": { "type": "string" },
+                            "metric_ids": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "search": { "type": "string" },
+                            "filters": {
+                                "type": "object",
+                                "additionalProperties": { "type": "string" }
+                            }
+                        },
+                        "required": ["app", "dataset_id"]
+                    }
                 },
                 {
                     "name": "mei_runtime_peek",
                     "description": "Peek current runtime phase/result/actions for the selected scope.",
-                    "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei runtime peek --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] [--trace-limit N] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "trace_limit": { "type": "integer", "minimum": 1 }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "mei_query_resource",
                     "description": "Fetch a single world resource/entity payload.",
-                    "backed_by": "mei query resource --app <app> --id <resource_id> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei query resource --app <app> --source-root <dir> --id <resource_id> [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "resource_id": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app", "resource_id"]
+                    }
                 }
             ],
             "write_policy": {
                 "default": "read_only",
                 "note": "Editor-side MCP currently wraps semantic read/check/query surfaces only; file writes stay in the external dev tool."
-            }
+            },
+            "host_contract": host_runtime_contract_descriptor()
         }),
         "access" => json!({
             "schema_version": "mei-mcp-surface-v1",
@@ -909,7 +1182,9 @@ fn mcp_describe_command(args: McpDescribeArgs) -> Result<()> {
             "write_policy": {
                 "default": "read_only",
                 "note": "Access-side MCP is intentionally read-only and should not expose authoring rewrite/diff/revert flows."
-            }
+            },
+            "runtime_capabilities": host_runtime_capabilities_catalog(),
+            "host_contract": host_runtime_contract_descriptor()
         }),
         _ => anyhow::bail!("unsupported MCP surface `{surface}`"),
     };
@@ -938,6 +1213,21 @@ async fn serve(args: ServeArgs) -> Result<()> {
             source_root.display()
         )
     })?;
+    let host_surface = args.host_surface.trim().to_ascii_lowercase();
+    if host_surface == "access-only" {
+        unsafe {
+            std::env::set_var("MEI_HOST_SURFACE", "access-only");
+        }
+    } else {
+        unsafe {
+            std::env::remove_var("MEI_HOST_SURFACE");
+        }
+    }
+    let host_surface_slug = if host_surface == "access-only" {
+        HostSurface::AccessOnlyHost.as_slug()
+    } else {
+        HostSurface::AuthoringHost.as_slug()
+    };
     let preferred_mode = if args.auto_agent {
         "managed".to_string()
     } else {
@@ -964,6 +1254,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         manifest_dir = env!("CARGO_MANIFEST_DIR"),
         package_root = %package_root.display(),
         source_root = %source_root.display(),
+        host_surface = host_surface_slug,
         agent_backend = "native",
         "mei serve resolved paths"
     );

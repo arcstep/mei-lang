@@ -4,6 +4,9 @@
   "type": "module",
   "scripts": {
     "assets:build": "node ./scripts/build-assets.mjs",
+    "mcp:editor-adapter": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs",
+    "test:mcp:editor-adapter": "node ./scripts/test-editor-mcp-adapter.mjs",
+    "test:phase4-regressions": "bash ./scripts/check-phase4-regressions.sh",
     "assets:list-large": "node ./scripts/list-large-files.mjs",
     "test:runtime-metric-perf": "node ./scripts/runtime-metric-perf.mjs",
     "test:scope": "node ./scripts/test-scope-params.mjs",

@@ -40,6 +40,9 @@ MEI_TILES_JSON_PATH=/shapingba-z10-16
 ```bash
 cd mei-lang
 cargo run -p mei-lang-server -- serve
+
+# 仅发布 access host（不暴露 build/config/upload）
+cargo run -p mei-lang-server -- serve --host-surface access-only
 ```
 
 默认行为：
@@ -76,6 +79,13 @@ cargo run -p mei-lang-server -- runtime peek --app spbjw --json
 # 机器可读 MCP surface 描述
 cargo run -p mei-lang-server -- mcp describe --surface editor --json
 cargo run -p mei-lang-server -- mcp describe --surface access --json
+
+# host runtime contract 描述
+cargo run -p mei-lang-server -- host describe --json
+
+# editor MCP adapter（stdio）
+npm run mcp:editor-adapter
+npm run test:mcp:editor-adapter
 ```
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。
