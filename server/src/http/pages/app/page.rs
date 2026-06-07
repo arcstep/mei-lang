@@ -7,13 +7,13 @@ use std::{
 };
 
 use axum::{
-    extract::{Path as AxumPath, Query, State},
+    extract::{Extension, Path as AxumPath, Query, State},
     http::{HeaderName, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use mei_lang_app::{
     render_build_source_page, render_config_page, render_page, render_upload_page,
-    SourcePanelMeta, TopbarMenuContext, UiRouteMode, UploadFileEntry,
+    HostAccountView, SourcePanelMeta, TopbarMenuContext, UiRouteMode, UploadFileEntry,
 };
 use mei_lang_kernel::{
     discover_apps, load_mei_config_for_app, read_source_file, resolve_app_entry_main,
@@ -25,7 +25,7 @@ use serde::Serialize;
 use serde_json::json;
 use std::fs;
 
-use crate::{AppError, AppState};
+use crate::{auth::{AuthEnforcement, AuthPrincipal}, AppError, AppState};
 
 use super::super::super::compile_cache::{
     compile_app_with_cache, peek_compile_cache_hit, recent_compile_failure,
@@ -51,6 +51,15 @@ fn html_escape_min(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn account_view_for_principal(principal: Option<&AuthPrincipal>) -> Option<HostAccountView> {
+    principal.map(|principal| HostAccountView {
+        logged_in: true,
+        username: principal.username.clone(),
+        profile: principal.profile.clone(),
+        role: principal.role_slug().to_string(),
+    })
 }
 
 fn diagnostic_message_by_code(compiled: &CompiledApp, code: &str) -> Option<String> {
@@ -191,6 +200,8 @@ fn page_render_cache_key(
     topbar_menu: Option<&TopbarMenuContext>,
     upload_files: &[UploadFileEntry],
     gis: &crate::gis_config::GisTilesConfig,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> Option<String> {
     let compile_revision = compile_revision.trim();
     if compile_revision.is_empty() {
@@ -200,6 +211,7 @@ fn page_render_cache_key(
     let source_meta_sig = source_meta.map(serialized_signature).unwrap_or(0);
     let topbar_sig = topbar_menu.map(serialized_signature).unwrap_or(0);
     let upload_sig = serialized_signature(upload_files);
+    let auth_sig = auth_account.map(serialized_signature).unwrap_or(0);
     let extra = json!({
         "app_id": app_id,
         "route_mode": route_mode.slug(),
@@ -216,6 +228,8 @@ fn page_render_cache_key(
         "source_meta_sig": source_meta_sig,
         "topbar_sig": topbar_sig,
         "upload_sig": upload_sig,
+        "auth_sig": auth_sig,
+        "auth_enabled": auth_enabled,
         "gis_base_url": gis.base_url.as_str(),
         "gis_json_path": gis.json_path.as_str(),
     });
@@ -299,9 +313,17 @@ fn access_only_surface_enabled() -> bool {
 
 pub async fn app_page(
     State(state): State<AppState>,
+    principal: Option<Extension<AuthPrincipal>>,
     AxumPath((mode, app_id_raw)): AxumPath<(String, String)>,
     Query(query): Query<AppQuery>,
 ) -> Result<Response, AppError> {
+    let principal = principal.map(|Extension(value)| value);
+    let auth_enabled = state.auth_enforcement == AuthEnforcement::Required;
+    let account_view = if auth_enabled {
+        account_view_for_principal(principal.as_ref())
+    } else {
+        None
+    };
     let app_started = Instant::now();
     if mode == "access" {
         if let Some(location) = legacy_access_redirect_location(&app_id_raw, &query) {
@@ -496,6 +518,8 @@ pub async fn app_page(
             Some(&source_meta),
             lightweight_scene.as_deref(),
             upload_enabled,
+            auth_enabled,
+            account_view.as_ref(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
@@ -549,6 +573,8 @@ pub async fn app_page(
             upload_enabled,
             Some(upload_root_label),
             &upload_files,
+            auth_enabled,
+            account_view.as_ref(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
@@ -597,6 +623,8 @@ pub async fn app_page(
             lightweight_scene.as_deref(),
             query.tab.as_deref(),
             upload_enabled,
+            auth_enabled,
+            account_view.as_ref(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(app_started));
@@ -730,6 +758,8 @@ pub async fn app_page(
                         upload_enabled,
                         Some(upload_root_label),
                         &upload_files,
+                        auth_enabled,
+                        account_view.as_ref(),
                     );
                     (html, elapsed_ms(t))
                 };
@@ -854,6 +884,21 @@ pub async fn app_page(
             )
                 .into_response());
         }
+        if let Some(principal) = principal.as_ref() {
+            if !principal.can_access_scene(&app_id, rt) {
+                let app_esc = html_escape_min(app_id.trim_start_matches('/'));
+                let scene_esc = html_escape_min(rt);
+                return Ok((
+                    StatusCode::FORBIDDEN,
+                    Html(format!(
+                        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><title>访问受限</title></head><body>\
+                         <p>当前账号未被授权访问应用 <code>{app_esc}</code> 的场景 <code>{scene_esc}</code>。</p>\
+                         <p><a href=\"/login\">重新登录</a></p></body></html>",
+                    )),
+                )
+                    .into_response());
+            }
+        }
     }
     let manage_scene_resolved = if access_static_file.is_some() {
         None
@@ -962,6 +1007,8 @@ pub async fn app_page(
         Some(&topbar_menus),
         &upload_files,
         &gis,
+        auth_enabled,
+        account_view.as_ref(),
     );
     let (html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
@@ -983,6 +1030,8 @@ pub async fn app_page(
                 upload_enabled,
                 Some(upload_root_label),
                 &upload_files,
+                auth_enabled,
+                account_view.as_ref(),
             );
             fill_gis_tiles_placeholders(rendered, &gis)
         });

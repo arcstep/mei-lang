@@ -36,6 +36,18 @@ pub struct SourcePanelMeta {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HostAccountView {
+    #[serde(default)]
+    pub logged_in: bool,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub role: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TopbarMenuConfig {
     #[serde(default)]
     pub skip_prefixes: Vec<String>,
@@ -79,6 +91,8 @@ fn render_document(
     chrome_hidden: bool,
     shell: AnyView,
     component_scripts_view: AnyView,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> String {
     let shell_mode_class = match route_mode {
         UiRouteMode::App if chrome_hidden => "app-view chrome-none",
@@ -89,6 +103,29 @@ fn render_document(
     };
     let body_class = format!("{shell_mode_class} sl-theme-dark");
     let chrome_scripts = chrome_scripts_view(route_mode);
+    let auth_user_meta = if auth_enabled {
+        auth_account
+            .map(|view| view.username.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("")
+    } else {
+        ""
+    };
+    let auth_role_meta = if auth_enabled {
+        auth_account
+            .map(|view| view.role.as_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("")
+    } else {
+        ""
+    };
+    let auth_logged_in_meta = if auth_enabled {
+        auth_account
+            .map(|view| if view.logged_in { "1" } else { "0" })
+            .unwrap_or("0")
+    } else {
+        "0"
+    };
 
     let manage_timing_meta = match route_mode {
         UiRouteMode::Build => view! {
@@ -107,6 +144,9 @@ fn render_document(
                 <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
                 <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
                 <meta name="mei-view" content=route_mode.slug()/>
+                <meta name="mei-auth-user" content=auth_user_meta/>
+                <meta name="mei-auth-role" content=auth_role_meta/>
+                <meta name="mei-auth-logged-in" content=auth_logged_in_meta/>
                 <title>{format!("{app_title} - MeiLang")}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>
@@ -121,6 +161,9 @@ fn render_document(
                 data-mei-view=route_mode.slug()
                 data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
                 data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
+                data-mei-auth-user=auth_user_meta
+                data-mei-auth-role=auth_role_meta
+                data-mei-auth-logged-in=auth_logged_in_meta
             >
                 {shell}
                 {component_scripts_view}
@@ -148,6 +191,8 @@ pub fn render_page(
     upload_enabled: bool,
     upload_root_label: Option<&str>,
     upload_files: &[UploadFileEntry],
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -161,6 +206,8 @@ pub fn render_page(
             active_tab,
             chrome_hidden,
             upload_enabled,
+            auth_enabled,
+            auth_account,
         ),
         UiRouteMode::Build => manage_shell(
             apps,
@@ -175,6 +222,8 @@ pub fn render_page(
             active_tab,
             diag_filter,
             upload_enabled,
+            auth_enabled,
+            auth_account,
         ),
         UiRouteMode::Config => config_shell(
             apps,
@@ -184,6 +233,8 @@ pub fn render_page(
             upload_enabled,
             selected_scene,
             source_meta,
+            auth_enabled,
+            auth_account,
         ),
         UiRouteMode::Upload => upload_shell(
             apps,
@@ -197,6 +248,8 @@ pub fn render_page(
             target,
             source,
             source_meta,
+            auth_enabled,
+            auth_account,
         ),
     };
     render_document(
@@ -205,6 +258,8 @@ pub fn render_page(
         chrome_hidden,
         shell,
         component_scripts(compiled).into_any(),
+        auth_enabled,
+        auth_account,
     )
 }
 
@@ -217,6 +272,8 @@ pub fn render_config_page(
     source_meta: Option<&SourcePanelMeta>,
     selected_scene: Option<&str>,
     upload_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> String {
     let _ = source;
     let shell = config_shell(
@@ -227,6 +284,8 @@ pub fn render_config_page(
         upload_enabled,
         selected_scene,
         source_meta,
+        auth_enabled,
+        auth_account,
     );
     render_document(
         app_title,
@@ -234,6 +293,8 @@ pub fn render_config_page(
         false,
         shell,
         view! { <></> }.into_any(),
+        auth_enabled,
+        auth_account,
     )
 }
 
@@ -249,6 +310,8 @@ pub fn render_upload_page(
     upload_enabled: bool,
     upload_root_label: Option<&str>,
     upload_files: &[UploadFileEntry],
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> String {
     let shell = upload_shell(
         apps,
@@ -262,6 +325,8 @@ pub fn render_upload_page(
         target,
         source,
         source_meta,
+        auth_enabled,
+        auth_account,
     );
     render_document(
         app_title,
@@ -269,6 +334,8 @@ pub fn render_upload_page(
         false,
         shell,
         view! { <></> }.into_any(),
+        auth_enabled,
+        auth_account,
     )
 }
 
@@ -284,6 +351,8 @@ pub fn render_build_source_page(
     selected_scene: Option<&str>,
     active_tab: Option<&str>,
     upload_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> String {
     let shell = manage_source_shell(
         apps,
@@ -297,6 +366,8 @@ pub fn render_build_source_page(
         selected_scene,
         active_tab,
         upload_enabled,
+        auth_enabled,
+        auth_account,
     );
     render_document(
         app_title,
@@ -304,6 +375,8 @@ pub fn render_build_source_page(
         false,
         shell,
         view! { <></> }.into_any(),
+        auth_enabled,
+        auth_account,
     )
 }
 

@@ -7,7 +7,7 @@ use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
 use super::view_routing::upload_href;
-use super::{SourcePanelMeta, TopbarMenuContext};
+use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UploadFileEntry {
@@ -28,6 +28,8 @@ pub(super) fn upload_shell(
     selected_file: Option<&str>,
     source: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let selected = selected_file.unwrap_or("");
     let topbar = topbar_view(
@@ -40,6 +42,8 @@ pub(super) fn upload_shell(
         None,
         upload_enabled,
         false,
+        auth_enabled,
+        auth_account,
     );
     let statusbar = statusbar_view(
         app_path,

@@ -41,14 +41,36 @@ MEI_TILES_JSON_PATH=/shapingba-z10-16
 cd mei-lang
 cargo run -p mei-lang-server -- serve
 
+# 启用登录鉴权（须先完成下方配置，否则启动失败）
+cargo run -p mei-lang-server -- serve --auth
+
 # 仅发布 access host（不暴露 build/config/upload）
 cargo run -p mei-lang-server -- serve --host-surface access-only
+```
+
+启用 `--auth` 前，先在工作区根目录初始化 auth 基线（写入 `{source_root}/.mei-workspace.json`）：
+
+```bash
+# 生成 JWT / RSA 密钥（写入 .mei-workspace.json）
+cargo run -p mei-lang-server -- host auth ensure-keys --source-root ../workspaces --json
+
+# 方案 A：一次性初始化 super/admin/guest（生成随机临时密码并打印一次）
+cargo run -p mei-lang-server -- host auth bootstrap-users --source-root ../workspaces --json
+
+# 方案 B1：手工编辑 auth.users[] 时，用 stdin 生成 Argon2 哈希
+printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth hash-password --json
+
+# 方案 B2：工具链直接新增单个用户（同样从 stdin 读密码）
+printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth add-user \
+  --source-root ../workspaces --username guest01 --role guest --password-stdin --json
 ```
 
 默认行为：
 
 - `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
 - 源码根目录 **`--source-root`** 未传时默认为仓库内 **`../workspaces`**
+- **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户）
+- 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
 - 启动后提供默认宿主/runtime；访问侧 AI 若启用，将按 `.env` 中 OpenAI 兼容配置连接模型服务
 
 ## 当前边界
@@ -92,7 +114,8 @@ npm run test:mcp:editor-adapter
 
 ## 停止服务
 
-- 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`
+- 停止 `mei-lang`：在 `mei serve` 所在终端按 `Ctrl+C`；若端口仍被占用，可执行 `lsof -ti tcp:9527 | xargs kill`
+- 日志里的 `synced MeiLang skill` 仅表示 skill 文件同步，**不是**自动拉起外部 Agent 进程；默认启动不会做这一步
 - 停止 Martin（Docker）：`./scripts/stop_martin_docker.sh`（mei-projects 根目录）
 
 ## 最少配置

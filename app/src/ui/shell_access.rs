@@ -8,7 +8,7 @@ use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::{access_scene_for_topbar, topbar_view};
-use super::TopbarMenuContext;
+use super::{HostAccountView, TopbarMenuContext};
 
 pub(super) fn access_shell(
     apps: &[WorkspaceAppMeta],
@@ -21,6 +21,8 @@ pub(super) fn access_shell(
     active_tab: Option<&str>,
     chrome_hidden: bool,
     upload_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let current_target = file_target
         .filter(|t| !t.trim().is_empty())
@@ -50,6 +52,8 @@ pub(super) fn access_shell(
         active_tab,
         upload_enabled,
         stage_enabled,
+        auth_enabled,
+        auth_account,
     );
     let statusbar = statusbar_view(
         app_path,

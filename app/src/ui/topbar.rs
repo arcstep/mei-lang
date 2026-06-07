@@ -9,7 +9,7 @@ use super::route::UiRouteMode;
 use super::view_routing::{
     app_scene_href, build_href, config_href, cross_app_href, upload_href,
 };
-use super::{TopbarMenuConfig, TopbarMenuContext};
+use super::{HostAccountView, TopbarMenuConfig, TopbarMenuContext};
 #[derive(Debug, Clone)]
 struct TopbarMenuItem {
     app_id: String,
@@ -288,6 +288,8 @@ pub(super) fn topbar_view(
     active_tab: Option<&str>,
     upload_enabled: bool,
     stage_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
@@ -474,6 +476,45 @@ pub(super) fn topbar_view(
     } else {
         "在新标签页打开无 Chrome 应用"
     };
+    let account_view = if auth_enabled {
+        if let Some(account) = auth_account.filter(|item| item.logged_in) {
+            let display = if account.profile.trim().is_empty() {
+                account.username.clone()
+            } else {
+                account.profile.clone()
+            };
+            let role = if account.role.trim().is_empty() {
+                "guest".to_string()
+            } else {
+                account.role.clone()
+            };
+            view! {
+                <div class="topbar-account inline-flex items-center gap-1.5 border-l border-slate-400/20 pl-2">
+                    <span class="topbar-account-name text-[11px] text-slate-300" title=account.username.clone()>
+                        {format!("{display} ({role})")}
+                    </span>
+                    <a class="topbar-account-link text-[11px] text-slate-300 hover:text-slate-100" href="/account/password">
+                        "改密"
+                    </a>
+                    <a class="topbar-account-link text-[11px] text-slate-300 hover:text-slate-100" href="/logout?next=%2Flogin">
+                        "退出"
+                    </a>
+                </div>
+            }
+            .into_any()
+        } else {
+            view! {
+                <div class="topbar-account inline-flex items-center gap-1.5 border-l border-slate-400/20 pl-2">
+                    <a class="topbar-account-link text-[11px] text-slate-300 hover:text-slate-100" href="/login">
+                        "登录"
+                    </a>
+                </div>
+            }
+            .into_any()
+        }
+    } else {
+        view! { <></> }.into_any()
+    };
     view! {
         <header class="topbar topbar-shell chrome-inset chrome-safe-x topbar-safe sticky top-0 z-50 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-1.5 backdrop-blur-md">
             <div class="brand flex min-w-0 items-center gap-2">
@@ -513,6 +554,7 @@ pub(super) fn topbar_view(
                         </span>
                     </sl-button>
                 </sl-tooltip>
+                {account_view}
             </div>
         </header>
     }

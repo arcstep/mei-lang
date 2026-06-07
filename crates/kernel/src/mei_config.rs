@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -15,6 +16,7 @@ use serde_json::Value;
 pub const MEI_CONFIG_FILENAME: &str = ".mei-config.json";
 pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = ".mei-workspace.json";
 pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
+pub const AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
 pub const DEFAULT_APP_ENTRY_MAIN: &str = "main.mei";
 
 /// 可运维对象白名单（宿主写操作仅允许触及这些分类）。
@@ -39,6 +41,50 @@ pub struct WorkspaceConfig {
     pub menu: Value,
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    /// 工作区级宿主认证配置（用户清单、JWT、登录加密密钥）。
+    #[serde(default)]
+    pub auth: WorkspaceAuthConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceAuthConfig {
+    #[serde(default, rename = "jwtSecret")]
+    pub jwt_secret: Option<String>,
+    #[serde(default, rename = "jwtTtlSeconds")]
+    pub jwt_ttl_seconds: Option<u64>,
+    #[serde(default, rename = "cookieName")]
+    pub cookie_name: Option<String>,
+    #[serde(default)]
+    pub users: Vec<AuthUserConfig>,
+    #[serde(default, rename = "keyPair")]
+    pub key_pair: AuthKeyPairConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuthKeyPairConfig {
+    #[serde(default, rename = "publicKeyPem")]
+    pub public_key_pem: String,
+    #[serde(default, rename = "privateKeyPem")]
+    pub private_key_pem: String,
+    #[serde(default, rename = "createdAt")]
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AuthUserConfig {
+    pub username: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default, rename = "passwordHash")]
+    pub password_hash: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default, rename = "appAllowlist")]
+    pub app_allowlist: Vec<String>,
+    #[serde(default, rename = "sceneAllowlist")]
+    pub scene_allowlist: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub disabled: bool,
 }
 
 /// app 根目录 `.mei-config.json`：入口、路径、宿主能力与 ops。
@@ -63,6 +109,9 @@ pub struct MeiConfig {
     pub runtime: RuntimeConfig,
     #[serde(default)]
     pub ops: OpsConfig,
+    /// 兼容一次误将工作区 `auth` 写入 `.mei-config.json` 的迁移窗口；应用运行时不应依赖该字段。
+    #[serde(default)]
+    pub auth: WorkspaceAuthConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -242,6 +291,69 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
     segment_root.join(MEI_WORKSPACE_CONFIG_FILENAME)
 }
 
+/// 工作区 segment 根目录的 `.mei-workspace.json`。
+pub fn workspace_auth_config_path(segment_root: &Path) -> PathBuf {
+    workspace_config_path(segment_root)
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceAuthBundle {
+    pub auth: WorkspaceAuthConfig,
+    pub config_path: PathBuf,
+}
+
+fn workspace_auth_section_empty(auth: &WorkspaceAuthConfig) -> bool {
+    auth.users.is_empty()
+        && auth
+            .jwt_secret
+            .as_deref()
+            .map(str::trim)
+            .unwrap_or("")
+            .is_empty()
+        && auth.key_pair.public_key_pem.trim().is_empty()
+        && auth.key_pair.private_key_pem.trim().is_empty()
+}
+
+/// 读取工作区认证配置：优先 `{segment_root}/.mei-workspace.json#auth`，
+/// 如为空则兼容回退到同级误写入的 `.mei-config.json#auth`。
+pub fn load_workspace_auth_bundle(segment_root: &Path) -> WorkspaceAuthBundle {
+    let config_path = workspace_auth_config_path(segment_root);
+    let mut auth = if config_path.is_file() {
+        WorkspaceConfig::load_or_default(&config_path).auth
+    } else {
+        WorkspaceAuthConfig::default()
+    };
+    if workspace_auth_section_empty(&auth) {
+        let misplaced_path = segment_root.join(MEI_CONFIG_FILENAME);
+        if misplaced_path.is_file() {
+            let misplaced_auth = MeiConfig::load_or_default(&misplaced_path).auth;
+            if !workspace_auth_section_empty(&misplaced_auth) {
+                auth = misplaced_auth;
+            }
+        }
+    }
+    WorkspaceAuthBundle {
+        auth,
+        config_path,
+    }
+}
+
+/// 将认证段写入工作区根 `.mei-workspace.json`。
+pub fn write_workspace_auth_bundle(segment_root: &Path, auth: &WorkspaceAuthConfig) -> Result<PathBuf> {
+    let path = workspace_auth_config_path(segment_root);
+    let mut config = if path.is_file() {
+        WorkspaceConfig::load_or_default(&path)
+    } else {
+        WorkspaceConfig::default()
+    };
+    if config.schema_version == 0 {
+        config.schema_version = 1;
+    }
+    config.auth = auth.clone();
+    write_workspace_config(&path, &config)?;
+    Ok(path)
+}
+
 /// 仅认 app 根目录的 `.mei-config.json`，不再向上/向 segment 回退。
 pub fn resolve_mei_config_path(app_root: &Path, _source_root: Option<&Path>) -> PathBuf {
     app_mei_config_path(app_root)
@@ -266,6 +378,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
             discover: legacy_app.discover,
             menu: legacy_app.menu,
             runtime: legacy_app.runtime,
+            auth: WorkspaceAuthConfig::default(),
         };
     }
     WorkspaceConfig::default()
@@ -294,7 +407,54 @@ pub fn write_mei_config(path: &Path, config: &MeiConfig) -> Result<()> {
         })?;
     }
     let raw = serde_json::to_string_pretty(config).context("failed to serialize mei config")?;
-    fs::write(path, raw).with_context(|| format!("failed to write mei config {}", path.display()))
+    write_string_atomically(path, raw.as_str())
+        .with_context(|| format!("failed to write mei config {}", path.display()))
+}
+
+pub fn write_workspace_config(path: &Path, config: &WorkspaceConfig) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create workspace config parent dir {}",
+                parent.display()
+            )
+        })?;
+    }
+    let raw =
+        serde_json::to_string_pretty(config).context("failed to serialize workspace config")?;
+    write_string_atomically(path, raw.as_str())
+        .with_context(|| format!("failed to write workspace config {}", path.display()))
+}
+
+fn write_string_atomically(path: &Path, raw: &str) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("path {} has no parent directory", path.display()))?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.json");
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = parent.join(format!(
+        ".{file_name}.tmp-{}-{stamp}",
+        std::process::id()
+    ));
+    fs::write(&tmp_path, raw)
+        .with_context(|| format!("failed to write temporary file {}", tmp_path.display()))?;
+    if let Err(error) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(error).with_context(|| {
+            format!(
+                "failed to atomically replace {} from {}",
+                path.display(),
+                tmp_path.display()
+            )
+        });
+    }
+    Ok(())
 }
 
 pub fn merge_ops_section(config: &mut MeiConfig, patch: &OpsConfigPatch) -> Result<()> {
@@ -386,5 +546,94 @@ mod tests {
             main: " scenes/home.mei ".into(),
         };
         assert_eq!(entry.main_rel(), "scenes/home.mei");
+    }
+
+    #[test]
+    fn workspace_auth_bundle_reads_workspace_json() {
+        let dir = std::env::temp_dir().join(format!(
+            "mei-auth-bundle-workspace-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("tmpdir");
+        let workspace = WorkspaceConfig {
+            auth: WorkspaceAuthConfig {
+                jwt_secret: Some("workspace-secret".to_string()),
+                users: vec![AuthUserConfig {
+                    username: "guest01".to_string(),
+                    password_hash: "$argon2id$v=19$workspace".to_string(),
+                    roles: vec!["guest".to_string()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
+        let bundle = load_workspace_auth_bundle(&dir);
+        assert_eq!(bundle.auth.jwt_secret.as_deref(), Some("workspace-secret"));
+        assert_eq!(bundle.auth.users.len(), 1);
+        assert_eq!(bundle.auth.users[0].username, "guest01");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_auth_bundle_reads_misplaced_mei_config_for_migration() {
+        let dir = std::env::temp_dir().join(format!(
+            "mei-auth-bundle-misplaced-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("tmpdir");
+        let mut config = MeiConfig::default();
+        config.auth.jwt_secret = Some("misplaced-secret".to_string());
+        config.auth.users.push(AuthUserConfig {
+            username: "admin".to_string(),
+            password_hash: "$argon2id$v=19$misplaced".to_string(),
+            roles: vec!["admin".to_string()],
+            ..Default::default()
+        });
+        write_mei_config(&dir.join(MEI_CONFIG_FILENAME), &config).expect("seed misplaced mei config");
+        let bundle = load_workspace_auth_bundle(&dir);
+        assert_eq!(bundle.auth.jwt_secret.as_deref(), Some("misplaced-secret"));
+        assert_eq!(bundle.auth.users.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn workspace_auth_bundle_writes_workspace_json_without_dropping_runtime() {
+        let dir = std::env::temp_dir().join(format!(
+            "mei-auth-bundle-write-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("tmpdir");
+        let workspace = WorkspaceConfig {
+            discover: DiscoverConfig {
+                skip_directories: vec!["cache".to_string()],
+            },
+            ..Default::default()
+        };
+        write_workspace_config(&workspace_auth_config_path(&dir), &workspace)
+            .expect("seed workspace config");
+        let mut auth = WorkspaceAuthConfig::default();
+        auth.jwt_secret = Some("jwt".to_string());
+        auth.users.push(AuthUserConfig {
+            username: "admin".to_string(),
+            password_hash: "$argon2id$v=19$demo".to_string(),
+            roles: vec!["admin".to_string()],
+            ..Default::default()
+        });
+        write_workspace_auth_bundle(&dir, &auth).expect("write auth");
+        let loaded = WorkspaceConfig::load_or_default(&workspace_auth_config_path(&dir));
+        assert_eq!(loaded.discover.skip_directories, vec!["cache"]);
+        assert_eq!(loaded.auth.users.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

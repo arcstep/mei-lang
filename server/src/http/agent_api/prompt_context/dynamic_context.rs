@@ -370,6 +370,7 @@ mod tests {
             agent_preferred_mode: Arc::new("external".to_string()),
             agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
             agent_auto_start: false,
+            auth_enforcement: crate::auth::AuthEnforcement::Disabled,
             agent_runtime: Arc::new(Mutex::new(ManagedOpencodeRuntime::default())),
             agent_session_context: Arc::new(Mutex::new(HashMap::new())),
             native_agent,

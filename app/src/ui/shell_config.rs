@@ -4,7 +4,7 @@ use mei_lang_kernel::WorkspaceAppMeta;
 use super::route::UiRouteMode;
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
-use super::{SourcePanelMeta, TopbarMenuContext};
+use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 fn ops_editor_main_view(app_path: &str) -> impl IntoView {
     view! {
@@ -24,6 +24,8 @@ pub(super) fn config_shell(
     upload_enabled: bool,
     access_scene: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let topbar = topbar_view(
         apps,
@@ -35,6 +37,8 @@ pub(super) fn config_shell(
         None,
         upload_enabled,
         false,
+        auth_enabled,
+        auth_account,
     );
     let statusbar = statusbar_view(
         app_path,

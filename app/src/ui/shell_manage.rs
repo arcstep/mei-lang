@@ -12,7 +12,7 @@ use super::route::UiRouteMode;
 use super::source_tree;
 use super::statusbar::statusbar_view;
 use super::topbar::{access_scene_for_topbar, topbar_view};
-use super::{SourcePanelMeta, TopbarMenuContext};
+use super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 
 fn asset_codemirror_stack(
     app_path: &str,
@@ -60,6 +60,8 @@ pub(super) fn manage_shell(
     active_tab: Option<&str>,
     diag_filter: Option<&str>,
     upload_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
@@ -117,6 +119,8 @@ pub(super) fn manage_shell(
         active_tab,
         upload_enabled,
         stage_enabled,
+        auth_enabled,
+        auth_account,
     );
     let statusbar = statusbar_view(
         app_path,
@@ -431,6 +435,8 @@ pub(super) fn manage_source_shell(
     selected_scene: Option<&str>,
     active_tab: Option<&str>,
     upload_enabled: bool,
+    auth_enabled: bool,
+    auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let selected_target = target.to_string();
     let source_panel = source.to_string();
@@ -464,6 +470,8 @@ pub(super) fn manage_source_shell(
         active_tab,
         upload_enabled,
         false,
+        auth_enabled,
+        auth_account,
     );
     let statusbar = statusbar_view(
         app_path,

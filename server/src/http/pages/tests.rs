@@ -9,7 +9,7 @@ use std::{
 use super::app::{app_page, index, AppQuery};
 use super::assets::{app_bundle, workspace_app_asset};
 use super::static_serve::content_type_for_path;
-use crate::{agent_runtime, mei_agent, AppState};
+use crate::{agent_runtime, auth::AuthEnforcement, mei_agent, AppState};
 use axum::{
     body::to_bytes,
     extract::{Path as AxumPath, Query, State},
@@ -191,6 +191,7 @@ async fn app_bundle_returns_merged_javascript() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -227,6 +228,7 @@ async fn app_bundle_supports_shoelace_mode() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -253,6 +255,7 @@ async fn app_bundle_supports_styles_mode() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -291,6 +294,7 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -298,6 +302,7 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("build".to_string(), "bad-app".to_string())),
         Query(AppQuery {
             file: None,
@@ -341,6 +346,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -348,6 +354,7 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("build".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: Some("details.mei".to_string()),
@@ -407,6 +414,7 @@ async fn access_static_html_file_renders_without_scene_redirect() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -414,6 +422,7 @@ async fn access_static_html_file_renders_without_scene_redirect() {
 
     let response = app_page(
         State(state.clone()),
+        None,
         AxumPath(("app".to_string(), "html-app".to_string())),
         Query(AppQuery {
             file: Some("demo/index.html".to_string()),
@@ -475,6 +484,7 @@ async fn access_mei_file_query_still_strips_file_param() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -482,6 +492,7 @@ async fn access_mei_file_query_still_strips_file_param() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("app".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: Some("details.mei".to_string()),
@@ -534,6 +545,7 @@ async fn manage_html_preview_uses_document_iframe() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -541,6 +553,7 @@ async fn manage_html_preview_uses_document_iframe() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("build".to_string(), "html-app".to_string())),
         Query(AppQuery {
             file: Some("demo/index.html".to_string()),
@@ -584,6 +597,7 @@ async fn access_root_redirects_to_default_scene_path() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -591,6 +605,7 @@ async fn access_root_redirects_to_default_scene_path() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("app".to_string(), "multi-scene".to_string())),
         Query(AppQuery {
             file: None,
@@ -631,6 +646,7 @@ async fn access_scene_not_exported_returns_403() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -638,6 +654,7 @@ async fn access_scene_not_exported_returns_403() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("app".to_string(), "access-disabled/scene/home".to_string())),
         Query(AppQuery {
             file: None,
@@ -677,6 +694,7 @@ async fn access_scene_not_found_returns_404() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -684,6 +702,7 @@ async fn access_scene_not_found_returns_404() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("app".to_string(), "multi-scene/scene/not-found".to_string())),
         Query(AppQuery {
             file: None,
@@ -723,6 +742,7 @@ async fn access_only_surface_redirects_build_route_to_access_scene() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -730,6 +750,7 @@ async fn access_only_surface_redirects_build_route_to_access_scene() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("build".to_string(), "good-app".to_string())),
         Query(AppQuery {
             file: None,
@@ -771,6 +792,7 @@ async fn access_only_surface_hides_topbar_tabs_on_app_route() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -778,6 +800,7 @@ async fn access_only_surface_hides_topbar_tabs_on_app_route() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("app".to_string(), "good-app/scene/home".to_string())),
         Query(AppQuery {
             file: None,
@@ -823,6 +846,7 @@ async fn access_only_mode_slug_routes_to_app_surface() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -830,6 +854,7 @@ async fn access_only_mode_slug_routes_to_app_surface() {
 
     let response = app_page(
         State(state),
+        None,
         AxumPath(("access-only".to_string(), "good-app/scene/home".to_string())),
         Query(AppQuery {
             file: None,
@@ -869,6 +894,7 @@ async fn index_redirects_to_first_healthy_app_when_first_app_is_broken() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
@@ -907,6 +933,7 @@ async fn index_redirects_to_access_only_entry_when_surface_enabled() {
         agent_preferred_mode: Arc::new("external".to_string()),
         agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
         agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
         agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,

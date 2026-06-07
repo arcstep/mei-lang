@@ -10,19 +10,25 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
+argon2 = "0.5"
 async-stream = "0.3"
 axum.workspace = true
+base64 = "0.22"
 calamine.workspace = true
 chrono = "0.4.44"
 clap.workspace = true
 csv.workspace = true
 dotenvy = "0.15"
+jsonwebtoken = "9.3"
 mei-lang-app = { path = "../app" }
 mei-lang-datasets = { path = "../crates/datasets" }
 mei-lang-kernel = { path = "../crates/kernel" }
 mei-lang-toolchain = { path = "../crates/toolchain" }
+rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream", "blocking"] }
+rsa = { version = "0.9", features = ["pem"] }
 rusqlite = { version = "0.39.0", features = ["bundled"] }
+sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 serde.workspace = true
 serde_json.workspace = true

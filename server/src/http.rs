@@ -1,4 +1,5 @@
 pub(crate) mod agent_api;
+pub mod auth_api;
 mod compile_cache;
 mod datasets;
 pub(crate) mod observation;
@@ -24,6 +25,20 @@ pub fn router() -> Router<AppState> {
             get(|| async { Redirect::permanent("/app-assets/favicon.svg") }),
         )
         .route("/", get(pages::index))
+        .route("/login", get(auth_api::login_page))
+        .route("/logout", get(auth_api::logout_page))
+        .route(
+            "/account/password",
+            get(auth_api::account_change_password_page),
+        )
+        .route("/api/auth/public-key", get(auth_api::auth_public_key))
+        .route("/api/auth/session", get(auth_api::auth_session))
+        .route("/api/auth/login", post(auth_api::auth_login))
+        .route("/api/auth/logout", post(auth_api::auth_logout))
+        .route(
+            "/api/auth/change-password",
+            post(auth_api::auth_change_password),
+        )
         .route("/apps/:mode/*app_id", get(pages::app_page))
         .route(
             "/api/projection/*app_id",

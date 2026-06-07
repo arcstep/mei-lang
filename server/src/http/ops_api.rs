@@ -1,7 +1,7 @@
 //! 受限运维面：只读写 ops registry / journal，不写 `.mei`。
 
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -13,7 +13,7 @@ use mei_lang_kernel::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::AppState;
+use crate::{auth::AuthPrincipal, AppState};
 
 fn resolve_app_root(state: &AppState, app_id: &str) -> Option<std::path::PathBuf> {
     let app_id = app_id.trim();
@@ -71,6 +71,7 @@ pub async fn ops_config_get(
 
 pub async fn ops_config_put(
     State(state): State<AppState>,
+    principal: Option<Extension<AuthPrincipal>>,
     Path(app_id): Path<String>,
     Json(body): Json<OpsPatchRequest>,
 ) -> impl IntoResponse {
@@ -86,7 +87,12 @@ pub async fn ops_config_put(
     };
     let source_root = state.source_root.as_path();
     let config_path = resolve_mei_config_path(&app_root, Some(source_root));
-    let actor = if body.actor.trim().is_empty() {
+    let principal_actor = principal
+        .as_ref()
+        .map(|Extension(value)| format!("{}:{}", value.username, value.role_slug()));
+    let actor = if let Some(ref actor) = principal_actor {
+        actor.as_str()
+    } else if body.actor.trim().is_empty() {
         "manage"
     } else {
         body.actor.trim()
