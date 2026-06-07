@@ -2147,47 +2147,127 @@
 (function (g) {
   "use strict";
 
-  function buildAgentHostCoordinates(api) {
+  const HOST_RUNTIME_PROTOCOL_SCHEMA = "mei-host-runtime-protocol-v1";
+  const HOST_RUNTIME_CONTRACT_SCHEMA = "mei-host-runtime-contract-v1";
+
+  function safeObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+
+  function resolveHostSurface(routeMode) {
+    return String(routeMode || "").trim().toLowerCase() === "access"
+      ? "access_host"
+      : "authoring_host";
+  }
+
+  function buildHostProtocol(routeMode, mode) {
+    return {
+      schema: HOST_RUNTIME_PROTOCOL_SCHEMA,
+      surface: resolveHostSurface(routeMode),
+      route_mode: String(routeMode || "manage"),
+      mode: String(mode || "build"),
+    };
+  }
+
+  function resolveBrowserContext(api, options) {
+    const opts = safeObject(options) || {};
+    if (safeObject(opts.browserContext)) return opts.browserContext;
+    if (api && typeof api.collectBrowserContext === "function") {
+      const ctx = api.collectBrowserContext();
+      if (safeObject(ctx)) return ctx;
+    }
+    return null;
+  }
+
+  function buildAgentHostCoordinates(api, options) {
     const root = api.root;
     const state = api.state || {};
+    const opts = safeObject(options) || {};
     const ext =
       typeof g !== "undefined" && g.MeiAgentScopeParams ? g.MeiAgentScopeParams : null;
     const route = api.normalizeRouteMode(root.dataset.mode);
     const mode = api.normalizeAgentMode(state.agentMode);
-    let resourceVisibility = "";
-    if (ext && typeof ext.effectiveResourceVisibility === "function") {
-      const sel = document.getElementById("author-resource-visibility-select");
-      const rawSel = sel && "value" in sel ? String(sel.value || "").trim() : "";
-      resourceVisibility = ext.effectiveResourceVisibility(rawSel, route, mode);
-    } else if (api.CTX && typeof api.CTX.currentResourceVisibility === "function") {
-      resourceVisibility = api.CTX.currentResourceVisibility();
+    let resourceVisibility = String(opts.resourceVisibility || "").trim();
+    if (!resourceVisibility) {
+      if (ext && typeof ext.effectiveResourceVisibility === "function") {
+        const sel = document.getElementById("author-resource-visibility-select");
+        const rawSel = sel && "value" in sel ? String(sel.value || "").trim() : "";
+        resourceVisibility = ext.effectiveResourceVisibility(rawSel, route, mode);
+      } else if (api.CTX && typeof api.CTX.currentResourceVisibility === "function") {
+        resourceVisibility = api.CTX.currentResourceVisibility();
+      }
     }
-    return {
+    const coords = {
       app_id: String(root.dataset.app || api.currentAppKey() || ""),
       scene_id: String(api.currentSceneId() || ""),
       target_file: String(api.currentTargetKey() || ""),
       route_mode: route,
       mode: mode,
       resource_visibility: resourceVisibility,
+      host_protocol: buildHostProtocol(route, mode),
+      host_contract_schema: HOST_RUNTIME_CONTRACT_SCHEMA,
     };
+    const browserContext = resolveBrowserContext(api, opts);
+    if (browserContext) {
+      coords.browser_context = browserContext;
+    }
+    return coords;
   }
 
   function applyToUrlSearchParams(params, coords) {
     if (!params || !coords) return params;
     if (coords.app_id) params.set("app_id", coords.app_id);
     if (coords.target_file) params.set("target_file", coords.target_file);
-    params.set("route_mode", coords.route_mode || "manage");
+    params.set("route_mode", coords.route_mode || "access");
     params.set("mode", coords.mode || "build");
     if (coords.resource_visibility) {
       params.set("resource_visibility", coords.resource_visibility);
     }
     if (coords.scene_id) params.set("scene_id", coords.scene_id);
+    if (coords.browser_context && typeof coords.browser_context === "object") {
+      try {
+        params.set("browser_context", JSON.stringify(coords.browser_context));
+      } catch (_) {}
+    }
+    if (coords.host_protocol && typeof coords.host_protocol === "object") {
+      try {
+        params.set("host_protocol", JSON.stringify(coords.host_protocol));
+      } catch (_) {}
+    }
+    if (coords.host_contract_schema) {
+      params.set("host_contract_schema", String(coords.host_contract_schema));
+    }
     return params;
+  }
+
+  function buildPromptRequestBody(api, text, options) {
+    const coords = buildAgentHostCoordinates(api, options);
+    const body = {
+      text: String(text || ""),
+      app_id: coords.app_id,
+      scene_id: coords.scene_id,
+      target_file: coords.target_file,
+      mode: coords.mode,
+      route_mode: coords.route_mode,
+      agent: coords.mode,
+      resource_visibility: coords.resource_visibility,
+    };
+    if (coords.browser_context && typeof coords.browser_context === "object") {
+      body.browser_context = coords.browser_context;
+    }
+    if (coords.host_protocol && typeof coords.host_protocol === "object") {
+      body.host_protocol = coords.host_protocol;
+    }
+    if (coords.host_contract_schema) {
+      body.host_contract_schema = String(coords.host_contract_schema);
+    }
+    return body;
   }
 
   g.MeiAgentHostCoordinates = {
     build: buildAgentHostCoordinates,
     applyToUrlSearchParams: applyToUrlSearchParams,
+    buildPromptRequestBody: buildPromptRequestBody,
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
 
@@ -2602,8 +2682,9 @@
     }
 
     function normalizeRouteMode(value) {
-      const mode = String(value || "").toLowerCase();
-      return mode === "access" ? "access" : "manage";
+      const mode = String(value || "").trim().toLowerCase();
+      if (mode === "access" || mode === "app" || mode === "run") return "access";
+      return "manage";
     }
 
     function sessionBindingKind() {
@@ -3696,11 +3777,14 @@
 
   global.__meiAgentPanelInstallContextPreview = function (api) {
     function currentScopeParams() {
+      const browserContext = collectBrowserContext();
       const host =
         typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
       if (host && typeof host.build === "function") {
-        const coords = host.build(api);
-        coords.resource_visibility = currentResourceVisibility();
+        const coords = host.build(api, {
+          resourceVisibility: currentResourceVisibility(),
+          browserContext: browserContext,
+        });
         const params = new URLSearchParams();
         if (host.applyToUrlSearchParams) {
           return host.applyToUrlSearchParams(params, coords);
@@ -3711,6 +3795,11 @@
         params.set("mode", coords.mode);
         params.set("resource_visibility", coords.resource_visibility);
         if (coords.scene_id) params.set("scene_id", coords.scene_id);
+        if (coords.browser_context) {
+          try {
+            params.set("browser_context", JSON.stringify(coords.browser_context));
+          } catch (_) {}
+        }
         return params;
       }
       const params = new URLSearchParams();
@@ -3725,6 +3814,11 @@
       params.set("mode", mode);
       params.set("resource_visibility", currentResourceVisibility());
       if (sceneId) params.set("scene_id", sceneId);
+      if (browserContext) {
+        try {
+          params.set("browser_context", JSON.stringify(browserContext));
+        } catch (_) {}
+      }
       return params;
     }
 
@@ -3756,6 +3850,104 @@
       return defaultResourceVisibilityFromRoute();
     }
 
+    function safeTrim(value) {
+      return String(value || "").trim();
+    }
+
+    function collectActiveQueryStateIds(limit) {
+      const ids = [];
+      const nodes = document.querySelectorAll("[data-props]");
+      for (let i = 0; i < nodes.length; i += 1) {
+        if (ids.length >= limit) break;
+        const node = nodes[i];
+        const raw = node && node.getAttribute ? String(node.getAttribute("data-props") || "") : "";
+        if (!raw) continue;
+        try {
+          const parsed = JSON.parse(raw);
+          const id = safeTrim(parsed && (parsed.query_state || parsed.queryState));
+          if (!id) continue;
+          if (ids.indexOf(id) >= 0) continue;
+          ids.push(id);
+        } catch (_) {}
+      }
+      return ids;
+    }
+
+    function compactQueryStateEntry(id, raw) {
+      const data = raw && typeof raw === "object" ? raw : {};
+      const rawFilters = data.filters && typeof data.filters === "object" ? data.filters : {};
+      const filters = {};
+      Object.keys(rawFilters)
+        .sort()
+        .slice(0, 12)
+        .forEach(function (key) {
+          const k = safeTrim(key);
+          const v = safeTrim(rawFilters[key]);
+          if (k && v) filters[k] = v;
+        });
+      const search = safeTrim(data.search);
+      const filterIntents = Array.isArray(data.filter_intents)
+        ? data.filter_intents.slice(0, 12).map(function (entry) {
+            return {
+              dimension: safeTrim(entry && entry.dimension),
+              value: safeTrim(entry && entry.value),
+              source: safeTrim(entry && entry.source),
+            };
+          }).filter(function (entry) {
+            return entry.dimension && entry.value;
+          })
+        : [];
+      return {
+        id: id,
+        filters: filters,
+        search: search || undefined,
+        filter_intents: filterIntents.length ? filterIntents : undefined,
+      };
+    }
+
+    function collectBrowserContext() {
+      const store =
+        typeof window !== "undefined" &&
+        window.__meiQueryStateStore &&
+        typeof window.__meiQueryStateStore === "object"
+          ? window.__meiQueryStateStore
+          : null;
+      const activeQueryStateIds = collectActiveQueryStateIds(8);
+      const queryStates = [];
+      if (store) {
+        activeQueryStateIds.forEach(function (id) {
+          queryStates.push(compactQueryStateEntry(id, store[id]));
+        });
+      }
+      const query = new URLSearchParams(window.location.search || "");
+      const viewTab = safeTrim(query.get("tab") || api.root.dataset.viewTab || "preview");
+      const overlayOpen =
+        document.body &&
+        document.body.classList &&
+        document.body.classList.contains("access-drilldown-open");
+      const sessionPatchState =
+        typeof window !== "undefined" &&
+        window.__meiAccessSessionPatchState &&
+        typeof window.__meiAccessSessionPatchState === "object"
+          ? window.__meiAccessSessionPatchState
+          : null;
+      const sessionPatch = sessionPatchState
+        ? {
+            schema: String(sessionPatchState.schema || "mei_session_patch_v1"),
+            active_offer_count: Number(sessionPatchState.offer_count || 0),
+            active_op_count: Number(sessionPatchState.op_count || 0),
+          }
+        : undefined;
+      return {
+        schema: "access_browser_context_v1",
+        view_tab: viewTab || "preview",
+        overlay_open: !!overlayOpen,
+        active_query_state_ids: activeQueryStateIds,
+        query_states: queryStates,
+        session_patch: sessionPatch,
+      };
+    }
+
     function formatContextScopeText(payload) {
       const app = String((payload && payload.app_id) || api.currentAppKey() || "-");
       const scene = String((payload && payload.scene_id) || api.currentSceneId() || "-");
@@ -3777,6 +3969,41 @@
       const digest =
         payload && payload.scope_digest ? String(payload.scope_digest).trim() : "";
       if (digest) line += "\ndigest: " + digest;
+      const browserContext = payload && payload.browser_context_echo;
+      if (browserContext && typeof browserContext === "object") {
+        const activeIds = Array.isArray(browserContext.active_query_state_ids)
+          ? browserContext.active_query_state_ids.length
+          : 0;
+        line += "\nbrowser_context: view_tab=" + String(browserContext.view_tab || "-");
+        line += " | query_states=" + String(activeIds);
+        const sessionPatch =
+          browserContext.session_patch && typeof browserContext.session_patch === "object"
+            ? browserContext.session_patch
+            : null;
+        if (sessionPatch) {
+          line +=
+            " | session_patch_offers=" +
+            String(sessionPatch.active_offer_count || 0) +
+            " | session_patch_ops=" +
+            String(sessionPatch.active_op_count || 0);
+        }
+      }
+      const hostProtocol = payload && payload.host_protocol_echo;
+      if (hostProtocol && typeof hostProtocol === "object") {
+        line +=
+          "\nhost_protocol: " +
+          String(hostProtocol.schema || "-") +
+          " | surface=" +
+          String(hostProtocol.surface || "-");
+      }
+      const hostContract = payload && payload.host_contract;
+      if (hostContract && typeof hostContract === "object") {
+        line +=
+          "\nhost_contract: " +
+          String(hostContract.schema_version || "-") +
+          " | protocol=" +
+          String(hostContract.protocol_schema || "-");
+      }
       return line;
     }
 
@@ -3795,6 +4022,9 @@
         ? payload.native_tool_names
         : [];
       const tools = Array.isArray(payload && payload.query_tools) ? payload.query_tools : [];
+      const runtimeCaps = Array.isArray(payload && payload.runtime_capabilities)
+        ? payload.runtime_capabilities
+        : [];
       const parts = [];
       if (native.length) {
         parts.push(
@@ -3816,6 +4046,16 @@
         })
         .join("\n");
       parts.push("Resource query tools:\n" + catalog);
+      if (runtimeCaps.length) {
+        parts.push(
+          "Runtime capabilities:\n" +
+            runtimeCaps
+              .map(function (cap) {
+                return "- " + String(cap || "");
+              })
+              .join("\n"),
+        );
+      }
       return parts.join("\n\n");
     }
 
@@ -4093,6 +4333,7 @@
       selectedModelProbeQueryString: selectedModelProbeQueryString,
       noteModelProbeResult: noteModelProbeResult,
       refreshModelProbe: refreshModelProbe,
+      collectBrowserContext: collectBrowserContext,
     };
   };
 })(window);
@@ -4770,6 +5011,7 @@
       if (name === "resource_get" && fp) return "resource_get · id=" + fp;
       if (name === "resource_list") return "resource_list";
       if (name === "resource_runtime_peek") return "resource_runtime_peek";
+      if (name === "propose_session_patch") return "propose_session_patch";
       if (name === "skill_list") return "skill_list";
       if (fp) return name + " · filePath=" + fp;
       if (title && title !== name) return name + " · " + title;
@@ -5069,6 +5311,143 @@
         "MeiAgentPanelMessagesModel missing: ensure agent-panel-messages-model.js is bundled before agent-panel-messages.js",
       );
       return {};
+    }
+
+    const SESSION_PATCH_STORAGE_PREFIX = "mei.agent.session_patch.v1";
+
+    function cssEscape(value) {
+      if (window.CSS && typeof window.CSS.escape === "function") {
+        return window.CSS.escape(String(value || ""));
+      }
+      return String(value || "").replace(/["\\]/g, "\\$&");
+    }
+
+    function safeParseJson(raw) {
+      const text = String(raw || "").trim();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function sessionPatchStorageKey() {
+      const app = String(root.dataset.app || api.currentAppKey() || "").trim() || "unknown";
+      const scene = String(api.currentSceneId() || "").trim() || "scene";
+      const sid = String(state.sessionId || "").trim() || "session";
+      return [SESSION_PATCH_STORAGE_PREFIX, app, scene, sid].join(":");
+    }
+
+    function clearSessionPatchDomEffects() {
+      document
+        .querySelectorAll("[data-mei-session-patch-hidden='1'],[data-mei-session-patch-highlight='1']")
+        .forEach(function (node) {
+          node.removeAttribute("data-mei-session-patch-hidden");
+          node.removeAttribute("data-mei-session-patch-highlight");
+        });
+    }
+
+    function loadSessionPatchesFromStorage() {
+      if (!window.sessionStorage) return [];
+      try {
+        const raw = window.sessionStorage.getItem(sessionPatchStorageKey());
+        const parsed = safeParseJson(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveSessionPatchesToStorage(offers) {
+      if (!window.sessionStorage) return;
+      try {
+        const rows = Array.isArray(offers) ? offers : [];
+        if (!rows.length) {
+          window.sessionStorage.removeItem(sessionPatchStorageKey());
+          return;
+        }
+        window.sessionStorage.setItem(sessionPatchStorageKey(), JSON.stringify(rows));
+      } catch (_) {}
+    }
+
+    function extractSessionPatchOffers(rawMessages) {
+      const offers = [];
+      (Array.isArray(rawMessages) ? rawMessages : []).forEach(function (raw) {
+        if (!raw || String(raw.role || "") !== "assistant") return;
+        const parts = Array.isArray(raw.parts) ? raw.parts : [];
+        parts.forEach(function (part) {
+          if (!part || String(part.part_type || "") !== "tool") return;
+          const tool = part.tool || null;
+          if (!tool || String(tool.tool || "") !== "propose_session_patch") return;
+          if (String(tool.status || "") !== "completed") return;
+          const payload = safeParseJson(tool.output);
+          const patch = payload && payload.patch && typeof payload.patch === "object" ? payload.patch : null;
+          const ops = Array.isArray(patch && patch.ops) ? patch.ops : [];
+          if (!patch || !ops.length) return;
+          offers.push({
+            offer_id: String(payload.call_id || tool.call_id || part.part_id || "").trim(),
+            summary: String(payload.summary || "").trim(),
+            patch: {
+              schema: String(patch.schema || "mei_session_patch_v1"),
+              patch_id: String(patch.patch_id || "").trim(),
+              ops: ops,
+            },
+          });
+        });
+      });
+      return offers;
+    }
+
+    function applySessionPatchesToDom(offers) {
+      clearSessionPatchDomEffects();
+      let opCount = 0;
+      (Array.isArray(offers) ? offers : []).forEach(function (offer) {
+        const ops = Array.isArray(offer && offer.patch && offer.patch.ops) ? offer.patch.ops : [];
+        ops.forEach(function (rawOp) {
+          const op = rawOp && typeof rawOp === "object" ? rawOp : {};
+          const type = String(op.type || "").trim();
+          if (!type) return;
+          if (type === "focus_query_state") {
+            opCount += 1;
+            return;
+          }
+          const panelId = String(op.panel_id || "").trim();
+          if (!panelId) return;
+          const selector = "[data-mei-panel-id='" + cssEscape(panelId) + "']";
+          const nodes = Array.from(document.querySelectorAll(selector));
+          if (!nodes.length) return;
+          if (type === "hide_panel") {
+            nodes.forEach(function (node) {
+              node.setAttribute("data-mei-session-patch-hidden", "1");
+            });
+            opCount += 1;
+            return;
+          }
+          if (type === "highlight_panel") {
+            nodes.forEach(function (node) {
+              node.setAttribute("data-mei-session-patch-highlight", "1");
+            });
+            opCount += 1;
+            return;
+          }
+          if (type === "move_panel_front") {
+            nodes.forEach(function (node) {
+              const parent = node.parentElement;
+              if (parent && parent.firstElementChild !== node) {
+                parent.insertBefore(node, parent.firstElementChild);
+              }
+            });
+            opCount += 1;
+          }
+        });
+      });
+      window.__meiAccessSessionPatchState = {
+        schema: "mei_session_patch_state_v1",
+        offer_count: Array.isArray(offers) ? offers.length : 0,
+        op_count: opCount,
+      };
+      return opCount;
     }
 
     function __meiSes() {
@@ -5879,6 +6258,10 @@
       __meiSes().closeEventStream();
       CHR.clearDeltaDebugLog();
       state.lastMessagesFingerprint = "";
+      state.sessionPatches = [];
+      state.sessionPatchFingerprint = "";
+      saveSessionPatchesToStorage([]);
+      applySessionPatchesToDom([]);
       resetPendingPermissionState();
       state.progress = {
         visible: false,
@@ -5896,6 +6279,20 @@
         "/messages?limit=80",
     );
     const list = payload && Array.isArray(payload.messages) ? payload.messages : [];
+    let sessionPatches = extractSessionPatchOffers(list);
+    if (!sessionPatches.length) {
+      sessionPatches = loadSessionPatchesFromStorage();
+    }
+    const patchFingerprint = JSON.stringify(sessionPatches);
+    if (patchFingerprint !== String(state.sessionPatchFingerprint || "")) {
+      state.sessionPatches = sessionPatches.slice();
+      state.sessionPatchFingerprint = patchFingerprint;
+      saveSessionPatchesToStorage(sessionPatches);
+      applySessionPatchesToDom(sessionPatches);
+      state.contextPreviewScopeKey = "";
+      state.contextPreviewFetchedAtMs = 0;
+      CTX.refreshContextPreview(true).catch(function () {});
+    }
     const nextFingerprint = String(state.sessionId) + "|" + JSON.stringify(list);
     state.progress = api.deriveProgressFromMessages(list);
     CHR.renderProgressStrip();
@@ -6007,30 +6404,25 @@
   async function postPromptWithCurrentSession(text, controller) {
     const host =
       typeof globalThis !== "undefined" && globalThis.MeiAgentHostCoordinates;
-    const coords =
-      host && typeof host.build === "function"
-        ? host.build(api)
+    const body =
+      host && typeof host.buildPromptRequestBody === "function"
+        ? host.buildPromptRequestBody(api, text, {
+            resourceVisibility: CTX.currentResourceVisibility(),
+            browserContext:
+              typeof api.collectBrowserContext === "function"
+                ? api.collectBrowserContext()
+                : null,
+          })
         : {
+            text: text,
             app_id: String(root.dataset.app || ""),
             scene_id: api.currentSceneId(),
             target_file: api.currentTargetKey(),
             mode: api.normalizeAgentMode(state.agentMode),
             route_mode: api.normalizeRouteMode(root.dataset.mode),
+            agent: api.normalizeAgentMode(state.agentMode),
             resource_visibility: CTX.currentResourceVisibility(),
           };
-    if (!coords.resource_visibility && CTX && CTX.currentResourceVisibility) {
-      coords.resource_visibility = CTX.currentResourceVisibility();
-    }
-    const body = {
-      text: text,
-      app_id: coords.app_id,
-      scene_id: coords.scene_id,
-      target_file: coords.target_file,
-      mode: coords.mode,
-      route_mode: coords.route_mode,
-      agent: coords.mode,
-      resource_visibility: coords.resource_visibility,
-    };
     const mref = CHR.getSelectedCompletionModelRef();
     if (mref) {
       body.model = { providerID: mref.provider_id, modelID: mref.model_id };
@@ -6308,6 +6700,8 @@
       contextPreviewBackoffUntilMs: 0,
       contextPreviewFetchedAtMs: 0,
       contextPreviewScopeKey: "",
+      sessionPatches: [],
+      sessionPatchFingerprint: "",
       modelProbe: null,
       modelProbeFetchedAtMs: 0,
       modelProbeFailureStreak: 0,
@@ -7231,6 +7625,7 @@
     sessionBindingKind: RT.sessionBindingKind,
     currentSceneId: RT.currentSceneId,
     currentTargetKey: RT.currentTargetKey,
+    collectBrowserContext: CTX.collectBrowserContext,
   };
   const MSG =
     typeof window.__meiAgentPanelInstallMessages === "function"
@@ -7527,6 +7922,14 @@
   };
   document.addEventListener("mei:manage-context-change", onManageContextChange);
 
+  const onBrowserQueryStateChange = function () {
+    state.contextPreviewScopeKey = "";
+    state.contextPreviewFetchedAtMs = 0;
+    state.contextPreviewBackoffUntilMs = 0;
+    CTX.refreshContextPreview(true).catch(function () {});
+  };
+  document.addEventListener("mei:query-state-change", onBrowserQueryStateChange);
+
   restoreRevertedState();
   CHR.restoreAgentMode();
   AF.restoreAccessFloatingPanel();
@@ -7562,6 +7965,7 @@
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     document.removeEventListener("mei:manage-source-bundle-ready", onManageSourceBundleReady);
     document.removeEventListener("mei:manage-context-change", onManageContextChange);
+    document.removeEventListener("mei:query-state-change", onBrowserQueryStateChange);
     document.removeEventListener("keydown", onAccessFloatingEscape);
     document.removeEventListener("pointermove", AF.continueAccessFloatingDrag);
     document.removeEventListener("pointerup", AF.endAccessFloatingDrag);
