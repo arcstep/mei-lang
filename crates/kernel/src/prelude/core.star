@@ -152,7 +152,12 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
     }
     if base != None:
         payload["base"] = base
-    return _declare(_clean(payload))
+    cleaned = _clean(payload)
+    # `_without_empty()` 会过滤 False；scene.access_export=False 必须保留，
+    # 否则访问态 403 分支永远无法通过作者态显式关闭。
+    if access_export == False:
+        cleaned["access_export"] = False
+    return _declare(cleaned)
 
 def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None, base = None):
     return scene_decl(

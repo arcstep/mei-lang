@@ -18,8 +18,9 @@ pub use artifact_store::{
 };
 pub use compile_service::{
     clear_compile_cache_for_app, compile_app_with_cache, env_flag_enabled, is_compile_inflight,
-    peek_compile_cache, peek_compile_cache_hit, recent_compile_failure,
-    resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit,
+    inspect_source_layout, peek_compile_cache, peek_compile_cache_hit, recent_compile_failure,
+    resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, LayoutCheck,
+    PeekCompileCacheHit, SourceLayoutInspection, SourceLayoutRoots,
 };
 pub use compile_report::{compile_report, CompileReport};
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};

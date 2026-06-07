@@ -1,18 +1,73 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use mei_lang_kernel::CompileOptions;
 use mei_lang_toolchain::{
-    clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
-    query_world_dataset_metrics, resolve_components_root, runtime_sim_step, RESOURCE_QUERY_SCHEMA_VERSION,
+    build_world_context_snapshot, clear_compile_cache_for_app, compile_app_with_cache, compile_report,
+    query_world_dataset, query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
+    RESOURCE_QUERY_SCHEMA_VERSION,
 };
 use mei_lang_kernel::RuntimeIntent;
 
 fn workspaces_root() -> PathBuf {
+    if let Ok(raw) = std::env::var("MEI_TEST_SOURCE_ROOT") {
+        return PathBuf::from(raw)
+            .canonicalize()
+            .expect("MEI_TEST_SOURCE_ROOT");
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../workspaces")
         .canonicalize()
         .expect("workspaces root")
+}
+
+fn standalone_fixture_root() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(build_standalone_fixture).clone()
+}
+
+fn build_standalone_fixture() -> PathBuf {
+    let source = workspaces_root();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time")
+        .as_millis();
+    let fixture_root =
+        std::env::temp_dir().join(format!("mei_toolchain_standalone_fixture_{}_{}", std::process::id(), unique));
+    fs::create_dir_all(&fixture_root).expect("create fixture root");
+    copy_dir_recursive(
+        source.join("examples/core/01-single-file-doc"),
+        fixture_root.join("core-smoke-app"),
+    );
+    copy_dir_recursive(
+        source.join("examples/ds/01-dataset-baseline"),
+        fixture_root.join("ds-smoke-app"),
+    );
+    let shared_components = source.join("_components");
+    let fixture_components = fixture_root.join("_components");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&shared_components, &fixture_components)
+        .expect("link _components");
+    #[cfg(not(unix))]
+    copy_dir_recursive(shared_components, fixture_components);
+    fixture_root
+}
+
+fn copy_dir_recursive(src: PathBuf, dst: PathBuf) {
+    fs::create_dir_all(&dst).expect("create destination directory");
+    for entry in fs::read_dir(src).expect("read directory") {
+        let entry = entry.expect("entry");
+        let path = entry.path();
+        let target = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(path, target);
+        } else {
+            fs::copy(path, target).expect("copy file");
+        }
+    }
 }
 
 const DATASET_APP: &str = "examples/ds/01-dataset-baseline";
@@ -134,4 +189,55 @@ fn runtime_sim_step_returns_scene_view_and_html() {
     .expect("runtime sim");
     assert!(!result.html.is_empty());
     assert!(!result.scene_view.scene_id.is_empty());
+}
+
+#[test]
+fn standalone_source_root_core_smoke_check_works() {
+    let root = standalone_fixture_root();
+    clear_compile_cache_for_app(&root, "core-smoke-app");
+    let report =
+        compile_report(&root, "core-smoke-app", CompileOptions::default()).expect("compile report");
+    assert!(!report.revision_token.is_empty());
+    assert!(
+        !report
+            .compiled
+            .diagnostics
+            .iter()
+            .any(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
+    );
+}
+
+#[test]
+fn standalone_source_root_ds_smoke_query_dataset_works() {
+    let root = standalone_fixture_root();
+    clear_compile_cache_for_app(&root, "ds-smoke-app");
+    let payload = query_world_dataset(
+        &root,
+        "ds-smoke-app",
+        None,
+        "sales_data",
+        None,
+        &BTreeMap::new(),
+        None,
+        Some(5),
+    )
+    .expect("standalone dataset query");
+    assert_eq!(payload["id"], "sales_data");
+    assert!(payload["sample_rows"].is_array());
+}
+
+#[test]
+fn world_context_snapshot_includes_world_catalog_lines() {
+    let root = workspaces_root();
+    clear_compile_cache_for_app(&root, DATASET_APP);
+    let snapshot = build_world_context_snapshot(&root, DATASET_APP, None).expect("world snapshot");
+    let lines = snapshot.prompt_catalog_lines;
+    assert!(
+        lines.iter().any(|line| line.contains("[World — catalog]")),
+        "prompt catalog should include [World — catalog]"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("[World — query tooling]")),
+        "prompt catalog should include [World — query tooling]"
+    );
 }
