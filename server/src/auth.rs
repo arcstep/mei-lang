@@ -37,7 +37,7 @@ use crate::AppState;
 
 const DEFAULT_JWT_COOKIE_NAME: &str = "mei_auth_token";
 const DEFAULT_JWT_TTL_SECONDS: u64 = 8 * 60 * 60;
-const MIN_PASSWORD_LEN: usize = 12;
+const MIN_PASSWORD_LEN: usize = 8;
 const DEFAULT_TEMP_PASSWORD_LEN: usize = 20;
 
 static WORKSPACE_AUTH_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
@@ -1104,7 +1104,9 @@ mod tests {
 
     #[test]
     fn password_complexity_requires_multiple_char_classes() {
+        assert!(validate_password_complexity("Aa1!bcde").is_ok());
         assert!(validate_password_complexity("Aa1!12345678").is_ok());
+        assert!(validate_password_complexity("Aa1!bcd").is_err());
         assert!(validate_password_complexity("aaaaaa").is_err());
         assert!(validate_password_complexity("NO_LOWER_123!").is_err());
     }

@@ -144,6 +144,9 @@ struct HostAuthBootstrapUsersArgs {
     guest_app_allow: Vec<String>,
     #[arg(long = "guest-scene-allow", help = "格式: app_id:scene_id")]
     guest_scene_allow: Vec<String>,
+    /// 从 stdin 读取统一初始密码（super/admin/guest 共用）；未指定时为各账号随机生成。
+    #[arg(long)]
+    default_password_stdin: bool,
     #[arg(long)]
     json: bool,
 }
@@ -1121,8 +1124,31 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         .collect::<Vec<_>>();
     let guest_scene_allow = parse_scene_allow_entries(&args.guest_scene_allow)?;
 
-    let super_password = auth::generate_temporary_password();
-    let super_hash = auth::hash_password(super_password.as_str())?;
+    let (super_password, admin_password, guest_password, password_mode, shared_hash) =
+        if args.default_password_stdin {
+            let password = read_password_from_stdin()?;
+            let hash = auth::hash_password(password.as_str())?;
+            (
+                password.clone(),
+                password.clone(),
+                password,
+                "default_password_stdin",
+                Some(hash),
+            )
+        } else {
+            (
+                auth::generate_temporary_password(),
+                auth::generate_temporary_password(),
+                auth::generate_temporary_password(),
+                "random_temporary",
+                None,
+            )
+        };
+
+    let super_hash = match shared_hash.as_deref() {
+        Some(hash) => hash.to_string(),
+        None => auth::hash_password(super_password.as_str())?,
+    };
     auth::upsert_workspace_user(
         &source_root,
         args.super_username.as_str(),
@@ -1133,8 +1159,10 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         &BTreeMap::new(),
     )?;
 
-    let admin_password = auth::generate_temporary_password();
-    let admin_hash = auth::hash_password(admin_password.as_str())?;
+    let admin_hash = match shared_hash.as_deref() {
+        Some(hash) => hash.to_string(),
+        None => auth::hash_password(admin_password.as_str())?,
+    };
     auth::upsert_workspace_user(
         &source_root,
         args.admin_username.as_str(),
@@ -1145,8 +1173,10 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         &BTreeMap::new(),
     )?;
 
-    let guest_password = auth::generate_temporary_password();
-    let guest_hash = auth::hash_password(guest_password.as_str())?;
+    let guest_hash = match shared_hash.as_deref() {
+        Some(hash) => hash.to_string(),
+        None => auth::hash_password(guest_password.as_str())?,
+    };
     auth::upsert_workspace_user(
         &source_root,
         args.guest_username.as_str(),
@@ -1165,7 +1195,12 @@ fn host_auth_bootstrap_users_command(args: HostAuthBootstrapUsersArgs) -> Result
         "config_path": runtime.config_path.display().to_string(),
         "enabled": runtime.enabled,
         "user_count": runtime.user_count(),
-        "warning": "temporary_password is shown once; rotate immediately via login change-password flow",
+        "password_mode": password_mode,
+        "warning": if password_mode == "random_temporary" {
+            "temporary_password is shown once; rotate immediately via login change-password flow"
+        } else {
+            "default_password_stdin is for local debugging only; do not use in production"
+        },
         "users": [
             {
                 "username": args.super_username.trim(),

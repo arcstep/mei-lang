@@ -54,8 +54,12 @@ cargo run -p mei-lang-server -- serve --host-surface access-only
 # 生成 JWT / RSA 密钥（写入 .mei-workspace.json）
 cargo run -p mei-lang-server -- host auth ensure-keys --source-root ../workspaces --json
 
-# 方案 A：一次性初始化 super/admin/guest（生成随机临时密码并打印一次）
+# 方案 A1：一次性初始化 super/admin/guest（各账号随机临时密码，只打印一次）
 cargo run -p mei-lang-server -- host auth bootstrap-users --source-root ../workspaces --json
+
+# 方案 A2：本地调试可用统一初始密码（super/admin/guest 共用，从 stdin 读取）
+printf '%s' 'Debug1!pwd' | cargo run -p mei-lang-server -- host auth bootstrap-users \
+  --source-root ../workspaces --default-password-stdin --json
 
 # 方案 B1：手工编辑 auth.users[] 时，用 stdin 生成 Argon2 哈希
 printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth hash-password --json
@@ -69,7 +73,8 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth add-u
 
 - `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
 - 源码根目录 **`--source-root`** 未传时默认为仓库内 **`../workspaces`**
-- **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户）
+- **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
+- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 RSA 加密链路输入，禁止命令行参数
 - 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
 - 启动后提供默认宿主/runtime；访问侧 AI 若启用，将按 `.env` 中 OpenAI 兼容配置连接模型服务
 
