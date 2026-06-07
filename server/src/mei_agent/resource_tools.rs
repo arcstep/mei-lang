@@ -109,16 +109,66 @@ pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
 
 /// 按「模式 + 资源可见性」生成 LLM 可见工具 schema：`local_only` 下 dataset 工具不暴露 scope 覆盖参数。
 pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) -> Vec<Value> {
-    let _normalized = mode.trim().to_ascii_lowercase();
+    let normalized = mode.trim().to_ascii_lowercase();
     let allow_ds_scope_override = vis != ResourceVisibility::LocalOnly;
-    vec![
+    let mut defs = vec![
         llm::read_file_tool_definition(),
         dataset_query_tool_definition(allow_ds_scope_override),
         dataset_metric_tool_definition(allow_ds_scope_override),
         resource_list_tool_definition(allow_ds_scope_override),
         resource_get_tool_definition(allow_ds_scope_override),
         resource_runtime_peek_tool_definition(allow_ds_scope_override),
-    ]
+    ];
+    if normalized == "ask" || normalized == "plan" {
+        defs.push(propose_session_patch_tool_definition());
+    }
+    defs
+}
+
+fn propose_session_patch_tool_definition() -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": "propose_session_patch",
+            "description": "Propose a session-scoped temporary view patch for access runtime (non-persistent by default).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Short patch title for operator-readable session history."
+                    },
+                    "ops": {
+                        "type": "array",
+                        "description": "Patch operations. Keep this list small (max 8).",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["hide_panel", "highlight_panel", "move_panel_front", "focus_query_state"]
+                                },
+                                "panel_id": {
+                                    "type": "string",
+                                    "description": "Target panel id from host runtime metadata."
+                                },
+                                "query_state_id": {
+                                    "type": "string",
+                                    "description": "Target query_state id from browser context."
+                                },
+                                "note": {
+                                    "type": "string",
+                                    "description": "Optional operator hint."
+                                }
+                            },
+                            "required": ["type"]
+                        }
+                    }
+                },
+                "required": ["ops"]
+            }
+        }
+    })
 }
 
 fn resource_list_tool_definition(allow_scope_override: bool) -> Value {
@@ -376,6 +426,7 @@ mod tests {
         assert!(names.contains(&"resource_list".to_string()));
         assert!(names.contains(&"resource_get".to_string()));
         assert!(names.contains(&"resource_runtime_peek".to_string()));
+        assert!(names.contains(&"propose_session_patch".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
         assert!(!names.contains(&"rewrite_current_mei".to_string()));
@@ -390,6 +441,7 @@ mod tests {
         assert!(names.contains(&"resource_list".to_string()));
         assert!(names.contains(&"resource_get".to_string()));
         assert!(names.contains(&"resource_runtime_peek".to_string()));
+        assert!(!names.contains(&"propose_session_patch".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
         assert!(!names.contains(&"rewrite_current_mei".to_string()));
