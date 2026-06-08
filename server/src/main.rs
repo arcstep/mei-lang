@@ -20,8 +20,8 @@ use axum::{
 };
 use clap::{Args, Parser, Subcommand};
 use mei_lang_kernel::{
-    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, workspace_config_path,
-    HostSurface, CompileOptions, CompileWatchedFile, Diagnostic, Severity,
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, set_mei_package_root,
+    workspace_config_path, HostSurface, CompileOptions, CompileWatchedFile, Diagnostic, Severity,
 };
 use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
@@ -52,6 +52,7 @@ enum Command {
     Serve(ServeArgs),
     Agent(AgentArgs),
     Host(HostArgs),
+    Workspace(WorkspaceArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
@@ -81,6 +82,55 @@ enum HostCommand {
 
 #[derive(Args, Clone)]
 struct HostDescribeArgs {
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct WorkspaceArgs {
+    #[command(subcommand)]
+    command: WorkspaceCommand,
+}
+
+#[derive(Subcommand)]
+enum WorkspaceCommand {
+    /// 创建 workspace profile 目录与 `.mei-workspace.json`
+    Init(WorkspaceInitArgs),
+    /// 从 mei-lang/stock 物化 components/templates 到 profile `.stock/`（可 Git 跟踪）
+    Materialize(WorkspaceMaterializeArgs),
+    /// 在工作区内创建最小 mei 应用骨架
+    CreateApp(WorkspaceCreateAppArgs),
+}
+
+#[derive(Args)]
+struct WorkspaceInitArgs {
+    /// profile 目录名，如 `ws-dev`（创建在 workspaces/ 下）
+    profile_id: String,
+    #[arg(long)]
+    label: Option<String>,
+    #[arg(long, default_value = "../workspaces")]
+    workspaces_root: PathBuf,
+    #[arg(long)]
+    materialize: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct WorkspaceMaterializeArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    source_root: PathBuf,
+    #[arg(long)]
+    force: bool,
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+struct WorkspaceCreateAppArgs {
+    app_id: String,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    source_root: PathBuf,
     #[arg(long)]
     json: bool,
 }
@@ -498,6 +548,8 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let cli = Cli::parse();
+    let package_root = resolve_package_root()?;
+    set_mei_package_root(package_root.clone());
     let env_filter = match cli.command {
         Command::Serve(_) => "info",
         _ => "error",
@@ -513,6 +565,7 @@ async fn main() -> Result<()> {
             command: args.command,
         }),
         Command::Host(args) => host_command(args),
+        Command::Workspace(args) => workspace_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),
@@ -1068,6 +1121,57 @@ fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
 fn runtime_command(args: RuntimeArgs) -> Result<()> {
     match args.command {
         RuntimeCommand::Peek(args) => runtime_peek_command(args),
+    }
+}
+
+fn workspace_command(args: WorkspaceArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    match args.command {
+        WorkspaceCommand::Init(args) => {
+            let parent = if args.workspaces_root.is_absolute() {
+                args.workspaces_root.clone()
+            } else {
+                package_root.join(args.workspaces_root)
+            };
+            let source_root = mei_lang_toolchain::init_workspace_profile(
+                &parent,
+                args.profile_id.as_str(),
+                args.label.as_deref(),
+                &package_root,
+                args.materialize,
+            )?;
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.init",
+                "profile_id": args.profile_id,
+                "source_root": source_root,
+                "materialized": args.materialize,
+            });
+            print_json_output(&output, args.json)
+        }
+        WorkspaceCommand::Materialize(args) => {
+            let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+            let report =
+                mei_lang_toolchain::materialize_workspace_stock(&source_root, &package_root, args.force)?;
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.materialize",
+                "report": report,
+            });
+            print_json_output(&output, args.json)
+        }
+        WorkspaceCommand::CreateApp(args) => {
+            let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+            let app_root =
+                mei_lang_toolchain::create_app_skeleton(&source_root, args.app_id.as_str())?;
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.create-app",
+                "app_id": args.app_id,
+                "app_root": app_root,
+            });
+            print_json_output(&output, args.json)
+        }
     }
 }
 

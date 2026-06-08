@@ -7,6 +7,7 @@ mod export;
 mod observation;
 mod runtime_sim;
 mod types;
+mod workspace_stock;
 mod world;
 
 pub use access_query::{
@@ -34,6 +35,9 @@ pub use types::{
     ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorldAssetGetResponse,
     WorldAssetListItem, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimeBundle,
     WorldRuntimePeekResponse, WorldRuntimeSummary, WorldScope, WorldSnapshotSummary,
+};
+pub use workspace_stock::{
+    create_app_skeleton, init_workspace_profile, materialize_workspace_stock, MaterializeReport,
 };
 pub use world::{
     build_world_context_snapshot, default_resource_query_tools, load_world_runtime_bundle,
