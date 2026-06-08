@@ -158,6 +158,7 @@ fn query_world_dataset_contract_shape_is_stable() {
         &BTreeMap::new(),
         None,
         None,
+        None,
     )
     .expect("dataset query");
     assert_eq!(payload["id"], "sales_data");
@@ -181,6 +182,8 @@ fn query_world_dataset_metrics_contract_shape_is_stable() {
         &["orders_overview".to_string()],
         None,
         &BTreeMap::new(),
+        None,
+        &[],
     )
     .expect("metric query");
     assert_eq!(payload["dataset_id"], "orders");
@@ -238,6 +241,7 @@ fn standalone_source_root_ds_smoke_query_dataset_works() {
         &BTreeMap::new(),
         None,
         Some(5),
+        None,
     )
     .expect("standalone dataset query");
     assert_eq!(payload["id"], "sales_data");

@@ -44,6 +44,7 @@ pub fn query_dataset_command(args: QueryDatasetArgs) -> Result<()> {
         &filters,
         columns,
         args.limit,
+        None,
     )?;
     let output = json!({
         "schema_version": "mei-cli-v1",
@@ -76,6 +77,8 @@ pub fn query_metric_command(args: QueryMetricArgs) -> Result<()> {
         &args.metric_ids,
         args.search.as_deref(),
         &filters,
+        None,
+        &[],
     )?;
     let output = json!({
         "schema_version": "mei-cli-v1",

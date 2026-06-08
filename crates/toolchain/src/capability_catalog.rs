@@ -16,6 +16,20 @@ pub struct SkillPackageDescriptor {
     pub companion_priority: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AiProfileDescriptor {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub primary_inputs: Vec<String>,
+    pub recommended_flow: Vec<String>,
+    pub preferred_surface: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_package_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guidance_file_rel: Option<String>,
+}
+
 pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
     SkillPackageDescriptor {
         id: "meilang-author".to_string(),
@@ -27,7 +41,58 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
         companion_priority: vec![
             "authoring.md".to_string(),
             "syntax-rules.md".to_string(),
+            "components-reference.md".to_string(),
+            "context.md".to_string(),
         ],
+    }
+}
+
+pub fn author_profile_descriptor() -> AiProfileDescriptor {
+    AiProfileDescriptor {
+        id: "author".to_string(),
+        name: "MeiLang Author".to_string(),
+        description: "Source-first authoring profile: prioritize `.mei` source, syntax knowledge, examples, diagnostics, and external dev tools over host-side runtime callbacks.".to_string(),
+        primary_inputs: vec![
+            "current_mei_source".to_string(),
+            "syntax_rules".to_string(),
+            "components_reference".to_string(),
+            "examples".to_string(),
+            "mei_check_and_lsp_diagnostics".to_string(),
+        ],
+        recommended_flow: vec![
+            "read_target_source".to_string(),
+            "read_author_docs_and_examples".to_string(),
+            "run_mei_check_or_mei_lsp".to_string(),
+            "use_inspect_or_query_only_when_runtime_facts_are_needed".to_string(),
+        ],
+        preferred_surface: "editor".to_string(),
+        skill_package_id: Some("meilang-author".to_string()),
+        guidance_file_rel: None,
+    }
+}
+
+pub fn access_profile_descriptor() -> AiProfileDescriptor {
+    AiProfileDescriptor {
+        id: "access".to_string(),
+        name: "MeiLang Access".to_string(),
+        description: "World-first access profile: prioritize runtime/world/dataset/metric facts, bounded query tools, and request-time browser query_state over static source guessing.".to_string(),
+        primary_inputs: vec![
+            "world_context_snapshot".to_string(),
+            "resource_inventory".to_string(),
+            "dataset_metric_results".to_string(),
+            "dataset_query_results".to_string(),
+            "browser_query_state".to_string(),
+            "runtime_peek".to_string(),
+        ],
+        recommended_flow: vec![
+            "read_world_catalog_and_runtime_summary".to_string(),
+            "merge_browser_query_state_into_eval_scope".to_string(),
+            "prefer_preinjected_metric_preview_then_dataset_metric".to_string(),
+            "use_read_file_only_for_small_verbatim_evidence".to_string(),
+        ],
+        preferred_surface: "access".to_string(),
+        skill_package_id: None,
+        guidance_file_rel: Some("guides/access-profile.md".to_string()),
     }
 }
 
@@ -42,6 +107,10 @@ pub fn capability_catalog_descriptor() -> Value {
             "platform_assets_are_first_class",
             "host_specific_capability_must_register_before_export"
         ],
+        "ai_profiles": [
+            author_profile_descriptor(),
+            access_profile_descriptor()
+        ],
         "skill_packages": [
             meilang_author_skill_package()
         ],
@@ -54,9 +123,10 @@ pub fn capability_catalog_descriptor() -> Value {
 
 pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
     match surface.trim().to_ascii_lowercase().as_str() {
-        "editor" => Some(json!({
+        "editor" | "author" => Some(json!({
             "schema_version": MCP_SURFACE_SCHEMA_VERSION,
             "surface": "editor",
+            "profile_id": "author",
             "profile": "editor_readonly_minimal_v1",
             "transport": {
                 "status": "adapter_ready",
@@ -73,6 +143,14 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                 "adapter_entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs"
             },
             "skill_package": meilang_author_skill_package(),
+            "authoring_mode": {
+                "strategy": "source_first",
+                "guidance": [
+                    "read_target_mei_before_runtime_queries",
+                    "use_docs_examples_and_lsp_for_language_help",
+                    "treat_summary_as_routing_hint_not_source_substitute"
+                ]
+            },
             "tools": [
                 {
                     "name": "mei_check",
@@ -115,6 +193,18 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     }
                 },
                 {
+                    "name": "mei_workspace_summary",
+                    "description": "Return a workspace-level headless summary, including discovered apps, aliases, menu groups, layout health, and compile-derived app semantics such as app_kind, semantic_tags, and business_explanation.",
+                    "backed_by": "mei workspace summary [--source-root <dir>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "source_root": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                {
                     "name": "mei_inspect_world",
                     "description": "Return the structured world/runtime snapshot for the selected app scope.",
                     "backed_by": "mei inspect world --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
@@ -133,6 +223,21 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     "name": "mei_inspect_inventory",
                     "description": "Return the app inventory/resource index for the selected scope.",
                     "backed_by": "mei inspect inventory --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
+                },
+                {
+                    "name": "mei_inspect_summary",
+                    "description": "Return a bounded business-oriented summary for the selected app/scene scope, including compile-derived routes/resources/components/diagnostics plus semantic narrative like app_kind, scene profile, flow/topology signals, and business_explanation.",
+                    "backed_by": "mei inspect summary --app <app> [--source-root <dir>] [--scene <scene>] [--target-file <file>] --json",
                     "input_schema": {
                         "type": "object",
                         "properties": {
@@ -237,6 +342,7 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
         "access" => Some(json!({
             "schema_version": MCP_SURFACE_SCHEMA_VERSION,
             "surface": "access",
+            "profile_id": "access",
             "profile": "access_readonly_world_v1",
             "transport": {
                 "status": "descriptor_ready",
@@ -244,8 +350,10 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
             },
             "context_ir": {
                 "primary": "world-first",
-                "producer": "mei inspect world --app <app> [--scene <scene>] [--target-file <file>] --json"
+                "producer": "mei inspect world --app <app> [--scene <scene>] [--target-file <file>] --json",
+                "eval_scope": "merge browser query_state into bounded dataset/metric evaluation before answering"
             },
+            "guidance_file_rel": "guides/access-profile.md",
             "tools": [
                 {
                     "name": "dataset_query",
@@ -276,6 +384,11 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     "name": "resource_runtime_trace_export",
                     "description": "Export a bounded runtime trace envelope for the current scope.",
                     "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] --json"
+                },
+                {
+                    "name": "resource_business_summary",
+                    "description": "Return a bounded business summary for the current app/scene/world scope.",
+                    "backed_by": "mei inspect summary --app <app> [--scene <scene>] [--target-file <file>] --json"
                 }
             ],
             "write_policy": {

@@ -1090,6 +1090,7 @@ async fn http_dataset_query_aligns_with_toolchain_access_query() {
         &BTreeMap::new(),
         None,
         None,
+        None,
     )
     .expect("toolchain dataset query");
 

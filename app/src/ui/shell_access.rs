@@ -104,7 +104,7 @@ pub(crate) fn access_shell(
                     hidden=true
                 >
                     <div class="access-chat-overlay-head">
-                        <span class="access-chat-overlay-title">"Mei Assistant"</span>
+                        <span class="access-chat-overlay-title">"Mei Access Assistant"</span>
                         <button
                             id="access-chat-close"
                             class="access-chat-overlay-close"

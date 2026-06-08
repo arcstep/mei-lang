@@ -82,6 +82,122 @@ pub struct WorldSnapshotSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBusinessResourceSummary {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub metric_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub related_to_target: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBusinessEntitySummary {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledRouteSummary {
+    pub scene_id: String,
+    pub target_file: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub is_default: bool,
+    pub access_export: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadedResourceSummary {
+    pub id: String,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub has_dataset: bool,
+    pub has_document: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentAssetSummary {
+    pub key: String,
+    pub tag: String,
+    pub script: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DiagnosticCountSummary {
+    pub errors: usize,
+    pub warnings: usize,
+    pub infos: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldBusinessSummary {
+    pub app_id: String,
+    pub app_title: String,
+    pub app_kind: String,
+    pub scene_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub world_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_scene: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_scene_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_goal: Option<String>,
+    pub active_target_file: String,
+    pub business_focus: String,
+    pub business_explanation: String,
+    pub panel_count: usize,
+    pub flow_interaction_count: usize,
+    pub flow_subject_timer_count: usize,
+    pub has_timer: bool,
+    pub world_has_topology: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame_layout_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub narrative: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_hints: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub resource_kind_counts: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub entity_kind_counts: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub loaded_resource_kind_counts: BTreeMap<String, usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_resources: Vec<WorldBusinessResourceSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_entities: Vec<WorldBusinessEntitySummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scene_routes: Vec<CompiledRouteSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub loaded_resources: Vec<LoadedResourceSummary>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub component_assets: Vec<ComponentAssetSummary>,
+    pub diagnostics: DiagnosticCountSummary,
+    pub runtime_summary: WorldRuntimeSummary,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub query_tools: Vec<ResourceQueryToolSpec>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorldContextSnapshot {
     pub app_id: String,
     pub active_target_file: String,
@@ -135,4 +251,64 @@ pub struct WorldRuntimePeekResponse {
     pub countdown: i64,
     pub available_actions: Vec<String>,
     pub recent_trace_messages: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceAppSummary {
+    pub app_id: String,
+    pub app_root: String,
+    pub entry_main: String,
+    pub layout_ok: bool,
+    pub error_count: usize,
+    pub warning_count: usize,
+    pub info_count: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_scene: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_scene_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_hint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub business_explanation: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compile_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loaded_resource_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dataset_resource_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component_asset_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compile_diagnostics: Option<DiagnosticCountSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceSummary {
+    pub source_root: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_label: Option<String>,
+    pub app_count: usize,
+    pub healthy_app_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub discover_skip_directories: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_aliases: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub menu_group_ids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub narrative: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<WorkspaceAppSummary>,
 }

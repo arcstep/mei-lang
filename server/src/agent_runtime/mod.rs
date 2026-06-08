@@ -56,14 +56,6 @@ pub(crate) struct ManagedOpencodeSkillStatus {
     pub revision: Option<String>,
 }
 
-/// 安装态或源码态 skill 目录元信息（不读取 `SKILL.md` 正文，避免塞进 system）。
-#[derive(Debug, Clone)]
-pub(crate) struct ManagedOpencodeSkillMeta {
-    pub skill_home: String,
-    pub source_kind: String,
-    pub companion_files: Vec<String>,
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct ManagedOpencodeRuntime {
     pub last_exit: Option<ManagedOpencodeExit>,

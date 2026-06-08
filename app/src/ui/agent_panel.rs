@@ -69,6 +69,7 @@ pub(crate) fn panel_view(
                 data-scene-target=active_scene_target
                 data-contract-scene=contract_scene_id
                 data-mode=route_mode.slug()
+                data-ai-profile=if route_mode.is_app() { "access" } else { "author" }
                 data-allowed-modes=allowed_modes
                 data-default-agent-mode=default_agent_mode
                 data-history-actions=if history_actions_enabled { "true" } else { "false" }

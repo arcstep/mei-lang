@@ -1,12 +1,11 @@
 use crate::{
     agent_runtime::bridge::BridgePromptRequest,
-    agent_runtime::runtime::load_managed_agent_skill_meta,
     mei_agent::agent_scope_profile::resolve_resource_visibility,
     mei_agent::mode_policy::AgentModePolicy, AppState,
 };
 
 pub(crate) fn build_meilang_system_prompt(
-    state: &AppState,
+    _state: &AppState,
     existing: Option<&str>,
     request: &BridgePromptRequest,
     session_context: Option<&str>,
@@ -29,7 +28,7 @@ pub(crate) fn build_meilang_system_prompt(
         );
     } else {
         blocks.push(
-            "You are a MeiLang authoring assistant. Treat `.mei` as MeiLang scene-first DSL hosted on restricted Starlark, not Music Encoding Initiative XML.".to_string(),
+            "You are assisting a MeiLang authoring workflow from a host runtime that no longer owns the authoring mainline. Treat `.mei` as MeiLang scene-first DSL hosted on restricted Starlark, not Music Encoding Initiative XML.".to_string(),
         );
     }
     blocks.push(
@@ -46,10 +45,11 @@ pub(crate) fn build_meilang_system_prompt(
             concat!(
                 "Tool-first information policy (ask mode):\n",
                 "- Ask mode is **world-first**: treat injected `[World — catalog]` / runtime summaries as the primary truth for business Q&A.\n",
-                "- Treat injected `[Browser — context]` (active query_state / tab / overlay hints) as request-time runtime truth for UI state; when it changes, recompute answer scope.\n",
+                "- Treat injected `[Browser — context]` (active query_state / tab / overlay hints) plus `[Access — default eval scope]` as request-time runtime truth for UI state; when they change, recompute answer scope.\n",
                 "- Respect injected `[Host — protocol]` and `host_contract_schema` as runtime contract metadata; do not infer capabilities beyond that envelope.\n",
                 "- Do not guess resource ids, dataset fields, or `.mei` source you have not read.\n",
                 "- For dataset resources, use `dataset_query` for schema/rows and `dataset_metric` for aggregated asks (count/rate/trend/summary-card values); do not read spreadsheets with `read_file`.\n",
+                "- Prefer injected evaluated metric previews when they already answer the question; fall back to `dataset_metric` when you need fresh or more specific aggregates.\n",
                 "- Use `read_file` only for small, scoped evidence paths allowed by the current resource visibility (usually under the active app folder).\n",
                 "- Do not generate or suggest direct `.mei` rewrite plans in ask mode.\n",
                 "- Ask mode intentionally disables authoring skill tools; avoid author-time scaffolding unless the user explicitly asks for verbatim DSL."
@@ -59,52 +59,17 @@ pub(crate) fn build_meilang_system_prompt(
     } else {
         blocks.push(
             concat!(
-                "Tool-first information policy (build mode):\n",
-                "- Build mode is **scene-first** with an optional **source-focus file**: anchor on the current scene; inline only the active source-focus `.mei` body; treat other session context as structured scene index, not the full app.\n",
-                "- Do not guess resource ids, component keys, dataset fields, or `.mei` source you have not read.\n",
-                "- The session injects a **[World — catalog]** block first: treat it as the authoritative index of `world.resources` (datasets, sources, metric ids) plus query-tool contracts.\n",
-                "- For routine **authoring** tasks, prefer `read_file` / `skill_*` over repeatedly calling `dataset_query` unless you need live data samples to tune bindings.\n",
-                "- For dataset resources, call **`dataset_query` once** in the first tool round when the question needs schema/filters/sample rows; it returns bounded (`schema + filters + metric ids + first 10 rows + first 10 columns`, cell text truncated).\n",
-                "- For aggregated questions like '多少/占比/趋势/卡片值', prefer **`dataset_metric` once** when the dataset id is known/implied and metric ids are available from the world catalog or dataset query output.\n",
-                "- **Do not** chain `read_file` on the active `.mei` after successful `dataset_query` / `dataset_metric` unless the user wants **verbatim DSL** or file edits. **Never** `read_file` `.xlsx` / spreadsheets (binary).\n",
-                "- **Do not** call `resource_list` / `resource_get` / `resource_runtime_peek` for routine dataset Q&A after a successful dataset tool call; only use runtime peek when user explicitly asks phase/trace.\n",
-                "- Read workspace **text** files with `read_file` (path relative to workspace root, no `..`; app-owned `.mei` / `.md` paths almost always start with `<app_id>/`, e.g. `spbjw/data/...`).\n",
-                "- Query datasets with `dataset_query` / `dataset_metric` (optional overrides: scene_id, target_file) within the allowed resource visibility scope.\n",
-                "- Read MeiLang author skill docs with `skill_list` then `skill_read` (path relative to skill root, no `..`).\n",
-                "- Only pull large sources when the user asks for edits/audits/reviews or you need evidence to answer correctly.",
+                "External authoring guidance (legacy non-ask mode):\n",
+                "- Host-side build mode is no longer the mainline for MeiLang authoring; prefer external dev tools plus `mei` CLI / `mei-lsp` for source edits.\n",
+                "- Treat current `.mei` source, syntax docs, component references, examples, and `mei check` diagnostics as the primary truth for authoring questions.\n",
+                "- Treat `inspect summary` / `workspace summary` as routing/index hints, not as a replacement for reading the target source files.\n",
+                "- Do not suggest or rely on `skill_list`, `skill_read`, `rewrite_current_mei`, or other host-only authoring loops.\n",
+                "- If a question depends on runtime values rather than source structure, explicitly switch to access-style dataset/metric tooling instead of pretending the source already contains the answer.\n",
+                "- Read workspace text files with `read_file` only when you need verbatim DSL evidence under the current allowed path scope.\n",
+                "- Prefer compact, source-grounded guidance over host-runtime scaffolding."
             )
             .to_string(),
         );
-        match load_managed_agent_skill_meta(state) {
-            Ok(Some(meta)) => {
-                let mut block = String::new();
-                block.push_str("[MeiLang Author Skill — index]\n");
-                block.push_str(&format!(
-                    "source_kind: {}\nskill_home: {}\n",
-                    meta.source_kind, meta.skill_home
-                ));
-                block.push_str(
-                    "Load authoring rules on demand: call `skill_list`, then `skill_read` for e.g. `syntax-rules.md` or `authoring.md`.\n",
-                );
-                if !meta.companion_files.is_empty() {
-                    block.push_str("companion_md:\n");
-                    for item in meta.companion_files.iter().take(24) {
-                        block.push_str(&format!("- {item}\n"));
-                    }
-                    if meta.companion_files.len() > 24 {
-                        block.push_str(&format!(
-                            "... and {} more (see skill_list)\n",
-                            meta.companion_files.len() - 24
-                        ));
-                    }
-                }
-                blocks.push(block.trim().to_string());
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(%error, "failed to load mei-lang skill meta");
-            }
-        }
     }
     if let Some(context) = session_context {
         blocks.push(format!("[MeiLang Session Context]\n{context}"));
@@ -182,9 +147,10 @@ mod tests {
             Some("compact-session-ctx"),
         )
         .expect("system");
-        assert!(sys.contains("Tool-first information policy (build mode)"));
+        assert!(sys.contains("External authoring guidance (legacy non-ask mode)"));
         assert!(sys.contains("[MeiLang Session Context]"));
         assert!(sys.contains("compact-session-ctx"));
+        assert!(!sys.contains("[MeiLang Author Skill — index]"));
         assert!(
             !sys.contains("## 阅读顺序"),
             "companion-only headings should not be inlined: {}",

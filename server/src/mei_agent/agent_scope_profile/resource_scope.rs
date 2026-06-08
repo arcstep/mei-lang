@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::agent_runtime::bridge::BridgePromptRequest;
 use crate::http::scene_api::WorldContextSnapshot;
+use crate::mei_agent::browser_context::access_browser_state;
 use crate::mei_agent::mode_policy::AgentModePolicy;
 use crate::mei_agent::resource_tools::AgentResourceScope;
 
@@ -17,6 +18,7 @@ pub(crate) fn agent_resource_scope_from_request(
     policy: AgentModePolicy,
 ) -> AgentResourceScope {
     let vis = resolve_resource_visibility(request, policy);
+    let browser_state = access_browser_state(request.browser_context.as_ref());
     let app_id = request.app_id.as_deref().unwrap_or("").trim();
     let reach = if app_id.is_empty() {
         ScopeReachabilitySets::default()
@@ -28,6 +30,8 @@ pub(crate) fn agent_resource_scope_from_request(
         scene_id: request.scene_id.clone(),
         target_file: request.target_file.clone(),
         resource_visibility: vis,
+        browser_query_state: browser_state.merged_query_state,
+        browser_filter_intents: browser_state.filter_intents,
         direct_ref_paths: d,
         scene_reachable_paths: s,
         world_injection_allowed_ids: None,
@@ -42,6 +46,7 @@ pub(crate) fn agent_resource_scope_from_request_with_snapshot(
     app_id: &str,
 ) -> AgentResourceScope {
     let vis = resolve_resource_visibility(request, policy);
+    let browser_state = access_browser_state(request.browser_context.as_ref());
     let reach = match snapshot {
         Some(snap) => ScopeReachabilitySets::from_world_snapshot(snap, app_id),
         None => ScopeReachabilitySets::fallback_from_request_target(request, app_id),
@@ -51,6 +56,8 @@ pub(crate) fn agent_resource_scope_from_request_with_snapshot(
         scene_id: request.scene_id.clone(),
         target_file: request.target_file.clone(),
         resource_visibility: vis,
+        browser_query_state: browser_state.merged_query_state,
+        browser_filter_intents: browser_state.filter_intents,
         direct_ref_paths: d,
         scene_reachable_paths: s,
         world_injection_allowed_ids: None,

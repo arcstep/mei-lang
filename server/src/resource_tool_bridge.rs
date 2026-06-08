@@ -13,6 +13,9 @@ use crate::http::scene_api::{
 use crate::mei_agent::agent_scope_profile::{
     resource_world_tools_precheck, validate_dataset_world_scope_merge,
 };
+use crate::mei_agent::browser_context::{
+    effective_filter_intents, merge_browser_query_state_with_args,
+};
 use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceToolExecutor};
 
 #[derive(Debug, Default)]
@@ -151,6 +154,11 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .map(|u| u as usize);
                 let filters = Self::parse_filters(&args);
                 let columns = Self::parse_columns(&args);
+                let effective_query_state = merge_browser_query_state_with_args(
+                    scope.browser_query_state.as_ref(),
+                    &filters,
+                    search,
+                );
                 let columns_ref = if columns.is_empty() {
                     None
                 } else {
@@ -165,6 +173,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     &filters,
                     columns_ref,
                     limit,
+                    Some(&effective_query_state),
                 ))
             }
             "dataset_metric" => {
@@ -194,6 +203,15 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
+                let effective_query_state = merge_browser_query_state_with_args(
+                    scope.browser_query_state.as_ref(),
+                    &filters,
+                    search,
+                );
+                let effective_filter_intents = effective_filter_intents(
+                    &scope.browser_filter_intents,
+                    &effective_query_state,
+                );
                 Self::json_result(query_resource_dataset_metric(
                     source_root,
                     app,
@@ -202,6 +220,8 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     &metric_ids,
                     search,
                     &filters,
+                    Some(&effective_query_state),
+                    &effective_filter_intents,
                 ))
             }
             "resource_list" => {

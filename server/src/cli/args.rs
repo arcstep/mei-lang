@@ -63,6 +63,8 @@ pub enum WorkspaceCommand {
     Materialize(WorkspaceMaterializeArgs),
     /// 在工作区内创建最小 mei 应用骨架
     CreateApp(WorkspaceCreateAppArgs),
+    /// 输出 workspace 级别的 headless 摘要，便于 AI / 外部工具快速理解 app 列表与发现配置
+    Summary(WorkspaceSummaryArgs),
 }
 
 #[derive(Args)]
@@ -92,6 +94,14 @@ pub struct WorkspaceMaterializeArgs {
 #[derive(Args)]
 pub struct WorkspaceCreateAppArgs {
     pub app_id: String,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceSummaryArgs {
     #[arg(long, default_value = "../workspaces/ws-dev")]
     pub source_root: PathBuf,
     #[arg(long)]
@@ -240,6 +250,7 @@ pub struct InspectArgs {
 pub enum InspectCommand {
     World(InspectWorldArgs),
     Inventory(InspectInventoryArgs),
+    Summary(InspectSummaryArgs),
     Layout(InspectLayoutArgs),
 }
 
@@ -251,6 +262,12 @@ pub struct InspectWorldArgs {
 
 #[derive(Args, Clone)]
 pub struct InspectInventoryArgs {
+    #[command(flatten)]
+    pub app: CliAppSelectorArgs,
+}
+
+#[derive(Args, Clone)]
+pub struct InspectSummaryArgs {
     #[command(flatten)]
     pub app: CliAppSelectorArgs,
 }
@@ -417,7 +434,7 @@ pub enum McpCommand {
 
 #[derive(Args, Clone)]
 pub struct McpDescribeArgs {
-    #[arg(long, value_parser = ["editor", "access"])]
+    #[arg(long, value_parser = ["editor", "author", "access"])]
     pub surface: String,
     #[arg(long)]
     pub json: bool,

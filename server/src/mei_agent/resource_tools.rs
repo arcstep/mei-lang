@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use mei_lang_kernel::{FilterIntent, QueryState};
 use serde_json::{json, Value};
 
 use super::llm;
@@ -50,6 +51,10 @@ pub struct AgentResourceScope {
     pub scene_id: Option<String>,
     pub target_file: Option<String>,
     pub resource_visibility: ResourceVisibility,
+    /// 浏览器访问态当前合并后的 query_state；供 dataset/metric 工具作为默认求值 scope。
+    pub browser_query_state: Option<QueryState>,
+    /// 与 `browser_query_state` 同源的语义过滤意图；无显式意图时可由 query_state.filters 派生。
+    pub browser_filter_intents: Vec<FilterIntent>,
     /// 由 world inventory 解析出的「与 target 直接相关」可读路径集合（workspace 相对、已规范化）。
     pub direct_ref_paths: Arc<HashSet<String>>,
     /// 由 world inventory 解析出的「当前 scene 上下文可达」可读路径集合（workspace 相对、已规范化）。
@@ -65,6 +70,8 @@ impl Default for AgentResourceScope {
             scene_id: None,
             target_file: None,
             resource_visibility: ResourceVisibility::LocalOnly,
+            browser_query_state: None,
+            browser_filter_intents: Vec::new(),
             direct_ref_paths: Arc::new(HashSet::new()),
             scene_reachable_paths: Arc::new(HashSet::new()),
             world_injection_allowed_ids: None,

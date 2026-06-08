@@ -6,7 +6,7 @@ mod snapshot;
 
 pub use bundle::{default_resource_query_tools, load_world_runtime_bundle, normalize_path};
 pub use query::{query_world_asset, query_world_assets, query_world_runtime};
-pub use snapshot::build_world_context_snapshot;
+pub use snapshot::{build_world_business_summary, build_world_context_snapshot};
 
 #[cfg(test)]
 mod tests {

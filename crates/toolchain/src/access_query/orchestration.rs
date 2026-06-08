@@ -5,10 +5,10 @@ use std::time::Instant;
 use anyhow::{anyhow, Result};
 use mei_lang_datasets::{
     evaluate_runtime_metrics_from_plan, metric_ids_visible_for_dataset, normalize_query_filters,
-    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
-    query_state_from_request, DatasetQueryOptions, RuntimeMetricEvalMode,
+    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows, DatasetQueryOptions,
+    RuntimeMetricEvalMode,
 };
-use mei_lang_kernel::locate_dataset_resource;
+use mei_lang_kernel::{locate_dataset_resource, FilterIntent, FilterIntentSource, QueryState};
 use serde_json::{json, Value};
 
 use crate::analysis_contract::{
@@ -28,6 +28,51 @@ use super::serialization::{
 };
 use super::RESOURCE_QUERY_SCHEMA_VERSION;
 
+fn query_state_has_content(state: &QueryState) -> bool {
+    !state.filters.is_empty()
+        || state
+            .search
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty())
+        || !state.group.is_empty()
+        || state.time_range.is_some()
+}
+
+fn merge_query_state_with_request(
+    request_filters: &BTreeMap<String, String>,
+    request_search: Option<&str>,
+    query_state_override: Option<&QueryState>,
+) -> QueryState {
+    let mut merged = query_state_override.cloned().unwrap_or_default();
+    for (dimension, value) in normalize_query_filters(request_filters) {
+        merged.filters.insert(dimension, value);
+    }
+    if let Some(search) = normalize_query_search(request_search) {
+        merged.search = Some(search);
+    }
+    merged
+}
+
+fn effective_filter_intents(
+    query_state: &QueryState,
+    filter_intents_override: &[FilterIntent],
+) -> Vec<FilterIntent> {
+    if !filter_intents_override.is_empty() {
+        return filter_intents_override.to_vec();
+    }
+    query_state
+        .filters
+        .iter()
+        .map(|(dimension, value)| FilterIntent {
+            dimension: dimension.clone(),
+            operator: Default::default(),
+            value: value.clone(),
+            source: FilterIntentSource::QueryState,
+        })
+        .collect()
+}
+
 pub fn query_world_dataset(
     source_root: &Path,
     app_id: &str,
@@ -37,6 +82,7 @@ pub fn query_world_dataset(
     filters: &BTreeMap<String, String>,
     columns: Option<&[String]>,
     limit: Option<usize>,
+    query_state_override: Option<&QueryState>,
 ) -> Result<Value> {
     let request_started = Instant::now();
     let dataset_id = id.trim();
@@ -57,14 +103,15 @@ pub fn query_world_dataset(
     let row_limit = normalize_dataset_limit(limit);
     let selected_columns = normalize_dataset_columns(dataset, columns);
     let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
+    let effective_query_state =
+        merge_query_state_with_request(filters, search, query_state_override);
     let query_options = DatasetQueryOptions {
         page: 1,
         page_size: row_limit,
-        search: search
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
-        filters: filters.clone(),
+        search: effective_query_state.search.clone(),
+        filters: effective_query_state.filters.clone(),
+        group: effective_query_state.group.clone(),
+        time_range: effective_query_state.time_range.clone(),
         collect_all: false,
         ..DatasetQueryOptions::default()
     };
@@ -179,6 +226,9 @@ pub fn query_world_dataset(
         "perf": perf,
         "usage_hint": "若需更多数据，请在 dataset_query 中追加 filters/search/columns/limit；默认仅返回前10行与前10列的有界样例。带 explain 的指标请同时查看 dataset.analysis_contracts_preview，与宿主 UI 的 analysis_contract 同轨。",
     });
+    if query_state_has_content(&effective_query_state) {
+        payload["query_state"] = json!(&effective_query_state);
+    }
     let shrink_started = Instant::now();
     let before = json_serialized_len(&payload);
     if let Some(v) = payload.pointer_mut("/truncation/total_chars_before_budget") {
@@ -222,6 +272,8 @@ pub fn query_world_dataset_metrics(
     metric_ids: &[String],
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
+    query_state_override: Option<&QueryState>,
+    filter_intents_override: &[FilterIntent],
 ) -> Result<Value> {
     let request_started = Instant::now();
     let dataset_id = id.trim();
@@ -237,10 +289,10 @@ pub fn query_world_dataset_metrics(
     let primary_dataset = eval_plan.primary_dataset;
 
     let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
-    let normalized_search = normalize_query_search(search);
-    let normalized_filters = normalize_query_filters(filters);
     let effective_query_state =
-        query_state_from_request(&normalized_filters, normalized_search.as_deref(), None);
+        merge_query_state_with_request(filters, search, query_state_override);
+    let effective_filter_intents =
+        effective_filter_intents(&effective_query_state, filter_intents_override);
     let eval_outcome = evaluate_runtime_metrics_from_plan(
         &bundle.compiled,
         &app_root,
@@ -248,7 +300,7 @@ pub fn query_world_dataset_metrics(
         &bundle.contract.scene.id,
         Some(bundle.active_target_file.as_str()),
         &effective_query_state,
-        &[],
+        &effective_filter_intents,
         RuntimeMetricEvalMode::WithoutDag,
         request_all_metrics,
     )?;
@@ -307,6 +359,8 @@ pub fn query_world_dataset_metrics(
         "scene_id": bundle.contract.scene.id,
         "dataset_id": dataset_id,
         "total_rows": eval_outcome.total_rows,
+        "query_state": &effective_query_state,
+        "filter_intents": &effective_filter_intents,
         "metrics": metrics,
         "analysis_contracts": analysis_contracts,
         "contract_hint": contract_hint,

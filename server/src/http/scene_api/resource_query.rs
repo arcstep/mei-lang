@@ -1,4 +1,5 @@
 use anyhow::Result;
+use mei_lang_kernel::{FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -126,6 +127,7 @@ pub(crate) fn query_resource_dataset(
     filters: &BTreeMap<String, String>,
     columns: Option<&[String]>,
     limit: Option<usize>,
+    query_state_override: Option<&QueryState>,
 ) -> Result<Value> {
     toolchain::query_world_dataset(
         source_root,
@@ -136,6 +138,7 @@ pub(crate) fn query_resource_dataset(
         filters,
         columns,
         limit,
+        query_state_override,
     )
 }
 
@@ -147,6 +150,8 @@ pub(crate) fn query_resource_dataset_metric(
     metric_ids: &[String],
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
+    query_state_override: Option<&QueryState>,
+    filter_intents_override: &[FilterIntent],
 ) -> Result<Value> {
     toolchain::query_world_dataset_metrics(
         source_root,
@@ -156,6 +161,8 @@ pub(crate) fn query_resource_dataset_metric(
         metric_ids,
         search,
         filters,
+        query_state_override,
+        filter_intents_override,
     )
 }
 

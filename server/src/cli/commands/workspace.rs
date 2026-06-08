@@ -56,5 +56,15 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
             });
             print_json_output(&output, args.json)
         }
+        WorkspaceCommand::Summary(args) => {
+            let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+            let summary = mei_lang_toolchain::build_workspace_summary(&source_root)?;
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.summary",
+                "summary": summary,
+            });
+            print_json_output(&output, args.json)
+        }
     }
 }

@@ -7,8 +7,10 @@ mod compile_service;
 mod export;
 mod observation;
 mod runtime_sim;
+mod semantic_summary;
 mod types;
 mod workspace_stock;
+mod workspace_summary;
 mod world;
 
 pub use access_query::{
@@ -37,14 +39,17 @@ pub use export::{
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use runtime_sim::{runtime_sim_step, RuntimeSimStepResult};
 pub use types::{
-    ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorldAssetGetResponse,
-    WorldAssetListItem, WorldAssetListResponse, WorldContextSnapshot, WorldRuntimeBundle,
-    WorldRuntimePeekResponse, WorldRuntimeSummary, WorldScope, WorldSnapshotSummary,
+    ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorkspaceAppSummary,
+    WorkspaceSummary, WorldAssetGetResponse, WorldAssetListItem, WorldAssetListResponse,
+    WorldBusinessEntitySummary, WorldBusinessResourceSummary, WorldBusinessSummary,
+    WorldContextSnapshot, WorldRuntimeBundle, WorldRuntimePeekResponse, WorldRuntimeSummary,
+    WorldScope, WorldSnapshotSummary,
 };
 pub use workspace_stock::{
     create_app_skeleton, init_workspace_profile, materialize_workspace_stock, MaterializeReport,
 };
+pub use workspace_summary::build_workspace_summary;
 pub use world::{
-    build_world_context_snapshot, default_resource_query_tools, load_world_runtime_bundle,
-    query_world_asset, query_world_assets, query_world_runtime,
+    build_world_business_summary, build_world_context_snapshot, default_resource_query_tools,
+    load_world_runtime_bundle, query_world_asset, query_world_assets, query_world_runtime,
 };

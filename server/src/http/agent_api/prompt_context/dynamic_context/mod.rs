@@ -41,7 +41,7 @@ fn build_context_signature(state: &AppState, request: &BridgePromptRequest) -> O
     let mei_entries = collect_mei_file_entries(&state.source_root, &app_root);
     let revision = build_mei_files_revision(&mei_entries);
     Some(format!(
-        "v=world-context-v11|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|browser={browser}|host_protocol={host_protocol}|host_contract_schema={host_contract_schema}|mei_revision={revision}"
+        "v=world-context-v12|app={app_id}|scene={scene_id}|target={target_file}|mode={mode}|route={route}|rv={rv}|reach={reach}|browser={browser}|host_protocol={host_protocol}|host_contract_schema={host_contract_schema}|mei_revision={revision}"
     ))
 }
 
@@ -159,7 +159,7 @@ mod tests {
         let signature = build_context_signature(&state, &request).expect("signature");
         assert!(signature.contains("scene=scene-a"));
         assert!(signature.contains("target=main.mei"));
-        assert!(signature.contains("v=world-context-v11"));
+        assert!(signature.contains("v=world-context-v12"));
 
         let mut changed = request.clone();
         changed.resource_visibility = Some("local_only".into());

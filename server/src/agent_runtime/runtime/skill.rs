@@ -9,7 +9,7 @@ use anyhow::Context;
 use mei_lang_toolchain::meilang_author_skill_package;
 use walkdir::WalkDir;
 
-use super::super::{ManagedOpencodeSkillMeta, ManagedOpencodeSkillStatus};
+use super::super::ManagedOpencodeSkillStatus;
 use crate::AppState;
 
 fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
@@ -60,28 +60,6 @@ fn markdown_file_count(path: &FsPath) -> usize {
         .filter(|entry| entry.file_type().is_file())
         .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
         .count()
-}
-
-fn markdown_files(path: &FsPath) -> Vec<String> {
-    if !path.exists() {
-        return Vec::new();
-    }
-    let mut files = WalkDir::new(path)
-        .into_iter()
-        .flatten()
-        .filter(|entry| entry.file_type().is_file())
-        .filter(|entry| entry.path().extension().and_then(|ext| ext.to_str()) == Some("md"))
-        .filter_map(|entry| {
-            entry
-                .path()
-                .strip_prefix(path)
-                .ok()
-                .and_then(|value| value.to_str())
-                .map(|value| value.replace('\\', "/"))
-        })
-        .collect::<Vec<_>>();
-    files.sort();
-    files
 }
 
 fn git_revision_short(package_root: &FsPath) -> Option<String> {
@@ -224,43 +202,3 @@ pub(crate) fn ensure_managed_agent_skill_synced(
     sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
 }
 
-/// 解析 meilang-author skill 根目录（已安装优先，否则源码目录）。
-/// 默认安装路径为 `{source_root}/.mei/skills/meilang-author`。
-pub(crate) fn resolve_meilang_skill_home_for_source_root(
-    package_root: &FsPath,
-    source_root: &FsPath,
-) -> Option<PathBuf> {
-    let status = build_skill_status(package_root, source_root);
-    if status.installed {
-        Some(PathBuf::from(&status.install_dir))
-    } else if status.source_present {
-        Some(PathBuf::from(&status.source_dir))
-    } else {
-        None
-    }
-}
-
-pub(crate) fn load_managed_agent_skill_meta(
-    state: &AppState,
-) -> anyhow::Result<Option<ManagedOpencodeSkillMeta>> {
-    let Some(home) =
-        resolve_meilang_skill_home_for_source_root(&state.package_root, &state.source_root)
-    else {
-        return Ok(None);
-    };
-    let status = build_skill_status(&state.package_root, &state.source_root);
-    let source_kind = if status.installed {
-        "installed"
-    } else {
-        "source"
-    };
-    let companion_files = markdown_files(&home)
-        .into_iter()
-        .filter(|file| file != "SKILL.md")
-        .collect::<Vec<_>>();
-    Ok(Some(ManagedOpencodeSkillMeta {
-        skill_home: home.display().to_string(),
-        source_kind: source_kind.to_string(),
-        companion_files,
-    }))
-}

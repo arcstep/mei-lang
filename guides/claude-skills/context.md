@@ -6,22 +6,24 @@
 
 1. 当前任务相关的 `.mei` 文件
 2. 对应 example
-3. `docs/mei-lang/implementation/syntax/`
-4. `docs/mei-lang/implementation/extensions/`
-5. 必要时读取相关 web component 或宿主代码
+3. `syntax-rules.md`、`components-reference.md`
+4. `docs/mei-lang/implementation/syntax/`
+5. `docs/mei-lang/implementation/extensions/`
+6. 必要时读取相关 web component 或宿主代码
 
 ## 读取原则
 
 - 只读与当前任务直接相关的文件
 - 先看当前实现文档，再看代码
 - 先看例子，再抽象规则
+- `inspect summary` / `workspace summary` 只当路由摘要，不当源码替代品
 
 ## 需要确认的上下文
 
 编辑前先确认：
 
 1. 当前 entry 指向哪个 `scene`（scene id 或外部 `.mei` 文件）
-2. 当前场景里有哪些 `world.resources`
+2. 当前场景里有哪些 `world.resources`（必要时再查 inspect/query）
 3. 当前 `frame.layout` 使用的是 `grid` 还是 `flex`
 4. `panel.area` 与 `layout.areas` 是否一致
 5. 目标组件是否已经在 manifest 中注册
