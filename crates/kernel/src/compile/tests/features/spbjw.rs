@@ -5,7 +5,7 @@ use serde_json::Value;
 fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -62,7 +62,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
 fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -83,7 +83,7 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
 fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -114,7 +114,7 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
 fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -160,7 +160,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
 fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_scene() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -190,7 +190,7 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
 fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_only() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -220,7 +220,7 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
 fn compile_spbjw_preview_widget_elements_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let started = std::time::Instant::now();
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -306,7 +306,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
 fn compile_spbjw_preview_layout_center_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -361,7 +361,7 @@ fn compile_spbjw_preview_layout_center_succeeds() {
 fn compile_spbjw_preview_widget_metrics_system_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -392,7 +392,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
 fn spbjw_supervision_models_count_is_eighteen() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -423,7 +423,7 @@ fn spbjw_supervision_models_count_is_eighteen() {
 fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -470,7 +470,7 @@ fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
 fn spbjw_warnings_count_sums_warning_entry_column() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -501,7 +501,7 @@ fn spbjw_warnings_count_sums_warning_entry_column() {
 fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -559,7 +559,7 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
 fn compile_spbjw_preview_widget_typical_cases_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let started = std::time::Instant::now();
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -619,7 +619,7 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
 fn compile_spbjw_overview_preview_materializes_imported_metrics() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/layout-左栏.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -661,7 +661,7 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
 fn compile_spbjw_access_home_scene_materializes_ops_theme() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -742,7 +742,7 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
 fn compile_spbjw_preview_home_scene_succeeds() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -859,7 +859,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
 fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -890,7 +890,7 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
 fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let cases = [
         (
             "scenes/01-执法要素.mei",
@@ -973,7 +973,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
 fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1058,7 +1058,7 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
 fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "../.stock/templates/cockpit/drilldown/generic-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1091,7 +1091,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
     use crate::MetricShape;
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/02-行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1187,7 +1187,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
 fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let preview_targets = [
         "scenes/03-指标体系.mei",
         "scenes/07-问题办理.mei",
@@ -1252,7 +1252,7 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
 fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let preview_targets = [
         (
             "scenes/08-监督成效.mei",
@@ -1300,7 +1300,7 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
 fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_keys() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1352,7 +1352,7 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
 fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis_contracts() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1397,7 +1397,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
 fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_source() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1451,7 +1451,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materialize
 ) {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1504,7 +1504,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materialize
 fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_real_rowset() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1544,7 +1544,7 @@ fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_re
 fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset_not_dataset() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1586,7 +1586,7 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
 fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1637,7 +1637,7 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_equal_four() {
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1699,7 +1699,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/03-指标体系.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1898,7 +1898,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
 fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -1950,7 +1950,7 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2076,7 +2076,7 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2152,7 +2152,7 @@ fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2214,7 +2214,7 @@ fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
 
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,

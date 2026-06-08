@@ -558,7 +558,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_page_shell_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis, state.source_root.as_path());
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -613,7 +613,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_page_shell_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis, state.source_root.as_path());
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -663,7 +663,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_page_shell_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis, state.source_root.as_path());
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -823,7 +823,7 @@ pub async fn app_page(
                         Some(state.source_root.as_path()),
                         None,
                     );
-                    let h = fill_page_shell_placeholders(h, &gis);
+                    let h = fill_page_shell_placeholders(h, &gis, state.source_root.as_path());
                     (h, ssr_emit_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
@@ -1098,7 +1098,7 @@ pub async fn app_page(
                 auth_enabled,
                 account_view.as_ref(),
             );
-            fill_page_shell_placeholders(rendered, &gis)
+            fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });
         let ssr_emit_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);

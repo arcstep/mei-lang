@@ -85,7 +85,7 @@ mod tests {
         use crate::model::ColumnSchema;
 
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/xzjd/upload/8.行政处罚结果清单.xlsx");
+            .join("../../../workspaces/ws-spbjw/zhifa/upload/8.行政处罚结果清单.xlsx");
         let rows = super::load_legacy_xlsx_rows(&path, None, 1, Some(20))
             .expect("load spbjw penalty result list");
         assert!(!rows.is_empty(), "penalty rows should not be empty");
@@ -138,7 +138,7 @@ mod tests {
         use crate::model::ColumnSchema;
 
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/xzjd/upload/5.行政检查结果清单.xlsx");
+            .join("../../../workspaces/ws-spbjw/zhifa/upload/5.行政检查结果清单.xlsx");
         let rows = super::load_legacy_xlsx_rows(&path, Some("总表"), 1, Some(20))
             .expect("load spbjw inspection list");
         let schema = vec![ColumnSchema {
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/xzjd/upload/11.预警清单、问题跟踪清单.20260527.xlsx");
+            .join("../../../workspaces/ws-spbjw/zhifa/upload/11.预警清单、问题跟踪清单.20260527.xlsx");
         let rows = super::load_legacy_xlsx_rows(&path, None, 4, Some(20))
             .expect("load spbjw warning list xlsx");
         let row = rows

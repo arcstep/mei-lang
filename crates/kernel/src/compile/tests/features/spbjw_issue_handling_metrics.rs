@@ -11,7 +11,7 @@ use super::{
 fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("xzjd");
+    let app_root = source_root.join("zhifa");
     let capsule = "scenes/07-问题办理.mei";
     let owner = format!("__world_metrics__::{capsule}::metrics");
     let compiled = compile_app_from_root_with_options(
