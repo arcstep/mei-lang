@@ -3,14 +3,39 @@
 .mei-host-shell {
   margin: 0;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   box-sizing: border-box;
   background: radial-gradient(120% 90% at 50% -10%, rgba(251, 113, 133, 0.12), transparent 55%),
     linear-gradient(180deg, #0b1220 0%, #0a1628 48%, #070d18 100%);
   color: #e2e8f0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.mei-host-shell__stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 24px 16px 12px;
+  box-sizing: border-box;
+}
+
+.mei-host-shell__footer {
+  flex-shrink: 0;
+  width: 100%;
+  padding: 8px 16px 16px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #64748b;
+  position: relative;
+  z-index: 1;
+}
+
+.mei-host-shell__footer-line + .mei-host-shell__footer-line {
+  margin-top: 4px;
 }
 
 .mei-host-shell__watermark {
@@ -161,11 +186,85 @@
   border: 1px solid rgba(51, 65, 85, 0.65);
   background: rgba(15, 23, 42, 0.55);
   color: #e2e8f0;
-  padding: 10px;
+  padding: 10px 12px;
   font-size: 14px;
+  line-height: 1.4;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.mei-host-shell__form button {
+.mei-host-shell__form input:focus {
+  outline: none;
+  border-color: rgba(14, 165, 233, 0.55);
+  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+}
+
+.mei-host-shell__password-field {
+  position: relative;
+}
+
+.mei-host-shell__password-field input {
+  padding-right: 40px;
+}
+
+.mei-host-shell__password-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  opacity: 0.88;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.mei-host-shell__password-toggle:hover {
+  color: #cbd5e1;
+  opacity: 1;
+}
+
+.mei-host-shell__password-toggle:active {
+  color: #e2e8f0;
+}
+
+.mei-host-shell__password-toggle:focus-visible {
+  outline: none;
+  color: #7dd3fc;
+  box-shadow: inset 0 0 0 2px rgba(14, 165, 233, 0.45);
+}
+
+.mei-host-shell__password-toggle svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.mei-host-shell__password-toggle .icon-eye-off {
+  display: none;
+}
+
+.mei-host-shell__password-toggle.is-visible .icon-eye {
+  display: none;
+}
+
+.mei-host-shell__password-toggle.is-visible .icon-eye-off {
+  display: block;
+}
+
+.mei-host-shell__form button[type="submit"] {
   margin-top: 14px;
   width: 100%;
   border: none;
@@ -178,7 +277,7 @@
   cursor: pointer;
 }
 
-.mei-host-shell__form button:disabled {
+.mei-host-shell__form button[type="submit"]:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }

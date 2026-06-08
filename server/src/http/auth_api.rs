@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Query, State},
-    http::{header, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     Json,
 };
@@ -49,11 +49,36 @@ pub struct LogoutQuery {
     next: Option<String>,
 }
 
+/// HTTP 明文登录仅允许受信主机（浏览器在 HTTP 非 localhost 下无 `crypto.subtle`）。
+const HTTP_PLAINTEXT_LOGIN_HOSTS: &[&str] =
+    &["localhost", "127.0.0.1", "[::1]", "23.211.135.152"];
+
+fn host_only_from_header(host_header: &str) -> &str {
+    let trimmed = host_header.trim();
+    if let Some(inner) = trimmed.strip_prefix('[') {
+        if let Some((host, _)) = inner.split_once(']') {
+            return host;
+        }
+    }
+    trimmed.split(':').next().unwrap_or(trimmed)
+}
+
+fn host_allows_http_plaintext_login(host_header: &str) -> bool {
+    let host_only = host_only_from_header(host_header);
+    HTTP_PLAINTEXT_LOGIN_HOSTS.iter().any(|allowed| {
+        let allowed_host = allowed.trim_matches(|c| c == '[' || c == ']');
+        host_only.eq_ignore_ascii_case(allowed_host)
+    })
+}
+
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     username: String,
     #[serde(rename = "encryptedPassword")]
-    encrypted_password: String,
+    #[serde(default)]
+    encrypted_password: Option<String>,
+    #[serde(default)]
+    password: Option<String>,
     #[serde(default)]
     next: Option<String>,
 }
@@ -92,7 +117,62 @@ fn html_escape(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
-fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> String {
+const PASSWORD_TOGGLE_BUTTON: &str = r#"<button type="button" class="mei-host-shell__password-toggle" aria-label="显示密码" title="显示密码" data-password-target="__TARGET__">
+        <svg class="icon-eye" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+        <svg class="icon-eye-off" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+          <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+          <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+          <line x1="2" x2="22" y1="2" y2="22" />
+        </svg>
+      </button>"#;
+
+const PASSWORD_TOGGLE_SCRIPT: &str = r#"
+      document.querySelectorAll('.mei-host-shell__password-toggle').forEach((button) => {
+        button.addEventListener('click', () => {
+          const targetId = button.getAttribute('data-password-target');
+          const input = targetId ? document.getElementById(targetId) : null;
+          if (!input) return;
+          const visible = input.type === 'text';
+          input.type = visible ? 'password' : 'text';
+          button.classList.toggle('is-visible', !visible);
+          const label = visible ? '显示密码' : '隐藏密码';
+          button.setAttribute('aria-label', label);
+          button.setAttribute('title', label);
+        });
+      });"#;
+
+fn password_field_html(
+    id: &str,
+    autocomplete: &str,
+    include_name: bool,
+    required: bool,
+) -> String {
+    let name_attr = if include_name {
+        format!(r#" name="{id}""#)
+    } else {
+        String::new()
+    };
+    let required_attr = if required { " required" } else { "" };
+    let toggle = PASSWORD_TOGGLE_BUTTON.replace("__TARGET__", id);
+    format!(
+        r#"<div class="mei-host-shell__password-field">
+        <input id="{id}"{name_attr} type="password" autocomplete="{autocomplete}"{required_attr} />
+        {toggle}
+      </div>"#
+    )
+}
+
+fn login_page_html(
+    next: &str,
+    auth_ready: bool,
+    auth_configured: bool,
+    footer_html: &str,
+) -> String {
+    let password_field = password_field_html("password", "current-password", true, true);
     let next_escaped = html_escape(next);
     let setup_notice = if !auth_ready {
         r#"<p class="mei-host-shell__setup">当前宿主未启用登录要求（调试模式）。</p>"#
@@ -106,14 +186,15 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
     } else {
         " disabled"
     };
+    let password_toggle_script = PASSWORD_TOGGLE_SCRIPT;
     let card_inner = format!(
-        r#"<p class="mei-host-shell__message">密码字段会使用宿主公钥加密后再提交。</p>
+        r#"<p class="mei-host-shell__message" id="login-message">密码字段会使用宿主公钥加密后再提交。</p>
       {setup_notice}
       <form class="mei-host-shell__form" id="login-form">
         <label for="username">用户名</label>
         <input id="username" name="username" autocomplete="username" required />
         <label for="password">密码</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        {password_field}
         <input id="next" type="hidden" value="{next_escaped}" />
         <button type="submit"{form_disabled}>登录</button>
       </form>
@@ -145,6 +226,11 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
         bytes.forEach((b) => {{ bin += String.fromCharCode(b); }});
         return btoa(bin);
       }}
+      const canEncrypt = !!(window.crypto && window.crypto.subtle);
+      const loginMessage = document.getElementById('login-message');
+      if (!canEncrypt && loginMessage) {{
+        loginMessage.textContent = '当前为 HTTP 访问，浏览器无法使用 Web Crypto；将在受信主机（localhost 或 23.211.135.152）上直接提交密码。建议生产环境使用 HTTPS。';
+      }}
       async function resolvePublicKey() {{
         const resp = await fetch('/api/auth/public-key', {{ credentials: 'same-origin' }});
         const data = await resp.json();
@@ -163,14 +249,20 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
             setError('请输入用户名和密码');
             return;
           }}
-          const publicKeyPem = await resolvePublicKey();
-          const encryptedPassword = await encryptWithPem(publicKeyPem, password);
           const next = document.getElementById('next').value || '/';
+          let body;
+          if (canEncrypt) {{
+            const publicKeyPem = await resolvePublicKey();
+            const encryptedPassword = await encryptWithPem(publicKeyPem, password);
+            body = {{ username, encryptedPassword, next }};
+          }} else {{
+            body = {{ username, password, next }};
+          }}
           const resp = await fetch('/api/auth/login', {{
             method: 'POST',
             credentials: 'same-origin',
             headers: {{ 'content-type': 'application/json' }},
-            body: JSON.stringify({{ username, encryptedPassword, next }})
+            body: JSON.stringify(body)
           }});
           const data = await resp.json();
           if (!resp.ok) {{
@@ -182,23 +274,34 @@ fn login_page_html(next: &str, auth_ready: bool, auth_configured: bool) -> Strin
           setError(error && error.message ? error.message : '登录失败');
         }}
       }});
+      {password_toggle_script}
     </script>"#
     );
-    host_error_page::render_auth_card_page("登录 - MeiLang", "MeiLang 登录", card_inner.as_str())
+    host_error_page::render_auth_card_page(
+        "登录 - MeiLang",
+        "MeiLang 登录",
+        card_inner.as_str(),
+        footer_html,
+    )
 }
 
-fn change_password_page_html(username: &str, role: &str) -> String {
+fn change_password_page_html(username: &str, role: &str, footer_html: &str) -> String {
     let user = html_escape(username);
     let role = html_escape(role);
+    let current_password_field = password_field_html("current-password", "current-password", false, true);
+    let new_password_field = password_field_html("new-password", "new-password", false, true);
+    let confirm_password_field =
+        password_field_html("confirm-password", "new-password", false, true);
+    let password_toggle_script = PASSWORD_TOGGLE_SCRIPT;
     let card_inner = format!(
         r#"<div class="mei-host-shell__meta">当前账户：{user}（{role}）</div>
       <form class="mei-host-shell__form" id="change-password-form">
         <label for="current-password">当前密码</label>
-        <input id="current-password" type="password" autocomplete="current-password" required />
+        {current_password_field}
         <label for="new-password">新密码</label>
-        <input id="new-password" type="password" autocomplete="new-password" required />
+        {new_password_field}
         <label for="confirm-password">确认新密码</label>
-        <input id="confirm-password" type="password" autocomplete="new-password" required />
+        {confirm_password_field}
         <button type="submit">确认修改</button>
       </form>
       <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
@@ -278,9 +381,15 @@ fn change_password_page_html(username: &str, role: &str) -> String {
           setError(error && error.message ? error.message : '修改失败');
         }}
       }});
+      {password_toggle_script}
     </script>"#
     );
-    host_error_page::render_auth_card_page("修改密码 - MeiLang", "修改密码", card_inner.as_str())
+    host_error_page::render_auth_card_page(
+        "修改密码 - MeiLang",
+        "修改密码",
+        card_inner.as_str(),
+        footer_html,
+    )
 }
 
 pub async fn login_page(
@@ -304,10 +413,13 @@ pub async fn login_page(
             .into_response();
         }
     }
+    let footer_html =
+        host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
     Html(login_page_html(
         sanitize_next_path(query.next.as_deref()).as_str(),
         auth_login_ready(&state, &runtime),
         runtime.enabled,
+        footer_html.as_str(),
     ))
     .into_response()
 }
@@ -342,9 +454,12 @@ pub async fn account_change_password_page(
     let Some(Extension(principal)) = principal else {
         return Redirect::temporary("/login").into_response();
     };
+    let footer_html =
+        host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
     Html(change_password_page_html(
         principal.username.as_str(),
         principal.role_slug(),
+        footer_html.as_str(),
     ))
     .into_response()
 }
@@ -404,6 +519,7 @@ pub async fn auth_session(
 
 pub async fn auth_login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
@@ -419,14 +535,34 @@ pub async fn auth_login(
             "auth is not configured; add users in `.mei-workspace.json` (via `mei host auth bootstrap-users` or `add-user --password-stdin`) and ensure keys",
         );
     }
-    let password = match runtime.decrypt_password_field(body.encrypted_password.as_str()) {
-        Ok(value) => value,
-        Err(error) => {
+    let password = if let Some(encrypted) = body
+        .encrypted_password
+        .as_deref()
+        .filter(|value| !value.is_empty())
+    {
+        match runtime.decrypt_password_field(encrypted) {
+            Ok(value) => value,
+            Err(error) => {
+                return json_error(
+                    StatusCode::BAD_REQUEST,
+                    format!("failed to decrypt password: {error}"),
+                )
+            }
+        }
+    } else if let Some(plain) = body.password.as_deref().filter(|value| !value.is_empty()) {
+        let host = headers
+            .get(header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or("");
+        if !host_allows_http_plaintext_login(host) {
             return json_error(
                 StatusCode::BAD_REQUEST,
-                format!("failed to decrypt password: {error}"),
-            )
+                "password encryption is required for this host; use HTTPS or access via localhost / 23.211.135.152",
+            );
         }
+        plain.to_string()
+    } else {
+        return json_error(StatusCode::BAD_REQUEST, "password is required");
     };
     let Some(claims) = (match runtime.authenticate(body.username.as_str(), password.as_str()) {
         Ok(value) => value,
@@ -581,4 +717,20 @@ pub async fn auth_change_password(
             .insert(header::SET_COOKIE, header_value);
     }
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::host_allows_http_plaintext_login;
+
+    #[test]
+    fn plaintext_login_host_allowlist() {
+        assert!(host_allows_http_plaintext_login("localhost"));
+        assert!(host_allows_http_plaintext_login("localhost:3002"));
+        assert!(host_allows_http_plaintext_login("127.0.0.1:9527"));
+        assert!(host_allows_http_plaintext_login("[::1]:3002"));
+        assert!(host_allows_http_plaintext_login("23.211.135.152:3002"));
+        assert!(!host_allows_http_plaintext_login("zw-spbjw:3002"));
+        assert!(!host_allows_http_plaintext_login("example.com"));
+    }
 }

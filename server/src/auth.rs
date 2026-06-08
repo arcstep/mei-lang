@@ -1061,20 +1061,83 @@ fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()> {
     Ok(())
 }
 
+fn format_auth_not_ready_message(source_root: &Path, bundle: &WorkspaceAuthBundle, runtime: &AuthRuntime) -> String {
+    let root = source_root.display();
+    let config = runtime.config_path.display();
+    let auth = &bundle.auth;
+    let configured_user_count = auth.users.len();
+    let has_jwt_secret = auth.jwt_secret.as_deref().unwrap_or("").trim().is_empty() == false;
+    let has_public_key = !auth.key_pair.public_key_pem.trim().is_empty();
+    let has_private_key = !auth.key_pair.private_key_pem.trim().is_empty();
+    let keys_ready = has_jwt_secret && has_public_key && has_private_key;
+    let active_user_count = runtime.user_count();
+
+    let mut lines = vec![
+        "已启用 --auth，但工作区认证尚未就绪，无法启动。".to_string(),
+        format!("配置文件：{config}"),
+        String::new(),
+    ];
+
+    if !keys_ready {
+        let mut missing = Vec::new();
+        if !has_jwt_secret {
+            missing.push("jwtSecret");
+        }
+        if !has_public_key || !has_private_key {
+            missing.push("RSA keyPair");
+        }
+        lines.push(format!("缺少密钥：{}。", missing.join("、")));
+        lines.push("请先执行：".to_string());
+        lines.push(format!("  mei host auth ensure-keys --source-root {root}"));
+        lines.push(String::new());
+    }
+
+    if active_user_count == 0 {
+        if configured_user_count == 0 {
+            lines.push("尚未配置登录用户（auth.users 为空）。".to_string());
+        } else {
+            lines.push(format!(
+                "已写入 {configured_user_count} 个用户条目，但无一可用（可能 passwordHash 无效、为空，或账号被禁用）。"
+            ));
+            lines.push("请检查 `.mei-workspace.json` 中各用户的 passwordHash（禁止明文密码）。".to_string());
+        }
+        lines.push(String::new());
+        lines.push("初始化 super / admin / guest（推荐，密码从 stdin 读取，勿写在命令行）：".to_string());
+        lines.push(format!(
+            "  printf '%s' 'YourPwd1!complex' | mei host auth bootstrap-users --source-root {root} --default-password-stdin"
+        ));
+        lines.push("或生成随机临时密码（仅当次输出，适合首次部署）：".to_string());
+        lines.push(format!(
+            "  mei host auth bootstrap-users --source-root {root} --json"
+        ));
+        lines.push("仅新增单个用户：".to_string());
+        lines.push(format!(
+            "  printf '%s' 'YourPwd1!complex' | mei host auth add-user --source-root {root} --username guest01 --role guest --password-stdin"
+        ));
+        lines.push(String::new());
+        lines.push("密码规则：至少 8 位，且须含大写 / 小写 / 数字 / 符号。".to_string());
+    }
+
+    lines.push(String::new());
+    lines.push(format!(
+        "完成后重新启动：mei serve --auth --source-root {root}"
+    ));
+    if keys_ready && active_user_count > 0 {
+        lines.push("（若仍失败，请检查上述用户 passwordHash 是否为有效 Argon2 哈希。）".to_string());
+    }
+
+    lines.join("\n")
+}
+
 pub fn prepare_auth_for_serve(source_root: &Path, enforcement: AuthEnforcement) -> Result<()> {
     if enforcement != AuthEnforcement::Required {
         return Ok(());
     }
     let _ = ensure_workspace_auth_base(source_root)?;
+    let bundle = load_workspace_auth_bundle(source_root);
     let runtime = load_auth_runtime(source_root)?;
     if !runtime.enabled {
-        anyhow::bail!(
-            "host auth is enabled (--auth) but workspace auth is not ready (no users or incomplete key material); \
-             configure users in `{}` (passwordHash only) and run `mei host auth ensure-keys --source-root {}`; config_path={}",
-            source_root.join(".mei-workspace.json").display(),
-            source_root.display(),
-            runtime.config_path.display()
-        );
+        anyhow::bail!("{}", format_auth_not_ready_message(source_root, &bundle, &runtime));
     }
     tracing::info!(
         config_path = %runtime.config_path.display(),
@@ -1389,7 +1452,21 @@ mod tests {
         let source_root = temp_source_root("prepare-no-users");
         let err = prepare_auth_for_serve(source_root.as_path(), AuthEnforcement::Required)
             .expect_err("should fail without users");
-        assert!(err.to_string().contains("host auth is enabled"));
+        let message = err.to_string();
+        assert!(message.contains("已启用 --auth"));
+        assert!(message.contains("auth.users 为空"));
+        assert!(message.contains("host auth bootstrap-users"));
+        assert!(message.contains("mei serve --auth"));
+    }
+
+    #[test]
+    fn format_auth_not_ready_lists_missing_keys() {
+        let source_root = temp_source_root("prepare-missing-keys");
+        let bundle = load_workspace_auth_bundle(source_root.as_path());
+        let runtime = load_auth_runtime(source_root.as_path()).expect("runtime");
+        let message = format_auth_not_ready_message(source_root.as_path(), &bundle, &runtime);
+        assert!(message.contains("缺少密钥"));
+        assert!(message.contains("host auth ensure-keys"));
     }
 
     #[test]
