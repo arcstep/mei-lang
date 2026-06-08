@@ -1,0 +1,28 @@
+{
+  "components": {
+    "sim.step-bridge": {
+      "tag": "mei-sim-step-bridge",
+      "script": "step-bridge.js"
+    },
+    "sim.affordance-bar": {
+      "tag": "mei-sim-affordance-bar",
+      "script": "affordance-bar.js"
+    },
+    "sim.board-grid": {
+      "tag": "mei-sim-board-grid",
+      "script": "board-grid.js"
+    },
+    "sim.cell-tile": {
+      "tag": "mei-sim-cell-tile",
+      "script": "cell-tile.js"
+    },
+    "sim.outcome-hud": {
+      "tag": "mei-sim-outcome-hud",
+      "script": "outcome-hud.js"
+    },
+    "sim.scene": {
+      "tag": "mei-sim-scene",
+      "script": "scene.js"
+    }
+  }
+}

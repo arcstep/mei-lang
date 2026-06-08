@@ -1,0 +1,28 @@
+{
+  "components": {
+    "cockpit.header-brand": {
+      "tag": "mei-cockpit-header-brand",
+      "script": "header-brand.js"
+    },
+    "cockpit.data-table": {
+      "tag": "mei-cockpit-data-table",
+      "script": "data-table.js"
+    },
+    "cockpit.donut-trio": {
+      "tag": "mei-cockpit-donut-trio",
+      "script": "donut-trio.js"
+    },
+    "cockpit.park-amount-list": {
+      "tag": "mei-cockpit-park-amount-list",
+      "script": "park-amount-list.js"
+    },
+    "cockpit.panel-title": {
+      "tag": "mei-cockpit-panel-title",
+      "script": "panel-title.js"
+    },
+    "cockpit.metric-progress": {
+      "tag": "mei-cockpit-metric-progress",
+      "script": "metric-progress.js"
+    }
+  }
+}

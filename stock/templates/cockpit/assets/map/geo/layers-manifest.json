@@ -1,0 +1,75 @@
+{
+  "built_at": "2026-05-24T21:33:21+0800",
+  "source_data_dir": "/Users/xuehongwei/codeup/mei-projects/gis/spb/admin-boundaries/data",
+  "output_dir": "workspaces/templates/cockpit/assets/map/geo",
+  "layers": [
+    {
+      "id": "district_outline",
+      "label": "沙坪坝区外轮廓",
+      "source": "shapingba_outline.geojson",
+      "output": "shapingba_outline.geojson",
+      "description": "沙坪坝区外轮廓（政务 API query-simplify）"
+    },
+    {
+      "id": "district_outline_no_hightech",
+      "label": "沙坪坝区外轮廓（不含高新区）",
+      "source": "_derived",
+      "output": "shapingba_outline_no_hightech.geojson",
+      "description": "区界几何扣除已划归高新区镇街（西永/曾家/虎溪/香炉山）"
+    },
+    {
+      "id": "streets",
+      "label": "沙坪坝区各街道设色",
+      "source": "shapingba_streets.geojson",
+      "output": "shapingba_streets.geojson",
+      "description": "街道/镇边界（subdivisions simplify，22 要素）"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "district_outline",
+      "file": "shapingba_outline.geojson",
+      "features": 1
+    },
+    {
+      "id": "district_outline_no_hightech",
+      "file": "shapingba_outline_no_hightech.geojson",
+      "features": 1
+    },
+    {
+      "id": "streets",
+      "file": "shapingba_streets.geojson",
+      "features": 22
+    }
+  ],
+  "hightech_transferred": [
+    "曾家镇",
+    "虎溪街道",
+    "西永街道",
+    "香炉山街道"
+  ],
+  "street_names": [
+    "小龙坎街道",
+    "沙坪坝街道",
+    "渝碚路街道",
+    "磁器口街道",
+    "童家桥街道",
+    "石井坡街道",
+    "双碑街道",
+    "井口街道",
+    "歌乐山街道",
+    "山洞街道",
+    "新桥街道",
+    "天星桥街道",
+    "土湾街道",
+    "覃家岗街道",
+    "陈家桥街道",
+    "联芳街道",
+    "丰文街道",
+    "土主街道",
+    "青木关镇",
+    "凤凰镇",
+    "回龙坝镇",
+    "中梁镇"
+  ]
+}

@@ -1,0 +1,53 @@
+# 长条左图标 + 横排文案（472×74）：左图 24px 垂直居中，自 92px 起 label / value / unit。
+
+scene(id = "metric_card_strip_icon_left_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+ASSETS = "/workspace-app-assets/templates/cockpit/assets/metrics"
+ICON = ASSETS + "/待办@3x.png"
+
+frame()
+
+frame.add_panel(
+    id = "card_strip_icon_left",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    props = {
+        "chrome": "bare",
+        "width": "472px",
+        "height": "74px",
+        "padding": "0 16px 0 92px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+        "__mei_metric_card": True,
+        "__mei_metric_density": "compact",
+        "__mei_metric_template": "row",
+        "__mei_metric_inline_align": "compact",
+        "__mei_metric_label_v_align": "center",
+        "__mei_metric_value_v_align": "center",
+        "__mei_metric_unit_v_align": "center",
+        "background": {
+            "color": "rgba(98,190,235,0.10)",
+            "image": "url(" + ICON + ")",
+            "size": "48px 48px",
+            "position": "24px center",
+            "repeat": "no-repeat",
+        },
+    },
+    layout = grid(
+        rows = ["1fr"],
+        columns = ["auto", "auto", "auto"],
+        areas = [["label", "value", "unit"]],
+        gap = "4px",
+        align = "center",
+        justify = "start",
+    ),
+    blocks = [
+        label("待办", area = "label", align = "left", vertical_align = "center"),
+        value("22", area = "value", align = "left", vertical_align = "center"),
+        unit("件", area = "unit", align = "left", vertical_align = "center"),
+    ],
+)

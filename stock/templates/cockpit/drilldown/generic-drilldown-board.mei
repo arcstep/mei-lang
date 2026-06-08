@@ -1,0 +1,24 @@
+# 通用二级看板壳：Tab 列表由 link.projection_slots 驱动，本 scene 不声明固定 explain tabs。
+
+scene(
+    id = "generic_drilldown_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "通用指标下钻：动态 projection_slots",
+    local_nav = {
+        "kind": "generic_drilldown",
+        "scene_id": "generic_drilldown_board",
+    },
+)
+
+world(resources = [])
+
+frame()
+
+frame.add_panel(
+    id = "generic_drilldown_shell",
+    variant = "container",
+    title = "指标下钻",
+    props = {},
+    blocks = [],
+)

@@ -1,0 +1,1017 @@
+/**
+ * 驾驶舱表格组件（cockpit.data-table → mei-cockpit-data-table）。
+ */
+import { escapeAttr, escapeHtml, parseProps, rowsOf } from "./shared.js";
+import { QUNFU_FONT, QUNFU_TYPE, qunfuCssVars } from "./tokens.js";
+import {
+  deferUntilDisplayed,
+  shouldReactToPreviewUpdated,
+  fetchDatasetRows,
+  getQueryState,
+  mergeFilters,
+  queryStateIdOf,
+  resolveDatasetQueryCapability,
+  resolveRuntimeDataRef,
+  resolveRuntimeMetricRef,
+  runtimeCallerMeta,
+  subscribeQueryState,
+} from "../dataset/runtime-query.js";
+import { applyTableQueryResult } from "../dataset/table-runtime/query.js";
+import {
+  bindCellPreviewClick,
+  bindRelativeTimeTicker,
+  cellPopoverStyleBlock,
+  cellTableChromeStyleBlock,
+  cellValue,
+  closeCellPopover,
+  openCellPopover,
+  renderFormattedCellHtml,
+  resolveCellPopoverVariant,
+  scheduleOverflowPreviewSync,
+  stopRelativeTimeTicker,
+} from "../dataset/table-runtime/cells.js";
+import {
+  activeTableColumnState,
+  activeTableFilters,
+  activeTableSort,
+  resolveColumnStateConfig,
+  resolveSortConfig,
+  sameColumnState,
+  sameFilters,
+  sameSort,
+} from "../dataset/table-runtime/state.js";
+import {
+  buildColumnTemplate,
+  buildExplicitColumnTemplate,
+  formatCellDisplay,
+  inferColumnWidthsFromSample,
+  inlineStyleForColumn,
+  isTagLikeColumnKey,
+  resolveColumnDescriptors,
+  resolveToneToken,
+} from "../dataset/table-runtime/format.js";
+import { formatTableRowCountLabel } from "../dataset/table-runtime/footer.js";
+
+function resolveTableSpec(props) {
+  const keys = Array.isArray(props.columns)
+    ? props.columns.map(String)
+    : Array.isArray(props.headers)
+      ? props.headers.map(String)
+      : [];
+  const headers = Array.isArray(props.headers)
+    ? props.headers.map(String)
+    : keys.slice();
+  return { keys, headers };
+}
+
+const LAYOUT_PRESETS = {
+  alerts: "2.8fr 1.5fr 2.2fr 1.6fr 1fr",
+  warnings: "0.9fr 1.2fr 1.1fr 0.65fr 0.85fr 0.75fr",
+  drilldown_warnings: "0.95fr 1.15fr 1.55fr 1.1fr 0.95fr",
+  drilldown_issues: "1.05fr 1.2fr 1.6fr 1.1fr 0.9fr 0.9fr",
+  drilldown_models: "1fr 1fr 1.5fr 0.95fr 0.8fr",
+  drilldown_matters: "1fr 1.4fr 0.75fr 1.45fr 1.2fr",
+  cases: "1fr 0.35fr",
+  default: "",
+};
+
+function cellToneClass(layoutPreset, colKey, raw) {
+  const text = String(raw ?? "").trim();
+  if (layoutPreset !== "warnings") {
+    return "";
+  }
+  if (colKey === "level" || colKey === "预警等级") {
+    if (text.includes("蓝")) return "tone-blue";
+    if (text.includes("黄")) return "tone-yellow";
+    if (text.includes("红")) return "tone-red";
+  }
+  if (colKey === "status" || colKey === "当前状态") {
+    if (text.includes("办")) return "tone-orange";
+  }
+  return "";
+}
+
+function isTagField(colKey) {
+  return isTagLikeColumnKey(colKey);
+}
+
+function resolveTagToneClass(colKey, raw) {
+  const field = String(colKey || "").trim();
+  const text = String(raw ?? "").trim();
+  if (!text) return "tone-slate";
+  if (text.includes("红")) return "tone-red";
+  if (text.includes("黄")) return "tone-yellow";
+  if (text.includes("蓝")) return "tone-blue";
+  if (/(在办|待办|处理中|核查中|整改中)/.test(text)) return "tone-orange";
+  if (/(已办|已结|完成|通过|正常|是)/.test(text)) return "tone-green";
+  if (/(否|未|无|待完善|\/)/.test(text)) return "tone-slate";
+  if (/个案/.test(text)) return "tone-violet";
+  if (/趋势/.test(text)) return "tone-cyan";
+  if (/行政处罚|处罚/.test(text)) return "tone-orange";
+  if (/行政检查|检查/.test(text)) return "tone-blue";
+  if (/执法主体/.test(text)) return "tone-violet";
+  if (/其他/.test(text)) return "tone-slate";
+  if (/类型|类别/.test(field)) return "tone-cyan";
+  return "tone-cyan";
+}
+
+function formatCellValue(raw, descriptor, layoutPreset) {
+  if (
+    layoutPreset === "warnings" &&
+    (descriptor?.key === "count" || descriptor?.key === "预警件数") &&
+    (raw == null || raw === "")
+  ) {
+    return "1";
+  }
+  if (
+    layoutPreset === "warnings" &&
+    (descriptor?.key === "status" || descriptor?.key === "当前状态") &&
+    (raw == null || raw === "")
+  ) {
+    return "在办";
+  }
+  return formatCellDisplay(raw, descriptor);
+}
+
+function rowsFromMetricShape(metric) {
+  if (!metric || typeof metric !== "object") return [];
+  if (metric.shape === "dataframe" && Array.isArray(metric.value)) {
+    return metric.value;
+  }
+  return rowsOf(metric);
+}
+
+function resolvePageSize(props) {
+  const raw = props?.pageSize ?? props?.page_size ?? 0;
+  const size = Number(raw);
+  return Number.isFinite(size) && size > 0 ? Math.floor(size) : 0;
+}
+
+function paginationEnabled(props) {
+  const pageSize = resolvePageSize(props);
+  if (pageSize <= 0) return false;
+  if (props?.pagination === false || props?.pagination === "false") return false;
+  return true;
+}
+
+function resolvePaginationMode(props) {
+  const raw = String(props?.paginationMode ?? props?.pagination_mode ?? "").trim().toLowerCase();
+  if (raw === "client" || raw === "local") return "client";
+  return "server";
+}
+
+function carouselEnabled(props) {
+  return props?.carousel === true || props?.carousel === "true";
+}
+
+function resolveCarouselIntervalMs(props) {
+  const raw = Number(props?.carouselIntervalMs ?? props?.carousel_interval_ms ?? 5000);
+  if (!Number.isFinite(raw)) return 5000;
+  return Math.max(2000, Math.floor(raw));
+}
+
+function carouselShowsPager(props) {
+  return props?.carouselShowPager === true || props?.carousel_show_pager === "true";
+}
+
+function shouldRenderPager(props, paging) {
+  if (!paging) return false;
+  if (carouselEnabled(props) && !carouselShowsPager(props)) return false;
+  return true;
+}
+
+function countTemplateTracks(template) {
+  const raw = String(template || "").trim();
+  if (!raw) return 0;
+  const repeat = raw.match(/^repeat\(\s*(\d+)\s*,/i);
+  if (repeat) {
+    return Number(repeat[1]) || 0;
+  }
+  return raw.split(/\s+/).filter(Boolean).length;
+}
+
+function resolveColumnMinWidth(props) {
+  const raw = Number(props?.columnMinWidth ?? props?.column_min_width);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.floor(raw);
+  }
+  if (tableScrollXEnabled(props)) {
+    return 88;
+  }
+  return props?.embedded === true || props?.embedded === "true" ? 170 : 120;
+}
+
+function parseCssPx(raw, fallback) {
+  const value = Number.parseFloat(String(raw ?? "").trim());
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function resolveSampleMeasureFonts(host, { embedded = false, compactEmbedded = false } = {}) {
+  const style =
+    typeof window !== "undefined" && host instanceof Element ? window.getComputedStyle(host) : null;
+  const fontFamily =
+    String(
+      style?.getPropertyValue("--mei-font-family-ui") ||
+        style?.fontFamily ||
+        QUNFU_FONT.uiFamily
+    ).trim() || QUNFU_FONT.uiFamily;
+  const embeddedFontPx = parseCssPx(style?.getPropertyValue("--mei-font-3"), 18);
+  const bodyFontPx = compactEmbedded
+    ? 12
+    : embedded
+      ? embeddedFontPx
+      : parseCssPx(QUNFU_TYPE.metricLabel, 12);
+  return {
+    bodyFont: `400 ${bodyFontPx}px ${fontFamily}`,
+    labelFont: `600 ${bodyFontPx}px ${fontFamily}`,
+    charPx: Math.max(7, bodyFontPx * 0.9),
+  };
+}
+
+function tableScrollXEnabled(props) {
+  return props?.tableScrollX === true || props?.table_scroll_x === true;
+}
+
+function sumDescriptorColumnWidths(descriptors, columnMinWidth) {
+  return (Array.isArray(descriptors) ? descriptors : []).reduce((acc, descriptor) => {
+    const fixed = Number(descriptor?.layoutFixedWidth);
+    if (Number.isFinite(fixed) && fixed > 0) return acc + fixed;
+    const min = Number(descriptor?.layoutMinWidth ?? descriptor?.minWidth);
+    if (Number.isFinite(min) && min > 0) return acc + min;
+    return acc + columnMinWidth;
+  }, 0);
+}
+
+function templateUsesExplicitPixelTracks(template) {
+  const raw = String(template || "").trim();
+  if (!raw || /\b1fr\b/.test(raw) || /^repeat\(\s*\d+/i.test(raw)) {
+    return false;
+  }
+  return /\d+px/.test(raw);
+}
+
+function resolveTableGridSizing(props, descriptors, colTemplateValue, columnMinWidth) {
+  const embedded = props?.embedded === true || props?.embedded === "true";
+  const scrollX = tableScrollXEnabled(props);
+  const template = String(colTemplateValue || "").trim();
+  const explicitPx = templateUsesExplicitPixelTracks(template);
+  if (scrollX || explicitPx) {
+    const sum = sumDescriptorColumnWidths(descriptors, columnMinWidth);
+    const px = Math.max(sum, (descriptors?.length || 0) * columnMinWidth);
+    if (px > 0) {
+      return { width: `max(100%, ${px}px)`, minWidth: `${px}px` };
+    }
+  }
+  const flexible =
+    embedded ||
+    !template ||
+    /\b1fr\b/.test(template) ||
+    /^repeat\(\s*\d+/i.test(template);
+  if (flexible) {
+    return { width: "100%", minWidth: "0" };
+  }
+  const px = Math.max(
+    sumDescriptorColumnWidths(descriptors, columnMinWidth),
+    (descriptors?.length || 0) * columnMinWidth,
+  );
+  return { width: `max(100%, ${px}px)`, minWidth: `${px}px` };
+}
+
+function resolveColumnTemplate(props, keys, descriptors) {
+  const explicit = String(props?.columnTemplate ?? props?.column_template ?? "").trim();
+  const count = Array.isArray(keys) ? keys.length : 0;
+  const minWidth = resolveColumnMinWidth(props);
+  const sampledTemplate = buildExplicitColumnTemplate(descriptors);
+  if (sampledTemplate) {
+    return sampledTemplate;
+  }
+  if (tableScrollXEnabled(props) && count > 0) {
+    return `repeat(${count}, minmax(${minWidth}px, max-content))`;
+  }
+  if (explicit) {
+    const tracks = countTemplateTracks(explicit);
+    if (tracks === 0 || tracks === count) return explicit;
+  }
+  const preset = LAYOUT_PRESETS[String(props?.layoutPreset ?? "").trim()] || "";
+  if (preset) {
+    const tracks = countTemplateTracks(preset);
+    if (tracks === 0 || tracks === count) return preset;
+  }
+  const embedded = props?.embedded === true || props?.embedded === "true";
+  const descriptorTemplate = buildColumnTemplate(descriptors, minWidth, {
+    shrinkFit: embedded && !tableScrollXEnabled(props),
+  });
+  if (descriptorTemplate) {
+    return descriptorTemplate;
+  }
+  if (count > 0) {
+    return `repeat(${count}, minmax(${minWidth}px, 1fr))`;
+  }
+  return "";
+}
+
+function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displayOverride, toneClass = "") {
+  const cell = renderFormattedCellHtml(raw, descriptor, rowIndex, textMap, props, displayOverride);
+  const previewKey = `${rowIndex}::${descriptor.key}`;
+  const previewAttrs = ` data-cell-preview-key="${escapeAttr(previewKey)}" data-r="${rowIndex}" data-c="${escapeAttr(
+    descriptor.key
+  )}"`;
+  if (descriptor?.tag || isTagField(descriptor?.key)) {
+    const tone = toneClass || resolveTagToneClass(descriptor?.key, displayOverride);
+    return `<span class="cell-tag ${tone}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
+  }
+  return `<span class="cell-inner${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
+}
+
+/**
+ * 驾驶舱表格（cockpit.data-table → mei-cockpit-data-table）。
+ * 支持静态 rows 或 dataframe 指标运行时查询（props.dataset 带 __mei_runtime_ref）。
+ */
+export class MeiCockpitDataTable extends HTMLElement {
+  connectedCallback() {
+    if (typeof this._deferUntilVisibleCleanup === "function") {
+      this._deferUntilVisibleCleanup();
+      this._deferUntilVisibleCleanup = null;
+    }
+    this._deferUntilVisibleCleanup = deferUntilDisplayed(this, () => {
+      this._deferUntilVisibleCleanup = null;
+      this.bootstrap();
+    });
+  }
+
+  disconnectedCallback() {
+    this.stopCarousel();
+    if (this._carouselHoverBound) {
+      this.removeEventListener("mouseenter", this._onCarouselPause);
+      this.removeEventListener("mouseleave", this._onCarouselResume);
+      this._carouselHoverBound = false;
+    }
+    if (this._fetchAbort) {
+      this._fetchAbort.abort();
+      this._fetchAbort = null;
+    }
+    this.closeCellPopover();
+    stopRelativeTimeTicker(this);
+    if (typeof this._relativeTimeCleanup === "function") {
+      this._relativeTimeCleanup();
+      this._relativeTimeCleanup = null;
+    }
+    if (typeof this._deferUntilVisibleCleanup === "function") {
+      this._deferUntilVisibleCleanup();
+      this._deferUntilVisibleCleanup = null;
+    }
+    if (typeof this._onPreviewUpdated === "function") {
+      window.removeEventListener("meilang:preview-updated", this._onPreviewUpdated);
+      this._onPreviewUpdated = null;
+    }
+    if (typeof this._unsubscribeQueryState === "function") {
+      this._unsubscribeQueryState();
+      this._unsubscribeQueryState = null;
+    }
+    if (typeof this._cellPreviewCleanup === "function") {
+      this._cellPreviewCleanup();
+      this._cellPreviewCleanup = null;
+    }
+  }
+
+  bootstrap() {
+    this._props = parseProps(this);
+    this._fetchAbort = new AbortController();
+    this._pageSize = resolvePageSize(this._props);
+    this._paging = paginationEnabled(this._props);
+    this._pagingMode = resolvePaginationMode(this._props);
+    this._allRows = [];
+    this._queryStateId = queryStateIdOf(this._props);
+    this._sharedFilters = getQueryState(this._queryStateId).filters || {};
+    this._sharedSearch = String(getQueryState(this._queryStateId).search || "").trim();
+    this._state = {
+      loading: false,
+      error: "",
+      rows: rowsFromMetricShape(this._props.dataset),
+      page: 1,
+      total: 0,
+      hasMore: false,
+      sort: resolveSortConfig(this._props),
+      columnState: resolveColumnStateConfig(this._props),
+    };
+    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    this._onPreviewUpdated = (event) => {
+      if (!shouldReactToPreviewUpdated(event, this)) {
+        return;
+      }
+      this._props = parseProps(this);
+      this._pageSize = resolvePageSize(this._props);
+      this._paging = paginationEnabled(this._props);
+      this._pagingMode = resolvePaginationMode(this._props);
+      this._allRows = [];
+      this._state.page = 1;
+      this._state.sort = resolveSortConfig(this._props);
+      this._state.columnState = resolveColumnStateConfig(this._props);
+      this.refresh();
+    };
+    window.addEventListener("meilang:preview-updated", this._onPreviewUpdated);
+    if (this._queryStateId) {
+      this._unsubscribeQueryState = subscribeQueryState(this._queryStateId, (nextState) => {
+        const nextFilters = mergeFilters(nextState?.filters);
+        const nextSearch = String(nextState?.search || "").trim();
+        const nextSort = Array.isArray(nextState?.sort) ? nextState.sort : [];
+        const nextColumnState = nextState?.column_state || nextState?.columnState || null;
+        const filtersChanged = !sameFilters(nextFilters, this._sharedFilters);
+        const searchChanged = nextSearch !== this._sharedSearch;
+        const sortChanged = !sameSort(
+          nextSort,
+          activeTableSort(this._props, this._queryStateId, this._state.sort)
+        );
+        const columnStateChanged = !sameColumnState(
+          nextColumnState,
+          activeTableColumnState(this._props, this._queryStateId, this._state.columnState)
+        );
+        if (!filtersChanged && !searchChanged && !sortChanged && !columnStateChanged) {
+          return;
+        }
+        this._sharedFilters = nextFilters;
+        this._sharedSearch = nextSearch;
+        this._state.page = 1;
+        if (filtersChanged || searchChanged || sortChanged) {
+          this.refresh();
+        } else {
+          this.render();
+        }
+      });
+    }
+    if (!this._pagerBound) {
+      this._pagerBound = true;
+      this.addEventListener("click", (event) => this.onPagerClick(event));
+    }
+    this.bindCarouselHover();
+    this.render();
+    this.refresh();
+  }
+
+  bindCarouselHover() {
+    if (this._carouselHoverBound) return;
+    const pauseOnHover =
+      this._props?.carouselPauseOnHover !== false &&
+      this._props?.carousel_pause_on_hover !== "false";
+    if (!carouselEnabled(this._props) || !pauseOnHover) return;
+    this._onCarouselPause = () => this.stopCarousel();
+    this._onCarouselResume = () => this.startCarousel();
+    this.addEventListener("mouseenter", this._onCarouselPause);
+    this.addEventListener("mouseleave", this._onCarouselResume);
+    this._carouselHoverBound = true;
+  }
+
+  startCarousel() {
+    this.stopCarousel();
+    const p = this._props || {};
+    if (!carouselEnabled(p) || !this._paging || this._pagingMode !== "client") return;
+    const totalPages =
+      this._state.total > 0
+        ? Math.max(1, Math.ceil(this._state.total / (this._pageSize || 1)))
+        : 1;
+    if (totalPages <= 1) return;
+    const interval = resolveCarouselIntervalMs(p);
+    this._carouselTimer = setInterval(() => {
+      if (this._state.loading) return;
+      if (this._state.hasMore) {
+        this._state.page += 1;
+      } else {
+        this._state.page = 1;
+      }
+      this.applyPagedRows(this._allRows);
+      this.render();
+    }, interval);
+  }
+
+  stopCarousel() {
+    if (this._carouselTimer) {
+      clearInterval(this._carouselTimer);
+      this._carouselTimer = null;
+    }
+  }
+
+  onPagerClick(event) {
+    const action = event
+      .composedPath()
+      .find((node) => node instanceof HTMLElement && node.dataset?.pagerAction)
+      ?.dataset?.pagerAction;
+    if (!action || !this._paging || this._state.loading) return;
+    if (action === "prev" && this._state.page > 1) {
+      this._state.page -= 1;
+      if (this._pagingMode === "client") {
+        this.applyPagedRows(this._allRows);
+        this.render();
+        this.startCarousel();
+      } else {
+        this.refresh();
+      }
+    }
+    if (action === "next" && this._state.hasMore) {
+      this._state.page += 1;
+      if (this._pagingMode === "client") {
+        this.applyPagedRows(this._allRows);
+        this.render();
+        this.startCarousel();
+      } else {
+        this.refresh();
+      }
+    }
+  }
+
+  applyPagedRows(allRows) {
+    const rows = Array.isArray(allRows) ? allRows : [];
+    this._state.total = rows.length;
+    const start = (this._state.page - 1) * this._pageSize;
+    this._state.rows = this._paging ? rows.slice(start, start + this._pageSize) : rows;
+    this._state.hasMore = this._paging && start + this._pageSize < this._state.total;
+  }
+
+  tableFetchSignature(queryFilters, querySort, queryColumnState, wantsSummary) {
+    const metricRef = resolveRuntimeMetricRef(this._props);
+    const dataRef = resolveRuntimeDataRef(this._props);
+    return JSON.stringify({
+      scene: this._props?._mei?.active_scene_id || "",
+      target: this._props?._mei?.active_target_file || "",
+      metric: metricRef,
+      data: dataRef,
+      page: this._state.page,
+      paging: this._paging,
+      pagingMode: this._pagingMode,
+      pageSize: this._pageSize,
+      filters: queryFilters,
+      sort: querySort,
+      columnState: queryColumnState,
+      summary: wantsSummary,
+      queryStateId: this._queryStateId,
+    });
+  }
+
+  async refresh() {
+    const metricRef = resolveRuntimeMetricRef(this._props);
+    const dataRef = resolveRuntimeDataRef(this._props);
+    if (!metricRef && !dataRef) {
+      this._allRows = rowsFromMetricShape(this._props.dataset);
+      if (this._paging) {
+        this.applyPagedRows(this._allRows);
+      } else {
+        this._state.rows = this._allRows;
+      }
+      this.render();
+      this.startCarousel();
+      return;
+    }
+    const datasetQueryCapability = resolveDatasetQueryCapability(this._props);
+    if (!datasetQueryCapability.enabled) {
+      this._state.error =
+        datasetQueryCapability.reason ||
+        "shared runtime dataset query capability is unavailable";
+      this._state.loading = false;
+      this._allRows = rowsFromMetricShape(this._props.dataset);
+      if (this._paging) {
+        this.applyPagedRows(this._allRows);
+      } else {
+        this._state.rows = this._allRows;
+      }
+      this.render();
+      this.startCarousel();
+      return;
+    }
+    const queryFilters = activeTableFilters(this._props, this._queryStateId);
+    const querySort = activeTableSort(this._props, this._queryStateId, this._state.sort);
+    const queryColumnState = activeTableColumnState(this._props, this._queryStateId, this._state.columnState);
+    const wantsSummary = !!(metricRef || dataRef);
+    const fetchSignature = this.tableFetchSignature(
+      queryFilters,
+      querySort,
+      queryColumnState,
+      wantsSummary
+    );
+    if (
+      fetchSignature === this._lastFetchSignature &&
+      !this._state.loading &&
+      !this._state.error &&
+      Array.isArray(this._allRows)
+    ) {
+      return;
+    }
+    this._lastFetchSignature = fetchSignature;
+    this._state.loading = true;
+    this._state.error = "";
+    this.render();
+    try {
+      let result = null;
+      if (this._paging && this._pagingMode === "client") {
+        result = await fetchDatasetRows(this._props, {
+          full: true,
+          page: 1,
+          pageSize: 0,
+          filters: queryFilters,
+          sort: querySort,
+          columnState: queryColumnState,
+          summary: wantsSummary,
+          signal: this._fetchAbort?.signal,
+          meta: runtimeCallerMeta(this, "mei-cockpit-data-table"),
+        });
+        this._state = applyTableQueryResult(this._state, result, { pagingMode: "client" });
+        this._allRows = Array.isArray(this._state.rows) ? this._state.rows : [];
+        this.applyPagedRows(this._allRows);
+      } else {
+        result = await fetchDatasetRows(this._props, {
+          full: !this._paging,
+          page: this._paging ? this._state.page : 1,
+          pageSize: this._paging ? this._pageSize : 0,
+          filters: queryFilters,
+          sort: querySort,
+          columnState: queryColumnState,
+          summary: wantsSummary,
+          signal: this._fetchAbort?.signal,
+          meta: runtimeCallerMeta(this, "mei-cockpit-data-table"),
+        });
+        this._state = applyTableQueryResult(this._state, result, { pagingMode: this._pagingMode });
+        this._allRows = Array.isArray(this._state.rows) ? this._state.rows : [];
+      }
+      if (Array.isArray(result?.column_meta) && result.column_meta.length > 0 && !this._props.headers) {
+        this._columnMeta = result.column_meta;
+      }
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        return;
+      }
+      this._state.error = String(error?.message || error || "runtime query failed");
+      this._allRows = rowsFromMetricShape(this._props.dataset);
+      if (this._paging) {
+        this.applyPagedRows(this._allRows);
+      } else {
+        this._state.rows = this._allRows;
+      }
+    } finally {
+      this._state.loading = false;
+      this.render();
+      this.startCarousel();
+    }
+  }
+
+  closeCellPopover() {
+    closeCellPopover(this, this.shadowRoot);
+  }
+
+  openCellPopover(fullText, anchor, options = {}) {
+    const layout = options.layout || "anchored";
+    openCellPopover(this, this.shadowRoot, fullText, anchor, {
+      topOffset: 8,
+      focusOnOpen: layout === "modal",
+      variant: options.variant || resolveCellPopoverVariant(this._props || {}),
+      layout,
+      title: options.title || "详细内容",
+      subtitle: options.subtitle || "",
+    });
+  }
+
+  bindCellPreviewEvents() {
+    if (typeof this._cellPreviewCleanup === "function") {
+      this._cellPreviewCleanup();
+    }
+    this._cellPreviewCleanup = bindCellPreviewClick(
+      this.shadowRoot,
+      this._cellTextMap,
+      (full, anchor, opts) => this.openCellPopover(full, anchor, opts),
+      { getVariant: () => resolveCellPopoverVariant(this._props || {}) }
+    );
+    if (typeof this._relativeTimeCleanup === "function") {
+      this._relativeTimeCleanup();
+    }
+    this._relativeTimeCleanup = bindRelativeTimeTicker(
+      this,
+      this.shadowRoot,
+      this._visibleDescriptors || [],
+      this._props || {}
+    );
+    scheduleOverflowPreviewSync(this, this.shadowRoot, this._cellTextMap, this._props || {});
+  }
+
+  render() {
+    this.closeCellPopover();
+    const p = this._props || {};
+    let { keys, headers } = resolveTableSpec(p);
+    const rows = this._state?.rows || [];
+    const embedded = p.embedded === true || p.embedded === "true";
+    const scrollX = tableScrollXEnabled(p);
+    const compactEmbedded =
+      embedded && (p.compactEmbedded === true || p.compact_embedded === true);
+    const rowMinHeight = compactEmbedded ? 34 : embedded ? 42 : 32;
+    const headMinHeight = compactEmbedded ? 34 : embedded ? 42 : 32;
+    const cellPadX = compactEmbedded ? 8 : 14;
+    const columnMinWidth = resolveColumnMinWidth(p);
+    const popoverVariant = resolveCellPopoverVariant(p);
+    if (keys.length === 0 && rows.length > 0) {
+      keys = Object.keys(rows[0]);
+      headers = keys.slice();
+    }
+    const descriptors = resolveColumnDescriptors({
+      columns: keys,
+      headers,
+      columnMeta: this._columnMeta || this._state?.columnMeta || [],
+      columnState: activeTableColumnState(this._props, this._queryStateId, this._state.columnState),
+      columnFormats: p.columnFormats ?? p.column_formats,
+      columnRules: p.columnRules ?? p.column_rules,
+    });
+    const sampleRows = (this._allRows?.length ? this._allRows : rows).slice(
+      0,
+      Math.max(1, Number(p.columnWidthSampleSize ?? p.column_width_sample_size) || 100),
+    );
+    const shouldSampleWidths =
+      (p.fitColumnsFromSample === true ||
+        p.fit_columns_from_sample === true ||
+        p.autoFitColumns === true ||
+        p.auto_fit_columns === true) &&
+      sampleRows.length > 0;
+    const measureFonts = resolveSampleMeasureFonts(this, { embedded, compactEmbedded });
+    const layoutDescriptors = shouldSampleWidths
+      ? inferColumnWidthsFromSample(sampleRows, descriptors, {
+          sampleLimit: Math.max(1, Number(p.columnWidthSampleSize ?? p.column_width_sample_size) || 100),
+          charPx: measureFonts.charPx,
+          font: measureFonts.bodyFont,
+          labelFont: measureFonts.labelFont,
+          cellPaddingPx: 24,
+          minVisibleChars: Number(p.cellOverflowMinChars ?? p.cell_overflow_min_chars) || 10,
+        })
+      : descriptors;
+    this._visibleDescriptors = layoutDescriptors;
+    const visibleKeys = layoutDescriptors.map((descriptor) => descriptor.key);
+    const colTemplateValue = resolveColumnTemplate(p, visibleKeys, layoutDescriptors);
+    const maxHeight = embedded
+      ? "100%"
+      : Number(p.maxHeight) > 0
+        ? `${Number(p.maxHeight)}px`
+        : "173px";
+    const colTemplate = colTemplateValue ? `grid-template-columns: ${colTemplateValue};` : "";
+    const gridSizing = resolveTableGridSizing(p, layoutDescriptors, colTemplateValue, columnMinWidth);
+    const lastColRight = p.layoutPreset === "cases";
+
+    this._cellTextMap = new Map();
+    const headCells = layoutDescriptors
+      .map(
+        (descriptor) =>
+          `<span class="th-cell" style="${escapeAttr(inlineStyleForColumn(descriptor, "header"))}" title="${escapeAttr(
+            descriptor.label
+          )}">${escapeHtml(descriptor.label)}</span>`
+      )
+      .join("");
+    const layoutKey = String(p.layoutPreset ?? "");
+    const body = rows
+      .map((row, ri) => {
+        const cells = layoutDescriptors
+          .map((descriptor, i) => {
+            const raw = cellValue(row, descriptor.key, i);
+            const formatted = String(formatCellValue(raw, descriptor, layoutKey) ?? "");
+            const sharedTone = resolveToneToken(raw, descriptor);
+            const tone = sharedTone ? `tone-${sharedTone}` : cellToneClass(layoutKey, descriptor.key, formatted);
+            const tagTone = sharedTone ? `tone-${sharedTone}` : resolveTagToneClass(descriptor.key, formatted);
+            const cls = [
+              "td-cell",
+              lastColRight && i === layoutDescriptors.length - 1 ? "align-right" : "",
+              tone,
+            ]
+              .filter(Boolean)
+              .join(" ");
+            return `<span class="${cls}" style="${escapeAttr(inlineStyleForColumn(descriptor, "cell"))}">${renderCellContentHtml(
+              descriptor,
+              raw,
+              ri,
+              this._cellTextMap,
+              p,
+              formatted,
+              tagTone
+            )}</span>`;
+          })
+          .join("");
+        return `<div class="tr ${ri % 2 === 1 ? "zebra" : ""}">${cells}</div>`;
+      })
+      .join("");
+    const emptyHint =
+      !this._state?.loading && rows.length === 0
+        ? `<div class="empty">${escapeHtml(this._state?.error || "暂无数据")}</div>`
+        : "";
+    const paging = this._paging;
+    const showPager = shouldRenderPager(p, paging);
+    const page = Math.max(1, Number(this._state?.page) || 1);
+    const rowCount = Math.max(0, Number(this._state?.total) || rows.length || 0);
+    const pageSize = this._pageSize || 1;
+    const totalPages = rowCount > 0 && showPager ? Math.max(1, Math.ceil(rowCount / pageSize)) : 1;
+    const rowCountLabel = escapeHtml(formatTableRowCountLabel(rowCount));
+    const footerHtml = `
+        <div class="table-footer">
+          <span class="row-total">${rowCountLabel}</span>
+          ${
+            showPager
+              ? `<div class="pager">
+          <button type="button" class="pager-btn" data-pager-action="prev" ${this._state?.loading || page <= 1 ? "disabled" : ""}>上一页</button>
+          <span class="pager-info">${page} / ${totalPages}</span>
+          <button type="button" class="pager-btn" data-pager-action="next" ${this._state?.loading || !this._state?.hasMore ? "disabled" : ""}>下一页</button>
+        </div>`
+              : ""
+          }
+        </div>`;
+
+    this.shadowRoot.innerHTML = `
+      <style>
+        :host {
+          display: block;
+          position: relative;
+          z-index: 1;
+          width: 100%;
+          min-width: 0;
+          ${embedded ? "height:100%;min-height:0;" : ""}
+          ${qunfuCssVars()}
+        }
+        .table-wrap {
+          ${embedded ? "height:100%;max-height:none;" : `max-height:${maxHeight};`}
+          overflow: hidden;
+          border-radius: ${embedded ? "0" : "4px"};
+          font-family: ${QUNFU_FONT.uiFamily};
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+        }
+        .table-scroll {
+          flex: 1 1 auto;
+          min-height: 0;
+          min-width: 0;
+          overflow: auto;
+          overflow-x: auto;
+          overflow-y: auto;
+          overscroll-behavior: contain;
+        }
+        .tbody {
+          min-height: 0;
+          overflow: visible;
+          transition: opacity 220ms ease;
+        }
+        .table-wrap.carousel-active .tbody {
+          opacity: 1;
+        }
+        .table-canvas {
+          width: ${gridSizing.width};
+          min-width: ${gridSizing.minWidth};
+        }
+        .thead {
+          display: grid;
+          ${colTemplate}
+          width: 100%;
+          min-height: ${headMinHeight}px;
+          align-items: center;
+          padding: 0;
+          column-gap: 0;
+          background: rgba(8, 47, 73, 0.92);
+          border-bottom: 1px solid rgba(56, 120, 200, 0.2);
+          position: sticky;
+          top: 0;
+          z-index: 1;
+        }
+        .th-cell {
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
+          padding: 0 ${cellPadX}px;
+          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+          color: #7dd3fc;
+          font-weight: 600;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .tr {
+          display: grid;
+          ${colTemplate}
+          width: 100%;
+          min-height: ${rowMinHeight}px;
+          align-items: center;
+          padding: 0;
+          column-gap: 0;
+          border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+          transition: background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+        }
+        .tr.zebra { background: rgba(8, 24, 48, 0.25); }
+        .tr:hover {
+          background: rgba(14, 58, 94, 0.42);
+          box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.2);
+          transform: translateY(-1px);
+        }
+        .tr:last-child { border-bottom: none; }
+        .td-cell {
+          display: flex;
+          align-items: center;
+          box-sizing: border-box;
+          padding: 0 ${cellPadX}px;
+          min-width: 0;
+          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+          color: #cbd5e1;
+          line-height: 1.35;
+          overflow: hidden;
+          transition: color 120ms ease;
+        }
+        .tr:hover .td-cell {
+          color: #e2e8f0;
+        }
+        .align-right { text-align: right; color: #fde68a; }
+        .tone-blue { color: #38bdf8; }
+        .tone-yellow { color: #facc15; }
+        .tone-red { color: #f87171; }
+        .tone-orange { color: #fb923c; }
+        .tone-green { color: #4ade80; }
+        .tone-slate { color: #cbd5e1; }
+        .tone-cyan { color: #67e8f9; }
+        .tone-violet { color: #c4b5fd; }
+        .cell-tag {
+          display: inline-flex;
+          align-items: center;
+          max-width: 100%;
+          min-width: 0;
+          padding: 2px 10px;
+          border-radius: 999px;
+          border: 1px solid currentColor;
+          background: rgba(15, 23, 42, 0.34);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+        .empty {
+          padding: 24px 10px;
+          text-align: center;
+          color: #94a3b8;
+          font-size: ${embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+        }
+        .table-footer {
+          flex: 0 0 auto;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          min-height: ${embedded ? "44px" : "36px"};
+          padding: ${embedded ? "8px 14px 6px" : "6px 12px 4px"};
+          border-top: 1px solid rgba(56, 120, 200, 0.18);
+          background: rgba(8, 24, 48, 0.35);
+        }
+        .row-total {
+          flex: 0 0 auto;
+          font-size: ${embedded ? "15px" : "11px"};
+          color: #94a3b8;
+          white-space: nowrap;
+        }
+        .table-footer .pager {
+          flex: 1 1 auto;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 12px;
+          min-height: 0;
+          padding: 0;
+          border-top: none;
+          background: transparent;
+        }
+        .pager-btn {
+          border: 1px solid rgba(56, 189, 248, 0.35);
+          background: rgba(8, 47, 73, 0.85);
+          color: #7dd3fc;
+          font-size: ${embedded ? "15px" : "11px"};
+          line-height: 1.2;
+          padding: ${embedded ? "5px 12px" : "3px 10px"};
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .pager-btn:hover:not(:disabled) {
+          border-color: rgba(56, 189, 248, 0.55);
+          color: #e0f2fe;
+        }
+        .pager-btn:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+        }
+        .pager-info {
+          min-width: 3.5rem;
+          text-align: center;
+          font-size: ${embedded ? "15px" : "11px"};
+          color: #94a3b8;
+        }
+        ${cellTableChromeStyleBlock()}
+        ${cellPopoverStyleBlock(popoverVariant)}
+      </style>
+      <div class="table-wrap${carouselEnabled(p) ? " carousel-active" : ""}">
+        <div class="table-scroll">
+          <div class="table-canvas">
+            <div class="thead">${headCells}</div>
+            <div class="tbody">${this._state?.loading ? `<div class="empty">加载中…</div>` : body || emptyHint}</div>
+          </div>
+        </div>
+        ${footerHtml}
+      </div>
+    `;
+    this.bindCellPreviewEvents();
+  }
+}
+
+if (!customElements.get("mei-cockpit-data-table")) {
+  customElements.define("mei-cockpit-data-table", MeiCockpitDataTable);
+}

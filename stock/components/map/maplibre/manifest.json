@@ -1,0 +1,8 @@
+{
+  "components": {
+    "map.maplibre": {
+      "tag": "mei-map-maplibre",
+      "script": "map.js"
+    }
+  }
+}

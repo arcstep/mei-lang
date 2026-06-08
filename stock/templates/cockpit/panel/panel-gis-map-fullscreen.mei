@@ -1,0 +1,138 @@
+# 驾驶舱 GIS 地图模板：全屏底图 + mapSpec；cockpitBleed + focusInset（对齐 520 侧栏驾驶舱）。
+# 漂浮图表由业务 frame 叠在 gis_stage 上，勿放入本模板。
+
+scene(id = "panel_gis_map_fullscreen_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+TPL_ASSETS = "/workspace-app-assets/templates/cockpit/assets/map"
+GEO = TPL_ASSETS + "/geo"
+
+MAP_VIEWPORT = {
+    "mode": "cockpitBleed",
+    "focusInset": {
+        "top": "312px",
+        "left": "540px",
+        "right": "540px",
+        "bottom": "72px",
+    },
+    "showFocusGuide": False,
+}
+
+DEMO_VALUE_BY_CODE = {
+    "500106001": 86,
+    "500106012": 124,
+    "500106015": 98,
+}
+
+MAP_SPEC = {
+    "basemap": {
+        "tilesUrl": "http://127.0.0.1:8080",
+        "tilesJsonPath": "/shapingba-z10-16",
+        "showLabels": True,
+        "labelLocale": "zh-Hans",
+        "roadClasses": "major",
+        "backgroundColor": "#101820",
+        "waterColor": "#1d2c38",
+        "waterwayColor": "#324758",
+        "waterwayOpacity": 0.4,
+        "landuseColor": "#18232d",
+        "landuseOpacity": 0.34,
+        "roadColor": "#56697a",
+        "roadOpacity": 0.42,
+        "buildingColor": "#273540",
+        "buildingOpacity": 0.22,
+        "waterLabelColor": "#70879b",
+        "waterLabelOpacity": 0.55,
+        "roadLabelColor": "#7f8b97",
+        "roadLabelOpacity": 0.48,
+        "placeLabelColor": "#96a2af",
+        "placeLabelOpacity": 0.62,
+        "poiLabelColor": "#8e949b",
+        "poiLabelOpacity": 0.38,
+        "center": [106.38224, 29.62396],
+        "defaultZoom": 11,
+        "minZoom": 10,
+        "maxZoom": 18,
+    },
+    "layers": [
+        {
+            "id": "district_outline",
+            "label": "沙坪坝区外轮廓",
+            "type": "polygon",
+            "url": GEO + "/shapingba_outline.geojson",
+            "visible": True,
+            "choropleth": {"enabled": False},
+            "outlineOnly": True,
+            "style": {
+                "fillOpacity": 0,
+                "lineColor": "#22d3ee",
+                "lineWidth": 2.5,
+            },
+        },
+        {
+            "id": "district_outline_no_hightech",
+            "label": "沙坪坝区外轮廓（不含高新区）",
+            "type": "polygon",
+            "url": GEO + "/shapingba_outline_no_hightech.geojson",
+            "visible": True,
+            "choropleth": {"enabled": False},
+            "outlineOnly": True,
+            "style": {
+                "fillOpacity": 0,
+                "lineColor": "#6f86a0",
+                "lineWidth": 2.5,
+                "lineOpacity": 0.55,
+            },
+        },
+        {
+            "id": "streets",
+            "label": "沙坪坝区各街道设色",
+            "type": "polygon",
+            "url": GEO + "/shapingba_streets.geojson",
+            "visible": True,
+            "joinKey": "code",
+            "choropleth": {"enabled": True},
+            "style": {
+                "fillOpacity": 0.5,
+                "lineColor": "#94a3b8",
+                "lineWidth": 1,
+            },
+        },
+    ],
+}
+
+frame()
+
+frame.add_panel(
+    id = "gis_map",
+    variant = "container",
+    show_heading = False,
+    props = {
+        "chrome": "bare",
+        "padding": "0",
+        "background": "transparent",
+        "overflow": "hidden",
+        "height": "1064px",
+        "min_height": "1064px",
+        "max_height": "1064px",
+        "width": "100%",
+        "box_sizing": "border-box",
+    },
+    blocks = [
+        component(
+            "map.maplibre",
+            area = "auto",
+            props = {
+                "showTitle": False,
+                "showStatus": False,
+                "mapFill": True,
+                "mapLayoutMode": "cockpitBleed",
+                "mapViewport": MAP_VIEWPORT,
+                "layerControl": False,
+                "mapSpec": MAP_SPEC,
+                "valueByCode": DEMO_VALUE_BY_CODE,
+            },
+        ),
+    ],
+)

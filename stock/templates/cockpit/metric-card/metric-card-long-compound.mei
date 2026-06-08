@@ -1,0 +1,47 @@
+# 长卡 compound 壳（463×80）：左 1/3 stack 主指标，右 2/3 上下各一张横排子卡。
+# 底图 metric-bg-long@3x.svg：水平分隔线仅贯穿右侧 2/3（无竖线）。
+# 消费方 panel(blocks=[main, rtop, rbottom])；rtop/rbottom 子卡须 variant=sub（各槽 label/value/unit 也要传 variant=sub）。
+
+scene(id = "metric_card_long_compound_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
+BG_LONG = METRIC_ASSET_BASE + "/metric-bg-long@3x.svg"
+
+frame()
+
+frame.add_panel(
+    id = "long_compound_shell",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    layout_padding = "2px 6px",
+    layout_gap = "2px",
+    props = {
+        "background": {
+            "color": "rgba(4,16,30,0.90)",
+            "image": "url(" + BG_LONG + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+        "width": "463px",
+        "height": "80px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    },
+    layout = grid(
+        columns = ["1fr", "2fr"],
+        rows = ["1fr", "1fr"],
+        areas = [
+            ["main", "rtop"],
+            ["main", "rbottom"],
+        ],
+        gap = "2px",
+        align = "center",
+        justify = "center",
+    ),
+    blocks = [],
+)

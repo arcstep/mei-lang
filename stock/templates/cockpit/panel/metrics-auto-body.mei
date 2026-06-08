@@ -1,0 +1,21 @@
+# metrics_auto 内容区 panel 模板。
+
+scene(id = "metrics_auto_body_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+frame()
+
+frame.add_panel(
+    id = "metrics_auto_body",
+    area = "body",
+    show_heading = False,
+    variant = "container",
+    layout_policy = "metrics_auto",
+    props = {
+        "width": "520px",
+        "height": "100%",
+        "box_sizing": "border-box",
+    },
+    blocks = [],
+)

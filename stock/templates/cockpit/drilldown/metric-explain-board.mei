@@ -1,0 +1,34 @@
+# 指标解释二级看板 scene 壳（scene-first 真身）。
+# board_shell contract（tabs / default_entry）由宿主 BOARD_SCENE_CONTRACT 与本文 scene id 对齐消费。
+
+scene(
+    id = "metric_explain_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "指标解释二级看板：tabs 归属本 scene，入口 link 仅决定 overlay/route projection",
+    local_nav = {
+        "kind": "metric_explain_board",
+        "scene_id": "metric_explain_board",
+        "default_entry": "definition",
+        "include_hero": True,
+        "order_by_kind": [
+            "definition",
+            "composition",
+            "trend",
+            "numerator_denominator",
+            "detail",
+        ],
+    },
+)
+
+world(resources = [])
+
+frame()
+
+frame.add_panel(
+    id = "metric_explain_shell",
+    variant = "container",
+    title = "指标解释",
+    props = {},
+    blocks = [],
+)

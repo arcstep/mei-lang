@@ -1,0 +1,93 @@
+# 进度卡（132×80）：背景 metric-bg-clean@3x.svg + label / value|unit / 底部进度条。
+#
+# 为何用 desc 槽存比例？
+# metric_card 固定四槽 label/value/unit/desc；本模板用 shell 标记 metric_desc_mode=progress，
+# 让 desc 槽的值走进度 组件，而不是角标文案。
+#
+# 比例值写法（组件内 parsePercent，无需在 .mei 里先换算小数）：
+#   "80" | "80%" → 80%  ;  0.8 → 80%  ;  1 → 100%
+#
+# 静态：
+#   source = {"label": "无违规", "value": "150", "unit": "次", "desc": "80"}
+#   patch = {"desc": "80%"}
+#
+# 动态 metric_ref（推荐）：
+#   map = {"label": "title_col", "value": "count_col", "unit": "unit_col", "desc": "rate_col"}
+#   查询结果里 rate_col 可以是 80、0.8 或已格式化的 "80%" 字符串。
+
+scene(id = "metric_card_stack_progress_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+METRIC_ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets/metrics"
+BG_CLEAN = METRIC_ASSET_BASE + "/metric-bg-clean@3x.svg"
+
+# 与底图内框对齐：勿再加 CSS border/底色（SVG 已含描边与 10% 填充）。
+PROGRESS_SHELL = {
+    "inset_x": "0px",
+    "extend_x": "10px",
+    "height": "10px",
+    "border_radius": "1px",
+    "fill": "#C9E9F8",
+}
+
+frame()
+
+frame.add_panel(
+    id = "card_stack_progress_clean",
+    area = "auto",
+    show_heading = False,
+    chrome = "bare",
+    variant = "container",
+    props = {
+        "chrome": "bare",
+        "width": "134px",
+        "height": "80px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+        "__mei_metric_card": True,
+        "__mei_metric_density": "compact",
+        "__mei_metric_template": "stack_desc",
+        "__mei_metric_inline_align": "compact",
+        "__mei_metric_desc_mode": "progress",
+        "__mei_metric_label_v_align": "center",
+        "__mei_metric_value_v_align": "end",
+        "__mei_metric_unit_v_align": "end",
+        "metric_desc_mode": "progress",
+        "metric_desc_shell": PROGRESS_SHELL,
+        "background": {
+            "image": "url(" + BG_CLEAN + ")",
+            "size": "100% 100%",
+            "position": "center",
+            "repeat": "no-repeat",
+        },
+    },
+    layout = grid(
+        rows = ["10px", "18px", "28px", "10px", "10px", "4px"],
+        columns = ["auto", "auto"],
+        areas = [
+            [".", "."],
+            ["label", "label"],
+            ["value", "unit"],
+            [".", "."],
+            ["desc", "desc"],
+            [".", "."],
+        ],
+        gap = "0",
+        align = "stretch",
+        justify = "center",
+    ),
+    blocks = [
+        label("无违规", area = "label", align = "center", vertical_align = "center"),
+        value("150", area = "value", align = "center", vertical_align = "end"),
+        unit("次", area = "unit", align = "center", vertical_align = "end"),
+        component(
+            "cockpit.metric-progress",
+            area = "desc",
+            props = {
+                "value": "80%",
+                "progress_shell": PROGRESS_SHELL,
+            },
+        ),
+    ],
+)

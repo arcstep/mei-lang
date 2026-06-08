@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, "..");
 const assetsRoot = path.join(root, "app", "assets");
 const distRoot = path.join(assetsRoot, "dist");
-const vendorRoot = path.resolve(root, "..", "workspaces", "_components", "vendor");
+const vendorRoot = path.resolve(root, "stock", "components", "vendor");
 const manifestPath = path.join(__dirname, "bundle-manifest.json");
 const rustOutPath = path.join(
   root,

@@ -1,0 +1,46 @@
+# 标题壳 panel 模板：主文件覆写 title / props.height / blocks。
+
+scene(id = "panel_titled_shell_tpl", profile = "cockpit", theme = "cockpit")
+
+world(resources = [])
+
+ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets"
+CARET = ASSET_BASE + "/caret-left-filled@3x.svg"
+GRADIENT_BG = "linear-gradient(90deg, #245284 0%, #105796 50%, #163349 100%)"
+
+frame()
+
+frame.add_panel(
+    id = "titled_shell",
+    variant = "container",
+    title = "标题占位",
+    title_background = {
+        "image": GRADIENT_BG,
+        "position": "center",
+        "size": "100% 100%",
+        "repeat": "no-repeat",
+    },
+    title_decor = {
+        "url": CARET,
+        "inset": "14px",
+        "left_rotate": "180deg",
+    },
+    title_height = "54px",
+    title_align = "center",
+    heading = {
+        "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
+        "font_size": "30px",
+        "font_weight": "700",
+        "letter_spacing": "20px",
+        "color": "rgba(255,255,255,0.80)",
+    },
+    props = {
+        "border": "1px solid rgba(52, 82, 108, 0.5)",
+        "radius": "4px",
+        "width": "522px",
+        "height": "232px",
+        "box_sizing": "border-box",
+        "overflow": "hidden",
+    },
+    blocks = [],
+)

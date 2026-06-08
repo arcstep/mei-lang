@@ -1,0 +1,8 @@
+{
+  "components": {
+    "doc.markdown": {
+      "tag": "mei-doc-markdown",
+      "script": "markdown.js"
+    }
+  }
+}
