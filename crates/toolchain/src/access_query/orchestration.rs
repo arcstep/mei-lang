@@ -1,9 +1,14 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{locate_dataset_resource, DatasetView};
+use mei_lang_kernel::locate_dataset_resource;
+use mei_lang_datasets::{
+    evaluate_runtime_metrics_from_plan, metric_ids_visible_for_dataset, normalize_query_filters,
+    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
+    query_state_from_request, RuntimeMetricEvalMode, DatasetQueryOptions,
+};
 use serde_json::{json, Value};
 
 use crate::analysis_contract::{
@@ -11,217 +16,17 @@ use crate::analysis_contract::{
     build_metric_analysis_contract_attachments, contract_attachment_stats,
     contract_hint_when_empty, contract_hint_when_preview_empty, contract_preview_stats,
 };
-use mei_lang_datasets::{
-    evaluate_runtime_metrics_from_plan, metric_ids_visible_for_dataset, normalize_query_filters,
-    normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
-    query_state_from_request, RuntimeMetricEvalMode, DatasetQueryOptions,
-};
 use crate::observation::{CompileObservation, EvalObservation, ExposureManifest};
 use crate::types::WorldScope;
 use crate::world::{load_world_runtime_bundle, normalize_path};
 
-pub const RESOURCE_QUERY_SCHEMA_VERSION: &str = "resource-query-v5";
-
-pub const DATASET_QUERY_DEFAULT_LIMIT: usize = 10;
-pub const DATASET_QUERY_MAX_LIMIT: usize = 50;
-pub const DATASET_QUERY_DEFAULT_COLUMNS: usize = 10;
-pub const DATASET_QUERY_MAX_COLUMNS: usize = 10;
-pub const DATASET_QUERY_MAX_CELL_CHARS: usize = 50;
-const DATASET_QUERY_TOTAL_CHAR_BUDGET: usize = 12_000;
-
-fn normalize_limit(limit: Option<usize>, default: usize, max: usize) -> usize {
-    limit.unwrap_or(default).clamp(1, max)
-}
-
-fn normalize_dataset_limit(limit: Option<usize>) -> usize {
-    normalize_limit(limit, DATASET_QUERY_DEFAULT_LIMIT, DATASET_QUERY_MAX_LIMIT)
-}
-
-fn dataset_available_columns(dataset: &DatasetView) -> Vec<String> {
-    if !dataset.columns.is_empty() {
-        return dataset.columns.clone();
-    }
-    dataset.schema.iter().map(|c| c.name.clone()).collect()
-}
-
-pub fn normalize_dataset_columns(
-    dataset: &DatasetView,
-    requested: Option<&[String]>,
-) -> Vec<String> {
-    let available = dataset_available_columns(dataset);
-    let available_set = available.iter().cloned().collect::<BTreeSet<_>>();
-    let mut selected = Vec::new();
-
-    if let Some(req) = requested {
-        for col in req {
-            let name = col.trim();
-            if name.is_empty() {
-                continue;
-            }
-            if available_set.contains(name) && !selected.iter().any(|v| v == name) {
-                selected.push(name.to_string());
-            }
-            if selected.len() >= DATASET_QUERY_MAX_COLUMNS {
-                break;
-            }
-        }
-    }
-
-    if selected.is_empty() {
-        selected = available
-            .into_iter()
-            .take(DATASET_QUERY_DEFAULT_COLUMNS)
-            .collect();
-    }
-    selected
-}
-
-fn truncate_text_chars(input: &str, max_chars: usize) -> (String, bool) {
-    if input.chars().count() <= max_chars {
-        return (input.to_string(), false);
-    }
-    let mut out = input.chars().take(max_chars).collect::<String>();
-    out.push('…');
-    (out, true)
-}
-
-fn bounded_cell_value(value: &Value, truncated_cells: &mut usize) -> Value {
-    match value {
-        Value::String(s) => {
-            let (text, changed) = truncate_text_chars(s, DATASET_QUERY_MAX_CELL_CHARS);
-            if changed {
-                *truncated_cells += 1;
-            }
-            Value::String(text)
-        }
-        Value::Array(_) | Value::Object(_) => {
-            let raw = serde_json::to_string(value).unwrap_or_else(|_| value.to_string());
-            let (text, changed) = truncate_text_chars(&raw, DATASET_QUERY_MAX_CELL_CHARS);
-            if changed {
-                *truncated_cells += 1;
-            }
-            Value::String(text)
-        }
-        other => other.clone(),
-    }
-}
-
-fn project_dataset_row(
-    row: &Value,
-    selected_columns: &[String],
-    truncated_cells: &mut usize,
-) -> Value {
-    let mut out = serde_json::Map::new();
-    if let Some(obj) = row.as_object() {
-        for col in selected_columns {
-            let value = obj
-                .get(col)
-                .map(|v| bounded_cell_value(v, truncated_cells))
-                .unwrap_or(Value::Null);
-            out.insert(col.clone(), value);
-        }
-        return Value::Object(out);
-    }
-    out.insert("_raw".to_string(), bounded_cell_value(row, truncated_cells));
-    Value::Object(out)
-}
-
-fn build_schema_preview(dataset: &DatasetView, selected_columns: &[String]) -> Vec<Value> {
-    let schema_map = dataset
-        .schema
-        .iter()
-        .map(|c| (c.name.as_str(), c))
-        .collect::<BTreeMap<_, _>>();
-    selected_columns
-        .iter()
-        .map(|name| {
-            if let Some(col) = schema_map.get(name.as_str()) {
-                json!({
-                    "name": col.name,
-                    "type": col.type_name,
-                    "source": col.source,
-                    "optional": col.optional,
-                })
-            } else {
-                json!({
-                    "name": name,
-                    "type": "unknown",
-                })
-            }
-        })
-        .collect()
-}
-
-fn json_serialized_len(value: &Value) -> usize {
-    serde_json::to_string(value).map(|s| s.len()).unwrap_or(0)
-}
-
-fn shrink_json_for_llm(value: &Value, max_total: usize) -> Value {
-    let len = json_serialized_len(value);
-    if len <= max_total {
-        return value.clone();
-    }
-    match value {
-        Value::Object(map) => {
-            let mut out = serde_json::Map::new();
-            for (key, item) in map.iter().take(48) {
-                let entry_len = json_serialized_len(item);
-                if entry_len > 2_000 {
-                    out.insert(
-                        key.clone(),
-                        json!({
-                            "_omitted": true,
-                            "approx_chars": entry_len,
-                        }),
-                    );
-                } else {
-                    out.insert(key.clone(), item.clone());
-                }
-            }
-            out.insert(
-                "_truncated".to_string(),
-                json!({
-                    "reason": "payload too large for tool output",
-                    "approx_original_chars": len,
-                }),
-            );
-            Value::Object(out)
-        }
-        Value::Array(items) => json!({
-            "type": "array",
-            "len": items.len(),
-            "head": items.iter().take(5).cloned().collect::<Vec<_>>(),
-        }),
-        Value::String(text) => {
-            let cap = 1_000usize;
-            if text.len() <= cap {
-                Value::String(text.clone())
-            } else {
-                Value::String(format!("{}…", text.chars().take(cap).collect::<String>()))
-            }
-        }
-        other => other.clone(),
-    }
-}
-
-fn summarize_filters_decl(filters: &Value) -> Value {
-    let len = json_serialized_len(filters);
-    if len <= 1_200 {
-        return filters.clone();
-    }
-    match filters {
-        Value::Object(map) => json!({
-            "object_key_count": map.len(),
-            "keys": map.keys().take(40).cloned().collect::<Vec<_>>(),
-            "approx_chars": len,
-            "note": "filters object truncated to keys only.",
-        }),
-        _ => json!({
-            "approx_chars": len,
-            "note": "filters omitted (too large).",
-        }),
-    }
-}
+use super::dataset_binding::{normalize_dataset_limit, DATASET_QUERY_MAX_COLUMNS};
+use super::normalize_dataset_columns;
+use super::serialization::{
+    build_schema_preview, json_serialized_len, project_dataset_row, shrink_json_for_llm,
+    summarize_filters_decl, DATASET_QUERY_MAX_CELL_CHARS, DATASET_QUERY_TOTAL_CHAR_BUDGET,
+};
+use super::RESOURCE_QUERY_SCHEMA_VERSION;
 
 pub fn query_world_dataset(
     source_root: &Path,
@@ -510,78 +315,4 @@ pub fn query_world_dataset_metrics(
         "perf": perf,
         "usage_hint": "指标问答优先使用 dataset_metric；analysis_contracts 与宿主 UI popup/route 同轨。无 contract 时勿编造 explain 字段。若要查看明细行，再改用 dataset_query。"
     }))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::normalize_dataset_columns;
-    use mei_lang_datasets::project_requested_metrics;
-    use mei_lang_kernel::{DatasetView, MetricContract, MetricShape, SourceDecl};
-    use serde_json::json;
-    use std::collections::BTreeMap;
-
-    #[test]
-    fn project_requested_metrics_keeps_requested_id_after_canonical_resolution() {
-        let runtime_metric_defs = BTreeMap::from([(
-            "capsule/overview.mei::sales_total".to_string(),
-            json!({"id": "capsule/overview.mei::sales_total"}),
-        )]);
-        let metrics_map = BTreeMap::from([(
-            "capsule/overview.mei::sales_total".to_string(),
-            MetricContract {
-                id: "capsule/overview.mei::sales_total".to_string(),
-                label: Some("Sales Total".to_string()),
-                unit: None,
-                value_format: None,
-                purpose: None,
-                shape: MetricShape::Scalar,
-                schema: Vec::new(),
-                dataset: None,
-                transforms: Vec::new(),
-                value: json!(42),
-            },
-        )]);
-        let projected = project_requested_metrics(
-            "__world_metrics__::capsule/overview.mei::metrics",
-            &["sales_total".to_string()],
-            &runtime_metric_defs,
-            &metrics_map,
-        );
-        assert_eq!(projected.len(), 1);
-        assert_eq!(projected[0].id, "sales_total");
-        assert_eq!(projected[0].value, json!(42));
-    }
-
-    #[test]
-    fn normalize_dataset_columns_caps_default_selection() {
-        let dataset = DatasetView {
-            id: "ds".to_string(),
-            title: None,
-            purpose: None,
-            schema: Vec::new(),
-            stage_schema: Vec::new(),
-            columns: (0..20).map(|i| format!("c{i}")).collect(),
-            rows: Vec::new(),
-            source: SourceDecl {
-                kind: "derived".to_string(),
-                path: "dataset_view:ds".to_string(),
-                sheet: None,
-                header_row: None,
-                preview_rows: None,
-                page_size: None,
-                max_page_size: None,
-                table: None,
-                query: None,
-                connection: None,
-                content: None,
-            },
-            sources: Vec::new(),
-            metrics: BTreeMap::new(),
-            runtime_metric_defs: BTreeMap::new(),
-            runtime_analysis_graph: Default::default(),
-            runtime_analysis_contracts: Default::default(),
-        };
-        let cols = normalize_dataset_columns(&dataset, None);
-        assert_eq!(cols.len(), 10);
-    }
 }
