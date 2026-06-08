@@ -1,4 +1,6 @@
 mod compiling_shell;
+mod page_cache;
+mod page_render;
 mod page;
 mod query;
 mod scene;

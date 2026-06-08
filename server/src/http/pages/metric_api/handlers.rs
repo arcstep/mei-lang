@@ -1,174 +1,22 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
-use axum::{
-    extract::{Path as AxumPath, State},
-    http::StatusCode,
-    Json,
-};
-use mei_lang_kernel::{
-    resolve_app_root, runtime_eval_node_cache_enabled, EvalPlanNodeKind, FilterIntent,
-    MetricContract, QueryState, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
-};
-use mei_lang_datasets::{
-    collect_all_query_options, evaluate_runtime_metrics_from_plan,
-    metric_response_cache_scope_key, plan_access_metric_eval_for_ids, project_requested_metrics,
-    query_state_from_request, runtime_metric_scope_requested, take_cached_metric_response,
-    normalize_query_filters, normalize_query_search, store_cached_metric_response,
-    RuntimeMetricEvalMode,
-};
-use serde::{Deserialize, Serialize};
-
+use axum::{extract::{Path as AxumPath, State}, http::StatusCode, Json};
+use mei_lang_datasets::{collect_all_query_options, evaluate_runtime_metrics_from_plan, metric_response_cache_scope_key, plan_access_metric_eval_for_ids, project_requested_metrics, query_state_from_request, runtime_metric_scope_requested, take_cached_metric_response, normalize_query_filters, normalize_query_search, store_cached_metric_response, RuntimeMetricEvalMode};
+use mei_lang_kernel::resolve_app_root;
 use crate::http::observation::{CompileObservation, EvalObservation};
 use crate::{AppError, AppState};
-
-use super::super::compile_cache::compile_app_with_cache;
-use super::components::resolve_components_root;
-use super::scene_qualified::{
-    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
-    strict_runtime_query_contract, strict_scene_query_coords,
-};
-use super::util::elapsed_ms;
-
-fn hash_fingerprint(value: &str) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    value.hash(&mut hasher);
-    hasher.finish()
-}
-
-fn metric_eval_diagnostic_code(message: &str) -> &'static str {
-    if message.contains("cyclic_eval_dependency")
-        || message.contains("metric_eval_recursion_guard_tripped")
-    {
-        "metric_eval_recursion_guard_tripped"
-    } else {
-        "metric_eval_failed"
-    }
-}
-
-fn write_dag_perf(
-    perf: &mut BTreeMap<String, u64>,
-    eval_report: &RuntimeMetricEvalReport,
-    eval_scope: &RuntimeMetricEvalScope,
-    closure_metric_ids: &[String],
-    dataset: &mei_lang_kernel::DatasetView,
-) {
-    let dag_metrics = &eval_report.request_dag_metrics;
-    let eval_plan = &eval_report.eval_plan;
-    let eval_scope_key = mei_lang_datasets::eval_node_cache_key("metric_scope", eval_scope);
-    perf.insert(
-        "eval_plan_targets".to_string(),
-        eval_plan.targets.len() as u64,
-    );
-    perf.insert("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64);
-    perf.insert("eval_plan_edges".to_string(), eval_plan.edges.len() as u64);
-    perf.insert(
-        "eval_plan_metric_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
-    );
-    perf.insert(
-        "eval_plan_rowset_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::Rowset) as u64,
-    );
-    perf.insert(
-        "eval_plan_scalar_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr) as u64,
-    );
-    perf.insert(
-        "eval_plan_hydrate_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
-    );
-    perf.insert(
-        "eval_scope_key_hash".to_string(),
-        hash_fingerprint(&eval_scope_key),
-    );
-    perf.insert(
-        "eval_scope_group_key_hash".to_string(),
-        hash_fingerprint(&eval_scope.query_state.group_identity_key()),
-    );
-    perf.insert(
-        "eval_scope_time_range_key_hash".to_string(),
-        hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
-    );
-    perf.insert(
-        "eval_scope_group_dimensions".to_string(),
-        eval_scope.query_state.group.len() as u64,
-    );
-    perf.insert("request_dag_nodes".to_string(), dag_metrics.nodes as u64);
-    perf.insert("request_dag_edges".to_string(), dag_metrics.edges as u64);
-    perf.insert("request_dag_hits".to_string(), dag_metrics.hits);
-    perf.insert("request_dag_misses".to_string(), dag_metrics.misses);
-    perf.insert(
-        "request_dag_request_cache_hits".to_string(),
-        dag_metrics.request_cache_hits,
-    );
-    perf.insert(
-        "request_dag_eval_node_cache_hits".to_string(),
-        dag_metrics.eval_node_cache_hits,
-    );
-    perf.insert(
-        "request_dag_eval_node_cache_misses".to_string(),
-        dag_metrics.eval_node_cache_misses,
-    );
-    if !closure_metric_ids.is_empty() {
-        perf.insert(
-            "analysis_closure_nodes".to_string(),
-            closure_metric_ids.len() as u64,
-        );
-        let closure_set = closure_metric_ids
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
-        let closure_edges = dataset
-            .runtime_analysis_graph
-            .edges
-            .iter()
-            .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
-            .count() as u64;
-        perf.insert("analysis_closure_edges".to_string(), closure_edges);
-    }
-    perf.insert(
-        "eval_node_cache_enabled".to_string(),
-        u64::from(runtime_eval_node_cache_enabled()),
-    );
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MetricQueryRequest {
-    #[serde(default)]
-    pub scene_id: Option<String>,
-    #[serde(default)]
-    pub target: Option<String>,
-    pub dataset_id: String,
-    #[serde(default)]
-    pub metric_ids: Vec<String>,
-    #[serde(default)]
-    pub search: Option<String>,
-    #[serde(default)]
-    pub filters: BTreeMap<String, String>,
-    #[serde(default)]
-    pub query_state: Option<QueryState>,
-    #[serde(default)]
-    pub filter_intents: Vec<FilterIntent>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct MetricQueryResponse {
-    pub scene_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scene_path: Option<String>,
-    pub dataset_id: String,
-    pub total_rows: usize,
-    pub metrics: Vec<MetricContract>,
-    pub perf: BTreeMap<String, u64>,
-}
+use super::super::super::compile_cache::compile_app_with_cache;
+use super::super::components::resolve_components_root;
+use super::super::scene_qualified::{compile_options_from_coords, locate_dataset_resource, resolved_scene_context, strict_runtime_query_contract, strict_scene_query_coords};
+use super::super::util::elapsed_ms;
+use super::assembly::{hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf, MetricQueryRequest, MetricQueryResponse};
 
 pub async fn dataset_metric_api(
     State(state): State<AppState>,
     AxumPath(app_id_raw): AxumPath<String>,
     Json(request): Json<MetricQueryRequest>,
-) -> Result<Json<MetricQueryResponse>, AppError> {
+) -> Result<Json<MetricQueryResponse>, crate::AppError> {
     let request_started = Instant::now();
     let app_id = app_id_raw.trim_start_matches('/').to_string();
     if app_id.is_empty() {
@@ -398,7 +246,7 @@ pub async fn dataset_metric_api(
         compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         let mut eval_observation = EvalObservation::new(true)
-            .with_response_cache_key_hash(hash_fingerprint(&response_cache_key));
+            .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
         eval_observation.insert_counter("request_dag_observed", 0);
         eval_observation.insert_counter("eval_memo_hits", 0);
         eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
@@ -465,7 +313,7 @@ pub async fn dataset_metric_api(
     compile_observation.write_perf(&mut perf);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     let mut eval_observation = EvalObservation::new(false)
-        .with_response_cache_key_hash(hash_fingerprint(&response_cache_key));
+        .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
     if let Some(eval_report) = eval_outcome.eval_report.as_ref() {
         eval_observation.insert_counter("request_dag_observed", 1);
         eval_observation.insert_counter(

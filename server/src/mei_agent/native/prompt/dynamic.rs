@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client;
 use rusqlite::params;
-use serde_json::{json, Value};
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::agent_runtime::{
@@ -11,13 +11,12 @@ use crate::agent_runtime::{
     events::HostOpencodeEvent,
 };
 
-use super::super::{
+use super::super::{model_from_env, now_ms, NativeAgent};
+use super::super::super::{
     llm, llm_config,
     resource_tools::{self, AgentResourceScope},
     workspace_snapshot_git::WorkspaceSnapshotGit,
 };
-
-use super::{model_from_env, now_ms, NativeAgent};
 impl NativeAgent {
     pub async fn send_prompt(
         &self,
@@ -353,179 +352,5 @@ impl NativeAgent {
             },
         });
         Ok((user_msg_id, assistant_msg_id, part_id))
-    }
-
-    /// 构造发给 OpenAI 兼容接口的 `messages`：可选 `system`（来自 enrich，不落库）；跳过末尾空 assistant。
-    fn build_llm_messages(&self, session_id: &str, system: Option<&str>) -> Result<Vec<Value>> {
-        let rows = self.session_messages_blocking(session_id)?;
-        let mut messages = Vec::new();
-        if let Some(s) = system {
-            if !s.trim().is_empty() {
-                messages.push(json!({ "role": "system", "content": s }));
-            }
-        }
-        for row in rows {
-            let role = row
-                .info
-                .get("role")
-                .and_then(Value::as_str)
-                .unwrap_or("user");
-            let mut text = String::new();
-            for p in &row.parts {
-                if p.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(t) = p.get("text").and_then(Value::as_str) {
-                        text.push_str(t);
-                    }
-                }
-            }
-            if role == "assistant" && text.is_empty() {
-                continue;
-            }
-            messages.push(json!({ "role": role, "content": text }));
-        }
-        Ok(messages)
-    }
-
-    fn append_part_text(
-        &self,
-        session_id: &str,
-        message_id: &str,
-        part_id: &str,
-        delta: &str,
-    ) -> Result<()> {
-        let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let s: String = db.query_row(
-            "SELECT json FROM parts WHERE id = ?1 AND message_id = ?2",
-            params![part_id, message_id],
-            |r| r.get(0),
-        )?;
-        let mut v: Value = serde_json::from_str(&s)?;
-        let cur = v.get("text").and_then(Value::as_str).unwrap_or("");
-        v["text"] = Value::String(format!("{cur}{delta}"));
-        let ns = v.to_string();
-        db.execute(
-            "UPDATE parts SET json = ?1 WHERE id = ?2 AND session_id = ?3",
-            params![ns, part_id, session_id],
-        )?;
-        let t = now_ms();
-        let info_s: String = db.query_row(
-            "SELECT info_json FROM messages WHERE id = ?1",
-            params![message_id],
-            |r| r.get(0),
-        )?;
-        let mut info: Value = serde_json::from_str(&info_s)?;
-        if let Some(obj) = info.get_mut("time").and_then(Value::as_object_mut) {
-            obj.insert("updated".to_string(), json!(t));
-        }
-        db.execute(
-            "UPDATE messages SET info_json = ?1 WHERE id = ?2",
-            params![info.to_string(), message_id],
-        )?;
-        Ok(())
-    }
-
-    fn set_message_error(&self, session_id: &str, message_id: &str, err: &str) -> Result<()> {
-        let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let s: String = db.query_row(
-            "SELECT info_json FROM messages WHERE id = ?1",
-            params![message_id],
-            |r| r.get(0),
-        )?;
-        let mut info: Value = serde_json::from_str(&s)?;
-        info["error"] = json!(err);
-        let t = now_ms();
-        if let Some(obj) = info.get_mut("time").and_then(Value::as_object_mut) {
-            obj.insert("updated".to_string(), json!(t));
-        }
-        db.execute(
-            "UPDATE messages SET info_json = ?1 WHERE id = ?2 AND session_id = ?3",
-            params![info.to_string(), message_id, session_id],
-        )?;
-        Ok(())
-    }
-
-    fn finalize_assistant(&self, session_id: &str, message_id: &str, finish: &str) -> Result<()> {
-        let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let s: String = db.query_row(
-            "SELECT info_json FROM messages WHERE id = ?1",
-            params![message_id],
-            |r| r.get(0),
-        )?;
-        let mut info: Value = serde_json::from_str(&s)?;
-        let t = now_ms();
-        info["finish"] = json!(finish);
-        if let Some(obj) = info.get_mut("time").and_then(Value::as_object_mut) {
-            obj.insert("updated".to_string(), json!(t));
-        }
-        db.execute(
-            "UPDATE messages SET info_json = ?1 WHERE id = ?2 AND session_id = ?3",
-            params![info.to_string(), message_id, session_id],
-        )?;
-        Ok(())
-    }
-
-    fn touch_session_updated(&self, session_id: &str) -> Result<()> {
-        let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let t = now_ms();
-        db.execute(
-            "UPDATE sessions SET updated_ms = ?1 WHERE id = ?2",
-            params![t, session_id],
-        )?;
-        Ok(())
-    }
-
-    fn read_prompt_summary(
-        &self,
-        session_id: &str,
-        message_id: &str,
-    ) -> Result<BridgePromptSummary> {
-        let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
-        let info_s: String = db.query_row(
-            "SELECT info_json FROM messages WHERE id = ?1",
-            params![message_id],
-            |r| r.get(0),
-        )?;
-        let info: Value = serde_json::from_str(&info_s)?;
-        let mut stmt =
-            db.prepare("SELECT json FROM parts WHERE message_id = ?1 ORDER BY sort_order")?;
-        let parts: Vec<Value> = stmt
-            .query_map(params![message_id], |r| {
-                let s: String = r.get(0)?;
-                Ok(serde_json::from_str::<Value>(&s).unwrap_or(Value::Null))
-            })?
-            .collect::<Result<_, _>>()?;
-        let mut texts = Vec::new();
-        let mut part_types = Vec::new();
-        for p in &parts {
-            if let Some(pt) = p.get("type").and_then(Value::as_str) {
-                part_types.push(pt.to_string());
-                if pt == "text" {
-                    if let Some(tx) = p.get("text").and_then(Value::as_str) {
-                        texts.push(tx.to_string());
-                    }
-                }
-            }
-        }
-        Ok(BridgePromptSummary {
-            session_id: session_id.to_string(),
-            message_id: message_id.to_string(),
-            provider_id: info
-                .get("providerID")
-                .and_then(Value::as_str)
-                .map(ToString::to_string),
-            model_id: info
-                .get("modelID")
-                .and_then(Value::as_str)
-                .map(ToString::to_string),
-            finish: info
-                .get("finish")
-                .and_then(Value::as_str)
-                .map(ToString::to_string),
-            texts,
-            part_types,
-            error: info.get("error").cloned(),
-            scope_digest: None,
-            profile_summary: None,
-        })
     }
 }
