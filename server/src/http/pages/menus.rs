@@ -45,11 +45,26 @@ fn load_topbar_menu_from_dir(dir: &Path) -> Option<TopbarMenuConfig> {
     read_topbar_menu_json(&dir.join("_menu.json"))
 }
 
+fn workspace_display_label(source_root: &Path) -> Option<String> {
+    let workspace = load_workspace_config(source_root);
+    workspace
+        .workspace
+        .label
+        .or(workspace.workspace.id)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 pub(crate) fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext {
     let mut by_segment = BTreeMap::new();
+    let workspace_label = workspace_display_label(source_root);
     let root = load_topbar_menu_from_dir(source_root);
     let Ok(entries) = fs::read_dir(source_root) else {
-        return TopbarMenuContext { root, by_segment };
+        return TopbarMenuContext {
+            root,
+            by_segment,
+            workspace_label,
+        };
     };
     for entry in entries.flatten() {
         let Ok(file_type) = entry.file_type() else {
@@ -66,5 +81,9 @@ pub(crate) fn load_segment_topbar_menus(source_root: &Path) -> TopbarMenuContext
             by_segment.insert(name, config);
         }
     }
-    TopbarMenuContext { root, by_segment }
+    TopbarMenuContext {
+        root,
+        by_segment,
+        workspace_label,
+    }
 }

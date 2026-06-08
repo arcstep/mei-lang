@@ -308,13 +308,21 @@ pub(super) fn topbar_view(
     let access_entry_query = access_scene_query(access_scene_for_href);
     let access_disabled = access_entry_query.is_empty();
     let menu_groups = build_topbar_menu_groups(apps, topbar_menu);
-    let active_menu_context = menu_groups.iter().find_map(|group| {
-        group
-            .items
-            .iter()
-            .find(|item| item.app_id.as_str() == active_app_path)
-            .map(|item| (group.label.clone(), item.label.clone()))
-    });
+    let active_app_label = menu_groups
+        .iter()
+        .flat_map(|group| group.items.iter())
+        .find(|item| item.app_id.as_str() == active_app_path)
+        .map(|item| item.label.clone())
+        .or_else(|| {
+            apps.iter()
+                .find(|app| app.id.as_str() == active_app_path)
+                .map(|app| app.title.clone())
+        })
+        .unwrap_or_else(|| active_app_path.to_string());
+    let workspace_label = topbar_menu
+        .and_then(|menu| menu.workspace_label.as_deref())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("工作区");
     let app_tabs = menu_groups
         .into_iter()
         .map(|group| {
@@ -340,6 +348,23 @@ pub(super) fn topbar_view(
                 } else {
                     direct_items.push(item.clone());
                 }
+            }
+            let is_single_top_level_tab =
+                direct_items.len() == 1 && subgroup_items.is_empty();
+            if is_single_top_level_tab {
+                let item = &direct_items[0];
+                let class = if item.app_id.as_str() == active_app_path {
+                    "app-tab active"
+                } else {
+                    "app-tab"
+                };
+                let href = cross_app_href(route_mode, &item.app_id);
+                return view! {
+                    <a class=class href=href data-topbar-menu-group=group_id.clone()>
+                        {item.label.clone()}
+                    </a>
+                }
+                .into_any();
             }
             let direct_links = direct_items
                 .iter()
@@ -398,23 +423,21 @@ pub(super) fn topbar_view(
                     </div>
                 </sl-dropdown>
             }
-        })
-        .collect_view();
-    let active_item_breadcrumb = active_menu_context
-        .map(|(group_label, item_label)| {
-            let aria_label = format!("当前位置：{group_label} / {item_label}");
-            view! {
-                <div class="app-current-path inline-flex min-w-0 max-w-[min(260px,26vw)] items-center gap-1.5 border-l border-slate-400/15 pl-2.5 text-[11px] text-slate-400" aria-label=aria_label>
-                    <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-                        <span class="app-current-path-group shrink-0 text-slate-400">{group_label}</span>
-                        <span class="app-current-path-separator shrink-0 text-slate-400/70" aria-hidden="true">"/"</span>
-                        <span class="app-current-path-item min-w-0 overflow-hidden text-ellipsis text-slate-200">{item_label}</span>
-                    </span>
-                </div>
-            }
             .into_any()
         })
-        .unwrap_or_else(|| view! { <></> }.into_any());
+        .collect_view();
+    let breadcrumb_aria = format!("当前应用：{workspace_label} / {active_app_label}");
+    let active_item_breadcrumb = view! {
+        <div class="app-current-path inline-flex min-w-0 max-w-[min(300px,30vw)] items-center gap-1 border-l border-slate-400/15 pl-2 text-[11px] text-slate-400" aria-label=breadcrumb_aria>
+            <span class="app-current-path-prefix shrink-0 text-slate-500">"应用："</span>
+            <span class="app-current-path-trail inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
+                <span class="app-current-path-workspace shrink-0 text-slate-400">{workspace_label}</span>
+                <span class="app-current-path-separator shrink-0 text-slate-400/70" aria-hidden="true">"/"</span>
+                <span class="app-current-path-item min-w-0 overflow-hidden text-ellipsis text-slate-200">{active_app_label}</span>
+            </span>
+        </div>
+    }
+    .into_any();
     let build_file = build_file
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -434,7 +457,15 @@ pub(super) fn topbar_view(
     let presentation_href = app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
     let (show_config_tab, show_upload_tab, show_build_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
-    let mode_tabs = view! {
+    let show_upload_mode = upload_enabled && show_upload_tab;
+    let visible_mode_tab_count = 1usize
+        + usize::from(show_upload_mode)
+        + usize::from(show_config_tab)
+        + usize::from(show_build_tab);
+    let mode_tabs = if visible_mode_tab_count <= 1 {
+        view! { <></> }.into_any()
+    } else {
+        view! {
         <div class="mode-tabs inline-flex items-center">
             <sl-button-group class="mode-tab-group" label="视图切换" data-mei-view-tabs="1">
                 <sl-button
@@ -448,7 +479,7 @@ pub(super) fn topbar_view(
                 >
                     <span class="mode-label">"访问"</span>
                 </sl-button>
-                {if upload_enabled && show_upload_tab {
+                {if show_upload_mode {
                     view! {
                         <sl-button
                             class=if route_mode == UiRouteMode::Upload { "mode-tab-btn is-active" } else { "mode-tab-btn" }
@@ -498,6 +529,8 @@ pub(super) fn topbar_view(
                 }}
             </sl-button-group>
         </div>
+    }
+    .into_any()
     };
     let launch_title = if stage_enabled {
         "在新标签页打开"
@@ -562,7 +595,7 @@ pub(super) fn topbar_view(
                 <div class="app-tabs-groups flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto pr-1">{app_tabs}</div>
                 {active_item_breadcrumb}
             </nav>
-            <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1.5">
+            <div class="topbar-actions flex shrink-0 flex-nowrap items-center justify-end gap-1">
                 {mode_tabs}
                 <sl-tooltip content=launch_title placement="bottom">
                     <sl-button
