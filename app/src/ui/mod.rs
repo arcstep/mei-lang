@@ -77,6 +77,9 @@ pub struct TopbarMenuConfig {
 pub struct TopbarMenuContext {
     pub root: Option<TopbarMenuConfig>,
     pub by_segment: BTreeMap<String, TopbarMenuConfig>,
+    /// `.mei-workspace.json#workspace.label`（无则回退 id /「工作区」），用于顶栏应用面包屑。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -168,6 +171,10 @@ fn render_document(
                 <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
                 <meta name="mei-host-version" content="__MEI_HOST_VERSION__"/>
                 <meta name="mei-host-version-label" content="__MEI_HOST_VERSION_LABEL__"/>
+                <meta name="mei-host-icp-record" content="__MEI_HOST_ICP_RECORD__"/>
+                <meta name="mei-host-psb-record" content="__MEI_HOST_PSB_RECORD__"/>
+                <meta name="mei-host-copyright" content="__MEI_HOST_COPYRIGHT__"/>
+                <meta name="mei-workspace-label" content="__MEI_WORKSPACE_LABEL__"/>
                 <meta name="mei-view" content=route_mode.slug()/>
                 <meta name="mei-auth-user" content=auth_user_meta/>
                 <meta name="mei-auth-role" content=auth_role_meta/>
@@ -428,24 +435,24 @@ mod tests {
     #[test]
     fn build_href_uses_build_route() {
         assert_eq!(
-            build_href("xzjd", Some("main.mei"), Some("preview")),
-            "/apps/build/xzjd?file=main.mei&tab=preview"
+            build_href("zhifa", Some("main.mei"), Some("preview")),
+            "/apps/build/zhifa?file=main.mei&tab=preview"
         );
-        assert_eq!(config_href("xzjd"), "/apps/config/xzjd");
+        assert_eq!(config_href("zhifa"), "/apps/config/zhifa");
     }
 
     #[test]
     fn manage_ops_config_href_forces_preview_tab() {
         assert_eq!(
             manage_tab_href(
-                "xzjd",
+                "zhifa",
                 Some(OPS_CONFIG_TARGET),
                 OPS_CONFIG_TARGET,
                 false,
                 ManageViewTab::Diagnostics,
                 Some("all")
             ),
-            "/apps/build/xzjd?file=.mei-config.json&tab=preview"
+            "/apps/build/zhifa?file=.mei-config.json&tab=preview"
         );
     }
 

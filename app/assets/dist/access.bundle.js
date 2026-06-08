@@ -2420,9 +2420,28 @@
 
   function els() {
     return {
+      compliance: document.getElementById("mei-status-compliance"),
       hostVersion: document.getElementById("mei-status-host-version"),
       modelService: document.getElementById("mei-status-model-service"),
     };
+  }
+
+  function applyComplianceChip() {
+    const nodes = els();
+    if (!nodes.compliance) return;
+    const parts = [
+      readMeta("mei-host-icp-record"),
+      readMeta("mei-host-psb-record"),
+      readMeta("mei-host-copyright"),
+    ].filter(Boolean);
+    if (!parts.length) {
+      nodes.compliance.hidden = true;
+      nodes.compliance.textContent = "";
+      return;
+    }
+    nodes.compliance.hidden = false;
+    const text = parts.join(" · ");
+    setChip(nodes.compliance, text, "neutral", text);
   }
 
   function applyHostVersionChip() {
@@ -2541,6 +2560,7 @@
   }
 
   function start() {
+    applyComplianceChip();
     applyHostVersionChip();
     refresh();
     if (refreshTimer) {

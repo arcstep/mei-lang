@@ -46,6 +46,43 @@ pub struct WorkspaceProfile {
     pub deploy_host: Option<String>,
 }
 
+/// 工作区合规展示信息（登录页与底栏备案号等）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceComplianceConfig {
+    /// ICP 备案号，如「渝ICP备xxxxxxxx号」。
+    #[serde(default, rename = "icpRecord")]
+    pub icp_record: Option<String>,
+    /// 公安备案号。
+    #[serde(default, rename = "psbRecord")]
+    pub psb_record: Option<String>,
+    /// 版权或运营主体说明。
+    #[serde(default)]
+    pub copyright: Option<String>,
+}
+
+impl WorkspaceComplianceConfig {
+    pub fn icp_record_trimmed(&self) -> Option<&str> {
+        self.icp_record
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn psb_record_trimmed(&self) -> Option<&str> {
+        self.psb_record
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn copyright_trimmed(&self) -> Option<&str> {
+        self.copyright
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+}
+
 /// workspace / segment 级配置：发现规则、默认菜单与运行时回退。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
@@ -61,6 +98,9 @@ pub struct WorkspaceConfig {
     pub menu: Value,
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    /// 登录页与底栏展示的备案号、版权等合规信息。
+    #[serde(default)]
+    pub compliance: WorkspaceComplianceConfig,
     /// 工作区级宿主认证配置（用户清单、JWT、登录加密密钥）。
     #[serde(default)]
     pub auth: WorkspaceAuthConfig,
@@ -174,7 +214,7 @@ pub struct DiscoverConfig {
     /// 已迁至 `paths.components`；仅兼容旧配置。
     #[serde(default, rename = "componentsRoot")]
     pub components_root: Option<String>,
-    /// URL/CLI 旧应用 id → 目录名，如 `spbjw` → `xzjd`。
+    /// URL/CLI 旧应用 id → 目录名，如 `spbjw` / `xzjd` → `zhifa`。
     #[serde(default, rename = "appAliases")]
     pub app_aliases: BTreeMap<String, String>,
 }
@@ -529,6 +569,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
             discover: legacy_app.discover,
             menu: legacy_app.menu,
             runtime: legacy_app.runtime,
+            compliance: WorkspaceComplianceConfig::default(),
             auth: WorkspaceAuthConfig::default(),
         };
     }
@@ -679,10 +720,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn workspace_compliance_deserializes_from_json() {
+        let raw = r#"{
+            "compliance": {
+                "icpRecord": "渝ICP备12345678号",
+                "psbRecord": "渝公网安备 12345678号",
+                "copyright": "示例主体"
+            }
+        }"#;
+        let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse compliance");
+        assert_eq!(
+            cfg.compliance.icp_record_trimmed(),
+            Some("渝ICP备12345678号")
+        );
+        assert_eq!(
+            cfg.compliance.psb_record_trimmed(),
+            Some("渝公网安备 12345678号")
+        );
+        assert_eq!(cfg.compliance.copyright_trimmed(), Some("示例主体"));
+    }
+
+    #[test]
     fn workspace_discover_skip_normalizes_segments() {
         let cfg = WorkspaceConfig {
             discover: DiscoverConfig {
                 skip_directories: vec![" /foo/ ".into(), "nested/bad".into(), "ok".into()],
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -768,6 +831,7 @@ mod tests {
         let workspace = WorkspaceConfig {
             discover: DiscoverConfig {
                 skip_directories: vec!["cache".to_string()],
+                ..Default::default()
             },
             ..Default::default()
         };

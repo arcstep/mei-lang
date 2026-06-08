@@ -228,9 +228,43 @@ pub(crate) fn fill_host_build_placeholders(mut html: String) -> String {
     html
 }
 
+pub(crate) fn fill_host_compliance_placeholders(
+    mut html: String,
+    source_root: &std::path::Path,
+) -> String {
+    let workspace = mei_lang_kernel::load_workspace_config(source_root);
+    html = html.replace(
+        "__MEI_HOST_ICP_RECORD__",
+        workspace.compliance.icp_record_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_HOST_PSB_RECORD__",
+        workspace.compliance.psb_record_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_HOST_COPYRIGHT__",
+        workspace.compliance.copyright_trimmed().unwrap_or(""),
+    );
+    html = html.replace(
+        "__MEI_WORKSPACE_LABEL__",
+        workspace
+            .workspace
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(""),
+    );
+    html
+}
+
 pub(crate) fn fill_page_shell_placeholders(
     html: String,
     cfg: &crate::gis_config::GisTilesConfig,
+    source_root: &std::path::Path,
 ) -> String {
-    fill_host_build_placeholders(fill_gis_tiles_placeholders(html, cfg))
+    fill_host_compliance_placeholders(
+        fill_host_build_placeholders(fill_gis_tiles_placeholders(html, cfg)),
+        source_root,
+    )
 }

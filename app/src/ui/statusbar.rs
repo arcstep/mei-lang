@@ -128,6 +128,7 @@ pub(super) fn statusbar_view(
                     }}
                 </div>
                 <div class="statusbar-track statusbar-track-right min-w-0">
+                    <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
                     <span class="status-chip status-chip-host max-w-[220px]" id="mei-status-host-version" data-tone="neutral">"Mei --"</span>
                     <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
                 </div>
