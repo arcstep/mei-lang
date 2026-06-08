@@ -6,19 +6,20 @@ use std::{
 };
 
 use anyhow::Context;
+use mei_lang_toolchain::meilang_author_skill_package;
 use walkdir::WalkDir;
 
 use super::super::{ManagedOpencodeSkillMeta, ManagedOpencodeSkillStatus};
 use crate::AppState;
 
-const MANAGED_SKILL_SOURCE_REL: &str = "guides/claude-skills";
-const MANAGED_SKILL_INSTALL_REL: &str = ".mei/skills/meilang-author";
 fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
-    package_root.join(MANAGED_SKILL_SOURCE_REL)
+    let descriptor = meilang_author_skill_package();
+    package_root.join(descriptor.source_dir_rel)
 }
 
 fn managed_skill_install_dir(source_root: &FsPath) -> PathBuf {
-    source_root.join(MANAGED_SKILL_INSTALL_REL)
+    let descriptor = meilang_author_skill_package();
+    source_root.join(descriptor.install_dir_rel)
 }
 
 fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
@@ -146,10 +147,11 @@ fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<
 }
 
 fn build_skill_status(package_root: &FsPath, source_root: &FsPath) -> ManagedOpencodeSkillStatus {
+    let descriptor = meilang_author_skill_package();
     let source_dir = managed_skill_source_dir(package_root);
     let install_dir = managed_skill_install_dir(source_root);
-    let entry_file = install_dir.join("SKILL.md");
-    let source_present = source_dir.join("SKILL.md").exists();
+    let entry_file = install_dir.join(&descriptor.entry_file);
+    let source_present = source_dir.join(&descriptor.entry_file).exists();
     let installed = entry_file.exists();
     let source_updated_at_ms = directory_latest_modified_ms(&source_dir);
     let install_updated_at_ms = directory_latest_modified_ms(&install_dir);
@@ -189,8 +191,9 @@ pub(crate) fn sync_managed_agent_skill_for_root(
     package_root: &FsPath,
     source_root: &FsPath,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
+    let descriptor = meilang_author_skill_package();
     let source_dir = managed_skill_source_dir(package_root);
-    let source_entry = source_dir.join("SKILL.md");
+    let source_entry = source_dir.join(&descriptor.entry_file);
     if !source_entry.exists() {
         anyhow::bail!(
             "MeiLang skill source is missing: {}",

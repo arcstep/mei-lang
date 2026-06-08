@@ -5,6 +5,8 @@ description: 创建、修改、审查或修复 MeiLang `.mei` 时使用。编辑
 
 # MeiLang Author（短入口）
 
+这个 skill 包当前是 **MeiLang toolchain capability catalog** 导出的作者态入口之一；它不应与宿主内置提示、访问态 prompt 或其它 AI 工具维护漂移的平行规则。
+
 MeiLang 是 scene-first 作者态 DSL（`scene / world / flow / frame`）。
 
 编辑侧主线先记住三条：
@@ -12,6 +14,7 @@ MeiLang 是 scene-first 作者态 DSL（`scene / world / flow / frame`）。
 1. 先看仓库文档与本 skill 附带文档，不要假设宿主内有 `skill_list` / `skill_read`。
 2. 先用 `mei` CLI / `mei-lsp` 获取 diagnostics、world、inventory、query 结果，再做编辑。
 3. 文件写入由外部开发工具直接完成；`mei-lang` 提供的是语义/编译/查询接口，不是默认作者态聊天宿主。
+4. `components/templates/world能力/宿主扩展能力` 应继续以 toolchain 导出的 catalog 为准，不要假设宿主内部另有一套更完整说明。
 
 ## 推荐顺序
 
