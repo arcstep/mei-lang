@@ -26,6 +26,23 @@ pub(super) fn workspace_root() -> PathBuf {
         .expect("workspace root")
 }
 
+pub(super) fn workspaces_root() -> PathBuf {
+    workspace_root().join("workspaces")
+}
+
+/// 开发 profile：`workspaces/ws-dev`（示例应用位于其下 `examples/`）。
+pub(super) fn dev_workspace_root() -> PathBuf {
+    workspaces_root().join("ws-dev")
+}
+
+pub(super) fn dev_examples_root() -> PathBuf {
+    dev_workspace_root().join("examples")
+}
+
+pub(super) fn spbjw_workspace_root() -> PathBuf {
+    workspaces_root().join("ws-spbjw")
+}
+
 pub(super) fn build_regression_workspace_root() -> PathBuf {
     let root = temp_root("regression-workspace");
     let suite = root.join("regression-suite");

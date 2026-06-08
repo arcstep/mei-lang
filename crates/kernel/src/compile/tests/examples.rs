@@ -3,7 +3,9 @@ use std::fs;
 use serde_json::Value;
 
 use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
-use super::harness::{build_regression_workspace_root, workspace_root};
+use super::harness::{
+    build_regression_workspace_root, dev_examples_root, dev_workspace_root, spbjw_workspace_root,
+};
 use crate::evaluate_mei_file;
 
 #[test]
@@ -39,8 +41,7 @@ fn compile_examples_regressions() {
 
 #[test]
 fn compile_core_examples_baselines() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/core");
+    let source_root = dev_examples_root().join("core");
     for app_id in [
         "01-single-file-doc",
         "02-external-scene-file",
@@ -65,8 +66,7 @@ fn compile_core_examples_baselines() {
 
 #[test]
 fn compile_sim_examples_baselines() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/sim");
+    let source_root = dev_examples_root().join("sim");
     for app_id in [
         "01-fire-baseline",
         "02-fire-minimal",
@@ -92,9 +92,8 @@ fn compile_sim_examples_baselines() {
 
 #[test]
 fn compile_workspaces_spbjw_baseline() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces");
-    let app_root = source_root.join("spbjw");
+    let source_root = spbjw_workspace_root();
+    let app_root = source_root.join("zhifa");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile spbjw failed: {error}"));
     assert!(
@@ -113,8 +112,7 @@ fn compile_workspaces_spbjw_baseline() {
 
 #[test]
 fn compile_core_invalid_examples_report_expected_errors() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/core/_invalid");
+    let source_root = dev_examples_root().join("core/_invalid");
     let cases = [
         ("01-multiple-apps", "multiple_apps"),
         ("02-multiple-scenes", "multiple_scenes"),
@@ -155,8 +153,7 @@ fn compile_core_invalid_examples_report_expected_errors() {
 
 #[test]
 fn compile_refs_examples_baselines() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/refs");
+    let source_root = dev_examples_root().join("refs");
     for app_id in [
         "01-local-ids-in-props",
         "02-metric-from-local-dataset",
@@ -189,8 +186,7 @@ fn compile_refs_examples_baselines() {
 
 #[test]
 fn compile_refs_invalid_examples_report_expected_errors() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/refs/_invalid");
+    let source_root = dev_examples_root().join("refs/_invalid");
     let cases = [
         (
             "01-props-external-dataset",
@@ -216,8 +212,7 @@ fn compile_refs_invalid_examples_report_expected_errors() {
 
 #[test]
 fn compile_capability_examples_baselines() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/capability");
+    let source_root = dev_examples_root().join("capability");
     for app_id in ["01-file-query"] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)
@@ -238,8 +233,7 @@ fn compile_capability_examples_baselines() {
 
 #[test]
 fn compile_ds_04_data_table_features_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/ds");
+    let source_root = dev_examples_root().join("ds");
     let app_root = source_root.join("04-data-table-features");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile ds-04-data-table-features failed: {error}"));
@@ -295,8 +289,7 @@ fn parse_cockpit_default_compare_scene_file() {
 
 #[test]
 fn compile_cockpit_header_title_draw_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
+    let source_root = dev_examples_root().join("cockpit");
     let app_root = source_root.join("04-header-title-draw");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 04-header-title-draw failed: {error}"));
@@ -322,8 +315,7 @@ fn compile_cockpit_header_title_draw_example() {
 
 #[test]
 fn compile_cockpit_section_panel_draw_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
+    let source_root = dev_examples_root().join("cockpit");
     let app_root = source_root.join("05-section-panel-draw");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 05-section-panel-draw failed: {error}"));
@@ -375,9 +367,8 @@ fn compile_cockpit_section_panel_draw_example() {
 
 #[test]
 fn compile_cockpit_panel_screen_header_preview() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces");
-    let app_root = source_root.join("templates/cockpit");
+    let source_root = dev_workspace_root();
+    let app_root = source_root.join(".stock/templates/cockpit");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -403,9 +394,8 @@ fn compile_cockpit_panel_screen_header_preview() {
 
 #[test]
 fn compile_cockpit_templates_preview() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces");
-    let app_root = source_root.join("templates/cockpit");
+    let source_root = dev_workspace_root();
+    let app_root = source_root.join(".stock/templates/cockpit");
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -612,8 +602,7 @@ fn compile_cockpit_templates_preview() {
 
 #[test]
 fn compile_cockpit_panel_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
+    let source_root = dev_examples_root().join("cockpit");
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root(&source_root, &app_root)
         .unwrap_or_else(|error| panic!("compile 05-panel failed: {error}"));
@@ -765,8 +754,7 @@ fn compile_cockpit_panel_example() {
 
 #[test]
 fn compile_cockpit_metric_gallery_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
+    let source_root = dev_examples_root().join("cockpit");
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -806,8 +794,7 @@ fn compile_cockpit_metric_gallery_example() {
 
 #[test]
 fn compile_cockpit_metric_data_example() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces/examples/cockpit");
+    let source_root = dev_examples_root().join("cockpit");
     let app_root = source_root.join("05-panel");
     let compiled = compile_app_from_root_with_options(
         &source_root,
