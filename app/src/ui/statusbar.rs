@@ -7,7 +7,7 @@ use super::compile_status::{
 };
 use super::manage_routing::{is_ops_config_target, manage_tab_href, ManageViewTab};
 use super::SourcePanelMeta;
-pub(super) fn statusbar_view(
+pub(crate) fn statusbar_view(
     app_path: &str,
     app_title: &str,
     route_mode: &'static str,

@@ -1,0 +1,154 @@
+use mei_lang_kernel::ThemeDecl;
+use serde_json::Value;
+
+use super::parse::ThemeResolved;
+
+pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
+    let mut map = serde_json::Map::new();
+    map.insert("frame".to_string(), theme.frame.clone());
+    map.insert("panel".to_string(), theme.panel.clone());
+    map.insert("panel_bare".to_string(), theme.panel_bare.clone());
+    map.insert("panel_head".to_string(), theme.panel_head.clone());
+    map.insert("panel_body".to_string(), theme.panel_body.clone());
+    map.insert("heading".to_string(), theme.heading.clone());
+    map.insert("font".to_string(), theme.font.clone());
+    map.insert("metric_label".to_string(), theme.metric_label.clone());
+    map.insert("metric_value".to_string(), theme.metric_value.clone());
+    map.insert("metric_unit".to_string(), theme.metric_unit.clone());
+    map.insert("metric_desc".to_string(), theme.metric_desc.clone());
+    map.insert(
+        "metric_sub_label".to_string(),
+        theme.metric_sub_label.clone(),
+    );
+    map.insert(
+        "metric_sub_value".to_string(),
+        theme.metric_sub_value.clone(),
+    );
+    map.insert("metric_sub_unit".to_string(), theme.metric_sub_unit.clone());
+    map.insert("tokens".to_string(), theme.tokens.clone());
+    if !theme.shared.is_null() {
+        map.insert("shared".to_string(), theme.shared.clone());
+    }
+    if !theme.components.is_null() {
+        map.insert("components".to_string(), theme.components.clone());
+    }
+    Value::Object(map)
+}
+pub(super) fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
+    let mut vars = Vec::new();
+    if let Some(font) = theme
+        .as_object()
+        .and_then(|map| map.get("font"))
+        .and_then(Value::as_object)
+    {
+        for (key, value) in font {
+            if let Some(raw) = value.as_str() {
+                vars.push((format!("--mei-font-{key}"), raw.to_string()));
+            }
+        }
+    }
+    for role in ["label", "value", "unit", "desc"] {
+        let key = format!("metric_{role}");
+        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
+            push_typography_vars(entry, &format!("mei-metric-{role}"), &mut vars);
+        }
+    }
+    for role in ["label", "value", "unit"] {
+        let key = format!("metric_sub_{role}");
+        if let Some(entry) = theme.as_object().and_then(|map| map.get(key.as_str())) {
+            push_typography_vars(entry, &format!("mei-metric-sub-{role}"), &mut vars);
+        }
+    }
+    if let Some(panel_head) = theme.as_object().and_then(|map| map.get("panel_head")) {
+        push_typography_vars(panel_head, "mei-panel-head", &mut vars);
+    }
+    if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
+        flatten_tokens(tokens, "mei", &mut vars);
+    }
+    vars
+}
+
+fn typography_css_suffix(key: &str) -> Option<&'static str> {
+    match key {
+        "font" | "font_size" => Some("font-size"),
+        "font_family" => Some("font-family"),
+        "color" => Some("color"),
+        "font_weight" => Some("font-weight"),
+        "letter_spacing" => Some("letter-spacing"),
+        "text_align" | "align" => Some("text-align"),
+        "line_height" => Some("line-height"),
+        _ => None,
+    }
+}
+
+fn resolve_font_size_value(raw: &str) -> String {
+    let font_key = raw.trim();
+    if font_key.is_empty() {
+        return String::new();
+    }
+    if font_key.ends_with("px")
+        || font_key.ends_with("rem")
+        || font_key.ends_with("em")
+        || font_key.ends_with('%')
+    {
+        font_key.to_string()
+    } else {
+        format!("var(--mei-font-{font_key}, 14px)")
+    }
+}
+
+fn push_typography_vars(entry: &Value, var_prefix: &str, vars: &mut Vec<(String, String)>) {
+    let Some(map) = entry.as_object() else {
+        return;
+    };
+    for (key, value) in map {
+        let Some(suffix) = typography_css_suffix(key) else {
+            continue;
+        };
+        let resolved = match value {
+            Value::String(raw) if !raw.trim().is_empty() => {
+                if suffix == "font-size" {
+                    resolve_font_size_value(raw)
+                } else {
+                    raw.trim().to_string()
+                }
+            }
+            Value::Number(raw) if suffix == "font-size" => raw.to_string(),
+            _ => continue,
+        };
+        if resolved.is_empty() {
+            continue;
+        }
+        vars.push((format!("--{var_prefix}-{suffix}"), resolved));
+    }
+}
+
+fn flatten_tokens(value: &Value, prefix: &str, vars: &mut Vec<(String, String)>) {
+    match value {
+        Value::Object(map) => {
+            for (key, entry) in map {
+                let path = format!("{prefix}-{}", key.replace('_', "-"));
+                flatten_tokens(entry, path.as_str(), vars);
+            }
+        }
+        Value::String(raw) if !raw.trim().is_empty() => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        Value::Number(raw) => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        Value::Bool(raw) => {
+            vars.push((format!("--{prefix}"), raw.to_string()));
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn theme_css_vars_style(theme: &ThemeResolved) -> String {
+    let mut style = String::new();
+    style.push_str(&format!("--mei-theme-id:'{}';", theme.id));
+    for (key, value) in &theme.css_vars {
+        style.push_str(&format!("{key}:{value};"));
+    }
+    style
+}

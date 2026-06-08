@@ -16,7 +16,7 @@ fn ops_editor_main_view(app_path: &str) -> impl IntoView {
     }
 }
 
-pub(super) fn config_shell(
+pub(crate) fn config_shell(
     apps: &[WorkspaceAppMeta],
     app_title: &str,
     app_path: &str,

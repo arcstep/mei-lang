@@ -1,42 +1,40 @@
 use mei_lang_kernel::LayoutDecl;
 use serde_json::{json, Value};
 
-use super::style::{
-    container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
-    frame_stage_content_bounds, surface_layout_style, FrameStageContentBounds,
+use super::super::style::{
+    frame_stage_content_bounds, FrameStageContentBounds,
 };
-use super::theme::{theme_css_vars_style, ThemeResolved};
 use crate::ui::route::UiRouteMode;
 
 #[derive(Debug, Clone)]
-pub(super) struct FrameViewportConfig {
-    pub(super) design_width: f64,
-    pub(super) design_height: f64,
+pub(crate) struct FrameViewportConfig {
+    pub(crate) design_width: f64,
+    pub(crate) design_height: f64,
     /// 例如 `"16:9"`，与 design_width / design_height 一并声明时用于锁定画布比例。
-    pub(super) aspect_ratio: Option<String>,
-    pub(super) scale_mode: String,
+    pub(crate) aspect_ratio: Option<String>,
+    pub(crate) scale_mode: String,
     /// 已解析、保留兼容；溢出行为由路由固定（Manage=显示溢出，Access=裁切）。
     #[allow(dead_code)]
-    pub(super) overflow: String,
+    pub(crate) overflow: String,
     #[allow(dead_code)]
-    pub(super) edit_overflow: String,
+    pub(crate) edit_overflow: String,
     #[allow(dead_code)]
-    pub(super) edit_scale_mode: String,
+    pub(crate) edit_scale_mode: String,
     #[allow(dead_code)]
-    pub(super) show_design_bounds: bool,
+    pub(crate) show_design_bounds: bool,
     /// 为 true 时：管理态调试按 `design_width` 定宽缩放，高度随内容；`design_height` 仅作溢出参考线。
-    pub(super) fluid_height: bool,
-    pub(super) align_x: String,
-    pub(super) align_y: String,
-    pub(super) safe_top: f64,
-    pub(super) safe_right: f64,
-    pub(super) safe_bottom: f64,
-    pub(super) safe_left: f64,
+    pub(crate) fluid_height: bool,
+    pub(crate) align_x: String,
+    pub(crate) align_y: String,
+    pub(crate) safe_top: f64,
+    pub(crate) safe_right: f64,
+    pub(crate) safe_bottom: f64,
+    pub(crate) safe_left: f64,
     /// 管理端编辑预览专用安全区（默认同 `safe_inset`）。
-    pub(super) edit_safe_top: f64,
-    pub(super) edit_safe_right: f64,
-    pub(super) edit_safe_bottom: f64,
-    pub(super) edit_safe_left: f64,
+    pub(crate) edit_safe_top: f64,
+    pub(crate) edit_safe_right: f64,
+    pub(crate) edit_safe_bottom: f64,
+    pub(crate) edit_safe_left: f64,
 }
 
 fn parse_overflow_token(value: Option<&Value>, default: &str) -> String {
@@ -56,7 +54,7 @@ fn parse_overflow_token(value: Option<&Value>, default: &str) -> String {
 }
 
 /// 管理端固定调试溢出（显示裁切外内容）；访问态固定裁切。不读 `edit_overflow` / `overflow`。
-pub(super) fn effective_viewport_overflow(
+pub(crate) fn effective_viewport_overflow(
     _viewport: &FrameViewportConfig,
     route: UiRouteMode,
 ) -> String {
@@ -66,7 +64,7 @@ pub(super) fn effective_viewport_overflow(
     }
 }
 
-pub(super) fn viewport_overflow_is_debug(mode: &str) -> bool {
+pub(crate) fn viewport_overflow_is_debug(mode: &str) -> bool {
     matches!(mode, "debug" | "scroll" | "visible")
 }
 
@@ -160,7 +158,7 @@ fn viewport_safe_inset(viewport: &serde_json::Map<String, Value>) -> (f64, f64, 
     viewport_safe_inset_from(viewport, "safe_inset", None)
 }
 
-pub(super) fn effective_viewport_safe_inset(
+pub(crate) fn effective_viewport_safe_inset(
     viewport: &FrameViewportConfig,
     route: UiRouteMode,
 ) -> (f64, f64, f64, f64) {
@@ -179,126 +177,8 @@ pub(super) fn effective_viewport_safe_inset(
         ),
     }
 }
-
-fn frame_viewport_style_with_safe(
-    viewport: &FrameViewportConfig,
-    overflow_mode: &str,
-    safe_top: f64,
-    safe_right: f64,
-    safe_bottom: f64,
-    safe_left: f64,
-) -> String {
-    let overflow_css = if viewport_overflow_is_debug(overflow_mode) {
-        "overflow-x:auto;overflow-y:auto;"
-    } else {
-        "overflow:hidden;"
-    };
-    if viewport_overflow_is_debug(overflow_mode) {
-        return format!(
-            "width:100%;height:100%;min-width:0;min-height:0;{overflow_css}display:grid;justify-items:{};align-items:{};align-content:start;padding:{}px {}px {}px {}px;box-sizing:border-box;--mei-viewport-design-width:{}px;--mei-viewport-design-height:{}px;--mei-viewport-aspect-ratio:{};",
-            viewport.align_x,
-            viewport.align_y,
-            safe_top,
-            safe_right,
-            safe_bottom,
-            safe_left,
-            viewport.design_width,
-            viewport.design_height,
-            viewport
-                .aspect_ratio
-                .as_deref()
-                .unwrap_or("16:9"),
-        );
-    }
-    format!(
-        "width:100%;height:100%;max-width:100%;max-height:100%;min-width:0;min-height:0;{overflow_css}display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:{}px {}px {}px {}px;--mei-viewport-design-width:{}px;--mei-viewport-design-height:{}px;--mei-viewport-aspect-ratio:{};",
-        safe_top,
-        safe_right,
-        safe_bottom,
-        safe_left,
-        viewport.design_width,
-        viewport.design_height,
-        viewport
-            .aspect_ratio
-            .as_deref()
-            .unwrap_or("16:9"),
-    )
-}
-
-pub(super) fn frame_viewport_style_for_route(
-    viewport: &FrameViewportConfig,
-    _overflow_mode: &str,
-    route: UiRouteMode,
-) -> String {
-    if viewport.fluid_height {
-        return frame_viewport_style_page_flow_for_route(viewport, route);
-    }
-    let (safe_top, safe_right, safe_bottom, safe_left) =
-        effective_viewport_safe_inset(viewport, route);
-    let mode = effective_viewport_overflow(viewport, route);
-    frame_viewport_style_with_safe(
-        viewport,
-        mode.as_str(),
-        safe_top,
-        safe_right,
-        safe_bottom,
-        safe_left,
-    )
-}
-
-/// page-flow（`fluid_height`）：块级纵向堆叠，画布左上贴齐；避免 edit-debug 网格把 shell 挤到右侧。
-pub(super) fn frame_viewport_style_page_flow_for_route(
-    viewport: &FrameViewportConfig,
-    route: UiRouteMode,
-) -> String {
-    let (safe_top, safe_right, safe_bottom, safe_left) =
-        effective_viewport_safe_inset(viewport, route);
-    // Manage：水平留白交给 frame grid padding；视窗铺满中间栏，避免「视窗缩窄 + 右侧对齐」假象。
-    let (pad_top, pad_right, pad_bottom, pad_left) = if route == UiRouteMode::Build {
-        (safe_top, 0.0, safe_bottom, 0.0)
-    } else {
-        (safe_top, safe_right, safe_bottom, safe_left)
-    };
-    format!(
-        "width:100%;min-width:0;min-height:0;height:auto;overflow-x:auto;overflow-y:auto;display:block;box-sizing:border-box;padding:{}px {}px {}px {}px;--mei-viewport-design-width:{}px;--mei-viewport-design-height:{}px;",
-        pad_top,
-        pad_right,
-        pad_bottom,
-        pad_left,
-        viewport.design_width,
-        viewport.design_height,
-    )
-}
-
-/// `max_width` 限宽：访问态纵向滚动；管理态走 `edit-debug` 样式（见 `mod.rs` 类名分支）。
-pub(super) fn frame_viewport_style_fluid_width_for_route(
-    viewport: &FrameViewportConfig,
-    _overflow_mode: &str,
-    route: UiRouteMode,
-) -> String {
-    let (safe_top, safe_right, safe_bottom, safe_left) =
-        effective_viewport_safe_inset(viewport, route);
-    if route == UiRouteMode::Build {
-        return frame_viewport_style_with_safe(
-            viewport,
-            "debug",
-            safe_top,
-            safe_right,
-            safe_bottom,
-            safe_left,
-        );
-    }
-    format!(
-        "width:100%;height:100%;max-height:100%;min-width:0;min-height:0;overflow:hidden;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:{}px {}px {}px {}px;",
-        safe_top,
-        safe_right,
-        safe_bottom,
-        safe_left,
-    )
-}
-
 /// 页面流式布局（`profile=page` 等默认）：左右留白、左上对齐、高度随内容延伸。
-pub(super) fn default_viewport_page_flow() -> FrameViewportConfig {
+pub(crate) fn default_viewport_page_flow() -> FrameViewportConfig {
     frame_viewport_config(&json!({
         "viewport": {
             "enabled": true,
@@ -317,7 +197,7 @@ pub(super) fn default_viewport_page_flow() -> FrameViewportConfig {
 }
 
 /// 固定舞台（`profile=cockpit` 默认）：锁定宽高比，contain 缩放，不足处 letterbox 居中。
-pub(super) fn default_viewport_stage_lock() -> FrameViewportConfig {
+pub(crate) fn default_viewport_stage_lock() -> FrameViewportConfig {
     frame_viewport_config(&json!({
         "viewport": {
             "enabled": true,
@@ -337,7 +217,7 @@ pub(super) fn default_viewport_stage_lock() -> FrameViewportConfig {
 }
 
 /// 无 `frame.props.viewport` 时按 scene profile 选用默认视窗。
-pub(super) fn default_viewport_for_profile(profile: Option<&str>) -> FrameViewportConfig {
+pub(crate) fn default_viewport_for_profile(profile: Option<&str>) -> FrameViewportConfig {
     match profile.unwrap_or("page").trim() {
         "cockpit" => default_viewport_stage_lock(),
         _ => default_viewport_page_flow(),
@@ -345,19 +225,19 @@ pub(super) fn default_viewport_for_profile(profile: Option<&str>) -> FrameViewpo
 }
 
 /// 是否在 `frame.props` 中显式声明了 `viewport`（不含 profile 默认）。
-pub(super) fn frame_viewport_is_explicit(props: &Value) -> bool {
+pub(crate) fn frame_viewport_is_explicit(props: &Value) -> bool {
     frame_viewport_config(props).is_some()
 }
 
 /// 合并显式 `frame.props.viewport` 与 profile 默认。
-pub(super) fn resolve_frame_viewport(
+pub(crate) fn resolve_frame_viewport(
     props: &Value,
     profile: Option<&str>,
 ) -> Option<FrameViewportConfig> {
     frame_viewport_config(props).or_else(|| Some(default_viewport_for_profile(profile)))
 }
 
-pub(super) fn frame_viewport_config(props: &Value) -> Option<FrameViewportConfig> {
+pub(crate) fn frame_viewport_config(props: &Value) -> Option<FrameViewportConfig> {
     let map = props.as_object()?;
     let viewport = map.get("viewport")?.as_object()?;
     if viewport
@@ -469,19 +349,7 @@ fn apply_aspect_ratio_lock(width: f64, height: f64, aspect_ratio: Option<&str>) 
     }
     (width, width / target)
 }
-
-pub(super) fn frame_style(
-    layout: Option<&LayoutDecl>,
-    props: &Value,
-    theme: &ThemeResolved,
-) -> String {
-    let mut style = surface_layout_style(layout);
-    style.push_str(&container_visual_style(props));
-    style.push_str(&theme_css_vars_style(theme));
-    style
-}
-
-pub(super) fn frame_stage_content_bounds_for_viewport(
+pub(crate) fn frame_stage_content_bounds_for_viewport(
     props: &Value,
     viewport: &FrameViewportConfig,
 ) -> FrameStageContentBounds {
@@ -489,7 +357,7 @@ pub(super) fn frame_stage_content_bounds_for_viewport(
 }
 
 /// 舞台可用宽度：`frame.max_width` 等上限与 `design_width` 取较小值，避免设计画布宽于实际布局。
-pub(super) fn effective_canvas_width(props: &Value, viewport: &FrameViewportConfig) -> f64 {
+pub(crate) fn effective_canvas_width(props: &Value, viewport: &FrameViewportConfig) -> f64 {
     let bounds = frame_stage_content_bounds_for_viewport(props, viewport);
     match bounds.max_width {
         Some(cap) => cap.min(viewport.design_width),
@@ -498,7 +366,7 @@ pub(super) fn effective_canvas_width(props: &Value, viewport: &FrameViewportConf
 }
 
 /// page-flow：把 `1fr` / `minmax(..., 1fr)` 行改为 `auto`，避免表格行被撑满设计高度留白。
-fn fluid_relaxed_layout(layout: Option<&LayoutDecl>) -> Option<LayoutDecl> {
+pub(crate) fn fluid_relaxed_layout(layout: Option<&LayoutDecl>) -> Option<LayoutDecl> {
     let layout = layout.cloned()?;
     if layout.layout_type != "grid" {
         return Some(layout);
@@ -521,56 +389,4 @@ fn fluid_relaxed_layout(layout: Option<&LayoutDecl>) -> Option<LayoutDecl> {
             .collect();
     }
     Some(relaxed)
-}
-
-pub(super) fn frame_stage_style(
-    layout: Option<&LayoutDecl>,
-    props: &Value,
-    viewport: &FrameViewportConfig,
-    theme: &ThemeResolved,
-    overflow_mode: &str,
-) -> String {
-    if viewport_overflow_is_debug(overflow_mode) {
-        let canvas_width = effective_canvas_width(props, viewport);
-        let relaxed_layout = viewport
-            .fluid_height
-            .then(|| fluid_relaxed_layout(layout))
-            .flatten();
-        let stage_layout = relaxed_layout.as_ref().or(layout);
-        let mut style = surface_layout_style(stage_layout);
-        style.push_str(&frame_backdrop_css_vars(props));
-        style.push_str(&container_visual_style_without_background(props));
-        style.push_str(&theme_css_vars_style(theme));
-        if viewport.fluid_height {
-            style.push_str(&format!(
-                "width:min(100%,{}px);max-width:100%;min-height:0;height:auto;align-content:start;transform:none;transform-origin:top left;box-sizing:border-box;",
-                canvas_width
-            ));
-        } else {
-            style.push_str(&format!(
-                "width:{}px;min-height:{}px;height:auto;max-width:none;transform:none;transform-origin:top left;box-sizing:border-box;",
-                canvas_width, viewport.design_height
-            ));
-        }
-        return style;
-    }
-    let bounds = frame_stage_content_bounds_for_viewport(props, viewport);
-    let mut style = surface_layout_style(layout);
-    style.push_str(&frame_backdrop_css_vars(props));
-    style.push_str(&container_visual_style_without_background(props));
-    style.push_str(&theme_css_vars_style(theme));
-    if bounds.max_width.is_some() {
-        style.push_str(
-            "max-width:100%;width:100%;height:auto;min-height:0;transform:none;transform-origin:top left;",
-        );
-        if let Some(max_width) = bounds.max_width {
-            style.push_str(&format!("--mei-frame-content-max-width:{}px;", max_width));
-        }
-    } else {
-        style.push_str(&format!(
-            "width:{}px;height:{}px;transform-origin:top left;",
-            bounds.fallback_width, bounds.height
-        ));
-    }
-    style
 }

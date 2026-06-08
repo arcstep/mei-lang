@@ -30,11 +30,11 @@ fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
     }
 }
 
-pub(super) fn is_ops_config_target(target: &str) -> bool {
+pub(crate) fn is_ops_config_target(target: &str) -> bool {
     target.trim() == OPS_CONFIG_TARGET
 }
 
-pub(super) fn encode_query_value(value: &str) -> String {
+pub(crate) fn encode_query_value(value: &str) -> String {
     let mut out = String::new();
     for b in value.as_bytes() {
         match *b {
@@ -50,7 +50,7 @@ pub(super) fn encode_query_value(value: &str) -> String {
     out
 }
 
-pub(super) fn manage_view_tab_from_query(
+pub(crate) fn manage_view_tab_from_query(
     active_tab: Option<&str>,
     script_target: bool,
     prefer_diagnostics: bool,
@@ -86,7 +86,7 @@ pub(super) fn manage_view_tab_from_query(
     }
 }
 
-pub(super) fn manage_tab_href(
+pub(crate) fn manage_tab_href(
     app_path: &str,
     file_param: Option<&str>,
     selected_target: &str,
@@ -125,7 +125,7 @@ pub(super) fn manage_tab_href(
 }
 
 /// 访问态 canonical 路径后缀：`/scene/<id>?tab=…&chrome=…`（`scene_id` 经 `encode_query_value` 编码）。
-pub(super) fn access_scene_route_suffix(
+pub(crate) fn access_scene_route_suffix(
     selected_scene: Option<&str>,
     tab: Option<&str>,
     chrome: Option<&str>,
@@ -154,12 +154,12 @@ pub(super) fn access_scene_route_suffix(
 }
 
 /// 访问态入口使用的路径后缀；无 scene 时返回空串（由调用方决定是否禁用「访问」按钮）。
-pub(super) fn access_scene_query(selected_scene: Option<&str>) -> String {
+pub(crate) fn access_scene_query(selected_scene: Option<&str>) -> String {
     access_scene_route_suffix(selected_scene, None, None)
 }
 
 #[allow(dead_code)]
-pub(super) fn route_query(
+pub(crate) fn route_query(
     route_mode: UiRouteMode,
     selected_scene: Option<&str>,
     _preview_target: Option<&str>,

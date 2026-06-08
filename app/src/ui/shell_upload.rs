@@ -16,7 +16,7 @@ pub struct UploadFileEntry {
     pub is_dir: bool,
 }
 
-pub(super) fn upload_shell(
+pub(crate) fn upload_shell(
     apps: &[WorkspaceAppMeta],
     app_title: &str,
     app_path: &str,

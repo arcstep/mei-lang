@@ -10,7 +10,7 @@ use super::statusbar::statusbar_view;
 use super::topbar::{access_scene_for_topbar, topbar_view};
 use super::{HostAccountView, TopbarMenuContext};
 
-pub(super) fn access_shell(
+pub(crate) fn access_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
     app_path: &str,

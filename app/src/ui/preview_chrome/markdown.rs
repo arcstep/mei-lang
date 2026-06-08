@@ -2,7 +2,7 @@ use super::html_escape::{escape_html, escape_html_attr};
 
 const MAX_LINES: usize = 800;
 
-pub(super) fn markdown_preview_html(source: &str) -> String {
+pub(crate) fn markdown_preview_html(source: &str) -> String {
     let lines: Vec<&str> = source.lines().take(MAX_LINES).collect();
     let mut html = String::new();
     let mut index = 0usize;

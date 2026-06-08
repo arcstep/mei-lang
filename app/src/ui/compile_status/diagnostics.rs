@@ -1,9 +1,9 @@
 use mei_lang_kernel::{CompiledApp, Diagnostic};
 
-pub(super) const MANAGE_PIPELINE_DIAG_CODE: &str = "manage_page_pipeline";
+pub(crate) const MANAGE_PIPELINE_DIAG_CODE: &str = "manage_page_pipeline";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum DiagnosticsFilterMode {
+pub(crate) enum DiagnosticsFilterMode {
     CurrentFile,
     All,
 }
@@ -29,15 +29,15 @@ impl DiagnosticsFilterMode {
     }
 }
 
-pub(super) fn is_manage_pipeline_diag(diag: &Diagnostic) -> bool {
+pub(crate) fn is_manage_pipeline_diag(diag: &Diagnostic) -> bool {
     diag.code == MANAGE_PIPELINE_DIAG_CODE
 }
 
-pub(super) fn is_compile_diagnostic(diag: &Diagnostic) -> bool {
+pub(crate) fn is_compile_diagnostic(diag: &Diagnostic) -> bool {
     !is_manage_pipeline_diag(diag)
 }
 
-pub(super) fn normalize_target_path(target: &str) -> String {
+pub(crate) fn normalize_target_path(target: &str) -> String {
     target
         .trim()
         .replace('\\', "/")
@@ -45,17 +45,17 @@ pub(super) fn normalize_target_path(target: &str) -> String {
         .to_string()
 }
 
-pub(super) fn is_world_capsule_target(target: &str) -> bool {
+pub(crate) fn is_world_capsule_target(target: &str) -> bool {
     normalize_target_path(target).ends_with(".world.mei")
 }
 
-pub(super) fn world_capsule_companion_scene(target: &str) -> Option<String> {
+pub(crate) fn world_capsule_companion_scene(target: &str) -> Option<String> {
     normalize_target_path(target)
         .strip_suffix(".world.mei")
         .map(|base| format!("{base}.mei"))
 }
 
-pub(super) fn normalize_diagnostic_source(
+pub(crate) fn normalize_diagnostic_source(
     app_root: &str,
     source_path: Option<&str>,
 ) -> Option<String> {
@@ -84,7 +84,7 @@ pub(super) fn normalize_diagnostic_source(
     }
 }
 
-pub(super) fn diagnostic_matches_target(
+pub(crate) fn diagnostic_matches_target(
     compiled: &CompiledApp,
     selected_target: &str,
     diag: &Diagnostic,
@@ -121,7 +121,7 @@ fn is_world_capsule_manage_hint(
         )
 }
 
-fn should_display_diagnostic(
+pub(crate) fn should_display_diagnostic(
     compiled: &CompiledApp,
     selected_target: &str,
     diag: &Diagnostic,
@@ -130,7 +130,7 @@ fn should_display_diagnostic(
 }
 
 #[allow(dead_code)]
-pub(super) fn is_global_or_unattributed_diagnostic(
+pub(crate) fn is_global_or_unattributed_diagnostic(
     compiled: &CompiledApp,
     selected_target: &str,
     diag: &Diagnostic,
@@ -145,7 +145,7 @@ pub(super) fn is_global_or_unattributed_diagnostic(
     source == "main.mei" || source.ends_with("/main.mei")
 }
 
-pub(super) fn compile_diagnostics_for_mode<'a>(
+pub(crate) fn compile_diagnostics_for_mode<'a>(
     compiled: &'a CompiledApp,
     selected_target: &str,
     mode: DiagnosticsFilterMode,
@@ -170,7 +170,7 @@ pub(super) fn compile_diagnostics_for_mode<'a>(
     }
 }
 
-pub(super) fn compile_diagnostics_other_file_count(
+pub(crate) fn compile_diagnostics_other_file_count(
     compiled: &CompiledApp,
     selected_target: &str,
 ) -> usize {
@@ -185,7 +185,7 @@ pub(super) fn compile_diagnostics_other_file_count(
         .count()
 }
 
-pub(super) fn severity_counts(diags: &[&Diagnostic]) -> (usize, usize, usize) {
+pub(crate) fn severity_counts(diags: &[&Diagnostic]) -> (usize, usize, usize) {
     let errors = diags
         .iter()
         .filter(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
@@ -201,7 +201,7 @@ pub(super) fn severity_counts(diags: &[&Diagnostic]) -> (usize, usize, usize) {
     (errors, warnings, infos)
 }
 
-pub(super) fn compile_status_counts_for_target(
+pub(crate) fn compile_status_counts_for_target(
     compiled: &CompiledApp,
     selected_target: &str,
 ) -> (usize, usize, usize) {
@@ -216,7 +216,7 @@ pub(super) fn compile_status_counts_for_target(
     severity_counts(&diags)
 }
 
-pub(super) fn compile_status_counts_for_display(
+pub(crate) fn compile_status_counts_for_display(
     compiled: &CompiledApp,
     selected_target: &str,
 ) -> (usize, usize, usize) {
@@ -228,7 +228,7 @@ pub(super) fn compile_status_counts_for_display(
     severity_counts(&diags)
 }
 
-pub(super) fn visible_diagnostics_count(compiled: &CompiledApp, selected_target: &str) -> usize {
+pub(crate) fn visible_diagnostics_count(compiled: &CompiledApp, selected_target: &str) -> usize {
     compiled
         .diagnostics
         .iter()
@@ -236,52 +236,7 @@ pub(super) fn visible_diagnostics_count(compiled: &CompiledApp, selected_target:
         .count()
 }
 
-pub(super) fn compile_status_summary(compiled: &CompiledApp, selected_target: &str) -> String {
-    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, selected_target);
-    if errors == 0 && warnings == 0 && infos == 0 {
-        "编译 正常".to_string()
-    } else {
-        let mut parts = Vec::new();
-        if errors > 0 {
-            parts.push(format!("{errors}错"));
-        }
-        if warnings > 0 {
-            parts.push(format!("{warnings}警"));
-        }
-        if infos > 0 {
-            parts.push(format!("{infos}提"));
-        }
-        format!("编译 {}", parts.join(" "))
-    }
-}
-
-pub(super) fn compile_status_title(compiled: &CompiledApp, current_target: &str) -> String {
-    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, current_target);
-    let (cur_e, cur_w, cur_i) = compile_status_counts_for_target(compiled, current_target);
-    if errors == 0 && warnings == 0 && infos == 0 {
-        "当前没有编译诊断".to_string()
-    } else {
-        format!(
-            "编译诊断（合计）：{} 错误，{} 警告，{} 提示；当前文件 {}：{} 错 / {} 警 / {} 提。点「调试」页签可按文件查看。",
-            errors, warnings, infos, current_target, cur_e, cur_w, cur_i
-        )
-    }
-}
-
-pub(super) fn compile_status_tone(compiled: &CompiledApp, selected_target: &str) -> &'static str {
-    let (errors, warnings, infos) = compile_status_counts_for_display(compiled, selected_target);
-    if errors > 0 {
-        "danger"
-    } else if warnings > 0 {
-        "warn"
-    } else if infos > 0 {
-        "info"
-    } else {
-        "good"
-    }
-}
-
-pub(super) fn compiled_has_error_diagnostics(
+pub(crate) fn compiled_has_error_diagnostics(
     compiled: &CompiledApp,
     selected_target: &str,
 ) -> bool {
@@ -291,101 +246,8 @@ pub(super) fn compiled_has_error_diagnostics(
     })
 }
 
-pub(super) fn is_mei_script_target(target: &str) -> bool {
-    target.ends_with(".mei")
-}
-
-/// 工作区内非 `.mei` 的静态资源（HTML 原型、图片、数据文件等）。
-pub(super) fn is_static_workspace_asset_target(target: &str) -> bool {
-    let trimmed = target.trim();
-    !trimmed.is_empty() && !is_mei_script_target(trimmed)
-}
-
-fn file_extension_lower(target: &str) -> String {
-    target.rsplit('.').next().unwrap_or("").to_ascii_lowercase()
-}
-
-/// 管理页「预览 + 源码」双栏资源：可渲染预览且需要独立源码视图。
-pub(super) fn asset_dual_preview_source(target: &str) -> bool {
-    matches!(
-        file_extension_lower(target).as_str(),
-        "md" | "markdown" | "csv" | "svg" | "html" | "htm"
-    )
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum AssetShellKind {
-    /// 预览 + 源码（CodeMirror）
-    Dual,
-    /// 仅 CodeMirror（无可分栏的预览）
-    SourceCode,
-    /// 图片 / PDF 等仅预览
-    PreviewOnly,
-    /// 无合适预览的二进制等
-    Unsupported,
-}
-
-pub(super) fn classify_asset_shell(target: &str) -> AssetShellKind {
-    if asset_dual_preview_source(target) {
-        return AssetShellKind::Dual;
-    }
-    let ext = file_extension_lower(target);
-    if matches!(
-        ext.as_str(),
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" | "pdf"
-    ) {
-        return AssetShellKind::PreviewOnly;
-    }
-    if matches!(
-        ext.as_str(),
-        "xlsx"
-            | "xls"
-            | "docx"
-            | "doc"
-            | "pptx"
-            | "ppt"
-            | "zip"
-            | "gz"
-            | "tgz"
-            | "rar"
-            | "7z"
-            | "wasm"
-            | "exe"
-            | "dll"
-            | "dylib"
-            | "so"
-            | "bin"
-            | "dmg"
-            | "apk"
-            | "ipa"
-    ) {
-        return AssetShellKind::Unsupported;
-    }
-    AssetShellKind::SourceCode
-}
-
-/// 供前端 `data-source-lang` 与 CodeMirror 选择模式（非 mei 脚本亦适用）。
-pub(super) fn codemirror_dataset_lang(target: &str) -> &'static str {
-    match file_extension_lower(target).as_str() {
-        "json" | "jsonc" => "json",
-        "py" | "pyi" => "python",
-        "css" | "scss" | "less" => "css",
-        "js" | "jsx" | "mjs" | "cjs" => "javascript",
-        "ts" | "tsx" => "typescript",
-        "xml" | "svg" => "xml",
-        "html" | "htm" => "html",
-        "md" | "markdown" => "markdown",
-        "yaml" | "yml" => "yaml",
-        "toml" => "toml",
-        "rs" => "rust",
-        "sh" | "zsh" | "bash" => "shell",
-        "mei" | "star" => "mei",
-        _ => "plain",
-    }
-}
-
 /// 预览降级：优先当前文件 Error，不足时再补其它文件 Error。
-pub(super) fn blocking_errors_for_preview<'a>(
+pub(crate) fn blocking_errors_for_preview<'a>(
     compiled: &'a CompiledApp,
     selected_target: &str,
     limit: usize,

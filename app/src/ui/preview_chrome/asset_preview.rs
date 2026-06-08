@@ -13,7 +13,7 @@ enum AssetPreviewKind {
     Unsupported,
 }
 
-pub(super) fn asset_preview_body(app_path: &str, target: &str, source: &str) -> AnyView {
+pub(crate) fn asset_preview_body(app_path: &str, target: &str, source: &str) -> AnyView {
     let kind = asset_preview_kind(target);
     asset_preview_inner(app_path, target, source, kind)
 }
@@ -154,7 +154,7 @@ fn asset_preview_inner(
 }
 
 #[cfg(test)]
-pub(super) fn asset_preview_kind_label(target: &str) -> &'static str {
+pub(crate) fn asset_preview_kind_label(target: &str) -> &'static str {
     match asset_preview_kind(target) {
         AssetPreviewKind::Markdown => "markdown",
         AssetPreviewKind::Image => "image",

@@ -3,7 +3,7 @@ use mei_lang_kernel::CompiledApp;
 
 use super::super::route::UiRouteMode;
 
-pub(super) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
+pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     match route_mode {
         UiRouteMode::Build => view! {
             <>
@@ -32,7 +32,7 @@ pub(super) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     }
 }
 
-pub(super) fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
+pub(crate) fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
     let scripts = compiled
         .component_assets
         .iter()

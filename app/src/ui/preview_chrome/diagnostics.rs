@@ -250,7 +250,7 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
     }
 }
 
-pub(super) fn diagnostics_view(
+pub(crate) fn diagnostics_view(
     compiled: &CompiledApp,
     app_path: &str,
     selected_target: &str,

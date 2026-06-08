@@ -1,4 +1,4 @@
-pub(super) fn escape_html_attr(value: &str) -> String {
+pub(crate) fn escape_html_attr(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -7,7 +7,7 @@ pub(super) fn escape_html_attr(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-pub(super) fn escape_html(value: &str) -> String {
+pub(crate) fn escape_html(value: &str) -> String {
     value
         .replace('&', "&amp;")
         .replace('<', "&lt;")

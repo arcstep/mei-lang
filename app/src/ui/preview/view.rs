@@ -7,7 +7,7 @@ use crate::ui::compile_status::{
 };
 use crate::ui::route::UiRouteMode;
 use mei_lang_kernel::CompiledApp;
-pub(super) fn preview_view(
+pub(crate) fn preview_view(
     compiled: &CompiledApp,
     app_path: &str,
     selected_target: &str,

@@ -3,7 +3,7 @@ use mei_lang_kernel::CompiledApp;
 
 use super::UiRouteMode;
 
-pub(super) fn panel_view(
+pub(crate) fn panel_view(
     compiled: &CompiledApp,
     app_path: &str,
     route_mode: UiRouteMode,

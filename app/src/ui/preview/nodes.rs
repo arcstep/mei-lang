@@ -23,7 +23,7 @@ use super::{
 const SLOT_HEAD: &str = "head";
 const SLOT_BODY: &str = "body";
 
-pub(super) fn panel_view(
+pub(crate) fn panel_view(
     panel: &mei_lang_kernel::PanelDecl,
     frame_layout: Option<&mei_lang_kernel::LayoutDecl>,
     compiled: &CompiledApp,
