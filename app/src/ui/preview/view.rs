@@ -73,6 +73,7 @@ pub(super) fn preview_view(
                     )
                 };
                 viewport_style.push_str(&style::frame_viewport_letterbox_style(&frame_props));
+                viewport_style.push_str(&theme::theme_css_vars_style(&resolved_theme));
                 let content_max_width = content_bounds.max_width.unwrap_or(0.0).to_string();
                 let content_height = if fluid_width {
                     "0".to_string()

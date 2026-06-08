@@ -251,7 +251,7 @@ pub fn query_world_dataset(
 
     let row_limit = normalize_dataset_limit(limit);
     let selected_columns = normalize_dataset_columns(dataset, columns);
-    let app_root = source_root.join(app_id);
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
     let query_options = DatasetQueryOptions {
         page: 1,
         page_size: row_limit,
@@ -431,7 +431,7 @@ pub fn query_world_dataset_metrics(
     let plan_eval_ms = plan_eval_started.elapsed().as_millis() as u64;
     let primary_dataset = eval_plan.primary_dataset;
 
-    let app_root = source_root.join(app_id);
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
     let normalized_search = normalize_query_search(search);
     let normalized_filters = normalize_query_filters(filters);
     let effective_query_state =

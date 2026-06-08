@@ -5,8 +5,9 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mei_lang_kernel::{
-    compile_app_with_options, compile_revision_plan_from_root_with_options, CompileOptions,
-    CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
+    compile_app_with_options, compile_revision_plan_from_root_with_options, resolve_app_root,
+    resolve_components_root as kernel_resolve_components_root, CompileOptions, CompileWatchedFile,
+    CompiledApp, COMPILE_SEMANTICS_GENERATION,
 };
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -444,17 +445,7 @@ pub fn clear_compile_cache_for_app(source_root: &Path, app_id: &str) -> usize {
 }
 
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
-    let local = source_root.join("_components");
-    if local.exists() {
-        return local;
-    }
-    if let Some(parent) = source_root.parent() {
-        let shared = parent.join("_components");
-        if shared.exists() {
-            return shared;
-        }
-    }
-    local
+    kernel_resolve_components_root(source_root)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -486,22 +477,15 @@ pub struct SourceLayoutInspection {
 
 pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutInspection {
     let app_id = app_id.trim();
-    let app_root = source_root.join(app_id);
-    let local_components = source_root.join("_components");
+    let app_root = resolve_app_root(source_root, app_id);
     let components_root = resolve_components_root(source_root);
     let templates_root = source_root.join("templates");
     let vendor_root = components_root.join("vendor");
     let upload_root = app_root.join("upload");
-    let components_resolution = if local_components.exists() {
-        "source_root/_components".to_string()
-    } else if source_root
-        .parent()
-        .is_some_and(|parent| parent.join("_components").exists())
-    {
-        "source_root/../_components".to_string()
-    } else {
-        "source_root/_components (missing)".to_string()
-    };
+    let components_resolution = components_root
+        .strip_prefix(source_root)
+        .map(|rel| format!("source_root/{}", rel.to_string_lossy().replace('\\', "/")))
+        .unwrap_or_else(|_| components_root.display().to_string());
 
     let mut checks: Vec<LayoutCheck> = Vec::new();
     push_layout_check(
@@ -626,7 +610,7 @@ fn watched_files_are_fresh(
     if entry.components_revision != components_revision(components_root) {
         return false;
     }
-    let app_root = source_root.join(app_id);
+    let app_root = resolve_app_root(source_root, app_id);
     entry.watched_files.iter().all(|watched| {
         let path = app_root.join(&watched.rel_path);
         let Ok(metadata) = std::fs::metadata(&path) else {
@@ -692,7 +676,7 @@ fn default_scene_alias_keys(
 }
 
 fn coarse_compile_revision(source_root: &Path, app_id: &str, components_root: &Path) -> u128 {
-    let app_root = source_root.join(app_id);
+    let app_root = resolve_app_root(source_root, app_id);
     if compile_revision_mode() == RevisionMode::Full {
         let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);
         let components_mtime = directory_latest_full_modified_ms(components_root).unwrap_or(0);
@@ -717,7 +701,7 @@ fn compile_revision(
     options: &CompileOptions,
     components_root: &Path,
 ) -> CompileRevisionStamp {
-    let app_root = source_root.join(app_id);
+    let app_root = resolve_app_root(source_root, app_id);
     if let Ok(plan) = compile_revision_plan_from_root_with_options(source_root, &app_root, options) {
         return CompileRevisionStamp {
             token: plan.token,

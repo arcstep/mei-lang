@@ -94,17 +94,7 @@ fn directory_latest_relevant_mtime_ms(path: &Path, scope: RevisionScope) -> u128
 }
 
 pub(super) fn resolve_components_root(source_root: &Path) -> PathBuf {
-    let local = source_root.join("_components");
-    if local.exists() {
-        return local;
-    }
-    if let Some(parent) = source_root.parent() {
-        let shared = parent.join("_components");
-        if shared.exists() {
-            return shared;
-        }
-    }
-    local
+    crate::mei_config::resolve_components_root(source_root)
 }
 
 pub(super) fn components_revision(source_root: &Path) -> u128 {

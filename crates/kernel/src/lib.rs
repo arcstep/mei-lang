@@ -73,8 +73,9 @@ pub use config_refs::{
 };
 pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_config, merge_ops_section,
-    load_workspace_auth_bundle, resolve_app_entry_main, resolve_app_main_path,
-    resolve_mei_config_path, workspace_auth_config_path, workspace_config_path, write_mei_config,
+    load_workspace_auth_bundle, resolve_app_entry_main, resolve_app_main_path, resolve_app_root,
+    resolve_components_root, resolve_mei_config_path, workspace_auth_config_path,
+    workspace_config_path, write_mei_config,
     write_workspace_auth_bundle, write_workspace_config, AppEntryConfig, AppFeaturesConfig,
     AppPathsConfig, WorkspaceAuthBundle,
     AuthKeyPairConfig, AuthUserConfig, DiscoverConfig, FileCacheConfig, FileCacheSettings,

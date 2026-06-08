@@ -21,7 +21,7 @@ pub fn compile_report(
     app_id: &str,
     options: CompileOptions,
 ) -> Result<CompileReport> {
-    let app_root = source_root.join(app_id);
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
     let components_root = crate::resolve_components_root(source_root);
     let outcome = crate::compile_app_with_cache(
         source_root,

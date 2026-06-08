@@ -7,8 +7,9 @@ use axum::{
     Json,
 };
 use mei_lang_kernel::{
-    apply_ops_patch_with_journal, journal_path, load_mei_config_for_app, resolve_mei_config_path,
-    MeiConfig, OpsConfigPatch, OpsJournal,
+    apply_ops_patch_with_journal, journal_path, load_mei_config_for_app,
+    resolve_app_root as kernel_resolve_app_root, resolve_mei_config_path, MeiConfig, OpsConfigPatch,
+    OpsJournal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -20,7 +21,7 @@ fn resolve_app_root(state: &AppState, app_id: &str) -> Option<std::path::PathBuf
     if app_id.is_empty() {
         return None;
     }
-    let root = state.source_root.join(app_id);
+    let root = kernel_resolve_app_root(state.source_root.as_path(), app_id);
     if root.is_dir() {
         Some(root)
     } else {

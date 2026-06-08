@@ -19,9 +19,9 @@ fn workspaces_root() -> PathBuf {
             .expect("MEI_TEST_SOURCE_ROOT");
     }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../workspaces")
+        .join("../../../workspaces/ws-dev")
         .canonicalize()
-        .expect("workspaces root")
+        .expect("workspaces/ws-dev root")
 }
 
 fn standalone_fixture_root() -> PathBuf {

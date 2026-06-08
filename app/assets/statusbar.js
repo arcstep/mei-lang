@@ -11,10 +11,25 @@
   const PROBE_RED_AFTER_MS = 20000;
   const PROBE_COLD_START_RED_AFTER_STREAK = 5;
 
+  function readMeta(name) {
+    const node = document.querySelector('meta[name="' + name + '"]');
+    return node ? String(node.getAttribute("content") || "").trim() : "";
+  }
+
   function els() {
     return {
+      hostVersion: document.getElementById("mei-status-host-version"),
       modelService: document.getElementById("mei-status-model-service"),
     };
+  }
+
+  function applyHostVersionChip() {
+    const nodes = els();
+    const label = readMeta("mei-host-version-label");
+    const version = readMeta("mei-host-version");
+    const text = label || (version ? "Mei " + version : "");
+    if (!text) return;
+    setChip(nodes.hostVersion, text, "neutral", text);
   }
 
   function hasTargets() {
@@ -124,6 +139,7 @@
   }
 
   function start() {
+    applyHostVersionChip();
     refresh();
     if (refreshTimer) {
       clearInterval(refreshTimer);

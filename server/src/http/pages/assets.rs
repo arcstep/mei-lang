@@ -7,6 +7,8 @@ use axum::{
     response::Response,
 };
 
+use mei_lang_kernel::resolve_app_root;
+
 use crate::{AppError, AppState};
 
 use super::static_serve::serve_static_asset;
@@ -105,7 +107,7 @@ pub async fn workspace_app_asset(
     AxumPath((app_id, path)): AxumPath<(String, String)>,
 ) -> Result<Response, AppError> {
     serve_static_asset(
-        state.source_root.join(&app_id).join(&path),
+        resolve_app_root(state.source_root.as_path(), &app_id).join(&path),
         "workspace app asset",
     )
 }

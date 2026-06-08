@@ -17,9 +17,8 @@ use mei_lang_app::{
 };
 use mei_lang_kernel::{
     discover_apps, load_mei_config_for_app, read_source_file, resolve_app_entry_main,
-    resolve_default_scene_from_root, source_tree, CompileOptions, CompiledApp, HostSurface,
-    Severity,
-    WorkspaceAppMeta,
+    resolve_app_root, resolve_default_scene_from_root, source_tree, CompileOptions, CompiledApp,
+    HostSurface, Severity, WorkspaceAppMeta,
 };
 use serde::Serialize;
 use serde_json::json;
@@ -39,7 +38,7 @@ use super::super::app_render::{compile_error_fallback_app, source_panel_meta};
 use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
 use super::super::util::{
-    elapsed_ms, fill_gis_tiles_placeholders, fill_manage_wall_clock_placeholders,
+    elapsed_ms, fill_manage_wall_clock_placeholders, fill_page_shell_placeholders,
     fill_perf_placeholders, is_script_target, push_manage_page_pipeline_diag,
 };
 use super::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
@@ -373,7 +372,7 @@ pub async fn app_page(
             "missing app id in route",
         ));
     }
-    let app_root = state.source_root.join(&app_id);
+    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let access_only_surface = access_only_surface_enabled();
     if auth_enabled {
         if let Some(ref auth_principal) = principal {
@@ -490,7 +489,10 @@ pub async fn app_page(
             ))
             .into_response());
         } else if let Ok(Some(default_scene)) =
-            resolve_default_scene_from_root(&state.source_root.join(&app_id))
+            resolve_default_scene_from_root(&resolve_app_root(
+                state.source_root.as_path(),
+                &app_id,
+            ))
         {
             return Ok(Redirect::temporary(&access_canonical_location(
                 &app_id,
@@ -556,7 +558,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_gis_tiles_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis);
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -611,7 +613,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_gis_tiles_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis);
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -661,7 +663,7 @@ pub async fn app_page(
             Some(state.source_root.as_path()),
             None,
         );
-        html = fill_gis_tiles_placeholders(html, &gis);
+        html = fill_page_shell_placeholders(html, &gis);
         tracing::info!(
             app_id = %app_id,
             route_mode = route_mode.slug(),
@@ -754,7 +756,7 @@ pub async fn app_page(
                 } else {
                     "main.mei".to_string()
                 };
-                let source_path = state.source_root.join(&app_id).join(&target);
+                let source_path = resolve_app_root(state.source_root.as_path(), &app_id).join(&target);
                 let source_started = Instant::now();
                 let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
                 let source_read_ms = elapsed_ms(source_started);
@@ -817,11 +819,11 @@ pub async fn app_page(
                     let handler_ms = elapsed_ms(app_started);
                     let h = fill_manage_wall_clock_placeholders(h, ssr_emit_ms, handler_ms);
                     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-                        &state.source_root.join(&app_id),
+                        &resolve_app_root(state.source_root.as_path(), &app_id),
                         Some(state.source_root.as_path()),
                         None,
                     );
-                    let h = fill_gis_tiles_placeholders(h, &gis);
+                    let h = fill_page_shell_placeholders(h, &gis);
                     (h, ssr_emit_ms, handler_ms)
                 };
                 let mut res = Html(html).into_response();
@@ -1026,7 +1028,7 @@ pub async fn app_page(
             "compile completed with error diagnostics"
         );
     }
-    let source_path = state.source_root.join(&app_id).join(&target);
+    let source_path = resolve_app_root(state.source_root.as_path(), &app_id).join(&target);
     let source_started = Instant::now();
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_read_ms = elapsed_ms(source_started);
@@ -1049,7 +1051,7 @@ pub async fn app_page(
         elapsed_ms(app_started),
     );
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-        &state.source_root.join(&app_id),
+        &resolve_app_root(state.source_root.as_path(), &app_id),
         Some(state.source_root.as_path()),
         None,
     );
@@ -1096,7 +1098,7 @@ pub async fn app_page(
                 auth_enabled,
                 account_view.as_ref(),
             );
-            fill_gis_tiles_placeholders(rendered, &gis)
+            fill_page_shell_placeholders(rendered, &gis)
         });
         let ssr_emit_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);

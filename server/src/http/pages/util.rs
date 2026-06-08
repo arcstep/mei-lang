@@ -218,3 +218,19 @@ pub(crate) fn fill_gis_tiles_placeholders(
     html = html.replace("__MEI_TILES_JSON_PATH__", cfg.json_path.as_str());
     html
 }
+
+pub(crate) fn fill_host_build_placeholders(mut html: String) -> String {
+    html = html.replace("__MEI_HOST_VERSION__", crate::build_info::BUILD_VERSION);
+    html = html.replace(
+        "__MEI_HOST_VERSION_LABEL__",
+        &crate::build_info::version_label_with_target(),
+    );
+    html
+}
+
+pub(crate) fn fill_page_shell_placeholders(
+    html: String,
+    cfg: &crate::gis_config::GisTilesConfig,
+) -> String {
+    fill_host_build_placeholders(fill_gis_tiles_placeholders(html, cfg))
+}

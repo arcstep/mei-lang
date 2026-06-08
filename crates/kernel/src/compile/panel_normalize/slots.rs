@@ -82,6 +82,36 @@ pub(super) fn panel_has_body_blocks(blocks: &[UiNodeDecl], has_head: bool) -> bo
     })
 }
 
+fn title_block_typography_from_head_props(head_props: &Value) -> Value {
+    let Some(map) = head_props.as_object() else {
+        return json!({});
+    };
+    const KEYS: &[&str] = &[
+        "font",
+        "font_size",
+        "font_family",
+        "font_weight",
+        "letter_spacing",
+        "color",
+        "text_align",
+        "align",
+        "line_height",
+    ];
+    let mut out = serde_json::Map::new();
+    for key in KEYS {
+        if let Some(value) = map.get(*key) {
+            if value.is_string() {
+                if value.as_str().is_some_and(|raw| !raw.trim().is_empty()) {
+                    out.insert((*key).to_string(), value.clone());
+                }
+            } else if !value.is_null() {
+                out.insert((*key).to_string(), value.clone());
+            }
+        }
+    }
+    Value::Object(out)
+}
+
 pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
     if blocks_touch_slot(&panel.blocks, SLOT_HEAD) {
         return;
@@ -94,6 +124,13 @@ pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
     else {
         return;
     };
+    let mut props = serde_json::Map::new();
+    props.insert("content".to_string(), Value::String(title.to_string()));
+    if let Some(typography) = title_block_typography_from_head_props(&panel.head_props).as_object() {
+        for (key, value) in typography {
+            props.insert(key.clone(), value.clone());
+        }
+    }
     panel.blocks.insert(
         0,
         UiNodeDecl::Block(BlockDecl {
@@ -102,7 +139,7 @@ pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
             id: None,
             title: None,
             area: Some(SLOT_HEAD.to_string()),
-            props: json!({ "content": title }),
+            props: Value::Object(props),
             base: None,
             layout: None,
             blocks: vec![],

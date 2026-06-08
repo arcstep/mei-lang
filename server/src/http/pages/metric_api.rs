@@ -8,8 +8,8 @@ use axum::{
     Json,
 };
 use mei_lang_kernel::{
-    runtime_eval_node_cache_enabled, EvalPlanNodeKind, FilterIntent, MetricContract, QueryState,
-    RuntimeMetricEvalReport, RuntimeMetricEvalScope,
+    resolve_app_root, runtime_eval_node_cache_enabled, EvalPlanNodeKind, FilterIntent,
+    MetricContract, QueryState, RuntimeMetricEvalReport, RuntimeMetricEvalScope,
 };
 use mei_lang_datasets::{
     collect_all_query_options, evaluate_runtime_metrics_from_plan,
@@ -354,7 +354,7 @@ pub async fn dataset_metric_api(
                 AppError::status(StatusCode::BAD_REQUEST, error.to_string())
             })?;
     let owner_dataset = access_plan.owner_dataset;
-    let app_root = state.source_root.join(&app_id);
+    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let query = collect_all_query_options(&effective_query_state);
     let response_cache_key = metric_response_cache_scope_key(
         &app_id,

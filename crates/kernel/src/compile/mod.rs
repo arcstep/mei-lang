@@ -13,7 +13,8 @@ use crate::{
     eval::evaluate_mei_file,
     mei_config::{
         app_mei_config_path, load_mei_config_for_app, resolve_app_entry_main, resolve_app_main_path,
-        workspace_config_path, MEI_WORKSPACE_CONFIG_FILENAME,
+        resolve_app_root,
+        workspace_config_path, MEI_CONFIG_FILENAME, MEI_WORKSPACE_CONFIG_FILENAME,
     },
     model::{
         CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, Severity,
@@ -598,7 +599,7 @@ pub fn compile_app_with_options(
     app_id: &str,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
-    let app_root = source_root.join(app_id);
+    let app_root = resolve_app_root(source_root, app_id);
     compile_app_from_root_with_options(source_root, &app_root, options)
 }
 
@@ -747,6 +748,18 @@ pub fn compile_revision_plan_from_root_with_options(
                     .extend(dependency_graph.closure_for_target(app_root, &app_decls, &rel));
             }
         }
+    }
+
+    let config_path = app_mei_config_path(app_root);
+    if config_path.is_file() {
+        watched_paths.insert(MEI_CONFIG_FILENAME.to_string());
+        let metadata = std::fs::metadata(&config_path).ok();
+        let modified_ms = scene_payload_cache::file_mtime_ms(&config_path);
+        let size_bytes = metadata.map(|meta| meta.len()).unwrap_or(0);
+        token_parts.insert(
+            "mei-config".to_string(),
+            format!("{modified_ms}:{size_bytes}"),
+        );
     }
 
     let components_revision = scene_payload_cache::components_revision(source_root);

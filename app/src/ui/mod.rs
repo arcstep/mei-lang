@@ -166,6 +166,8 @@ fn render_document(
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <meta name="mei-tiles-base-url" content="__MEI_TILES_BASE_URL__"/>
                 <meta name="mei-tiles-json-path" content="__MEI_TILES_JSON_PATH__"/>
+                <meta name="mei-host-version" content="__MEI_HOST_VERSION__"/>
+                <meta name="mei-host-version-label" content="__MEI_HOST_VERSION_LABEL__"/>
                 <meta name="mei-view" content=route_mode.slug()/>
                 <meta name="mei-auth-user" content=auth_user_meta/>
                 <meta name="mei-auth-role" content=auth_role_meta/>
@@ -426,24 +428,24 @@ mod tests {
     #[test]
     fn build_href_uses_build_route() {
         assert_eq!(
-            build_href("spbjw", Some("main.mei"), Some("preview")),
-            "/apps/build/spbjw?file=main.mei&tab=preview"
+            build_href("xzjd", Some("main.mei"), Some("preview")),
+            "/apps/build/xzjd?file=main.mei&tab=preview"
         );
-        assert_eq!(config_href("spbjw"), "/apps/config/spbjw");
+        assert_eq!(config_href("xzjd"), "/apps/config/xzjd");
     }
 
     #[test]
     fn manage_ops_config_href_forces_preview_tab() {
         assert_eq!(
             manage_tab_href(
-                "spbjw",
+                "xzjd",
                 Some(OPS_CONFIG_TARGET),
                 OPS_CONFIG_TARGET,
                 false,
                 ManageViewTab::Diagnostics,
                 Some("all")
             ),
-            "/apps/build/spbjw?file=.mei-config.json&tab=preview"
+            "/apps/build/xzjd?file=.mei-config.json&tab=preview"
         );
     }
 

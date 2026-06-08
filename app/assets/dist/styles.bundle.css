@@ -1930,11 +1930,11 @@ a.status-chip-link:focus-visible {
   position: relative;
   overflow: visible;
 }
-/* head 槽：默认不铺 screen 顶栏底色，让 panel.props / 整卡背景透出 */
+/* head 槽：默认不铺 screen 顶栏底色，让 head_props / 整卡背景透出（勿用 background 简写，以免盖掉 inline background-image） */
 .preview-card > .panel-head-cell.panel-heading-plain,
 .preview-card > .panel-head-cell.panel-heading-default,
 .preview-card > .panel-head-cell.panel-heading-compact {
-  background: transparent;
+  background-color: transparent;
   border-bottom: none;
   box-shadow: none;
 }

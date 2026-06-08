@@ -7,22 +7,14 @@ use axum::{
     response::Response,
 };
 
+use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
+
 use crate::{AppError, AppState};
 
 use super::static_serve::serve_static_asset;
 
 pub(crate) fn resolve_components_root(source_root: &Path) -> std::path::PathBuf {
-    let local = source_root.join("_components");
-    if local.exists() {
-        return local;
-    }
-    if let Some(parent) = source_root.parent() {
-        let shared = parent.join("_components");
-        if shared.exists() {
-            return shared;
-        }
-    }
-    local
+    kernel_resolve_components_root(source_root)
 }
 
 fn parse_glyph_range(range: &str) -> Option<(u32, u32)> {

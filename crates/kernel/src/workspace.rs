@@ -9,7 +9,8 @@ use serde::Deserialize;
 use walkdir::WalkDir;
 
 use crate::mei_config::{
-    is_app_config_root, load_workspace_config, resolve_app_entry_main, MEI_CONFIG_FILENAME,
+    is_app_config_root, load_workspace_config, resolve_app_entry_main, resolve_components_root,
+    MEI_CONFIG_FILENAME,
 };
 use crate::model::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
 
@@ -254,19 +255,7 @@ struct ComponentManifestEntry {
 }
 
 pub fn load_component_assets(source_root: &Path) -> Result<BTreeMap<String, ComponentAsset>> {
-    let components_root = if source_root.join("_components").exists() {
-        source_root.join("_components")
-    } else if source_root
-        .parent()
-        .is_some_and(|parent| parent.join("_components").exists())
-    {
-        source_root
-            .parent()
-            .map(|parent| parent.join("_components"))
-            .expect("parent existence checked above")
-    } else {
-        source_root.join("_components")
-    };
+    let components_root = resolve_components_root(source_root);
     if !components_root.exists() {
         return Ok(BTreeMap::new());
     }

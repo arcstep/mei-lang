@@ -202,6 +202,54 @@ fn normalize_hoists_props_heading_to_head_props() {
 }
 
 #[test]
+fn normalize_title_head_block_inherits_head_props_typography() {
+    let mut panels = vec![PanelDecl {
+        kind: "panel".to_string(),
+        id: "titled".to_string(),
+        title: Some("执法要素".to_string()),
+        head: None::<Box<UiNodeDecl>>,
+        area: Some("auto".to_string()),
+        layout: None,
+        blocks: vec![],
+        props: json!({}),
+        head_props: json!({
+            "font_size": "30px",
+            "font_family": "Microsoft YaHei",
+            "letter_spacing": "20px",
+            "color": "rgba(255,255,255,0.80)",
+        }),
+        body_props: json!({}),
+        base: None,
+        import_scope: None,
+    }];
+    let mut diagnostics = Vec::new();
+    normalize_panel_slots(&mut panels, &mut diagnostics, "main.mei");
+    let head_block = panels[0]
+        .blocks
+        .iter()
+        .find_map(|node| match node {
+            UiNodeDecl::Block(block) if block.area.as_deref() == Some(SLOT_HEAD) => Some(block),
+            _ => None,
+        })
+        .expect("title head block");
+    assert_eq!(
+        head_block.props.get("content").and_then(|v| v.as_str()),
+        Some("执法要素")
+    );
+    assert_eq!(
+        head_block.props.get("font_size").and_then(|v| v.as_str()),
+        Some("30px")
+    );
+    assert_eq!(
+        head_block
+            .props
+            .get("letter_spacing")
+            .and_then(|v| v.as_str()),
+        Some("20px")
+    );
+}
+
+#[test]
 fn normalize_no_head_without_title() {
     let mut panels = vec![PanelDecl {
         kind: "panel".to_string(),

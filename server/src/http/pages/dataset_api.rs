@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::{clear_runtime_compile_caches, FilterIntent, QueryState};
+use mei_lang_kernel::{clear_runtime_compile_caches, resolve_app_root, FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -215,7 +215,7 @@ pub async fn dataset_query_api(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
-    let app_root = state.source_root.join(&app_id);
+    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let effective_query_state = query_state_from_request(
         &request.filters,
         request.search.as_deref(),
@@ -365,7 +365,7 @@ pub async fn dataset_recompute_api(
             format!("unsupported recompute mode `{mode}`"),
         ));
     }
-    let app_root = state.source_root.join(&app_id);
+    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let clear_started = Instant::now();
     let compile_cache_cleared = clear_compile_cache_for_app(&state, &app_id);
     let file_cache_cleared = clear_external_file_cache_for_app(app_root.as_path());

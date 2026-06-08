@@ -131,7 +131,7 @@ where
     let scope = normalize_world_scope(scope);
     let requested_scene = scope.scene_id.as_deref();
     let requested_target = scope.target_file.clone();
-    let app_root = source_root.join(app_id);
+    let app_root = mei_lang_kernel::resolve_app_root(source_root, app_id);
     let mut fallback_compile = false;
 
     if requested_scene.is_none() {
@@ -861,7 +861,7 @@ fn build_resource_inventory(
     }
 
     if let Some(target) = target_ref {
-        let source_path = source_root.join(app_id).join(target);
+        let source_path = mei_lang_kernel::resolve_app_root(source_root, app_id).join(target);
         if let Ok(source) = fs::read_to_string(&source_path) {
             let refs = extract_ref_tokens_from_source(&source);
             if !refs.is_empty() {

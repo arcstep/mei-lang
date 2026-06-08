@@ -20,8 +20,8 @@ use axum::{
 };
 use clap::{Args, Parser, Subcommand};
 use mei_lang_kernel::{
-    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, HostSurface,
-    CompileOptions, CompileWatchedFile, Diagnostic, Severity,
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, workspace_config_path,
+    HostSurface, CompileOptions, CompileWatchedFile, Diagnostic, Severity,
 };
 use mei_lang_toolchain::{self as toolchain, HeadlessExportOptions};
 use serde::Serialize;
@@ -31,6 +31,7 @@ use tracing::Instrument;
 
 mod agent_runtime;
 mod auth;
+mod build_info;
 mod gis_config;
 mod http;
 mod mei_agent;
@@ -110,7 +111,7 @@ enum HostAuthCommand {
 
 #[derive(Args, Clone)]
 struct HostAuthEnsureKeysArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     json: bool,
@@ -118,7 +119,7 @@ struct HostAuthEnsureKeysArgs {
 
 #[derive(Args, Clone)]
 struct HostAuthRotateKeysArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     json: bool,
@@ -126,7 +127,7 @@ struct HostAuthRotateKeysArgs {
 
 #[derive(Args, Clone)]
 struct HostAuthBootstrapUsersArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long, default_value = "super")]
     super_username: String,
@@ -153,7 +154,7 @@ struct HostAuthBootstrapUsersArgs {
 
 #[derive(Args, Clone)]
 struct HostAuthAddUserArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     username: String,
@@ -174,7 +175,7 @@ struct HostAuthAddUserArgs {
 
 #[derive(Args, Clone)]
 struct HostAuthSetUserEnabledArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     username: String,
@@ -190,7 +191,7 @@ struct HostAuthHashPasswordArgs {
 
 #[derive(Args, Clone)]
 struct HostAuthDescribeArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     json: bool,
@@ -198,7 +199,7 @@ struct HostAuthDescribeArgs {
 
 #[derive(Args, Clone)]
 struct CliAppSelectorArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long)]
     app: String,
@@ -411,7 +412,10 @@ struct McpDescribeArgs {
 
 #[derive(clap::Args)]
 struct ServeArgs {
-    #[arg(long, default_value = "../workspaces")]
+    /// 工作区 profile（`workspaces/<name>/`，须含 `.mei-workspace.json`）；与 `--source-root` 二选一。
+    #[arg(long, conflicts_with = "source_root")]
+    workspace: Option<String>,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[arg(long, default_value = "full", value_parser = ["full", "access-only"])]
     host_surface: String,
@@ -438,7 +442,7 @@ struct AgentRuntimeArgs {
 
 #[derive(clap::Args)]
 struct AgentSkillArgs {
-    #[arg(long, default_value = "../workspaces")]
+    #[arg(long, default_value = "../workspaces/ws-dev")]
     source_root: PathBuf,
     #[command(subcommand)]
     command: AgentSkillCommand,
@@ -476,8 +480,23 @@ pub(crate) struct SessionContextSnapshot {
     pub context: String,
 }
 
+fn print_cli_version_if_requested() -> bool {
+    matches!(
+        std::env::args().nth(1).as_deref(),
+        Some("-V") | Some("--version")
+    )
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    if print_cli_version_if_requested() {
+        println!(
+            "mei {} ({})",
+            build_info::BUILD_VERSION,
+            build_info::BUILD_TARGET_TAG
+        );
+        return Ok(());
+    }
     let cli = Cli::parse();
     let env_filter = match cli.command {
         Command::Serve(_) => "info",
@@ -509,6 +528,29 @@ fn resolve_package_root() -> Result<PathBuf> {
         .parent()
         .context("server crate manifest has no parent directory")
         .map(std::path::Path::to_path_buf)
+}
+
+fn resolve_source_root_arg(
+    package_root: &std::path::Path,
+    workspace: Option<&str>,
+    source_root: &PathBuf,
+) -> Result<PathBuf> {
+    if let Some(name) = workspace.map(str::trim).filter(|value| !value.is_empty()) {
+        let root = package_root.join("../workspaces").join(name);
+        let cfg = workspace_config_path(&root);
+        if !cfg.is_file() {
+            anyhow::bail!(
+                "workspace profile `{name}` missing {}; expected under workspaces/{name}/",
+                cfg.display()
+            );
+        }
+        return Ok(root);
+    }
+    Ok(if source_root.is_absolute() {
+        source_root.clone()
+    } else {
+        package_root.join(source_root)
+    })
 }
 
 fn resolve_cli_source_root(package_root: &std::path::Path, raw: &PathBuf) -> Result<PathBuf> {
@@ -1040,6 +1082,7 @@ fn host_describe_command(args: HostDescribeArgs) -> Result<()> {
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "host.describe",
+        "host_build": build_info::descriptor(),
         "host_contract": host_runtime_contract_descriptor(),
     });
     print_json_output(&output, args.json)
@@ -1630,11 +1673,14 @@ async fn serve(args: ServeArgs) -> Result<()> {
     // `mei-lang-server` 位于 `mei-lang/server/`，仓库根为上一级 `mei-lang/`。
     let package_root = resolve_package_root()?;
     agent_runtime::runtime::load_repo_dotenv(&package_root);
-    let source_root = if args.source_root.is_absolute() {
-        args.source_root
-    } else {
-        package_root.join(args.source_root)
-    };
+    let source_root = resolve_cli_source_root(
+        &package_root,
+        &resolve_source_root_arg(
+            &package_root,
+            args.workspace.as_deref(),
+            &args.source_root,
+        )?,
+    )?;
     fs::create_dir_all(&source_root).with_context(|| {
         format!(
             "failed to create or access source root {}",
@@ -1924,7 +1970,7 @@ impl IntoResponse for AppError {
     }
 }
 
-/// 集成测试与 HTTP 级用例构造 `AppState`（依赖仓库内 `mei-lang/../workspaces`）。
+/// 集成测试与 HTTP 级用例构造 `AppState`（依赖仓库内 `mei-lang/../ws-dev`）。
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::{
@@ -1945,9 +1991,9 @@ pub(crate) mod test_support {
     pub(crate) fn test_app_state() -> anyhow::Result<super::AppState> {
         let package_root = package_root();
         let source_root = package_root
-            .join("../workspaces")
+            .join("../workspaces/ws-dev")
             .canonicalize()
-            .context("workspaces root (mei-lang/../workspaces)")?;
+            .context("workspace root (mei-lang/../workspaces/ws-dev)")?;
         let native_agent = Arc::new(crate::mei_agent::NativeAgent::open_with_resource_tools(
             source_root.clone(),
             Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),

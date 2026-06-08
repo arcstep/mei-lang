@@ -3,8 +3,8 @@ use std::path::Path;
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
 use mei_lang_kernel::{
-    compile_app_with_options, source_tree, CompileOptions, CompiledApp, Diagnostic, Severity,
-    WorkspaceAppMeta,
+    compile_app_with_options, resolve_app_root, source_tree, CompileOptions, CompiledApp,
+    Diagnostic, Severity, WorkspaceAppMeta,
 };
 use std::fs;
 
@@ -48,7 +48,7 @@ pub(crate) fn compile_error_fallback_app(
     target: &str,
     error: &str,
 ) -> CompiledApp {
-    let app_root = source_root.join(app_id);
+    let app_root = resolve_app_root(source_root, app_id);
     let source_path = app_root.join(target);
     CompiledApp {
         app_id: app_id.to_string(),

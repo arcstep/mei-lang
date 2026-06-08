@@ -30,11 +30,23 @@ pub const OPS_OBJECT_KINDS: &[&str] = &[
     "ops_param_ref",
 ];
 
+/// 工作区 profile 元数据（`workspaces/ws-*` 根目录 `.mei-workspace.json`）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceProfile {
+    /// 启动时 `--workspace` 使用的短名，如 `ws-spbjw`。
+    pub id: Option<String>,
+    pub label: Option<String>,
+    #[serde(default, rename = "deployHost")]
+    pub deploy_host: Option<String>,
+}
+
 /// workspace / segment 级配置：发现规则、默认菜单与运行时回退。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
     #[serde(default, rename = "schemaVersion")]
     pub schema_version: u32,
+    #[serde(default)]
+    pub workspace: WorkspaceProfile,
     #[serde(default)]
     pub discover: DiscoverConfig,
     #[serde(default)]
@@ -141,6 +153,12 @@ pub struct AppFeaturesConfig {
 pub struct DiscoverConfig {
     #[serde(default)]
     pub skip_directories: Vec<String>,
+    /// 相对 `source_root` 或绝对路径；未设时回退 `_components` / `../_components`。
+    #[serde(default, rename = "componentsRoot")]
+    pub components_root: Option<String>,
+    /// URL/CLI 旧应用 id → 目录名，如 `spbjw` → `xzjd`。
+    #[serde(default, rename = "appAliases")]
+    pub app_aliases: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -294,6 +312,55 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
     segment_root.join(MEI_WORKSPACE_CONFIG_FILENAME)
 }
 
+/// 解析工作区组件根目录：`.mei-workspace.json` 的 `discover.componentsRoot` 优先，否则 `_components` / `../_components`。
+pub fn resolve_components_root(source_root: &Path) -> PathBuf {
+    let cfg = load_workspace_config(source_root);
+    if let Some(ref rel) = cfg.discover.components_root {
+        let trimmed = rel.trim();
+        if !trimmed.is_empty() {
+            let candidate = if Path::new(trimmed).is_absolute() {
+                PathBuf::from(trimmed)
+            } else {
+                source_root.join(trimmed)
+            };
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+    let local = source_root.join("_components");
+    if local.exists() {
+        return local;
+    }
+    if let Some(parent) = source_root.parent() {
+        let shared = parent.join("_components");
+        if shared.exists() {
+            return shared;
+        }
+    }
+    local
+}
+
+/// 将 CLI/URL 中的 `app_id` 解析为应用目录（支持 `discover.appAliases`）。
+pub fn resolve_app_root(source_root: &Path, app_id: &str) -> PathBuf {
+    let app_id = app_id.trim();
+    let direct = source_root.join(app_id);
+    if direct.exists() {
+        return direct;
+    }
+    let cfg = load_workspace_config(source_root);
+    if let Some(alias) = cfg.discover.app_aliases.get(app_id) {
+        let target = alias.trim();
+        if !target.is_empty() {
+            let aliased = source_root.join(target);
+            if aliased.exists() {
+                return aliased;
+            }
+        }
+    }
+    direct
+}
+
 /// 工作区 segment 根目录的 `.mei-workspace.json`。
 pub fn workspace_auth_config_path(segment_root: &Path) -> PathBuf {
     workspace_config_path(segment_root)
@@ -378,6 +445,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
         let legacy_app = MeiConfig::load_or_default(&legacy);
         return WorkspaceConfig {
             schema_version: legacy_app.schema_version,
+            workspace: WorkspaceProfile::default(),
             discover: legacy_app.discover,
             menu: legacy_app.menu,
             runtime: legacy_app.runtime,

@@ -1,5 +1,7 @@
 use std::path::{Component, Path as FsPath, PathBuf};
 
+use mei_lang_kernel::resolve_app_root as resolve_workspace_app_root;
+
 use crate::{agent_runtime::bridge::BridgePromptRequest, AppState};
 
 pub(crate) fn sanitize_relative_path(value: &str) -> Option<String> {
@@ -26,7 +28,7 @@ pub(crate) fn resolve_app_root(
     if app_id.is_empty() {
         return None;
     }
-    let root = state.source_root.join(app_id);
+    let root = resolve_workspace_app_root(state.source_root.as_path(), app_id);
     if !root.exists() {
         return None;
     }

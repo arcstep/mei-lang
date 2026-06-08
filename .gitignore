@@ -4,3 +4,6 @@
 node_modules/
 /test-results/
 /e2e-reports/
+# 仅离线内网构建时本地生成（见 mei-release/scripts/prepare-offline-vendor.sh）
+/vendor/
+/.cargo/config.toml
