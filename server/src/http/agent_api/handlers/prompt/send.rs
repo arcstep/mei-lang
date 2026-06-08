@@ -39,4 +39,3 @@ pub async fn api_agent_send_message(
         Err(error) => error_response(error),
     }
 }
-

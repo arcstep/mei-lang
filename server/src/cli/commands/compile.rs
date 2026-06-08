@@ -3,13 +3,13 @@ use mei_lang_kernel::Severity;
 use mei_lang_toolchain as toolchain;
 use serde_json::json;
 
-use crate::agent_runtime;
 use super::super::args::CheckArgs;
 use super::super::util::{
     compile_options_from_selector, diagnostics_summary, ensure_cli_layout_ready,
     inspect_layout_for_app, print_json_output, resolve_cli_source_root, resolve_package_root,
     watched_files_json,
 };
+use crate::agent_runtime;
 
 pub fn compile_or_check_command(command: &str, args: CheckArgs) -> Result<()> {
     let package_root = resolve_package_root()?;

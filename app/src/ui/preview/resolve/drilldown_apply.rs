@@ -1,4 +1,4 @@
-use mei_lang_kernel::{CompiledApp};
+use mei_lang_kernel::CompiledApp;
 use serde_json::Value;
 
 use super::drilldown::MetricDrilldownMeta;
@@ -261,7 +261,10 @@ pub(crate) fn apply_ratio_parts(value: &Value, meta: &mut MetricDrilldownMeta) {
     }
 }
 
-pub(crate) fn first_non_empty_string(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+pub(crate) fn first_non_empty_string(
+    map: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Option<String> {
     for key in keys {
         let Some(value) = map.get(*key).and_then(Value::as_str).map(str::trim) else {
             continue;
@@ -287,7 +290,10 @@ pub(crate) fn metric_note_text(value: &Value) -> Option<String> {
         .and_then(|map| first_non_empty_string(map, &["content", "text", "note", "markdown", "md"]))
 }
 
-pub(super) fn apply_metric_narrative(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
+pub(super) fn apply_metric_narrative(
+    map: &serde_json::Map<String, Value>,
+    meta: &mut MetricDrilldownMeta,
+) {
     if meta.drilldown_note.is_none() {
         if let Some(note_value) = map.get("note") {
             meta.drilldown_note = metric_note_text(note_value);
@@ -356,7 +362,10 @@ fn normalize_scene_selector(raw: &str) -> String {
         .to_string()
 }
 
-pub(super) fn resolve_drilldown_target_scene_id(compiled: &CompiledApp, selector: &str) -> Option<String> {
+pub(super) fn resolve_drilldown_target_scene_id(
+    compiled: &CompiledApp,
+    selector: &str,
+) -> Option<String> {
     let normalized = normalize_scene_selector(selector);
     if normalized.is_empty() {
         return None;

@@ -31,7 +31,9 @@ pub(super) fn resolve_scene_contract_config_refs(
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
                 code: "invalid_config_ref".to_string(),
-                message: format!("failed to serialize scene contract for config ref resolution: {error}"),
+                message: format!(
+                    "failed to serialize scene contract for config ref resolution: {error}"
+                ),
                 source_path: Some(target_file.to_string()),
             });
             return;

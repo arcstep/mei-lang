@@ -2,7 +2,6 @@ use anyhow::Result;
 use mei_lang_toolchain as toolchain;
 use serde_json::json;
 
-use crate::http;
 use super::super::args::{
     QueryArgs, QueryCommand, QueryDatasetArgs, QueryMetricArgs, QueryResourceArgs,
 };
@@ -10,6 +9,7 @@ use super::super::util::{
     ensure_cli_layout_ready, inspect_layout_for_app, parse_cli_filters, print_json_output,
     resolve_cli_source_root, resolve_package_root, scope_json, world_scope_from_selector,
 };
+use crate::http;
 
 pub fn query_command(args: QueryArgs) -> Result<()> {
     match args.command {
@@ -100,7 +100,8 @@ pub fn query_resource_command(args: QueryResourceArgs) -> Result<()> {
     let layout = inspect_layout_for_app(&source_root, app_id);
     ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
-    let result = toolchain::query_world_asset(&source_root, app_id, scope.as_ref(), args.id.trim())?;
+    let result =
+        toolchain::query_world_asset(&source_root, app_id, scope.as_ref(), args.id.trim())?;
     let output = json!({
         "schema_version": "mei-cli-v1",
         "command": "query.resource",

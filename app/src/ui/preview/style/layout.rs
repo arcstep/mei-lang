@@ -1,6 +1,5 @@
 use serde_json::Value;
 
-
 pub(crate) fn surface_layout_style(layout: Option<&mei_lang_kernel::LayoutDecl>) -> String {
     let Some(layout) = layout else {
         return "display:grid;gap:16px;".to_string();

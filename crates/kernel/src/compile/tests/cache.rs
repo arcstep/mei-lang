@@ -430,8 +430,8 @@ frame()
 }"#,
     )
     .unwrap();
-    let second_token =
-        compile_revision_token_from_root_with_options(&root, &root, &options).expect("second token");
+    let second_token = compile_revision_token_from_root_with_options(&root, &root, &options)
+        .expect("second token");
     assert_ne!(
         first_token, second_token,
         "theme change in .mei-config.json should invalidate compile revision"

@@ -15,9 +15,7 @@ use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
 pub use singleflight::env_flag_enabled;
 
-use revision::{
-    coarse_compile_revision, compile_revision, components_revision, normalize_path,
-};
+use revision::{coarse_compile_revision, compile_revision, components_revision, normalize_path};
 use singleflight::{
     compile_singleflight_enabled, finish_compile_inflight, register_compile_inflight,
     wait_for_compile_inflight,
@@ -133,7 +131,8 @@ pub fn compile_app_with_cache(
             Ok(compiled) => Ok(CompileWithCacheOutcome {
                 compiled,
                 cache_hit: true,
-                compile_revision: compile_revision(source_root, app_id, &options, components_root).token,
+                compile_revision: compile_revision(source_root, app_id, &options, components_root)
+                    .token,
                 revision_scope: "singleflight_wait".to_string(),
                 cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
@@ -288,7 +287,11 @@ pub(super) fn compile_app_with_cache_uncached_path(
     })
 }
 
-pub(super) fn compile_cache_key(source_root: &Path, app_id: &str, options: &CompileOptions) -> String {
+pub(super) fn compile_cache_key(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+) -> String {
     format!(
         "{}#{app_id}|v5|gen={COMPILE_SEMANTICS_GENERATION}|scene={}|focus={}",
         normalize_path(source_root),
@@ -389,7 +392,8 @@ pub fn peek_compile_cache(
     let entry = cache.get(&cache_key)?;
     if watched_files_are_fresh(source_root, app_id, entry, components_root) {
         Some(entry.compiled.clone())
-    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root) {
+    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root)
+    {
         Some(entry.compiled.clone())
     } else {
         let revision_stamp = compile_revision(source_root, app_id, options, components_root);
@@ -417,7 +421,8 @@ pub fn peek_compile_cache_hit(
             revision_scope: "watch_set".to_string(),
             cache_validation: "watch_set".to_string(),
         })
-    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root) {
+    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root)
+    {
         Some(PeekCompileCacheHit {
             compiled: entry.compiled.clone(),
             compile_revision: entry.compile_revision.clone(),

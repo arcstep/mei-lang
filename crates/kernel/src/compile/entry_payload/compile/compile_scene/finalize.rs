@@ -37,7 +37,12 @@ pub(super) fn finalize_payload(
     if let Some(world_decl) = ctx.world.as_ref() {
         let (normal_resources, dataset_resources) =
             partition_world_resources(&all_world_resource_decls(world_decl));
-        resources = load_resources(app_root, &normal_resources, target_file, &mut ctx.diagnostics)?;
+        resources = load_resources(
+            app_root,
+            &normal_resources,
+            target_file,
+            &mut ctx.diagnostics,
+        )?;
         for resource in dataset_resources {
             if resource.id == "__source_path__" || resource.id.ends_with(".mei") {
                 ctx.diagnostics.push(crate::model::Diagnostic {
@@ -175,12 +180,7 @@ pub(super) fn finalize_payload(
     });
     if let Some(ref mut contract) = scene_contract {
         let resolver = crate::config_refs::ConfigRefResolver::new(&ctx.config);
-        resolve_scene_contract_config_refs(
-            contract,
-            &resolver,
-            target_file,
-            &mut ctx.diagnostics,
-        );
+        resolve_scene_contract_config_refs(contract, &resolver, target_file, &mut ctx.diagnostics);
         crate::compile::projection_assembly::lower_projection_assembly_in_panels(
             &mut contract.panels,
             &resources,

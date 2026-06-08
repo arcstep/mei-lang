@@ -48,7 +48,9 @@ pub(super) fn dataset_id_from_source(value: &Value) -> Option<String> {
     first_non_empty_string(map, &["dataset_id"])
 }
 
-pub(super) fn normalize_explain_entry_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
+pub(super) fn normalize_explain_entry_object(
+    obj: &serde_json::Map<String, Value>,
+) -> Option<Value> {
     let raw_kind = first_non_empty_string(obj, &["kind", "type", "id"])?;
     let kind = normalize_analysis_tab_id(&raw_kind)?;
     let id = first_non_empty_string(obj, &["id", "key", "name"])
@@ -74,7 +76,9 @@ pub(super) fn normalize_explain_entry_object(obj: &serde_json::Map<String, Value
     Some(Value::Object(entry))
 }
 
-pub(super) fn normalize_analysis_node_object(obj: &serde_json::Map<String, Value>) -> Option<Value> {
+pub(super) fn normalize_analysis_node_object(
+    obj: &serde_json::Map<String, Value>,
+) -> Option<Value> {
     let local_id = first_non_empty_string(obj, &["analysis_local_id", "key", "id"])?;
     let scoped_metric_id = first_non_empty_string(
         obj,

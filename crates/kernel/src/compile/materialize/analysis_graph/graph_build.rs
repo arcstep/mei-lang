@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticNodeKind};
 
-use super::{explain::*, expand::*, util::*};
+use super::{expand::*, explain::*, util::*};
 
 pub(super) fn build_analysis_graph_from_expanded(
     expanded_defs: &BTreeMap<String, Value>,
@@ -127,7 +127,11 @@ pub(super) fn build_analysis_graph_from_expanded(
     graph
 }
 
-pub(super) fn metric_node_from_raw(metric_id: &str, raw: &Value, root_dataset_id: &str) -> AnalysisNode {
+pub(super) fn metric_node_from_raw(
+    metric_id: &str,
+    raw: &Value,
+    root_dataset_id: &str,
+) -> AnalysisNode {
     let map = raw.as_object();
     AnalysisNode {
         id: metric_id.to_string(),
@@ -242,4 +246,3 @@ pub(super) fn analysis_node_value(
     );
     Value::Object(obj)
 }
-

@@ -65,11 +65,15 @@ fn discover_apps_under(
     if !root.is_dir() {
         return Ok(());
     }
-    for child in fs::read_dir(root)
-        .with_context(|| format!("discover_apps: read_dir {}", root.display()))?
+    for child in
+        fs::read_dir(root).with_context(|| format!("discover_apps: read_dir {}", root.display()))?
     {
         let child = child.context("discover_apps: read_dir entry")?;
-        if !child.file_type().context("discover_apps: file_type")?.is_dir() {
+        if !child
+            .file_type()
+            .context("discover_apps: file_type")?
+            .is_dir()
+        {
             continue;
         }
         let name = child.file_name().to_string_lossy().to_string();

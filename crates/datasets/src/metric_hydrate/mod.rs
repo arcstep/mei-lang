@@ -136,7 +136,9 @@ pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
 pub(crate) fn collect_dataset_ids_from_metric_defs(
     metric_defs: &BTreeMap<String, Value>,
 ) -> BTreeSet<String> {
-    collect::collect_dataset_ids_from_values(metric_defs.values().cloned().collect::<Vec<_>>().as_slice())
+    collect::collect_dataset_ids_from_values(
+        metric_defs.values().cloned().collect::<Vec<_>>().as_slice(),
+    )
 }
 
 fn dataset_needs_runtime_hydration(dataset: &DatasetView) -> bool {

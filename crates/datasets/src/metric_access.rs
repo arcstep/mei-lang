@@ -14,7 +14,8 @@ use super::types::DatasetQueryOptions;
 use super::util::elapsed_ms;
 use super::{
     hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint,
-    project_requested_metrics, query_dataset_rows, runtime_metric_eval_scope, runtime_metric_workset,
+    project_requested_metrics, query_dataset_rows, runtime_metric_eval_scope,
+    runtime_metric_workset,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +108,8 @@ pub fn evaluate_runtime_metrics(
     mode: RuntimeMetricEvalMode,
 ) -> Result<RuntimeMetricEvalOutcome> {
     let request_all_metrics = request_metric_ids.is_empty();
-    let eval_plan = plan_access_metric_eval_for_ids(compiled, dataset_selector, request_metric_ids)?;
+    let eval_plan =
+        plan_access_metric_eval_for_ids(compiled, dataset_selector, request_metric_ids)?;
     evaluate_runtime_metrics_from_plan(
         compiled,
         app_root,
@@ -146,17 +148,15 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         runtime_dataset.columns = filtered_rows.columns.clone();
     }
 
-    let mut datasets = build_compiled_datasets_map(compiled, &eval_plan.primary.id, runtime_dataset.clone());
+    let mut datasets =
+        build_compiled_datasets_map(compiled, &eval_plan.primary.id, runtime_dataset.clone());
     let workset = runtime_metric_workset(
         &eval_plan.owner.id,
         &eval_plan.request_metric_ids,
         owner_dataset,
     );
     let closure_metric_ids = workset.closure_metric_ids.clone();
-    let covered_eval_metric_ids = workset
-        .eval_metric_ids
-        .clone()
-        .unwrap_or_default();
+    let covered_eval_metric_ids = workset.eval_metric_ids.clone().unwrap_or_default();
     let metric_filter = workset.eval_metric_ids.as_deref();
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
     let dependency_revision_key = metric_request_revision_fingerprint(

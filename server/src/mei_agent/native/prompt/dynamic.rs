@@ -11,12 +11,12 @@ use crate::agent_runtime::{
     events::HostOpencodeEvent,
 };
 
-use super::super::{model_from_env, now_ms, NativeAgent};
 use super::super::super::{
     llm, llm_config,
     resource_tools::{self, AgentResourceScope},
     workspace_snapshot_git::WorkspaceSnapshotGit,
 };
+use super::super::{model_from_env, now_ms, NativeAgent};
 impl NativeAgent {
     pub async fn send_prompt(
         &self,

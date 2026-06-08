@@ -5,7 +5,10 @@ use crate::{agent_runtime::bridge::BridgePromptRequest, AppState};
 
 use super::super::paths::{resolve_app_root, sanitize_relative_path};
 use super::super::request_scope::world_scope_from_request;
-use super::super::world_snapshot_lines::{append_world_context_error_lines, append_world_context_lines, append_world_context_snapshot_lines};
+use super::super::world_snapshot_lines::{
+    append_world_context_error_lines, append_world_context_lines,
+    append_world_context_snapshot_lines,
+};
 use super::browser::append_browser_context_lines;
 use super::host::{append_host_contract_schema_line, append_host_protocol_lines};
 
@@ -153,4 +156,3 @@ pub(super) fn build_dynamic_mei_context(
     }
     Some(lines.join("\n"))
 }
-

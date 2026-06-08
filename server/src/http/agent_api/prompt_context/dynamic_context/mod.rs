@@ -89,7 +89,6 @@ pub(crate) fn load_or_refresh_session_context(
     Some(context)
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -190,7 +189,8 @@ mod tests {
             host_protocol: None,
             host_contract_schema: None,
         };
-        let ctx = mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
+        let ctx =
+            mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(
             !ctx.contains("```mei"),
             "expected no inlined mei fence: {ctx}"
@@ -217,7 +217,8 @@ mod tests {
             host_protocol: None,
             host_contract_schema: None,
         };
-        let ctx = mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
+        let ctx =
+            mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(ctx.contains("[Ask mode — world-first]"));
         assert!(!ctx.contains("[Build mode — current target .mei snapshot]"));
         assert!(!ctx.contains("[Build mode"));
@@ -243,7 +244,8 @@ mod tests {
             host_protocol: None,
             host_contract_schema: None,
         };
-        let ctx = mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
+        let ctx =
+            mei_body::build_dynamic_mei_context(&state, &request, None, None).unwrap_or_default();
         assert!(ctx.contains("[Build mode — current target .mei snapshot]"));
         assert!(ctx.contains("app(kind=\"app\""));
         let _ = fs::remove_dir_all(&root);

@@ -196,4 +196,3 @@ pub fn query_world_runtime(
         recent_trace_messages: recent_trace_messages(&bundle.state, trace_limit),
     })
 }
-

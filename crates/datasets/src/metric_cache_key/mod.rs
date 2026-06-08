@@ -22,8 +22,12 @@ mod tests {
         QueryState, QueryTimeRange, RuntimeMetricEvalScope, SourceDecl,
     };
 
-    use super::cache_key::{eval_node_cache_key, metric_request_revision_fingerprint, runtime_metric_eval_scope};
-    use super::query_normalize::{normalize_query_filters, normalize_query_search, query_state_from_request};
+    use super::cache_key::{
+        eval_node_cache_key, metric_request_revision_fingerprint, runtime_metric_eval_scope,
+    };
+    use super::query_normalize::{
+        normalize_query_filters, normalize_query_search, query_state_from_request,
+    };
     use super::{metric_scope_cache_key, runtime_metric_workset};
 
     #[test]
@@ -484,5 +488,4 @@ mod tests {
         );
         assert_eq!(workset.defs_for_hydrate.len(), 2);
     }
-
 }

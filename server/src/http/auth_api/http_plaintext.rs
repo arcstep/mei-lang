@@ -1,6 +1,5 @@
 /// HTTP 明文登录仅允许受信主机（浏览器在 HTTP 非 localhost 下无 `crypto.subtle`）。
-const HTTP_PLAINTEXT_LOGIN_HOSTS: &[&str] =
-    &["localhost", "127.0.0.1", "[::1]", "23.211.135.152"];
+const HTTP_PLAINTEXT_LOGIN_HOSTS: &[&str] = &["localhost", "127.0.0.1", "[::1]", "23.211.135.152"];
 
 fn host_only_from_header(host_header: &str) -> &str {
     let trimmed = host_header.trim();

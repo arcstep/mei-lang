@@ -10,8 +10,8 @@ use crate::compile::panel_normalize::{
 use crate::model::{Diagnostic, PanelDecl, Severity};
 use crate::typed_refs::{decode_ref_value, RefExpr, RefKind, SceneRegistry};
 
-use super::super::merge_decl::merge_panel_decl;
 use super::super::super::normalize::normalize_ui_nodes;
+use super::super::merge_decl::merge_panel_decl;
 use crate::compile::entry_payload::import_scope::rewrite_panel_import_refs;
 
 use super::path::{push_invalid_base_kind, resolve_ref_path};

@@ -1,14 +1,14 @@
 pub(crate) mod agent_api;
 pub mod auth_api;
 mod compile_cache;
-pub(crate) mod host_error_page;
 mod datasets;
+pub(crate) mod host_error_page;
 pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
-pub mod upload_api;
 pub mod projection_api;
 pub mod scene_api;
+pub mod upload_api;
 
 use axum::{
     http::StatusCode,

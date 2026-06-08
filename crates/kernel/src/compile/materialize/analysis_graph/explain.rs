@@ -184,7 +184,10 @@ pub(super) fn collect_metric_value_lineage_dataset_ids(raw: &Value) -> BTreeSet<
     out
 }
 
-pub(super) fn lineage_dataset_ids_from_graph(graph: &AnalysisGraph, metric_id: &str) -> BTreeSet<String> {
+pub(super) fn lineage_dataset_ids_from_graph(
+    graph: &AnalysisGraph,
+    metric_id: &str,
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for edge in &graph.edges {
         if edge.from != metric_id || edge.role != "lineage" {
@@ -231,7 +234,10 @@ pub(super) fn infer_unique_lineage_dataset_id(
     })
 }
 
-pub(super) fn unique_lineage_dataset_id_from_metric_values(raw: &Value, support_role: &str) -> Option<String> {
+pub(super) fn unique_lineage_dataset_id_from_metric_values(
+    raw: &Value,
+    support_role: &str,
+) -> Option<String> {
     if !matches!(
         support_role,
         "detail" | "trend" | "composition" | "attribution"
@@ -454,4 +460,3 @@ pub(super) fn detect_metric_shape(map: &Map<String, Value>) -> Option<String> {
         .to_string()
     })
 }
-

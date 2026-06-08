@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use mei_lang_kernel::MetricContract;
 
-use super::types::DatasetQueryOptions;
 use super::serialize_cache_value;
+use super::types::DatasetQueryOptions;
 
 const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
 

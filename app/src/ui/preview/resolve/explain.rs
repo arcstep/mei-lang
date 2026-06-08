@@ -22,4 +22,3 @@ pub(crate) fn object_map_from_value(value: &Value) -> serde_json::Map<String, Va
     };
     map.clone()
 }
-

@@ -55,8 +55,8 @@ pub(super) fn prepare_scene_selection(
             }
         }
     }
-    let requires_scene_contract = (route_meta.is_some() || target_file != ctx.app_entry_main)
-        && !ctx.dataset_library_only;
+    let requires_scene_contract =
+        (route_meta.is_some() || target_file != ctx.app_entry_main) && !ctx.dataset_library_only;
     if requires_scene_contract && ctx.selected_scene.is_none() {
         let is_legacy_fragment = ctx.frame_decl_count > 0
             || !ctx.panels.is_empty()

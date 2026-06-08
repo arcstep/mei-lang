@@ -4,9 +4,7 @@ use axum::{
     http::{HeaderName, HeaderValue},
     response::{Html, IntoResponse, Response},
 };
-use mei_lang_app::{
-    render_page, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry,
-};
+use mei_lang_app::{render_page, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
 use mei_lang_kernel::{
     read_source_file, resolve_app_root, CompiledApp, Severity, WorkspaceAppMeta,
 };

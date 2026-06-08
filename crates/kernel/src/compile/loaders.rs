@@ -165,8 +165,9 @@ mod tests {
 
     #[test]
     fn load_spbjw_warning_xlsx_preserves_leading_empty_header_columns() {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../workspaces/ws-spbjw/zhifa/upload/11.预警清单、问题跟踪清单.20260527.xlsx");
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "../../../workspaces/ws-spbjw/zhifa/upload/11.预警清单、问题跟踪清单.20260527.xlsx",
+        );
         let rows = super::load_legacy_xlsx_rows(&path, None, 4, Some(20))
             .expect("load spbjw warning list xlsx");
         let row = rows

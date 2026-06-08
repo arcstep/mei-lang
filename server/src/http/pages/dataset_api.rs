@@ -13,6 +13,7 @@ use crate::{AppError, AppState};
 
 use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::compile_cache::compile_app_with_cache;
+use super::super::datasets::clear_metric_response_cache;
 use super::super::datasets::{
     clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows,
     query_metric_dataframe, query_state_from_request,
@@ -22,7 +23,6 @@ use super::super::datasets::{
     DatasetQueryOptions,
 };
 use super::components::resolve_components_root;
-use super::super::datasets::clear_metric_response_cache;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
     strict_dataset_query_mode_contract, strict_runtime_query_contract, strict_scene_query_coords,

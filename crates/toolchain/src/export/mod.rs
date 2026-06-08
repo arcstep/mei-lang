@@ -3,8 +3,8 @@ mod dataset_binding;
 mod types;
 
 pub use artifacts::{
-    export_analysis_contracts, export_eval_plan, export_inventory_snapshot,
-    export_runtime_trace, export_semantic_dag,
+    export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,
+    export_semantic_dag,
 };
 pub use types::{
     HeadlessArtifactEnvelope, HeadlessArtifactKind, HeadlessExportOptions,

@@ -3,9 +3,7 @@
 use std::hash::{Hash, Hasher};
 
 use crate::agent_runtime::bridge::BridgePromptRequest;
-use crate::http::scene_api::{
-    build_world_context_snapshot, WorldContextSnapshot, WorldScope,
-};
+use crate::http::scene_api::{build_world_context_snapshot, WorldContextSnapshot, WorldScope};
 use crate::mei_agent::agent_scope_profile::agent_resource_scope_from_request_with_snapshot;
 use crate::mei_agent::mode_policy::AgentModePolicy;
 use crate::mei_agent::resource_tools::AgentResourceScope;
@@ -77,8 +75,11 @@ impl AgentScopeBundle {
         let (app_id, _) = resolve_app_root(state, request)?;
         let policy = AgentModePolicy::from_request(request);
         let world_scope = world_scope_from_request(request);
-        let snap_res =
-            build_world_context_snapshot(state.source_root.as_path(), app_id.as_str(), Some(&world_scope));
+        let snap_res = build_world_context_snapshot(
+            state.source_root.as_path(),
+            app_id.as_str(),
+            Some(&world_scope),
+        );
         let (snapshot, snapshot_error) = match snap_res {
             Ok(s) => (Some(s), None),
             Err(e) => (None, Some(e.to_string())),

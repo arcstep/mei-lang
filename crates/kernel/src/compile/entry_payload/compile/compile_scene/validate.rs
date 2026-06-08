@@ -46,9 +46,8 @@ pub(super) fn validate_and_apply_mutations(
         || !ctx.pending_world_metrics.is_empty()
         || had_pending_topology
         || had_pending_frame_layout;
-    ctx.dataset_library_only = has_dataset_library_content
-        && !has_authoring_surface
-        && target_file != ctx.app_entry_main;
+    ctx.dataset_library_only =
+        has_dataset_library_content && !has_authoring_surface && target_file != ctx.app_entry_main;
 
     if ctx.top_level_legacy_dataset_count > 0
         || ctx.top_level_legacy_dataset_view_count > 0

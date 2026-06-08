@@ -12,7 +12,7 @@ mod workspace_paths;
 mod tests;
 
 pub use auth_bundle::{
-    load_workspace_auth_bundle, write_workspace_auth_bundle, workspace_auth_config_path,
+    load_workspace_auth_bundle, workspace_auth_config_path, write_workspace_auth_bundle,
     WorkspaceAuthBundle,
 };
 pub use io::{
@@ -23,11 +23,10 @@ pub use ops::{merge_ops_section, OpsConfigPatch};
 pub use types::{
     AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig, AuthUserConfig,
     DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry, OpsConfig,
-    OpsSourceEntry, RuntimeConfig, WorkspaceAuthConfig, WorkspaceComplianceConfig,
-    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APP_ENTRY_MAIN,
-    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, MEI_CONFIG_FILENAME,
-    MEI_WORKSPACE_CONFIG_FILENAME, AUTH_JOURNAL_REL_PATH, LEGACY_AUTH_JOURNAL_REL_PATH,
-    OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
+    OpsSourceEntry, RuntimeConfig, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
+    WorkspacePathsConfig, WorkspaceProfile, AUTH_JOURNAL_REL_PATH, DEFAULT_APP_ENTRY_MAIN,
+    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, LEGACY_AUTH_JOURNAL_REL_PATH,
+    MEI_CONFIG_FILENAME, MEI_WORKSPACE_CONFIG_FILENAME, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
 };
 pub use workspace_paths::{
     app_mei_config_path, is_app_config_root, resolve_app_root, resolve_components_root,

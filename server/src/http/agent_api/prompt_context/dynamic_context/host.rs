@@ -2,7 +2,10 @@ use std::hash::{Hash, Hasher};
 
 use crate::agent_runtime::bridge::BridgePromptRequest;
 
-pub(super) fn append_host_protocol_lines(lines: &mut Vec<String>, host_protocol: Option<&serde_json::Value>) {
+pub(super) fn append_host_protocol_lines(
+    lines: &mut Vec<String>,
+    host_protocol: Option<&serde_json::Value>,
+) {
     let Some(host) = host_protocol.and_then(|value| value.as_object()) else {
         return;
     };
@@ -57,4 +60,3 @@ pub(super) fn host_protocol_digest(request: &BridgePromptRequest) -> String {
     raw.hash(&mut hasher);
     format!("{:016x}", hasher.finish())
 }
-

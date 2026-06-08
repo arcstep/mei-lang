@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use crate::model::AnalysisGraph;
 
-use super::{explain::*, expand::*, graph_build::*, util::*};
+use super::{expand::*, explain::*, graph_build::*, util::*};
 
 pub(super) fn build_analysis_contracts_from_expanded(
     expanded_defs: &BTreeMap<String, Value>,
@@ -192,4 +192,3 @@ pub(super) fn build_metric_contract(
     }
     contract
 }
-

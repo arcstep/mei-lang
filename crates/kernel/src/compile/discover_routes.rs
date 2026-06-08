@@ -8,9 +8,13 @@ use serde_json::Value;
 use walkdir::WalkDir;
 
 use crate::mei_config::{
-    app_mei_config_path, load_mei_config_for_app, workspace_config_path, MEI_WORKSPACE_CONFIG_FILENAME,
+    app_mei_config_path, load_mei_config_for_app, workspace_config_path,
+    MEI_WORKSPACE_CONFIG_FILENAME,
 };
-use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, Severity, WorldMetricLedgerEntry};
+use crate::model::{
+    CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, Severity,
+    WorldMetricLedgerEntry,
+};
 use crate::typed_refs::SceneRegistry;
 
 use super::materialize::materialize_world_metrics;
@@ -36,7 +40,6 @@ pub struct CompileRevisionPlan {
     pub watched_files: Vec<CompileWatchedFile>,
     pub components_revision: u128,
 }
-
 
 pub(super) fn try_push_discovered_entry_route(
     routes: &mut Vec<CompiledSceneRoute>,
@@ -66,7 +69,10 @@ pub(super) fn try_push_discovered_entry_route(
     });
 }
 
-pub(super) fn route_targets_preview(route: &CompiledSceneRoute, preview_target: Option<&str>) -> bool {
+pub(super) fn route_targets_preview(
+    route: &CompiledSceneRoute,
+    preview_target: Option<&str>,
+) -> bool {
     let Some(preview) = preview_target
         .map(str::trim)
         .filter(|target| !target.is_empty())
@@ -132,7 +138,10 @@ pub(super) fn is_manage_entry_preview(options: &CompileOptions, app_entry_main: 
     manage_preview_target(options, app_entry_main).is_some()
 }
 
-pub(super) fn is_manage_preview_only_compile(options: &CompileOptions, app_entry_main: &str) -> bool {
+pub(super) fn is_manage_preview_only_compile(
+    options: &CompileOptions,
+    app_entry_main: &str,
+) -> bool {
     is_dataset_manage_preview(options, app_entry_main)
         || is_manage_entry_preview(options, app_entry_main)
 }

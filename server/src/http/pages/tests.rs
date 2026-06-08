@@ -397,8 +397,11 @@ async fn access_static_html_file_renders_without_scene_redirect() {
     let root = unique_test_root("static-html-access");
     let app_root = root.join("html-app");
     fs::create_dir_all(app_root.join("demo")).expect("create demo dir");
-    fs::write(app_root.join("main.mei"), VALID_APP_SOURCE.replace("good-app", "html-app"))
-        .expect("write main.mei");
+    fs::write(
+        app_root.join("main.mei"),
+        VALID_APP_SOURCE.replace("good-app", "html-app"),
+    )
+    .expect("write main.mei");
     fs::write(
         app_root.join("demo/index.html"),
         "<!doctype html><html><body id=\"proto\">PROTOTYPE</body></html>",
@@ -528,8 +531,11 @@ async fn manage_html_preview_uses_document_iframe() {
     let root = unique_test_root("static-html-manage");
     let app_root = root.join("html-app");
     fs::create_dir_all(app_root.join("demo")).expect("create demo dir");
-    fs::write(app_root.join("main.mei"), VALID_APP_SOURCE.replace("good-app", "html-app"))
-        .expect("write main.mei");
+    fs::write(
+        app_root.join("main.mei"),
+        VALID_APP_SOURCE.replace("good-app", "html-app"),
+    )
+    .expect("write main.mei");
     fs::write(
         app_root.join("demo/index.html"),
         "<!doctype html><html><body>MANAGE_HTML</body></html>",
@@ -1064,8 +1070,8 @@ async fn spbjw_home_indicator_metrics_use_inspection_check_date_xlsx() {
 #[tokio::test]
 async fn http_dataset_query_aligns_with_toolchain_access_query() {
     use axum::{
-        body::Body,
         body::to_bytes,
+        body::Body,
         http::{Request, StatusCode},
     };
     use std::collections::BTreeMap;

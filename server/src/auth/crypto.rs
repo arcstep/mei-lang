@@ -105,8 +105,13 @@ pub fn generate_temporary_password() -> String {
     let lower = b"abcdefghijkmnopqrstuvwxyz";
     let digit = b"23456789";
     let symbol = b"!@#$%^&*_+-=";
-    let all = [upper.as_slice(), lower.as_slice(), digit.as_slice(), symbol.as_slice()]
-        .concat();
+    let all = [
+        upper.as_slice(),
+        lower.as_slice(),
+        digit.as_slice(),
+        symbol.as_slice(),
+    ]
+    .concat();
     let mut chars = vec![
         *upper.choose(&mut rng).unwrap_or(&b'A'),
         *lower.choose(&mut rng).unwrap_or(&b'a'),
@@ -120,9 +125,7 @@ pub fn generate_temporary_password() -> String {
     chars.into_iter().map(char::from).collect()
 }
 pub fn cookie_header_value(cookie_name: &str, token: &str, max_age: u64) -> String {
-    format!(
-        "{cookie_name}={token}; HttpOnly; Path=/; Max-Age={max_age}; SameSite=Lax"
-    )
+    format!("{cookie_name}={token}; HttpOnly; Path=/; Max-Age={max_age}; SameSite=Lax")
 }
 
 pub fn clear_cookie_header_value(cookie_name: &str) -> String {
@@ -130,7 +133,10 @@ pub fn clear_cookie_header_value(cookie_name: &str) -> String {
 }
 
 pub fn extract_token_from_headers(headers: &HeaderMap, cookie_name: &str) -> Option<String> {
-    if let Some(cookie_header) = headers.get(header::COOKIE).and_then(|value| value.to_str().ok()) {
+    if let Some(cookie_header) = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok())
+    {
         for pair in cookie_header.split(';') {
             let mut it = pair.trim().splitn(2, '=');
             let key = it.next().unwrap_or("").trim();

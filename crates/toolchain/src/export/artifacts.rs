@@ -14,7 +14,9 @@ use crate::world::{build_world_context_snapshot, load_world_runtime_bundle};
 use super::dataset_binding::{
     collect_dataset_views, dimension_bindings, filter_intents, query_state, resolve_metric_ids,
 };
-use super::types::{export_context, finalize_envelope, HeadlessArtifactKind, HeadlessExportOptions};
+use super::types::{
+    export_context, finalize_envelope, HeadlessArtifactKind, HeadlessExportOptions,
+};
 
 pub fn export_inventory_snapshot(
     source_root: &Path,
@@ -59,7 +61,11 @@ pub fn export_semantic_dag(
         .ok_or_else(|| anyhow!("resource `{dataset_id}` is not a dataset"))?;
     let selected_metric_ids = resolve_metric_ids(dataset, metric_ids)?;
     let closure_metric_ids = if selected_metric_ids.is_empty() {
-        dataset.runtime_metric_defs.keys().cloned().collect::<Vec<_>>()
+        dataset
+            .runtime_metric_defs
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
     } else {
         runtime_analysis_closure_metric_ids(&dataset.runtime_analysis_graph, &selected_metric_ids)
     };
@@ -106,9 +112,7 @@ pub fn export_analysis_contracts(
     let contracts = if selected_metric_ids.is_empty() {
         dataset.runtime_analysis_contracts.clone()
     } else {
-        let selected = selected_metric_ids
-            .into_iter()
-            .collect::<BTreeSet<_>>();
+        let selected = selected_metric_ids.into_iter().collect::<BTreeSet<_>>();
         dataset
             .runtime_analysis_contracts
             .iter()

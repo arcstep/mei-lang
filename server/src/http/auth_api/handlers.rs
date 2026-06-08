@@ -103,11 +103,8 @@ pub async fn login_page(
     };
     if let Some(Extension(principal)) = principal {
         if runtime.enabled {
-            return Redirect::temporary(&authorize_next_path(
-                query.next.as_deref(),
-                &principal,
-            ))
-            .into_response();
+            return Redirect::temporary(&authorize_next_path(query.next.as_deref(), &principal))
+                .into_response();
         }
     }
     let footer_html =
@@ -136,7 +133,9 @@ pub async fn logout_page(
         Redirect::temporary(&sanitize_next_path(query.next.as_deref())).into_response();
     let value = clear_cookie_header_value(runtime.cookie_name.as_str());
     if let Ok(header_value) = HeaderValue::from_str(&value) {
-        response.headers_mut().insert(header::SET_COOKIE, header_value);
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, header_value);
     }
     response
 }
@@ -170,7 +169,10 @@ pub async fn auth_public_key(State(state): State<AppState>) -> impl IntoResponse
         Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     };
     if runtime.public_key_pem.trim().is_empty() {
-        return json_error(StatusCode::SERVICE_UNAVAILABLE, "auth keypair is not configured");
+        return json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "auth keypair is not configured",
+        );
     }
     (
         StatusCode::OK,
@@ -388,11 +390,16 @@ pub async fn auth_change_password(
         Ok(value) => value,
         Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
     };
-    let Some(new_claims) = (match refreshed.authenticate(principal.username.as_str(), new_password.as_str()) {
-        Ok(value) => value,
-        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
-    }) else {
-        return json_error(StatusCode::INTERNAL_SERVER_ERROR, "failed to re-issue session");
+    let Some(new_claims) =
+        (match refreshed.authenticate(principal.username.as_str(), new_password.as_str()) {
+            Ok(value) => value,
+            Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+        })
+    else {
+        return json_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to re-issue session",
+        );
     };
     let token = match refreshed.issue_jwt(&new_claims) {
         Ok(value) => value,

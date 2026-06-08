@@ -6,8 +6,8 @@ use std::{
 use anyhow::{Context, Result};
 use mei_lang_kernel::{
     stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
-    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, WorkspaceConfig, WorkspacePathsConfig,
-    WorkspaceProfile,
+    WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_STOCK_COMPONENTS_REL,
+    DEFAULT_STOCK_TEMPLATES_REL,
 };
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -71,8 +71,7 @@ fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDi
         }
         let dest = to.join(&rel);
         if entry.file_type().is_dir() {
-            fs::create_dir_all(&dest)
-                .with_context(|| format!("create dir {}", dest.display()))?;
+            fs::create_dir_all(&dest).with_context(|| format!("create dir {}", dest.display()))?;
             continue;
         }
         if dest.exists() && !force {
@@ -84,13 +83,8 @@ fn materialize_tree(from: &Path, to: &Path, force: bool) -> Result<MaterializeDi
                 .with_context(|| format!("create parent {}", parent.display()))?;
         }
         let existed = dest.exists();
-        fs::copy(src, &dest).with_context(|| {
-            format!(
-                "copy stock file {} -> {}",
-                src.display(),
-                dest.display()
-            )
-        })?;
+        fs::copy(src, &dest)
+            .with_context(|| format!("copy stock file {} -> {}", src.display(), dest.display()))?;
         copied_files += 1;
         if existed {
             overwritten_files += 1;
@@ -122,8 +116,7 @@ pub fn init_workspace_profile(
     }
     fs::create_dir_all(&source_root)
         .with_context(|| format!("create workspace profile {}", source_root.display()))?;
-    fs::create_dir_all(source_root.join(".mei"))
-        .context("create workspace .mei runtime dir")?;
+    fs::create_dir_all(source_root.join(".mei")).context("create workspace .mei runtime dir")?;
 
     let config_path = workspace_config_path(&source_root);
     if !config_path.is_file() {

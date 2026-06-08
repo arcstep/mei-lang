@@ -675,19 +675,17 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
         .scene_contract
         .as_ref()
         .expect("access home scene contract");
-    assert_eq!(contract.themes.len(), 1, "access route must inject ops theme");
     assert_eq!(
-        contract.themes[0]
-            .font
-            .get("4")
-            .and_then(|v| v.as_str()),
+        contract.themes.len(),
+        1,
+        "access route must inject ops theme"
+    );
+    assert_eq!(
+        contract.themes[0].font.get("4").and_then(|v| v.as_str()),
         Some("36px")
     );
     assert_eq!(
-        contract.themes[0]
-            .font
-            .get("5")
-            .and_then(|v| v.as_str()),
+        contract.themes[0].font.get("5").and_then(|v| v.as_str()),
         Some("24px"),
         "ops theme should define font level 5 for metric values"
     );
@@ -703,7 +701,10 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
         .iter()
         .find(|p| p.id == "left_rail_float")
         .expect("home access route should include left_rail_float");
-    fn find_panel_in_nodes<'a>(nodes: &'a [crate::UiNodeDecl], id: &str) -> Option<&'a crate::PanelDecl> {
+    fn find_panel_in_nodes<'a>(
+        nodes: &'a [crate::UiNodeDecl],
+        id: &str,
+    ) -> Option<&'a crate::PanelDecl> {
         for node in nodes {
             let crate::UiNodeDecl::Panel(panel) = node else {
                 continue;
@@ -720,10 +721,7 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
     let titled = find_panel_in_nodes(&left_rail.blocks, "enforcement_elements_stats")
         .expect("left rail should nest titled_shell panel");
     assert_eq!(
-        titled
-            .head_props
-            .get("font_size")
-            .and_then(|v| v.as_str()),
+        titled.head_props.get("font_size").and_then(|v| v.as_str()),
         Some("30px"),
         "titled_shell heading font_size should survive panel_ref merge"
     );
@@ -812,10 +810,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     assert_eq!(contract.themes.len(), 1);
     assert_eq!(contract.themes[0].id, "cockpit");
     assert_eq!(
-        contract.themes[0]
-            .font
-            .get("4")
-            .and_then(|v| v.as_str()),
+        contract.themes[0].font.get("4").and_then(|v| v.as_str()),
         Some("36px"),
         "ops.themes.cockpit font scale should materialize into scene_contract"
     );

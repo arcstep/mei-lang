@@ -7,7 +7,9 @@ use anyhow::{anyhow, Result};
 
 use crate::{
     eval::evaluate_mei_file,
-    mei_config::{app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MEI_CONFIG_FILENAME},
+    mei_config::{
+        app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MEI_CONFIG_FILENAME,
+    },
     typed_refs::SceneRegistry,
     workspace::load_component_assets,
 };
@@ -153,7 +155,9 @@ pub fn compile_revision_plan_from_root_with_options(
         ));
     }
     if !dataset_manage_preview {
-        for rel in crate::compile::catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter) {
+        for rel in
+            crate::compile::catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter)
+        {
             if let Some(token) =
                 dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &rel)
             {

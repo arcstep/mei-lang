@@ -4,7 +4,9 @@ use std::path::Path;
 use mei_lang_kernel::{decode_ref_value, PanelDecl, RefKind, UiNodeDecl};
 use serde_json::Value;
 
-use crate::types::{ResourceInventoryItem, ResourceInventorySnapshot, WorldRuntimeBundle, WorldScope};
+use crate::types::{
+    ResourceInventoryItem, ResourceInventorySnapshot, WorldRuntimeBundle, WorldScope,
+};
 
 use super::bundle::normalize_path;
 
@@ -378,7 +380,11 @@ pub(crate) fn build_resource_inventory(
             Some(format!(
                 "kind={} dataset={}",
                 resource.kind,
-                if resource.dataset.is_some() { "yes" } else { "no" }
+                if resource.dataset.is_some() {
+                    "yes"
+                } else {
+                    "no"
+                }
             )),
             None,
             Vec::new(),
@@ -423,4 +429,3 @@ pub(crate) fn build_resource_inventory(
         items,
     }
 }
-

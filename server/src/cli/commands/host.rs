@@ -4,14 +4,13 @@ use anyhow::{Context, Result};
 use mei_lang_kernel::host_runtime_contract_descriptor;
 use serde_json::json;
 
-use crate::{auth, build_info};
 use super::super::args::{
     HostArgs, HostAuthAddUserArgs, HostAuthArgs, HostAuthBootstrapUsersArgs, HostAuthCommand,
-    HostAuthDescribeArgs,
-    HostAuthEnsureKeysArgs, HostAuthHashPasswordArgs, HostAuthRotateKeysArgs, HostAuthSetUserEnabledArgs,
-    HostCommand, HostDescribeArgs,
+    HostAuthDescribeArgs, HostAuthEnsureKeysArgs, HostAuthHashPasswordArgs, HostAuthRotateKeysArgs,
+    HostAuthSetUserEnabledArgs, HostCommand, HostDescribeArgs,
 };
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
+use crate::{auth, build_info};
 
 pub fn host_command(args: HostArgs) -> Result<()> {
     match args.command {
@@ -259,7 +258,10 @@ pub fn host_auth_add_user_command(args: HostAuthAddUserArgs) -> Result<()> {
     print_json_output(&output, args.json)
 }
 
-pub fn host_auth_set_user_enabled_command(args: HostAuthSetUserEnabledArgs, enabled: bool) -> Result<()> {
+pub fn host_auth_set_user_enabled_command(
+    args: HostAuthSetUserEnabledArgs,
+    enabled: bool,
+) -> Result<()> {
     let package_root = resolve_package_root()?;
     let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
     auth::set_workspace_user_disabled(&source_root, args.username.as_str(), !enabled)?;

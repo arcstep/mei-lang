@@ -4,7 +4,11 @@ use serde_json::{json, Value};
 use super::super::NativeAgent;
 
 impl NativeAgent {
-    pub(super) fn build_llm_messages(&self, session_id: &str, system: Option<&str>) -> Result<Vec<Value>> {
+    pub(super) fn build_llm_messages(
+        &self,
+        session_id: &str,
+        system: Option<&str>,
+    ) -> Result<Vec<Value>> {
         let rows = self.session_messages_blocking(session_id)?;
         let mut messages = Vec::new();
         if let Some(s) = system {

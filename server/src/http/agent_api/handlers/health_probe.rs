@@ -133,8 +133,7 @@ pub async fn api_agent_health(State(state): State<AppState>) -> Response {
                 );
             } else {
                 status.history_available = false;
-                status.history_reason =
-                    Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
+                status.history_reason = Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
             }
             Json(status).into_response()
         }

@@ -10,8 +10,6 @@ use crate::compile::entry_payload::CompiledScenePayload;
 use crate::model::{CompiledApp, Diagnostic, LoadedResource, Severity};
 use crate::workspace::source_tree;
 
-use super::active::ActiveCompileResult;
-use super::catalog::CatalogCompileResult;
 use super::super::catalog::DatasetCatalogFilter;
 use super::super::decl_file_cache::decl_file_cache_metrics_snapshot;
 use super::super::dependency_graph::DependencyGraph;
@@ -26,6 +24,8 @@ use super::super::{
     },
     scene_payload_cache::scene_payload_cache_metrics_snapshot,
 };
+use super::active::ActiveCompileResult;
+use super::catalog::CatalogCompileResult;
 
 pub(super) struct CompileCacheBefore {
     pub l2_hits: u64,
@@ -112,14 +112,18 @@ pub(super) fn finish_compiled_app(
         &app_main_source,
     );
 
-    let (scene_local_nav_by_target, scene_bindings_by_id, scene_examples_by_id, scene_projection_assembly_by_id) =
-        build_scene_projection_maps(
-            &route_registry,
-            &official_results,
-            active_scene.as_deref(),
-            &active_target_file,
-            &active_payload,
-        );
+    let (
+        scene_local_nav_by_target,
+        scene_bindings_by_id,
+        scene_examples_by_id,
+        scene_projection_assembly_by_id,
+    ) = build_scene_projection_maps(
+        &route_registry,
+        &official_results,
+        active_scene.as_deref(),
+        &active_target_file,
+        &active_payload,
+    );
 
     Ok(CompiledApp {
         app_id: app_id.to_string(),
@@ -175,11 +179,8 @@ fn push_route_and_graph_diagnostics(
         source_path: Some(app_main_source.to_string()),
     });
 
-    let active_shard = shards::build_scene_payload_shard(
-        active_target_file,
-        active_scene,
-        active_payload,
-    );
+    let active_shard =
+        shards::build_scene_payload_shard(active_target_file, active_scene, active_payload);
     let dataset_shard = shards::build_dataset_materialization_shard(
         "__catalog__",
         &resources
@@ -190,9 +191,7 @@ fn push_route_and_graph_diagnostics(
     );
     let imported_scope_shards = shards::collect_imported_scope_shards(resources);
     let graph_stats = dependency_graph.stats();
-    let preview_scope_size = preview_affected_targets
-        .map(BTreeSet::len)
-        .unwrap_or(0);
+    let preview_scope_size = preview_affected_targets.map(BTreeSet::len).unwrap_or(0);
     diagnostics.push(Diagnostic {
         severity: Severity::Info,
         code: "dependency_graph_stats".to_string(),
@@ -400,8 +399,10 @@ fn build_scene_projection_maps(
             }
         }
         if !contract.scene.local_nav.is_null() {
-            scene_local_nav_by_target
-                .insert(active_target_file.to_string(), contract.scene.local_nav.clone());
+            scene_local_nav_by_target.insert(
+                active_target_file.to_string(),
+                contract.scene.local_nav.clone(),
+            );
         }
     }
     (

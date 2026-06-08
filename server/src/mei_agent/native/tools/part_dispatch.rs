@@ -7,11 +7,18 @@ use super::super::super::resource_tools::AgentResourceScope;
 use super::super::NativeAgent;
 
 impl NativeAgent {
-    fn run_propose_session_patch_tool(&self, session_id: &str, call_id: &str, args: &str) -> String {
+    fn run_propose_session_patch_tool(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        args: &str,
+    ) -> String {
         let args_val: Value = serde_json::from_str(args).unwrap_or_else(|_| json!({}));
         let ops = match args_val.get("ops").and_then(Value::as_array) {
             Some(items) if !items.is_empty() => items,
-            _ => return "error: propose_session_patch requires a non-empty `ops` array".to_string(),
+            _ => {
+                return "error: propose_session_patch requires a non-empty `ops` array".to_string()
+            }
         };
         if ops.len() > 8 {
             return "error: propose_session_patch supports at most 8 ops per offer".to_string();
@@ -315,10 +322,8 @@ mod tests {
     use super::*;
 
     fn build_test_agent() -> NativeAgent {
-        let root = std::env::temp_dir().join(format!(
-            "mei-native-session-patch-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("mei-native-session-patch-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).expect("create test root");
         NativeAgent::open(root).expect("open native agent")
     }

@@ -4,8 +4,10 @@ use serde_json::{json, Value};
 pub const HOST_RUNTIME_PROTOCOL_SCHEMA: &str = "mei-host-runtime-protocol-v1";
 pub const HOST_RUNTIME_CONTRACT_SCHEMA: &str = "mei-host-runtime-contract-v1";
 
-const HOST_RUNTIME_CAPABILITIES: [&str; 2] =
-    ["rows_query(scene_qualified)", "metric_query(scene_qualified)"];
+const HOST_RUNTIME_CAPABILITIES: [&str; 2] = [
+    "rows_query(scene_qualified)",
+    "metric_query(scene_qualified)",
+];
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -78,16 +80,13 @@ pub fn host_runtime_contract_descriptor() -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{host_runtime_contract_descriptor, host_runtime_capabilities_catalog, HostSurface};
+    use super::{host_runtime_capabilities_catalog, host_runtime_contract_descriptor, HostSurface};
 
     #[test]
     fn host_runtime_contract_descriptor_contains_core_fields() {
         let v = host_runtime_contract_descriptor();
         assert_eq!(v["protocol_schema"], "mei-host-runtime-protocol-v1");
-        assert_eq!(
-            v["host_replaceability"]["non_replaceable"][0],
-            "compile"
-        );
+        assert_eq!(v["host_replaceability"]["non_replaceable"][0], "compile");
         assert_eq!(v["errors"]["access_scene_not_exported"], 403);
     }
 

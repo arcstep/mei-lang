@@ -2,20 +2,14 @@ use std::{
     collections::HashMap,
     path::PathBuf,
     process::Command,
-    sync::{
-        atomic::AtomicBool,
-        Arc, Mutex,
-    },
+    sync::{atomic::AtomicBool, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::agent_runtime::{bridge::BridgeHealthResponse, events::HostOpencodeEvent};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 use tokio::sync::broadcast;
-use crate::agent_runtime::{
-    bridge::BridgeHealthResponse,
-    events::HostOpencodeEvent,
-};
 
 use super::{
     llm_config,
@@ -135,10 +129,7 @@ impl NativeAgent {
     /// 无场景 resource 工具（noop）；供测试与仅嵌入 `http/pages` 的构建使用，`mei serve` 主路径用 [`Self::open_with_resource_tools`]。
     #[allow(dead_code)]
     pub fn open(source_root: PathBuf) -> Result<Self> {
-        Self::open_with_resource_tools(
-            source_root,
-            Arc::new(NoopResourceToolExecutor::default()),
-        )
+        Self::open_with_resource_tools(source_root, Arc::new(NoopResourceToolExecutor::default()))
     }
 
     pub fn open_with_resource_tools(
@@ -214,8 +205,7 @@ impl NativeAgent {
         let wt = self.worktree_string();
         use crate::http::agent_api::AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT;
 
-        let mut history_reason =
-            Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
+        let mut history_reason = Some(AUTHORING_WRITEBACK_RETIRED_HISTORY_HINT.to_string());
         if !llm_ok {
             history_reason = Some(
                 "内置助手缺少 LLM 环境变量：若设置了 OPENAI_IMITATORS，则每个前缀需 {PREFIX}_BASE_URL、{PREFIX}_API_KEY、{PREFIX}_COMPLETION_MODEL（逗号分隔多模型时首项为默认）；未设置时沿用 QWEN_* 或 MEI_LLM_OPENAI_*。可用 MEI_LLM_DEFAULT_PROVIDER 指定默认前缀。"

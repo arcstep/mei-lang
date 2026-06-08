@@ -68,7 +68,9 @@ pub(super) fn finish_compile_inflight(
     }
 }
 
-pub(super) fn wait_for_compile_inflight(entry: &Arc<CompileInflight>) -> Result<CompiledApp, String> {
+pub(super) fn wait_for_compile_inflight(
+    entry: &Arc<CompileInflight>,
+) -> Result<CompiledApp, String> {
     let mut slot = entry
         .result
         .lock()

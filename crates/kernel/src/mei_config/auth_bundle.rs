@@ -47,14 +47,14 @@ pub fn load_workspace_auth_bundle(segment_root: &Path) -> WorkspaceAuthBundle {
             }
         }
     }
-    WorkspaceAuthBundle {
-        auth,
-        config_path,
-    }
+    WorkspaceAuthBundle { auth, config_path }
 }
 
 /// 将认证段写入工作区根 `.mei-workspace.json`。
-pub fn write_workspace_auth_bundle(segment_root: &Path, auth: &WorkspaceAuthConfig) -> Result<PathBuf> {
+pub fn write_workspace_auth_bundle(
+    segment_root: &Path,
+    auth: &WorkspaceAuthConfig,
+) -> Result<PathBuf> {
     let path = workspace_auth_config_path(segment_root);
     let mut config = if path.is_file() {
         WorkspaceConfig::load_or_default(&path)

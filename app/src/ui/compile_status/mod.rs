@@ -2,16 +2,15 @@ mod asset_shell;
 mod diagnostics;
 
 pub(crate) use asset_shell::{
-    asset_dual_preview_source, classify_asset_shell, codemirror_dataset_lang,
-    is_mei_script_target, is_static_workspace_asset_target, AssetShellKind,
+    asset_dual_preview_source, classify_asset_shell, codemirror_dataset_lang, is_mei_script_target,
+    is_static_workspace_asset_target, AssetShellKind,
 };
 pub(crate) use diagnostics::{
     blocking_errors_for_preview, compile_diagnostics_for_mode,
     compile_diagnostics_other_file_count, compile_status_counts_for_display,
-    compile_status_counts_for_target, compiled_has_error_diagnostics,
-    is_manage_pipeline_diag, is_world_capsule_target, normalize_diagnostic_source,
-    severity_counts, visible_diagnostics_count, world_capsule_companion_scene,
-    DiagnosticsFilterMode,
+    compile_status_counts_for_target, compiled_has_error_diagnostics, is_manage_pipeline_diag,
+    is_world_capsule_target, normalize_diagnostic_source, severity_counts,
+    visible_diagnostics_count, world_capsule_companion_scene, DiagnosticsFilterMode,
 };
 
 use mei_lang_kernel::CompiledApp;

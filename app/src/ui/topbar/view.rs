@@ -4,7 +4,9 @@ use std::collections::BTreeMap;
 
 use super::super::manage_routing::{access_scene_query, encode_query_value};
 use super::super::route::UiRouteMode;
-use super::super::view_routing::{app_scene_href, build_href, config_href, cross_app_href, upload_href};
+use super::super::view_routing::{
+    app_scene_href, build_href, config_href, cross_app_href, upload_href,
+};
 use super::super::{HostAccountView, HostCapabilities, TopbarMenuContext};
 
 use super::menu_groups::build_topbar_menu_groups;
@@ -24,7 +26,9 @@ fn canonical_scene_for_target<'a>(
     routes: &'a [CompiledSceneRoute],
     target_file: Option<&str>,
 ) -> Option<&'a str> {
-    let target = target_file.map(str::trim).filter(|value| !value.is_empty())?;
+    let target = target_file
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
     routes
         .iter()
         .find(|route| route.target_file == target && route.access_export)
@@ -157,8 +161,7 @@ pub(crate) fn topbar_view(
                     direct_items.push(item.clone());
                 }
             }
-            let is_single_top_level_tab =
-                direct_items.len() == 1 && subgroup_items.is_empty();
+            let is_single_top_level_tab = direct_items.len() == 1 && subgroup_items.is_empty();
             if is_single_top_level_tab {
                 let item = &direct_items[0];
                 let class = if item.app_id.as_str() == active_app_path {
@@ -255,14 +258,11 @@ pub(crate) fn topbar_view(
     } else {
         app_scene_href(active_app_path, access_scene_for_href, active_tab, None)
     };
-    let build_href = build_href(
-        active_app_path,
-        Some(build_file),
-        active_tab,
-    );
+    let build_href = build_href(active_app_path, Some(build_file), active_tab);
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
     let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
-    let presentation_href = app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
+    let presentation_href =
+        app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
     let (show_config_tab, show_upload_tab, show_build_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
     let show_upload_mode = upload_enabled && show_upload_tab;
@@ -459,14 +459,7 @@ mod tests {
             route("home", "scenes/home.mei", true, true),
         ];
         assert_eq!(
-            preferred_access_scene(
-                UiRouteMode::Config,
-                &routes,
-                None,
-                None,
-                None,
-                "main.mei",
-            ),
+            preferred_access_scene(UiRouteMode::Config, &routes, None, None, None, "main.mei",),
             Some("home")
         );
     }

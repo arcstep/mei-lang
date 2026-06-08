@@ -36,12 +36,7 @@ const PASSWORD_TOGGLE_SCRIPT: &str = r#"
         });
       });"#;
 
-fn password_field_html(
-    id: &str,
-    autocomplete: &str,
-    include_name: bool,
-    required: bool,
-) -> String {
+fn password_field_html(id: &str, autocomplete: &str, include_name: bool, required: bool) -> String {
     let name_attr = if include_name {
         format!(r#" name="{id}""#)
     } else {
@@ -179,7 +174,8 @@ pub(super) fn login_page_html(
 pub(super) fn change_password_page_html(username: &str, role: &str, footer_html: &str) -> String {
     let user = html_escape(username);
     let role = html_escape(role);
-    let current_password_field = password_field_html("current-password", "current-password", false, true);
+    let current_password_field =
+        password_field_html("current-password", "current-password", false, true);
     let new_password_field = password_field_html("new-password", "new-password", false, true);
     let confirm_password_field =
         password_field_html("confirm-password", "new-password", false, true);

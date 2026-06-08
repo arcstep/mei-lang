@@ -15,7 +15,9 @@ use super::super::catalog::{
     merge_resource_catalog, DatasetCatalogFilter,
 };
 use super::super::dependency_graph::DependencyGraph;
-use super::super::discover_routes::{build_world_metric_ledger, catalog_focus_target, CompileOptions};
+use super::super::discover_routes::{
+    build_world_metric_ledger, catalog_focus_target, CompileOptions,
+};
 use super::super::entry_payload::CompiledScenePayload;
 use super::super::materialize::append_world_metrics_dataset_resource;
 use super::super::route_compile::elapsed_ms;
@@ -51,10 +53,8 @@ pub(super) fn compile_catalog_and_merge_resources(
     options: &CompileOptions,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<CatalogCompileResult> {
-    let dataset_manage_preview = super::super::discover_routes::is_dataset_manage_preview(
-        options,
-        app_entry_main,
-    );
+    let dataset_manage_preview =
+        super::super::discover_routes::is_dataset_manage_preview(options, app_entry_main);
     let catalog_focus = catalog_focus_target(options, Some(active_target_file));
     let catalog_seed_files =
         dependency_graph.catalog_seed_files(app_root, app_decls, catalog_focus);

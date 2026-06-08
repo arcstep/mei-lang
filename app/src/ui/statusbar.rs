@@ -66,18 +66,19 @@ pub(crate) fn statusbar_view(
     let (cur_errors, _, _) = compiled
         .map(|compiled| compile_status_counts_for_target(compiled, current_target))
         .unwrap_or((0, 0, 0));
-    let diagnostics_tab_href = if show_compile_center && compiled.is_some() && (errors > 0 || warnings > 0) {
-        Some(manage_tab_href(
-            app_path,
-            Some(current_target),
-            current_target,
-            current_target.ends_with(".mei"),
-            ManageViewTab::Diagnostics,
-            None,
-        ))
-    } else {
-        None
-    };
+    let diagnostics_tab_href =
+        if show_compile_center && compiled.is_some() && (errors > 0 || warnings > 0) {
+            Some(manage_tab_href(
+                app_path,
+                Some(current_target),
+                current_target,
+                current_target.ends_with(".mei"),
+                ManageViewTab::Diagnostics,
+                None,
+            ))
+        } else {
+            None
+        };
     let model_service_summary = if runtime_enabled {
         "模型服务检测中"
     } else {

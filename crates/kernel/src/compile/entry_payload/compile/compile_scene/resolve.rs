@@ -1,10 +1,10 @@
 use std::path::Path;
 
+use crate::compile::entry_payload::clone_merge::{normalize_frame_decl, normalize_world_decl};
 use crate::compile::load_external::{load_frame_from_file, load_world_from_file};
 use crate::compile::scene_binding::{
     parse_frame_binding, parse_world_binding, pick_only_frame, pick_only_world, SceneBinding,
 };
-use crate::compile::entry_payload::clone_merge::{normalize_frame_decl, normalize_world_decl};
 use crate::model::{CompiledSceneRoute, Diagnostic, Severity};
 use crate::typed_refs::SceneRegistry;
 

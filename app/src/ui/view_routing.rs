@@ -48,10 +48,7 @@ pub fn app_scene_href(
     tab: Option<&str>,
     chrome: Option<&str>,
 ) -> String {
-    app_href(
-        app_path,
-        &access_scene_route_suffix(scene_id, tab, chrome),
-    )
+    app_href(app_path, &access_scene_route_suffix(scene_id, tab, chrome))
 }
 
 pub fn cross_app_href(view: UiRouteMode, app_path: &str) -> String {

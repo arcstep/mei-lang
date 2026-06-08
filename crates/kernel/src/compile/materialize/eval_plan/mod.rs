@@ -25,4 +25,3 @@ pub fn build_runtime_eval_plan(
 ) -> EvalPlan {
     build_eval_plan(metric_defs, metric_ids, datasets, scope)
 }
-

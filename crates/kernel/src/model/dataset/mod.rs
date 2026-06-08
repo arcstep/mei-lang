@@ -15,4 +15,3 @@ pub use schema::{
 pub use view::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, DatasetView, SemanticEdgeKind, SemanticNodeKind,
 };
-

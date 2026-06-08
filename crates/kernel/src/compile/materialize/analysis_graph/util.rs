@@ -122,7 +122,12 @@ pub(super) fn copy_field(source: &Map<String, Value>, out: &mut Map<String, Valu
     }
 }
 
-pub(super) fn push_edge(edges: &mut BTreeSet<(String, String, String)>, from: &str, to: &str, role: &str) {
+pub(super) fn push_edge(
+    edges: &mut BTreeSet<(String, String, String)>,
+    from: &str,
+    to: &str,
+    role: &str,
+) {
     let from = from.trim();
     let to = to.trim();
     if from.is_empty() || to.is_empty() {

@@ -4,13 +4,13 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use mei_lang_kernel::RuntimeIntent;
 use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
-    build_world_context_snapshot, clear_compile_cache_for_app, compile_app_with_cache, compile_report,
-    query_world_dataset, query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
-    RESOURCE_QUERY_SCHEMA_VERSION,
+    build_world_context_snapshot, clear_compile_cache_for_app, compile_app_with_cache,
+    compile_report, query_world_dataset, query_world_dataset_metrics, resolve_components_root,
+    runtime_sim_step, RESOURCE_QUERY_SCHEMA_VERSION,
 };
-use mei_lang_kernel::RuntimeIntent;
 
 fn package_root() -> PathBuf {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
@@ -49,8 +49,11 @@ fn build_standalone_fixture() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .expect("system time")
         .as_millis();
-    let fixture_root =
-        std::env::temp_dir().join(format!("mei_toolchain_standalone_fixture_{}_{}", std::process::id(), unique));
+    let fixture_root = std::env::temp_dir().join(format!(
+        "mei_toolchain_standalone_fixture_{}_{}",
+        std::process::id(),
+        unique
+    ));
     fs::create_dir_all(&fixture_root).expect("create fixture root");
     copy_dir_recursive(
         source.join("examples/core/01-single-file-doc"),
@@ -115,7 +118,10 @@ fn clear_compile_cache_for_app_invalidates_cache_hit() {
     let after_clear = compile_app_with_cache(&root, DATASET_APP, options, components.as_path())
         .map_err(|failure| failure.error)
         .expect("after clear");
-    assert!(!after_clear.cache_hit, "compile after clear should miss cache");
+    assert!(
+        !after_clear.cache_hit,
+        "compile after clear should miss cache"
+    );
 }
 
 #[test]
@@ -133,7 +139,8 @@ fn compile_report_revision_matches_cached_outcome() {
     .map_err(|failure| failure.error)
     .expect("cached");
     assert_eq!(report.revision_token, cached.compile_revision);
-    let second = compile_report(&root, DATASET_APP, CompileOptions::default()).expect("second report");
+    let second =
+        compile_report(&root, DATASET_APP, CompileOptions::default()).expect("second report");
     assert!(second.cache_hit);
     assert_eq!(report.revision_token, second.revision_token);
 }
@@ -180,7 +187,9 @@ fn query_world_dataset_metrics_contract_shape_is_stable() {
     assert!(payload["metrics"].is_array());
     assert!(!payload["metrics"].as_array().unwrap().is_empty());
     assert!(payload["analysis_contracts"].is_object() || payload["analysis_contracts"].is_array());
-    assert!(payload["observation"]["compile"]["compile_ms"].as_u64().is_some());
+    assert!(payload["observation"]["compile"]["compile_ms"]
+        .as_u64()
+        .is_some());
     assert!(payload["perf"]["metric_eval_ms"].as_u64().is_some());
 }
 
@@ -209,13 +218,11 @@ fn standalone_source_root_core_smoke_check_works() {
     let report =
         compile_report(&root, "core-smoke-app", CompileOptions::default()).expect("compile report");
     assert!(!report.revision_token.is_empty());
-    assert!(
-        !report
-            .compiled
-            .diagnostics
-            .iter()
-            .any(|item| matches!(item.severity, mei_lang_kernel::Severity::Error))
-    );
+    assert!(!report
+        .compiled
+        .diagnostics
+        .iter()
+        .any(|item| matches!(item.severity, mei_lang_kernel::Severity::Error)));
 }
 
 #[test]
@@ -248,7 +255,9 @@ fn world_context_snapshot_includes_world_catalog_lines() {
         "prompt catalog should include [World — catalog]"
     );
     assert!(
-        lines.iter().any(|line| line.contains("[World — query tooling]")),
+        lines
+            .iter()
+            .any(|line| line.contains("[World — query tooling]")),
         "prompt catalog should include [World — query tooling]"
     );
 }

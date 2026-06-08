@@ -241,9 +241,10 @@ pub(super) fn scan_declarations(
                     if decl.kind == "frame_set_layout" {
                         ctx.frame_layout_set_count += 1;
                         if ctx.pending_frame_layout.is_none() {
-                            ctx.pending_frame_layout = Some(serde_json::from_value::<
-                                crate::model::LayoutDecl,
-                            >(decl.layout)?);
+                            ctx.pending_frame_layout =
+                                Some(serde_json::from_value::<crate::model::LayoutDecl>(
+                                    decl.layout,
+                                )?);
                         }
                     }
                 }

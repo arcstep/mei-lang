@@ -1,22 +1,20 @@
 use std::time::Instant;
 
 use axum::response::{Html, IntoResponse, Response};
-use mei_lang_app::{
-    render_build_source_page, render_config_page, render_upload_page, UiRouteMode,
-};
+use mei_lang_app::{render_build_source_page, render_config_page, render_upload_page, UiRouteMode};
 use mei_lang_kernel::{
     read_source_file, resolve_app_entry_main, resolve_app_root, source_tree, WorkspaceAppMeta,
 };
 
 use crate::AppState;
 
+use crate::http::pages::app::page_render::upload_rel_from_config;
 use crate::http::pages::app::query::AppQuery;
 use crate::http::pages::app_render::source_panel_meta;
 use crate::http::pages::util::{
     elapsed_ms, fill_manage_wall_clock_placeholders, fill_page_shell_placeholders,
     fill_perf_placeholders,
 };
-use crate::http::pages::app::page_render::upload_rel_from_config;
 use mei_lang_app::HostAccountView;
 use mei_lang_app::TopbarMenuContext;
 

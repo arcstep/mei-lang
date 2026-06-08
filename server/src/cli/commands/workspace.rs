@@ -32,8 +32,11 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
         }
         WorkspaceCommand::Materialize(args) => {
             let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
-            let report =
-                mei_lang_toolchain::materialize_workspace_stock(&source_root, &package_root, args.force)?;
+            let report = mei_lang_toolchain::materialize_workspace_stock(
+                &source_root,
+                &package_root,
+                args.force,
+            )?;
             let output = json!({
                 "schema_version": "mei-cli-v1",
                 "command": "workspace.materialize",

@@ -19,9 +19,7 @@ pub fn version_label_with_target() -> String {
     if BUILD_TARGET_TAG == "unknown" {
         version_label()
     } else {
-        format!(
-            "Mei {CARGO_PACKAGE_VERSION} · {INTERNAL_VERSION} ({BUILD_TARGET_TAG})"
-        )
+        format!("Mei {CARGO_PACKAGE_VERSION} · {INTERNAL_VERSION} ({BUILD_TARGET_TAG})")
     }
 }
 

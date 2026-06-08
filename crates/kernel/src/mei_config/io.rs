@@ -97,10 +97,7 @@ fn write_string_atomically(path: &Path, raw: &str) -> Result<()> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let tmp_path = parent.join(format!(
-        ".{file_name}.tmp-{}-{stamp}",
-        std::process::id()
-    ));
+    let tmp_path = parent.join(format!(".{file_name}.tmp-{}-{stamp}", std::process::id()));
     fs::write(&tmp_path, raw)
         .with_context(|| format!("failed to write temporary file {}", tmp_path.display()))?;
     if let Err(error) = fs::rename(&tmp_path, path) {

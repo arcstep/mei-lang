@@ -55,9 +55,7 @@ pub struct ResourceDecl {
     pub base: Option<Value>,
 }
 
-fn deserialize_optional_source_decl<'de, D>(
-    deserializer: D,
-) -> Result<Option<SourceDecl>, D::Error>
+fn deserialize_optional_source_decl<'de, D>(deserializer: D) -> Result<Option<SourceDecl>, D::Error>
 where
     D: Deserializer<'de>,
 {

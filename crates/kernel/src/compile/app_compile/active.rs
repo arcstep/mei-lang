@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    path::Path,
-    time::Instant,
-};
+use std::{collections::BTreeMap, path::Path, time::Instant};
 
 use serde_json::Value;
 
@@ -210,11 +206,8 @@ pub(super) fn precompile_and_pick_active(
             });
         (Some(route_meta.scene_id), route_meta.target_file, payload)
     } else {
-        let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
-            app_root,
-            app_decls,
-            app_entry_main,
-        );
+        let dependency_fingerprint =
+            dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, app_entry_main);
         (
             None,
             app_entry_main.to_string(),

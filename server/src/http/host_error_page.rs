@@ -131,9 +131,7 @@ fn shell_layout(
     let title_esc = html_escape(document_title);
     let headline_esc = html_escape(headline);
     let status_block = if let Some(code) = status_code {
-        format!(
-            r#"<div class="mei-host-shell__status" aria-label="HTTP 状态码">{code}</div>"#
-        )
+        format!(r#"<div class="mei-host-shell__status" aria-label="HTTP 状态码">{code}</div>"#)
     } else {
         String::new()
     };
@@ -304,7 +302,12 @@ mod tests {
     #[test]
     fn auth_card_page_omits_status_code() {
         let footer = render_host_shell_footer(&HostShellFooterInfo::version_only());
-        let html = render_auth_card_page("登录 - MeiLang", "MeiLang 登录", "<p>form</p>", footer.as_str());
+        let html = render_auth_card_page(
+            "登录 - MeiLang",
+            "MeiLang 登录",
+            "<p>form</p>",
+            footer.as_str(),
+        );
         assert!(!html.contains("mei-host-shell__status"));
         assert!(html.contains("mei-host-shell__coin"));
         assert!(html.contains("mei-host-shell__footer"));

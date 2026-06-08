@@ -1,6 +1,8 @@
 use serde_json::{json, Value};
 
-use super::drilldown::{apply_ratio_parts, first_non_empty_string, metric_note_text, MetricDrilldownMeta};
+use super::drilldown::{
+    apply_ratio_parts, first_non_empty_string, metric_note_text, MetricDrilldownMeta,
+};
 use super::explain::string_array_from_value;
 use super::explain_normalize::{
     dataset_id_from_source, explain_metric_entries_from_value, normalize_analysis_node_object,
@@ -160,7 +162,10 @@ pub(crate) fn apply_explain_items(items: &[Value], meta: &mut MetricDrilldownMet
     sync_explain_metric_tab_overrides(meta);
 }
 
-pub(crate) fn apply_explain_object(map: &serde_json::Map<String, Value>, meta: &mut MetricDrilldownMeta) {
+pub(crate) fn apply_explain_object(
+    map: &serde_json::Map<String, Value>,
+    meta: &mut MetricDrilldownMeta,
+) {
     if meta.drilldown_note.is_none() {
         meta.drilldown_note = first_non_empty_string(map, &["note", "desc", "description"]);
     }

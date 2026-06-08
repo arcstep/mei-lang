@@ -2,7 +2,10 @@ use std::hash::{Hash, Hasher};
 
 use crate::agent_runtime::bridge::BridgePromptRequest;
 
-pub(super) fn append_browser_context_lines(lines: &mut Vec<String>, browser_context: Option<&serde_json::Value>) {
+pub(super) fn append_browser_context_lines(
+    lines: &mut Vec<String>,
+    browser_context: Option<&serde_json::Value>,
+) {
     let Some(ctx) = browser_context.and_then(|value| value.as_object()) else {
         return;
     };
@@ -40,7 +43,6 @@ pub(super) fn append_browser_context_lines(lines: &mut Vec<String>, browser_cont
         lines.push(format!("active_query_state_ids: {}", ids.join(", ")));
     }
 }
-
 
 pub(super) fn browser_context_digest(request: &BridgePromptRequest) -> String {
     let Some(value) = request.browser_context.as_ref() else {

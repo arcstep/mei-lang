@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use mei_lang_kernel::{workspace_config_path, CompileOptions, CompileWatchedFile, Diagnostic, Severity};
+use mei_lang_kernel::{
+    workspace_config_path, CompileOptions, CompileWatchedFile, Diagnostic, Severity,
+};
 
 use crate::http;
 use mei_lang_toolchain as toolchain;
@@ -94,7 +96,10 @@ pub fn world_scope_from_selector(args: &CliAppSelectorArgs) -> Option<http::scen
     }
 }
 
-pub fn inspect_layout_for_app(source_root: &std::path::Path, app_id: &str) -> toolchain::SourceLayoutInspection {
+pub fn inspect_layout_for_app(
+    source_root: &std::path::Path,
+    app_id: &str,
+) -> toolchain::SourceLayoutInspection {
     toolchain::inspect_source_layout(source_root, app_id)
 }
 
@@ -180,7 +185,8 @@ pub fn diagnostics_summary(diagnostics: &[Diagnostic]) -> serde_json::Value {
 }
 
 pub fn watched_files_json(files: &[CompileWatchedFile]) -> Vec<serde_json::Value> {
-    files.iter()
+    files
+        .iter()
         .map(|item| {
             json!({
                 "rel_path": item.rel_path,

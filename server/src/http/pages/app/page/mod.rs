@@ -24,14 +24,13 @@ use crate::{
 use super::super::components::resolve_components_root;
 use super::super::menus::load_segment_topbar_menus;
 use super::super::util::{elapsed_ms, is_script_target};
-use super::query::{
-    access_canonical_location, access_sanitized_redirect_location,
-    legacy_access_redirect_location, legacy_manage_redirect_location, parse_access_scene_path,
-    AppQuery,
-};
 use super::page_render::{
-    access_only_surface_enabled, app_title_for, lightweight_access_scene, list_upload_files,
-    upload_rel_from_config, account_view_for_principal,
+    access_only_surface_enabled, account_view_for_principal, app_title_for,
+    lightweight_access_scene, list_upload_files, upload_rel_from_config,
+};
+use super::query::{
+    access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
+    legacy_manage_redirect_location, parse_access_scene_path, AppQuery,
 };
 
 use crate::http::compile_cache::CompileWithCacheOutcome;
@@ -214,10 +213,7 @@ pub async fn app_page(
             ))
             .into_response());
         } else if let Ok(Some(default_scene)) =
-            resolve_default_scene_from_root(&resolve_app_root(
-                state.source_root.as_path(),
-                &app_id,
-            ))
+            resolve_default_scene_from_root(&resolve_app_root(state.source_root.as_path(), &app_id))
         {
             return Ok(Redirect::temporary(&access_canonical_location(
                 &app_id,

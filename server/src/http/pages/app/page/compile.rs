@@ -6,9 +6,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use mei_lang_app::{render_page, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
-use mei_lang_kernel::{
-    read_source_file, resolve_app_root, CompileOptions, WorkspaceAppMeta,
-};
+use mei_lang_kernel::{read_source_file, resolve_app_root, CompileOptions, WorkspaceAppMeta};
 
 use crate::AppState;
 
@@ -54,12 +52,7 @@ pub(super) fn resolve_compile_outcome(
 ) -> CompileResolution {
     if compile_bootstrap_enabled() && !recent_compile_failure(state, app_id, &compile_options) {
         let peek_started = Instant::now();
-        match peek_compile_cache_hit(
-            state,
-            app_id,
-            &compile_options,
-            components_root.as_path(),
-        ) {
+        match peek_compile_cache_hit(state, app_id, &compile_options, components_root.as_path()) {
             Some(hit) => {
                 return CompileResolution::Outcome(CompileWithCacheOutcome {
                     compiled: hit.compiled,
@@ -79,10 +72,7 @@ pub(super) fn resolve_compile_outcome(
                     compile_options.clone(),
                     components_root.clone(),
                 );
-                let scene_hint = compile_options
-                    .scene
-                    .as_deref()
-                    .or(access_path_scene);
+                let scene_hint = compile_options.scene.as_deref().or(access_path_scene);
                 let shell = render_compiling_shell(route_mode, app_id, scene_hint);
                 tracing::info!(
                     app_id = %app_id,
@@ -94,12 +84,7 @@ pub(super) fn resolve_compile_outcome(
             }
         }
     }
-    match compile_app_with_cache(
-        state,
-        app_id,
-        compile_options,
-        components_root.as_path(),
-    ) {
+    match compile_app_with_cache(state, app_id, compile_options, components_root.as_path()) {
         Ok(outcome) => CompileResolution::Outcome(outcome),
         Err(failure) => CompileResolution::EarlyResponse(render_compile_failure(
             failure,

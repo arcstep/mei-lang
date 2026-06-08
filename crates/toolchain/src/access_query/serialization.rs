@@ -54,7 +54,10 @@ pub(crate) fn project_dataset_row(
     Value::Object(out)
 }
 
-pub(crate) fn build_schema_preview(dataset: &DatasetView, selected_columns: &[String]) -> Vec<Value> {
+pub(crate) fn build_schema_preview(
+    dataset: &DatasetView,
+    selected_columns: &[String],
+) -> Vec<Value> {
     use std::collections::BTreeMap;
 
     let schema_map = dataset

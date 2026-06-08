@@ -203,4 +203,3 @@ pub fn build_world_context_snapshot(
         prompt_catalog_lines,
     })
 }
-

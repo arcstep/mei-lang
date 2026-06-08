@@ -1,11 +1,9 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    resolve_dataset_resource_id, CompiledApp, LoadedResource,
-    RuntimeResourceIndex,
+    resolve_dataset_resource_id, CompiledApp, LoadedResource, RuntimeResourceIndex,
 };
 use serde_json::Value;
-
 
 pub(crate) fn resolve_data_ref(
     map: &serde_json::Map<String, Value>,

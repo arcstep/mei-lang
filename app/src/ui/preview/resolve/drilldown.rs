@@ -1,19 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mei_lang_kernel::{
-    resolve_dataset_resource_id,
-    resolve_runtime_metric_def_key, CompiledApp, LoadedResource,
+    resolve_dataset_resource_id, resolve_runtime_metric_def_key, CompiledApp, LoadedResource,
     RuntimeResourceIndex,
 };
 use serde_json::Value;
-
 
 use super::drilldown_apply::{
     apply_drilldown_object, apply_metric_narrative, resolve_drilldown_target_scene_id,
 };
 use super::explain::{
-    apply_analyses_value, apply_explain_items, apply_explain_object,
-    object_map_from_value, string_array_from_value,
+    apply_analyses_value, apply_explain_items, apply_explain_object, object_map_from_value,
+    string_array_from_value,
 };
 
 pub(crate) use super::drilldown_apply::{
@@ -422,4 +420,3 @@ fn metric_drilldown_from_definition(
     }
     meta
 }
-

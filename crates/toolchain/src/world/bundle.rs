@@ -2,9 +2,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::{
-    initial_runtime_state, project_runtime_view, CompiledApp,
-};
+use mei_lang_kernel::{initial_runtime_state, project_runtime_view, CompiledApp};
 
 use crate::types::{ResourceQueryToolSpec, WorldRuntimeBundle, WorldScope};
 
@@ -112,7 +110,10 @@ where
     let mut fallback_compile = false;
 
     if requested_scene.is_none() {
-        if let Some(target) = requested_target.as_deref().filter(|target| is_mei_target(target)) {
+        if let Some(target) = requested_target
+            .as_deref()
+            .filter(|target| is_mei_target(target))
+        {
             let compiled = compile(mei_lang_kernel::CompileOptions {
                 scene: None,
                 preview_target: resolve_preview_target(app_id, target),
@@ -272,4 +273,3 @@ pub fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
         },
     ]
 }
-

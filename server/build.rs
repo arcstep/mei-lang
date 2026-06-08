@@ -62,8 +62,8 @@ fn main() {
 
     let git_commit_short = run_git(&repo_root, &["rev-parse", "--short", "HEAD"])
         .unwrap_or_else(|| "unknown".to_string());
-    let git_commit_full = run_git(&repo_root, &["rev-parse", "HEAD"])
-        .unwrap_or_else(|| "unknown".to_string());
+    let git_commit_full =
+        run_git(&repo_root, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
     let git_branch = run_git(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])
         .unwrap_or_else(|| "unknown".to_string());
     let git_dirty = git_dirty(&repo_root);

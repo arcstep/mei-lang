@@ -96,10 +96,7 @@ pub(super) fn write_dag_perf(
             "analysis_closure_nodes".to_string(),
             closure_metric_ids.len() as u64,
         );
-        let closure_set = closure_metric_ids
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        let closure_set = closure_metric_ids.iter().cloned().collect::<BTreeSet<_>>();
         let closure_edges = dataset
             .runtime_analysis_graph
             .edges

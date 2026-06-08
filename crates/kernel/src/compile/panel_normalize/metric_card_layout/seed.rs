@@ -6,9 +6,10 @@ use crate::model::{BlockDecl, PanelDecl, UiNodeDecl};
 
 use super::super::constants::PROP_METRIC_CARD;
 use super::{
-    block_has_metric_v_align, block_metric_role, block_metric_v_align, slot_vertical_align_prop_key,
-    METRIC_SLOT_ROLES, PROP_METRIC_DESC_MODE, PROP_METRIC_DESC_SHELL, PROP_METRIC_V_ALIGN,
-    PROP_MEI_METRIC_DESC_MODE, USE_MEI_TEXT, USE_METRIC_PROGRESS, USE_QUNFU_METRIC_TILE,
+    block_has_metric_v_align, block_metric_role, block_metric_v_align,
+    slot_vertical_align_prop_key, METRIC_SLOT_ROLES, PROP_MEI_METRIC_DESC_MODE,
+    PROP_METRIC_DESC_MODE, PROP_METRIC_DESC_SHELL, PROP_METRIC_V_ALIGN, USE_MEI_TEXT,
+    USE_METRIC_PROGRESS, USE_QUNFU_METRIC_TILE,
 };
 
 fn overlay_props_has_slot_v_align(overlay_value: &Value, role: &str) -> bool {

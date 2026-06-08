@@ -5,7 +5,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use mei_lang_app::{HostAccountView, SourcePanelMeta, TopbarMenuContext, UiRouteMode, UploadFileEntry};
+use mei_lang_app::{
+    HostAccountView, SourcePanelMeta, TopbarMenuContext, UiRouteMode, UploadFileEntry,
+};
 use serde::Serialize;
 use serde_json::json;
 

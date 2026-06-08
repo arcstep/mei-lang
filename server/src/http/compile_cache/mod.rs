@@ -3,9 +3,7 @@ use mei_lang_toolchain as toolchain;
 
 use crate::AppState;
 
-pub(crate) use toolchain::{
-    CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit,
-};
+pub(crate) use toolchain::{CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit};
 
 pub(crate) fn compile_app_with_cache(
     state: &AppState,
@@ -64,7 +62,12 @@ pub(crate) fn start_compile_in_background_if_needed(
     }
     let source_root = state.source_root.clone();
     tokio::task::spawn_blocking(move || {
-        let _ = toolchain::compile_app_with_cache(&source_root, &app_id, options, components_root.as_path());
+        let _ = toolchain::compile_app_with_cache(
+            &source_root,
+            &app_id,
+            options,
+            components_root.as_path(),
+        );
     });
 }
 

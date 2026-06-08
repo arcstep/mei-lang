@@ -25,14 +25,19 @@ fn resolve_upload_root(state: &AppState, app_id: &str) -> Result<PathBuf, AppErr
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| AppError::status(StatusCode::NOT_FOUND, "app has no paths.upload configured"))?;
+        .ok_or_else(|| {
+            AppError::status(StatusCode::NOT_FOUND, "app has no paths.upload configured")
+        })?;
     Ok(app_root.join(rel))
 }
 
 fn sanitize_upload_rel(raw: &str) -> Result<String, AppError> {
     let trimmed = raw.trim().replace('\\', "/");
     if trimmed.is_empty() {
-        return Err(AppError::status(StatusCode::BAD_REQUEST, "empty upload path"));
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            "empty upload path",
+        ));
     }
     let path = Path::new(&trimmed);
     for component in path.components() {
@@ -86,12 +91,10 @@ pub async fn upload_file_post(
     {
         match field.name() {
             Some("dir") => {
-                upload_dir = Some(
-                    field
-                        .text()
-                        .await
-                        .map_err(|error| AppError::msg(format!("read upload dir failed: {error}")))?,
-                );
+                upload_dir =
+                    Some(field.text().await.map_err(|error| {
+                        AppError::msg(format!("read upload dir failed: {error}"))
+                    })?);
             }
             Some("file") => {
                 file_name = field.file_name().map(str::to_string);
@@ -99,7 +102,9 @@ pub async fn upload_file_post(
                     field
                         .bytes()
                         .await
-                        .map_err(|error| AppError::msg(format!("read upload bytes failed: {error}")))?
+                        .map_err(|error| {
+                            AppError::msg(format!("read upload bytes failed: {error}"))
+                        })?
                         .to_vec(),
                 );
             }

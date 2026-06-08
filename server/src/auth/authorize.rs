@@ -12,11 +12,11 @@ use axum::{
 use mei_lang_kernel::{load_workspace_auth_bundle, WorkspaceAuthBundle};
 use serde_json::json;
 
-use crate::{http::host_error_page, AppState};
 use super::crypto::extract_token_from_headers;
 use super::runtime::{load_auth_runtime, normalize_id};
 use super::types::{AuthEnforcement, AuthPrincipal, AuthRuntime};
 use super::workspace_users::ensure_workspace_auth_base;
+use crate::{http::host_error_page, AppState};
 
 fn is_public_path(path: &str) -> bool {
     path == "/login"
@@ -98,9 +98,7 @@ fn is_super_only_agent_path(path: &str) -> bool {
 
 fn is_authoring_agent_path(path: &str) -> bool {
     path.starts_with("/api/agent/session/")
-        && (path.ends_with("/diff")
-            || path.ends_with("/revert")
-            || path.ends_with("/unrevert"))
+        && (path.ends_with("/diff") || path.ends_with("/revert") || path.ends_with("/unrevert"))
 }
 
 fn authorize_agent_path(path: &str, caps: &mei_lang_app::HostCapabilities) -> Result<()> {
@@ -237,7 +235,11 @@ pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()
     Ok(())
 }
 
-pub(crate) fn format_auth_not_ready_message(source_root: &Path, bundle: &WorkspaceAuthBundle, runtime: &AuthRuntime) -> String {
+pub(crate) fn format_auth_not_ready_message(
+    source_root: &Path,
+    bundle: &WorkspaceAuthBundle,
+    runtime: &AuthRuntime,
+) -> String {
     let root = source_root.display();
     let config = runtime.config_path.display();
     let auth = &bundle.auth;
@@ -275,10 +277,15 @@ pub(crate) fn format_auth_not_ready_message(source_root: &Path, bundle: &Workspa
             lines.push(format!(
                 "已写入 {configured_user_count} 个用户条目，但无一可用（可能 passwordHash 无效、为空，或账号被禁用）。"
             ));
-            lines.push("请检查 `.mei-workspace.json` 中各用户的 passwordHash（禁止明文密码）。".to_string());
+            lines.push(
+                "请检查 `.mei-workspace.json` 中各用户的 passwordHash（禁止明文密码）。"
+                    .to_string(),
+            );
         }
         lines.push(String::new());
-        lines.push("初始化 super / admin / guest（推荐，密码从 stdin 读取，勿写在命令行）：".to_string());
+        lines.push(
+            "初始化 super / admin / guest（推荐，密码从 stdin 读取，勿写在命令行）：".to_string(),
+        );
         lines.push(format!(
             "  printf '%s' 'YourPwd1!complex' | mei host auth bootstrap-users --source-root {root} --default-password-stdin"
         ));
@@ -299,7 +306,8 @@ pub(crate) fn format_auth_not_ready_message(source_root: &Path, bundle: &Workspa
         "完成后重新启动：mei serve --auth --source-root {root}"
     ));
     if keys_ready && active_user_count > 0 {
-        lines.push("（若仍失败，请检查上述用户 passwordHash 是否为有效 Argon2 哈希。）".to_string());
+        lines
+            .push("（若仍失败，请检查上述用户 passwordHash 是否为有效 Argon2 哈希。）".to_string());
     }
 
     lines.join("\n")
@@ -313,7 +321,10 @@ pub fn prepare_auth_for_serve(source_root: &Path, enforcement: AuthEnforcement) 
     let bundle = load_workspace_auth_bundle(source_root);
     let runtime = load_auth_runtime(source_root)?;
     if !runtime.enabled {
-        anyhow::bail!("{}", format_auth_not_ready_message(source_root, &bundle, &runtime));
+        anyhow::bail!(
+            "{}",
+            format_auth_not_ready_message(source_root, &bundle, &runtime)
+        );
     }
     tracing::info!(
         config_path = %runtime.config_path.display(),

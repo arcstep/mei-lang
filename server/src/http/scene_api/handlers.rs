@@ -35,8 +35,9 @@ pub async fn world_context_api(
 ) -> Result<Json<WorldContextSnapshot>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
     let scope = scope_query.to_scope();
-    let snapshot = toolchain::build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
-        .map_err(map_world_bundle_error)?;
+    let snapshot =
+        toolchain::build_world_context_snapshot(&state.source_root, app_id, Some(&scope))
+            .map_err(map_world_bundle_error)?;
     Ok(Json(snapshot))
 }
 
@@ -105,13 +106,9 @@ pub async fn sim_step_api(
     Json(request): Json<SimStepRequest>,
 ) -> Result<Json<SimStepResponse>, AppError> {
     let app_id = app_id_raw.trim_start_matches('/');
-    let result = toolchain::runtime_sim_step(
-        &state.source_root,
-        app_id,
-        request.state,
-        request.intent,
-    )
-    .map_err(AppError::from)?;
+    let result =
+        toolchain::runtime_sim_step(&state.source_root, app_id, request.state, request.intent)
+            .map_err(AppError::from)?;
     Ok(Json(SimStepResponse {
         state: result.state,
         scene_view: result.scene_view,

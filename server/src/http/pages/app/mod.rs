@@ -1,7 +1,7 @@
 mod compiling_shell;
+mod page;
 mod page_cache;
 mod page_render;
-mod page;
 mod query;
 mod scene;
 
@@ -14,12 +14,11 @@ pub(crate) type AppQuery = query::AppQuery;
 use std::path::Path;
 
 use axum::{extract::State, response::Redirect, Extension};
-use mei_lang_kernel::{discover_apps, resolve_default_scene_from_root, HostSurface, WorkspaceAppMeta};
-
-use crate::{
-    auth::AuthPrincipal,
-    AppError, AppState,
+use mei_lang_kernel::{
+    discover_apps, resolve_default_scene_from_root, HostSurface, WorkspaceAppMeta,
 };
+
+use crate::{auth::AuthPrincipal, AppError, AppState};
 
 use super::app_render::choose_default_app;
 use query::access_canonical_location;
@@ -101,7 +100,7 @@ pub async fn index(
 
 #[cfg(test)]
 mod tests {
-    use super::{index_landing_location, filter_apps_for_principal};
+    use super::{filter_apps_for_principal, index_landing_location};
     use crate::auth::{AuthPrincipal, AuthRole};
     use mei_lang_kernel::WorkspaceAppMeta;
     use std::collections::{BTreeMap, BTreeSet};

@@ -1,7 +1,7 @@
 mod merge;
 mod parse;
-mod parse_tokens;
 mod parse_builtin;
+mod parse_tokens;
 
 pub(crate) use merge::{
     deep_merge_value, resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props,

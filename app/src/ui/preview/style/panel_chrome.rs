@@ -178,4 +178,3 @@ pub(crate) fn append_string_style(style: &mut String, value: Option<&Value>, css
         style.push_str(&format!("{css_name}:{value};"));
     }
 }
-

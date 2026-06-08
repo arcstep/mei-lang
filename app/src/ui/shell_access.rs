@@ -33,14 +33,14 @@ pub(crate) fn access_shell(
     } else {
         preview::preview_view(compiled, app_path, current_target, UiRouteMode::App)
     };
-    let topbar_preview_target = if static_asset {
-        None
-    } else {
-        file_target
-    };
+    let topbar_preview_target = if static_asset { None } else { file_target };
     let panel_tab = active_tab.unwrap_or("preview");
-    let topbar_access_scene =
-        access_scene_for_topbar(UiRouteMode::App, compiled, selected_scene, topbar_preview_target);
+    let topbar_access_scene = access_scene_for_topbar(
+        UiRouteMode::App,
+        compiled,
+        selected_scene,
+        topbar_preview_target,
+    );
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
     let topbar = topbar_view(
         apps,

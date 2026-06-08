@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::resource::SourceDecl;
 use super::schema::{ColumnSchema, DatasetSourceRef, MetricContract};
+use crate::model::resource::SourceDecl;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetView {

@@ -1,16 +1,16 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    dataset_materialize_cache_epoch, resolve_dataset_selector_value,
-    host_runtime_capabilities_catalog, host_runtime_contract_descriptor, scene_payload_cache_epoch, CompiledApp, LoadedResource,
-    RuntimeResourceIndex, SceneContract,
+    dataset_materialize_cache_epoch, host_runtime_capabilities_catalog,
+    host_runtime_contract_descriptor, resolve_dataset_selector_value, scene_payload_cache_epoch,
+    CompiledApp, LoadedResource, RuntimeResourceIndex, SceneContract,
 };
 use serde_json::{json, Value};
 
 use super::super::theme::resolve_shared_refs;
 
-use super::drilldown::MetricDrilldownMeta;
 use super::drilldown::resolve_metric_drilldown_meta;
+use super::drilldown::MetricDrilldownMeta;
 use super::refs::{resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
 
 /// Controls whether nested popup/board_link bindings stay as authored refs.
@@ -189,10 +189,7 @@ pub(crate) fn attach_host_meta(
                 json!(compiled.scene_projection_assembly_by_id),
             );
         }
-        map.insert(
-            "_mei".to_string(),
-            Value::Object(host_meta),
-        );
+        map.insert("_mei".to_string(), Value::Object(host_meta));
     }
     props
 }

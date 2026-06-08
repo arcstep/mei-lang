@@ -195,7 +195,11 @@ pub fn upsert_workspace_user(
     Ok(())
 }
 
-pub fn set_workspace_user_disabled(source_root: &Path, username: &str, disabled: bool) -> Result<()> {
+pub fn set_workspace_user_disabled(
+    source_root: &Path,
+    username: &str,
+    disabled: bool,
+) -> Result<()> {
     let normalized_username = username.trim().to_string();
     if normalized_username.is_empty() {
         anyhow::bail!("username is required");
@@ -258,8 +262,7 @@ pub fn update_workspace_user_password(
             let normalized_username_id = normalize_id(&normalized_username);
             for user in &mut auth.users {
                 if normalize_id(&user.username) == normalized_username_id {
-                    let changed =
-                        user.password_hash.trim() != password_hash_value || user.disabled;
+                    let changed = user.password_hash.trim() != password_hash_value || user.disabled;
                     if changed {
                         user.password_hash = password_hash_value.clone();
                         user.disabled = false;

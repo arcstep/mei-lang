@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use super::io::load_workspace_config;
 use super::types::{
     WorkspaceConfig, DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL,
     MEI_CONFIG_FILENAME, MEI_WORKSPACE_CONFIG_FILENAME,
 };
-use super::io::load_workspace_config;
 
 pub fn is_app_config_root(dir: &Path) -> bool {
     dir.join(MEI_CONFIG_FILENAME).is_file()

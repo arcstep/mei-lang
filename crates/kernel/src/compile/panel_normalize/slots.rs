@@ -126,7 +126,8 @@ pub(super) fn materialize_title_head_block(panel: &mut PanelDecl) {
     };
     let mut props = serde_json::Map::new();
     props.insert("content".to_string(), Value::String(title.to_string()));
-    if let Some(typography) = title_block_typography_from_head_props(&panel.head_props).as_object() {
+    if let Some(typography) = title_block_typography_from_head_props(&panel.head_props).as_object()
+    {
         for (key, value) in typography {
             props.insert(key.clone(), value.clone());
         }

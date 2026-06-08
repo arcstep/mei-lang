@@ -25,8 +25,8 @@ use tracing::Instrument;
 
 mod agent_runtime;
 mod auth;
-mod cli;
 mod build_info;
+mod cli;
 mod gis_config;
 mod http;
 mod mei_agent;
@@ -34,14 +34,14 @@ mod resource_tool_bridge;
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
 
-use cli::{
-    agent_command, compile_or_check_command, export_command, host_command, inspect_command,
-    mcp_command, query_command, runtime_command, workspace_command,
-};
 use cli::args::{AgentRuntimeArgs, Cli, Command, ServeArgs};
 use cli::util::{
     print_cli_version_if_requested, resolve_cli_source_root, resolve_package_root,
     resolve_source_root_arg,
+};
+use cli::{
+    agent_command, compile_or_check_command, export_command, host_command, inspect_command,
+    mcp_command, query_command, runtime_command, workspace_command,
 };
 
 #[derive(Clone)]
@@ -109,11 +109,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     agent_runtime::runtime::load_repo_dotenv(&package_root);
     let source_root = resolve_cli_source_root(
         &package_root,
-        &resolve_source_root_arg(
-            &package_root,
-            args.workspace.as_deref(),
-            &args.source_root,
-        )?,
+        &resolve_source_root_arg(&package_root, args.workspace.as_deref(), &args.source_root)?,
     )?;
     fs::create_dir_all(&source_root).with_context(|| {
         format!(

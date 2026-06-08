@@ -3,12 +3,12 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
-use mei_lang_kernel::locate_dataset_resource;
 use mei_lang_datasets::{
     evaluate_runtime_metrics_from_plan, metric_ids_visible_for_dataset, normalize_query_filters,
     normalize_query_search, plan_access_metric_eval_for_ids, query_dataset_rows,
-    query_state_from_request, RuntimeMetricEvalMode, DatasetQueryOptions,
+    query_state_from_request, DatasetQueryOptions, RuntimeMetricEvalMode,
 };
+use mei_lang_kernel::locate_dataset_resource;
 use serde_json::{json, Value};
 
 use crate::analysis_contract::{
@@ -284,7 +284,10 @@ pub fn query_world_dataset_metrics(
     perf.insert("plan_access_metric_eval_ms".to_string(), plan_eval_ms);
     perf.insert("dataset_query_rows_ms".to_string(), eval_outcome.query_ms);
     perf.insert("hydrate_datasets_ms".to_string(), eval_outcome.hydrate_ms);
-    perf.insert("build_eval_scope_ms".to_string(), eval_outcome.eval_scope_ms);
+    perf.insert(
+        "build_eval_scope_ms".to_string(),
+        eval_outcome.eval_scope_ms,
+    );
     perf.insert("metric_eval_ms".to_string(), eval_outcome.metric_eval_ms);
     perf.insert(
         "build_analysis_contract_attachments_ms".to_string(),

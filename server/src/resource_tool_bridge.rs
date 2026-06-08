@@ -252,7 +252,12 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                         scope.resource_visibility.as_slug()
                     );
                 }
-                Self::json_result(toolchain::query_world_asset(source_root, app, scope_ref, id))
+                Self::json_result(toolchain::query_world_asset(
+                    source_root,
+                    app,
+                    scope_ref,
+                    id,
+                ))
             }
             "resource_runtime_peek" => {
                 if let Err(e) = resource_world_tools_precheck(scope) {

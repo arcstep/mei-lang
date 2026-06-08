@@ -39,8 +39,7 @@ use catalog::{compile_catalog_and_merge_resources, push_catalog_compile_diagnost
 use finish::{finish_compiled_app, CompileCacheBefore};
 
 pub use app_compile_revision::{
-    compile_revision_plan_from_root_with_options,
-    compile_revision_token_from_root_with_options,
+    compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
     resolve_default_scene_from_root,
 };
 

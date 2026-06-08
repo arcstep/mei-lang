@@ -2,8 +2,7 @@ use crate::model::{LayoutDecl, PanelDecl};
 
 use super::super::constants::{PolicySpacing, METRIC_COMPOUND_BOTTOM_MAX, SLOT_BODY, SLOT_HEAD};
 use super::super::nodes::{
-    node_is_metric_card_like, node_is_metrics_2_1_item_like, panel_head_height_track,
-    set_node_area,
+    node_is_metric_card_like, node_is_metrics_2_1_item_like, panel_head_height_track, set_node_area,
 };
 use super::metrics_auto::default_metrics_auto_layout;
 use super::metrics_grid::{

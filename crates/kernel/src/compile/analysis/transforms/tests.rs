@@ -1,8 +1,8 @@
+use super::row_ops::eval_row_value;
 use super::{
     aggregate_group_rows_pivot, party_year_aggregate_rows, trend_rows_by_month,
     trend_year_compare_rows, unpivot_columns_rows,
 };
-use super::row_ops::eval_row_value;
 use serde_json::json;
 
 #[test]
@@ -103,8 +103,7 @@ fn party_year_aggregate_sums_by_execution_year_and_party() {
         json!({"当事人": "甲公司", "执行日期": "2025-03-01", "罚款金额": 30000}),
         json!({"当事人": "乙公司", "执行日期": "2025-01-01", "罚款金额": 12000}),
     ];
-    let stats =
-        party_year_aggregate_rows(&rows, "当事人", "执行日期", "罚款金额", &[2024, 2025]);
+    let stats = party_year_aggregate_rows(&rows, "当事人", "执行日期", "罚款金额", &[2024, 2025]);
     let a = stats
         .iter()
         .find(|row| row.get("当事人").and_then(|v| v.as_str()) == Some("甲公司"))

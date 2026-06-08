@@ -45,7 +45,12 @@ impl NativeAgent {
         Ok(())
     }
 
-    pub(super) fn set_message_error(&self, session_id: &str, message_id: &str, err: &str) -> Result<()> {
+    pub(super) fn set_message_error(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        err: &str,
+    ) -> Result<()> {
         let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
         let s: String = db.query_row(
             "SELECT info_json FROM messages WHERE id = ?1",
@@ -65,7 +70,12 @@ impl NativeAgent {
         Ok(())
     }
 
-    pub(super) fn finalize_assistant(&self, session_id: &str, message_id: &str, finish: &str) -> Result<()> {
+    pub(super) fn finalize_assistant(
+        &self,
+        session_id: &str,
+        message_id: &str,
+        finish: &str,
+    ) -> Result<()> {
         let db = self.inner.db.lock().map_err(|_| anyhow!("db poison"))?;
         let s: String = db.query_row(
             "SELECT info_json FROM messages WHERE id = ?1",

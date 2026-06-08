@@ -69,7 +69,10 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         "components_root_exists",
         components_root.is_dir(),
         "error",
-        format!("components root `{}` does not exist", components_root.display()),
+        format!(
+            "components root `{}` does not exist",
+            components_root.display()
+        ),
         Some(
             "run `mei workspace materialize` or set paths.components in `.mei-workspace.json`"
                 .to_string(),

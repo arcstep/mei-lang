@@ -2,15 +2,16 @@ use mei_lang_kernel::LayoutDecl;
 use serde_json::Value;
 
 use super::super::style::{
-    container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars, surface_layout_style,
+    container_visual_style, container_visual_style_without_background, frame_backdrop_css_vars,
+    surface_layout_style,
 };
 use super::super::theme::{theme_css_vars_style, ThemeResolved};
 use crate::ui::route::UiRouteMode;
 
 use super::compute::{
     effective_canvas_width, effective_viewport_overflow, effective_viewport_safe_inset,
-    fluid_relaxed_layout, frame_stage_content_bounds_for_viewport, FrameViewportConfig,
-    viewport_overflow_is_debug,
+    fluid_relaxed_layout, frame_stage_content_bounds_for_viewport, viewport_overflow_is_debug,
+    FrameViewportConfig,
 };
 
 fn frame_viewport_style_with_safe(

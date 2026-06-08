@@ -30,21 +30,9 @@ pub(crate) fn compile_scene_payload(
 ) -> Result<CompiledScenePayload> {
     let mut ctx = CompileSceneCtx::new(app_root);
 
-    scan::scan_declarations(
-        &mut ctx,
-        app_root,
-        target_file,
-        entry_decls,
-        scene_registry,
-    )?;
+    scan::scan_declarations(&mut ctx, app_root, target_file, entry_decls, scene_registry)?;
     validate::validate_and_apply_mutations(&mut ctx, app_root, target_file, scene_registry);
     prepare::prepare_scene_selection(&mut ctx, asset_map, target_file, route_meta);
-    resolve::resolve_bindings(
-        &mut ctx,
-        app_root,
-        target_file,
-        route_meta,
-        scene_registry,
-    )?;
+    resolve::resolve_bindings(&mut ctx, app_root, target_file, route_meta, scene_registry)?;
     finalize::finalize_payload(&mut ctx, app_root, target_file, entry_decls)
 }

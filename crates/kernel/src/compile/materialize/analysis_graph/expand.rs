@@ -281,7 +281,10 @@ pub(super) fn rewrite_scope_item(
     rewritten
 }
 
-pub(super) fn rewrite_local_metric_refs(value: &Value, local_ids: &BTreeMap<String, String>) -> Value {
+pub(super) fn rewrite_local_metric_refs(
+    value: &Value,
+    local_ids: &BTreeMap<String, String>,
+) -> Value {
     match value {
         Value::Array(items) => Value::Array(
             items

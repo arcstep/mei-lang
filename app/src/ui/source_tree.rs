@@ -1,9 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
-use super::manage_routing::{
-    access_scene_route_suffix, encode_query_value,
-};
+use super::manage_routing::{access_scene_route_suffix, encode_query_value};
 use super::UiRouteMode;
 
 /// 与 `app/assets/favicon.svg` 相同的梅花铜钱外轮廓（viewBox 32×32）。

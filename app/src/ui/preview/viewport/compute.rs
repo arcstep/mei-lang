@@ -1,9 +1,7 @@
 use mei_lang_kernel::LayoutDecl;
 use serde_json::{json, Value};
 
-use super::super::style::{
-    frame_stage_content_bounds, FrameStageContentBounds,
-};
+use super::super::style::{frame_stage_content_bounds, FrameStageContentBounds};
 use crate::ui::route::UiRouteMode;
 
 #[derive(Debug, Clone)]

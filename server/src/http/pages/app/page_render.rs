@@ -5,10 +5,13 @@ use axum::{
     response::Response,
 };
 use mei_lang_app::{HostAccountView, UploadFileEntry};
-use mei_lang_kernel::{load_mei_config_for_app, resolve_default_scene_from_root, CompiledApp, HostSurface, WorkspaceAppMeta};
+use mei_lang_kernel::{
+    load_mei_config_for_app, resolve_default_scene_from_root, CompiledApp, HostSurface,
+    WorkspaceAppMeta,
+};
 
-use crate::auth::AuthPrincipal;
 use super::super::super::compile_cache::CompileWithCacheOutcome;
+use crate::auth::AuthPrincipal;
 
 pub(super) fn html_escape_min(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -17,7 +20,9 @@ pub(super) fn html_escape_min(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-pub(super) fn account_view_for_principal(principal: Option<&AuthPrincipal>) -> Option<HostAccountView> {
+pub(super) fn account_view_for_principal(
+    principal: Option<&AuthPrincipal>,
+) -> Option<HostAccountView> {
     principal.map(|principal| HostAccountView {
         logged_in: true,
         username: principal.username.clone(),
@@ -35,7 +40,10 @@ fn diagnostic_message_by_code(compiled: &CompiledApp, code: &str) -> Option<Stri
         .map(|diag| diag.message.clone())
 }
 
-pub(super) fn insert_manage_compile_observability_headers(res: &mut Response, compiled: &CompiledApp) {
+pub(super) fn insert_manage_compile_observability_headers(
+    res: &mut Response,
+    compiled: &CompiledApp,
+) {
     for (header, code) in [
         (
             "x-mei-compile-optimization-status",
@@ -55,7 +63,10 @@ pub(super) fn insert_manage_compile_observability_headers(res: &mut Response, co
     }
 }
 
-pub(super) fn insert_manage_compile_request_headers(res: &mut Response, outcome: &CompileWithCacheOutcome) {
+pub(super) fn insert_manage_compile_request_headers(
+    res: &mut Response,
+    outcome: &CompileWithCacheOutcome,
+) {
     for (header, value) in [
         (
             "x-mei-compile-cache-hit",

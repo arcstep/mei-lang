@@ -151,7 +151,8 @@ impl<'a> ConfigRefResolver<'a> {
     }
 
     pub fn resolve_basemap_value(&self, id: &str) -> Option<Value> {
-        self.resolve_basemap_entry(id).map(ops_basemap_entry_to_value)
+        self.resolve_basemap_entry(id)
+            .map(ops_basemap_entry_to_value)
     }
 
     pub fn resolve_source_decl(
@@ -194,10 +195,7 @@ impl<'a> ConfigRefResolver<'a> {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
                 code: "invalid_config_ref".to_string(),
-                message: format!(
-                    "invalid config ref source path `{}`",
-                    source.path
-                ),
+                message: format!("invalid config ref source path `{}`", source.path),
                 source_path: Some(target_file.to_string()),
             });
             return source.clone();
@@ -219,18 +217,21 @@ impl<'a> ConfigRefResolver<'a> {
         diagnostics: &mut Vec<Diagnostic>,
     ) -> Option<Value> {
         match expr.kind {
-            ConfigRefKind::Theme => self.resolve_theme_value(expr.id.as_str()).cloned().or_else(|| {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    code: "missing_config_ref".to_string(),
-                    message: format!("theme_ref id `{}` not found in ops.themes", expr.id),
-                    source_path: Some(target_file.to_string()),
-                });
-                None
-            }),
-            ConfigRefKind::Basemap | ConfigRefKind::Mapspec => self
-                .resolve_basemap_value(expr.id.as_str())
-                .or_else(|| {
+            ConfigRefKind::Theme => {
+                self.resolve_theme_value(expr.id.as_str())
+                    .cloned()
+                    .or_else(|| {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "missing_config_ref".to_string(),
+                            message: format!("theme_ref id `{}` not found in ops.themes", expr.id),
+                            source_path: Some(target_file.to_string()),
+                        });
+                        None
+                    })
+            }
+            ConfigRefKind::Basemap | ConfigRefKind::Mapspec => {
+                self.resolve_basemap_value(expr.id.as_str()).or_else(|| {
                     diagnostics.push(Diagnostic {
                         severity: Severity::Error,
                         code: "missing_config_ref".to_string(),
@@ -238,16 +239,24 @@ impl<'a> ConfigRefResolver<'a> {
                         source_path: Some(target_file.to_string()),
                     });
                     None
-                }),
-            ConfigRefKind::OpsParam => self.resolve_ops_param(expr.id.as_str()).cloned().or_else(|| {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    code: "missing_config_ref".to_string(),
-                    message: format!("ops_param_ref id `{}` not found in ops.params", expr.id),
-                    source_path: Some(target_file.to_string()),
-                });
-                None
-            }),
+                })
+            }
+            ConfigRefKind::OpsParam => {
+                self.resolve_ops_param(expr.id.as_str())
+                    .cloned()
+                    .or_else(|| {
+                        diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "missing_config_ref".to_string(),
+                            message: format!(
+                                "ops_param_ref id `{}` not found in ops.params",
+                                expr.id
+                            ),
+                            source_path: Some(target_file.to_string()),
+                        });
+                        None
+                    })
+            }
             ConfigRefKind::Source | ConfigRefKind::DatasetSource => self
                 .resolve_source_decl(expr, target_file, diagnostics)
                 .and_then(|decl| serde_json::to_value(decl).ok()),

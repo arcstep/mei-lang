@@ -1,16 +1,31 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
-use axum::{extract::{Path as AxumPath, State}, http::StatusCode, Json};
-use mei_lang_datasets::{collect_all_query_options, evaluate_runtime_metrics_from_plan, metric_response_cache_scope_key, plan_access_metric_eval_for_ids, project_requested_metrics, query_state_from_request, runtime_metric_scope_requested, take_cached_metric_response, normalize_query_filters, normalize_query_search, store_cached_metric_response, RuntimeMetricEvalMode};
-use mei_lang_kernel::resolve_app_root;
-use crate::http::observation::{CompileObservation, EvalObservation};
-use crate::{AppError, AppState};
 use super::super::super::compile_cache::compile_app_with_cache;
 use super::super::components::resolve_components_root;
-use super::super::scene_qualified::{compile_options_from_coords, locate_dataset_resource, resolved_scene_context, strict_runtime_query_contract, strict_scene_query_coords};
+use super::super::scene_qualified::{
+    compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
+    strict_runtime_query_contract, strict_scene_query_coords,
+};
 use super::super::util::elapsed_ms;
-use super::assembly::{hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf, MetricQueryRequest, MetricQueryResponse};
+use super::assembly::{
+    hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf,
+    MetricQueryRequest, MetricQueryResponse,
+};
+use crate::http::observation::{CompileObservation, EvalObservation};
+use crate::{AppError, AppState};
+use axum::{
+    extract::{Path as AxumPath, State},
+    http::StatusCode,
+    Json,
+};
+use mei_lang_datasets::{
+    collect_all_query_options, evaluate_runtime_metrics_from_plan, metric_response_cache_scope_key,
+    normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
+    project_requested_metrics, query_state_from_request, runtime_metric_scope_requested,
+    store_cached_metric_response, take_cached_metric_response, RuntimeMetricEvalMode,
+};
+use mei_lang_kernel::resolve_app_root;
 
 pub async fn dataset_metric_api(
     State(state): State<AppState>,

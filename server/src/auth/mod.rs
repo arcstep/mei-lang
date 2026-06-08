@@ -7,7 +7,9 @@ mod workspace_users;
 #[cfg(test)]
 mod tests;
 
-pub use authorize::{auth_middleware, authorize_next_path, prepare_auth_for_serve, sanitize_next_path};
+pub use authorize::{
+    auth_middleware, authorize_next_path, prepare_auth_for_serve, sanitize_next_path,
+};
 pub use crypto::{
     clear_cookie_header_value, cookie_header_value, generate_temporary_password, hash_password,
 };

@@ -2,7 +2,9 @@ use anyhow::Result;
 use mei_lang_toolchain as toolchain;
 use serde_json::json;
 
-use super::super::args::{InspectArgs, InspectCommand, InspectInventoryArgs, InspectLayoutArgs, InspectWorldArgs};
+use super::super::args::{
+    InspectArgs, InspectCommand, InspectInventoryArgs, InspectLayoutArgs, InspectWorldArgs,
+};
 use super::super::util::{
     ensure_cli_layout_ready, inspect_layout_for_app, print_json_output, resolve_cli_source_root,
     resolve_package_root, scope_json, world_scope_from_selector,

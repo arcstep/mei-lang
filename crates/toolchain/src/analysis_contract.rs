@@ -35,7 +35,10 @@ pub fn lookup_runtime_analysis_contract(
     let canonical_id =
         resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
             .unwrap_or_else(|| metric_id.to_string());
-    dataset.runtime_analysis_contracts.get(&canonical_id).cloned()
+    dataset
+        .runtime_analysis_contracts
+        .get(&canonical_id)
+        .cloned()
 }
 
 pub fn summarize_analysis_contract_for_llm(contract: &Value) -> Value {

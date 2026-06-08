@@ -4,8 +4,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 mod analysis;
-mod app_decl;
 mod app_compile;
+mod app_decl;
 mod catalog;
 mod decl_file_cache;
 mod decls;
@@ -30,12 +30,12 @@ mod ui_data_policy;
 pub use analysis::dates::coerce_rows_to_schema;
 pub use loaders::materialize_xlsx_column_headers;
 
-pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
 pub use app_compile::{
-    compile_app, compile_app_from_root, compile_app_from_root_with_options, compile_app_with_options,
-    compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
-    resolve_default_scene_from_root,
+    compile_app, compile_app_from_root, compile_app_from_root_with_options,
+    compile_app_with_options, compile_revision_plan_from_root_with_options,
+    compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
 };
+pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
 
 pub use materialize_cache::cached_load_xlsx_table_snapshot;
 pub use materialize_cache::dataset_materialize_cache_epoch;

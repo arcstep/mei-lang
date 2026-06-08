@@ -8,8 +8,8 @@ use crate::compile::scene_binding::{parse_flow_binding, SceneBinding};
 use crate::model::{Diagnostic, FlowDecl, FrameDecl, PanelDecl, Severity};
 use crate::typed_refs::SceneRegistry;
 
-use super::compile_scene::push_deprecated_ref_binding_diagnostic;
 use super::super::clone_merge::{normalize_flow_decl, resolve_panel_slot};
+use super::compile_scene::push_deprecated_ref_binding_diagnostic;
 
 pub(super) fn resolve_flow_binding(
     value: &Value,

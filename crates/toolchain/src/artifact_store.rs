@@ -100,8 +100,12 @@ fn scope_slug(scope: &WorldScope) -> String {
 }
 
 fn ensure_metadata(root: &Path) -> Result<PathBuf> {
-    fs::create_dir_all(root)
-        .with_context(|| format!("failed to create toolchain artifact store {}", root.display()))?;
+    fs::create_dir_all(root).with_context(|| {
+        format!(
+            "failed to create toolchain artifact store {}",
+            root.display()
+        )
+    })?;
     let metadata_path = root.join("store.json");
     let metadata = ArtifactStoreMetadata {
         schema_version: "mei-toolchain-store-v1".to_string(),
@@ -158,8 +162,12 @@ pub fn write_json_artifact(
     let manifest_path = manifests_dir.join(format!("{name}.json"));
     fs::write(&artifact_path, serde_json::to_string_pretty(artifact)?)
         .with_context(|| format!("failed to write artifact {}", artifact_path.display()))?;
-    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)
-        .with_context(|| format!("failed to write artifact manifest {}", manifest_path.display()))?;
+    fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?).with_context(|| {
+        format!(
+            "failed to write artifact manifest {}",
+            manifest_path.display()
+        )
+    })?;
 
     Ok(ArtifactStoreWriteResult {
         store_root: root.display().to_string(),

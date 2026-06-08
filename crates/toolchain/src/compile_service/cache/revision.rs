@@ -35,7 +35,8 @@ pub(super) fn compile_revision(
     components_root: &Path,
 ) -> CompileRevisionStamp {
     let app_root = resolve_app_root(source_root, app_id);
-    if let Ok(plan) = compile_revision_plan_from_root_with_options(source_root, &app_root, options) {
+    if let Ok(plan) = compile_revision_plan_from_root_with_options(source_root, &app_root, options)
+    {
         return CompileRevisionStamp {
             token: plan.token,
             scope: "focused_graph",
@@ -68,7 +69,11 @@ fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> Compile
     }
 }
 
-pub(super) fn coarse_compile_revision(source_root: &Path, app_id: &str, components_root: &Path) -> u128 {
+pub(super) fn coarse_compile_revision(
+    source_root: &Path,
+    app_id: &str,
+    components_root: &Path,
+) -> u128 {
     let app_root = resolve_app_root(source_root, app_id);
     if compile_revision_mode() == RevisionMode::Full {
         let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);

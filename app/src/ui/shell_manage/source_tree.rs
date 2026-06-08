@@ -2,8 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{WorkspaceAppMeta, WorkspaceNode};
 
 use super::super::compile_status::{
-    classify_asset_shell, codemirror_dataset_lang,
-    is_mei_script_target, AssetShellKind,
+    classify_asset_shell, codemirror_dataset_lang, is_mei_script_target, AssetShellKind,
 };
 use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
 use super::super::preview_chrome::asset_preview_body;

@@ -264,4 +264,3 @@ pub(super) fn eval_lookup_value_rowset(
     }
     Ok(out)
 }
-

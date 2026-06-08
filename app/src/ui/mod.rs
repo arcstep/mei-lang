@@ -107,7 +107,6 @@ pub struct TopbarMenuConfigItem {
     pub order: Option<i32>,
 }
 
-
 pub fn render_page(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,

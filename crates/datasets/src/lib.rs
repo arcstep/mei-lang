@@ -34,8 +34,8 @@ pub use metric_access::{
     RuntimeMetricEvalOutcome,
 };
 pub use metric_locate::{
-    plan_access_metric_eval_for_ids, AccessMetricEvalPlan, locate_runtime_metric_resource,
-    metric_ids_visible_for_dataset,
+    locate_runtime_metric_resource, metric_ids_visible_for_dataset,
+    plan_access_metric_eval_for_ids, AccessMetricEvalPlan,
 };
 pub use metric_response_cache::{
     cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
@@ -157,7 +157,8 @@ pub fn runtime_metric_workset(
     requested_metric_ids: &[String],
     dataset: &DatasetView,
 ) -> RuntimeMetricWorkset {
-    let inner = metric_cache_key::runtime_metric_workset(resource_id, requested_metric_ids, dataset);
+    let inner =
+        metric_cache_key::runtime_metric_workset(resource_id, requested_metric_ids, dataset);
     RuntimeMetricWorkset {
         closure_metric_ids: inner.closure_metric_ids,
         eval_metric_ids: inner.eval_metric_ids,
@@ -175,7 +176,12 @@ pub fn hydrate_file_backed_datasets_for_metric_defs(
     metric_defs: &BTreeMap<String, Value>,
     query: &DatasetQueryOptions,
 ) -> Result<BTreeMap<String, u64>> {
-    metric_hydrate::hydrate_file_backed_datasets_for_metric_defs(app_root, datasets, metric_defs, query)
+    metric_hydrate::hydrate_file_backed_datasets_for_metric_defs(
+        app_root,
+        datasets,
+        metric_defs,
+        query,
+    )
 }
 
 pub fn project_requested_metrics(

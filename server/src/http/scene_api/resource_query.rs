@@ -148,7 +148,15 @@ pub(crate) fn query_resource_dataset_metric(
     search: Option<&str>,
     filters: &BTreeMap<String, String>,
 ) -> Result<Value> {
-    toolchain::query_world_dataset_metrics(source_root, app_id, scope, id, metric_ids, search, filters)
+    toolchain::query_world_dataset_metrics(
+        source_root,
+        app_id,
+        scope,
+        id,
+        metric_ids,
+        search,
+        filters,
+    )
 }
 
 #[cfg(test)]

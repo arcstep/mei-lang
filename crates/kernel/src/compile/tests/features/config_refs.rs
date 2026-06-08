@@ -27,16 +27,14 @@ world(
 "#,
     );
 
-    let compiled = compile_app_from_root_with_options(
-        &source_root,
-        &app_root,
-        CompileOptions::default(),
-    )
-    .expect("compile");
+    let compiled =
+        compile_app_from_root_with_options(&source_root, &app_root, CompileOptions::default())
+            .expect("compile");
     assert!(
-        compiled.diagnostics.iter().any(|diag| {
-            diag.code == "missing_config_ref" && diag.severity == Severity::Error
-        }),
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| { diag.code == "missing_config_ref" && diag.severity == Severity::Error }),
         "expected missing_config_ref diagnostic: {:?}",
         compiled.diagnostics
     );

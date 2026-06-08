@@ -6,10 +6,9 @@ use super::style::container_visual_style;
 use super::style::{
     block_style, metric_slot_vertical_host_class, panel_body_layout_centered,
     panel_card_layout_style, panel_chrome_bare, panel_head_caret_style, panel_head_carets_enabled,
-    panel_head_carets_slot_mode,
-    panel_heading_config, panel_heading_style, panel_layout_content_on_body_slot,
-    panel_scale_factor, panel_scaled_outer_style, panel_show_heading, panel_slot_area_style,
-    panel_slot_typography_style, panel_style,
+    panel_head_carets_slot_mode, panel_heading_config, panel_heading_style,
+    panel_layout_content_on_body_slot, panel_scale_factor, panel_scaled_outer_style,
+    panel_show_heading, panel_slot_area_style, panel_slot_typography_style, panel_style,
 };
 use super::theme::{
     resolve_panel_body_props, resolve_panel_card_props, resolve_panel_head_props,

@@ -8,8 +8,8 @@ use axum::{
 };
 use mei_lang_kernel::{
     apply_ops_patch_with_journal, journal_path, load_mei_config_for_app,
-    resolve_app_root as kernel_resolve_app_root, resolve_mei_config_path, MeiConfig, OpsConfigPatch,
-    OpsJournal,
+    resolve_app_root as kernel_resolve_app_root, resolve_mei_config_path, MeiConfig,
+    OpsConfigPatch, OpsJournal,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -52,7 +52,11 @@ pub async fn ops_config_get(
     Path(app_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(app_root) = resolve_app_root(&state, &app_id) else {
-        return (StatusCode::NOT_FOUND, Json(json!({"error": "app not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
     };
     let source_root = state.source_root.as_path();
     let config_path = resolve_mei_config_path(&app_root, Some(source_root));
@@ -84,7 +88,11 @@ pub async fn ops_config_put(
             .into_response();
     }
     let Some(app_root) = resolve_app_root(&state, &app_id) else {
-        return (StatusCode::NOT_FOUND, Json(json!({"error": "app not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
     };
     let source_root = state.source_root.as_path();
     let config_path = resolve_mei_config_path(&app_root, Some(source_root));
@@ -127,7 +135,11 @@ pub async fn ops_journal_get(
     Path(app_id): Path<String>,
 ) -> impl IntoResponse {
     let Some(app_root) = resolve_app_root(&state, &app_id) else {
-        return (StatusCode::NOT_FOUND, Json(json!({"error": "app not found"}))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "app not found"})),
+        )
+            .into_response();
     };
     let journal = OpsJournal::load(&app_root);
     (

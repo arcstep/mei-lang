@@ -101,8 +101,7 @@ fn materialize_one_legacy_dataset(
         .and_then(|value| value.strip_prefix("dataset."))
         .map(ToString::to_string)
         .unwrap_or_else(|| decl.dataset.key.clone());
-    let source_decl =
-        legacy_dataset_source_decl(&resolved_source, &decl.dataset.normalize, false);
+    let source_decl = legacy_dataset_source_decl(&resolved_source, &decl.dataset.normalize, false);
     let mut source_truncated = false;
     let mut rows = if decl.dataset.kind == "dataframe" {
         let snapshot = load_legacy_rows_from_source(app_root, &resolved_source)?;
