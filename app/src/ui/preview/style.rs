@@ -326,6 +326,28 @@ pub(super) fn panel_head_carets_enabled(head_props: &Value) -> bool {
         .is_some_and(|value| !value.trim().is_empty())
 }
 
+fn caret_pos_str(map: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        map.get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+pub(super) fn panel_head_carets_slot_mode(head_props: &Value) -> bool {
+    let Some(map) = head_props
+        .as_object()
+        .and_then(|head| head.get("carets"))
+        .and_then(Value::as_object)
+    else {
+        return false;
+    };
+    caret_pos_str(map, &["left", "left_slot"]).is_some()
+        && caret_pos_str(map, &["right", "right_slot"]).is_some()
+}
+
 pub(super) fn panel_head_caret_style(head_props: &Value) -> String {
     let Some(carets) = head_props.as_object().and_then(|map| map.get("carets")) else {
         return String::new();
@@ -358,13 +380,20 @@ pub(super) fn panel_head_caret_style(head_props: &Value) -> String {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("14px 24px");
-    format!(
+    let mut style = format!(
         "--mei-head-caret-url:{};--mei-head-caret-inset:{};--mei-head-caret-left-rotate:{};--mei-head-caret-size:{};",
         normalize_background_image(url),
         inset,
         left_rotate,
         size
-    )
+    );
+    if let Some(left_pos) = caret_pos_str(map, &["left", "left_slot"]) {
+        style.push_str(&format!("--mei-head-caret-left-pos:{left_pos};"));
+    }
+    if let Some(right_pos) = caret_pos_str(map, &["right", "right_slot"]) {
+        style.push_str(&format!("--mei-head-caret-right-pos:{right_pos};"));
+    }
+    style
 }
 
 /// 整卡 grid：来自 `panel.layout`；`props.heading.height` 与 `rows` 合并为 `grid-template-rows`。

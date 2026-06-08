@@ -6,6 +6,7 @@ use super::style::container_visual_style;
 use super::style::{
     block_style, metric_slot_vertical_host_class, panel_body_layout_centered,
     panel_card_layout_style, panel_chrome_bare, panel_head_caret_style, panel_head_carets_enabled,
+    panel_head_carets_slot_mode,
     panel_heading_config, panel_heading_style, panel_layout_content_on_body_slot,
     panel_scale_factor, panel_scaled_outer_style, panel_show_heading, panel_slot_area_style,
     panel_slot_typography_style, panel_style,
@@ -41,6 +42,7 @@ pub(super) fn panel_view(
     let heading = panel_heading_config(&theme.panel_head, &head_props, &card_props);
     let heading_class = format!("panel-heading panel-heading-{}", heading.variant);
     let head_carets = panel_head_carets_enabled(&head_props);
+    let head_carets_slot = head_carets && panel_head_carets_slot_mode(&head_props);
     let mut heading_cell_style = panel_heading_style(&head_props);
     heading_cell_style.push_str(&panel_slot_typography_style(&head_props));
     if head_carets {
@@ -137,12 +139,14 @@ pub(super) fn panel_view(
         >
             {if has_head {
                 let head_carets_attr = head_carets.then_some("true");
+                let head_carets_mode_attr = head_carets_slot.then_some("slot");
                 view! {
                     <div
                         class=format!("panel-head-cell {heading_class}")
                         style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
                         data-mei-panel-head="true"
                         data-mei-head-carets=head_carets_attr
+                        data-mei-head-carets-mode=head_carets_mode_attr
                         data-heading-variant=heading.variant.clone()
                         aria-label=label.clone()
                     >
@@ -186,12 +190,14 @@ pub(super) fn panel_view(
                 >
                     {if has_head {
                         let head_carets_attr = head_carets.then_some("true");
+                        let head_carets_mode_attr = head_carets_slot.then_some("slot");
                         view! {
                             <div
                                 class=format!("panel-head-cell {heading_class}")
                                 style=format!("{}{}", panel_slot_area_style(SLOT_HEAD), heading_cell_style)
                                 data-mei-panel-head="true"
                                 data-mei-head-carets=head_carets_attr
+                                data-mei-head-carets-mode=head_carets_mode_attr
                                 data-heading-variant=heading.variant.clone()
                                 aria-label=label.clone()
                             >

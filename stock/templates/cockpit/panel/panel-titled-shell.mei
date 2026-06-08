@@ -1,11 +1,13 @@
 # 标题壳 panel 模板：主文件覆写 title / props.height / blocks。
+# 520×54 标题行；底纹 GRADIENT_BG；两侧 caret 对齐 Sketch（26.2% / 71.2%）。
 
 scene(id = "panel_titled_shell_tpl", profile = "cockpit", theme = "cockpit")
 
 world(resources = [])
 
 ASSET_BASE = "/workspace-app-assets/templates/cockpit/assets"
-CARET = ASSET_BASE + "/caret-left-filled@3x.svg"
+PANEL_ASSETS = ASSET_BASE + "/panel"
+CARET = PANEL_ASSETS + "/caret-left-filled@3x.svg"
 GRADIENT_BG = "linear-gradient(90deg, #245284 0%, #105796 50%, #163349 100%)"
 
 frame()
@@ -22,11 +24,14 @@ frame.add_panel(
     },
     title_decor = {
         "url": CARET,
-        "inset": "14px",
+        "left": "26.2%",
+        "right": "71.2%",
         "left_rotate": "180deg",
+        "size": "14px 24px",
     },
     title_height = "54px",
     title_align = "center",
+    heading_variant = "plain",
     heading = {
         "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
         "font_size": "30px",

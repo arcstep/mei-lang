@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="14px" height="14px" viewBox="0 0 14 14" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>caret-right-filled@3x</title>
+    <g id="切图" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="执法人员" transform="translate(-50, -673)">
+            <g id="left-" transform="translate(28, 176)">
+                <g id="tree" transform="translate(0, 228)">
+                    <g id="二级备份" transform="translate(0, 260)">
+                        <g id="caret-right-filled" transform="translate(22, 9)">
+                            <rect id="矩形" fill="#000000" opacity="0" x="0" y="0" width="14" height="14"></rect>
+                            <path d="M9.78632812,6.74707031 L4.58007812,2.25722656 C4.3859375,2.09042969 4.1015625,2.24082031 4.1015625,2.51015625 L4.1015625,11.4898437 C4.1015625,11.7591797 4.3859375,11.9095703 4.58007812,11.7427734 L9.78632812,7.25292969 C9.93535156,7.12441406 9.93535156,6.87558594 9.78632812,6.74707031 Z" id="路径" fill="#C9E9F8"></path>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>
