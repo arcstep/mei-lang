@@ -74,14 +74,17 @@ pub use config_refs::{
 pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_config, merge_ops_section,
     load_workspace_auth_bundle, resolve_app_entry_main, resolve_app_main_path, resolve_app_root,
-    resolve_components_root, resolve_mei_config_path, workspace_auth_config_path,
-    workspace_config_path, write_mei_config,
-    write_workspace_auth_bundle, write_workspace_config, AppEntryConfig, AppFeaturesConfig,
-    AppPathsConfig, WorkspaceAuthBundle,
+    resolve_components_root, resolve_mei_config_path, resolve_templates_root,
+    set_mei_package_root, stock_components_source, stock_templates_source, workspace_auth_config_path,
+    workspace_config_path, write_mei_config, write_workspace_auth_bundle, write_workspace_config,
+    AppEntryConfig, AppFeaturesConfig, AppPathsConfig, WorkspaceAuthBundle,
     AuthKeyPairConfig, AuthUserConfig, DiscoverConfig, FileCacheConfig, FileCacheSettings,
     MeiConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig,
-    WorkspaceAuthConfig, WorkspaceConfig, DEFAULT_APP_ENTRY_MAIN, MEI_CONFIG_FILENAME,
-    MEI_WORKSPACE_CONFIG_FILENAME, AUTH_JOURNAL_REL_PATH, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
+    WorkspaceAuthConfig, WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile,
+    DEFAULT_APP_ENTRY_MAIN,
+    DEFAULT_STOCK_COMPONENTS_REL, DEFAULT_STOCK_TEMPLATES_REL, MEI_CONFIG_FILENAME,
+    MEI_WORKSPACE_CONFIG_FILENAME, AUTH_JOURNAL_REL_PATH, LEGACY_AUTH_JOURNAL_REL_PATH,
+    OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
 };
 pub use auth_journal::{
     append_auth_journal_entry, auth_journal_path, AuthJournal, AuthJournalEntry,

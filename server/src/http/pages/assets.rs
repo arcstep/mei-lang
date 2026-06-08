@@ -7,7 +7,7 @@ use axum::{
     response::Response,
 };
 
-use mei_lang_kernel::resolve_app_root;
+use mei_lang_kernel::{resolve_app_root, resolve_templates_root};
 
 use crate::{AppError, AppState};
 
@@ -106,10 +106,12 @@ pub async fn workspace_app_asset(
     State(state): State<AppState>,
     AxumPath((app_id, path)): AxumPath<(String, String)>,
 ) -> Result<Response, AppError> {
-    serve_static_asset(
-        resolve_app_root(state.source_root.as_path(), &app_id).join(&path),
-        "workspace app asset",
-    )
+    let asset_root = if app_id == "templates" {
+        resolve_templates_root(state.source_root.as_path()).join(&path)
+    } else {
+        resolve_app_root(state.source_root.as_path(), &app_id).join(&path)
+    };
+    serve_static_asset(asset_root, "workspace app asset")
 }
 
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {

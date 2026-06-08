@@ -6,7 +6,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use mei_lang_kernel::{
     compile_app_with_options, compile_revision_plan_from_root_with_options, resolve_app_root,
-    resolve_components_root as kernel_resolve_components_root, CompileOptions, CompileWatchedFile,
+    resolve_components_root as kernel_resolve_components_root,
+    resolve_templates_root as kernel_resolve_templates_root, CompileOptions, CompileWatchedFile,
     CompiledApp, COMPILE_SEMANTICS_GENERATION,
 };
 use serde::Serialize;
@@ -479,7 +480,7 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
     let app_id = app_id.trim();
     let app_root = resolve_app_root(source_root, app_id);
     let components_root = resolve_components_root(source_root);
-    let templates_root = source_root.join("templates");
+    let templates_root = kernel_resolve_templates_root(source_root);
     let vendor_root = components_root.join("vendor");
     let upload_root = app_root.join("upload");
     let components_resolution = components_root
@@ -514,7 +515,7 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         "error",
         format!("components root `{}` does not exist", components_root.display()),
         Some(
-            "provide `_components` under source_root or shared parent (`source_root/../_components`)"
+            "run `mei workspace materialize` or set paths.components in `.mei-workspace.json`"
                 .to_string(),
         ),
     );
@@ -536,7 +537,7 @@ pub fn inspect_source_layout(source_root: &Path, app_id: &str) -> SourceLayoutIn
         "warning",
         format!("templates root `{}` does not exist", templates_root.display()),
         Some(
-            "if scenes use `scene_file = \"../templates/...\"`, keep a sibling templates directory under source_root"
+            "run `mei workspace materialize` or set paths.templates; scenes should reference `../.stock/templates/...`"
                 .to_string(),
         ),
     );

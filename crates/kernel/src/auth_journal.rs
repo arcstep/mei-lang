@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::mei_config::AUTH_JOURNAL_REL_PATH;
+use crate::mei_config::{AUTH_JOURNAL_REL_PATH, LEGACY_AUTH_JOURNAL_REL_PATH};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthJournal {
@@ -46,7 +46,7 @@ pub struct AuthJournalEntry {
 
 impl AuthJournal {
     pub fn load(source_root: &Path) -> Self {
-        let path = auth_journal_path(source_root);
+        let path = resolve_auth_journal_read_path(source_root);
         if !path.is_file() {
             return Self::default();
         }
@@ -91,6 +91,18 @@ impl AuthJournal {
 
 pub fn auth_journal_path(source_root: &Path) -> PathBuf {
     source_root.join(AUTH_JOURNAL_REL_PATH)
+}
+
+fn resolve_auth_journal_read_path(source_root: &Path) -> PathBuf {
+    let modern = auth_journal_path(source_root);
+    if modern.is_file() {
+        return modern;
+    }
+    let legacy = source_root.join(LEGACY_AUTH_JOURNAL_REL_PATH);
+    if legacy.is_file() {
+        return legacy;
+    }
+    modern
 }
 
 pub fn append_auth_journal_entry(

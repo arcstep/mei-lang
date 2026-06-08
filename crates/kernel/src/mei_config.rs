@@ -6,6 +6,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
+    sync::OnceLock,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -16,7 +17,12 @@ use serde_json::Value;
 pub const MEI_CONFIG_FILENAME: &str = ".mei-config.json";
 pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = ".mei-workspace.json";
 pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
-pub const AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
+pub const AUTH_JOURNAL_REL_PATH: &str = ".mei/auth/auth-journal.json";
+pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
+/// 可 Git 跟踪的物化组件库（与运行时 `.mei/` 分离）。
+pub const DEFAULT_STOCK_COMPONENTS_REL: &str = ".stock/components";
+/// 可 Git 跟踪的物化模板库。
+pub const DEFAULT_STOCK_TEMPLATES_REL: &str = ".stock/templates";
 pub const DEFAULT_APP_ENTRY_MAIN: &str = "main.mei";
 
 /// 可运维对象白名单（宿主写操作仅允许触及这些分类）。
@@ -47,6 +53,8 @@ pub struct WorkspaceConfig {
     pub schema_version: u32,
     #[serde(default)]
     pub workspace: WorkspaceProfile,
+    #[serde(default)]
+    pub paths: WorkspacePathsConfig,
     #[serde(default)]
     pub discover: DiscoverConfig,
     #[serde(default)]
@@ -150,10 +158,20 @@ pub struct AppFeaturesConfig {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspacePathsConfig {
+    /// 组件库根（相对 profile 根或绝对路径）；未设且未物化时回退 `mei-lang/stock/components`。
+    #[serde(default)]
+    pub components: Option<String>,
+    /// 模板库根；未设且未物化时回退 `mei-lang/stock/templates`。
+    #[serde(default)]
+    pub templates: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DiscoverConfig {
     #[serde(default)]
     pub skip_directories: Vec<String>,
-    /// 相对 `source_root` 或绝对路径；未设时回退 `_components` / `../_components`。
+    /// 已迁至 `paths.components`；仅兼容旧配置。
     #[serde(default, rename = "componentsRoot")]
     pub components_root: Option<String>,
     /// URL/CLI 旧应用 id → 目录名，如 `spbjw` → `xzjd`。
@@ -312,33 +330,94 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
     segment_root.join(MEI_WORKSPACE_CONFIG_FILENAME)
 }
 
-/// 解析工作区组件根目录：`.mei-workspace.json` 的 `discover.componentsRoot` 优先，否则 `_components` / `../_components`。
+static MEI_PACKAGE_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// 由 `mei-lang-server` 启动时注入；供 stock 回退路径解析。
+pub fn set_mei_package_root(path: PathBuf) {
+    let _ = MEI_PACKAGE_ROOT.set(path);
+}
+
+fn mei_package_root() -> Option<&'static Path> {
+    MEI_PACKAGE_ROOT.get().map(|path| path.as_path())
+}
+
+fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
+    let trimmed = rel.trim();
+    if trimmed.is_empty() {
+        return source_root.to_path_buf();
+    }
+    if Path::new(trimmed).is_absolute() {
+        PathBuf::from(trimmed)
+    } else {
+        source_root.join(trimmed)
+    }
+}
+
+fn configured_components_rel(cfg: &WorkspaceConfig) -> Option<&str> {
+    cfg.paths
+        .components
+        .as_deref()
+        .or(cfg.discover.components_root.as_deref())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn configured_templates_rel(cfg: &WorkspaceConfig) -> Option<&str> {
+    cfg.paths
+        .templates
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// 解析组件根：`paths.components` → 物化目录 → `mei-lang/stock/components`。
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
     let cfg = load_workspace_config(source_root);
-    if let Some(ref rel) = cfg.discover.components_root {
-        let trimmed = rel.trim();
-        if !trimmed.is_empty() {
-            let candidate = if Path::new(trimmed).is_absolute() {
-                PathBuf::from(trimmed)
-            } else {
-                source_root.join(trimmed)
-            };
-            if candidate.exists() {
-                return candidate;
-            }
+    if let Some(rel) = configured_components_rel(&cfg) {
+        let candidate = resolve_workspace_path(source_root, rel);
+        if candidate.is_dir() {
+            return candidate;
         }
     }
-    let local = source_root.join("_components");
-    if local.exists() {
-        return local;
+    let materialized = resolve_workspace_path(source_root, DEFAULT_STOCK_COMPONENTS_REL);
+    if materialized.is_dir() {
+        return materialized;
     }
-    if let Some(parent) = source_root.parent() {
-        let shared = parent.join("_components");
-        if shared.exists() {
-            return shared;
+    if let Some(package_root) = mei_package_root() {
+        let stock = package_root.join("stock/components");
+        if stock.is_dir() {
+            return stock;
         }
     }
-    local
+    materialized
+}
+
+/// 解析模板根：`paths.templates` → 物化目录 → `mei-lang/stock/templates`。
+pub fn resolve_templates_root(source_root: &Path) -> PathBuf {
+    let cfg = load_workspace_config(source_root);
+    if let Some(rel) = configured_templates_rel(&cfg) {
+        let candidate = resolve_workspace_path(source_root, rel);
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    let materialized = resolve_workspace_path(source_root, DEFAULT_STOCK_TEMPLATES_REL);
+    if materialized.is_dir() {
+        return materialized;
+    }
+    if let Some(package_root) = mei_package_root() {
+        let stock = package_root.join("stock/templates");
+        if stock.is_dir() {
+            return stock;
+        }
+    }
+    materialized
+}
+
+pub fn stock_components_source(package_root: &Path) -> PathBuf {
+    package_root.join("stock/components")
+}
+
+pub fn stock_templates_source(package_root: &Path) -> PathBuf {
+    package_root.join("stock/templates")
 }
 
 /// 将 CLI/URL 中的 `app_id` 解析为应用目录（支持 `discover.appAliases`）。
@@ -446,6 +525,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
         return WorkspaceConfig {
             schema_version: legacy_app.schema_version,
             workspace: WorkspaceProfile::default(),
+            paths: WorkspacePathsConfig::default(),
             discover: legacy_app.discover,
             menu: legacy_app.menu,
             runtime: legacy_app.runtime,
