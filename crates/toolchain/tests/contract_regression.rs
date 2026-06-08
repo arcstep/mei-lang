@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mei_lang_kernel::CompileOptions;
+use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
     build_world_context_snapshot, clear_compile_cache_for_app, compile_app_with_cache, compile_report,
     query_world_dataset, query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
@@ -12,7 +12,21 @@ use mei_lang_toolchain::{
 };
 use mei_lang_kernel::RuntimeIntent;
 
+fn package_root() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .canonicalize()
+            .expect("mei-lang package root");
+        set_mei_package_root(root.clone());
+        root
+    })
+    .clone()
+}
+
 fn workspaces_root() -> PathBuf {
+    let _ = package_root();
     if let Ok(raw) = std::env::var("MEI_TEST_SOURCE_ROOT") {
         return PathBuf::from(raw)
             .canonicalize()
@@ -46,13 +60,10 @@ fn build_standalone_fixture() -> PathBuf {
         source.join("examples/ds/01-dataset-baseline"),
         fixture_root.join("ds-smoke-app"),
     );
-    let shared_components = source.join("_components");
-    let fixture_components = fixture_root.join("_components");
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&shared_components, &fixture_components)
-        .expect("link _components");
-    #[cfg(not(unix))]
-    copy_dir_recursive(shared_components, fixture_components);
+    copy_dir_recursive(
+        source.join(".stock/components"),
+        fixture_root.join(".stock/components"),
+    );
     fixture_root
 }
 

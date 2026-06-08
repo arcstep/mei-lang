@@ -963,7 +963,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
             );
         }
         assert!(
-            !encoded.contains("scene_file\":\"../templates/cockpit/drilldown/metric-explain-board.mei\""),
+            !encoded.contains("scene_file\":\"../.stock/templates/cockpit/drilldown/metric-explain-board.mei\""),
             "`{target}` should not keep direct metric-explain-board scene_file links, got: {encoded}"
         );
     }
@@ -1059,7 +1059,7 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("xzjd");
-    let target = "../templates/cockpit/drilldown/generic-drilldown-board.mei";
+    let target = "../.stock/templates/cockpit/drilldown/generic-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
