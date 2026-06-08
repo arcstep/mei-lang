@@ -28,12 +28,9 @@ fn git_dirty(repo_root: &Path) -> bool {
 
 fn utc_timestamp() -> String {
     let repo_root = repo_root_from_manifest();
-    run_git(
-        &repo_root,
-        &["log", "-1", "--format=%cI"],
-    )
-    .filter(|value| !value.is_empty())
-    .unwrap_or_else(|| "unknown".to_string())
+    run_git(&repo_root, &["log", "-1", "--format=%cI"])
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn repo_root_from_manifest() -> PathBuf {
@@ -49,16 +46,19 @@ fn emit_rustc_env(key: &str, value: &str) {
 
 fn main() {
     let repo_root = repo_root_from_manifest();
-    let major = env::var("MEI_MAJOR_VERSION")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "0".to_string());
     let target_tag = env::var("MEI_BUILD_TARGET_TAG")
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "unknown".to_string());
+
+    let cargo_package_version =
+        env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
+    let major_version = cargo_package_version
+        .split('.')
+        .next()
+        .unwrap_or("0")
+        .to_string();
 
     let git_commit_short = run_git(&repo_root, &["rev-parse", "--short", "HEAD"])
         .unwrap_or_else(|| "unknown".to_string());
@@ -72,11 +72,10 @@ fn main() {
     } else {
         git_commit_short.clone()
     };
-    let build_version = format!("{major}.{internal_version}");
+    let build_version = format!("{cargo_package_version}+{internal_version}");
     let build_timestamp_utc = utc_timestamp();
-    let cargo_package_version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
 
-    emit_rustc_env("MEI_MAJOR_VERSION", &major);
+    emit_rustc_env("MEI_MAJOR_VERSION", &major_version);
     emit_rustc_env("MEI_INTERNAL_VERSION", &internal_version);
     emit_rustc_env("MEI_BUILD_VERSION", &build_version);
     emit_rustc_env("MEI_GIT_COMMIT_SHORT", &git_commit_short);
@@ -92,9 +91,9 @@ fn main() {
         r#"{{
   "component": "mei-lang-server",
   "build_version": "{build_version}",
-  "major_version": "{major}",
-  "internal_version": "{internal_version}",
   "cargo_package_version": "{cargo_package_version}",
+  "major_version": "{major_version}",
+  "internal_version": "{internal_version}",
   "git_commit_short": "{git_commit_short}",
   "git_commit_full": "{git_commit_full}",
   "git_branch": "{git_branch}",
@@ -106,8 +105,8 @@ fn main() {
     );
     fs::write(out_dir.join("build-info.json"), build_info_json).expect("write build-info.json");
 
+    println!("cargo:rerun-if-changed=../Cargo.toml");
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
-    println!("cargo:rerun-if-env-changed=MEI_MAJOR_VERSION");
     println!("cargo:rerun-if-env-changed=MEI_BUILD_TARGET_TAG");
 }

@@ -2078,7 +2078,7 @@ checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
 name = "mei-lang-app"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "csv",
  "leptos",
@@ -2089,7 +2089,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-datasets"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-kernel"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "calamine",
@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-lsp"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-server"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -2166,7 +2166,7 @@ dependencies = [
 
 [[package]]
 name = "mei-lang-toolchain"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",

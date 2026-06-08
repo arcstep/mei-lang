@@ -12,23 +12,25 @@ pub const BUILD_TIMESTAMP_UTC: &str = env!("MEI_BUILD_TIMESTAMP_UTC");
 pub const CARGO_PACKAGE_VERSION: &str = env!("MEI_CARGO_PACKAGE_VERSION");
 
 pub fn version_label() -> String {
-    format!("Mei {BUILD_VERSION}")
+    format!("Mei {CARGO_PACKAGE_VERSION} · {INTERNAL_VERSION}")
 }
 
 pub fn version_label_with_target() -> String {
     if BUILD_TARGET_TAG == "unknown" {
         version_label()
     } else {
-        format!("Mei {BUILD_VERSION} ({BUILD_TARGET_TAG})")
+        format!(
+            "Mei {CARGO_PACKAGE_VERSION} · {INTERNAL_VERSION} ({BUILD_TARGET_TAG})"
+        )
     }
 }
 
 pub fn descriptor() -> Value {
     json!({
         "build_version": BUILD_VERSION,
+        "cargo_package_version": CARGO_PACKAGE_VERSION,
         "major_version": MAJOR_VERSION,
         "internal_version": INTERNAL_VERSION,
-        "cargo_package_version": CARGO_PACKAGE_VERSION,
         "git": {
             "commit_short": GIT_COMMIT_SHORT,
             "commit_full": GIT_COMMIT_FULL,
