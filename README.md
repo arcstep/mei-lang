@@ -73,6 +73,7 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth add-u
 
 - `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
 - 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）；生产对照用 **`--workspace ws-spbjw`**
+- 组件/模板：`mei workspace materialize` 物化到 profile 的 `.stock/`（Git 跟踪）；`.mei/` 仅运行时；未物化时只读 `mei-lang/stock/`
 - **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
 - 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 RSA 加密链路输入，禁止命令行参数
 - 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
