@@ -45,8 +45,11 @@ pub use config_refs::{
 pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
 pub use host_contract::{
-    host_protocol_descriptor, host_runtime_capabilities_catalog, host_runtime_contract_descriptor,
-    HostSurface, HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
+    host_extension_registry, host_extension_registry_descriptor, host_protocol_descriptor,
+    host_requirements_descriptor, host_requirements_for_consumer, host_runtime_capabilities_catalog,
+    host_runtime_contract_descriptor, HostExtensionDescriptor, HostExtensionKind,
+    HostRequirementsDescriptor, HostSurface, HOST_REQUIREMENTS_SCHEMA,
+    HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
 };
 pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
