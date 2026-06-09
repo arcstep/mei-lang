@@ -2,8 +2,24 @@
 
 import { spawn } from "node:child_process";
 
-const MEI_BIN = process.env.MEI_BIN || "mei";
+const TOOLCHAIN_BIN_CANDIDATES = uniqueNonEmpty([
+  process.env.MEI_TOOLCHAIN_BIN,
+  process.env.MEI_BIN,
+  "mei-toolchain",
+  "mei",
+]);
+const HOST_WEB_BIN_CANDIDATES = uniqueNonEmpty([
+  process.env.MEI_HOST_WEB_BIN,
+  process.env.MEI_HOST_BIN,
+  process.env.MEI_BIN,
+  "mei-host-web",
+  "mei",
+]);
 const DEFAULT_SOURCE_ROOT = process.env.MEI_SOURCE_ROOT || "";
+
+function uniqueNonEmpty(values) {
+  return [...new Set(values.filter((item) => typeof item === "string" && item.trim()))];
+}
 
 const TOOL_DEFS = [
   {
@@ -213,30 +229,31 @@ function appendStringList(cli, flag, values) {
 
 function buildToolCommand(name, args = {}) {
   const cli = [];
+  let binCandidates = TOOLCHAIN_BIN_CANDIDATES;
   switch (name) {
     case "mei_check": {
       const app = nonEmptyString(args.app, "app");
       const scopeArgs = buildScopeArgs(args);
       cli.push("check", "--app", app, ...scopeArgs, "--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_compile": {
       const app = nonEmptyString(args.app, "app");
       const scopeArgs = buildScopeArgs(args);
       cli.push("compile", "--app", app, ...scopeArgs, "--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_inspect_world": {
       const app = nonEmptyString(args.app, "app");
       const scopeArgs = buildScopeArgs(args);
       cli.push("inspect", "world", "--app", app, ...scopeArgs, "--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_inspect_inventory": {
       const app = nonEmptyString(args.app, "app");
       const scopeArgs = buildScopeArgs(args);
       cli.push("inspect", "inventory", "--app", app, ...scopeArgs, "--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_query_dataset": {
       const app = nonEmptyString(args.app, "app");
@@ -253,7 +270,7 @@ function buildToolCommand(name, args = {}) {
         cli.push("--limit", String(args.limit));
       }
       cli.push("--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_query_metric": {
       const app = nonEmptyString(args.app, "app");
@@ -267,14 +284,14 @@ function buildToolCommand(name, args = {}) {
       }
       appendFilters(cli, args.filters);
       cli.push("--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_query_resource": {
       const app = nonEmptyString(args.app, "app");
       const scopeArgs = buildScopeArgs(args);
       const resourceId = nonEmptyString(args.resource_id, "resource_id");
       cli.push("query", "resource", "--app", app, "--id", resourceId, ...scopeArgs, "--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_runtime_peek": {
       const app = nonEmptyString(args.app, "app");
@@ -284,24 +301,26 @@ function buildToolCommand(name, args = {}) {
         cli.push("--trace-limit", String(args.trace_limit));
       }
       cli.push("--json");
-      return cli;
+      return { binCandidates, cli };
     }
     case "mei_host_describe":
+      binCandidates = HOST_WEB_BIN_CANDIDATES;
       cli.push("host", "describe", "--json");
-      return cli;
+      return { binCandidates, cli };
     default:
       throw new Error(`unknown tool: ${name}`);
   }
 }
 
-function runMei(cliArgs) {
+function runSingleMei(bin, cliArgs) {
   return new Promise((resolve, reject) => {
-    const child = spawn(MEI_BIN, cliArgs, {
+    const child = spawn(bin, cliArgs, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
     let stdout = "";
     let stderr = "";
+    let spawnError = null;
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString("utf8");
@@ -310,11 +329,15 @@ function runMei(cliArgs) {
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
-      reject(error);
+      spawnError = error;
     });
     child.on("close", (code) => {
+      if (spawnError) {
+        reject(spawnError);
+        return;
+      }
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `mei exited with code ${code}`));
+        reject(new Error(stderr.trim() || `${bin} exited with code ${code}`));
         return;
       }
       const text = stdout.trim();
@@ -331,6 +354,24 @@ function runMei(cliArgs) {
   });
 }
 
+async function runMei(binCandidates, cliArgs) {
+  const missingBins = [];
+  for (const bin of binCandidates) {
+    try {
+      return await runSingleMei(bin, cliArgs);
+    } catch (error) {
+      if (error && typeof error === "object" && error.code === "ENOENT") {
+        missingBins.push(bin);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error(
+    `no usable Mei CLI found; tried ${missingBins.join(", ")}`
+  );
+}
+
 async function handleToolCall(id, params = {}) {
   const name = optionalString(params.name);
   const args = params.arguments && typeof params.arguments === "object" ? params.arguments : {};
@@ -343,8 +384,8 @@ async function handleToolCall(id, params = {}) {
     return;
   }
   try {
-    const cliArgs = buildToolCommand(name, args);
-    const result = await runMei(cliArgs);
+    const { binCandidates, cli } = buildToolCommand(name, args);
+    const result = await runMei(binCandidates, cli);
     reply(id, {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       structuredContent: result,

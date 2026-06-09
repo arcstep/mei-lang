@@ -1,6 +1,6 @@
 /**
  * SPA 场景审计：只报告当前行为，不假定旧用例已通过即代表用户路径正常。
- * 需本机已运行: cargo run -p mei-lang-server -- serve  (默认 3000)
+ * 需本机已运行: cargo run -p mei-lang-server --bin mei-host-web -- serve  (默认 3000)
  *
  *   MEI_TEST_BASE_URL=http://127.0.0.1:3000 MEI_TEST_SKIP_SERVER=1 npx playwright test e2e/spa-navigation-audit.spec.mjs
  */

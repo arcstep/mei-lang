@@ -29,7 +29,7 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: `cargo run -p mei-lang-server -- serve --port ${e2ePort}`,
+          command: `cargo run -p mei-lang-server --bin mei-host-web -- serve --port ${e2ePort}`,
           url: baseURL,
           cwd: rootDir,
           reuseExistingServer: !process.env.CI,
