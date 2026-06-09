@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use super::super::manage_routing::{access_scene_query, encode_query_value};
 use super::super::route::UiRouteMode;
 use super::super::view_routing::{
-    app_scene_href, build_href, config_href, cross_app_href, upload_href,
+    app_scene_href, build_href, config_href, cross_app_href, presentation_scene_href, upload_href,
 };
 use super::super::{HostAccountView, HostCapabilities, TopbarMenuContext};
 
@@ -261,8 +261,11 @@ pub(crate) fn topbar_view(
     let build_href = build_href(active_app_path, Some(build_file), active_tab);
     let config_href = append_scene_query(config_href(active_app_path), access_scene_for_href);
     let upload_href = append_scene_query(upload_href(active_app_path, None), access_scene_for_href);
-    let presentation_href =
-        app_scene_href(active_app_path, access_scene_for_href, None, Some("none"));
+    let presentation_href = if access_disabled {
+        "#".to_string()
+    } else {
+        presentation_scene_href(active_app_path, access_scene_for_href)
+    };
     let (show_config_tab, show_upload_tab, show_build_tab) =
         auth_surface_tabs_visible(auth_enabled, auth_account);
     let show_upload_mode = upload_enabled && show_upload_tab;
@@ -341,9 +344,9 @@ pub(crate) fn topbar_view(
     .into_any()
     };
     let launch_title = if stage_enabled {
-        "在新标签页打开"
+        "在新标签页进入演示模式"
     } else {
-        "在新标签页打开无 Chrome 应用"
+        "在新标签页进入 scene 演示模式"
     };
     let account_view = if auth_enabled {
         if let Some(account) = auth_account.filter(|item| item.logged_in) {
@@ -410,6 +413,7 @@ pub(crate) fn topbar_view(
                         class="topbar-launch-btn"
                         size="small"
                         href=presentation_href
+                        disabled=access_disabled
                         target="_blank"
                         rel="noopener noreferrer"
                         aria-label=launch_title

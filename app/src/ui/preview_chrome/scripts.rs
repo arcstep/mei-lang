@@ -11,7 +11,7 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
             </>
         }
         .into_any(),
-        UiRouteMode::App => view! {
+        UiRouteMode::App | UiRouteMode::Presentation => view! {
             <>
                 <script defer src="/app-bundles/access.js"></script>
             </>

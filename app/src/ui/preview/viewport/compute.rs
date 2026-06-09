@@ -58,7 +58,7 @@ pub(crate) fn effective_viewport_overflow(
 ) -> String {
     match route {
         UiRouteMode::Build | UiRouteMode::Config | UiRouteMode::Upload => "debug".to_string(),
-        UiRouteMode::App => "clip".to_string(),
+        UiRouteMode::App | UiRouteMode::Presentation => "clip".to_string(),
     }
 }
 
@@ -167,7 +167,7 @@ pub(crate) fn effective_viewport_safe_inset(
             viewport.edit_safe_bottom,
             viewport.edit_safe_left,
         ),
-        UiRouteMode::App => (
+        UiRouteMode::App | UiRouteMode::Presentation => (
             viewport.safe_top,
             viewport.safe_right,
             viewport.safe_bottom,

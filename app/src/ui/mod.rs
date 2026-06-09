@@ -15,6 +15,7 @@ mod route;
 mod shell_access;
 mod shell_config;
 mod shell_manage;
+mod shell_presentation;
 mod shell_upload;
 mod source_tree;
 mod statusbar;
@@ -29,6 +30,7 @@ use preview_chrome::component_scripts;
 use shell_access::access_shell;
 use shell_config::config_shell;
 use shell_manage::{manage_shell, manage_source_shell};
+use shell_presentation::presentation_shell;
 use shell_upload::upload_shell;
 
 use document::render_document;
@@ -138,6 +140,19 @@ pub fn render_page(
             source,
             active_tab,
             chrome_hidden,
+            upload_enabled,
+            auth_enabled,
+            auth_account,
+        ),
+        UiRouteMode::Presentation => presentation_shell(
+            apps,
+            compiled,
+            app_path,
+            topbar_menu,
+            selected_scene,
+            target,
+            source,
+            active_tab,
             upload_enabled,
             auth_enabled,
             auth_account,

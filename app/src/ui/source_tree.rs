@@ -75,7 +75,7 @@ pub(crate) fn source_tree_view(
                 }
                 .into_any()
             } else {
-                let scene_for_link = if route_mode == UiRouteMode::App {
+                let scene_for_link = if route_mode.uses_scene_route() {
                     scene_target_pairs
                         .iter()
                         .find(|(target_file, _)| target_file.as_str() == node.path.as_str())
@@ -195,6 +195,14 @@ fn source_href(
                 format!("/apps/app/{app_path}{suffix}")
             } else {
                 format!("/apps/app/{app_path}")
+            }
+        }
+        UiRouteMode::Presentation => {
+            if let Some(scene) = selected_scene.map(str::trim).filter(|s| !s.is_empty()) {
+                let suffix = access_scene_route_suffix(Some(scene), None, None);
+                format!("/apps/presentation/{app_path}{suffix}")
+            } else {
+                format!("/apps/presentation/{app_path}")
             }
         }
         UiRouteMode::Build => {

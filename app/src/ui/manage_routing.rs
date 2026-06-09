@@ -165,7 +165,7 @@ pub(crate) fn route_query(
     _preview_target: Option<&str>,
     active_tab: Option<&str>,
 ) -> String {
-    if route_mode == UiRouteMode::App {
+    if route_mode.uses_scene_route() {
         access_scene_route_suffix(selected_scene, active_tab, None)
     } else {
         String::new()

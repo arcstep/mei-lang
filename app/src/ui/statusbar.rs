@@ -22,6 +22,7 @@ pub(crate) fn statusbar_view(
     let route_mode_label = match route_mode {
         "build" | "manage" => "构建",
         "app" | "access" => "访问",
+        "presentation" | "slides" => "演示",
         "config" => "配置",
         "upload" => "上传",
         _ => route_mode,

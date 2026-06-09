@@ -51,9 +51,18 @@ pub fn app_scene_href(
     app_href(app_path, &access_scene_route_suffix(scene_id, tab, chrome))
 }
 
+pub fn presentation_scene_href(app_path: &str, scene_id: Option<&str>) -> String {
+    format!(
+        "{}{}",
+        view_base_href(UiRouteMode::Presentation, app_path),
+        access_scene_route_suffix(scene_id, None, None)
+    )
+}
+
 pub fn cross_app_href(view: UiRouteMode, app_path: &str) -> String {
     match view {
         UiRouteMode::App => app_scene_href(app_path, None, None, None),
+        UiRouteMode::Presentation => presentation_scene_href(app_path, None),
         UiRouteMode::Build => build_href(app_path, None, None),
         UiRouteMode::Config => config_href(app_path),
         UiRouteMode::Upload => upload_href(app_path, None),
