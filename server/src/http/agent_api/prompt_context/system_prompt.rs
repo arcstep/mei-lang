@@ -21,6 +21,35 @@ fn profile_policy_block(profile_id: &str, heading: &str) -> String {
                 ));
             }
         }
+        if let Some(overlay) = surface.get("host_overlay") {
+            if let Some(bound_args) = overlay.get("bound_arguments").and_then(|value| value.as_array()) {
+                let bound_args = bound_args
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>();
+                if !bound_args.is_empty() {
+                    blocks.push(format!(
+                        "Host overlay binds these arguments before tool execution: {}.",
+                        bound_args.join(", ")
+                    ));
+                }
+            }
+            if let Some(host_only) = overlay
+                .get("host_only_tools")
+                .and_then(|value| value.as_array())
+            {
+                let host_only = host_only
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>();
+                if !host_only.is_empty() {
+                    blocks.push(format!(
+                        "Host-only overlay tools outside the canonical catalog: {}.",
+                        host_only.join(", ")
+                    ));
+                }
+            }
+        }
     }
     blocks.join("\n")
 }
@@ -235,5 +264,7 @@ mod tests {
         assert!(sys.contains("Tool-first information policy (ask mode, from capability catalog)"));
         assert!(sys.contains("dataset_query"));
         assert!(sys.contains("dataset_metric"));
+        assert!(sys.contains("Host overlay binds these arguments before tool execution: app, source_root."));
+        assert!(sys.contains("Host-only overlay tools outside the canonical catalog: read_file, propose_session_patch."));
     }
 }
