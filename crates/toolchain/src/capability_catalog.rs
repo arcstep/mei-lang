@@ -56,6 +56,8 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
         companion_priority: vec![
             "authoring.md".to_string(),
             "syntax-rules.md".to_string(),
+            "dsl-reference.md".to_string(),
+            "namespace-reference.md".to_string(),
             "components-reference.md".to_string(),
             "context.md".to_string(),
         ],

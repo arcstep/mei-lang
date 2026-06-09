@@ -269,12 +269,43 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
             .iter()
             .any(|item| item["id"] == "author" && item["guidance_file_rel"] == "guides/author-profile.md")
     );
+    assert!(
+        descriptor["skill_packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["id"] == "meilang-author"
+                    && item["companion_priority"]
+                        .as_array()
+                        .is_some_and(|companions| companions.iter().any(|entry| entry == "dsl-reference.md"))
+                    && item["companion_priority"]
+                        .as_array()
+                        .is_some_and(|companions| companions.iter().any(|entry| entry == "namespace-reference.md"))
+            })
+    );
     assert!(descriptor["platform_assets"]["component_packs"].is_array());
     assert!(
         !descriptor["platform_assets"]["component_packs"]
             .as_array()
             .unwrap()
             .is_empty()
+    );
+    let chart_pack = descriptor["platform_assets"]["component_packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "chart/echarts")
+        .expect("chart component pack");
+    assert!(
+        chart_pack["authoring_support"]["knowledge_asset_ids"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "component_contracts"))
+    );
+    assert!(
+        chart_pack["authoring_support"]["recommended_example_ids"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "example_chart_baseline"))
     );
     assert!(descriptor["platform_assets"]["template_packs"].is_array());
     assert!(
@@ -283,6 +314,17 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
             .unwrap()
             .iter()
             .any(|item| item["id"] == "cockpit")
+    );
+    let cockpit_template_pack = descriptor["platform_assets"]["template_packs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "cockpit")
+        .expect("cockpit template pack");
+    assert!(
+        cockpit_template_pack["authoring_support"]["knowledge_asset_ids"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| item == "cockpit_template_index"))
     );
     assert!(descriptor["host_extensions"]["extensions"].is_array());
     assert!(descriptor["host_requirements"].is_array());
@@ -370,6 +412,57 @@ fn knowledge_bundle_exports_author_assets() {
             .unwrap()
             .iter()
             .any(|item| item["descriptor"]["id"] == "author_profile")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "dsl_reference")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "component_contracts")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "cockpit_template_index")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "example_dataset_baseline")
+    );
+    assert!(
+        payload["descriptor"]["available_topics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "templates")
+    );
+    let overview = export_knowledge_bundle_for_package_root(
+        &package_root(),
+        "author",
+        Some("author_runtime_overview"),
+        true,
+    )
+    .expect("author runtime overview");
+    let overview_content = overview["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["content"].as_str())
+        .expect("author runtime overview content");
+    assert!(
+        !overview_content.contains("--surface editor"),
+        "public author runtime overview should not refer to the deprecated editor surface"
     );
 }
 
@@ -512,6 +605,40 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
     assert!(author_profile["content"]
         .as_str()
         .is_some_and(|content| content.contains("Author")));
+    let component_contracts = export_knowledge_bundle_for_workspace_root(
+        &root,
+        &package_root(),
+        "author",
+        Some("component_contracts"),
+        true,
+    )
+    .expect("workspace component contracts");
+    let component_contracts_content = component_contracts["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["content"].as_str())
+        .expect("component contracts content");
+    assert!(
+        component_contracts_content.contains("meilang-author-component-contracts-v1"),
+        "workspace component contracts should expose the public contract index"
+    );
+    let example_pack = export_knowledge_bundle_for_workspace_root(
+        &root,
+        &package_root(),
+        "author",
+        Some("example_dataset_baseline"),
+        true,
+    )
+    .expect("workspace example pack");
+    let example_content = example_pack["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["content"].as_str())
+        .expect("workspace example content");
+    assert!(
+        example_content.contains("dataset.table"),
+        "workspace example bundle should expose the curated standalone examples"
+    );
     let catalog = capability_catalog_descriptor_for_workspace_root(&root, &package_root());
     assert_eq!(catalog["workspace_root"], root.display().to_string());
     let _ = fs::remove_dir_all(root);

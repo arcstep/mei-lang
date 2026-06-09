@@ -18,6 +18,13 @@ pub struct PlatformAssetCatalogDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct AuthoringSupportDescriptor {
+    pub summary: String,
+    pub knowledge_asset_ids: Vec<String>,
+    pub recommended_example_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ComponentPackDescriptor {
     pub id: String,
     pub asset_kind: String,
@@ -25,6 +32,8 @@ pub struct ComponentPackDescriptor {
     pub manifest_file_rel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme_file_rel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authoring_support: Option<AuthoringSupportDescriptor>,
     pub component_count: usize,
     pub component_ids: Vec<String>,
     pub component_exports: Vec<ComponentExportDescriptor>,
@@ -44,6 +53,8 @@ pub struct TemplatePackDescriptor {
     pub source_dir_rel: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub readme_file_rel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authoring_support: Option<AuthoringSupportDescriptor>,
     pub template_file_count: usize,
     pub template_files: Vec<String>,
     pub asset_dirs: Vec<String>,
@@ -79,6 +90,66 @@ fn readme_for_pack(pack_dir: &Path, boundary: &Path) -> Option<String> {
         current = dir.parent();
     }
     None
+}
+
+fn authoring_support(summary: &str, knowledge_asset_ids: &[&str], example_ids: &[&str]) -> AuthoringSupportDescriptor {
+    AuthoringSupportDescriptor {
+        summary: summary.to_string(),
+        knowledge_asset_ids: knowledge_asset_ids.iter().map(|item| (*item).to_string()).collect(),
+        recommended_example_ids: example_ids.iter().map(|item| (*item).to_string()).collect(),
+    }
+}
+
+fn component_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDescriptor> {
+    match pack_id {
+        "chart/echarts" => Some(authoring_support(
+            "Public chart authoring surface. Prefer the common `data + mapping` contract before renderer-specific knobs.",
+            &["component_contracts", "chart_components_guide"],
+            &["example_chart_baseline", "example_filter_reactivity"],
+        )),
+        "cockpit" => Some(authoring_support(
+            "Cockpit-specific renderers and skins. Combine with cockpit template shells instead of inventing a cockpit-only DSL.",
+            &["component_contracts", "cockpit_components_guide", "cockpit_template_index"],
+            &["example_cockpit_panel", "example_template_clone", "example_data_table_runtime"],
+        )),
+        "dataset" => Some(authoring_support(
+            "Shared dataset/table/filter/query-state runtime components.",
+            &["component_contracts", "dataset_components_guide"],
+            &["example_dataset_baseline", "example_filter_reactivity", "example_data_table_runtime"],
+        )),
+        "doc" => Some(authoring_support(
+            "Minimal document rendering surface for markdown panels.",
+            &["component_contracts"],
+            &["example_dataset_baseline"],
+        )),
+        "map/maplibre" => Some(authoring_support(
+            "Standalone GIS map surface driven by `mapSpec`.",
+            &["component_contracts", "cockpit_template_index"],
+            &["example_map_baseline"],
+        )),
+        "mei" => Some(authoring_support(
+            "Built-in text projection surface for plain/html content or metric slot rendering.",
+            &["component_contracts"],
+            &["example_template_clone"],
+        )),
+        "sim" => Some(authoring_support(
+            "Simulation scene component pack. Start from the current scene contract via `scene_ref(\"self\")`.",
+            &["component_contracts"],
+            &["example_sim_baseline"],
+        )),
+        _ => None,
+    }
+}
+
+fn template_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDescriptor> {
+    match pack_id {
+        "cockpit" => Some(authoring_support(
+            "Public cockpit shell and metric-card template pack for standalone workspaces.",
+            &["cockpit_template_index", "cockpit_components_guide"],
+            &["example_cockpit_panel", "example_template_clone", "example_map_baseline"],
+        )),
+        _ => None,
+    }
 }
 
 fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescriptor> {
@@ -147,6 +218,11 @@ fn component_pack_descriptors(package_root: &Path) -> Vec<ComponentPackDescripto
                 manifest_file_rel: rel_to_package_root(package_root, &manifest_path),
                 readme_file_rel: readme_for_pack(pack_dir, &components_root)
                     .map(|path| rel_to_package_root(package_root, Path::new(&path))),
+                authoring_support: component_pack_authoring_support(if pack_rel.is_empty() {
+                    "root"
+                } else {
+                    pack_rel.as_str()
+                }),
                 component_count: component_ids.len(),
                 component_ids,
                 component_exports,
@@ -223,6 +299,9 @@ fn template_pack_descriptors(package_root: &Path) -> Vec<TemplatePackDescriptor>
                     .join("README.md")
                     .is_file()
                     .then(|| rel_to_package_root(package_root, &path.join("README.md"))),
+                authoring_support: template_pack_authoring_support(
+                    path.file_name()?.to_string_lossy().as_ref(),
+                ),
                 template_file_count: template_files.len(),
                 template_files,
                 asset_dirs,
