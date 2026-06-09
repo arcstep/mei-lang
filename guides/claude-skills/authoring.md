@@ -32,17 +32,17 @@
 
 优先跑这些命令：
 
-1. `mei check --app <app> --json`
-2. `mei workspace summary --source-root <dir> --json`（需要 workspace 级 discover 视图时）
+1. `mei-toolchain check --app <app> --json`
+2. `mei-toolchain workspace summary --source-root <dir> --json`（需要 workspace 级 discover 视图时）
 
 只有当源码里没有答案、需要 world/runtime 事实时，再补：
 
-1. `mei query dataset --app <app> --id <dataset_id> --json`
-2. `mei query metric --app <app> --id <dataset_id> --json`
-3. `mei runtime peek --app <app> --json`
-4. `mei inspect world --app <app> --json`
-5. `mei inspect inventory --app <app> --json`
-6. `mei inspect summary --app <app> --json`
+1. `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
+2. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
+3. `mei-toolchain runtime peek --app <app> --json`
+4. `mei-toolchain inspect world --app <app> --json`
+5. `mei-toolchain inspect inventory --app <app> --json`
+6. `mei-toolchain inspect summary --app <app> --json`
 
 不要因为能调到 runtime 工具，就跳过对当前 `.mei` 的直接阅读。
 
@@ -56,7 +56,7 @@
 
 改完后至少再跑一次：
 
-- `mei check --app <app> --json`
+- `mei-toolchain check --app <app> --json`
 
 ## 主干规则
 
@@ -108,4 +108,4 @@
 
 - 已移除 `entry(...)` 与 `app(..., entries=...)`
 - 页面与编译选路统一为 **`app + scene`**（`scene_id` / `default_scene` / `?scene=`）
-- 编辑侧若需要更自动化的机器对接，优先看 `mei mcp describe --surface author --json`（兼容 `editor`）
+- 编辑侧若需要更自动化的机器对接，优先看 `mei-toolchain mcp describe --surface author --json`（兼容 `editor`；旧 `mei` 入口仍可用）

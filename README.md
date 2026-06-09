@@ -18,7 +18,7 @@ AI-native scene orchestration language for building apps from world models, UI c
 
 # 终端 B
 cd mei-lang
-cargo run -p mei-lang-server -- serve
+cargo run -p mei-lang-server --bin mei-host-web -- serve
 ```
 
 - 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
@@ -39,33 +39,33 @@ MEI_TILES_JSON_PATH=/shapingba-z10-16
 
 ```bash
 cd mei-lang
-cargo run -p mei-lang-server -- serve
+cargo run -p mei-lang-server --bin mei-host-web -- serve
 
 # 启用登录鉴权（须先完成下方配置，否则启动失败）
-cargo run -p mei-lang-server -- serve --auth
+cargo run -p mei-lang-server --bin mei-host-web -- serve --auth
 
 # 仅发布 access host（不暴露 build/config/upload）
-cargo run -p mei-lang-server -- serve --host-surface access-only
+cargo run -p mei-lang-server --bin mei-host-web -- serve --host-surface access-only
 ```
 
 启用 `--auth` 前，先在工作区根目录初始化 auth 基线（写入 `{source_root}/.mei-workspace.json`）：
 
 ```bash
 # 生成 JWT / RSA 密钥（写入 .mei-workspace.json）
-cargo run -p mei-lang-server -- host auth ensure-keys --source-root ../workspaces/ws-dev --json
+cargo run -p mei-lang-server --bin mei-host-web -- host auth ensure-keys --source-root ../workspaces/ws-dev --json
 
 # 方案 A1：一次性初始化 super/admin/guest（各账号随机临时密码，只打印一次）
-cargo run -p mei-lang-server -- host auth bootstrap-users --source-root ../workspaces/ws-dev --json
+cargo run -p mei-lang-server --bin mei-host-web -- host auth bootstrap-users --source-root ../workspaces/ws-dev --json
 
 # 方案 A2：本地调试可用统一初始密码（super/admin/guest 共用，从 stdin 读取）
-printf '%s' 'Debug1!pwd' | cargo run -p mei-lang-server -- host auth bootstrap-users \
+printf '%s' 'Debug1!pwd' | cargo run -p mei-lang-server --bin mei-host-web -- host auth bootstrap-users \
   --source-root ../workspaces/ws-dev --default-password-stdin --json
 
 # 方案 B1：手工编辑 auth.users[] 时，用 stdin 生成 Argon2 哈希
-printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth hash-password --json
+printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web -- host auth hash-password --json
 
 # 方案 B2：工具链直接新增单个用户（同样从 stdin 读密码）
-printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth add-user \
+printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web -- host auth add-user \
   --source-root ../workspaces/ws-dev --username guest01 --role guest --password-stdin --json
 ```
 
@@ -87,29 +87,29 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server -- host auth add-u
 
 ## 编辑侧 CLI
 
-新的编辑侧主线优先通过 `mei` CLI 被外部工具消费：
+新的编辑侧主线优先通过 `mei-toolchain` CLI 被外部工具消费；兼容入口 `mei` 仍保留，但推荐新脚本逐步切到双入口：
 
 ```bash
 cd mei-lang
 
 # 编译 / 诊断
-cargo run -p mei-lang-server -- check --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- check --app spbjw --json
 
 # world / inventory
-cargo run -p mei-lang-server -- inspect world --app spbjw --json
-cargo run -p mei-lang-server -- inspect inventory --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect world --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect inventory --app spbjw --json
 
 # 数据 / 指标 / runtime
-cargo run -p mei-lang-server -- query dataset --app spbjw --id enterprise_profiles --json
-cargo run -p mei-lang-server -- query metric --app spbjw --id enterprise_profiles --json
-cargo run -p mei-lang-server -- runtime peek --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query dataset --app spbjw --id enterprise_profiles --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query metric --app spbjw --id enterprise_profiles --json
+cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --app spbjw --json
 
 # 机器可读 MCP surface 描述
-cargo run -p mei-lang-server -- mcp describe --surface editor --json
-cargo run -p mei-lang-server -- mcp describe --surface access --json
+cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface editor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface access --json
 
 # host runtime contract 描述
-cargo run -p mei-lang-server -- host describe --json
+cargo run -p mei-lang-server --bin mei-host-web -- host describe --json
 
 # editor MCP adapter（stdio）
 npm run mcp:editor-adapter

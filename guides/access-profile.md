@@ -16,12 +16,12 @@
 
 访问态优先依赖这些输入：
 
-1. `mei inspect world --app <app> --json`
-2. `mei inspect inventory --app <app> --json`
-3. `mei inspect summary --app <app> --json`
-4. `mei query dataset --app <app> --id <dataset_id> --json`
-5. `mei query metric --app <app> --id <dataset_id> --json`
-6. `mei runtime peek --app <app> --json`
+1. `mei-toolchain inspect world --app <app> --json`
+2. `mei-toolchain inspect inventory --app <app> --json`
+3. `mei-toolchain inspect summary --app <app> --json`
+4. `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
+5. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
+6. `mei-toolchain runtime peek --app <app> --json`
 7. 当前宿主浏览器传入的 `browser_context` / `query_state`
 
 ## 默认顺序
