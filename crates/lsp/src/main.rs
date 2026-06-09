@@ -11,7 +11,10 @@ use anyhow::Result;
 use mei_lang_kernel::{
     describe_dsl, load_component_assets, Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
 };
-use mei_lang_toolchain::{compile_app_with_cache, resolve_components_root};
+use mei_lang_toolchain::{
+    compile_app_with_cache, platform_asset_catalog_descriptor_for_package_root,
+    resolve_components_root,
+};
 use starlark::syntax::{AstModule, Dialect};
 use tokio::sync::Mutex;
 use tower_lsp::{
@@ -305,8 +308,11 @@ impl LanguageServer for Backend {
             let contents = if reference.kind == "component" {
                 if let Ok(assets) = load_component_assets(&source_root) {
                     assets.get(&reference.value).map(|asset| format!(
-                        "### component `{}`\n\n- tag: `{}`\n- script: `{}`",
-                        asset.key, asset.tag, asset.script
+                        "### component `{}`\n\n- pack: `{}`\n- tag: `{}`\n- script: `{}`",
+                        asset.key,
+                        component_pack_id(&reference.value).unwrap_or_else(|| "unknown".to_string()),
+                        asset.tag,
+                        asset.script
                     ))
                 } else {
                     None
@@ -370,14 +376,18 @@ impl LanguageServer for Backend {
         if prefix.contains("component(") && prefix.matches('"').count() % 2 == 1 {
             if let Ok(assets) = load_component_assets(&source_root) {
                 for asset in assets.values() {
+                    let pack_id = component_pack_id(&asset.key).unwrap_or_else(|| "unknown".to_string());
                     items.push(CompletionItem {
                         label: asset.key.clone(),
                         kind: Some(CompletionItemKind::CLASS),
-                        detail: Some(format!("tag={} script={}", asset.tag, asset.script)),
+                        detail: Some(format!("pack={} tag={} script={}", pack_id, asset.tag, asset.script)),
                         documentation: Some(tower_lsp::lsp_types::Documentation::MarkupContent(
                             MarkupContent {
                                 kind: MarkupKind::Markdown,
-                                value: format!("Component `{}` from `{}`", asset.key, asset.script),
+                                value: format!(
+                                    "Component `{}` from pack `{}` (`{}`)",
+                                    asset.key, pack_id, asset.script
+                                ),
                             },
                         )),
                         ..CompletionItem::default()
@@ -514,24 +524,30 @@ fn group_diagnostics(
 ) -> HashMap<Url, Vec<Diagnostic>> {
     let mut grouped: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
     for diag in diagnostics {
-        let uri = resolve_source_uri(diag.source_path.as_deref(), source_root, app_root)
+        let resolved_path = resolve_source_path(diag.source_path.as_deref(), source_root, app_root);
+        let uri = resolved_path
+            .as_deref()
+            .and_then(|path| Url::from_file_path(path).ok())
             .unwrap_or_else(|| fallback_uri.clone());
+        let source = resolved_path
+            .as_deref()
+            .and_then(|path| fs::read_to_string(path).ok());
         grouped
             .entry(uri)
             .or_default()
-            .push(to_lsp_diagnostic(diag));
+            .push(to_lsp_diagnostic(diag, source.as_deref()));
     }
     grouped
 }
 
-fn resolve_source_uri(
+fn resolve_source_path(
     source_path: Option<&str>,
     source_root: &Path,
     app_root: &Path,
-) -> Option<Url> {
+) -> Option<PathBuf> {
     let source_path = source_path?;
     let path = PathBuf::from(source_path);
-    let resolved = if path.is_absolute() {
+    Some(if path.is_absolute() {
         path
     } else {
         let under_app = app_root.join(&path);
@@ -540,13 +556,12 @@ fn resolve_source_uri(
         } else {
             source_root.join(path)
         }
-    };
-    Url::from_file_path(resolved).ok()
+    })
 }
 
-fn to_lsp_diagnostic(diag: MeiDiagnostic) -> Diagnostic {
+fn to_lsp_diagnostic(diag: MeiDiagnostic, source: Option<&str>) -> Diagnostic {
     Diagnostic {
-        range: zero_range(),
+        range: diagnostic_range_for_source(source, &diag),
         severity: Some(map_severity(diag.severity)),
         code: Some(NumberOrString::String(diag.code)),
         source: Some(SERVER_NAME.to_string()),
@@ -605,6 +620,82 @@ fn map_severity(severity: MeiSeverity) -> DiagnosticSeverity {
     }
 }
 
+fn diagnostic_range_for_source(source: Option<&str>, diag: &MeiDiagnostic) -> Range {
+    let Some(source) = source else {
+        return zero_range();
+    };
+    diagnostic_range_from_message(source, &diag.message)
+        .or_else(|| first_non_empty_range(source))
+        .unwrap_or_else(zero_range)
+}
+
+fn diagnostic_range_from_message(source: &str, message: &str) -> Option<Range> {
+    let index = source_index::analyze_source(source);
+    for token in extract_message_tokens(message) {
+        if let Some(symbol) = index.symbols.iter().find(|symbol| symbol.name == token) {
+            return Some(symbol.selection_range);
+        }
+        if let Some(reference) = index.references.iter().find(|reference| reference.value == token) {
+            return Some(reference.range);
+        }
+        if let Some(range) = find_word_range_in_source(source, &token) {
+            return Some(range);
+        }
+    }
+    None
+}
+
+fn extract_message_tokens(message: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let chars = message.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let quote = chars[index];
+        if quote == '`' || quote == '"' || quote == '\'' {
+            let start = index + 1;
+            let mut end = start;
+            while end < chars.len() && chars[end] != quote {
+                end += 1;
+            }
+            if end < chars.len() {
+                let token = chars[start..end].iter().collect::<String>().trim().to_string();
+                if token.len() >= 2 && !tokens.contains(&token) {
+                    tokens.push(token);
+                }
+                index = end + 1;
+                continue;
+            }
+        }
+        index += 1;
+    }
+    tokens
+}
+
+fn find_word_range_in_source(source: &str, token: &str) -> Option<Range> {
+    for (line_index, line) in source.lines().enumerate() {
+        if let Some(column) = line.find(token) {
+            let start = Position::new(line_index as u32, column as u32);
+            let end = Position::new(line_index as u32, (column + token.len()) as u32);
+            return Some(Range::new(start, end));
+        }
+    }
+    None
+}
+
+fn first_non_empty_range(source: &str) -> Option<Range> {
+    source
+        .lines()
+        .enumerate()
+        .find(|(_, line)| !line.trim().is_empty())
+        .map(|(line_index, line)| {
+            let end = line.trim_end().len().max(1) as u32;
+            Range::new(
+                Position::new(line_index as u32, 0),
+                Position::new(line_index as u32, end),
+            )
+        })
+}
+
 fn extract_range_from_error(source: &str, message: &str) -> Option<Range> {
     let mut digits = message
         .split(':')
@@ -626,6 +717,16 @@ fn extract_range_from_error(source: &str, message: &str) -> Option<Range> {
 fn file_location(path: &Path) -> Option<Location> {
     let uri = Url::from_file_path(path).ok()?;
     Some(Location::new(uri, zero_range()))
+}
+
+fn component_pack_id(component_id: &str) -> Option<String> {
+    let package_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let descriptor = platform_asset_catalog_descriptor_for_package_root(package_root.as_path());
+    descriptor
+        .component_packs
+        .into_iter()
+        .find(|pack| pack.component_ids.iter().any(|id| id == component_id))
+        .map(|pack| pack.id)
 }
 
 fn collect_mei_files(root: &Path, out: &mut Vec<PathBuf>) {
