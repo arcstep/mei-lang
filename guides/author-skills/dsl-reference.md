@@ -45,8 +45,19 @@ app(
 
 app_add_scene(
     scene = scene_ref(
-        scene_file = "home.mei",
+        scene_file = "scenes/home.mei",
         scene_id = "home",
+    ),
+)
+```
+
+如需第二个 scene，继续追加：
+
+```python
+app_add_scene(
+    scene = scene_ref(
+        scene_file = "scenes/insights.mei",
+        scene_id = "insights",
     ),
 )
 ```
@@ -94,6 +105,36 @@ frame.add_panel(
     ],
 )
 ```
+
+## upload / ops source 骨架
+
+```python
+world.add_dataset(
+    id = "uploaded_sales",
+    source = source_ref("uploaded_sales"),
+    schema = [
+        ds.column("month", "string"),
+        ds.column("amount", "number"),
+        ds.column("region", "string"),
+    ],
+)
+```
+
+`source_ref("uploaded_sales")` 的真值来自 app 根目录 `.mei-config.json -> ops.sources`。
+
+## theme 骨架
+
+```python
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    theme = theme_ref("cockpit_dark"),
+)
+```
+
+若只需要内建预设，也可以直接用 `theme = "cockpit"`。
 
 ## 当前 chart 骨架
 
@@ -146,6 +187,7 @@ panel(
 - owner 槽位：`scene_ref(...)`、`world_ref(...)`、`flow_ref(...)`、`frame_ref(...)`
 - 集合/模板：`panel_ref(...)`、`metric_card_ref(...)`
 - 数据绑定：`dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`
+- config refs：`theme_ref(...)`、`source_ref(...)`、`basemap_ref(...)`、`ops_param_ref(...)`
 
 ## 兼容层（不作新脚本默认）
 

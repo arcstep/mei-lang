@@ -27,6 +27,10 @@
 - `dataset_ref(...)`
 - `metric_ref(...)`
 - `resource_ref(...)`
+- `theme_ref(...)`
+- `source_ref(...)`
+- `basemap_ref(...)`
+- `ops_param_ref(...)`
 
 当前主线还应遵守：
 
@@ -42,6 +46,7 @@
 
 - 组件输入统一写入 `props`
 - `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)` 作为 `props` 的稳定值来源
+- `theme_ref(...)` / `source_ref(...)` / `basemap_ref(...)` / `ops_param_ref(...)` 作为 `.mei-config.json -> ops.*` 的稳定值来源
 - `scene_ref(...)` 可作为整份 scene contract 的值来源
 - 不再发明与 `props` 平行的第二套绑定语法
 - 不在组件 `props` 中直接写跨文件 locator；外部对象应先进入当前 world/scene 账本
@@ -73,6 +78,7 @@
 ## 扩展规则
 
 - dataset 当前是 `world.resource(kind = "dataset")`
+- upload / ops-backed dataset 当前优先通过 `source_ref(...)` + app-local `.mei-config.json -> ops.sources`
 - chart 当前优先通过外部组件接入
 - capability 当前先看 contract / registry 设计，不当作现成作者态语法
 - `world_ref(...)` 不再作为资源 id 选择器；资源绑定请用 `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)`

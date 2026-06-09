@@ -24,9 +24,11 @@ MeiLang 当前作者态的主线是：
 3. `.mei/knowledge/author/authoring-overview.md`
 4. `.mei/knowledge/author/workflow-recipes.md`
 5. `.mei/knowledge/author/build-debug-ops.md`
-6. `.mei/knowledge/author/components/*`
-7. `.mei/knowledge/author/templates/*`
-8. `.mei/knowledge/author/examples/*`
+6. `.mei/knowledge/author/workspace-config-reference.md`
+7. `.mei/knowledge/author/components/*`
+8. `.mei/knowledge/author/templates/*`
+9. `.mei/knowledge/author/examples/*`
+10. `.mei/knowledge/author/extension-authoring.md`
 
 如果你现在看到的是源码包目录，上述文件会分别来自：
 
@@ -42,8 +44,10 @@ MeiLang 当前作者态的主线是：
 2. 再读 `.mei/profiles/author.md` 与同目录 skill companion 文档，不要把 `summary` 当源码替代品。
 3. 跑 `mei-toolchain check --app <app> --source-root <workspace> --json`；需要编辑器内反馈时走 `mei-lsp`。
 4. 如需理解当前 workspace 的 app、别名与 discover 结果，再跑 `mei-toolchain workspace summary --source-root <workspace> --json`。
-5. 只有当源码与 packaged knowledge 仍不足时，再读 `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*` 与最接近的 example。
-6. 只有当仍需要 runtime/world 真值时，再跑 `inspect/query/runtime`。
+5. 涉及 bootstrap、create-app、配置、upload source、主题时，优先补读 `.mei/knowledge/author/workspace-config-reference.md`。
+6. 涉及新组件 / 新模板时，先读 `.mei/knowledge/author/extension-authoring.md`，确认是否已经离开普通 author 链。
+7. 只有当源码与 packaged knowledge 仍不足时，再读 `.stock/**/README.md` 或实现文件作为最后兜底。
+8. 只有当仍需要 runtime/world 真值时，再跑 `inspect/query/runtime`。
 
 ## 当前作者态主线
 
@@ -57,10 +61,17 @@ MeiLang 当前作者态的主线是：
 ## 常用命令
 
 - `mei-toolchain check --app <app> --source-root <workspace> --json`
+- `mei-toolchain workspace init --standalone --source-root <workspace> --materialize --json`
+- `mei-toolchain workspace runtime install --source-root <workspace> --json`
+- `mei-toolchain editor-runtime scaffold --target-root <workspace> --tool cursor --json`
+- `mei-toolchain workspace create-app <app> --source-root <workspace> --scaffold --tool cursor --json`
 - `mei-toolchain workspace summary --source-root <workspace> --json`
 - `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`
+- `mei-toolchain knowledge --surface author --source-root <workspace> --topic config --include-content --json`
 - `mei-toolchain knowledge --surface author --source-root <workspace> --topic syntax --include-content --json`
 - `mei-toolchain mcp describe --surface author --source-root <workspace> --json`
+- `mei-toolchain knowledge --surface access --source-root <workspace> --include-content --json`
+- `mei-toolchain mcp describe --surface access --source-root <workspace> --json`
 - `mei-toolchain inspect world --app <app> --source-root <workspace> --json`
 - `mei-toolchain inspect inventory --app <app> --source-root <workspace> --json`
 - `mei-toolchain inspect summary --app <app> --source-root <workspace> --json`

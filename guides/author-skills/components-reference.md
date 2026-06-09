@@ -7,6 +7,8 @@
 - 优先传语义对象，不优先传宿主内部字段路径
 - 组件 props 优先消费当前 scene 可见的 `dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`
 - 需要 pack 级规则时，先读 `.mei/knowledge/author/components/component-contracts.json` 与同目录 pack guide
+- 涉及模板壳时，先读 `.mei/knowledge/author/templates/template-contracts.json`
+- 若目标是“新增组件 / 新模板”，先切到 `.mei/knowledge/author/extension-authoring.md`
 
 ## 当前常见组件
 
@@ -68,6 +70,8 @@ component(
     },
 )
 ```
+
+如果数据集来自 upload 目录或环境切换，不要把路径硬编码在 `.mei` 里；优先把 source 放进 `.mei-config.json -> ops.sources`，再在 world 里用 `source_ref(...)`。
 
 ### Chart
 
@@ -137,6 +141,8 @@ panel(
 )
 ```
 
+更复杂的 cockpit 壳、metric-card 壳、GIS 壳与 compound 壳，先查 `.mei/knowledge/author/templates/template-contracts.json`。
+
 ### Simulation / Map
 
 - `sim.scene`
@@ -177,6 +183,7 @@ component(
 - 驾驶舱表格与标题皮肤：优先 `cockpit.*` + `.stock/templates/cockpit`
 - 展示整份场景：优先 `sim.scene`
 - GIS 地图：优先 `map.maplibre` 或 cockpit GIS shell
+- 需要 upload / ops / basemap / theme config 时，转到 `.mei/knowledge/author/workspace-config-reference.md`
 
 ## 当前不要假定
 

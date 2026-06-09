@@ -1,0 +1,73 @@
+{
+  "schema_version": "meilang-author-template-contracts-v1",
+  "notes": [
+    "This file documents the stable authoring-facing template contract, not every private template implementation detail.",
+    "When a template is not listed here, treat it as internal or require manual verification before using it as public authoring guidance.",
+    "Template paths are consumed relative to the app root through `scene_file`, not through source-repo-only paths."
+  ],
+  "templates": [
+    {
+      "id": "cockpit.panel.titled_shell",
+      "pack": "cockpit",
+      "base_kind": "panel",
+      "scene_file": ".stock/templates/cockpit/panel/panel-titled-shell.mei",
+      "base_ref": "panel_ref(id = \"titled_shell\", scene_file = ...)",
+      "summary": "Reusable titled cockpit panel shell with a header bar and a content body.",
+      "stable_inputs": [
+        { "name": "title", "type": "string", "required": false, "notes": "Panel title shown by the shell." },
+        { "name": "blocks", "type": "panel_block_array", "required": false, "notes": "Inject body blocks into the shell content area." }
+      ],
+      "recommended_example_ids": ["example_cockpit_panel", "example_frame_layout_advanced"]
+    },
+    {
+      "id": "cockpit.panel.metrics_auto_body",
+      "pack": "cockpit",
+      "base_kind": "panel",
+      "scene_file": ".stock/templates/cockpit/panel/metrics-auto-body.mei",
+      "base_ref": "panel_ref(id = \"metrics_auto_body\", scene_file = ...)",
+      "summary": "Auto-layout panel body shell for metric rows and summary content.",
+      "stable_inputs": [
+        { "name": "blocks", "type": "panel_block_array", "required": true, "notes": "Inject metric cards, panels, or components into the auto-layout body." }
+      ],
+      "recommended_example_ids": ["example_frame_layout_advanced", "example_metric_page_baseline"]
+    },
+    {
+      "id": "cockpit.panel.gis_map",
+      "pack": "cockpit",
+      "base_kind": "panel",
+      "scene_file": ".stock/templates/cockpit/panel/panel-gis-map-fullscreen.mei",
+      "base_ref": "panel_ref(id = \"gis_map\", scene_file = ...)",
+      "summary": "Fullscreen GIS shell that hosts `map.maplibre` and expects a `mapSpec`-driven map contract.",
+      "stable_inputs": [
+        { "name": "title", "type": "string", "required": false, "notes": "Optional shell title." },
+        { "name": "blocks", "type": "panel_block_array", "required": false, "notes": "Overlay panels or extra components rendered alongside the map shell." }
+      ],
+      "recommended_example_ids": ["example_map_baseline", "example_cockpit_panel"]
+    },
+    {
+      "id": "cockpit.metric_card.card_normal",
+      "pack": "cockpit",
+      "base_kind": "metric_card",
+      "scene_file": ".stock/templates/cockpit/metric-card/metric-card-narrow-stack.mei",
+      "base_ref": "metric_card_ref(id = \"card_normal\", scene_file = ...)",
+      "summary": "Narrow stack metric-card shell for cockpit summary cards.",
+      "stable_inputs": [
+        { "name": "source", "type": "object", "required": true, "notes": "Metric-card source object with label/value/unit/desc-like fields." }
+      ],
+      "recommended_example_ids": ["example_template_clone", "example_metric_page_baseline"]
+    },
+    {
+      "id": "cockpit.metric_card.wide_compound_shell",
+      "pack": "cockpit",
+      "base_kind": "metric_card",
+      "scene_file": ".stock/templates/cockpit/metric-card/metric-wide-compound.mei",
+      "base_ref": "metric_card_ref(id = \"wide_compound_shell\", scene_file = ...)",
+      "summary": "Wide compound metric-card shell that expects child blocks or nested cards.",
+      "stable_inputs": [
+        { "name": "source", "type": "object", "required": false, "notes": "Optional summary source for the outer shell." },
+        { "name": "blocks", "type": "metric_card_block_array", "required": true, "notes": "Inject nested metric-card blocks into the compound shell." }
+      ],
+      "recommended_example_ids": ["example_frame_layout_advanced"]
+    }
+  ]
+}

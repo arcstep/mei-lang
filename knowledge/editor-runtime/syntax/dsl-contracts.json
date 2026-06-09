@@ -1,0 +1,108 @@
+{
+  "schema_version": "meilang-author-dsl-contracts-v1",
+  "notes": [
+    "This file is a machine-readable authoring-facing contract index for the current public DSL and high-frequency namespace helpers.",
+    "It describes the current public path, not every compatibility alias or historical syntax form.",
+    "When a symbol is missing here, prefer `syntax-rules.md`, `namespace-reference.md`, and verified examples before reading implementation code."
+  ],
+  "symbols": [
+    {
+      "name": "app",
+      "kind": "dsl_call",
+      "summary": "Declare the app root and current `default_scene`.",
+      "public_shape": "app(id, title?, default_scene, scene?)",
+      "authoring_notes": [
+        "Single-file apps may inline `scene(...)` after `app(...)`.",
+        "Multi-file apps should pair `default_scene` with `app_add_scene(scene = scene_ref(...))`."
+      ]
+    },
+    {
+      "name": "app_add_scene",
+      "kind": "dsl_call",
+      "summary": "Register an external scene file into the current app.",
+      "public_shape": "app_add_scene(scene = scene_ref(scene_file, scene_id?))",
+      "authoring_notes": [
+        "Use this as the public multi-file scene registration path.",
+        "Do not treat `entry(...)` or `scene_file_ref(...)` as the default path."
+      ]
+    },
+    {
+      "name": "scene_ref",
+      "kind": "typed_ref",
+      "summary": "Reference a scene contract from an app owner slot, a template-like prop, or `scene_ref(\"self\")` for the current scene contract.",
+      "public_shape": "scene_ref(scene_file?, scene_id?) | scene_ref(\"self\")"
+    },
+    {
+      "name": "frame.add_panel",
+      "kind": "dsl_call",
+      "summary": "Append a panel block into the current frame layout.",
+      "public_shape": "frame.add_panel(id, area, blocks?, title?)",
+      "authoring_notes": [
+        "Use `area = \"auto\"` for flow layouts.",
+        "For named grid areas, keep `panel.area` aligned with `grid(areas=...)`."
+      ]
+    },
+    {
+      "name": "panel_ref",
+      "kind": "typed_ref",
+      "summary": "Clone or reuse a panel shell from another file, usually under `.stock/templates`.",
+      "public_shape": "panel_ref(id, scene_file)"
+    },
+    {
+      "name": "metric_card_ref",
+      "kind": "typed_ref",
+      "summary": "Clone or reuse a metric-card shell from another file, usually under `.stock/templates`.",
+      "public_shape": "metric_card_ref(id, scene_file)"
+    },
+    {
+      "name": "dataset_ref",
+      "kind": "typed_ref",
+      "summary": "Reference a dataset already visible in the current scene/world scope.",
+      "public_shape": "dataset_ref(id)"
+    },
+    {
+      "name": "metric_ref",
+      "kind": "typed_ref",
+      "summary": "Reference a metric already visible in the current scene/world scope.",
+      "public_shape": "metric_ref(id)"
+    },
+    {
+      "name": "resource_ref",
+      "kind": "typed_ref",
+      "summary": "Reference a resource already visible in the current scene/world scope.",
+      "public_shape": "resource_ref(id)"
+    },
+    {
+      "name": "theme_ref",
+      "kind": "config_ref",
+      "summary": "Resolve a named theme from `.mei-config.json -> ops.themes`.",
+      "public_shape": "theme_ref(id)",
+      "authoring_notes": [
+        "Use a literal `theme = \"cockpit\"` when a built-in preset is enough.",
+        "Use `theme_ref(...)` when ops or deployment should control the theme value."
+      ]
+    },
+    {
+      "name": "source_ref",
+      "kind": "config_ref",
+      "summary": "Resolve a named source from `.mei-config.json -> ops.sources`.",
+      "public_shape": "source_ref(id)",
+      "authoring_notes": [
+        "Prefer this for upload-backed csv/xlsx sources.",
+        "This keeps data-source switching out of `.mei` code."
+      ]
+    },
+    {
+      "name": "basemap_ref",
+      "kind": "config_ref",
+      "summary": "Resolve a named basemap from `.mei-config.json -> ops.basemaps`.",
+      "public_shape": "basemap_ref(id)"
+    },
+    {
+      "name": "ops_param_ref",
+      "kind": "config_ref",
+      "summary": "Resolve a named ops parameter from `.mei-config.json -> ops.params`.",
+      "public_shape": "ops_param_ref(id)"
+    }
+  ]
+}

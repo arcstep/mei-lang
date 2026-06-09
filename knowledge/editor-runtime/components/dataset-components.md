@@ -13,6 +13,7 @@ This guide is the standalone-friendly public summary for the `dataset` pack.
 - Dataset-facing components should consume current-scene `dataset_ref(...)` / `metric_ref(...)`.
 - `query_state` is the public way to coordinate filter UI, tables, cards, and charts.
 - Shared formatting belongs in `columnFormats` / `columnRules`, not in per-renderer ad hoc props.
+- For upload-backed data, bind the source in the world layer through `source_ref(...)` before passing `dataset_ref(...)` into components.
 
 ## `dataset.table`
 
@@ -27,6 +28,13 @@ Prefer these props first:
 - `columnRules`
 
 Use `dataset.table` when you want a manage-style table with toolbar, sorting, and optional runtime paging.
+
+Public contract boundary:
+
+- `query_state` is the shared filter channel.
+- `column_state` is the public override path for width/order/visibility.
+- `columnFormats` and `columnRules` are the public formatting/tone hooks.
+- Server paging heuristics and popup lifecycle remain renderer/private behavior, not standalone authoring contract.
 
 ## `dataset.filter-bar`
 
@@ -46,6 +54,16 @@ Prefer these props first:
 - `query_state`
 
 The preferred public path is a scalar `metric_ref(...)`; rowset/dataset fallback remains available but is less explicit.
+
+## Upload-backed dataset pattern
+
+When the source comes from `upload/*.csv` or `upload/*.xlsx`, the public path is:
+
+1. define the source in `<app>/.mei-config.json -> ops.sources`
+2. bind it into the world through `source_ref(...)`
+3. consume `dataset_ref(...)` / `metric_ref(...)` from dataset components
+
+This keeps environment-specific upload paths out of the layout/component layer.
 
 ## Recommended examples
 

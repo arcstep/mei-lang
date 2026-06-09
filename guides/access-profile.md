@@ -19,6 +19,7 @@
 ```bash
 mei-toolchain mcp catalog --json
 mei-toolchain mcp describe --surface access --json
+mei-toolchain knowledge --surface access --json
 ```
 
 外部 stdio MCP 适配器：
@@ -48,18 +49,22 @@ npm run test:mcp:access-adapter
 
 访问态优先依赖这些输入：
 
-1. `mei-toolchain inspect world --app <app> --json`
-2. `mei-toolchain inspect inventory --app <app> --json`
-3. `mei-toolchain inspect summary --app <app> --json`
-4. `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
-5. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
-6. `mei-toolchain runtime peek --app <app> --json`
-7. 当前宿主浏览器传入的 `browser_context` / `query_state`
+1. `.mei/profiles/access.md`
+2. `.mei/skills/meilang-access/SKILL.md`
+3. `.mei/skills/meilang-access/workflow.md`
+4. `mei-toolchain inspect world --app <app> --json`
+5. `mei-toolchain inspect inventory --app <app> --json`
+6. `mei-toolchain inspect summary --app <app> --json`
+7. `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
+8. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
+9. `mei-toolchain runtime peek --app <app> --json`
+10. 当前宿主浏览器传入的 `browser_context` / `query_state`
 
 ## Access Surface 工具名
 
 与 catalog / host agent 对齐的正式工具名：
 
+- `mei_access_knowledge`
 - `dataset_query`
 - `dataset_metric`
 - `resource_list`
@@ -70,6 +75,7 @@ npm run test:mcp:access-adapter
 
 其中常用输入形状在宿主内统一为：
 
+- `mei_access_knowledge({ topic?, include_content? })`
 - `dataset_query({ dataset_id, ... })`
 - `dataset_metric({ dataset_id, metric_ids?, ... })`
 - `resource_get({ resource_id, ... })`
@@ -79,11 +85,12 @@ npm run test:mcp:access-adapter
 
 ## 默认顺序
 
-1. 先读 world/runtime/catalog 摘要，确定当前问的是哪个 app / scene / scope。
-2. 再读取浏览器当前 `query_state`，把筛选条件并入默认求值范围。
-3. 如果 prompt 已注入 metric 预览，先用它回答简单聚合问题。
-4. 不够时再调用 `dataset_metric` / `dataset_query` / `resource_business_summary` / `resource_runtime_peek` / `resource_runtime_trace_export`。
-5. 只有在需要 verbatim DSL 证据时，才小范围 `read_file`。
+1. 先读 `.mei/profiles/access.md` 与 `meilang-access` skill companion，确认当前是 world-first。
+2. 再读 world/runtime/catalog 摘要，确定当前问的是哪个 app / scene / scope。
+3. 再读取浏览器当前 `query_state`，把筛选条件并入默认求值范围。
+4. 如果 prompt 已注入 metric 预览，先用它回答简单聚合问题。
+5. 不够时再调用 `mei_access_knowledge` / `dataset_metric` / `dataset_query` / `resource_business_summary` / `resource_runtime_peek` / `resource_runtime_trace_export`。
+6. 只有在需要 verbatim DSL 证据时，才小范围 `read_file`。
 
 ## 关键边界
 
@@ -91,6 +98,7 @@ npm run test:mcp:access-adapter
 - 不把源码静态声明误当成 runtime 真值。
 - 不把访问态问题默认转成作者态修改建议。
 - 不越过当前 `resource_visibility` / inventory reachability。
+- 不把访问态默认退回到作者态 `.mei` 全文阅读。
 
 ## `summary` 的角色
 

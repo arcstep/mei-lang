@@ -39,20 +39,23 @@ mei-toolchain knowledge --surface author --json
 7. `.mei/skills/meilang-author/namespace-reference.md`
 8. `.mei/skills/meilang-author/components-reference.md`
 9. `.mei/skills/meilang-author/context.md`
-10. `.mei/knowledge/author/components/*`
-11. `.mei/knowledge/author/templates/*`
-12. `.mei/knowledge/author/examples/*`
-13. `mei-toolchain check --app <app> --source-root <workspace> --json`
-14. `mei-lsp` diagnostics / symbol / hover / definition / completion
+10. `.mei/knowledge/author/workspace-config-reference.md`
+11. `.mei/knowledge/author/components/*`
+12. `.mei/knowledge/author/templates/*`
+13. `.mei/knowledge/author/examples/*`
+14. `.mei/knowledge/author/extension-authoring.md`
+15. `mei-toolchain check --app <app> --source-root <workspace> --json`
+16. `mei-lsp` diagnostics / symbol / hover / definition / completion
 
 ## 默认顺序
 
 1. 先读当前 target `.mei` 与相邻 scene / template / `_components`。
 2. 再读 workspace-local packaged authoring knowledge，而不是去源码仓库里额外找一套 docs。
 3. 先跑 `mei-toolchain check` 或看 `mei-lsp`，把 diagnostics 当成主要机器反馈。
-4. 若公共 component/template contract 仍不足，再读 `.stock/components/**/README.md` / `.stock/templates/**/README.md`。
-5. 只有当源码与 packaged knowledge 仍然没有答案时，再调用 `inspect/query/runtime`。
-6. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
+4. 涉及 bootstrap、create-app、`.mei-workspace.json`、`.mei-config.json`、`theme_ref(...)` 或 upload source 时，先读 `.mei/knowledge/author/workspace-config-reference.md`。
+5. 涉及新组件 / 新模板 / provider 扩展时，先读 `.mei/knowledge/author/extension-authoring.md`，明确任务是否已经离开普通 author 链。
+6. 只有当 packaged knowledge 仍然没有答案时，才把 `.stock/**/README.md` 或实现文件当成最后兜底来源。
+7. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
 
 ## Access 的边界
 
@@ -73,6 +76,14 @@ mei-toolchain knowledge --surface author --json
 - `mei-toolchain workspace summary --source-root <workspace> --json`
 - `mei-toolchain inspect summary --app <app> --source-root <workspace> --json`
 
+### bootstrap / config / theme
+
+- `mei-toolchain workspace init --standalone --source-root <workspace> --materialize --json`
+- `mei-toolchain workspace runtime install --source-root <workspace> --json`
+- `mei-toolchain editor-runtime scaffold --target-root <workspace> --tool cursor --json`
+- `mei-toolchain workspace create-app <app> --source-root <workspace> --scaffold --tool cursor --json`
+- `mei-toolchain knowledge --surface author --source-root <workspace> --topic config --include-content --json`
+
 ### runtime/world 补充
 
 - `mei-toolchain inspect world --app <app> --source-root <workspace> --json`
@@ -80,3 +91,17 @@ mei-toolchain knowledge --surface author --json
 - `mei-toolchain query dataset --app <app> --source-root <workspace> --id <dataset_id> --json`
 - `mei-toolchain query metric --app <app> --source-root <workspace> --id <dataset_id> --json`
 - `mei-toolchain runtime peek --app <app> --source-root <workspace> --json`
+
+## 何时切到 access
+
+出现下面情况时，优先切到 `access` 而不是继续按作者态猜：
+
+- 用户问当前筛选下某个指标值是多少
+- 用户问 dataset 行数、分组、趋势或 runtime phase/result
+- 用户给了浏览器 `query_state` 或当前宿主访问态上下文
+
+切换后优先读取：
+
+- `.mei/profiles/access.md`
+- `.mei/skills/meilang-access/SKILL.md`
+- `mei-toolchain knowledge --surface access --source-root <workspace> --include-content --json`

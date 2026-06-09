@@ -23,8 +23,9 @@
 1. 当前 `main.mei` / 目标 scene 文件
 2. 相关 `.stock/templates` / `.stock/components`
 3. `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
-4. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
-5. 相近 example
+4. `.mei/knowledge/author/workspace-config-reference.md`
+5. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
+6. 相近 example
 
 作者态默认应是 **source-first + knowledge-first**。  
 不要先把 `inspect summary` / `workspace summary` 当成当前源码的替代品。
@@ -86,6 +87,7 @@
 5. UI 骨架放进具名 `frame(id=..., layout=...)`
 6. 区块使用 `frame.add_panel(...)` 或 `panel(...)`
 7. 组件输入统一放进 `props`，并优先消费本地可见的 typed refs
+8. 主题、upload source、basemap、ops param 统一走 `.mei-config.json -> ops.*` 与 `*_ref(...)`
 
 ## typed ref 主线
 
@@ -111,6 +113,7 @@
 
 - `props` 是唯一稳定绑定表面
 - 组件 props 的稳定值来源优先是 `dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`、`scene_ref(...)`
+- `theme_ref(...)` / `source_ref(...)` / `basemap_ref(...)` / `ops_param_ref(...)` 是当前 config refs 主线
 - `world_ref(...)` 不作为资源选择器使用
 - `panel(base = panel_ref(...))` 与 `metric_card(base = metric_card_ref(...))` 是当前模板克隆主线
 
@@ -121,6 +124,7 @@
 - `.stock/templates/**` 是公共模板消费面；不要把 `workspaces/**` 相对路径当成 standalone 默认写法
 - 不要把运行态临时问答结果直接回写成正式作者态源码
 - `inspect summary` / `workspace summary` 更适合作为作者态路由摘要，而不是源码理解主入口
+- 新组件 / 新模板任务先切到 `.mei/knowledge/author/extension-authoring.md`，不要假装它仍是普通 author 任务
 
 ## 版本与迁移
 

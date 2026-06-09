@@ -55,6 +55,10 @@ dataset_ref(id = "sales_data")
 metric_ref(id = "sales_total")
 resource_ref(id = "welcome_doc")
 scene_ref("self")
+theme_ref("cockpit_dark")
+source_ref("uploaded_sales")
+basemap_ref("city_map")
+ops_param_ref("default_region")
 ```
 
 ## 当前扩展相关写法
@@ -67,6 +71,19 @@ resource(
     kind = "dataset",
     title = "销售样本 CSV",
     source = ds.csv(path = "data/sales.csv"),
+)
+```
+
+### Upload / ops-backed dataset
+
+```python
+world.add_dataset(
+    id = "uploaded_sales",
+    source = source_ref("uploaded_sales"),
+    schema = [
+        ds.column("month", "string"),
+        ds.column("amount", "number"),
+    ],
 )
 ```
 

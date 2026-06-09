@@ -21,6 +21,8 @@ The cockpit template pack is the public shell/template layer for cockpit-style s
 - `.stock/templates/cockpit/metric-card/metric-card-plain.mei`
 - `.stock/templates/cockpit/metric-card/metric-wide-compound.mei`
 
+For the machine-readable public contract, read `template-contracts.json` in the same bundle.
+
 ## Public authoring patterns
 
 ### Panel shell clone
@@ -61,8 +63,16 @@ Its public contract assumes:
 - the main data contract comes from `mapSpec`
 - `mapViewport.focusInset` controls the visual focus window for overlay panels
 
+## Layout composition notes
+
+- `panel(base = panel_ref(...))` is the public shell-clone path.
+- `metric_card(base = metric_card_ref(...))` is the public metric-card clone path.
+- Nested `panel.blocks` composition is supported for multi-layer shells; see `examples/frame-layout-advanced.mei`.
+- `metrics-auto-body` and `metric-wide-compound` are the public starting points for metric rows or compound blocks.
+
 ## Recommended examples
 
 - `examples/cockpit-panel.mei`
 - `examples/template-clone.mei`
 - `examples/map-baseline.mei`
+- `examples/frame-layout-advanced.mei`

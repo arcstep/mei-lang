@@ -42,7 +42,7 @@
         { "name": "columnFormats", "type": "object", "required": false, "notes": "Shared number/time/text formatting rules." },
         { "name": "columnRules", "type": "object", "required": false, "notes": "Shared tone/tag rules." }
       ],
-      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity"]
+      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity", "example_metric_page_baseline", "example_upload_dataset_baseline"]
     },
     {
       "id": "dataset.filter-bar",
@@ -63,7 +63,7 @@
         { "name": "value", "type": "metric_ref_or_dataset_ref", "required": true, "notes": "Scalar metric is the preferred public path." },
         { "name": "query_state", "type": "string", "required": false, "notes": "Named shared query-state used for runtime re-evaluation." }
       ],
-      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity"]
+      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity", "example_metric_page_baseline", "example_upload_dataset_baseline"]
     },
     {
       "id": "chart.*",
@@ -81,7 +81,7 @@
         "Use `chart.pie` / `chart.donut` / `chart.rose` for composition.",
         "Use `chart.scatter` / `chart.radar` / `chart.boxplot` when mapping richer dimensions."
       ],
-      "preferred_example_ids": ["example_chart_baseline", "example_filter_reactivity"]
+      "preferred_example_ids": ["example_chart_baseline", "example_filter_reactivity", "example_metric_page_baseline"]
     },
     {
       "id": "chart.ranking",
@@ -105,7 +105,7 @@
         { "name": "assets", "type": "object", "required": false, "notes": "Background asset paths such as `title_bg` and `title_mid`." },
         { "name": "titleColor", "type": "string", "required": false, "notes": "Title color override." }
       ],
-      "preferred_example_ids": ["example_cockpit_panel"]
+      "preferred_example_ids": ["example_cockpit_panel", "example_frame_layout_advanced"]
     },
     {
       "id": "cockpit.data-table",
@@ -120,7 +120,7 @@
         { "name": "columnRules", "type": "object", "required": false, "notes": "Shared tone/tag rules." },
         { "name": "carousel", "type": "boolean", "required": false, "notes": "Enable client-side auto paging/rotation." }
       ],
-      "preferred_example_ids": ["example_cockpit_panel", "example_data_table_runtime"]
+      "preferred_example_ids": ["example_cockpit_panel", "example_data_table_runtime", "example_frame_layout_advanced"]
     },
     {
       "id": "cockpit.panel-title",

@@ -32,6 +32,7 @@ This guide is the standalone-friendly public summary for the `chart` pack.
 - Prefer current-scene data ids first; do not pass cross-file dataset/metric locators directly into chart props.
 - For reusable chart layouts, keep the data contract stable and change only the mapping or title.
 - If you need chart-specific knobs beyond the common contract, check `component-contracts.json` and then the nearest verified example before reading implementation code.
+- If the chart should react to upload-backed or ops-managed data sources, resolve them in the world layer first through `source_ref(...)` and then pass the resulting `dataset_ref(...)`.
 
 ## Recommended examples
 
