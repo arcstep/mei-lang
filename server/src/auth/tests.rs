@@ -240,6 +240,7 @@ fn route_mode_matrix_matches_role_defaults() {
         ..guest.clone()
     };
     assert!(guest.can_access_host_route_mode("app"));
+    assert!(guest.can_access_host_route_mode("presentation"));
     assert!(!guest.can_access_host_route_mode("config"));
     assert!(!guest.can_access_host_route_mode("build"));
     assert!(admin.can_access_host_route_mode("upload"));

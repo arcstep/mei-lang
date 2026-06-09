@@ -684,6 +684,54 @@ async fn access_scene_not_exported_returns_403() {
 }
 
 #[tokio::test]
+async fn access_page_launch_button_targets_presentation_route() {
+    let root = unique_test_root("access-launch-presentation");
+    let app_root = root.join("multi-scene");
+    fs::create_dir_all(&app_root).expect("create app root");
+    fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+    fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+    };
+
+    let response = app_page(
+        State(state),
+        None,
+        AxumPath(("app".to_string(), "multi-scene/scene/home".to_string())),
+        Query(AppQuery {
+            file: None,
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: None,
+        }),
+    )
+    .await
+    .expect("render access page");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read html body");
+    let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+    assert!(html.contains("/apps/presentation/multi-scene/scene/home"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn access_scene_not_found_returns_404() {
     let root = unique_test_root("access-scene-not-found");
     let app_root = root.join("multi-scene");
@@ -727,6 +775,160 @@ async fn access_scene_not_found_returns_404() {
         .expect("read html body");
     let html = String::from_utf8(body.to_vec()).expect("response body utf8");
     assert!(html.contains("场景不存在"));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn presentation_route_redirects_to_default_scene() {
+    let root = unique_test_root("presentation-default-scene");
+    let app_root = root.join("multi-scene");
+    fs::create_dir_all(&app_root).expect("create app root");
+    fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+    fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+    };
+
+    let response = app_page(
+        State(state),
+        None,
+        AxumPath(("presentation".to_string(), "multi-scene".to_string())),
+        Query(AppQuery {
+            file: None,
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: Some("none".to_string()),
+        }),
+    )
+    .await
+    .expect("render presentation redirect response");
+
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/apps/presentation/multi-scene/scene/home")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn presentation_route_strips_file_query() {
+    let root = unique_test_root("presentation-strip-file");
+    let app_root = root.join("good-app");
+    fs::create_dir_all(&app_root).expect("create app root");
+    fs::write(app_root.join("main.mei"), VALID_APP_SOURCE).expect("write main.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+    };
+
+    let response = app_page(
+        State(state),
+        None,
+        AxumPath(("presentation".to_string(), "good-app".to_string())),
+        Query(AppQuery {
+            file: Some("main.mei".to_string()),
+            scene: None,
+            tab: Some("preview".to_string()),
+            diag_filter: None,
+            chrome: None,
+        }),
+    )
+    .await
+    .expect("render presentation redirect response");
+
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        response
+            .headers()
+            .get("location")
+            .and_then(|value| value.to_str().ok()),
+        Some("/apps/presentation/good-app")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
+async fn presentation_route_renders_navigation_shell() {
+    let root = unique_test_root("presentation-shell");
+    let app_root = root.join("multi-scene");
+    fs::create_dir_all(&app_root).expect("create app root");
+    fs::write(app_root.join("main.mei"), MULTI_SCENE_APP_SOURCE).expect("write main.mei");
+    fs::write(app_root.join("details.mei"), DETAILS_SCENE_SOURCE).expect("write details.mei");
+
+    let source_root = Arc::new(root.clone());
+    let native_agent =
+        Arc::new(mei_agent::NativeAgent::open(source_root.as_ref().clone()).expect("native agent"));
+    let state = AppState {
+        package_root: Arc::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")),
+        source_root,
+        agent_preferred_mode: Arc::new("external".to_string()),
+        agent_preferred_server_url: Arc::new("http://127.0.0.1:4099".to_string()),
+        agent_auto_start: false,
+        auth_enforcement: AuthEnforcement::Disabled,
+        agent_runtime: Arc::new(Mutex::new(agent_runtime::ManagedOpencodeRuntime::default())),
+        agent_session_context: Arc::new(Mutex::new(HashMap::new())),
+        native_agent,
+    };
+
+    let response = app_page(
+        State(state),
+        None,
+        AxumPath((
+            "presentation".to_string(),
+            "multi-scene/scene/details".to_string(),
+        )),
+        Query(AppQuery {
+            file: None,
+            scene: None,
+            tab: None,
+            diag_filter: None,
+            chrome: None,
+        }),
+    )
+    .await
+    .expect("render presentation page");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read html body");
+    let html = String::from_utf8(body.to_vec()).expect("response body utf8");
+    assert!(html.contains("Slides Projection MVP"));
+    assert!(html.contains("data-mei-view=\"presentation\""));
+    assert!(html.contains("/apps/presentation/multi-scene/scene/home"));
+    assert!(html.contains("/apps/app/multi-scene/scene/details"));
+    assert!(html.contains("2 / 2"));
 
     let _ = fs::remove_dir_all(&root);
 }

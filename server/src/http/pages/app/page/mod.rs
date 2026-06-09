@@ -30,7 +30,8 @@ use super::page_render::{
 };
 use super::query::{
     access_canonical_location, access_sanitized_redirect_location, legacy_access_redirect_location,
-    legacy_manage_redirect_location, parse_access_scene_path, AppQuery,
+    legacy_manage_redirect_location, parse_access_scene_path, presentation_sanitized_redirect_location,
+    scene_projection_canonical_location, AppQuery,
 };
 
 use crate::http::compile_cache::CompileWithCacheOutcome;
@@ -85,7 +86,7 @@ pub async fn app_page(
                 .into_response());
         }
     };
-    let access_path_scene = if route_mode == UiRouteMode::App {
+    let access_path_scene = if route_mode.uses_scene_route() {
         url_path_scene.clone()
     } else {
         None
@@ -108,7 +109,7 @@ pub async fn app_page(
             }
         }
     }
-    if access_only_surface && route_mode != UiRouteMode::App {
+    if access_only_surface && !route_mode.is_access_like() {
         let desired_scene = url_path_scene
             .as_deref()
             .map(str::trim)
@@ -151,6 +152,12 @@ pub async fn app_page(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    if route_mode == UiRouteMode::Presentation && request_file.is_some() {
+        return Ok(
+            Redirect::temporary(&presentation_sanitized_redirect_location(&app_id, &query))
+                .into_response(),
+        );
+    }
     if route_mode == UiRouteMode::Build {
         if request_file
             .as_deref()
@@ -160,13 +167,15 @@ pub async fn app_page(
             return Ok(Redirect::temporary(&format!("/apps/config/{app_id}")).into_response());
         }
     }
-    if route_mode == UiRouteMode::App {
+    if route_mode.uses_scene_route() {
         if let Some(ref file) = request_file {
             if is_script_target(file) {
-                return Ok(Redirect::temporary(&access_sanitized_redirect_location(
-                    &app_id, &query,
-                ))
-                .into_response());
+                let location = if route_mode == UiRouteMode::Presentation {
+                    presentation_sanitized_redirect_location(&app_id, &query)
+                } else {
+                    access_sanitized_redirect_location(&app_id, &query)
+                };
+                return Ok(Redirect::temporary(&location).into_response());
             }
         }
     }
@@ -186,7 +195,7 @@ pub async fn app_page(
     } else {
         None
     };
-    if route_mode == UiRouteMode::App && access_static_file.is_none() {
+    if route_mode.uses_scene_route() && access_static_file.is_none() {
         let q_scene = query
             .scene
             .as_deref()
@@ -195,33 +204,42 @@ pub async fn app_page(
         if let Some(ref ps) = access_path_scene {
             if let Some(qs) = q_scene {
                 if qs != ps {
-                    return Ok(Redirect::temporary(&access_canonical_location(
-                        &app_id,
-                        ps,
-                        query.tab.as_deref(),
-                        query.chrome.as_deref(),
-                    ))
-                    .into_response());
+                    return Ok(
+                        Redirect::temporary(&scene_projection_canonical_location(
+                            route_mode,
+                            &app_id,
+                            ps,
+                            query.tab.as_deref(),
+                            query.chrome.as_deref(),
+                        ))
+                        .into_response(),
+                    );
                 }
             }
         } else if let Some(qs) = q_scene {
-            return Ok(Redirect::temporary(&access_canonical_location(
-                &app_id,
-                qs,
-                query.tab.as_deref(),
-                query.chrome.as_deref(),
-            ))
-            .into_response());
+            return Ok(
+                Redirect::temporary(&scene_projection_canonical_location(
+                    route_mode,
+                    &app_id,
+                    qs,
+                    query.tab.as_deref(),
+                    query.chrome.as_deref(),
+                ))
+                .into_response(),
+            );
         } else if let Ok(Some(default_scene)) =
             resolve_default_scene_from_root(&resolve_app_root(state.source_root.as_path(), &app_id))
         {
-            return Ok(Redirect::temporary(&access_canonical_location(
-                &app_id,
-                &default_scene,
-                query.tab.as_deref(),
-                query.chrome.as_deref(),
-            ))
-            .into_response());
+            return Ok(
+                Redirect::temporary(&scene_projection_canonical_location(
+                    route_mode,
+                    &app_id,
+                    &default_scene,
+                    query.tab.as_deref(),
+                    query.chrome.as_deref(),
+                ))
+                .into_response(),
+            );
         }
     }
     let discover_started = Instant::now();
@@ -233,7 +251,8 @@ pub async fn app_page(
     }
     let discover_ms = elapsed_ms(discover_started);
     let app_title = app_title_for(&apps, &app_id);
-    let chrome_hidden = access_only_surface
+    let chrome_hidden = route_mode == UiRouteMode::Presentation
+        || access_only_surface
         || query
             .chrome
             .as_deref()
@@ -282,7 +301,7 @@ pub async fn app_page(
     } else {
         None
     };
-    let compile_scene = if route_mode == UiRouteMode::App || route_mode == UiRouteMode::Build {
+    let compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
         url_path_scene.clone().or_else(|| query.scene.clone())
     } else {
         query.scene.clone()

@@ -9,7 +9,7 @@ use crate::auth::AuthPrincipal;
 use crate::http::host_error_page::{self, HostShellAction};
 
 use crate::http::pages::app::page_render::html_escape_min;
-use crate::http::pages::app::query::access_canonical_location;
+use crate::http::pages::app::query::scene_projection_canonical_location;
 
 pub(super) fn check_access_scene_gate(
     route_mode: UiRouteMode,
@@ -21,7 +21,7 @@ pub(super) fn check_access_scene_gate(
     tab: Option<&str>,
     chrome: Option<&str>,
 ) -> Option<Response> {
-    if route_mode != UiRouteMode::App || access_static_file.is_some() {
+    if !route_mode.uses_scene_route() || access_static_file.is_some() {
         return None;
     }
     if access_path_scene.is_none() {
@@ -31,8 +31,10 @@ pub(super) fn check_access_scene_gate(
             .filter(|s| !s.trim().is_empty());
         if let Some(ref s) = sid {
             return Some(
-                Redirect::temporary(&access_canonical_location(app_id, s, tab, chrome))
-                    .into_response(),
+                Redirect::temporary(&scene_projection_canonical_location(
+                    route_mode, app_id, s, tab, chrome,
+                ))
+                .into_response(),
             );
         }
         let loc = format!("/apps/build/{}", app_id.trim_start_matches('/'));

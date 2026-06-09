@@ -1,3 +1,5 @@
+use mei_lang_app::UiRouteMode;
+
 /// 应用视图 URL 中 `/scene/<id>` 的固定标记（`scene_id` 为单段，可含百分号编码）。
 pub(crate) const ACCESS_SCENE_PATH_MARK: &str = "/scene/";
 
@@ -30,7 +32,34 @@ fn percent_encode_query_component(value: &str) -> String {
     out
 }
 
-/// 从 `/apps/app/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
+fn projection_base_path(route_mode: UiRouteMode, app_id: &str) -> String {
+    let mode = match route_mode {
+        UiRouteMode::App => "app",
+        UiRouteMode::Presentation => "presentation",
+        _ => "app",
+    };
+    format!("/apps/{mode}/{}", app_id.trim_start_matches('/'))
+}
+
+fn projection_query_parts(
+    route_mode: UiRouteMode,
+    tab: Option<&str>,
+    chrome: Option<&str>,
+) -> Vec<String> {
+    if route_mode != UiRouteMode::App {
+        return Vec::new();
+    }
+    let mut parts = Vec::new();
+    if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("tab={}", percent_encode_query_component(t)));
+    }
+    if let Some(c) = chrome.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("chrome={}", percent_encode_query_component(c)));
+    }
+    parts
+}
+
+/// 从 `/apps/app/<app_path>/scene/<scene_id>` 或 `/apps/presentation/<app_path>/scene/<scene_id>` 形态解析 app 与 scene。
 pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(String, String)>, ()> {
     let raw = raw_app_path.trim_start_matches('/');
     if !raw.contains(ACCESS_SCENE_PATH_MARK) {
@@ -49,8 +78,8 @@ pub(crate) fn parse_access_scene_path(raw_app_path: &str) -> Result<Option<(Stri
     Ok(Some((app, scene)))
 }
 
-/// 应用视图 canonical：`/apps/app/<app>/scene/<scene_id>?tab=…&chrome=…`
-pub(crate) fn access_canonical_location(
+pub(crate) fn scene_projection_canonical_location(
+    route_mode: UiRouteMode,
     app_id: &str,
     scene_id: &str,
     tab: Option<&str>,
@@ -58,17 +87,11 @@ pub(crate) fn access_canonical_location(
 ) -> String {
     let sid = scene_id.trim();
     let mut out = format!(
-        "/apps/app/{}{ACCESS_SCENE_PATH_MARK}{}",
-        app_id.trim_start_matches('/'),
+        "{}{ACCESS_SCENE_PATH_MARK}{}",
+        projection_base_path(route_mode, app_id),
         percent_encode_query_component(sid)
     );
-    let mut parts = Vec::new();
-    if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("tab={}", percent_encode_query_component(t)));
-    }
-    if let Some(c) = chrome.map(str::trim).filter(|s| !s.is_empty()) {
-        parts.push(format!("chrome={}", percent_encode_query_component(c)));
-    }
+    let parts = projection_query_parts(route_mode, tab, chrome);
     if !parts.is_empty() {
         out.push('?');
         out.push_str(&parts.join("&"));
@@ -76,43 +99,51 @@ pub(crate) fn access_canonical_location(
     out
 }
 
-/// 应用视图允许的 query：`tab`、`chrome`（不含脚本 `file`/`target`）。
-pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
+/// 应用视图 canonical：`/apps/app/<app>/scene/<scene_id>?tab=…&chrome=…`
+pub(crate) fn access_canonical_location(
+    app_id: &str,
+    scene_id: &str,
+    tab: Option<&str>,
+    chrome: Option<&str>,
+) -> String {
+    scene_projection_canonical_location(UiRouteMode::App, app_id, scene_id, tab, chrome)
+}
+
+pub(crate) fn scene_projection_sanitized_redirect_location(
+    route_mode: UiRouteMode,
+    app_id: &str,
+    query: &AppQuery,
+) -> String {
     if let Some(scene) = query
         .scene
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        return access_canonical_location(
+        return scene_projection_canonical_location(
+            route_mode,
             app_id,
             scene,
             query.tab.as_deref(),
             query.chrome.as_deref(),
         );
     }
-    let mut parts = Vec::new();
-    if let Some(tab) = query
-        .tab
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        parts.push(format!("tab={}", percent_encode_query_component(tab)));
-    }
-    if let Some(chrome) = query
-        .chrome
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        parts.push(format!("chrome={}", percent_encode_query_component(chrome)));
-    }
+    let parts = projection_query_parts(route_mode, query.tab.as_deref(), query.chrome.as_deref());
+    let base = projection_base_path(route_mode, app_id);
     if parts.is_empty() {
-        format!("/apps/app/{app_id}")
+        base
     } else {
-        format!("/apps/app/{app_id}?{}", parts.join("&"))
+        format!("{base}?{}", parts.join("&"))
     }
+}
+
+/// 应用视图允许的 query：`tab`、`chrome`（不含脚本 `file`/`target`）。
+pub(crate) fn access_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
+    scene_projection_sanitized_redirect_location(UiRouteMode::App, app_id, query)
+}
+
+pub(crate) fn presentation_sanitized_redirect_location(app_id: &str, query: &AppQuery) -> String {
+    scene_projection_sanitized_redirect_location(UiRouteMode::Presentation, app_id, query)
 }
 
 fn build_query_suffix(query: &AppQuery) -> String {

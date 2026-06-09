@@ -56,7 +56,7 @@ pub(super) fn render_compiled_success(
 ) -> Response {
     let manage_scene_resolved = if access_static_file.is_some() {
         None
-    } else if route_mode == UiRouteMode::App {
+    } else if route_mode.uses_scene_route() {
         access_path_scene.map(str::to_string)
     } else {
         canonical_scene_for_target(compiled, manage_file)

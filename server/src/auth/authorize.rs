@@ -48,7 +48,10 @@ fn extract_app_route_context(path: &str) -> Option<(String, String, Option<Strin
     if app_raw.is_empty() {
         return None;
     }
-    let (app_id, scene_id) = if mode == "app" || mode == "access" || mode == "access-only" {
+    let (app_id, scene_id) = if matches!(
+        mode.as_str(),
+        "app" | "access" | "access-only" | "presentation" | "slides"
+    ) {
         if let Some((app, scene)) = app_raw.split_once("/scene/") {
             (normalize_id(app), Some(scene.trim().to_string()))
         } else {
@@ -203,7 +206,9 @@ pub(crate) fn authorize_path(path: &str, principal: &AuthPrincipal) -> Result<()
             }
         }
         let route_allowed = match mode.as_str() {
-            "app" | "access" | "access-only" | "run" => caps.access_view,
+            "app" | "access" | "access-only" | "run" | "presentation" | "slides" => {
+                caps.access_view
+            }
             "upload" | "config" => caps.config_upload,
             "build" | "manage" => caps.build_view,
             _ => false,
