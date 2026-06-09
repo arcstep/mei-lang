@@ -225,51 +225,5 @@ pub fn load_world_runtime_bundle(
 }
 
 pub fn default_resource_query_tools() -> Vec<ResourceQueryToolSpec> {
-    vec![
-        ResourceQueryToolSpec {
-            id: "dataset_query".to_string(),
-            status: "phase2_api_ready".to_string(),
-            purpose:
-                "按 dataset 资源 id 查询有界结果（schema+filters+metric ids+sample rows+analysis_contracts_preview）；对应 LLM 工具名 dataset_query"
-                    .to_string(),
-            input: "{id: string, search?: string, filters?: object, columns?: string[], limit?: number, scene_id?, target_file?}"
-                .to_string(),
-            output:
-                "bounded: {dataset{schema_preview,filters,metric_ids,analysis_contracts_preview}, sample_rows, truncation, usage_hint}; defaults: first 10 rows + first 10 columns + cell text truncation."
-                    .to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "dataset_metric".to_string(),
-            status: "phase2_api_ready".to_string(),
-            purpose:
-                "按 dataset 资源 id 查询运行时指标值（count/rate/trend 等聚合）及 analysis_contract 摘要；对应 LLM 工具名 dataset_metric"
-                    .to_string(),
-            input: "{id: string, metric_ids?: string[], search?: string, filters?: object, scene_id?, target_file?}"
-                .to_string(),
-            output:
-                "bounded: {dataset_id, total_rows, metrics, analysis_contracts}; when metric_ids omitted returns all runtime metrics for the dataset. analysis_contracts mirrors host UI explain/popup contract."
-                    .to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_list".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "列出当前 world 下的 assets（与 LLM 工具 resource_list 一致）".to_string(),
-            input: "{kind?: string, limit?: number, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldAssetListResponse JSON".to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_get".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "按 id 获取单个 world asset/entity（与 LLM 工具 resource_get 一致）".to_string(),
-            input: "{id: string, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldAssetGetResponse JSON".to_string(),
-        },
-        ResourceQueryToolSpec {
-            id: "resource_runtime_peek".to_string(),
-            status: "phase3_native_ready".to_string(),
-            purpose: "窥视 world runtime 状态（与 LLM 工具 resource_runtime_peek 一致）".to_string(),
-            input: "{trace_limit?: number, scene_id?, target_file?}".to_string(),
-            output: "bounded: WorldRuntimePeekResponse JSON".to_string(),
-        },
-    ]
+    crate::access_host_bound_query_tools()
 }
