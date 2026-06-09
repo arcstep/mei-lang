@@ -1,0 +1,178 @@
+{
+  "schema_version": "meilang-author-component-contracts-v1",
+  "notes": [
+    "This file documents the stable authoring-facing component contract, not every renderer implementation detail.",
+    "When a prop is not listed here, prefer the public pack guide or a verified example before reading the implementation.",
+    "Cross-file dataset/metric/resource locators should not be passed directly into component props. Import into the current world first, then consume local ids."
+  ],
+  "components": [
+    {
+      "id": "doc.markdown",
+      "pack": "doc",
+      "summary": "Render a markdown document from a current-scene document resource or inline content.",
+      "stable_props": [
+        { "name": "resource", "type": "resource_ref", "required": false, "notes": "Preferred public path for a document resource already visible in the current world." },
+        { "name": "content", "type": "string", "required": false, "notes": "Inline markdown content when no document resource is needed." }
+      ],
+      "preferred_example_ids": ["example_dataset_baseline"]
+    },
+    {
+      "id": "mei.text",
+      "pack": "mei",
+      "summary": "Render plain text, trusted HTML, or a metric slot projection.",
+      "stable_props": [
+        { "name": "content", "type": "string_or_object", "required": false, "notes": "Plain text or a metric-like content object." },
+        { "name": "html", "type": "string", "required": false, "notes": "Trusted HTML content." },
+        { "name": "format", "type": "plain_or_html", "required": false, "notes": "Force plain/html rendering mode." },
+        { "name": "resource", "type": "resource_ref", "required": false, "notes": "Document resource used as the text source." },
+        { "name": "metric_role", "type": "label_or_value_or_unit_or_desc", "required": false, "notes": "Project a scalar metric content object into a single slot." }
+      ],
+      "preferred_example_ids": ["example_template_clone"]
+    },
+    {
+      "id": "dataset.table",
+      "pack": "dataset",
+      "summary": "Manage-oriented data table with toolbar, query-state integration, and optional runtime paging.",
+      "stable_props": [
+        { "name": "data", "type": "dataset_ref_or_metric_ref", "required": true, "notes": "Primary rowset or dataframe input." },
+        { "name": "query_state", "type": "string", "required": false, "notes": "Named shared query-state channel." },
+        { "name": "headers", "type": "string_array", "required": false, "notes": "Optional header labels." },
+        { "name": "columns", "type": "string_array", "required": false, "notes": "Optional explicit column order." },
+        { "name": "column_state", "type": "object", "required": false, "notes": "Column order, width, visibility, and alignment overrides." },
+        { "name": "columnFormats", "type": "object", "required": false, "notes": "Shared number/time/text formatting rules." },
+        { "name": "columnRules", "type": "object", "required": false, "notes": "Shared tone/tag rules." }
+      ],
+      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity"]
+    },
+    {
+      "id": "dataset.filter-bar",
+      "pack": "dataset",
+      "summary": "Minimal filter UI that writes a named query-state instead of mutating table-local truth.",
+      "stable_props": [
+        { "name": "title", "type": "string", "required": false, "notes": "Optional panel title." },
+        { "name": "query_state", "type": "string", "required": true, "notes": "Named shared query-state channel." },
+        { "name": "fields", "type": "array", "required": true, "notes": "Field descriptors with `key`, `label`, and optional `options`." }
+      ],
+      "preferred_example_ids": ["example_filter_reactivity"]
+    },
+    {
+      "id": "dataset.summary-cards",
+      "pack": "dataset",
+      "summary": "Summary cards around a scalar metric, dataset, or rowset; can react to query-state updates.",
+      "stable_props": [
+        { "name": "value", "type": "metric_ref_or_dataset_ref", "required": true, "notes": "Scalar metric is the preferred public path." },
+        { "name": "query_state", "type": "string", "required": false, "notes": "Named shared query-state used for runtime re-evaluation." }
+      ],
+      "preferred_example_ids": ["example_dataset_baseline", "example_filter_reactivity"]
+    },
+    {
+      "id": "chart.*",
+      "pack": "chart",
+      "summary": "Common ECharts-based chart surface used by `chart.line`, `chart.area`, `chart.trend`, `chart.column`, `chart.bar`, `chart.bar-mini`, `chart.pie`, `chart.donut`, `chart.rose`, `chart.scatter`, `chart.radar`, `chart.boxplot`, and `chart.geo`.",
+      "stable_props": [
+        { "name": "title", "type": "string", "required": false, "notes": "Optional chart title." },
+        { "name": "data", "type": "dataset_ref_or_metric_ref", "required": true, "notes": "Dataset or dataframe metric input." },
+        { "name": "mapping", "type": "object", "required": false, "notes": "Field mapping for axes, labels, groups, boxplot stats, or color/size channels." },
+        { "name": "query_state", "type": "string", "required": false, "notes": "Named shared query-state for runtime-linked charts." }
+      ],
+      "variant_notes": [
+        "Use `chart.line` / `chart.area` / `chart.trend` for 1D series.",
+        "Use `chart.column` / `chart.bar` for grouped or stacked comparisons.",
+        "Use `chart.pie` / `chart.donut` / `chart.rose` for composition.",
+        "Use `chart.scatter` / `chart.radar` / `chart.boxplot` when mapping richer dimensions."
+      ],
+      "preferred_example_ids": ["example_chart_baseline", "example_filter_reactivity"]
+    },
+    {
+      "id": "chart.ranking",
+      "pack": "chart",
+      "summary": "Ranking bar chart with optional full-width background bars and long-label layout control.",
+      "stable_props": [
+        { "name": "title", "type": "string", "required": false, "notes": "Optional chart title." },
+        { "name": "data", "type": "dataset_ref_or_metric_ref", "required": true, "notes": "Rowset with label/value columns." },
+        { "name": "mapping", "type": "object", "required": false, "notes": "Optional explicit field mapping." },
+        { "name": "showBackground", "type": "boolean", "required": false, "notes": "Render a full-width background bar behind the active value bar." },
+        { "name": "rankingLayout", "type": "side_or_above", "required": false, "notes": "Choose side labels or top labels for long names." }
+      ],
+      "preferred_example_ids": ["example_chart_baseline"]
+    },
+    {
+      "id": "cockpit.header-brand",
+      "pack": "cockpit",
+      "summary": "Cockpit screen header brand component with layered SVG assets and centered title styling.",
+      "stable_props": [
+        { "name": "title", "type": "string", "required": true, "notes": "Main title text." },
+        { "name": "assets", "type": "object", "required": false, "notes": "Background asset paths such as `title_bg` and `title_mid`." },
+        { "name": "titleColor", "type": "string", "required": false, "notes": "Title color override." }
+      ],
+      "preferred_example_ids": ["example_cockpit_panel"]
+    },
+    {
+      "id": "cockpit.data-table",
+      "pack": "cockpit",
+      "summary": "Cockpit-skinned data table built on the shared dataset runtime core.",
+      "stable_props": [
+        { "name": "dataset", "type": "metric_ref_or_dataset_ref", "required": true, "notes": "Preferred public input for cockpit data-table." },
+        { "name": "embedded", "type": "boolean", "required": false, "notes": "Render inside a panel without extra chrome." },
+        { "name": "layoutPreset", "type": "string", "required": false, "notes": "Preset such as `warnings`." },
+        { "name": "column_state", "type": "object", "required": false, "notes": "Column order, width, visibility, and alignment overrides." },
+        { "name": "columnFormats", "type": "object", "required": false, "notes": "Shared number/time/text formatting rules." },
+        { "name": "columnRules", "type": "object", "required": false, "notes": "Shared tone/tag rules." },
+        { "name": "carousel", "type": "boolean", "required": false, "notes": "Enable client-side auto paging/rotation." }
+      ],
+      "preferred_example_ids": ["example_cockpit_panel", "example_data_table_runtime"]
+    },
+    {
+      "id": "cockpit.panel-title",
+      "pack": "cockpit",
+      "summary": "Cockpit panel title bar used by panel shells and section headings.",
+      "stable_props": [
+        { "name": "title", "type": "string", "required": true, "notes": "Section title text." },
+        { "name": "variant", "type": "string", "required": false, "notes": "Width/density variant." }
+      ],
+      "preferred_example_ids": ["example_cockpit_panel"]
+    },
+    {
+      "id": "cockpit.donut-trio",
+      "pack": "cockpit",
+      "summary": "Three-column grouped donut chart driven by numerator and denominator metrics.",
+      "stable_props": [
+        { "name": "totalMetric", "type": "metric_ref", "required": true, "notes": "Denominator metric." },
+        { "name": "numerMetric", "type": "metric_ref", "required": true, "notes": "Numerator metric." },
+        { "name": "groupField", "type": "string", "required": true, "notes": "Grouping field shared by both metrics." },
+        { "name": "limit", "type": "integer", "required": false, "notes": "Number of groups to show." }
+      ],
+      "preferred_example_ids": ["example_cockpit_panel"]
+    },
+    {
+      "id": "cockpit.metric-progress",
+      "pack": "cockpit",
+      "summary": "Inline progress display used inside cockpit metric cards.",
+      "stable_props": [
+        { "name": "value", "type": "string_or_number", "required": true, "notes": "Progress value." },
+        { "name": "max", "type": "string_or_number", "required": false, "notes": "Upper bound when not encoded in the input itself." }
+      ],
+      "preferred_example_ids": ["example_template_clone"]
+    },
+    {
+      "id": "map.maplibre",
+      "pack": "map",
+      "summary": "MapLibre-based GIS map that consumes `mapSpec.basemap`, `mapSpec.layers`, and optional focus-inset layout metadata.",
+      "stable_props": [
+        { "name": "mapSpec", "type": "object", "required": true, "notes": "Map specification with `basemap`, `layers`, and optional `mapViewport`." },
+        { "name": "selectionDimension", "type": "string", "required": false, "notes": "Dimension key used when map selections write query-state filters." },
+        { "name": "query_state", "type": "string", "required": false, "notes": "Named shared query-state channel for selection-driven filtering." }
+      ],
+      "preferred_example_ids": ["example_map_baseline"]
+    },
+    {
+      "id": "sim.scene",
+      "pack": "sim",
+      "summary": "Composable simulation scene surface that projects the current scene contract into step bridge, HUD, affordance, and board subcomponents.",
+      "stable_props": [
+        { "name": "scene", "type": "scene_ref", "required": true, "notes": "Current scene contract, typically `scene_ref(\"self\")`." }
+      ],
+      "preferred_example_ids": ["example_sim_baseline"]
+    }
+  ]
+}

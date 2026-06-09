@@ -21,9 +21,10 @@
 优先读取：
 
 1. 当前 `main.mei` / 目标 scene 文件
-2. 相关模板 / `_components`
-3. `syntax-rules.md`、`components-reference.md`、`context.md`
-4. 相近 example
+2. 相关 `.stock/templates` / `.stock/components`
+3. `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`、`context.md`
+4. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
+5. 相近 example
 
 作者态默认应是 **source-first + knowledge-first**。  
 不要先把 `inspect summary` / `workspace summary` 当成当前源码的替代品。
@@ -32,17 +33,17 @@
 
 优先跑这些命令：
 
-1. `mei-toolchain check --app <app> --json`
-2. `mei-toolchain workspace summary --source-root <dir> --json`（需要 workspace 级 discover 视图时）
+1. `mei-toolchain check --app <app> --source-root <workspace> --json`
+2. `mei-toolchain workspace summary --source-root <workspace> --json`（需要 workspace 级 discover 视图时）
 
 只有当源码里没有答案、需要 world/runtime 事实时，再补：
 
-1. `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
-2. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
-3. `mei-toolchain runtime peek --app <app> --json`
-4. `mei-toolchain inspect world --app <app> --json`
-5. `mei-toolchain inspect inventory --app <app> --json`
-6. `mei-toolchain inspect summary --app <app> --json`
+1. `mei-toolchain query dataset --app <app> --source-root <workspace> --id <dataset_id> --json`
+2. `mei-toolchain query metric --app <app> --source-root <workspace> --id <dataset_id> --json`
+3. `mei-toolchain runtime peek --app <app> --source-root <workspace> --json`
+4. `mei-toolchain inspect world --app <app> --source-root <workspace> --json`
+5. `mei-toolchain inspect inventory --app <app> --source-root <workspace> --json`
+6. `mei-toolchain inspect summary --app <app> --source-root <workspace> --json`
 
 不要因为能调到 runtime 工具，就跳过对当前 `.mei` 的直接阅读。
 
@@ -56,35 +57,49 @@
 
 改完后至少再跑一次：
 
-- `mei-toolchain check --app <app> --json`
+- `mei-toolchain check --app <app> --source-root <workspace> --json`
 
-## 主干规则
+## 当前主线
 
-当前最稳定的作者态主干是：
+当前最稳定的应用入口与场景组织方式是：
 
-- `app(..., default_scene=..., scene=...)` 与 `app.add_scene(...)` / `scene_file_ref(...)`
-- `scene(id=..., world=..., flow=..., frame=...)`
-- `world(id=..., resources=[...])`
-- `flow(id=..., ...)`
-- `frame(id=..., layout=...)`
-- `frame.add_panel(...)`
-- `component(...)`
+1. `main.mei` 中声明唯一 `app(...)`
+2. 单文件时直接 inline `scene(...)`
+3. 多文件时用 `app_add_scene(scene = scene_ref(scene_file = "...", scene_id = "..."))`
+4. `scene(...)` 绑定当前 active `world / flow / frame`
+5. `frame.add_panel(...)` / `panel(...)` 组织 UI
+6. `component(...)` 与 `metric_card(...)` 消费当前 scene 可见对象
 
 复杂页面优先保持：
 
 1. `app + scene` 路由（`scene_id` 与 `default_scene` 对齐）
 2. `scene -> world / flow / frame`
-3. `frame -> panel.blocks`
+3. `frame -> panels / blocks`
+4. 数据先进入 `world` 账本，再由 `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)` 消费
 
 ## 当前推荐写法
 
-1. 先写 `app(...)`、`default_scene`，用 `app.add_scene(...)` / `app(scene=scene_file_ref(...))` 注册场景路由
-2. 再定义 `scene(id=..., world=..., flow=..., frame=...)`
-3. 资源放进具名 `world(id=..., resources=[...])`
-4. UI 骨架放进具名 `frame(id=..., layout=...)`
-5. 区块使用 `frame.add_panel(...)`
-6. 组件统一放进 `panel.blocks`
-7. 组件输入统一放进 `props`
+1. 先写 `app(...)` 与 `default_scene`
+2. 单文件场景直接写 `scene(...)`
+3. 外部场景用 `app_add_scene(scene = scene_ref(...))` 注册
+4. 资源、dataset、metric、template clone 先进入 owner 账本
+5. UI 骨架放进具名 `frame(id=..., layout=...)`
+6. 区块使用 `frame.add_panel(...)` 或 `panel(...)`
+7. 组件输入统一放进 `props`，并优先消费本地可见的 typed refs
+
+## typed ref 主线
+
+当前作者态应优先把下面这些名字当作正式主线：
+
+- 结构槽位：`scene_ref(...)`、`world_ref(...)`、`flow_ref(...)`、`frame_ref(...)`
+- 集合复用：`panel_ref(...)`、`metric_card_ref(...)`
+- 数据绑定：`dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`
+
+其中要特别记住：
+
+- `world_ref(...)` 是 world 对象引用，不再表示 world 内某个资源 id。
+- 组件 `props` 中优先消费 **本地可见 id** 的 `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)`。
+- 若要跨文件使用外部 dataset / metric / resource，应先通过 world 引入或 scene owner 绑定进入当前账本，再在组件中按本地 id 消费。
 
 ## 布局规则
 
@@ -95,17 +110,21 @@
 ## 绑定规则
 
 - `props` 是唯一稳定绑定表面
-- `world_ref(...)` 当前主要用于引用 `world.resources[id]`
+- 组件 props 的稳定值来源优先是 `dataset_ref(...)`、`metric_ref(...)`、`resource_ref(...)`、`scene_ref(...)`
+- `world_ref(...)` 不作为资源选择器使用
+- `panel(base = panel_ref(...))` 与 `metric_card(base = metric_card_ref(...))` 是当前模板克隆主线
 
 ## 文件组织
 
 - 应用入口优先使用 `main.mei`
-- 外部场景使用 `scene_file_ref(...)` 并在 `app` 侧注册路由
+- 外部场景优先使用 `scene_ref(scene_file = ...)` 并在 `app_add_scene(...)` 中注册
+- `.stock/templates/**` 是公共模板消费面；不要把 `workspaces/**` 相对路径当成 standalone 默认写法
 - 不要把运行态临时问答结果直接回写成正式作者态源码
 - `inspect summary` / `workspace summary` 更适合作为作者态路由摘要，而不是源码理解主入口
 
 ## 版本与迁移
 
-- 已移除 `entry(...)` 与 `app(..., entries=...)`
-- 页面与编译选路统一为 **`app + scene`**（`scene_id` / `default_scene` / `?scene=`）
-- 编辑侧若需要更自动化的机器对接，优先看 `mei-toolchain mcp describe --surface author --json`（兼容 `editor`；旧 `mei` 入口仍可用）
+- `entry(...)` 与 `app(..., entries=...)` 不再作为新作者态默认主线
+- `scene_file_ref(...)` / `world_file_ref(...)` / `frame_file_ref(...)` 仅保留兼容/迁移语义，不再作为公开主示例
+- 页面与编译选路统一为 **`app + scene`**（`default_scene` + inline scene 或 `app_add_scene(scene = scene_ref(...))`）
+- 编辑侧自动化接线统一看 `mei-toolchain mcp describe --surface author --json`

@@ -1,0 +1,49 @@
+# Proof: `map.maplibre` public `mapSpec` contract.
+
+app(
+    id = "author-example-map",
+    title = "Author Example Map",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "Minimal map baseline for the standalone author package.",
+)
+
+world(id = "home_world", resources = [])
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "map_panel",
+    area = "auto",
+    blocks = [
+        component(
+            "map.maplibre",
+            area = "auto",
+            props = {
+                "mapSpec": {
+                    "basemap": {
+                        "tilesUrl": "http://127.0.0.1:3000",
+                        "tilesJsonPath": "/tiles/city.json",
+                        "center": [106.55, 29.56],
+                        "zoom": 11
+                    },
+                    "layers": [],
+                    "mapViewport": {
+                        "mode": "cockpitBleed",
+                        "focusInset": {"top": 40, "right": 280, "bottom": 40, "left": 40}
+                    }
+                }
+            },
+        ),
+    ],
+)

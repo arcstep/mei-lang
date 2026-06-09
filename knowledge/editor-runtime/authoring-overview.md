@@ -19,6 +19,7 @@ This package is the standalone authoring runtime for external MeiLang developmen
 
 1. Create or initialize a standalone workspace.
 2. Materialize `.stock/` when the workspace needs built-in components or templates.
-3. Use `mei-lsp` for editor feedback and use author-side MCP only for read-only agent tooling.
-4. Run `mei-toolchain check --app <app> --source-root <workspace>` for compile validation.
-5. Use `mei-toolchain knowledge --surface editor --include-content --json` when an agent needs packaged docs, profiles, or examples.
+3. Read `.mei/profiles/author.md`, `.mei/skills/meilang-author/*`, and `.mei/knowledge/author/*` as the workspace-local authoring truth.
+4. Use `mei-lsp` for editor feedback and use author-side MCP only for read-only agent tooling.
+5. Run `mei-toolchain check --app <app> --source-root <workspace>` for compile validation.
+6. Use `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json` when an agent needs packaged docs, contracts, or examples.

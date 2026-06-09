@@ -1,0 +1,38 @@
+# Proof: metric-card shell clone through `metric_card(base = metric_card_ref(...))`.
+
+app(
+    id = "author-example-template-clone",
+    title = "Author Example Template Clone",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "Metric-card template clone example for the standalone author package.",
+)
+
+world(id = "home_world", resources = [])
+
+COCKPIT_TPL = ".stock/templates/cockpit"
+CARD = COCKPIT_TPL + "/metric-card/metric-card-narrow-stack.mei"
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "metrics_panel",
+    area = "auto",
+    blocks = [
+        metric_card(
+            base = metric_card_ref(id = "card_normal", scene_file = CARD),
+            id = "metric_sales",
+            source = {"label": "Sales", "value": "120", "unit": "k"},
+        ),
+    ],
+)

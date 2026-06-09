@@ -23,35 +23,36 @@ mei-toolchain mcp describe --surface author --json
 mei-toolchain knowledge --surface author --json
 ```
 
-兼容入口仍接受：
-
-```bash
-mei-toolchain mcp describe --surface author --json
-```
-
-但 `editor` 只是兼容别名，canonical profile id 仍是 `author`。
+公开 profile / knowledge / MCP surface 统一为 `author`。  
+`editor-runtime` 只是技术外壳名，不再作为作者态公开角色名。
 
 ## 主输入
 
 作者态优先依赖这些输入：
 
 1. 当前目标 `.mei` 源码
-2. `guides/author-skills/SKILL.md`
-3. `authoring.md`
-4. `syntax-rules.md`
-5. `components-reference.md`
-6. `context.md`
-7. `knowledge/editor-runtime/*.md`
-8. `mei-toolchain check --app <app> --json`
-9. `mei-lsp` diagnostics / symbol / hover / definition / completion
+2. `.mei/profiles/author.md`
+3. `.mei/skills/meilang-author/SKILL.md`
+4. `.mei/skills/meilang-author/authoring.md`
+5. `.mei/skills/meilang-author/syntax-rules.md`
+6. `.mei/skills/meilang-author/dsl-reference.md`
+7. `.mei/skills/meilang-author/namespace-reference.md`
+8. `.mei/skills/meilang-author/components-reference.md`
+9. `.mei/skills/meilang-author/context.md`
+10. `.mei/knowledge/author/components/*`
+11. `.mei/knowledge/author/templates/*`
+12. `.mei/knowledge/author/examples/*`
+13. `mei-toolchain check --app <app> --source-root <workspace> --json`
+14. `mei-lsp` diagnostics / symbol / hover / definition / completion
 
 ## 默认顺序
 
 1. 先读当前 target `.mei` 与相邻 scene / template / `_components`。
-2. 再读 packaged authoring knowledge，而不是去源码仓库里额外找一套 docs。
+2. 再读 workspace-local packaged authoring knowledge，而不是去源码仓库里额外找一套 docs。
 3. 先跑 `mei-toolchain check` 或看 `mei-lsp`，把 diagnostics 当成主要机器反馈。
-4. 只有当源码里没有答案时，再调用 `inspect/query/runtime`。
-5. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
+4. 若公共 component/template contract 仍不足，再读 `.stock/components/**/README.md` / `.stock/templates/**/README.md`。
+5. 只有当源码与 packaged knowledge 仍然没有答案时，再调用 `inspect/query/runtime`。
+6. 正式文件写入由外部开发工具完成；MeiLang 提供的是语义后端，不是默认作者态写入宿主。
 
 ## Access 的边界
 
@@ -65,17 +66,17 @@ mei-toolchain mcp describe --surface author --json
 ### 语言服务
 
 - `mei-lsp`
-- `mei-toolchain check --app <app> --json`
+- `mei-toolchain check --app <app> --source-root <workspace> --json`
 
 ### 结构与 discover
 
-- `mei-toolchain workspace summary --source-root <dir> --json`
-- `mei-toolchain inspect summary --app <app> --json`
+- `mei-toolchain workspace summary --source-root <workspace> --json`
+- `mei-toolchain inspect summary --app <app> --source-root <workspace> --json`
 
 ### runtime/world 补充
 
-- `mei-toolchain inspect world --app <app> --json`
-- `mei-toolchain inspect inventory --app <app> --json`
-- `mei-toolchain query dataset --app <app> --id <dataset_id> --json`
-- `mei-toolchain query metric --app <app> --id <dataset_id> --json`
-- `mei-toolchain runtime peek --app <app> --json`
+- `mei-toolchain inspect world --app <app> --source-root <workspace> --json`
+- `mei-toolchain inspect inventory --app <app> --source-root <workspace> --json`
+- `mei-toolchain query dataset --app <app> --source-root <workspace> --id <dataset_id> --json`
+- `mei-toolchain query metric --app <app> --source-root <workspace> --id <dataset_id> --json`
+- `mei-toolchain runtime peek --app <app> --source-root <workspace> --json`

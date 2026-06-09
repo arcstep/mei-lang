@@ -1,0 +1,6 @@
+region,status,category,amount
+East,Open,Inspection,120
+East,Closed,Inspection,90
+North,Pending,Permit,80
+South,Closed,Permit,110
+West,Escalated,Safety,150

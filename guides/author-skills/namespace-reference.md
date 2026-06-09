@@ -2,50 +2,59 @@
 
 ## 应优先使用的名字
 
-### App / Entry / Scene
+### App / Scene
 
 ```python
-app(id, title=None, default_scene=None, entries=None)
-entry(scene=None, frame=None, id=None, title=None)
-scene_file_ref(path, id=None)
-scene(id, world=None, flow=None, frame=None, profile=None, theme=None, summary=None, goal=None, state=None)
+app(...)
+app_add_scene(scene = scene_ref(scene_file = "home.mei", scene_id = "home"))
+scene(...)
+scene_ref(scene_file = "home.mei", scene_id = "home")
 ```
 
 ### World
 
 ```python
-world(id, resources=[], topology=None, entities=[])
-resource(id, kind, title=None, content=None, source=None)
+world(...)
+resource(...)
+world_ref(scene_file = "worlds/base.mei", scene_id = "base")
+resource_ref(id = "welcome_doc")
 ```
 
 ### Flow
 
 ```python
-flow(id, start=None, interactions=[], timer=None, outcome=None)
+flow(...)
+flow_ref(scene_file = "flows/base.mei", scene_id = "base")
 ```
 
 ### Frame / Layout
 
 ```python
-frame(id, title=None, layout=None, viewport=None)
-frame.add_panel(id=None, title=None, area=None, blocks=[], layout=None, props=None)
-panel(id=None, title=None, area=None, blocks=[], layout=None, props=None)
-component(use, area=None, props=None)
-grid(columns=None, rows=None, areas=None, gap=None, padding=None)
-flex(direction, gap=None, padding=None)
+frame(...)
+frame_ref(scene_file = "frames/base.mei", scene_id = "base")
+frame.add_panel(...)
+panel(...)
+panel_ref(id = "summary_panel", scene_file = "panels/base.mei")
+metric_card(...)
+metric_card_ref(id = "metric_shell", scene_file = "templates/metric-shell.mei")
+component(...)
+grid(...)
+flex(...)
 ```
 
 ### Document
 
 ```python
-doc.markdown(area=None, resource=None, content=None)
+doc.markdown(...)
 ```
 
 ### Refs
 
 ```python
-world_ref(id)
-scene_ref(id)
+dataset_ref(id = "sales_data")
+metric_ref(id = "sales_total")
+resource_ref(id = "welcome_doc")
+scene_ref("self")
 ```
 
 ## 当前扩展相关写法
@@ -68,7 +77,7 @@ component(
     "dataset.table",
     area = "auto",
     props = {
-        "dataset": world_ref("sales_data"),
+        "data": dataset_ref(id = "sales_data"),
     },
 )
 ```
@@ -76,19 +85,20 @@ component(
 ## 当前不要写
 
 ```python
+entry(...)
+app(..., entries=[entry(...)])
 world_file_ref(...)
 flow_file_ref(...)
 frame_file_ref(...)
 data_ref(...)
-metric_ref(...)
-frame_ref(...)
 component_ref(...)
 ```
 
 ## 当前 ref / file_ref 口径
 
-- `*_file_ref(...)` 用来引用其他文件
-- `*_ref(...)` 用来引用当前组合后作用域里的对象
-- 当前已进入最小支持的是 `scene_file_ref(...)`
-- `world_file_ref(...)` / `flow_file_ref(...)` / `frame_file_ref(...)` 是推荐命名方向，当前还未形成稳定实现
-- `world_ref(...)` 当前仍主要兼容引用 `world.resources[id]`
+- 当前公开主语法统一为 `*_ref(...)`
+- `scene_ref(...)` / `world_ref(...)` / `flow_ref(...)` / `frame_ref(...)` 主要进入 owner 槽位
+- `panel_ref(...)` / `metric_card_ref(...)` 用于跨文件模板与 panel 复用
+- `dataset_ref(...)` / `metric_ref(...)` / `resource_ref(...)` 主要作为组件 props 的稳定值来源
+- `*_file_ref(...)` 仅保留兼容/迁移语义，不再作为公开主示例
+- `world_ref(...)` 不再表示 world 内部某个资源 id

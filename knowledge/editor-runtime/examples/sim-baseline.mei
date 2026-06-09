@@ -1,0 +1,54 @@
+# Proof: `sim.scene` consumes the current scene contract through `scene_ref("self")`.
+
+app(
+    id = "author-example-sim",
+    title = "Author Example Sim",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "sim",
+    summary = "Minimal simulation baseline for the standalone author package.",
+)
+
+world(id = "home_world", resources = [])
+
+frame(
+    id = "home_frame",
+    layout = grid(
+        columns = ["minmax(0, 2fr)", "minmax(280px, 1fr)"],
+        areas = [
+            ["board", "notes"],
+        ],
+        gap = "12px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "board",
+    area = "board",
+    blocks = [
+        component(
+            "sim.scene",
+            area = "auto",
+            props = {
+                "scene": scene_ref("self"),
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "notes",
+    area = "notes",
+    blocks = [
+        doc.markdown(
+            area = "auto",
+            content = "## Sim baseline\n\nThis example proves the public `sim.scene` entry: pass the current scene contract with `scene_ref(\"self\")`.",
+        ),
+    ],
+)

@@ -6,15 +6,18 @@
 
 1. 当前任务相关的 `.mei` 文件
 2. 对应 example
-3. `syntax-rules.md`、`components-reference.md`
-4. `author-profile.md`、`knowledge/editor-runtime/*.md`
+3. `.mei/profiles/author.md`
+4. 同目录的 `syntax-rules.md`、`dsl-reference.md`、`namespace-reference.md`、`components-reference.md`
+5. `.mei/knowledge/author/components/*`、`.mei/knowledge/author/templates/*`
+6. `.mei/knowledge/author/authoring-overview.md`、`workflow-recipes.md`、`build-debug-ops.md`
 5. `mei-toolchain knowledge --surface author --include-content --json`
-6. 必要时再读相关 component / 宿主代码
+7. 仍不足时再读 `.stock/components/**/README.md` / `.stock/templates/**/README.md`
+8. 最后才看相关 component 实现
 
 ## 读取原则
 
 - 只读与当前任务直接相关的文件
-- 先看 package 内知识，再看源码实现
+- 先看 workspace-local knowledge，再看实现细节
 - 先看例子，再抽象规则
 - `inspect summary` / `workspace summary` 只当路由摘要，不当源码替代品
 - 不要默认回源 `docs/` 目录去找另一套规则；优先使用 packaged knowledge
@@ -23,20 +26,20 @@
 
 编辑前先确认：
 
-1. 当前 entry 指向哪个 `scene`（scene id 或外部 `.mei` 文件）
+1. 当前 `default_scene` 指向哪个 `scene`，以及是否存在 `app_add_scene(scene = scene_ref(...))`
 2. 当前场景里有哪些 `world.resources`（必要时再查 inspect/query）
 3. 当前 `frame.layout` 使用的是 `grid` 还是 `flex`
 4. `panel.area` 与 `layout.areas` 是否一致
-5. 目标组件是否已经在 manifest 中注册
-6. 组件需要的 `props` 结构是什么
+5. 目标组件或模板是否已在 `.stock/components` / `.stock/templates` 的公开 contract 中出现
+6. 组件需要的 `props` 结构、example 与 template clone 路径是什么
 
 ## 何时读组件实现
 
 只有在下面几种情况才读组件实现：
 
-- 需要确认 `props` 字段名
-- 需要确认组件消费的是 document、dataset 还是整份 scene
-- 需要确认 example 已经验证过的 contract
+- 公共 component contract、README 与 example 仍然不能回答 props 结构
+- 需要确认 renderer 私有行为，而这些行为当前尚未公开承诺
+- 需要验证某个 edge case 是否只是实现细节，而不是公共 contract
 
 ## 何时不要扩读
 
@@ -45,4 +48,4 @@
 - 无关 example
 - 旧 DSL 文档
 - 与当前任务无关的 Rust 模块
-- 与 standalone editor runtime 无关的源码仓库背景文档
+- 与 standalone author package 无关的源码仓库背景文档

@@ -1,0 +1,95 @@
+# Proof: dataset.filter-bar + shared query_state + linked table/chart.
+
+app(
+    id = "author-example-filter-reactivity",
+    title = "Author Example Filter Reactivity",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+    summary = "Minimal filter-driven page for the standalone author package.",
+)
+
+world(
+    id = "home_world",
+    resources = [
+        resource(
+            id = "sales_data",
+            kind = "dataset",
+            title = "Sales sample",
+            source = ds.csv(path = "data/sales.csv"),
+        ),
+    ],
+)
+
+frame(
+    id = "home_frame",
+    layout = grid(
+        columns = ["320px", "minmax(0, 1fr)"],
+        rows = ["auto", "minmax(260px, 1fr)"],
+        areas = [
+            ["filters", "chart"],
+            ["filters", "table"],
+        ],
+        gap = "16px",
+        padding = "20px",
+    ),
+)
+
+frame.add_panel(
+    id = "filters",
+    area = "filters",
+    blocks = [
+        component(
+            "dataset.filter-bar",
+            area = "auto",
+            props = {
+                "title": "Sales filters",
+                "query_state": "sales_filters",
+                "fields": [
+                    {"key": "region", "label": "Region", "options": ["East", "North", "South", "West"]},
+                    {"key": "status", "label": "Status", "options": ["Closed", "Escalated", "Open", "Pending"]},
+                ],
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "chart",
+    area = "chart",
+    blocks = [
+        component(
+            "chart.bar-mini",
+            area = "auto",
+            props = {
+                "title": "Amount by category",
+                "data": dataset_ref(id = "sales_data"),
+                "query_state": "sales_filters",
+                "mapping": {
+                    "x": [{"field": "category", "name": "Category"}],
+                    "y": [{"field": "amount", "name": "Amount"}],
+                },
+            },
+        ),
+    ],
+)
+
+frame.add_panel(
+    id = "table",
+    area = "table",
+    blocks = [
+        component(
+            "dataset.table",
+            area = "auto",
+            props = {
+                "data": dataset_ref(id = "sales_data"),
+                "query_state": "sales_filters",
+            },
+        ),
+    ],
+)
