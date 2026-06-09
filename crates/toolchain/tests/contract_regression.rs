@@ -11,7 +11,8 @@ use mei_lang_toolchain::{
     clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
     query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
     scaffold_editor_runtime_tooling, doctor_editor_runtime_for_package_root,
-    editor_runtime_descriptor_for_package_root, export_knowledge_bundle_for_package_root,
+    doctor_editor_runtime_for_workspace_root, editor_runtime_descriptor_for_package_root,
+    export_knowledge_bundle_for_package_root, install_editor_runtime_support_files,
     RESOURCE_QUERY_SCHEMA_VERSION,
 };
 
@@ -393,12 +394,80 @@ fn scaffold_editor_runtime_tooling_writes_cursor_files() {
     .expect("scaffold");
     assert!(report.files.iter().any(|item| item.rel_path == ".cursor/mcp.json"));
     assert!(root.join(".mei/editor-runtime.json").is_file());
+    assert!(root.join(".mei/version.json").is_file());
+    assert!(root.join(".mei/runtime/MANIFEST.json").is_file());
     assert!(root.join(".cursor/rules/meilang-authoring.mdc").is_file());
     assert!(root.join(".vscode/settings.json").is_file());
     assert!(root.join(".trae/mcp.json").is_file());
     assert!(root.join(".mei/tooling/codex/mcp.json").is_file());
     assert!(root.join(".mei/tooling/claude-code/mcp.json").is_file());
     assert!(root.join(".mei/tooling/opencode/mcp.json").is_file());
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn install_editor_runtime_support_files_writes_version_metadata() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_editor_runtime_install_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create install root");
+    install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
+    let version: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".mei/version.json")).expect("read version"),
+    )
+    .expect("parse version");
+    let manifest: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join(".mei/runtime/MANIFEST.json")).expect("read manifest"),
+    )
+    .expect("parse manifest");
+    let expected_line = format!(
+        "mei-{}",
+        env!("CARGO_PKG_VERSION")
+            .split('.')
+            .next()
+            .expect("major version")
+    );
+    assert_eq!(version["toolchain_version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(version["compatibility"]["line"], expected_line);
+    assert_eq!(manifest["toolchain_version"], env!("CARGO_PKG_VERSION"));
+    assert!(manifest["bundle_id"]
+        .as_str()
+        .is_some_and(|value| value.starts_with("mei-lang-")));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_editor_runtime_doctor_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create doctor root");
+    install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
+    let report = doctor_editor_runtime_for_workspace_root(&package_root(), &root);
+    assert!(report.ok, "workspace doctor should pass after install");
+    assert_eq!(report.workspace_root, Some(root.display().to_string()));
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_version_descriptor" && item.ok)
+    );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_runtime_manifest" && item.ok)
+    );
     let _ = fs::remove_dir_all(root);
 }
 

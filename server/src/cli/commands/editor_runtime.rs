@@ -1,14 +1,14 @@
 use anyhow::Result;
 use mei_lang_toolchain::{
-    doctor_editor_runtime_for_package_root, editor_runtime_descriptor_for_package_root,
-    scaffold_editor_runtime_tooling,
+    doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
+    editor_runtime_descriptor_for_package_root, scaffold_editor_runtime_tooling,
 };
 
 use super::super::args::{
     EditorRuntimeArgs, EditorRuntimeCommand, EditorRuntimeDescribeArgs, EditorRuntimeDoctorArgs,
     EditorRuntimeScaffoldArgs,
 };
-use super::super::util::{print_json_output, resolve_package_root};
+use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
 
 pub fn editor_runtime_command(args: EditorRuntimeArgs) -> Result<()> {
     match args.command {
@@ -26,7 +26,12 @@ fn editor_runtime_describe_command(args: EditorRuntimeDescribeArgs) -> Result<()
 
 fn editor_runtime_doctor_command(args: EditorRuntimeDoctorArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
-    let report = doctor_editor_runtime_for_package_root(&package_root);
+    let report = if let Some(source_root) = args.source_root {
+        let source_root = resolve_cli_source_root(&package_root, &source_root)?;
+        doctor_editor_runtime_for_workspace_root(&package_root, &source_root)
+    } else {
+        doctor_editor_runtime_for_package_root(&package_root)
+    };
     print_json_output(&report, args.json)
 }
 

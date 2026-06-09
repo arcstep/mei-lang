@@ -139,8 +139,11 @@ fn initialize_standalone_workspace(
         mei_lang_kernel::write_workspace_config(&config_path, &config)?;
     }
     std::fs::create_dir_all(source_root.join(".mei"))?;
+    std::fs::create_dir_all(source_root.join(mei_lang_kernel::WORKSPACE_HOSTS_DIR_REL))?;
     if materialize {
         mei_lang_toolchain::materialize_workspace_stock(source_root, package_root, false)?;
+    } else {
+        mei_lang_toolchain::install_editor_runtime_support_files(source_root, package_root, true)?;
     }
     Ok(())
 }

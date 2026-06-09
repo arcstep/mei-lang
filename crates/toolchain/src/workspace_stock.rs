@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use mei_lang_kernel::{
     stock_components_source, stock_templates_source, workspace_config_path, write_workspace_config,
     WorkspaceConfig, WorkspacePathsConfig, WorkspaceProfile, DEFAULT_STOCK_COMPONENTS_REL,
-    DEFAULT_STOCK_TEMPLATES_REL,
+    DEFAULT_STOCK_TEMPLATES_REL, WORKSPACE_HOSTS_DIR_REL,
 };
 use serde::Serialize;
 use walkdir::WalkDir;
@@ -33,6 +33,9 @@ pub fn materialize_workspace_stock(
     package_root: &Path,
     force: bool,
 ) -> Result<MaterializeReport> {
+    fs::create_dir_all(source_root.join(WORKSPACE_HOSTS_DIR_REL))
+        .context("create workspace host-state dir")?;
+    crate::install_editor_runtime_support_files(source_root, package_root, true)?;
     let components = materialize_tree(
         &stock_components_source(package_root),
         &source_root.join(DEFAULT_STOCK_COMPONENTS_REL),
@@ -117,6 +120,8 @@ pub fn init_workspace_profile(
     fs::create_dir_all(&source_root)
         .with_context(|| format!("create workspace profile {}", source_root.display()))?;
     fs::create_dir_all(source_root.join(".mei")).context("create workspace .mei runtime dir")?;
+    fs::create_dir_all(source_root.join(WORKSPACE_HOSTS_DIR_REL))
+        .context("create workspace host-state dir")?;
 
     let config_path = workspace_config_path(&source_root);
     if !config_path.is_file() {
@@ -135,9 +140,10 @@ pub fn init_workspace_profile(
         };
         write_workspace_config(&config_path, &config)?;
     }
-
     if materialize {
         materialize_workspace_stock(&source_root, package_root, false)?;
+    } else {
+        crate::install_editor_runtime_support_files(&source_root, package_root, true)?;
     }
     Ok(source_root)
 }

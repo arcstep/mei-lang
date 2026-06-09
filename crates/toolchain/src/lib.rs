@@ -39,11 +39,18 @@ pub use compile_service::{
     PeekCompileCacheHit, SourceLayoutInspection, SourceLayoutRoots,
 };
 pub use editor_runtime::{
-    doctor_editor_runtime_for_package_root, editor_runtime_descriptor_for_package_root,
-    scaffold_editor_runtime_tooling, EditorRuntimeCheck, EditorRuntimeDescriptor,
-    EditorRuntimeDoctorReport, EditorRuntimePathDescriptor, EditorRuntimeScaffoldFile,
-    EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor,
-    EDITOR_RUNTIME_SCHEMA_VERSION,
+    doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
+    editor_runtime_descriptor_for_package_root, install_editor_runtime_support_files,
+    scaffold_editor_runtime_tooling, workspace_runtime_manifest_for_package_root,
+    workspace_runtime_version_descriptor, EditorRuntimeCheck, EditorRuntimeDescriptor,
+    EditorRuntimeDoctorReport, EditorRuntimeInstallReport, EditorRuntimePathDescriptor,
+    EditorRuntimeScaffoldFile, EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor,
+    InstalledRuntimeDescriptor, RuntimeCompatibilityDescriptor,
+    RuntimeManifestArtifactDescriptor, RuntimeManifestContentDescriptor,
+    RuntimeManifestProvenance, RuntimeSourceRevision, WorkspaceRuntimeManifest,
+    WorkspaceRuntimeVersionDescriptor, EDITOR_RUNTIME_SCHEMA_VERSION,
+    RUNTIME_BUNDLE_SCHEMA_VERSION, WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION,
+    WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
 };
 pub use export::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,
