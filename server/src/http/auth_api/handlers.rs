@@ -231,7 +231,7 @@ pub async fn auth_login(
     if !runtime.enabled {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "auth is not configured; add users in `.mei-workspace.json` (via `mei host auth bootstrap-users` or `add-user --password-stdin`) and ensure keys",
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
     let password = if let Some(encrypted) = body
@@ -337,7 +337,7 @@ pub async fn auth_change_password(
     if !runtime.enabled {
         return json_error(
             StatusCode::SERVICE_UNAVAILABLE,
-            "auth is not configured; add users in `.mei-workspace.json` (via `mei host auth bootstrap-users` or `add-user --password-stdin`) and ensure keys",
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
     let current_password =

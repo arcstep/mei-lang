@@ -1,8 +1,8 @@
-use super::auth_bundle::workspace_auth_config_path;
+use super::auth_bundle::{workspace_auth_config_path, workspace_auth_host_id};
 use super::io::{write_mei_config, write_workspace_config};
 use super::types::{
     AppEntryConfig, AuthUserConfig, DiscoverConfig, MeiConfig, WorkspaceAuthConfig,
-    WorkspaceConfig, MEI_CONFIG_FILENAME,
+    WorkspaceConfig, WorkspaceHostState, MEI_CONFIG_FILENAME,
 };
 use super::workspace_paths::workspace_config_path;
 use super::*;
@@ -78,6 +78,8 @@ fn workspace_auth_bundle_reads_workspace_json() {
     assert_eq!(bundle.auth.jwt_secret.as_deref(), Some("workspace-secret"));
     assert_eq!(bundle.auth.users.len(), 1);
     assert_eq!(bundle.auth.users[0].username, "guest01");
+    assert_eq!(bundle.loaded_from, "workspace_config_auth");
+    assert_eq!(bundle.workspace_config_path, workspace_config_path(&dir));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -103,11 +105,12 @@ fn workspace_auth_bundle_reads_misplaced_mei_config_for_migration() {
     let bundle = load_workspace_auth_bundle(&dir);
     assert_eq!(bundle.auth.jwt_secret.as_deref(), Some("misplaced-secret"));
     assert_eq!(bundle.auth.users.len(), 1);
+    assert_eq!(bundle.loaded_from, "legacy_mei_config_auth");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn workspace_auth_bundle_writes_workspace_json_without_dropping_runtime() {
+fn workspace_auth_bundle_writes_host_state_and_scrubs_workspace_auth() {
     let dir = std::env::temp_dir().join(format!(
         "mei-auth-bundle-write-{}",
         std::time::SystemTime::now()
@@ -123,7 +126,7 @@ fn workspace_auth_bundle_writes_workspace_json_without_dropping_runtime() {
         },
         ..Default::default()
     };
-    write_workspace_config(&workspace_auth_config_path(&dir), &workspace)
+    write_workspace_config(&workspace_config_path(&dir), &workspace)
         .expect("seed workspace config");
     let mut auth = WorkspaceAuthConfig::default();
     auth.jwt_secret = Some("jwt".to_string());
@@ -134,8 +137,73 @@ fn workspace_auth_bundle_writes_workspace_json_without_dropping_runtime() {
         ..Default::default()
     });
     write_workspace_auth_bundle(&dir, &auth).expect("write auth");
-    let loaded = WorkspaceConfig::load_or_default(&workspace_auth_config_path(&dir));
+    let loaded = WorkspaceConfig::load_or_default(&workspace_config_path(&dir));
     assert_eq!(loaded.discover.skip_directories, vec!["cache"]);
-    assert_eq!(loaded.auth.users.len(), 1);
+    assert!(loaded.auth.is_empty());
+    let state = WorkspaceHostState::load_or_default(&workspace_auth_config_path(&dir));
+    assert_eq!(state.host_id.as_deref(), Some(DEFAULT_HOST_STATE_ID));
+    assert_eq!(state.auth.users.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn workspace_auth_bundle_prefers_host_state_over_workspace_json() {
+    let dir = std::env::temp_dir().join(format!(
+        "mei-auth-bundle-state-preferred-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).expect("tmpdir");
+    let workspace = WorkspaceConfig {
+        auth: WorkspaceAuthConfig {
+            jwt_secret: Some("workspace-secret".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
+    let state = WorkspaceHostState {
+        schema_version: WORKSPACE_HOST_STATE_SCHEMA_VERSION,
+        host_id: Some(DEFAULT_HOST_STATE_ID.to_string()),
+        auth: WorkspaceAuthConfig {
+            jwt_secret: Some("state-secret".to_string()),
+            ..Default::default()
+        },
+    };
+    let raw = serde_json::to_string_pretty(&state).expect("serialize state");
+    std::fs::create_dir_all(workspace_auth_config_path(&dir).parent().expect("state parent"))
+        .expect("state dir");
+    std::fs::write(workspace_auth_config_path(&dir), raw).expect("write state");
+    let bundle = load_workspace_auth_bundle(&dir);
+    assert_eq!(bundle.loaded_from, "workspace_host_state");
+    assert_eq!(bundle.auth.jwt_secret.as_deref(), Some("state-secret"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn workspace_auth_path_uses_deploy_host_when_present() {
+    let dir = std::env::temp_dir().join(format!(
+        "mei-auth-host-id-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).expect("tmpdir");
+    let workspace = WorkspaceConfig {
+        workspace: WorkspaceProfile {
+            deploy_host: Some("zw-spbjw".to_string()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    write_workspace_config(&workspace_config_path(&dir), &workspace).expect("write workspace");
+    assert_eq!(workspace_auth_host_id(&dir), "zw-spbjw");
+    assert!(
+        workspace_auth_config_path(&dir)
+            .ends_with(".mei/local/hosts/zw-spbjw.state.json")
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

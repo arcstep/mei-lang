@@ -48,10 +48,10 @@ cargo run -p mei-lang-server --bin mei-host-web -- serve --auth
 cargo run -p mei-lang-server --bin mei-host-web -- serve --host-surface access-only
 ```
 
-启用 `--auth` 前，先在工作区根目录初始化 auth 基线（写入 `{source_root}/.mei-workspace.json`）：
+启用 `--auth` 前，先初始化 workspace-local host-state（写入 `{source_root}/.mei/local/hosts/*.state.json`）：
 
 ```bash
-# 生成 JWT / RSA 密钥（写入 .mei-workspace.json）
+# 生成 JWT / RSA 密钥（写入 .mei/local/hosts/*.state.json）
 cargo run -p mei-lang-server --bin mei-host-web -- host auth ensure-keys --source-root ../workspaces/ws-dev --json
 
 # 方案 A1：一次性初始化 super/admin/guest（各账号随机临时密码，只打印一次）

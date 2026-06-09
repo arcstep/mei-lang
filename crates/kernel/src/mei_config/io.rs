@@ -85,7 +85,7 @@ pub fn write_workspace_config(path: &Path, config: &WorkspaceConfig) -> Result<(
         .with_context(|| format!("failed to write workspace config {}", path.display()))
 }
 
-fn write_string_atomically(path: &Path, raw: &str) -> Result<()> {
+pub(crate) fn write_string_atomically(path: &Path, raw: &str) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("path {} has no parent directory", path.display()))?;

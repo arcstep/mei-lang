@@ -63,7 +63,7 @@ pub(super) fn login_page_html(
     let setup_notice = if !auth_ready {
         r#"<p class="mei-host-shell__setup">当前宿主未启用登录要求（调试模式）。</p>"#
     } else if !auth_configured {
-        r#"<p class="mei-host-shell__setup">认证尚未配置用户。请在工作区根目录 <code>.mei-workspace.json</code> 的 <code>auth.users[]</code> 中写入 <code>passwordHash</code>（禁止明文密码），并执行 <code>mei host auth ensure-keys</code> + <code>mei host auth bootstrap-users</code>（或 <code>add-user --password-stdin</code>）。</p>"#
+        r#"<p class="mei-host-shell__setup">认证尚未配置用户。请执行 <code>mei host auth ensure-keys</code> + <code>mei host auth bootstrap-users</code>（或 <code>add-user --password-stdin</code>）。宿主认证状态默认写入 <code>.mei/local/hosts/*.state.json</code>，禁止在 <code>.mei-workspace.json</code> 中保留密钥或密码哈希。</p>"#
     } else {
         ""
     };

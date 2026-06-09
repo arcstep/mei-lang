@@ -257,7 +257,7 @@ pub(crate) fn format_auth_not_ready_message(
 
     let mut lines = vec![
         "已启用 --auth，但工作区认证尚未就绪，无法启动。".to_string(),
-        format!("配置文件：{config}"),
+        format!("认证状态文件：{config}"),
         String::new(),
     ];
 
@@ -282,10 +282,9 @@ pub(crate) fn format_auth_not_ready_message(
             lines.push(format!(
                 "已写入 {configured_user_count} 个用户条目，但无一可用（可能 passwordHash 无效、为空，或账号被禁用）。"
             ));
-            lines.push(
-                "请检查 `.mei-workspace.json` 中各用户的 passwordHash（禁止明文密码）。"
-                    .to_string(),
-            );
+            lines.push(format!(
+                "请检查 `{config}` 中各用户的 passwordHash（禁止明文密码）。"
+            ));
         }
         lines.push(String::new());
         lines.push(

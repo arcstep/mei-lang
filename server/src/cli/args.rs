@@ -127,7 +127,7 @@ pub struct HostAuthArgs {
 
 #[derive(Subcommand, Clone)]
 pub enum HostAuthCommand {
-    /// 生成 JWT 密钥与登录 RSA 密钥对（写入工作区 `.mei-workspace.json`，不涉及用户密码）
+    /// 生成 JWT 密钥与登录 RSA 密钥对（写入 `.mei/local/hosts/*.state.json`，不涉及用户密码）
     EnsureKeys(HostAuthEnsureKeysArgs),
     /// 一次性初始化 super/admin/guest 用户并生成临时密码（不使用固定默认密码）
     BootstrapUsers(HostAuthBootstrapUsersArgs),
@@ -491,6 +491,8 @@ pub struct EditorRuntimeDescribeArgs {
 
 #[derive(Args, Clone)]
 pub struct EditorRuntimeDoctorArgs {
+    #[arg(long)]
+    pub source_root: Option<PathBuf>,
     #[arg(long)]
     pub json: bool,
 }

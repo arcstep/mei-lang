@@ -11,6 +11,10 @@ pub const MEI_WORKSPACE_CONFIG_FILENAME: &str = ".mei-workspace.json";
 pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
 pub const AUTH_JOURNAL_REL_PATH: &str = ".mei/auth/auth-journal.json";
 pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
+pub const WORKSPACE_LOCAL_DIR_REL: &str = ".mei/local";
+pub const WORKSPACE_HOSTS_DIR_REL: &str = ".mei/local/hosts";
+pub const DEFAULT_HOST_STATE_ID: &str = "default";
+pub const WORKSPACE_HOST_STATE_SCHEMA_VERSION: u32 = 1;
 /// 可 Git 跟踪的物化组件库（与运行时 `.mei/` 分离）。
 pub const DEFAULT_STOCK_COMPONENTS_REL: &str = ".stock/components";
 /// 可 Git 跟踪的物化模板库。
@@ -94,7 +98,7 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub compliance: WorkspaceComplianceConfig,
     /// 工作区级宿主认证配置（用户清单、JWT、登录加密密钥）。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
     pub auth: WorkspaceAuthConfig,
 }
 
@@ -110,6 +114,37 @@ pub struct WorkspaceAuthConfig {
     pub users: Vec<AuthUserConfig>,
     #[serde(default, rename = "keyPair")]
     pub key_pair: AuthKeyPairConfig,
+}
+
+impl WorkspaceAuthConfig {
+    pub fn is_empty(&self) -> bool {
+        self.users.is_empty()
+            && self
+                .jwt_secret
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            && self
+                .cookie_name
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            && self.jwt_ttl_seconds.is_none()
+            && self.key_pair.public_key_pem.trim().is_empty()
+            && self.key_pair.private_key_pem.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceHostState {
+    #[serde(default, rename = "schemaVersion")]
+    pub schema_version: u32,
+    #[serde(default, rename = "hostId")]
+    pub host_id: Option<String>,
+    #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
+    pub auth: WorkspaceAuthConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -165,7 +200,7 @@ pub struct MeiConfig {
     #[serde(default)]
     pub ops: OpsConfig,
     /// 兼容一次误将工作区 `auth` 写入 `.mei-config.json` 的迁移窗口；应用运行时不应依赖该字段。
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
     pub auth: WorkspaceAuthConfig,
 }
 
@@ -347,5 +382,18 @@ impl WorkspaceConfig {
             .map(|d| d.trim().trim_matches('/').replace('\\', "/"))
             .filter(|d| !d.is_empty() && !d.contains('/'))
             .collect()
+    }
+}
+
+impl WorkspaceHostState {
+    pub fn load_from_path(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path)
+            .with_context(|| format!("failed to read workspace host state {}", path.display()))?;
+        serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse workspace host state {}", path.display()))
+    }
+
+    pub fn load_or_default(path: &Path) -> Self {
+        Self::load_from_path(path).unwrap_or_default()
     }
 }
