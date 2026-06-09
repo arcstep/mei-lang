@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::{atomic::AtomicBool, Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
@@ -8,6 +8,7 @@ use std::{
 
 use crate::agent_runtime::{bridge::BridgeHealthResponse, events::HostOpencodeEvent};
 use anyhow::{Context, Result};
+use mei_lang_kernel::{LEGACY_WORKSPACE_AGENT_DB_REL, WORKSPACE_AGENT_DB_REL};
 use rusqlite::Connection;
 use tokio::sync::broadcast;
 
@@ -136,9 +137,7 @@ impl NativeAgent {
         source_root: PathBuf,
         resource_tools: Arc<dyn ResourceToolExecutor>,
     ) -> Result<Self> {
-        let mei = source_root.join(".mei");
-        std::fs::create_dir_all(&mei).with_context(|| format!("create {}", mei.display()))?;
-        let db_path = mei.join("agent.sqlite");
+        let db_path = prepare_agent_db_path(&source_root)?;
         let conn = Connection::open(&db_path)
             .with_context(|| format!("open sqlite {}", db_path.display()))?;
         conn.execute_batch(SCHEMA).context("agent sqlite schema")?;
@@ -225,6 +224,39 @@ impl NativeAgent {
             history_reason,
         }
     }
+}
+
+fn prepare_agent_db_path(source_root: &Path) -> Result<PathBuf> {
+    let db_path = source_root.join(WORKSPACE_AGENT_DB_REL);
+    if db_path.is_file() {
+        return Ok(db_path);
+    }
+    let legacy = source_root.join(LEGACY_WORKSPACE_AGENT_DB_REL);
+    if legacy.is_file() {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("create {}", parent.display()))?;
+        }
+        match std::fs::rename(&legacy, &db_path) {
+            Ok(()) => {}
+            Err(rename_error) => {
+                std::fs::copy(&legacy, &db_path).with_context(|| {
+                    format!(
+                        "copy legacy agent db {} -> {} after rename error: {rename_error}",
+                        legacy.display(),
+                        db_path.display()
+                    )
+                })?;
+                std::fs::remove_file(&legacy)
+                    .with_context(|| format!("remove legacy agent db {}", legacy.display()))?;
+            }
+        }
+        return Ok(db_path);
+    }
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    Ok(db_path)
 }
 
 #[cfg(test)]

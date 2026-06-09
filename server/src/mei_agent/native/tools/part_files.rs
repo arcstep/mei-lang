@@ -17,7 +17,7 @@ use super::super::{now_ms, NativeAgent};
 impl NativeAgent {
     fn read_file_requires_user_confirmation(rel: &str) -> bool {
         let n = rel.replace('\\', "/");
-        n.contains(".mei/agent.sqlite")
+        n.contains(".mei/local/agent/agent.sqlite") || n.contains(".mei/agent.sqlite")
     }
 
     pub(crate) fn run_read_file_tool(

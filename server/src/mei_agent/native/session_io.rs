@@ -80,19 +80,22 @@ impl NativeAgent {
         )
         .context("insert session")?;
         drop(db);
-        let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
-        if let Ok(hash) = snap_git.track() {
-            if let Ok(db) = self.inner.db.lock() {
-                if let Err(e) =
-                    Self::persist_workspace_tree_hash(&db, &id, SESSION_BASELINE_ANCHOR, &hash)
-                {
-                    tracing::warn!(%e, "session baseline tree snapshot persist failed");
+        match WorkspaceSnapshotGit::new(self.inner.source_root.clone()).and_then(|snap_git| snap_git.track()) {
+            Ok(hash) => {
+                if let Ok(db) = self.inner.db.lock() {
+                    if let Err(e) =
+                        Self::persist_workspace_tree_hash(&db, &id, SESSION_BASELINE_ANCHOR, &hash)
+                    {
+                        tracing::warn!(%e, "session baseline tree snapshot persist failed");
+                    }
                 }
             }
-        } else {
-            tracing::warn!(
-                "session baseline tree track skipped (git unavailable or worktree not ready)"
-            );
+            Err(e) => {
+                tracing::warn!(
+                    %e,
+                    "session baseline tree track skipped (git unavailable or worktree not ready)"
+                );
+            }
         }
         Ok(BridgeSessionSummary {
             id,

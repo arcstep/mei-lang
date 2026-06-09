@@ -238,23 +238,22 @@ impl NativeAgent {
 
         let mut snap_val = snap_val;
         if let Some(ref tgt) = target_opt {
-            match snap_git.track() {
-                Ok(baseline) => match snap_git.restore_worktree(tgt) {
-                    Ok(()) => {
-                        if let Value::Object(ref mut o) = snap_val {
-                            o.insert("workspace_baseline_tree".to_string(), json!(baseline));
-                            o.insert("workspace_target_tree".to_string(), json!(tgt));
-                        }
+            match snap_git.and_then(|snap_git| {
+                let baseline = snap_git.track()?;
+                snap_git.restore_worktree(tgt)?;
+                Ok(baseline)
+            }) {
+                Ok(baseline) => {
+                    if let Value::Object(ref mut o) = snap_val {
+                        o.insert("workspace_baseline_tree".to_string(), json!(baseline));
+                        o.insert("workspace_target_tree".to_string(), json!(tgt));
                     }
-                    Err(e) => {
-                        tracing::warn!(
-                            %e,
-                            "revert: workspace restore failed; continuing message-only revert"
-                        );
-                    }
-                },
+                }
                 Err(e) => {
-                    tracing::warn!(%e, "revert: baseline track failed; skipping file restore");
+                    tracing::warn!(
+                        %e,
+                        "revert: workspace restore failed; continuing message-only revert"
+                    );
                 }
             }
         }
@@ -397,8 +396,8 @@ impl NativeAgent {
             order += 1;
         }
         if let Some(ref h) = workspace_baseline {
-            if let Err(e) =
-                WorkspaceSnapshotGit::new(self.inner.source_root.clone()).restore_worktree(h)
+            if let Err(e) = WorkspaceSnapshotGit::new(self.inner.source_root.clone())
+                .and_then(|snap_git| snap_git.restore_worktree(h))
             {
                 tracing::warn!(%e, "unrevert: workspace baseline restore failed");
             }

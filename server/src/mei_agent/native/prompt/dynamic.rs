@@ -166,19 +166,24 @@ impl NativeAgent {
                 {
                     tracing::warn!(%e, "session diff snapshot failed");
                 }
-                let snap_git = WorkspaceSnapshotGit::new(self.inner.source_root.clone());
-                if let Ok(hash) = snap_git.track() {
-                    if let Ok(db) = self.inner.db.lock() {
-                        if let Err(e) =
-                            Self::persist_workspace_tree_hash(&db, &sid, &assistant_msg_id, &hash)
-                        {
-                            tracing::warn!(%e, "workspace tree snapshot persist failed");
+                match WorkspaceSnapshotGit::new(self.inner.source_root.clone())
+                    .and_then(|snap_git| snap_git.track())
+                {
+                    Ok(hash) => {
+                        if let Ok(db) = self.inner.db.lock() {
+                            if let Err(e) = Self::persist_workspace_tree_hash(
+                                &db,
+                                &sid,
+                                &assistant_msg_id,
+                                &hash,
+                            ) {
+                                tracing::warn!(%e, "workspace tree snapshot persist failed");
+                            }
                         }
                     }
-                } else {
-                    tracing::warn!(
-                        "workspace tree track skipped after assistant (git unavailable)"
-                    );
+                    Err(e) => {
+                        tracing::warn!(%e, "workspace tree track skipped after assistant");
+                    }
                 }
             }
             Err(e) => {
