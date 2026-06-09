@@ -1,6 +1,10 @@
+use std::path::Path;
+
 use mei_lang_kernel::{host_runtime_capabilities_catalog, host_runtime_contract_descriptor};
 use serde::Serialize;
 use serde_json::{json, Value};
+
+use crate::platform_assets::platform_asset_catalog_descriptor_for_package_root;
 
 pub const CAPABILITY_CATALOG_SCHEMA_VERSION: &str = "mei-capability-catalog-v1";
 pub const MCP_SURFACE_SCHEMA_VERSION: &str = "mei-mcp-surface-v1";
@@ -97,6 +101,12 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
 }
 
 pub fn capability_catalog_descriptor() -> Value {
+    json!(capability_catalog_descriptor_for_package_root(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path()
+    ))
+}
+
+pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Value {
     json!({
         "schema_version": CAPABILITY_CATALOG_SCHEMA_VERSION,
         "toolchain_role": "canonical_truth",
@@ -111,11 +121,12 @@ pub fn capability_catalog_descriptor() -> Value {
             author_profile_descriptor(),
             access_profile_descriptor()
         ],
+        "platform_assets": platform_asset_catalog_descriptor_for_package_root(package_root),
         "skill_packages": [
             meilang_author_skill_package()
         ],
         "mcp_surfaces": [
-            mcp_surface_descriptor("editor").expect("editor surface"),
+            mcp_surface_descriptor("author").expect("author surface"),
             mcp_surface_descriptor("access").expect("access surface")
         ]
     })

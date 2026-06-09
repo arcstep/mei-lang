@@ -7,9 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use mei_lang_kernel::RuntimeIntent;
 use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
-    build_world_context_snapshot, clear_compile_cache_for_app, compile_app_with_cache,
-    compile_report, query_world_dataset, query_world_dataset_metrics, resolve_components_root,
-    runtime_sim_step, RESOURCE_QUERY_SCHEMA_VERSION,
+    build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
+    clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
+    query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
+    RESOURCE_QUERY_SCHEMA_VERSION,
 };
 
 fn package_root() -> PathBuf {
@@ -246,6 +247,30 @@ fn standalone_source_root_ds_smoke_query_dataset_works() {
     .expect("standalone dataset query");
     assert_eq!(payload["id"], "sales_data");
     assert!(payload["sample_rows"].is_array());
+}
+
+#[test]
+fn capability_catalog_includes_platform_assets_and_profiles() {
+    let root = package_root();
+    let descriptor = capability_catalog_descriptor_for_package_root(&root);
+    assert_eq!(descriptor["schema_version"], "mei-capability-catalog-v1");
+    assert!(descriptor["ai_profiles"].is_array());
+    assert_eq!(descriptor["ai_profiles"].as_array().unwrap().len(), 2);
+    assert!(descriptor["platform_assets"]["component_packs"].is_array());
+    assert!(
+        !descriptor["platform_assets"]["component_packs"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(descriptor["platform_assets"]["template_packs"].is_array());
+    assert!(
+        descriptor["platform_assets"]["template_packs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "cockpit")
+    );
 }
 
 #[test]

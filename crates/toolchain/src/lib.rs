@@ -6,6 +6,7 @@ mod compile_report;
 mod compile_service;
 mod export;
 mod observation;
+mod platform_assets;
 mod runtime_sim;
 mod semantic_summary;
 mod types;
@@ -21,8 +22,9 @@ pub use artifact_store::{
     ArtifactWriteContext, TOOLCHAIN_ARTIFACT_STORE_VERSION,
 };
 pub use capability_catalog::{
-    capability_catalog_descriptor, mcp_surface_descriptor, meilang_author_skill_package,
-    SkillPackageDescriptor, CAPABILITY_CATALOG_SCHEMA_VERSION, MCP_SURFACE_SCHEMA_VERSION,
+    capability_catalog_descriptor, capability_catalog_descriptor_for_package_root,
+    mcp_surface_descriptor, meilang_author_skill_package, SkillPackageDescriptor,
+    CAPABILITY_CATALOG_SCHEMA_VERSION, MCP_SURFACE_SCHEMA_VERSION,
 };
 pub use compile_report::{compile_report, CompileReport};
 pub use compile_service::{
@@ -37,6 +39,11 @@ pub use export::{
     HEADLESS_EXPORT_SCHEMA_VERSION,
 };
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
+pub use platform_assets::{
+    platform_asset_catalog_descriptor, platform_asset_catalog_descriptor_for_package_root,
+    ComponentExportDescriptor, ComponentPackDescriptor, PlatformAssetCatalogDescriptor,
+    TemplatePackDescriptor, PLATFORM_ASSET_SCHEMA_VERSION,
+};
 pub use runtime_sim::{runtime_sim_step, RuntimeSimStepResult};
 pub use types::{
     ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorkspaceAppSummary,
