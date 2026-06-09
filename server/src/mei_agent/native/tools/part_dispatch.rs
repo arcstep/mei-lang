@@ -303,7 +303,9 @@ impl NativeAgent {
             | "dataset_metric"
             | "resource_list"
             | "resource_get"
-            | "resource_runtime_peek" => self.inner.resource_tools.run_resource_tool(
+            | "resource_runtime_peek"
+            | "resource_runtime_trace_export"
+            | "resource_business_summary" => self.inner.resource_tools.run_resource_tool(
                 &self.inner.source_root,
                 app_id,
                 resource_scope,

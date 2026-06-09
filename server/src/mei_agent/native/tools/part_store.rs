@@ -33,8 +33,28 @@ impl NativeAgent {
                 (Some("read_file".into()), Some(p.to_string()))
             }
             "dataset_query" => {
-                let id = args.get("id").and_then(Value::as_str).unwrap_or("");
+                let id = args
+                    .get("dataset_id")
+                    .or_else(|| args.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 (Some(format!("dataset_query `{id}`")), Some(id.to_string()))
+            }
+            "dataset_metric" => {
+                let id = args
+                    .get("dataset_id")
+                    .or_else(|| args.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                (Some(format!("dataset_metric `{id}`")), Some(id.to_string()))
+            }
+            "resource_get" => {
+                let id = args
+                    .get("resource_id")
+                    .or_else(|| args.get("id"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                (Some(format!("resource_get `{id}`")), Some(id.to_string()))
             }
             "rewrite_current_mei" => {
                 let path = args

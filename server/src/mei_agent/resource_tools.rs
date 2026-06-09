@@ -5,6 +5,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use mei_lang_kernel::{FilterIntent, QueryState};
+use mei_lang_toolchain::access_host_bound_tool_descriptors;
 use serde_json::{json, Value};
 
 use super::llm;
@@ -117,19 +118,59 @@ pub(crate) fn tool_definitions_for_mode(mode: &str) -> Vec<Value> {
 /// 按「模式 + 资源可见性」生成 LLM 可见工具 schema：`local_only` 下 dataset 工具不暴露 scope 覆盖参数。
 pub(crate) fn tool_definitions_for_profile(mode: &str, vis: ResourceVisibility) -> Vec<Value> {
     let normalized = mode.trim().to_ascii_lowercase();
-    let allow_ds_scope_override = vis != ResourceVisibility::LocalOnly;
-    let mut defs = vec![
-        llm::read_file_tool_definition(),
-        dataset_query_tool_definition(allow_ds_scope_override),
-        dataset_metric_tool_definition(allow_ds_scope_override),
-        resource_list_tool_definition(allow_ds_scope_override),
-        resource_get_tool_definition(allow_ds_scope_override),
-        resource_runtime_peek_tool_definition(allow_ds_scope_override),
-    ];
+    let mut defs = vec![llm::read_file_tool_definition()];
+    defs.extend(access_tool_definitions_for_visibility(vis));
     if normalized == "ask" || normalized == "plan" {
         defs.push(propose_session_patch_tool_definition());
     }
     defs
+}
+
+fn access_tool_definitions_for_visibility(vis: ResourceVisibility) -> Vec<Value> {
+    access_host_bound_tool_descriptors()
+        .into_iter()
+        .filter_map(|tool| {
+            let name = tool.get("name").and_then(Value::as_str)?.to_string();
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let mut parameters = tool.get("input_schema").cloned().unwrap_or_else(|| {
+                json!({
+                    "type": "object",
+                    "properties": {}
+                })
+            });
+            if vis == ResourceVisibility::LocalOnly {
+                strip_scope_overrides(&mut parameters);
+            }
+            Some(json!({
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": description,
+                    "parameters": parameters,
+                }
+            }))
+        })
+        .collect()
+}
+
+fn strip_scope_overrides(parameters: &mut Value) {
+    let Some(props) = parameters
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    props.remove("scene_id");
+    props.remove("target_file");
+    if let Some(required) = parameters.get_mut("required").and_then(Value::as_array_mut) {
+        required.retain(|item| {
+            item.as_str() != Some("scene_id") && item.as_str() != Some("target_file")
+        });
+    }
 }
 
 fn propose_session_patch_tool_definition() -> Value {
@@ -178,202 +219,6 @@ fn propose_session_patch_tool_definition() -> Value {
     })
 }
 
-fn resource_list_tool_definition(allow_scope_override: bool) -> Value {
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "kind".to_string(),
-        json!({ "type": "string", "description": "Optional filter: entity | resource | cell" }),
-    );
-    props.insert(
-        "limit".to_string(),
-        json!({ "type": "integer", "description": "Optional max items (bounded by server)" }),
-    );
-    if allow_scope_override {
-        props.insert(
-            "scene_id".to_string(),
-            json!({ "type": "string", "description": "Override scene id (optional)" }),
-        );
-        props.insert(
-            "target_file".to_string(),
-            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
-        );
-    }
-    json!({
-        "type": "function",
-        "function": {
-            "name": "resource_list",
-            "description": "List world assets (entities/resources/cells) for the current app with bounded JSON output. Uses the same scope rules as dataset tools.",
-            "parameters": {
-                "type": "object",
-                "properties": props
-            }
-        }
-    })
-}
-
-fn resource_get_tool_definition(allow_scope_override: bool) -> Value {
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "id".to_string(),
-        json!({ "type": "string", "description": "World asset or entity id" }),
-    );
-    if allow_scope_override {
-        props.insert(
-            "scene_id".to_string(),
-            json!({ "type": "string", "description": "Override scene id (optional)" }),
-        );
-        props.insert(
-            "target_file".to_string(),
-            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
-        );
-    }
-    json!({
-        "type": "function",
-        "function": {
-            "name": "resource_get",
-            "description": "Fetch one world asset/entity by id with bounded JSON payload.",
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": ["id"]
-            }
-        }
-    })
-}
-
-fn resource_runtime_peek_tool_definition(allow_scope_override: bool) -> Value {
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "trace_limit".to_string(),
-        json!({ "type": "integer", "description": "Optional trace/event limit" }),
-    );
-    if allow_scope_override {
-        props.insert(
-            "scene_id".to_string(),
-            json!({ "type": "string", "description": "Override scene id (optional)" }),
-        );
-        props.insert(
-            "target_file".to_string(),
-            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
-        );
-    }
-    json!({
-        "type": "function",
-        "function": {
-            "name": "resource_runtime_peek",
-            "description": "Peek bounded world runtime state (sim traces, etc.) for the current scope.",
-            "parameters": {
-                "type": "object",
-                "properties": props
-            }
-        }
-    })
-}
-
-fn dataset_query_tool_definition(allow_scope_override: bool) -> Value {
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "id".to_string(),
-        json!({ "type": "string", "description": "Dataset resource id in world, e.g. typical_cases" }),
-    );
-    props.insert(
-        "search".to_string(),
-        json!({ "type": "string", "description": "Optional global text search" }),
-    );
-    props.insert(
-        "filters".to_string(),
-        json!({
-            "type": "object",
-            "description": "Optional field filter map, e.g. {\"涉及单位\":\"某单位\"}",
-            "additionalProperties": { "type": "string" }
-        }),
-    );
-    props.insert(
-        "columns".to_string(),
-        json!({
-            "type": "array",
-            "description": "Optional preferred columns. If omitted, returns first 10 columns by schema order.",
-            "items": { "type": "string" }
-        }),
-    );
-    props.insert(
-        "limit".to_string(),
-        json!({ "type": "integer", "description": "Optional row count (default 10, max 50)" }),
-    );
-    if allow_scope_override {
-        props.insert(
-            "scene_id".to_string(),
-            json!({ "type": "string", "description": "Override scene id (optional)" }),
-        );
-        props.insert(
-            "target_file".to_string(),
-            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
-        );
-    }
-    json!({
-        "type": "function",
-        "function": {
-            "name": "dataset_query",
-            "description": "Query one dataset resource by id via host Mei dataset engine (not raw xlsx reads). Returns bounded result: dataset schema preview + filters + metric ids + sample rows. Defaults keep output small.",
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": ["id"]
-            }
-        }
-    })
-}
-
-fn dataset_metric_tool_definition(allow_scope_override: bool) -> Value {
-    let mut props = serde_json::Map::new();
-    props.insert(
-        "id".to_string(),
-        json!({ "type": "string", "description": "Dataset resource id in world, e.g. issue_result_list" }),
-    );
-    props.insert(
-        "metric_ids".to_string(),
-        json!({
-            "type": "array",
-            "description": "Optional metric ids to evaluate. If omitted, returns all runtime metrics on the dataset.",
-            "items": { "type": "string" }
-        }),
-    );
-    props.insert(
-        "search".to_string(),
-        json!({ "type": "string", "description": "Optional global text search before metric evaluation" }),
-    );
-    props.insert(
-        "filters".to_string(),
-        json!({
-            "type": "object",
-            "description": "Optional field filter map applied before metric evaluation",
-            "additionalProperties": { "type": "string" }
-        }),
-    );
-    if allow_scope_override {
-        props.insert(
-            "scene_id".to_string(),
-            json!({ "type": "string", "description": "Override scene id (optional)" }),
-        );
-        props.insert(
-            "target_file".to_string(),
-            json!({ "type": "string", "description": "Override target .mei path (optional)" }),
-        );
-    }
-    json!({
-        "type": "function",
-        "function": {
-            "name": "dataset_metric",
-            "description": "Query runtime metric values for one dataset resource by id via host Mei dataset engine. Best for aggregated asks such as count/rate/trend/summary-card values.",
-            "parameters": {
-                "type": "object",
-                "properties": props,
-                "required": ["id"]
-            }
-        }
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::{tool_definitions_for_mode, tool_definitions_for_profile, ResourceVisibility};
@@ -399,6 +244,8 @@ mod tests {
             "resource_list",
             "resource_get",
             "resource_runtime_peek",
+            "resource_runtime_trace_export",
+            "resource_business_summary",
         ] {
             let dq = defs
                 .iter()
@@ -433,6 +280,8 @@ mod tests {
         assert!(names.contains(&"resource_list".to_string()));
         assert!(names.contains(&"resource_get".to_string()));
         assert!(names.contains(&"resource_runtime_peek".to_string()));
+        assert!(names.contains(&"resource_runtime_trace_export".to_string()));
+        assert!(names.contains(&"resource_business_summary".to_string()));
         assert!(names.contains(&"propose_session_patch".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
@@ -448,9 +297,20 @@ mod tests {
         assert!(names.contains(&"resource_list".to_string()));
         assert!(names.contains(&"resource_get".to_string()));
         assert!(names.contains(&"resource_runtime_peek".to_string()));
+        assert!(names.contains(&"resource_runtime_trace_export".to_string()));
+        assert!(names.contains(&"resource_business_summary".to_string()));
         assert!(!names.contains(&"propose_session_patch".to_string()));
         assert!(!names.contains(&"skill_list".to_string()));
         assert!(!names.contains(&"skill_read".to_string()));
         assert!(!names.contains(&"rewrite_current_mei".to_string()));
+    }
+
+    #[test]
+    fn access_tools_follow_catalog_host_bound_names() {
+        let names = tool_names("ask")
+            .into_iter()
+            .filter(|name| name != "read_file" && name != "propose_session_patch")
+            .collect::<Vec<_>>();
+        assert_eq!(names, mei_lang_toolchain::access_host_bound_tool_names());
     }
 }

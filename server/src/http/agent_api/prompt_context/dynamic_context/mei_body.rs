@@ -278,7 +278,7 @@ pub(super) fn build_dynamic_mei_context(
             concat!(
                 "[Ask mode — world-first]\n",
                 "The active target `.mei` source is not inlined here so the prompt stays focused on the injected world/runtime catalog.\n",
-                "Use `dataset_query` / `dataset_metric` for tabular data and metrics; when browser query_state is present, current prompt context already carries the default eval scope and a bounded metric preview.\n",
+                "Use `dataset_query(dataset_id)` / `dataset_metric(dataset_id)` for tabular data and metrics; use `resource_list`, `resource_get(resource_id)`, `resource_business_summary`, `resource_runtime_peek`, and `resource_runtime_trace_export` for world/runtime facts; when browser query_state is present, current prompt context already carries the default eval scope and a bounded metric preview.\n",
                 "Use `read_file` only when you need verbatim DSL from a workspace path that is allowed by the current resource visibility (typically under `<app_id>/...`).",
             )
             .to_string(),

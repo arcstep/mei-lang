@@ -4,11 +4,12 @@ use crate::mei_agent::resource_tools::{AgentResourceScope, ResourceVisibility};
 
 use super::paths::{norm_rel_for_read_compare, paths_match_workspace_rel};
 
-/// `resource_list` / `resource_get` / `resource_runtime_peek` 与 `/world` 对齐的前置校验。
+/// `resource_list` / `resource_get` / `resource_runtime_peek` / `resource_runtime_trace_export`
+/// 与 `/world` 对齐的前置校验。
 pub(crate) fn resource_world_tools_precheck(scope: &AgentResourceScope) -> Result<(), String> {
     match scope.resource_visibility {
         ResourceVisibility::LocalOnly => Err(
-            "scope_denied: resource_list/resource_get/resource_runtime_peek are blocked under resource_visibility=local_only (aligned with /world)"
+            "scope_denied: resource_list/resource_get/resource_runtime_peek/resource_runtime_trace_export are blocked under resource_visibility=local_only (aligned with /world)"
                 .to_string(),
         ),
         _ => {

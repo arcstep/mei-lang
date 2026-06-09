@@ -23,17 +23,37 @@ pub struct SceneResourceToolExecutor;
 
 impl SceneResourceToolExecutor {
     fn world_scope(base: &AgentResourceScope, args: &Value) -> WorldScope {
-        fn pick(args: &Value, key: &str, fallback: Option<&String>) -> Option<String> {
-            args.get(key)
-                .and_then(Value::as_str)
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .or_else(|| fallback.cloned())
+        fn pick(args: &Value, keys: &[&str], fallback: Option<&String>) -> Option<String> {
+            for key in keys {
+                if let Some(value) = args
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    return Some(value.to_string());
+                }
+            }
+            fallback.cloned()
         }
         WorldScope {
-            scene_id: pick(args, "scene_id", base.scene_id.as_ref()),
-            target_file: pick(args, "target_file", base.target_file.as_ref()),
+            scene_id: pick(args, &["scene_id", "scene"], base.scene_id.as_ref()),
+            target_file: pick(args, &["target_file"], base.target_file.as_ref()),
         }
+    }
+
+    fn first_non_empty_arg<'a>(args: &'a Value, keys: &[&str]) -> Option<&'a str> {
+        for key in keys {
+            if let Some(value) = args
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                return Some(value);
+            }
+        }
+        None
     }
 
     fn json_result<T: serde::Serialize>(result: anyhow::Result<T>) -> String {
@@ -135,13 +155,10 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
         );
         let output = match tool_name {
             "dataset_query" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
+                let dataset_id = Self::first_non_empty_arg(&args, &["dataset_id", "id"])
                     .unwrap_or("");
-                if id.is_empty() {
-                    return "error: dataset_query requires non-empty id".to_string();
+                if dataset_id.is_empty() {
+                    return "error: dataset_query requires non-empty dataset_id".to_string();
                 }
                 let search = args
                     .get("search")
@@ -168,7 +185,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     source_root,
                     app,
                     scope_ref,
-                    id,
+                    dataset_id,
                     search,
                     &filters,
                     columns_ref,
@@ -177,13 +194,10 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                 ))
             }
             "dataset_metric" => {
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
+                let dataset_id = Self::first_non_empty_arg(&args, &["dataset_id", "id"])
                     .unwrap_or("");
-                if id.is_empty() {
-                    return "error: dataset_metric requires non-empty id".to_string();
+                if dataset_id.is_empty() {
+                    return "error: dataset_metric requires non-empty dataset_id".to_string();
                 }
                 let search = args
                     .get("search")
@@ -216,7 +230,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     source_root,
                     app,
                     scope_ref,
-                    id,
+                    dataset_id,
                     &metric_ids,
                     search,
                     &filters,
@@ -258,17 +272,14 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     .world_injection_allowed_ids
                     .as_ref()
                     .expect("precheck ensures Some");
-                let id = args
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
+                let resource_id = Self::first_non_empty_arg(&args, &["resource_id", "id"])
                     .unwrap_or("");
-                if id.is_empty() {
-                    return "error: resource_get requires non-empty id".to_string();
+                if resource_id.is_empty() {
+                    return "error: resource_get requires non-empty resource_id".to_string();
                 }
-                if !allowed.contains(id) {
+                if !allowed.contains(resource_id) {
                     return format!(
-                        "error: scope_denied: resource_get id `{id}` is not in the current `{}` reachable inventory (aligned with /world asset)",
+                        "error: scope_denied: resource_get resource_id `{resource_id}` is not in the current `{}` reachable inventory (aligned with /world asset)",
                         scope.resource_visibility.as_slug()
                     );
                 }
@@ -276,7 +287,7 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     source_root,
                     app,
                     scope_ref,
-                    id,
+                    resource_id,
                 ))
             }
             "resource_runtime_peek" => {
@@ -292,6 +303,29 @@ impl ResourceToolExecutor for SceneResourceToolExecutor {
                     app,
                     scope_ref,
                     trace_limit,
+                ))
+            }
+            "resource_runtime_trace_export" => {
+                if let Err(e) = resource_world_tools_precheck(scope) {
+                    return format!("error: {e}");
+                }
+                let trace_limit = args
+                    .get("trace_limit")
+                    .and_then(Value::as_u64)
+                    .map(|u| u as usize);
+                Self::json_result(toolchain::export_runtime_trace(
+                    source_root,
+                    app,
+                    &ws,
+                    trace_limit,
+                    toolchain::HeadlessExportOptions::default(),
+                ))
+            }
+            "resource_business_summary" => {
+                Self::json_result(toolchain::build_world_business_summary(
+                    source_root,
+                    app,
+                    scope_ref,
                 ))
             }
             other => format!("error: unknown resource tool `{other}`"),
@@ -384,7 +418,7 @@ mod resource_tool_bridge_tests {
             Some("examples/core/01-single-file-doc"),
             &bundle.resource_scope,
             "resource_get",
-            r#"{"id":"__definitely_not_in_inventory__"}"#,
+            r#"{"resource_id":"__definitely_not_in_inventory__"}"#,
         );
         assert!(
             out.contains("scope_denied"),
@@ -496,6 +530,80 @@ mod resource_tool_bridge_tests {
         assert!(
             out.starts_with('{'),
             "expected JSON runtime peek, got {}",
+            &out[..out.len().min(160)]
+        );
+    }
+
+    #[test]
+    fn resource_runtime_trace_export_ok_with_valid_snapshot_scope() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("allow_direct_refs".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_runtime_trace_export",
+            "{}",
+        );
+        assert!(
+            out.starts_with('{'),
+            "expected JSON runtime trace export, got {}",
+            &out[..out.len().min(160)]
+        );
+    }
+
+    #[test]
+    fn resource_business_summary_ok_with_bound_scope() {
+        let state = test_support::test_app_state().expect("state");
+        let mut request = BridgePromptRequest {
+            text: String::new(),
+            app_id: Some("examples/core/01-single-file-doc".into()),
+            scene_id: None,
+            target_file: Some("main.mei".into()),
+            system: None,
+            mode: Some("ask".into()),
+            route_mode: Some("manage".into()),
+            agent: None,
+            model: None,
+            resource_visibility: Some("local_only".into()),
+            browser_context: None,
+            host_protocol: None,
+            host_contract_schema: None,
+        };
+        let policy = AgentModePolicy::from_request(&request);
+        let _ = policy.validate();
+        policy.apply_to_request(&mut request);
+        let bundle = AgentScopeBundle::resolve(&state, &request).expect("bundle");
+        let exec = SceneResourceToolExecutor::default();
+        let out = exec.run_resource_tool(
+            state.source_root.as_ref(),
+            Some("examples/core/01-single-file-doc"),
+            &bundle.resource_scope,
+            "resource_business_summary",
+            "{}",
+        );
+        assert!(
+            out.starts_with('{'),
+            "expected JSON business summary, got {}",
             &out[..out.len().min(160)]
         );
     }

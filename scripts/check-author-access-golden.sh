@@ -35,6 +35,12 @@ cargo test -p mei-lang-server system_prompt_has_tool_policy_and_no_inlined_compa
 echo "==> scope preview: context signature still tracks access coordinates"
 cargo test -p mei-lang-server context_signature_tracks_scope_fields
 
+echo "==> access runtime: host tool defs follow catalog"
+cargo test -p mei-lang-server access_tools_follow_catalog_host_bound_names
+
+echo "==> access runtime: trace export stays wired"
+cargo test -p mei-lang-server resource_runtime_trace_export_ok_with_valid_snapshot_scope
+
 echo "==> CLI smoke: catalog export"
 CATALOG_JSON="$(cargo run -p mei-lang-server --bin mei-toolchain -- mcp catalog --json)"
 CATALOG_JSON="${CATALOG_JSON}" python3 - <<'PY'
