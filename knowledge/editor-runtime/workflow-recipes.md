@@ -3,16 +3,29 @@
 ## Bootstrap a standalone workspace
 
 ```bash
-mei-toolchain workspace init --standalone --source-root /path/to/workspace --materialize --tool cursor --json
-mei-toolchain workspace runtime install --source-root /path/to/workspace --json
-mei-toolchain editor-runtime scaffold --target-root /path/to/workspace --tool cursor --json
+mei-toolchain workspace bootstrap --source-root /path/to/workspace --app my-app --tool cursor --json
 ```
 
-Use all three steps when the workspace is brand new:
+Use the staged flow only when you intentionally want to separate the steps:
 
 - `workspace init` creates the workspace skeleton
-- `workspace runtime install` writes `.mei/` runtime assets
+- `workspace runtime install` writes `.mei/` runtime assets, local binaries, and `./start.sh`
 - `editor-runtime scaffold` writes tool glue only
+
+```bash
+mei-toolchain workspace init --standalone --source-root /path/to/workspace --materialize --json
+mei-toolchain workspace runtime install --source-root /path/to/workspace --json
+mei-toolchain editor-runtime scaffold --target-root /path/to/workspace --tool cursor --json
+mei-toolchain workspace create-app my-app --source-root /path/to/workspace --json
+```
+
+## Start the host
+
+```bash
+./start.sh
+```
+
+This should launch the workspace-local `.mei/runtime/bin/mei-host-web`.
 
 ## Create a new app
 

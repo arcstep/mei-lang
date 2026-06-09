@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
@@ -8,7 +9,7 @@ use serde_json::Value;
 use walkdir::WalkDir;
 
 use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
-use crate::knowledge_bundle_descriptor_for_package_root;
+use crate::{knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root};
 
 pub const EDITOR_RUNTIME_SCHEMA_VERSION: &str = "mei-editor-runtime-v1";
 pub const WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION: &str = "mei-runtime-version-v1";
@@ -138,6 +139,7 @@ pub struct WorkspaceRuntimeVersionDescriptor {
 pub struct RuntimeManifestArtifactDescriptor {
     pub mei_toolchain: String,
     pub mei_lsp: String,
+    pub mei_host_web: String,
     pub author_mcp_adapter: String,
     pub access_mcp_adapter: String,
 }
@@ -217,6 +219,11 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
             id: "mei_lsp_bin".to_string(),
             rel_path: "bin/mei-lsp".to_string(),
             purpose: "Language server entrypoint for IDE integrations.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
+            id: "mei_host_web_bin".to_string(),
+            rel_path: "bin/mei-host-web".to_string(),
+            purpose: "Workspace-local browser host entrypoint.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "author_mcp_adapter".to_string(),
@@ -382,6 +389,138 @@ fn now_timestamp_utc() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+fn binary_file_name(base: &str) -> String {
+    if cfg!(windows) {
+        format!("{base}.exe")
+    } else {
+        base.to_string()
+    }
+}
+
+fn current_exe_candidates(base: &str) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(current_exe) = std::env::current_exe() {
+        let file_name = binary_file_name(base);
+        let current_name = current_exe
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or_default();
+        if current_name == file_name {
+            candidates.push(current_exe.clone());
+        }
+        if let Some(bin_dir) = current_exe.parent() {
+            candidates.push(bin_dir.join(&file_name));
+            if bin_dir.file_name().and_then(|value| value.to_str()) == Some("deps") {
+                if let Some(parent) = bin_dir.parent() {
+                    candidates.push(parent.join(&file_name));
+                }
+            }
+        }
+    }
+    candidates
+}
+
+fn package_root_binary_candidates(package_root: &Path, base: &str) -> Vec<PathBuf> {
+    let file_name = binary_file_name(base);
+    let mut candidates = Vec::new();
+    if package_root.ends_with(Path::new("share/mei")) {
+        if let Some(prefix) = package_root.parent().and_then(|path| path.parent()) {
+            candidates.push(prefix.join("bin").join(&file_name));
+        }
+    }
+    candidates.push(package_root.join("target/debug").join(&file_name));
+    candidates.push(package_root.join("target/release").join(&file_name));
+    candidates
+}
+
+fn try_resolve_runtime_binary(package_root: &Path, env_key: &str, base: &str) -> Option<PathBuf> {
+    if let Ok(raw) = std::env::var(env_key) {
+        let candidate = PathBuf::from(raw);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    current_exe_candidates(base)
+        .into_iter()
+        .chain(package_root_binary_candidates(package_root, base))
+        .find(|candidate| candidate.is_file())
+}
+
+fn build_runtime_binary_set_for_package_root(
+    package_root: &Path,
+) -> Result<Vec<(&'static str, PathBuf, PathBuf)>> {
+    let mut binaries = vec![
+        (
+            "mei-toolchain",
+            PathBuf::new(),
+            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-toolchain")),
+        ),
+        (
+            "mei-lsp",
+            PathBuf::new(),
+            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-lsp")),
+        ),
+        (
+            "mei-host-web",
+            PathBuf::new(),
+            workspace_runtime_bin_dir(Path::new("")).join(binary_file_name("mei-host-web")),
+        ),
+    ];
+    let env_keys = [
+        ("MEI_TOOLCHAIN_BIN", "mei-toolchain"),
+        ("MEI_LSP_BIN", "mei-lsp"),
+        ("MEI_HOST_WEB_BIN", "mei-host-web"),
+    ];
+    let missing = env_keys
+        .iter()
+        .filter_map(|(env_key, base)| {
+            try_resolve_runtime_binary(package_root, env_key, base)
+                .map(|path| ((*base).to_string(), path))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    if missing.len() != env_keys.len() && package_root.join("Cargo.toml").is_file() {
+        let status = Command::new("cargo")
+            .arg("build")
+            .arg("-p")
+            .arg("mei-lang-server")
+            .arg("-p")
+            .arg("mei-lang-lsp")
+            .arg("--bin")
+            .arg("mei-toolchain")
+            .arg("--bin")
+            .arg("mei-host-web")
+            .arg("--bin")
+            .arg("mei-lsp")
+            .current_dir(package_root)
+            .status()
+            .with_context(|| format!("build runtime binaries under {}", package_root.display()))?;
+        if !status.success() {
+            anyhow::bail!(
+                "failed to build workspace-local runtime binaries from {}",
+                package_root.display()
+            );
+        }
+    }
+    for (name, source, destination) in &mut binaries {
+        let env_key = match *name {
+            "mei-toolchain" => "MEI_TOOLCHAIN_BIN",
+            "mei-lsp" => "MEI_LSP_BIN",
+            "mei-host-web" => "MEI_HOST_WEB_BIN",
+            _ => unreachable!(),
+        };
+        *source = try_resolve_runtime_binary(package_root, env_key, name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "cannot locate required runtime binary `{}`; checked current executable siblings, {} and {}",
+                name,
+                package_root.join("target/debug").display(),
+                package_root.join("target/release").display()
+            )
+        })?;
+        *destination = workspace_runtime_bin_dir(Path::new("")).join(binary_file_name(name));
+    }
+    Ok(binaries)
+}
+
 pub fn workspace_runtime_version_descriptor() -> WorkspaceRuntimeVersionDescriptor {
     WorkspaceRuntimeVersionDescriptor {
         schema_version: WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION.to_string(),
@@ -412,6 +551,7 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
         artifacts: RuntimeManifestArtifactDescriptor {
             mei_toolchain: "bin/mei-toolchain".to_string(),
             mei_lsp: "bin/mei-lsp".to_string(),
+            mei_host_web: "bin/mei-host-web".to_string(),
             author_mcp_adapter: "bin/author-mcp-adapter".to_string(),
             access_mcp_adapter: "bin/access-mcp-adapter".to_string(),
         },
@@ -426,7 +566,7 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
         provenance: RuntimeManifestProvenance {
             built_at: BUILD_TIMESTAMP_UTC.to_string(),
             built_from: "source-tree-bootstrap".to_string(),
-            package_root: package_root.display().to_string(),
+            package_root: package_root_hint(package_root),
         },
     }
 }
@@ -436,7 +576,7 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
         knowledge_bundle_descriptor_for_package_root(package_root, "author").expect("author bundle");
     EditorRuntimeDescriptor {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
-        package_root: package_root.display().to_string(),
+        package_root: package_root_hint(package_root),
         declared_layout: declared_layout(),
         current_source_layout: current_source_layout(),
         package_root_resolution: vec![
@@ -447,7 +587,8 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
         standalone_flow: vec![
             "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a standalone workspace skeleton.".to_string(),
             "Run `mei-toolchain workspace materialize --source-root <dir>` to materialize .stock assets.".to_string(),
-            "Run `mei-toolchain workspace runtime install --source-root <dir>` to install workspace-local .mei runtime assets.".to_string(),
+            "Run `mei-toolchain workspace runtime install --source-root <dir>` to install workspace-local .mei runtime assets and `./start.sh`.".to_string(),
+            "Run `./start.sh` from the workspace root to launch the MeiLang host.".to_string(),
             "Run `mei-toolchain editor-runtime scaffold --target-root <dir> --tool <tool>` to write tool glue files only.".to_string(),
             "Run `mei-toolchain knowledge --surface author --include-content --json` to export packaged authoring docs/examples.".to_string(),
             "Use `mei-lsp` for IDE semantics and `node scripts/mcp/mei-author-stdio-adapter.mjs` for agent-side tools.".to_string(),
@@ -559,6 +700,9 @@ pub fn doctor_editor_runtime_for_workspace_root(
     let access_profile_path = workspace_profiles_dir(workspace_root).join("access.md");
     let author_skill_entry = workspace_author_skill_dir(workspace_root).join("SKILL.md");
     let access_skill_entry = workspace_access_skill_dir(workspace_root).join("SKILL.md");
+    let toolchain_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-toolchain"));
+    let lsp_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-lsp"));
+    let host_web_bin = workspace_runtime_bin_dir(workspace_root).join(binary_file_name("mei-host-web"));
     let author_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
     let access_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("access-mcp-adapter");
     let expected_version = workspace_runtime_version_descriptor();
@@ -655,6 +799,36 @@ pub fn doctor_editor_runtime_for_workspace_root(
             },
         },
         EditorRuntimeCheck {
+            id: "workspace_mei_toolchain_bin".to_string(),
+            ok: toolchain_bin.is_file(),
+            path: toolchain_bin.display().to_string(),
+            message: if toolchain_bin.is_file() {
+                "workspace-local mei-toolchain binary present".to_string()
+            } else {
+                "missing workspace-local mei-toolchain binary".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_mei_lsp_bin".to_string(),
+            ok: lsp_bin.is_file(),
+            path: lsp_bin.display().to_string(),
+            message: if lsp_bin.is_file() {
+                "workspace-local mei-lsp binary present".to_string()
+            } else {
+                "missing workspace-local mei-lsp binary".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_mei_host_web_bin".to_string(),
+            ok: host_web_bin.is_file(),
+            path: host_web_bin.display().to_string(),
+            message: if host_web_bin.is_file() {
+                "workspace-local mei-host-web binary present".to_string()
+            } else {
+                "missing workspace-local mei-host-web binary".to_string()
+            },
+        },
+        EditorRuntimeCheck {
             id: "workspace_author_mcp_adapter".to_string(),
             ok: author_runtime_adapter.is_file(),
             path: author_runtime_adapter.display().to_string(),
@@ -698,6 +872,9 @@ pub fn doctor_editor_runtime_for_workspace_root(
                     && value["toolchain_version"] == expected_manifest.toolchain_version
                     && value["compatibility_line"] == expected_manifest.compatibility_line
                     && value["target_triple"] == expected_manifest.target_triple
+                    && value["artifacts"]["mei_toolchain"] == expected_manifest.artifacts.mei_toolchain
+                    && value["artifacts"]["mei_lsp"] == expected_manifest.artifacts.mei_lsp
+                    && value["artifacts"]["mei_host_web"] == expected_manifest.artifacts.mei_host_web
             },
         ),
     ];
@@ -722,14 +899,17 @@ pub fn workspace_runtime_status_for_workspace_root(
     let author_skill_dir = workspace_author_skill_dir(workspace_root);
     let access_skill_dir = workspace_access_skill_dir(workspace_root);
     let author_profile_path = workspace_profiles_dir(workspace_root).join("author.md");
+    let runtime_bin_dir = workspace_runtime_bin_dir(workspace_root);
     let installed = version_path.is_file()
         && manifest_path.is_file()
         && catalog_path.is_file()
         && author_skill_dir.join("SKILL.md").is_file()
         && access_skill_dir.join("SKILL.md").is_file()
-        && workspace_runtime_bin_dir(workspace_root)
-            .join("access-mcp-adapter")
-            .is_file();
+        && runtime_bin_dir.join(binary_file_name("mei-toolchain")).is_file()
+        && runtime_bin_dir.join(binary_file_name("mei-lsp")).is_file()
+        && runtime_bin_dir.join(binary_file_name("mei-host-web")).is_file()
+        && runtime_bin_dir.join("author-mcp-adapter").is_file()
+        && runtime_bin_dir.join("access-mcp-adapter").is_file();
     let fallback_to_source_tree = false;
     WorkspaceRuntimeStatusReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
@@ -766,8 +946,131 @@ fn write_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeSc
     })
 }
 
+fn write_executable_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeScaffoldFile> {
+    let report = write_file(path, content, force)?;
+    set_executable_permissions(path)?;
+    Ok(report)
+}
+
+fn set_executable_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    if path.is_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(path)
+            .with_context(|| format!("read permissions for {}", path.display()))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(path, perms)
+            .with_context(|| format!("set executable permissions for {}", path.display()))?;
+    }
+    Ok(())
+}
+
+fn copy_runtime_binary(
+    target_root: &Path,
+    source_path: &Path,
+    destination_path: &Path,
+    force: bool,
+) -> Result<EditorRuntimeScaffoldFile> {
+    if let Some(parent) = destination_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create runtime binary dir {}", parent.display()))?;
+    }
+    let existed = destination_path.exists();
+    if existed && !force {
+        return Ok(normalize_scaffold_files(
+            target_root,
+            vec![EditorRuntimeScaffoldFile {
+                rel_path: destination_path.display().to_string(),
+                overwritten: false,
+            }],
+        )
+        .into_iter()
+        .next()
+        .expect("normalized runtime binary"));
+    }
+    fs::copy(source_path, destination_path).with_context(|| {
+        format!(
+            "copy runtime binary {} -> {}",
+            source_path.display(),
+            destination_path.display()
+        )
+    })?;
+    set_executable_permissions(destination_path)?;
+    Ok(normalize_scaffold_files(
+        target_root,
+        vec![EditorRuntimeScaffoldFile {
+            rel_path: destination_path.display().to_string(),
+            overwritten: existed,
+        }],
+    )
+    .into_iter()
+    .next()
+    .expect("normalized runtime binary"))
+}
+
+fn render_workspace_start_script() -> &'static str {
+    r#"#!/usr/bin/env bash
+# MeiLang workspace host launcher (generated by `mei-toolchain workspace runtime install`).
+set -euo pipefail
+
+WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HOST="${MEI_HOST:-127.0.0.1}"
+PORT="${MEI_PORT:-9527}"
+URL="http://${HOST}:${PORT}"
+LOCAL_HOST_BIN="${WORKSPACE_ROOT}/.mei/runtime/bin/mei-host-web"
+HOST_BIN="${MEI_HOST_WEB_BIN:-${LOCAL_HOST_BIN}}"
+
+echo "MeiLang workspace: ${WORKSPACE_ROOT}"
+echo "Open: ${URL}"
+echo ""
+
+if [[ -x "${HOST_BIN}" ]]; then
+  exec "${HOST_BIN}" serve \
+    --source-root "${WORKSPACE_ROOT}" \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    "$@"
+fi
+
+if command -v mei-host-web >/dev/null 2>&1; then
+  echo "warning: using PATH mei-host-web instead of workspace-local runtime" >&2
+  exec mei-host-web serve \
+    --source-root "${WORKSPACE_ROOT}" \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    "$@"
+fi
+
+cat >&2 <<EOF
+error: cannot find mei-host-web.
+
+Try one of:
+  1. run \`mei-toolchain workspace runtime install --source-root "${WORKSPACE_ROOT}" --force\`
+  2. export MEI_HOST_WEB_BIN=/path/to/mei-host-web
+  3. install mei-host-web on PATH as a temporary recovery path
+
+EOF
+exit 1
+"#
+}
+
 fn render_common_runtime_json(package_root: &Path) -> Result<String> {
-    let descriptor = editor_runtime_descriptor_for_package_root(package_root);
+    let mut descriptor = editor_runtime_descriptor_for_package_root(package_root);
+    descriptor.package_root = "workspace-local-runtime".to_string();
+    descriptor.package_root_resolution = vec![
+        "Prefer the workspace-local runtime under `.mei/runtime/bin/`.".to_string(),
+        "Use explicit `MEI_TOOLCHAIN_BIN` / `MEI_HOST_WEB_BIN` only as a recovery override."
+            .to_string(),
+        "A qualified workspace must not require a sibling `mei-lang` checkout.".to_string(),
+    ];
+    descriptor.standalone_flow = vec![
+        "Run `mei-toolchain workspace bootstrap --source-root <dir> [--app <app>] [--tool <tool>] --json` for the one-command path.".to_string(),
+        "If you need the staged flow, run `workspace init`, `workspace runtime install`, then `editor-runtime scaffold`.".to_string(),
+        "Use `./start.sh` to launch the workspace-local `mei-host-web` binary.".to_string(),
+        "Use `.mei/runtime/bin/mei-toolchain` and `.mei/runtime/bin/mei-lsp` as the canonical local binaries.".to_string(),
+        "Run `mei-toolchain knowledge --surface author --include-content --json` to export packaged authoring docs/examples.".to_string(),
+    ];
     serde_json::to_string_pretty(&descriptor).map_err(Into::into)
 }
 
@@ -856,6 +1159,14 @@ fn write_runtime_projection_files(
     force: bool,
 ) -> Result<Vec<EditorRuntimeScaffoldFile>> {
     let mut files = Vec::new();
+    for (_, source_path, destination_path) in build_runtime_binary_set_for_package_root(package_root)? {
+        files.push(copy_runtime_binary(
+            target_root,
+            &source_path,
+            &target_root.join(destination_path),
+            force,
+        )?);
+    }
     let catalog_dir = workspace_catalog_dir(target_root);
     files.push(write_file(
         &catalog_dir.join("capability-catalog.json"),
@@ -969,6 +1280,11 @@ fn write_common_runtime_files(
         force,
     )?);
     files.extend(write_runtime_projection_files(target_root, package_root, force)?);
+    files.push(write_executable_file(
+        &target_root.join("start.sh"),
+        render_workspace_start_script(),
+        force,
+    )?);
     Ok(files)
 }
 
@@ -990,14 +1306,16 @@ pub fn install_editor_runtime_support_files(
 fn render_mcp_json(target_root: &Path) -> Result<String> {
     let author_adapter = workspace_runtime_bin_dir(target_root).join("author-mcp-adapter");
     let access_adapter = workspace_runtime_bin_dir(target_root).join("access-mcp-adapter");
+    let toolchain_bin = workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-toolchain"));
+    let host_web_bin = workspace_runtime_bin_dir(target_root).join(binary_file_name("mei-host-web"));
     serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
             "meilang-author": {
                 "command": "node",
                 "args": [author_adapter.display().to_string()],
                 "env": {
-                    "MEI_TOOLCHAIN_BIN": "mei-toolchain",
-                    "MEI_HOST_WEB_BIN": "mei-host-web",
+                    "MEI_TOOLCHAIN_BIN": toolchain_bin.display().to_string(),
+                    "MEI_HOST_WEB_BIN": host_web_bin.display().to_string(),
                     "MEI_SOURCE_ROOT": target_root.display().to_string()
                 }
             },
@@ -1005,8 +1323,8 @@ fn render_mcp_json(target_root: &Path) -> Result<String> {
                 "command": "node",
                 "args": [access_adapter.display().to_string()],
                 "env": {
-                    "MEI_TOOLCHAIN_BIN": "mei-toolchain",
-                    "MEI_HOST_WEB_BIN": "mei-host-web",
+                    "MEI_TOOLCHAIN_BIN": toolchain_bin.display().to_string(),
+                    "MEI_HOST_WEB_BIN": host_web_bin.display().to_string(),
                     "MEI_SOURCE_ROOT": target_root.display().to_string()
                 }
             }
@@ -1023,6 +1341,8 @@ alwaysApply: false
 ---
 
 - Treat `workspace runtime status/install/update`, `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical workspace-local environment entrypoints.
+- Prefer `workspace bootstrap` when creating a brand new workspace; it is the shortest path to a qualified self-contained workspace.
+- Prefer the workspace-local `.mei/runtime/bin/mei-toolchain`, `.mei/runtime/bin/mei-lsp`, and `./start.sh` over sibling source checkouts or global PATH assumptions.
 - Prefer `mei-toolchain knowledge --surface author --include-content --json --source-root <workspace>` when you need bundled authoring docs, profile guidance, or examples.
 - Use `mei-toolchain knowledge --surface access --include-content --json --source-root <workspace>` for world-first access guidance and query-state-aware runtime questions.
 - Use `mei-toolchain check --app <app> --source-root <workspace>` for compile diagnostics.
@@ -1076,6 +1396,7 @@ fn render_tool_readme(tool: &str) -> String {
         "# MeiLang {tool} integration\n\n\
 Use the local `.mei/editor-runtime.json` as the runtime descriptor.\n\n\
 Recommended commands:\n\n\
+- `mei-toolchain workspace bootstrap --source-root <workspace> [--app <app>] --tool <tool> --json`\n\
 - `mei-toolchain workspace runtime status --source-root <workspace> --json`\n\
 - `mei-toolchain editor-runtime doctor --source-root <workspace> --json`\n\
 - `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`\n\

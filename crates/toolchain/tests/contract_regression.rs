@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -648,11 +649,42 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(root.join(".mei/catalog/access-surface.json").is_file());
     assert!(root.join(".mei/profiles/author.md").is_file());
     assert!(root.join(".mei/profiles/access.md").is_file());
+    assert_eq!(manifest["artifacts"]["mei_toolchain"], "bin/mei-toolchain");
+    assert_eq!(manifest["artifacts"]["mei_lsp"], "bin/mei-lsp");
+    assert_eq!(manifest["artifacts"]["mei_host_web"], "bin/mei-host-web");
+    assert!(
+        manifest["provenance"]["package_root"]
+            .as_str()
+            .is_some_and(|value| !value.contains('/')),
+        "manifest provenance must avoid machine-local absolute paths"
+    );
     assert!(root.join(".mei/skills/meilang-author/SKILL.md").is_file());
     assert!(root.join(".mei/skills/meilang-access/SKILL.md").is_file());
+    assert!(root.join(".mei/runtime/bin/mei-toolchain").is_file());
+    assert!(root.join(".mei/runtime/bin/mei-lsp").is_file());
+    assert!(root.join(".mei/runtime/bin/mei-host-web").is_file());
     assert!(root.join(".mei/runtime/bin/author-mcp-adapter").is_file());
     assert!(root.join(".mei/runtime/bin/access-mcp-adapter").is_file());
+    assert!(root.join("start.sh").is_file());
     assert!(!root.join(".mei/catalog/editor-surface.json").exists());
+    for rel in [
+        ".mei/editor-runtime.json",
+        ".mei/knowledge/author-runtime.json",
+        ".mei/runtime/MANIFEST.json",
+        ".mei/catalog/capability-catalog.json",
+        ".mei/catalog/author-surface.json",
+        ".mei/catalog/access-surface.json",
+    ] {
+        let content = fs::read_to_string(root.join(rel)).expect("read installed descriptor");
+        assert!(
+            !content.contains(&root.display().to_string()),
+            "installed runtime descriptor {rel} must not embed workspace-local absolute paths"
+        );
+        assert!(
+            !content.contains(&package_root().display().to_string()),
+            "installed runtime descriptor {rel} must not embed source-tree absolute paths"
+        );
+    }
     let _ = fs::remove_dir_all(root);
 }
 
@@ -774,7 +806,79 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
         "workspace access bundle should expose the installed access skill entry"
     );
     let catalog = capability_catalog_descriptor_for_workspace_root(&root, &package_root());
-    assert_eq!(catalog["workspace_root"], root.display().to_string());
+    assert_eq!(catalog["workspace_root"], ".");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workspace_runtime_status_fails_when_core_binary_is_missing() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_editor_runtime_missing_bin_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create missing-bin root");
+    install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
+    fs::remove_file(root.join(".mei/runtime/bin/mei-host-web")).expect("remove host binary");
+    let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
+    assert!(
+        !status.installed,
+        "runtime status must fail when a required workspace-local binary is missing"
+    );
+    let doctor = doctor_editor_runtime_for_workspace_root(&package_root(), &root);
+    assert!(
+        !doctor.ok,
+        "doctor must fail when a required workspace-local binary is missing"
+    );
+    assert!(
+        doctor
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_mei_host_web_bin" && !item.ok)
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workspace_bootstrap_cli_creates_self_contained_workspace() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_workspace_bootstrap_cli_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    let status = Command::new("cargo")
+        .arg("run")
+        .arg("-q")
+        .arg("-p")
+        .arg("mei-lang-server")
+        .arg("--bin")
+        .arg("mei-toolchain")
+        .arg("--")
+        .arg("workspace")
+        .arg("bootstrap")
+        .arg("--source-root")
+        .arg(&root)
+        .arg("--app")
+        .arg("demo")
+        .arg("--tool")
+        .arg("cursor")
+        .current_dir(package_root())
+        .status()
+        .expect("run bootstrap command");
+    assert!(status.success(), "workspace bootstrap CLI should succeed");
+    assert!(root.join(".mei/runtime/bin/mei-toolchain").is_file());
+    assert!(root.join(".mei/runtime/bin/mei-lsp").is_file());
+    assert!(root.join(".mei/runtime/bin/mei-host-web").is_file());
+    assert!(root.join("demo/main.mei").is_file());
+    assert!(root.join("start.sh").is_file());
+    let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
+    assert!(status.installed, "bootstrapped workspace should report installed");
     let _ = fs::remove_dir_all(root);
 }
 

@@ -10,6 +10,49 @@ use super::super::util::{print_json_output, resolve_cli_source_root, resolve_pac
 pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
     match args.command {
+        WorkspaceCommand::Bootstrap(args) => {
+            let source_root = if args.source_root.is_absolute() {
+                args.source_root.clone()
+            } else {
+                std::env::current_dir()?.join(&args.source_root)
+            };
+            initialize_standalone_workspace(
+                source_root.as_path(),
+                args.label.as_deref(),
+                &package_root,
+                true,
+            )?;
+            let runtime_report = mei_lang_toolchain::install_editor_runtime_support_files(
+                &source_root,
+                &package_root,
+                args.force,
+            )?;
+            let tools = if args.tools.is_empty() {
+                vec!["cursor".to_string()]
+            } else {
+                args.tools.clone()
+            };
+            let scaffold = mei_lang_toolchain::scaffold_editor_runtime_tooling(
+                &source_root,
+                &package_root,
+                &tools,
+                args.force,
+            )?;
+            let app_root = bootstrap_optional_app(&source_root, args.app_id.as_deref())?;
+            let status =
+                mei_lang_toolchain::workspace_runtime_status_for_workspace_root(&package_root, &source_root);
+            let output = json!({
+                "schema_version": "mei-cli-v1",
+                "command": "workspace.bootstrap",
+                "source_root": source_root,
+                "materialized": true,
+                "runtime_install": runtime_report,
+                "scaffold": scaffold,
+                "app_root": app_root,
+                "status": status,
+            });
+            print_json_output(&output, args.json)
+        }
         WorkspaceCommand::Init(args) => {
             let source_root = if let Some(source_root) = args.source_root.clone() {
                 if source_root.is_absolute() {
@@ -165,6 +208,19 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
             print_json_output(&output, args.json)
         }
     }
+}
+
+fn bootstrap_optional_app(
+    source_root: &std::path::Path,
+    app_id: Option<&str>,
+) -> Result<Option<std::path::PathBuf>> {
+    let Some(app_id) = app_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    if source_root.join(app_id).exists() {
+        return Ok(Some(source_root.join(app_id)));
+    }
+    mei_lang_toolchain::create_app_skeleton(source_root, app_id).map(Some)
 }
 
 fn initialize_standalone_workspace(

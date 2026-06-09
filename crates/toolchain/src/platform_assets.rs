@@ -6,6 +6,8 @@ use serde::Serialize;
 use serde_json::Value;
 use walkdir::WalkDir;
 
+use crate::knowledge_bundle::package_root_hint;
+
 pub const PLATFORM_ASSET_SCHEMA_VERSION: &str = "mei-platform-assets-v1";
 
 #[derive(Debug, Clone, Serialize)]
@@ -321,7 +323,7 @@ pub fn platform_asset_catalog_descriptor_for_package_root(
 ) -> PlatformAssetCatalogDescriptor {
     PlatformAssetCatalogDescriptor {
         schema_version: PLATFORM_ASSET_SCHEMA_VERSION.to_string(),
-        package_root: package_root.display().to_string(),
+        package_root: package_root_hint(package_root),
         registration_model: vec![
             "component_packs_register_via_stock_components_manifest".to_string(),
             "template_packs_register_via_stock_templates_directory".to_string(),

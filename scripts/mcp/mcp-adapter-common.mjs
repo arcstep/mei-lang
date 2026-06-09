@@ -1,6 +1,18 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+
+function binaryFileName(base) {
+  return process.platform === "win32" ? `${base}.exe` : base;
+}
+
+function siblingRuntimeBinary(base) {
+  return path.join(MODULE_DIR, binaryFileName(base));
+}
 
 export function uniqueNonEmpty(values) {
   return [...new Set(values.filter((item) => typeof item === "string" && item.trim()))];
@@ -35,8 +47,18 @@ export function catalogToolToMcpTool(tool) {
 export function toolchainBinCandidates() {
   return uniqueNonEmpty([
     process.env.MEI_TOOLCHAIN_BIN,
+    siblingRuntimeBinary("mei-toolchain"),
     "./target/debug/mei-toolchain",
     "mei-toolchain",
+  ]);
+}
+
+export function hostWebBinCandidates() {
+  return uniqueNonEmpty([
+    process.env.MEI_HOST_WEB_BIN,
+    process.env.MEI_HOST_BIN,
+    siblingRuntimeBinary("mei-host-web"),
+    "mei-host-web",
   ]);
 }
 

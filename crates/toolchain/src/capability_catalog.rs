@@ -228,10 +228,11 @@ fn capability_catalog_descriptor_for_roots(
     package_root: &Path,
     workspace_root: Option<&Path>,
 ) -> Value {
+    let workspace_root_marker = workspace_root.map(|_| ".".to_string());
     json!({
         "schema_version": CAPABILITY_CATALOG_SCHEMA_VERSION,
         "toolchain_role": "canonical_truth",
-        "workspace_root": workspace_root.map(|path| path.display().to_string()),
+        "workspace_root": workspace_root_marker,
         "principles": [
             "toolchain_is_canonical_truth",
             "host_is_canonical_consumer",
@@ -296,12 +297,12 @@ fn access_host_overlay_descriptor() -> Value {
     })
 }
 
-fn workspace_runtime_bin_path(workspace_root: &Path, file_name: &str) -> String {
-    workspace_root
-        .join(".mei/runtime/bin")
-        .join(file_name)
-        .display()
-        .to_string()
+fn workspace_relative_path(path: &str) -> String {
+    path.to_string()
+}
+
+fn workspace_runtime_bin_path(file_name: &str) -> String {
+    workspace_relative_path(&format!(".mei/runtime/bin/{file_name}"))
 }
 
 fn mcp_surface_descriptor_for_roots(
@@ -310,7 +311,7 @@ fn mcp_surface_descriptor_for_roots(
     workspace_root: Option<&Path>,
 ) -> Option<Value> {
     let author_adapter_reference = workspace_root
-        .map(|root| workspace_runtime_bin_path(root, "author-mcp-adapter"))
+        .map(|_| workspace_runtime_bin_path("author-mcp-adapter"))
         .unwrap_or_else(|| "scripts/mcp/mei-author-stdio-adapter.mjs".to_string());
     let author_adapter_entrypoint = if workspace_root.is_some() {
         format!("node {}", author_adapter_reference)
@@ -318,7 +319,7 @@ fn mcp_surface_descriptor_for_roots(
         "node ./scripts/mcp/mei-author-stdio-adapter.mjs".to_string()
     };
     let access_adapter_reference = workspace_root
-        .map(|root| workspace_runtime_bin_path(root, "access-mcp-adapter"))
+        .map(|_| workspace_runtime_bin_path("access-mcp-adapter"))
         .unwrap_or_else(|| "scripts/mcp/mei-access-stdio-adapter.mjs".to_string());
     let access_adapter_entrypoint = if workspace_root.is_some() {
         format!("node {}", access_adapter_reference)
@@ -331,7 +332,7 @@ fn mcp_surface_descriptor_for_roots(
             "surface": "author",
             "profile_id": "author",
             "profile": "author_readonly_minimal_v1",
-            "workspace_root": workspace_root.map(|path| path.display().to_string()),
+            "workspace_root": workspace_root.map(|_| ".".to_string()),
             "transport": {
                 "status": "adapter_ready",
                 "recommended": if workspace_root.is_some() {
@@ -349,8 +350,8 @@ fn mcp_surface_descriptor_for_roots(
                 "cli_entrypoint": "mei-toolchain",
                 "lsp_entrypoint": "mei-lsp (stdio)",
                 "adapter_entrypoint": author_adapter_entrypoint,
-                "catalog_root": workspace_root.map(|path| path.join(".mei/catalog").display().to_string()),
-                "knowledge_root": workspace_root.map(|path| path.join(".mei/knowledge").display().to_string())
+                "catalog_root": workspace_root.map(|_| workspace_relative_path(".mei/catalog")),
+                "knowledge_root": workspace_root.map(|_| workspace_relative_path(".mei/knowledge"))
             },
             "skill_package": meilang_author_skill_package(),
             "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(
@@ -605,7 +606,7 @@ fn mcp_surface_descriptor_for_roots(
             "surface": "access",
             "profile_id": "access",
             "profile": "access_readonly_world_v1",
-            "workspace_root": workspace_root.map(|path| path.display().to_string()),
+            "workspace_root": workspace_root.map(|_| ".".to_string()),
             "transport": {
                 "status": "adapter_ready",
                 "recommended": if workspace_root.is_some() {

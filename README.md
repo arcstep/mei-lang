@@ -119,10 +119,8 @@ npm run test:mcp:author-adapter
 cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime describe --json
 cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime doctor --json
 cargo run -p mei-lang-server --bin mei-toolchain -- knowledge --surface author --include-content --json
-cargo run -p mei-lang-server --bin mei-toolchain -- workspace init --standalone --source-root /tmp/mei-demo --materialize --json
-cargo run -p mei-lang-server --bin mei-toolchain -- workspace runtime install --source-root /tmp/mei-demo --json
-cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime scaffold --target-root /tmp/mei-demo --tool cursor --json
-cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app hello --source-root /tmp/mei-demo --scaffold --tool codex --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace bootstrap --source-root /tmp/mei-demo --app hello --tool cursor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app another-app --source-root /tmp/mei-demo --json
 ```
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。

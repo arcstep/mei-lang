@@ -59,6 +59,21 @@ fn normalize_surface(surface: &str) -> Option<&'static str> {
     }
 }
 
+pub(crate) fn package_root_hint(package_root: &Path) -> String {
+    let leaf = package_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mei-package");
+    if package_root.join("Cargo.toml").is_file() {
+        format!("source-tree:{leaf}")
+    } else if package_root.ends_with(Path::new("share/mei")) {
+        "installed-layout:share/mei".to_string()
+    } else {
+        format!("package-layout:{leaf}")
+    }
+}
+
 fn author_assets() -> Vec<AssetSeed> {
     vec![
         AssetSeed {
@@ -510,7 +525,7 @@ pub fn knowledge_bundle_descriptor_for_package_root(
         schema_version: KNOWLEDGE_BUNDLE_SCHEMA_VERSION.to_string(),
         bundle_id: format!("meilang-{surface}-knowledge"),
         surface: surface.to_string(),
-        package_root: package_root.display().to_string(),
+        package_root: package_root_hint(package_root),
         install_dir_rel: ".mei".to_string(),
         primary_entry_ids,
         available_topics,

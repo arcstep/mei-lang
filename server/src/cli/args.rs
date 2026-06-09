@@ -58,6 +58,8 @@ pub struct WorkspaceArgs {
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
+    /// 一条命令创建自包含 standalone workspace（init + materialize + runtime install + scaffold + optional create-app）
+    Bootstrap(WorkspaceBootstrapArgs),
     /// 创建 workspace profile 目录与 `.mei-workspace.json`
     Init(WorkspaceInitArgs),
     /// 从 mei-lang/stock 物化 components/templates 到 profile `.stock/`（可 Git 跟踪）
@@ -68,6 +70,22 @@ pub enum WorkspaceCommand {
     CreateApp(WorkspaceCreateAppArgs),
     /// 输出 workspace 级别的 headless 摘要，便于 AI / 外部工具快速理解 app 列表与发现配置
     Summary(WorkspaceSummaryArgs),
+}
+
+#[derive(Args)]
+pub struct WorkspaceBootstrapArgs {
+    #[arg(long)]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub label: Option<String>,
+    #[arg(long = "app", alias = "app-id")]
+    pub app_id: Option<String>,
+    #[arg(long = "tool")]
+    pub tools: Vec<String>,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args)]

@@ -5,20 +5,16 @@ import {
   appendStringList,
   buildScopeArgs,
   catalogToolToMcpTool,
+  hostWebBinCandidates,
   loadSurfaceDescriptor,
   nonEmptyString,
   optionalString,
   runMei,
   toolchainBinCandidates,
-  uniqueNonEmpty,
 } from "./mcp-adapter-common.mjs";
 
 const TOOLCHAIN_BIN_CANDIDATES = toolchainBinCandidates();
-const HOST_WEB_BIN_CANDIDATES = uniqueNonEmpty([
-  process.env.MEI_HOST_WEB_BIN,
-  process.env.MEI_HOST_BIN,
-  "mei-host-web",
-]);
+const HOST_WEB_BIN_CANDIDATES = hostWebBinCandidates();
 const DEFAULT_SOURCE_ROOT = process.env.MEI_SOURCE_ROOT || "";
 
 let surfaceLoadPromise = null;

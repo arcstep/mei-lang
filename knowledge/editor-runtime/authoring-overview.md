@@ -17,13 +17,12 @@ This package is the standalone authoring runtime for external MeiLang developmen
 
 ## Recommended authoring loop
 
-1. Create or initialize a standalone workspace.
-2. Run `workspace runtime install` so the workspace has `.mei/profiles/`, `.mei/skills/`, `.mei/knowledge/`, and local MCP adapters.
-3. Materialize `.stock/` when the workspace needs built-in components or templates.
-4. Read `.mei/profiles/author.md`, `.mei/skills/meilang-author/*`, and `.mei/knowledge/author/*` as the workspace-local authoring truth.
-5. Use `mei-lsp` for editor feedback and use author-side MCP only for read-only agent tooling.
-6. Run `mei-toolchain check --app <app> --source-root <workspace>` for compile validation.
-7. Use `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json` when an agent needs packaged docs, contracts, or examples.
+1. Run `mei-toolchain workspace bootstrap --source-root <workspace> [--app <app>] [--tool <tool>] --json` for the one-command path, or stage `workspace init` -> `workspace runtime install` -> `editor-runtime scaffold` when you need separation.
+2. Treat `.mei/runtime/bin/mei-toolchain`, `.mei/runtime/bin/mei-lsp`, and `.mei/runtime/bin/mei-host-web` as the canonical local binaries for a qualified workspace.
+3. Read `.mei/profiles/author.md`, `.mei/skills/meilang-author/*`, and `.mei/knowledge/author/*` as the workspace-local authoring truth.
+4. Use `mei-lsp` for editor feedback and use author-side MCP only for read-only agent tooling.
+5. Run `mei-toolchain check --app <app> --source-root <workspace>` for compile validation.
+6. Use `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json` when an agent needs packaged docs, contracts, or examples.
 
 ## Access handoff
 

@@ -61,10 +61,12 @@ MeiLang 当前作者态的主线是：
 ## 常用命令
 
 - `mei-toolchain check --app <app> --source-root <workspace> --json`
+- `mei-toolchain workspace bootstrap --source-root <workspace> --app <app> --tool cursor --json`
 - `mei-toolchain workspace init --standalone --source-root <workspace> --materialize --json`
 - `mei-toolchain workspace runtime install --source-root <workspace> --json`
 - `mei-toolchain editor-runtime scaffold --target-root <workspace> --tool cursor --json`
-- `mei-toolchain workspace create-app <app> --source-root <workspace> --scaffold --tool cursor --json`
+- `mei-toolchain workspace create-app <app> --source-root <workspace> --json`
+- `./.mei/runtime/bin/mei-toolchain check --app <app> --source-root <workspace> --json`
 - `mei-toolchain workspace summary --source-root <workspace> --json`
 - `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`
 - `mei-toolchain knowledge --surface author --source-root <workspace> --topic config --include-content --json`

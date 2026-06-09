@@ -4,24 +4,60 @@ This guide is the standalone-friendly public reference for creating a new worksp
 
 ## Bootstrap a standalone workspace
 
-Treat these as three separate steps:
+Prefer the one-command bootstrap path:
+
+```bash
+mei-toolchain workspace bootstrap --source-root /path/to/workspace --app hello --tool cursor --json
+```
+
+This writes a **qualified self-contained workspace**:
+
+- `.mei-workspace.json`
+- `.stock/`
+- workspace-local `.mei/` runtime metadata
+- `.mei/runtime/bin/mei-toolchain`
+- `.mei/runtime/bin/mei-lsp`
+- `.mei/runtime/bin/mei-host-web`
+- MCP adapters and packaged knowledge
+- tool glue such as `.cursor/rules/` and `.cursor/mcp.json`
+- optional minimal app skeleton
+
+If you need the staged flow, use:
 
 ```bash
 mei-toolchain workspace init --standalone --source-root /path/to/workspace --materialize --json
 mei-toolchain workspace runtime install --source-root /path/to/workspace --json
 mei-toolchain editor-runtime scaffold --target-root /path/to/workspace --tool cursor --json
+mei-toolchain workspace create-app hello --source-root /path/to/workspace --json
 ```
 
 - `workspace init` creates the workspace root, `.mei-workspace.json`, `.mei/`, and optional `.stock/`.
-- `workspace runtime install` writes the workspace-local runtime metadata, profiles, skills, knowledge bundle, and MCP adapters under `.mei/`.
+- `workspace runtime install` writes the workspace-local runtime metadata, packaged docs, local binaries under `.mei/runtime/bin/`, and a workspace-root `./start.sh` launcher.
 - `editor-runtime scaffold` writes tool glue only. It should not replace runtime metadata or host-local state.
+
+## Start the workspace host
+
+After bootstrap or `workspace runtime install`, launch the browser host from the workspace root:
+
+```bash
+./start.sh
+```
+
+Defaults to **http://127.0.0.1:9527**. The script runs the workspace-local `.mei/runtime/bin/mei-host-web` by default. `MEI_HOST_WEB_BIN` or PATH `mei-host-web` are recovery overrides, not the qualified default.
+
+Optional flags are forwarded to `mei-host-web serve`, for example:
+
+```bash
+./start.sh --auth
+./start.sh --host-surface access-only
+```
 
 ## Create a new app
 
 Create a new app after the workspace exists:
 
 ```bash
-mei-toolchain workspace create-app my-app --source-root /path/to/workspace --scaffold --tool cursor --json
+mei-toolchain workspace create-app my-app --source-root /path/to/workspace --json
 ```
 
 The current scaffold writes this minimal file layout:
