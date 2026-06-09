@@ -7,16 +7,17 @@
 1. 当前任务相关的 `.mei` 文件
 2. 对应 example
 3. `syntax-rules.md`、`components-reference.md`
-4. `docs/mei-lang/implementation/syntax/`
-5. `docs/mei-lang/implementation/extensions/`
-6. 必要时读取相关 web component 或宿主代码
+4. `author-profile.md`、`knowledge/editor-runtime/*.md`
+5. `mei-toolchain knowledge --surface editor --include-content --json`
+6. 必要时再读相关 component / 宿主代码
 
 ## 读取原则
 
 - 只读与当前任务直接相关的文件
-- 先看当前实现文档，再看代码
+- 先看 package 内知识，再看源码实现
 - 先看例子，再抽象规则
 - `inspect summary` / `workspace summary` 只当路由摘要，不当源码替代品
+- 不要默认回源 `docs/` 目录去找另一套规则；优先使用 packaged knowledge
 
 ## 需要确认的上下文
 
@@ -44,3 +45,4 @@
 - 无关 example
 - 旧 DSL 文档
 - 与当前任务无关的 Rust 模块
+- 与 standalone editor runtime 无关的源码仓库背景文档

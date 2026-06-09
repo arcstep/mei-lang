@@ -8,6 +8,7 @@ This package is the standalone authoring runtime for external MeiLang developmen
 - `mei-lsp` for in-editor diagnostics and language services
 - editor MCP adapters for agent-style tools
 - packaged authoring knowledge, examples, and platform assets
+- canonical profiles for `author` and `access`
 
 ## What it does not require
 
@@ -18,6 +19,6 @@ This package is the standalone authoring runtime for external MeiLang developmen
 
 1. Create or initialize a standalone workspace.
 2. Materialize `.stock/` when the workspace needs built-in components or templates.
-3. Use `mei-lsp` and the editor runtime templates in your IDE.
+3. Use `mei-lsp` for editor feedback and use author-side MCP only for read-only agent tooling.
 4. Run `mei-toolchain check --app <app> --source-root <workspace>` for compile validation.
-5. Use `mei-toolchain knowledge export --surface editor --include-content --json` when an agent needs bundled docs or examples.
+5. Use `mei-toolchain knowledge --surface editor --include-content --json` when an agent needs packaged docs, profiles, or examples.

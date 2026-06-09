@@ -15,7 +15,8 @@ mei-toolchain workspace create-app my-app --source-root /path/to/workspace --sca
 ## Export packaged knowledge for an AI tool
 
 ```bash
-mei-toolchain knowledge export --surface editor --include-content --json
+mei-toolchain knowledge --surface editor --include-content --json
+mei-toolchain knowledge --surface editor --topic author_profile --include-content --json
 ```
 
 ## Describe and verify the local editor runtime

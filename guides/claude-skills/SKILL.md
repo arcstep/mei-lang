@@ -18,7 +18,7 @@ MeiLang 是 scene-first 作者态 DSL（`scene / world / flow / frame`）。
 
 ## 推荐顺序
 
-1. 读 `authoring.md`、`syntax-rules.md`、`components-reference.md`、`context.md` 和 `../../README.md`。
+1. 先读 `guides/author-profile.md`，再读 `authoring.md`、`syntax-rules.md`、`components-reference.md`、`context.md`。
 2. 直接读当前任务相关的 `.mei` 源码、引用的 scene/template/_components，不要先把 `summary` 当成源码替代品。
 3. 跑 `mei-toolchain check --app <app> --json` 看 diagnostics；需要更紧密的编辑反馈时走 `mei-lsp`。
 4. 如需先理解当前 workspace 有哪些 app、发现规则和别名，再跑 `mei-toolchain workspace summary --source-root <dir> --json`。

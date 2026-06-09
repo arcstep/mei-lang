@@ -38,6 +38,12 @@ npm run test:mcp:access-adapter
 - `resource_visibility=local_only` 时，会隐藏 `scene_id` / `target_file` 覆盖参数
 - `propose_session_patch` 仍是 host-only 附加工具，不属于 canonical access catalog
 
+也就是说：
+
+- canonical access tool schema 仍由 catalog 决定
+- 宿主只允许做参数绑定、可见性裁剪和 host-only 工具追加
+- 宿主不应再维护一套平行的 access tools 定义
+
 ## 主输入
 
 访问态优先依赖这些输入：

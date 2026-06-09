@@ -258,6 +258,13 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
     assert_eq!(descriptor["schema_version"], "mei-capability-catalog-v1");
     assert!(descriptor["ai_profiles"].is_array());
     assert_eq!(descriptor["ai_profiles"].as_array().unwrap().len(), 2);
+    assert!(
+        descriptor["ai_profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["id"] == "author" && item["guidance_file_rel"] == "guides/author-profile.md")
+    );
     assert!(descriptor["platform_assets"]["component_packs"].is_array());
     assert!(
         !descriptor["platform_assets"]["component_packs"]
@@ -276,6 +283,25 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
     assert!(descriptor["host_extensions"]["extensions"].is_array());
     assert!(descriptor["host_requirements"].is_array());
     assert!(descriptor["knowledge_bundles"].is_array());
+    assert!(
+        descriptor["mcp_surfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["surface"] == "author" && item["surface_aliases"][0] == "editor")
+    );
+    assert!(
+        descriptor["mcp_surfaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["surface"] == "access"
+                    && item["host_overlay"]["host_only_tools"]
+                        .as_array()
+                        .is_some_and(|tools| tools.iter().any(|tool| tool == "propose_session_patch"))
+            })
+    );
     assert_eq!(
         descriptor["host_requirements"][0]["consumer_id"],
         "mei-host-web"
@@ -298,6 +324,18 @@ fn editor_runtime_descriptor_exposes_tooling_templates() {
 fn editor_runtime_doctor_passes_for_source_tree_package_root() {
     let report = doctor_editor_runtime_for_package_root(&package_root());
     assert!(report.ok, "doctor should pass for source-tree package root");
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "author_profile" && item.ok)
+    );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "knowledge_asset:author_profile" && item.ok)
+    );
 }
 
 #[test]
@@ -306,11 +344,25 @@ fn knowledge_bundle_exports_editor_assets() {
         .expect("knowledge bundle");
     assert_eq!(payload["descriptor"]["surface"], "editor");
     assert!(
+        payload["descriptor"]["available_topics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "profile")
+    );
+    assert!(
         payload["assets"]
             .as_array()
             .unwrap()
             .iter()
             .any(|item| item["descriptor"]["id"] == "syntax_rules")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "author_profile")
     );
 }
 

@@ -123,9 +123,24 @@ fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
             purpose: "Current source-backed editor MCP adapter.".to_string(),
         },
         EditorRuntimePathDescriptor {
+            id: "access_mcp_adapter".to_string(),
+            rel_path: "scripts/mcp/mei-access-stdio-adapter.mjs".to_string(),
+            purpose: "Current source-backed access MCP adapter.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
             id: "author_skill".to_string(),
             rel_path: "guides/claude-skills/SKILL.md".to_string(),
             purpose: "Current authoring skill entrypoint in the source tree.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
+            id: "author_profile".to_string(),
+            rel_path: "guides/author-profile.md".to_string(),
+            purpose: "Canonical author profile guidance shipped with the package.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
+            id: "access_profile".to_string(),
+            rel_path: "guides/access-profile.md".to_string(),
+            purpose: "Canonical access profile guidance shipped with the package.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "stock_components".to_string(),
@@ -222,6 +237,7 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
             "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a standalone workspace.".to_string(),
             "Run `mei-toolchain workspace materialize --source-root <dir>` to materialize .stock assets.".to_string(),
             "Run `mei-toolchain editor-runtime scaffold --target-root <dir> --tool <tool>` to write tool glue files.".to_string(),
+            "Run `mei-toolchain knowledge --surface editor --include-content --json` to export packaged authoring docs/examples.".to_string(),
             "Use `mei-lsp` for IDE semantics and `node scripts/mcp/mei-editor-stdio-adapter.mjs` for agent-side tools.".to_string(),
         ],
         tooling_templates: tooling_templates(),
@@ -230,33 +246,45 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
 }
 
 pub fn doctor_editor_runtime_for_package_root(package_root: &Path) -> EditorRuntimeDoctorReport {
-    let paths = vec![
-        ("skill_entry", package_root.join("guides/claude-skills/SKILL.md")),
-        ("editor_adapter", package_root.join("scripts/mcp/mei-editor-stdio-adapter.mjs")),
-        ("stock_components", package_root.join("stock/components")),
-        ("stock_templates", package_root.join("stock/templates")),
-        (
-            "editor_runtime_docs",
-            package_root.join("knowledge/editor-runtime/authoring-overview.md"),
-        ),
-        (
-            "standalone_example",
-            package_root.join("knowledge/editor-runtime/minimal-app-main.mei"),
-        ),
-    ];
-    let checks = paths
+    let EditorRuntimeDescriptor {
+        current_source_layout,
+        editor_knowledge_bundle,
+        ..
+    } = editor_runtime_descriptor_for_package_root(package_root);
+    let mut checks = current_source_layout
         .into_iter()
-        .map(|(id, path)| EditorRuntimeCheck {
-            id: id.to_string(),
-            ok: path.exists(),
-            path: path.display().to_string(),
-            message: if path.exists() {
-                "ok".to_string()
-            } else {
-                "missing runtime asset".to_string()
-            },
+        .map(|item| {
+            let path = package_root.join(&item.rel_path);
+            EditorRuntimeCheck {
+                id: item.id,
+                ok: path.exists(),
+                path: path.display().to_string(),
+                message: if path.exists() {
+                    format!("source-backed runtime asset present: {}", item.purpose)
+                } else {
+                    format!("missing source-backed runtime asset: {}", item.purpose)
+                },
+            }
         })
         .collect::<Vec<_>>();
+    checks.extend(
+        editor_knowledge_bundle
+            .assets
+            .into_iter()
+            .map(|asset| {
+                let path = package_root.join(&asset.relative_path);
+                EditorRuntimeCheck {
+                    id: format!("knowledge_asset:{}", asset.id),
+                    ok: path.exists(),
+                    path: path.display().to_string(),
+                    message: if path.exists() {
+                        format!("packaged knowledge asset present for topic `{}`", asset.topic)
+                    } else {
+                        format!("missing packaged knowledge asset for topic `{}`", asset.topic)
+                    },
+                }
+            }),
+    );
     let ok = checks.iter().all(|check| check.ok);
     EditorRuntimeDoctorReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
@@ -315,7 +343,7 @@ alwaysApply: false
 ---
 
 - Treat `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical runtime entrypoints.
-- Prefer `mei-toolchain knowledge export --surface editor --include-content --json` when you need bundled authoring docs or examples.
+- Prefer `mei-toolchain knowledge --surface editor --include-content --json` when you need bundled authoring docs, profile guidance, or examples.
 - Use `mei-toolchain check --app <app> --source-root <workspace>` for compile diagnostics.
 - Use `mei-lsp` for symbol, hover, completion, definition, and in-editor diagnostics.
 "#
@@ -368,9 +396,10 @@ fn render_tool_readme(tool: &str) -> String {
 Use the local `.mei/editor-runtime.json` as the runtime descriptor.\n\n\
 Recommended commands:\n\n\
 - `mei-toolchain editor-runtime doctor --json`\n\
-- `mei-toolchain knowledge export --surface editor --include-content --json`\n\
+- `mei-toolchain knowledge --surface editor --include-content --json`\n\
+- `mei-toolchain knowledge --surface editor --topic author_profile --include-content --json`\n\
 - `mei-toolchain check --app <app> --source-root <workspace> --json`\n\
-- `mei-toolchain mcp describe --surface editor --json`\n"
+- `mei-toolchain mcp describe --surface author --json`\n"
     )
 }
 
