@@ -9,8 +9,8 @@ use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
     build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
     capability_catalog_descriptor_for_workspace_root,
-    clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
-    query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
+    clear_compile_cache_for_app, compile_app_with_cache, compile_report, create_app_skeleton,
+    query_world_dataset, query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
     init_workspace_profile, scaffold_editor_runtime_tooling,
     doctor_editor_runtime_for_package_root,
     doctor_editor_runtime_for_workspace_root, editor_runtime_descriptor_for_package_root,
@@ -284,6 +284,19 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
                         .is_some_and(|companions| companions.iter().any(|entry| entry == "namespace-reference.md"))
             })
     );
+    assert!(
+        descriptor["skill_packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["id"] == "meilang-access"
+                    && item["entry_file"] == "SKILL.md"
+                    && item["companion_priority"]
+                        .as_array()
+                        .is_some_and(|companions| companions.iter().any(|entry| entry == "workflow.md"))
+            })
+    );
     assert!(descriptor["platform_assets"]["component_packs"].is_array());
     assert!(
         !descriptor["platform_assets"]["component_packs"]
@@ -350,6 +363,24 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
                         .as_array()
                         .is_some_and(|tools| tools.iter().any(|tool| tool == "propose_session_patch"))
             })
+    );
+    let access_profile = descriptor["ai_profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == "access")
+        .expect("access profile");
+    assert_eq!(access_profile["skill_package_id"], "meilang-access");
+    let access_surface = descriptor["mcp_surfaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["surface"] == "access")
+        .expect("access mcp surface");
+    assert!(
+        access_surface["tools"]
+            .as_array()
+            .is_some_and(|tools| tools.iter().any(|tool| tool["name"] == "mei_access_knowledge"))
     );
     assert_eq!(
         descriptor["host_requirements"][0]["consumer_id"],
@@ -425,6 +456,27 @@ fn knowledge_bundle_exports_author_assets() {
             .as_array()
             .unwrap()
             .iter()
+            .any(|item| item["descriptor"]["id"] == "workspace_config_reference")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "template_contracts")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "dsl_contracts")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|item| item["descriptor"]["id"] == "component_contracts")
     );
     assert!(
@@ -442,11 +494,32 @@ fn knowledge_bundle_exports_author_assets() {
             .any(|item| item["descriptor"]["id"] == "example_dataset_baseline")
     );
     assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "example_multi_scene_app")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "example_upload_dataset_baseline")
+    );
+    assert!(
         payload["descriptor"]["available_topics"]
             .as_array()
             .unwrap()
             .iter()
             .any(|item| item == "templates")
+    );
+    assert!(
+        payload["descriptor"]["available_topics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item == "config")
     );
     let overview = export_knowledge_bundle_for_package_root(
         &package_root(),
@@ -463,6 +536,34 @@ fn knowledge_bundle_exports_author_assets() {
     assert!(
         !overview_content.contains("--surface editor"),
         "public author runtime overview should not refer to the deprecated editor surface"
+    );
+}
+
+#[test]
+fn knowledge_bundle_exports_access_assets() {
+    let payload = export_knowledge_bundle_for_package_root(&package_root(), "access", None, false)
+        .expect("access knowledge bundle");
+    assert_eq!(payload["descriptor"]["surface"], "access");
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "meilang_access_skill")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "access_profile")
+    );
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "access_workflow")
     );
 }
 
@@ -544,9 +645,13 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
         .is_some_and(|value| value.starts_with("mei-lang-")));
     assert!(root.join(".mei/catalog/capability-catalog.json").is_file());
     assert!(root.join(".mei/catalog/author-surface.json").is_file());
+    assert!(root.join(".mei/catalog/access-surface.json").is_file());
     assert!(root.join(".mei/profiles/author.md").is_file());
+    assert!(root.join(".mei/profiles/access.md").is_file());
     assert!(root.join(".mei/skills/meilang-author/SKILL.md").is_file());
+    assert!(root.join(".mei/skills/meilang-access/SKILL.md").is_file());
     assert!(root.join(".mei/runtime/bin/author-mcp-adapter").is_file());
+    assert!(root.join(".mei/runtime/bin/access-mcp-adapter").is_file());
     assert!(!root.join(".mei/catalog/editor-surface.json").exists());
     let _ = fs::remove_dir_all(root);
 }
@@ -589,6 +694,18 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
             .checks
             .iter()
             .any(|item| item.id == "workspace_capability_catalog" && item.ok)
+    );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_access_skill" && item.ok)
+    );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_access_mcp_adapter" && item.ok)
     );
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
     assert!(status.installed, "runtime status should report installed");
@@ -638,6 +755,23 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
     assert!(
         example_content.contains("dataset.table"),
         "workspace example bundle should expose the curated standalone examples"
+    );
+    let access_bundle = export_knowledge_bundle_for_workspace_root(
+        &root,
+        &package_root(),
+        "access",
+        Some("meilang_access_skill"),
+        true,
+    )
+    .expect("workspace access skill");
+    let access_skill_content = access_bundle["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["content"].as_str())
+        .expect("access skill content");
+    assert!(
+        access_skill_content.contains("MeiLang Access"),
+        "workspace access bundle should expose the installed access skill entry"
     );
     let catalog = capability_catalog_descriptor_for_workspace_root(&root, &package_root());
     assert_eq!(catalog["workspace_root"], root.display().to_string());
@@ -700,6 +834,59 @@ fn workspace_knowledge_requires_runtime_install_without_package_fallback() {
         "error should point to runtime install, got: {error}"
     );
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
+    let parent = std::env::temp_dir().join(format!(
+        "mei_workspace_authoring_smoke_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&parent).expect("create smoke parent");
+    let workspace_root = init_workspace_profile(
+        &parent,
+        "standalone-smoke",
+        Some("Standalone Smoke"),
+        &package_root(),
+        true,
+    )
+    .expect("init standalone workspace");
+    install_editor_runtime_support_files(&workspace_root, &package_root(), true)
+        .expect("install runtime");
+    let app_root = create_app_skeleton(&workspace_root, "demo").expect("create app");
+    assert!(app_root.join("main.mei").is_file());
+    let config_bundle = export_knowledge_bundle_for_workspace_root(
+        &workspace_root,
+        &package_root(),
+        "author",
+        Some("workspace_config_reference"),
+        true,
+    )
+    .expect("workspace config reference");
+    let config_content = config_bundle["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["content"].as_str())
+        .expect("config reference content");
+    assert!(
+        config_content.contains(".mei-workspace.json") && config_content.contains("theme_ref"),
+        "workspace config reference should be available in standalone installs"
+    );
+    let report = compile_report(&workspace_root, "demo", CompileOptions::default())
+        .expect("compile created app");
+    assert!(
+        !report
+            .compiled
+            .diagnostics
+            .iter()
+            .any(|item| matches!(item.severity, mei_lang_kernel::Severity::Error)),
+        "created standalone app should compile without errors"
+    );
+    let _ = fs::remove_dir_all(parent);
 }
 
 #[test]

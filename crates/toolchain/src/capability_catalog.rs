@@ -64,6 +64,18 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
     }
 }
 
+pub fn meilang_access_skill_package() -> SkillPackageDescriptor {
+    SkillPackageDescriptor {
+        id: "meilang-access".to_string(),
+        name: "MeiLang Access".to_string(),
+        description: "Canonical MeiLang access skill package exported from the toolchain capability catalog.".to_string(),
+        source_dir_rel: "guides/access-skills".to_string(),
+        install_dir_rel: ".mei/skills/meilang-access".to_string(),
+        entry_file: "SKILL.md".to_string(),
+        companion_priority: vec!["workflow.md".to_string()],
+    }
+}
+
 pub fn author_profile_descriptor() -> AiProfileDescriptor {
     AiProfileDescriptor {
         id: "author".to_string(),
@@ -122,6 +134,7 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
             "runtime_peek".to_string(),
         ],
         recommended_flow: vec![
+            "read_access_profile".to_string(),
             "read_world_catalog_and_runtime_summary".to_string(),
             "merge_browser_query_state_into_eval_scope".to_string(),
             "prefer_preinjected_metric_preview_then_dataset_metric".to_string(),
@@ -129,7 +142,7 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
         ],
         preferred_surface: "access".to_string(),
         knowledge_surface: "access".to_string(),
-        skill_package_id: None,
+        skill_package_id: Some("meilang-access".to_string()),
         guidance_file_rel: Some("guides/access-profile.md".to_string()),
         guidance_bundle_asset_id: Some("access_profile".to_string()),
     }
@@ -186,6 +199,9 @@ fn humanize_flow_step(step: &str) -> String {
         "use_inspect_or_query_only_when_runtime_facts_are_needed" => {
             "Use inspect/query only when runtime facts are needed.".to_string()
         }
+        "read_access_profile" => {
+            "Read the canonical access profile and companion workflow before runtime questions.".to_string()
+        }
         "read_world_catalog_and_runtime_summary" => {
             "Read world catalog and runtime summary for the active app/scene scope.".to_string()
         }
@@ -229,7 +245,8 @@ fn capability_catalog_descriptor_for_roots(
         ],
         "platform_assets": platform_asset_catalog_descriptor_for_package_root(package_root),
         "skill_packages": [
-            meilang_author_skill_package()
+            meilang_author_skill_package(),
+            meilang_access_skill_package()
         ],
         "knowledge_bundles": [
             knowledge_bundle_descriptor_for_package_root(package_root, "author")
@@ -608,8 +625,27 @@ fn mcp_surface_descriptor_for_roots(
                 "eval_scope": "merge browser query_state into bounded dataset/metric evaluation before answering"
             },
             "guidance_file_rel": "guides/access-profile.md",
+            "skill_package": meilang_access_skill_package(),
+            "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(
+                package_root,
+                "access"
+            ).expect("access knowledge bundle"),
             "host_overlay": access_host_overlay_descriptor(),
             "tools": [
+                {
+                    "name": "mei_access_knowledge",
+                    "description": "Return packaged access profile and companion workflow docs for standalone or host-bound access consumers.",
+                    "capability_origin": "toolchain",
+                    "backed_by": "mei-toolchain knowledge --surface access [--topic <topic>] [--include-content] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "topic": { "type": "string" },
+                            "include_content": { "type": "boolean" }
+                        },
+                        "additionalProperties": false
+                    }
+                },
                 {
                     "name": "dataset_query",
                     "description": "Bounded dataset schema/sample-row query for visitor-facing QA.",

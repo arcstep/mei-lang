@@ -139,12 +139,14 @@ pub struct RuntimeManifestArtifactDescriptor {
     pub mei_toolchain: String,
     pub mei_lsp: String,
     pub author_mcp_adapter: String,
+    pub access_mcp_adapter: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeManifestContentDescriptor {
     pub capability_catalog: String,
     pub author_surface: String,
+    pub access_surface: String,
     pub knowledge_path: String,
     pub platform_assets_path: String,
     pub tooling_templates_path: String,
@@ -199,6 +201,10 @@ fn workspace_author_skill_dir(workspace_root: &Path) -> PathBuf {
     workspace_root.join(crate::meilang_author_skill_package().install_dir_rel)
 }
 
+fn workspace_access_skill_dir(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(crate::meilang_access_skill_package().install_dir_rel)
+}
+
 fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
     vec![
         EditorRuntimePathDescriptor {
@@ -216,6 +222,11 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
             id: "author_mcp_adapter".to_string(),
             rel_path: "bin/author-mcp-adapter".to_string(),
             purpose: "stdio MCP adapter for author-side AI tools.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
+            id: "access_mcp_adapter".to_string(),
+            rel_path: "bin/access-mcp-adapter".to_string(),
+            purpose: "stdio MCP adapter for access-side AI tools.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "capability_catalog".to_string(),
@@ -271,6 +282,11 @@ fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
             id: "access_profile".to_string(),
             rel_path: "guides/access-profile.md".to_string(),
             purpose: "Canonical access profile guidance shipped with the package.".to_string(),
+        },
+        EditorRuntimePathDescriptor {
+            id: "access_skill".to_string(),
+            rel_path: "guides/access-skills/SKILL.md".to_string(),
+            purpose: "Canonical access skill entrypoint in the source tree.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "stock_components".to_string(),
@@ -397,10 +413,12 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
             mei_toolchain: "bin/mei-toolchain".to_string(),
             mei_lsp: "bin/mei-lsp".to_string(),
             author_mcp_adapter: "bin/author-mcp-adapter".to_string(),
+            access_mcp_adapter: "bin/access-mcp-adapter".to_string(),
         },
         content: RuntimeManifestContentDescriptor {
             capability_catalog: "share/mei/catalog/capability-catalog.json".to_string(),
             author_surface: "share/mei/catalog/author-surface.json".to_string(),
+            access_surface: "share/mei/catalog/access-surface.json".to_string(),
             knowledge_path: "share/mei/knowledge/author".to_string(),
             platform_assets_path: "share/mei/platform-assets/stock".to_string(),
             tooling_templates_path: "share/mei/tooling-templates".to_string(),
@@ -540,7 +558,9 @@ pub fn doctor_editor_runtime_for_workspace_root(
     let author_profile_path = workspace_profiles_dir(workspace_root).join("author.md");
     let access_profile_path = workspace_profiles_dir(workspace_root).join("access.md");
     let author_skill_entry = workspace_author_skill_dir(workspace_root).join("SKILL.md");
-    let runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
+    let access_skill_entry = workspace_access_skill_dir(workspace_root).join("SKILL.md");
+    let author_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
+    let access_runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("access-mcp-adapter");
     let expected_version = workspace_runtime_version_descriptor();
     let expected_manifest = workspace_runtime_manifest_for_package_root(package_root);
     let checks = vec![
@@ -625,13 +645,33 @@ pub fn doctor_editor_runtime_for_workspace_root(
             },
         },
         EditorRuntimeCheck {
+            id: "workspace_access_skill".to_string(),
+            ok: access_skill_entry.is_file(),
+            path: access_skill_entry.display().to_string(),
+            message: if access_skill_entry.is_file() {
+                "workspace-local access skill package present".to_string()
+            } else {
+                "missing workspace-local access skill package".to_string()
+            },
+        },
+        EditorRuntimeCheck {
             id: "workspace_author_mcp_adapter".to_string(),
-            ok: runtime_adapter.is_file(),
-            path: runtime_adapter.display().to_string(),
-            message: if runtime_adapter.is_file() {
+            ok: author_runtime_adapter.is_file(),
+            path: author_runtime_adapter.display().to_string(),
+            message: if author_runtime_adapter.is_file() {
                 "workspace-local author MCP adapter present".to_string()
             } else {
                 "missing workspace-local author MCP adapter".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_access_mcp_adapter".to_string(),
+            ok: access_runtime_adapter.is_file(),
+            path: access_runtime_adapter.display().to_string(),
+            message: if access_runtime_adapter.is_file() {
+                "workspace-local access MCP adapter present".to_string()
+            } else {
+                "missing workspace-local access MCP adapter".to_string()
             },
         },
         json_value_matches(
@@ -680,11 +720,16 @@ pub fn workspace_runtime_status_for_workspace_root(
     let manifest_path = workspace_root.join(".mei/runtime/MANIFEST.json");
     let catalog_path = workspace_catalog_dir(workspace_root).join("capability-catalog.json");
     let author_skill_dir = workspace_author_skill_dir(workspace_root);
+    let access_skill_dir = workspace_access_skill_dir(workspace_root);
     let author_profile_path = workspace_profiles_dir(workspace_root).join("author.md");
     let installed = version_path.is_file()
         && manifest_path.is_file()
         && catalog_path.is_file()
-        && author_skill_dir.join("SKILL.md").is_file();
+        && author_skill_dir.join("SKILL.md").is_file()
+        && access_skill_dir.join("SKILL.md").is_file()
+        && workspace_runtime_bin_dir(workspace_root)
+            .join("access-mcp-adapter")
+            .is_file();
     let fallback_to_source_tree = false;
     WorkspaceRuntimeStatusReport {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
@@ -847,6 +892,12 @@ fn write_runtime_projection_files(
     )?);
     files.extend(copy_runtime_tree(
         target_root,
+        &package_root.join("guides/access-skills"),
+        &workspace_access_skill_dir(target_root),
+        force,
+    )?);
+    files.extend(copy_runtime_tree(
+        target_root,
         &package_root.join("knowledge/editor-runtime"),
         &workspace_knowledge_dir(target_root).join("author"),
         force,
@@ -937,12 +988,22 @@ pub fn install_editor_runtime_support_files(
 }
 
 fn render_mcp_json(target_root: &Path) -> Result<String> {
-    let adapter = workspace_runtime_bin_dir(target_root).join("author-mcp-adapter");
+    let author_adapter = workspace_runtime_bin_dir(target_root).join("author-mcp-adapter");
+    let access_adapter = workspace_runtime_bin_dir(target_root).join("access-mcp-adapter");
     serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
             "meilang-author": {
                 "command": "node",
-                "args": [adapter.display().to_string()],
+                "args": [author_adapter.display().to_string()],
+                "env": {
+                    "MEI_TOOLCHAIN_BIN": "mei-toolchain",
+                    "MEI_HOST_WEB_BIN": "mei-host-web",
+                    "MEI_SOURCE_ROOT": target_root.display().to_string()
+                }
+            },
+            "meilang-access": {
+                "command": "node",
+                "args": [access_adapter.display().to_string()],
                 "env": {
                     "MEI_TOOLCHAIN_BIN": "mei-toolchain",
                     "MEI_HOST_WEB_BIN": "mei-host-web",
@@ -963,6 +1024,7 @@ alwaysApply: false
 
 - Treat `workspace runtime status/install/update`, `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical workspace-local environment entrypoints.
 - Prefer `mei-toolchain knowledge --surface author --include-content --json --source-root <workspace>` when you need bundled authoring docs, profile guidance, or examples.
+- Use `mei-toolchain knowledge --surface access --include-content --json --source-root <workspace>` for world-first access guidance and query-state-aware runtime questions.
 - Use `mei-toolchain check --app <app> --source-root <workspace>` for compile diagnostics.
 - Use `mei-lsp` for symbol, hover, completion, definition, and in-editor diagnostics.
 "#
@@ -1017,7 +1079,9 @@ Recommended commands:\n\n\
 - `mei-toolchain workspace runtime status --source-root <workspace> --json`\n\
 - `mei-toolchain editor-runtime doctor --source-root <workspace> --json`\n\
 - `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`\n\
+- `mei-toolchain knowledge --surface access --source-root <workspace> --include-content --json`\n\
 - `mei-toolchain knowledge --surface author --source-root <workspace> --topic author_profile --include-content --json`\n\
+- `mei-toolchain mcp describe --surface access --json`\n\
 - `mei-toolchain check --app <app> --source-root <workspace> --json`\n\
 - `mei-toolchain mcp describe --surface author --json`\n"
     )

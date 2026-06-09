@@ -67,6 +67,21 @@ async function ensureAccessToolsLoaded() {
 
 const ACCESS_TOOL_COMMAND_BUILDERS = new Map([
   [
+    "mei_access_knowledge",
+    (args) => {
+      const cli = ["knowledge", "--surface", "access"];
+      const topic = optionalString(args.topic);
+      if (topic) {
+        cli.push("--topic", topic);
+      }
+      if (args.include_content === true) {
+        cli.push("--include-content");
+      }
+      cli.push("--json");
+      return { binCandidates: TOOLCHAIN_BIN_CANDIDATES, cli };
+    },
+  ],
+  [
     "dataset_query",
     (args) => {
       const app = nonEmptyString(args.app, "app");

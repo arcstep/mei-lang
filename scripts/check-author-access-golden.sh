@@ -26,6 +26,9 @@ cargo test -p mei-lang-toolchain query_world_dataset_contract_shape_is_stable
 echo "==> toolchain contract: bounded dataset metrics"
 cargo test -p mei-lang-toolchain query_world_dataset_metrics_contract_shape_is_stable
 
+echo "==> toolchain contract: access knowledge bundle"
+cargo test -p mei-lang-toolchain knowledge_bundle_exports_access_assets
+
 echo "==> access profile: browser query state merge"
 cargo test -p mei-lang-server browser_query_state_merges_active_entries
 
@@ -51,6 +54,12 @@ import sys
 payload = json.loads(os.environ["CATALOG_JSON"])
 assert payload["schema_version"] == "mei-capability-catalog-v1"
 assert len(payload.get("ai_profiles", [])) >= 2
+assert any(item.get("id") == "meilang-access" for item in payload.get("skill_packages", []))
+assert any(
+    item.get("id") == "access"
+    and item.get("skill_package_id") == "meilang-access"
+    for item in payload.get("ai_profiles", [])
+)
 platform_assets = payload.get("platform_assets", {})
 assert len(platform_assets.get("component_packs", [])) > 0
 assert any(item.get("id") == "cockpit" for item in platform_assets.get("template_packs", []))

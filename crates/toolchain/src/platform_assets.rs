@@ -104,37 +104,37 @@ fn component_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDes
     match pack_id {
         "chart/echarts" => Some(authoring_support(
             "Public chart authoring surface. Prefer the common `data + mapping` contract before renderer-specific knobs.",
-            &["component_contracts", "chart_components_guide"],
+            &["component_contracts", "chart_components_guide", "dsl_contracts"],
             &["example_chart_baseline", "example_filter_reactivity"],
         )),
         "cockpit" => Some(authoring_support(
             "Cockpit-specific renderers and skins. Combine with cockpit template shells instead of inventing a cockpit-only DSL.",
-            &["component_contracts", "cockpit_components_guide", "cockpit_template_index"],
-            &["example_cockpit_panel", "example_template_clone", "example_data_table_runtime"],
+            &["component_contracts", "cockpit_components_guide", "cockpit_template_index", "template_contracts", "dsl_contracts"],
+            &["example_cockpit_panel", "example_template_clone", "example_data_table_runtime", "example_frame_layout_advanced"],
         )),
         "dataset" => Some(authoring_support(
             "Shared dataset/table/filter/query-state runtime components.",
-            &["component_contracts", "dataset_components_guide"],
-            &["example_dataset_baseline", "example_filter_reactivity", "example_data_table_runtime"],
+            &["component_contracts", "dataset_components_guide", "dsl_contracts", "workspace_config_reference"],
+            &["example_dataset_baseline", "example_filter_reactivity", "example_data_table_runtime", "example_metric_page_baseline", "example_upload_dataset_baseline"],
         )),
         "doc" => Some(authoring_support(
             "Minimal document rendering surface for markdown panels.",
-            &["component_contracts"],
+            &["component_contracts", "dsl_contracts"],
             &["example_dataset_baseline"],
         )),
         "map/maplibre" => Some(authoring_support(
             "Standalone GIS map surface driven by `mapSpec`.",
-            &["component_contracts", "cockpit_template_index"],
+            &["component_contracts", "cockpit_template_index", "template_contracts", "dsl_contracts"],
             &["example_map_baseline"],
         )),
         "mei" => Some(authoring_support(
             "Built-in text projection surface for plain/html content or metric slot rendering.",
-            &["component_contracts"],
-            &["example_template_clone"],
+            &["component_contracts", "dsl_contracts"],
+            &["example_template_clone", "example_frame_layout_advanced"],
         )),
         "sim" => Some(authoring_support(
             "Simulation scene component pack. Start from the current scene contract via `scene_ref(\"self\")`.",
-            &["component_contracts"],
+            &["component_contracts", "dsl_contracts"],
             &["example_sim_baseline"],
         )),
         _ => None,
@@ -145,8 +145,8 @@ fn template_pack_authoring_support(pack_id: &str) -> Option<AuthoringSupportDesc
     match pack_id {
         "cockpit" => Some(authoring_support(
             "Public cockpit shell and metric-card template pack for standalone workspaces.",
-            &["cockpit_template_index", "cockpit_components_guide"],
-            &["example_cockpit_panel", "example_template_clone", "example_map_baseline"],
+            &["cockpit_template_index", "template_contracts", "cockpit_components_guide", "dsl_contracts"],
+            &["example_cockpit_panel", "example_template_clone", "example_map_baseline", "example_frame_layout_advanced"],
         )),
         _ => None,
     }
