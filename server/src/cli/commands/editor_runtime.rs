@@ -2,13 +2,17 @@ use anyhow::Result;
 use mei_lang_toolchain::{
     doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
     editor_runtime_descriptor_for_package_root, scaffold_editor_runtime_tooling,
+    workspace_runtime_status_for_workspace_root,
 };
 
 use super::super::args::{
     EditorRuntimeArgs, EditorRuntimeCommand, EditorRuntimeDescribeArgs, EditorRuntimeDoctorArgs,
     EditorRuntimeScaffoldArgs,
 };
-use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
+use super::super::util::{
+    print_json_output, resolve_cli_source_root, resolve_optional_cli_source_root,
+    resolve_package_root,
+};
 
 pub fn editor_runtime_command(args: EditorRuntimeArgs) -> Result<()> {
     match args.command {
@@ -20,8 +24,13 @@ pub fn editor_runtime_command(args: EditorRuntimeArgs) -> Result<()> {
 
 fn editor_runtime_describe_command(args: EditorRuntimeDescribeArgs) -> Result<()> {
     let package_root = resolve_package_root()?;
-    let descriptor = editor_runtime_descriptor_for_package_root(&package_root);
-    print_json_output(&descriptor, args.json)
+    if let Some(source_root) = resolve_optional_cli_source_root(&package_root, args.source_root.as_ref())? {
+        let status = workspace_runtime_status_for_workspace_root(&package_root, &source_root);
+        print_json_output(&status, args.json)
+    } else {
+        let descriptor = editor_runtime_descriptor_for_package_root(&package_root);
+        print_json_output(&descriptor, args.json)
+    }
 }
 
 fn editor_runtime_doctor_command(args: EditorRuntimeDoctorArgs) -> Result<()> {

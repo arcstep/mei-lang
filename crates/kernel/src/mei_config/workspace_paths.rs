@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use super::io::load_workspace_config;
 use super::types::{
@@ -19,16 +18,8 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
     segment_root.join(MEI_WORKSPACE_CONFIG_FILENAME)
 }
 
-static MEI_PACKAGE_ROOT: OnceLock<PathBuf> = OnceLock::new();
-
-/// 由 `mei-lang-server` 启动时注入；供 stock 回退路径解析。
-pub fn set_mei_package_root(path: PathBuf) {
-    let _ = MEI_PACKAGE_ROOT.set(path);
-}
-
-fn mei_package_root() -> Option<&'static Path> {
-    MEI_PACKAGE_ROOT.get().map(|path| path.as_path())
-}
+/// 保留给 CLI 启动路径；workspace stock 不再回退到 package tree。
+pub fn set_mei_package_root(_path: PathBuf) {}
 
 fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
     let trimmed = rel.trim();
@@ -57,7 +48,7 @@ fn configured_templates_rel(cfg: &WorkspaceConfig) -> Option<&str> {
         .filter(|value| !value.trim().is_empty())
 }
 
-/// 解析组件根：`paths.components` → 物化目录 → `mei-lang/stock/components`。
+/// 解析组件根：`paths.components` → workspace-local `.stock/components`（缺失时不回退 package stock）。
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {
     let cfg = load_workspace_config(source_root);
     if let Some(rel) = configured_components_rel(&cfg) {
@@ -66,20 +57,10 @@ pub fn resolve_components_root(source_root: &Path) -> PathBuf {
             return candidate;
         }
     }
-    let materialized = resolve_workspace_path(source_root, DEFAULT_STOCK_COMPONENTS_REL);
-    if materialized.is_dir() {
-        return materialized;
-    }
-    if let Some(package_root) = mei_package_root() {
-        let stock = package_root.join("stock/components");
-        if stock.is_dir() {
-            return stock;
-        }
-    }
-    materialized
+    resolve_workspace_path(source_root, DEFAULT_STOCK_COMPONENTS_REL)
 }
 
-/// 解析模板根：`paths.templates` → 物化目录 → `mei-lang/stock/templates`。
+/// 解析模板根：`paths.templates` → workspace-local `.stock/templates`（缺失时不回退 package stock）。
 pub fn resolve_templates_root(source_root: &Path) -> PathBuf {
     let cfg = load_workspace_config(source_root);
     if let Some(rel) = configured_templates_rel(&cfg) {
@@ -88,17 +69,7 @@ pub fn resolve_templates_root(source_root: &Path) -> PathBuf {
             return candidate;
         }
     }
-    let materialized = resolve_workspace_path(source_root, DEFAULT_STOCK_TEMPLATES_REL);
-    if materialized.is_dir() {
-        return materialized;
-    }
-    if let Some(package_root) = mei_package_root() {
-        let stock = package_root.join("stock/templates");
-        if stock.is_dir() {
-            return stock;
-        }
-    }
-    materialized
+    resolve_workspace_path(source_root, DEFAULT_STOCK_TEMPLATES_REL)
 }
 
 pub fn stock_components_source(package_root: &Path) -> PathBuf {

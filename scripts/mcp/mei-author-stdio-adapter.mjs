@@ -17,9 +17,7 @@ const TOOLCHAIN_BIN_CANDIDATES = toolchainBinCandidates();
 const HOST_WEB_BIN_CANDIDATES = uniqueNonEmpty([
   process.env.MEI_HOST_WEB_BIN,
   process.env.MEI_HOST_BIN,
-  process.env.MEI_BIN,
   "mei-host-web",
-  "mei",
 ]);
 const DEFAULT_SOURCE_ROOT = process.env.MEI_SOURCE_ROOT || "";
 
@@ -50,7 +48,11 @@ async function ensureAuthorToolsLoaded() {
     return cachedTools;
   }
   if (!surfaceLoadPromise) {
-    surfaceLoadPromise = loadSurfaceDescriptor("author", TOOLCHAIN_BIN_CANDIDATES).then(
+    surfaceLoadPromise = loadSurfaceDescriptor(
+      "author",
+      TOOLCHAIN_BIN_CANDIDATES,
+      DEFAULT_SOURCE_ROOT,
+    ).then(
       ({ descriptor }) => {
         cachedTools = descriptor.tools.map(catalogToolToMcpTool);
         cachedToolNames = new Set(cachedTools.map((tool) => tool.name));
@@ -73,7 +75,7 @@ const AUTHOR_TOOL_COMMAND_BUILDERS = new Map([
   [
     "mei_author_knowledge",
     (args) => {
-      const cli = ["knowledge", "--surface", "editor"];
+      const cli = ["knowledge", "--surface", "author"];
       const topic = optionalString(args.topic);
       if (topic) {
         cli.push("--topic", topic);
@@ -89,14 +91,14 @@ const AUTHOR_TOOL_COMMAND_BUILDERS = new Map([
     },
   ],
   [
-    "mei_editor_runtime_describe",
+    "mei_author_runtime_describe",
     () => ({
       binCandidates: TOOLCHAIN_BIN_CANDIDATES,
       cli: ["editor-runtime", "describe", "--json"],
     }),
   ],
   [
-    "mei_editor_runtime_doctor",
+    "mei_author_runtime_doctor",
     () => ({
       binCandidates: TOOLCHAIN_BIN_CANDIDATES,
       cli: ["editor-runtime", "doctor", "--json"],
@@ -297,7 +299,7 @@ async function handleMessage(msg) {
       protocolVersion: "2024-11-05",
       capabilities: { tools: {} },
       serverInfo: {
-        name: "mei-editor-stdio-adapter",
+        name: "mei-author-stdio-adapter",
         version: "0.2.0",
       },
     });

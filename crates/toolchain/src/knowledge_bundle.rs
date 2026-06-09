@@ -15,6 +15,7 @@ pub struct KnowledgeAssetDescriptor {
     pub kind: String,
     pub title: String,
     pub relative_path: String,
+    pub install_relative_path: String,
     pub summary: String,
     pub injection_roles: Vec<String>,
 }
@@ -45,26 +46,28 @@ struct AssetSeed {
     kind: &'static str,
     title: &'static str,
     rel_path: &'static str,
+    install_rel_path: &'static str,
     summary: &'static str,
     injection_roles: &'static [&'static str],
 }
 
 fn normalize_surface(surface: &str) -> Option<&'static str> {
     match surface.trim().to_ascii_lowercase().as_str() {
-        "author" | "editor" => Some("editor"),
+        "author" => Some("author"),
         "access" => Some("access"),
         _ => None,
     }
 }
 
-fn editor_assets() -> Vec<AssetSeed> {
+fn author_assets() -> Vec<AssetSeed> {
     vec![
         AssetSeed {
             id: "meilang_author_skill",
             topic: "workflow",
             kind: "skill_entry",
             title: "MeiLang Author Skill",
-            rel_path: "guides/claude-skills/SKILL.md",
+            rel_path: "guides/author-skills/SKILL.md",
+            install_rel_path: ".mei/skills/meilang-author/SKILL.md",
             summary: "Authoring entrypoint for external AI tools.",
             injection_roles: &["system", "workflow"],
         },
@@ -74,7 +77,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             kind: "profile",
             title: "Author Profile",
             rel_path: "guides/author-profile.md",
-            summary: "Canonical source-first authoring profile for packaged editor runtime consumers.",
+            install_rel_path: ".mei/profiles/author.md",
+            summary: "Canonical source-first authoring profile for packaged runtime consumers.",
             injection_roles: &["system", "profile"],
         },
         AssetSeed {
@@ -82,7 +86,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             topic: "workflow",
             kind: "guide",
             title: "Authoring Guide",
-            rel_path: "guides/claude-skills/authoring.md",
+            rel_path: "guides/author-skills/authoring.md",
+            install_rel_path: ".mei/skills/meilang-author/authoring.md",
             summary: "Source-first authoring workflow and editing boundaries.",
             injection_roles: &["workflow", "repair"],
         },
@@ -91,7 +96,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             topic: "syntax",
             kind: "reference",
             title: "Syntax Rules",
-            rel_path: "guides/claude-skills/syntax-rules.md",
+            rel_path: "guides/author-skills/syntax-rules.md",
+            install_rel_path: ".mei/skills/meilang-author/syntax-rules.md",
             summary: "Stable MeiLang syntax and current authoring boundaries.",
             injection_roles: &["syntax", "validation"],
         },
@@ -100,7 +106,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             topic: "components",
             kind: "reference",
             title: "Components Reference",
-            rel_path: "guides/claude-skills/components-reference.md",
+            rel_path: "guides/author-skills/components-reference.md",
+            install_rel_path: ".mei/skills/meilang-author/components-reference.md",
             summary: "Known component ids and usage patterns.",
             injection_roles: &["components", "completion"],
         },
@@ -109,17 +116,19 @@ fn editor_assets() -> Vec<AssetSeed> {
             topic: "context",
             kind: "guide",
             title: "Author Context",
-            rel_path: "guides/claude-skills/context.md",
+            rel_path: "guides/author-skills/context.md",
+            install_rel_path: ".mei/skills/meilang-author/context.md",
             summary: "Reading order and contextual authoring hints.",
             injection_roles: &["workflow", "context"],
         },
         AssetSeed {
-            id: "editor_runtime_overview",
+            id: "author_runtime_overview",
             topic: "bootstrap",
             kind: "guide",
-            title: "Editor Runtime Overview",
+            title: "Author Runtime Overview",
             rel_path: "knowledge/editor-runtime/authoring-overview.md",
-            summary: "Standalone editor runtime overview for external tools.",
+            install_rel_path: ".mei/knowledge/author/authoring-overview.md",
+            summary: "Standalone author runtime overview for external tools.",
             injection_roles: &["system", "bootstrap"],
         },
         AssetSeed {
@@ -128,6 +137,7 @@ fn editor_assets() -> Vec<AssetSeed> {
             kind: "guide",
             title: "Workflow Recipes",
             rel_path: "knowledge/editor-runtime/workflow-recipes.md",
+            install_rel_path: ".mei/knowledge/author/workflow-recipes.md",
             summary: "Recommended authoring recipes for external IDE and agent tools.",
             injection_roles: &["workflow", "recipes"],
         },
@@ -137,6 +147,7 @@ fn editor_assets() -> Vec<AssetSeed> {
             kind: "guide",
             title: "Build And Debug Ops",
             rel_path: "knowledge/editor-runtime/build-debug-ops.md",
+            install_rel_path: ".mei/knowledge/author/build-debug-ops.md",
             summary: "Build, debug, materialize, and doctor command recipes.",
             injection_roles: &["ops", "debug"],
         },
@@ -146,7 +157,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             kind: "example",
             title: "Standalone Minimal App",
             rel_path: "knowledge/editor-runtime/minimal-app-main.mei",
-            summary: "Minimal standalone MeiLang app entrypoint shipped with the editor runtime bundle.",
+            install_rel_path: ".mei/knowledge/author/minimal-app-main.mei",
+            summary: "Minimal standalone MeiLang app entrypoint shipped with the author runtime bundle.",
             injection_roles: &["examples", "bootstrap"],
         },
         AssetSeed {
@@ -155,7 +167,8 @@ fn editor_assets() -> Vec<AssetSeed> {
             kind: "example",
             title: "Standalone Minimal Home Scene",
             rel_path: "knowledge/editor-runtime/minimal-app-home.mei",
-            summary: "Minimal standalone MeiLang scene file shipped with the editor runtime bundle.",
+            install_rel_path: ".mei/knowledge/author/minimal-app-home.mei",
+            summary: "Minimal standalone MeiLang scene file shipped with the author runtime bundle.",
             injection_roles: &["examples", "bootstrap"],
         },
     ]
@@ -168,6 +181,7 @@ fn access_assets() -> Vec<AssetSeed> {
         kind: "guide",
         title: "Access Profile",
         rel_path: "guides/access-profile.md",
+        install_rel_path: ".mei/profiles/access.md",
         summary: "World-first access profile guidance for runtime-side tools.",
         injection_roles: &["system", "world"],
     }]
@@ -182,6 +196,7 @@ fn build_assets(surface: &str, seeds: Vec<AssetSeed>) -> Vec<KnowledgeAssetDescr
             kind: seed.kind.to_string(),
             title: seed.title.to_string(),
             relative_path: seed.rel_path.to_string(),
+            install_relative_path: seed.install_rel_path.to_string(),
             summary: seed.summary.to_string(),
             injection_roles: seed.injection_roles.iter().map(|item| (*item).to_string()).collect(),
         })
@@ -194,7 +209,7 @@ pub fn knowledge_bundle_descriptor_for_package_root(
 ) -> Option<KnowledgeBundleDescriptor> {
     let surface = normalize_surface(surface)?;
     let assets = match surface {
-        "editor" => build_assets(surface, editor_assets()),
+        "author" => build_assets(surface, author_assets()),
         "access" => build_assets(surface, access_assets()),
         _ => Vec::new(),
     };
@@ -214,7 +229,7 @@ pub fn knowledge_bundle_descriptor_for_package_root(
         bundle_id: format!("meilang-{surface}-knowledge"),
         surface: surface.to_string(),
         package_root: package_root.display().to_string(),
-        install_dir_rel: format!(".mei/knowledge/{surface}"),
+        install_dir_rel: ".mei".to_string(),
         primary_entry_ids,
         available_topics,
         assets,
@@ -236,6 +251,34 @@ fn export_asset(
         } else {
             None
         }
+    } else {
+        None
+    };
+    Ok(KnowledgeAssetContent {
+        descriptor: asset.clone(),
+        content,
+    })
+}
+
+fn export_asset_from_workspace(
+    workspace_root: &Path,
+    asset: &KnowledgeAssetDescriptor,
+    include_content: bool,
+) -> Result<KnowledgeAssetContent> {
+    let install_path = workspace_root.join(&asset.install_relative_path);
+    let content = if include_content {
+        if !install_path.is_file() {
+            anyhow::bail!(
+                "missing workspace knowledge asset `{}` at {}; run `mei-toolchain workspace runtime install --source-root {}` first",
+                asset.id,
+                install_path.display(),
+                workspace_root.display()
+            );
+        }
+        Some(
+            fs::read_to_string(&install_path)
+                .with_context(|| format!("failed to read {}", install_path.display()))?,
+        )
     } else {
         None
     };
@@ -270,6 +313,40 @@ pub fn export_knowledge_bundle_for_package_root(
         .collect::<Result<Vec<_>>>()?;
     Ok(json!({
         "schema_version": KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+        "descriptor": descriptor,
+        "topic": topic,
+        "include_content": include_content,
+        "assets": selected,
+    }))
+}
+
+pub fn export_knowledge_bundle_for_workspace_root(
+    workspace_root: &Path,
+    package_root: &Path,
+    surface: &str,
+    topic: Option<&str>,
+    include_content: bool,
+) -> Result<serde_json::Value> {
+    let descriptor = knowledge_bundle_descriptor_for_package_root(package_root, surface)
+        .ok_or_else(|| anyhow::anyhow!("unsupported knowledge surface `{surface}`"))?;
+    let topic = topic
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string);
+    let selected = descriptor
+        .assets
+        .iter()
+        .filter(|asset| match topic.as_deref() {
+            Some(topic_id) => {
+                asset.id == topic_id || asset.kind == topic_id || asset.topic == topic_id
+            }
+            None => true,
+        })
+        .map(|asset| export_asset_from_workspace(workspace_root, asset, include_content))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(json!({
+        "schema_version": KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+        "workspace_root": workspace_root.display().to_string(),
         "descriptor": descriptor,
         "topic": topic,
         "include_content": include_content,

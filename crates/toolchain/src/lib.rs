@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod access_query;
 mod analysis_contract;
 mod artifact_store;
@@ -27,7 +29,8 @@ pub use capability_catalog::{
     access_host_bound_query_tools, access_host_bound_tool_descriptors,
     access_host_bound_tool_names, access_profile_descriptor, ai_profile_descriptor,
     ai_profile_policy_lines, author_profile_descriptor, capability_catalog_descriptor,
-    capability_catalog_descriptor_for_package_root, mcp_surface_descriptor,
+    capability_catalog_descriptor_for_package_root, capability_catalog_descriptor_for_workspace_root,
+    mcp_surface_descriptor, mcp_surface_descriptor_for_workspace_root,
     meilang_author_skill_package, AiProfileDescriptor, SkillPackageDescriptor,
     CAPABILITY_CATALOG_SCHEMA_VERSION, MCP_SURFACE_SCHEMA_VERSION,
 };
@@ -42,15 +45,15 @@ pub use editor_runtime::{
     doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
     editor_runtime_descriptor_for_package_root, install_editor_runtime_support_files,
     scaffold_editor_runtime_tooling, workspace_runtime_manifest_for_package_root,
-    workspace_runtime_version_descriptor, EditorRuntimeCheck, EditorRuntimeDescriptor,
-    EditorRuntimeDoctorReport, EditorRuntimeInstallReport, EditorRuntimePathDescriptor,
-    EditorRuntimeScaffoldFile, EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor,
-    InstalledRuntimeDescriptor, RuntimeCompatibilityDescriptor,
-    RuntimeManifestArtifactDescriptor, RuntimeManifestContentDescriptor,
-    RuntimeManifestProvenance, RuntimeSourceRevision, WorkspaceRuntimeManifest,
-    WorkspaceRuntimeVersionDescriptor, EDITOR_RUNTIME_SCHEMA_VERSION,
-    RUNTIME_BUNDLE_SCHEMA_VERSION, WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION,
-    WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
+    workspace_runtime_status_for_workspace_root, workspace_runtime_version_descriptor,
+    EditorRuntimeCheck, EditorRuntimeDescriptor, EditorRuntimeDoctorReport,
+    EditorRuntimeInstallReport, EditorRuntimePathDescriptor, EditorRuntimeScaffoldFile,
+    EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor, InstalledRuntimeDescriptor,
+    RuntimeCompatibilityDescriptor, RuntimeManifestArtifactDescriptor,
+    RuntimeManifestContentDescriptor, RuntimeManifestProvenance, RuntimeSourceRevision,
+    WorkspaceRuntimeManifest, WorkspaceRuntimeStatusReport, WorkspaceRuntimeVersionDescriptor,
+    EDITOR_RUNTIME_SCHEMA_VERSION, RUNTIME_BUNDLE_SCHEMA_VERSION,
+    WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION, WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
 };
 pub use export::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,
@@ -58,9 +61,9 @@ pub use export::{
     HEADLESS_EXPORT_SCHEMA_VERSION,
 };
 pub use knowledge_bundle::{
-    export_knowledge_bundle_for_package_root, knowledge_bundle_descriptor_for_package_root,
-    KnowledgeAssetContent, KnowledgeAssetDescriptor, KnowledgeBundleDescriptor,
-    KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
+    export_knowledge_bundle_for_package_root, export_knowledge_bundle_for_workspace_root,
+    knowledge_bundle_descriptor_for_package_root, KnowledgeAssetContent,
+    KnowledgeAssetDescriptor, KnowledgeBundleDescriptor, KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
 };
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use platform_assets::{

@@ -62,7 +62,7 @@ async function main() {
   const { descriptor: catalogSurface } = await loadSurfaceDescriptor("author", binCandidates);
   const catalogNames = catalogSurface.tools.map((tool) => tool.name).sort();
 
-  const child = spawn(process.execPath, ["./scripts/mcp/mei-editor-stdio-adapter.mjs"], {
+  const child = spawn(process.execPath, ["./scripts/mcp/mei-author-stdio-adapter.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: process.env,
@@ -93,7 +93,7 @@ async function main() {
       },
     });
     const init = await waitForResponse(queue, 1);
-    assert.equal(init.result?.serverInfo?.name, "mei-editor-stdio-adapter");
+    assert.equal(init.result?.serverInfo?.name, "mei-author-stdio-adapter");
 
     send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
 
@@ -108,7 +108,8 @@ async function main() {
     assert.ok(names.includes("mei_workspace_summary"));
     assert.ok(names.includes("mei_inspect_summary"));
     assert.ok(names.includes("mei_author_knowledge"));
-    assert.ok(names.includes("mei_editor_runtime_describe"));
+    assert.ok(names.includes("mei_author_runtime_describe"));
+    assert.ok(!names.includes("mei_editor_runtime_describe"));
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => {
@@ -120,7 +121,7 @@ async function main() {
   if (stderr.trim()) {
     process.stderr.write(stderr);
   }
-  process.stdout.write("editor MCP adapter smoke passed\n");
+  process.stdout.write("author MCP adapter smoke passed\n");
 }
 
 main().catch((error) => {

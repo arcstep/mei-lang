@@ -35,7 +35,6 @@ pub fn materialize_workspace_stock(
 ) -> Result<MaterializeReport> {
     fs::create_dir_all(source_root.join(WORKSPACE_HOSTS_DIR_REL))
         .context("create workspace host-state dir")?;
-    crate::install_editor_runtime_support_files(source_root, package_root, true)?;
     let components = materialize_tree(
         &stock_components_source(package_root),
         &source_root.join(DEFAULT_STOCK_COMPONENTS_REL),
@@ -142,8 +141,6 @@ pub fn init_workspace_profile(
     }
     if materialize {
         materialize_workspace_stock(&source_root, package_root, false)?;
-    } else {
-        crate::install_editor_runtime_support_files(&source_root, package_root, true)?;
     }
     Ok(source_root)
 }

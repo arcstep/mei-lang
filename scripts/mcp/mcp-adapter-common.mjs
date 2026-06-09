@@ -37,22 +37,24 @@ export function toolchainBinCandidates() {
     process.env.MEI_TOOLCHAIN_BIN,
     "./target/debug/mei-toolchain",
     "mei-toolchain",
-    process.env.MEI_BIN,
-    "mei",
   ]);
 }
 
-export async function loadSurfaceDescriptor(surface, binCandidates) {
+export async function loadSurfaceDescriptor(surface, binCandidates, sourceRoot = "") {
   const missingBins = [];
   for (const bin of binCandidates) {
     try {
-      const descriptor = await runSingleMei(bin, [
+      const cli = [
         "mcp",
         "describe",
         "--surface",
         surface,
-        "--json",
-      ]);
+      ];
+      if (optionalString(sourceRoot)) {
+        cli.push("--source-root", optionalString(sourceRoot));
+      }
+      cli.push("--json");
+      const descriptor = await runSingleMei(bin, cli);
       if (!descriptor || typeof descriptor !== "object") {
         throw new Error(`invalid MCP surface descriptor from ${bin}`);
       }

@@ -50,7 +50,7 @@ pub fn meilang_author_skill_package() -> SkillPackageDescriptor {
         id: "meilang-author".to_string(),
         name: "MeiLang Author".to_string(),
         description: "Canonical MeiLang authoring skill package exported from the toolchain capability catalog.".to_string(),
-        source_dir_rel: "guides/claude-skills".to_string(),
+        source_dir_rel: "guides/author-skills".to_string(),
         install_dir_rel: ".mei/skills/meilang-author".to_string(),
         entry_file: "SKILL.md".to_string(),
         companion_priority: vec![
@@ -67,7 +67,7 @@ pub fn author_profile_descriptor() -> AiProfileDescriptor {
         id: "author".to_string(),
         name: "MeiLang Author".to_string(),
         description: "Source-first authoring profile: prioritize `.mei` source, syntax knowledge, examples, diagnostics, and external dev tools over host-side runtime callbacks.".to_string(),
-        aliases: vec!["editor".to_string()],
+        aliases: Vec::new(),
         context_strategy: "source_first".to_string(),
         authority_chain: vec![
             "current_mei_source".to_string(),
@@ -90,7 +90,7 @@ pub fn author_profile_descriptor() -> AiProfileDescriptor {
             "use_inspect_or_query_only_when_runtime_facts_are_needed".to_string(),
         ],
         preferred_surface: "author".to_string(),
-        knowledge_surface: "editor".to_string(),
+        knowledge_surface: "author".to_string(),
         skill_package_id: Some("meilang-author".to_string()),
         guidance_file_rel: Some("guides/author-profile.md".to_string()),
         guidance_bundle_asset_id: Some("author_profile".to_string()),
@@ -135,7 +135,7 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
 
 pub fn ai_profile_descriptor(profile_id: &str) -> Option<AiProfileDescriptor> {
     match profile_id.trim().to_ascii_lowercase().as_str() {
-        "author" | "editor" => Some(author_profile_descriptor()),
+        "author" => Some(author_profile_descriptor()),
         "access" => Some(access_profile_descriptor()),
         _ => None,
     }
@@ -154,9 +154,6 @@ pub fn ai_profile_policy_lines(profile_id: &str) -> Vec<String> {
             "Primary inputs: {}.",
             profile.primary_inputs.join(", ")
         ));
-    }
-    if !profile.aliases.is_empty() {
-        lines.push(format!("Compatibility aliases: {}.", profile.aliases.join(", ")));
     }
     lines.push(format!(
         "Preferred surface: `{}`; knowledge surface: `{}`; context strategy: `{}`.",
@@ -209,10 +206,14 @@ pub fn capability_catalog_descriptor() -> Value {
     ))
 }
 
-pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Value {
+fn capability_catalog_descriptor_for_roots(
+    package_root: &Path,
+    workspace_root: Option<&Path>,
+) -> Value {
     json!({
         "schema_version": CAPABILITY_CATALOG_SCHEMA_VERSION,
         "toolchain_role": "canonical_truth",
+        "workspace_root": workspace_root.map(|path| path.display().to_string()),
         "principles": [
             "toolchain_is_canonical_truth",
             "host_is_canonical_consumer",
@@ -229,8 +230,8 @@ pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Va
             meilang_author_skill_package()
         ],
         "knowledge_bundles": [
-            knowledge_bundle_descriptor_for_package_root(package_root, "editor")
-                .expect("editor knowledge bundle"),
+            knowledge_bundle_descriptor_for_package_root(package_root, "author")
+                .expect("author knowledge bundle"),
             knowledge_bundle_descriptor_for_package_root(package_root, "access")
                 .expect("access knowledge bundle")
         ],
@@ -239,10 +240,23 @@ pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Va
             host_requirements_descriptor("mei-host-web").expect("mei-host-web requirements")
         ],
         "mcp_surfaces": [
-            mcp_surface_descriptor("author").expect("author surface"),
-            mcp_surface_descriptor("access").expect("access surface")
+            mcp_surface_descriptor_for_roots("author", package_root, workspace_root)
+                .expect("author surface"),
+            mcp_surface_descriptor_for_roots("access", package_root, workspace_root)
+                .expect("access surface")
         ]
     })
+}
+
+pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Value {
+    capability_catalog_descriptor_for_roots(package_root, None)
+}
+
+pub fn capability_catalog_descriptor_for_workspace_root(
+    workspace_root: &Path,
+    package_root: &Path,
+) -> Value {
+    capability_catalog_descriptor_for_roots(package_root, Some(workspace_root))
 }
 
 fn access_host_overlay_descriptor() -> Value {
@@ -263,34 +277,67 @@ fn access_host_overlay_descriptor() -> Value {
     })
 }
 
-pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
+fn workspace_runtime_bin_path(workspace_root: &Path, file_name: &str) -> String {
+    workspace_root
+        .join(".mei/runtime/bin")
+        .join(file_name)
+        .display()
+        .to_string()
+}
+
+fn mcp_surface_descriptor_for_roots(
+    surface: &str,
+    package_root: &Path,
+    workspace_root: Option<&Path>,
+) -> Option<Value> {
+    let author_adapter_reference = workspace_root
+        .map(|root| workspace_runtime_bin_path(root, "author-mcp-adapter"))
+        .unwrap_or_else(|| "scripts/mcp/mei-author-stdio-adapter.mjs".to_string());
+    let author_adapter_entrypoint = if workspace_root.is_some() {
+        format!("node {}", author_adapter_reference)
+    } else {
+        "node ./scripts/mcp/mei-author-stdio-adapter.mjs".to_string()
+    };
+    let access_adapter_reference = workspace_root
+        .map(|root| workspace_runtime_bin_path(root, "access-mcp-adapter"))
+        .unwrap_or_else(|| "scripts/mcp/mei-access-stdio-adapter.mjs".to_string());
+    let access_adapter_entrypoint = if workspace_root.is_some() {
+        format!("node {}", access_adapter_reference)
+    } else {
+        "node ./scripts/mcp/mei-access-stdio-adapter.mjs".to_string()
+    };
     match surface.trim().to_ascii_lowercase().as_str() {
-        "editor" | "author" => Some(json!({
+        "author" => Some(json!({
             "schema_version": MCP_SURFACE_SCHEMA_VERSION,
             "surface": "author",
-            "surface_aliases": ["editor"],
             "profile_id": "author",
             "profile": "author_readonly_minimal_v1",
+            "workspace_root": workspace_root.map(|path| path.display().to_string()),
             "transport": {
                 "status": "adapter_ready",
-                "recommended": "run `npm run mcp:editor-adapter` for stdio MCP and `npm run test:mcp:editor-adapter` for smoke validation"
+                "recommended": if workspace_root.is_some() {
+                    "run the workspace-local author MCP adapter under `.mei/runtime/bin/` and keep `MEI_SOURCE_ROOT` pointed at the workspace root"
+                } else {
+                    "run `npm run mcp:author-adapter` for stdio MCP and `npm run test:mcp:author-adapter` for smoke validation"
+                }
             },
             "adapter": {
-                "reference": "scripts/mcp/mei-editor-stdio-adapter.mjs",
-                "entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs",
-                "smoke_test": "npm run test:mcp:editor-adapter"
+                "reference": author_adapter_reference,
+                "entrypoint": author_adapter_entrypoint,
+                "smoke_test": "npm run test:mcp:author-adapter"
             },
             "runtime": {
                 "cli_entrypoint": "mei-toolchain",
-                "compat_cli_entrypoint": "mei",
                 "lsp_entrypoint": "mei-lsp (stdio)",
-                "adapter_entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs"
+                "adapter_entrypoint": author_adapter_entrypoint,
+                "catalog_root": workspace_root.map(|path| path.join(".mei/catalog").display().to_string()),
+                "knowledge_root": workspace_root.map(|path| path.join(".mei/knowledge").display().to_string())
             },
             "skill_package": meilang_author_skill_package(),
             "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(
-                Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path(),
-                "editor"
-            ).expect("editor knowledge bundle"),
+                package_root,
+                "author"
+            ).expect("author knowledge bundle"),
             "authoring_mode": {
                 "strategy": "source_first",
                 "guidance": [
@@ -304,7 +351,7 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     "name": "mei_author_knowledge",
                     "description": "Return packaged authoring docs, rules, and examples for standalone editor runtime consumers.",
                     "capability_origin": "toolchain",
-                    "backed_by": "mei-toolchain knowledge --surface editor [--topic <topic>] [--include-content] --json",
+                    "backed_by": "mei-toolchain knowledge --surface author [--topic <topic>] [--include-content] --json",
                     "input_schema": {
                         "type": "object",
                         "properties": {
@@ -315,8 +362,8 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     }
                 },
                 {
-                    "name": "mei_editor_runtime_describe",
-                    "description": "Describe the standalone MeiLang editor runtime layout, paths, and tool scaffolding contracts.",
+                    "name": "mei_author_runtime_describe",
+                    "description": "Describe the standalone MeiLang author runtime layout, paths, and tool scaffolding contracts.",
                     "capability_origin": "toolchain",
                     "backed_by": "mei-toolchain editor-runtime describe --json",
                     "input_schema": {
@@ -326,8 +373,8 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                     }
                 },
                 {
-                    "name": "mei_editor_runtime_doctor",
-                    "description": "Run readonly checks for the standalone editor runtime package layout and bundled assets.",
+                    "name": "mei_author_runtime_doctor",
+                    "description": "Run readonly checks for the standalone author runtime package layout and bundled assets.",
                     "capability_origin": "toolchain",
                     "backed_by": "mei-toolchain editor-runtime doctor --json",
                     "input_schema": {
@@ -530,7 +577,7 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
             ],
             "write_policy": {
                 "default": "read_only",
-                "note": "Editor-side MCP currently wraps semantic read/check/query surfaces only; file writes stay in the external dev tool."
+                "note": "Author-side MCP currently wraps semantic read/check/query surfaces only; file writes stay in the external dev tool."
             },
             "host_contract": host_runtime_contract_descriptor()
         })),
@@ -539,13 +586,18 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
             "surface": "access",
             "profile_id": "access",
             "profile": "access_readonly_world_v1",
+            "workspace_root": workspace_root.map(|path| path.display().to_string()),
             "transport": {
                 "status": "adapter_ready",
-                "recommended": "run `npm run mcp:access-adapter` for stdio MCP; host-side agents should bind the same access surface tools after scope/auth is enforced"
+                "recommended": if workspace_root.is_some() {
+                    "run the workspace-local access MCP adapter under `.mei/runtime/bin/`; host-side agents should bind the same access tools after scope/auth is enforced"
+                } else {
+                    "run `npm run mcp:access-adapter` for stdio MCP; host-side agents should bind the same access surface tools after scope/auth is enforced"
+                }
             },
             "adapter": {
-                "reference": "scripts/mcp/mei-access-stdio-adapter.mjs",
-                "entrypoint": "node ./scripts/mcp/mei-access-stdio-adapter.mjs",
+                "reference": access_adapter_reference,
+                "entrypoint": access_adapter_entrypoint,
                 "smoke_test": "npm run test:mcp:access-adapter"
             },
             "context_ir": {
@@ -702,6 +754,22 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
         })),
         _ => None,
     }
+}
+
+pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
+    mcp_surface_descriptor_for_roots(
+        surface,
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path(),
+        None,
+    )
+}
+
+pub fn mcp_surface_descriptor_for_workspace_root(
+    workspace_root: &Path,
+    package_root: &Path,
+    surface: &str,
+) -> Option<Value> {
+    mcp_surface_descriptor_for_roots(surface, package_root, Some(workspace_root))
 }
 
 pub fn access_host_bound_tool_descriptors() -> Vec<Value> {

@@ -42,7 +42,11 @@ async function ensureAccessToolsLoaded() {
     return cachedTools;
   }
   if (!surfaceLoadPromise) {
-    surfaceLoadPromise = loadSurfaceDescriptor("access", TOOLCHAIN_BIN_CANDIDATES).then(
+    surfaceLoadPromise = loadSurfaceDescriptor(
+      "access",
+      TOOLCHAIN_BIN_CANDIDATES,
+      DEFAULT_SOURCE_ROOT,
+    ).then(
       ({ descriptor }) => {
         cachedTools = descriptor.tools.map(catalogToolToMcpTool);
         cachedToolNames = new Set(cachedTools.map((tool) => tool.name));

@@ -42,7 +42,7 @@ MeiLang 是 scene-first 作者态 DSL（`scene / world / flow / frame`）。
 - `mei-toolchain query metric --app <app> --id <dataset_id> --scene <scene> --json`
 - `mei-toolchain runtime peek --app <app> --scene <scene> --json`
 - `mei-toolchain mcp describe --surface author --json`
-- `mei-toolchain mcp describe --surface editor --json`
+- `mei-toolchain mcp describe --surface author --json`
 
 ## 触发
 

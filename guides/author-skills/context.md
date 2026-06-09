@@ -8,7 +8,7 @@
 2. 对应 example
 3. `syntax-rules.md`、`components-reference.md`
 4. `author-profile.md`、`knowledge/editor-runtime/*.md`
-5. `mei-toolchain knowledge --surface editor --include-content --json`
+5. `mei-toolchain knowledge --surface author --include-content --json`
 6. 必要时再读相关 component / 宿主代码
 
 ## 读取原则

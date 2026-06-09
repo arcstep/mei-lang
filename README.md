@@ -105,21 +105,23 @@ cargo run -p mei-lang-server --bin mei-toolchain -- query metric --app spbjw --i
 cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --app spbjw --json
 
 # 机器可读 MCP surface 描述
-cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface editor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface author --json
 cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface access --json
 
 # host runtime contract 描述
 cargo run -p mei-lang-server --bin mei-host-web -- host describe --json
 
-# editor MCP adapter（stdio）
-npm run mcp:editor-adapter
-npm run test:mcp:editor-adapter
+# author MCP adapter（stdio）
+npm run mcp:author-adapter
+npm run test:mcp:author-adapter
 
-# standalone editor runtime
+# standalone author runtime
 cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime describe --json
 cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime doctor --json
-cargo run -p mei-lang-server --bin mei-toolchain -- knowledge --surface editor --include-content --json
-cargo run -p mei-lang-server --bin mei-toolchain -- workspace init --standalone --source-root /tmp/mei-demo --materialize --tool cursor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- knowledge --surface author --include-content --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace init --standalone --source-root /tmp/mei-demo --materialize --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace runtime install --source-root /tmp/mei-demo --json
+cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime scaffold --target-root /tmp/mei-demo --tool cursor --json
 cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app hello --source-root /tmp/mei-demo --scaffold --tool codex --json
 ```
 

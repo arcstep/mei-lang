@@ -20,13 +20,13 @@
 ```bash
 mei-toolchain mcp catalog --json
 mei-toolchain mcp describe --surface author --json
-mei-toolchain knowledge --surface editor --json
+mei-toolchain knowledge --surface author --json
 ```
 
 兼容入口仍接受：
 
 ```bash
-mei-toolchain mcp describe --surface editor --json
+mei-toolchain mcp describe --surface author --json
 ```
 
 但 `editor` 只是兼容别名，canonical profile id 仍是 `author`。
@@ -36,7 +36,7 @@ mei-toolchain mcp describe --surface editor --json
 作者态优先依赖这些输入：
 
 1. 当前目标 `.mei` 源码
-2. `guides/claude-skills/SKILL.md`
+2. `guides/author-skills/SKILL.md`
 3. `authoring.md`
 4. `syntax-rules.md`
 5. `components-reference.md`

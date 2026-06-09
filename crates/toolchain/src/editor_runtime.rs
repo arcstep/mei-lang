@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use chrono::{SecondsFormat, Utc};
 use serde::Serialize;
 use serde_json::Value;
+use walkdir::WalkDir;
 
 use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
 use crate::knowledge_bundle_descriptor_for_package_root;
@@ -88,6 +89,22 @@ pub struct EditorRuntimeInstallReport {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceRuntimeStatusReport {
+    pub schema_version: String,
+    pub source_root: String,
+    pub runtime_root: String,
+    pub package_root: String,
+    pub installed: bool,
+    pub fallback_to_source_tree: bool,
+    pub version_path: String,
+    pub manifest_path: String,
+    pub catalog_path: String,
+    pub author_skill_dir: String,
+    pub author_profile_path: String,
+    pub doctor: EditorRuntimeDoctorReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RuntimeSourceRevision {
     pub git_commit: String,
     pub git_commit_short: String,
@@ -121,14 +138,13 @@ pub struct WorkspaceRuntimeVersionDescriptor {
 pub struct RuntimeManifestArtifactDescriptor {
     pub mei_toolchain: String,
     pub mei_lsp: String,
-    pub compat_bin: String,
-    pub editor_mcp_adapter: String,
+    pub author_mcp_adapter: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeManifestContentDescriptor {
     pub capability_catalog: String,
-    pub editor_surface: String,
+    pub author_surface: String,
     pub knowledge_path: String,
     pub platform_assets_path: String,
     pub tooling_templates_path: String,
@@ -155,6 +171,34 @@ pub struct WorkspaceRuntimeManifest {
     pub provenance: RuntimeManifestProvenance,
 }
 
+fn workspace_mei_root(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(".mei")
+}
+
+fn workspace_runtime_root(workspace_root: &Path) -> PathBuf {
+    workspace_mei_root(workspace_root).join("runtime")
+}
+
+fn workspace_runtime_bin_dir(workspace_root: &Path) -> PathBuf {
+    workspace_runtime_root(workspace_root).join("bin")
+}
+
+fn workspace_catalog_dir(workspace_root: &Path) -> PathBuf {
+    workspace_mei_root(workspace_root).join("catalog")
+}
+
+fn workspace_profiles_dir(workspace_root: &Path) -> PathBuf {
+    workspace_mei_root(workspace_root).join("profiles")
+}
+
+fn workspace_knowledge_dir(workspace_root: &Path) -> PathBuf {
+    workspace_mei_root(workspace_root).join("knowledge")
+}
+
+fn workspace_author_skill_dir(workspace_root: &Path) -> PathBuf {
+    workspace_root.join(crate::meilang_author_skill_package().install_dir_rel)
+}
+
 fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
     vec![
         EditorRuntimePathDescriptor {
@@ -169,14 +213,9 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
             purpose: "Language server entrypoint for IDE integrations.".to_string(),
         },
         EditorRuntimePathDescriptor {
-            id: "compat_bin".to_string(),
-            rel_path: "bin/mei".to_string(),
-            purpose: "Compatibility entrypoint for legacy consumers.".to_string(),
-        },
-        EditorRuntimePathDescriptor {
-            id: "editor_mcp_adapter".to_string(),
-            rel_path: "bin/editor-mcp-adapter".to_string(),
-            purpose: "stdio MCP adapter for editor-side AI tools.".to_string(),
+            id: "author_mcp_adapter".to_string(),
+            rel_path: "bin/author-mcp-adapter".to_string(),
+            purpose: "stdio MCP adapter for author-side AI tools.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "capability_catalog".to_string(),
@@ -184,13 +223,13 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
             purpose: "Single-source capability catalog projection.".to_string(),
         },
         EditorRuntimePathDescriptor {
-            id: "editor_surface".to_string(),
-            rel_path: "share/mei/catalog/editor-surface.json".to_string(),
-            purpose: "Editor MCP surface descriptor.".to_string(),
+            id: "author_surface".to_string(),
+            rel_path: "share/mei/catalog/author-surface.json".to_string(),
+            purpose: "Author MCP surface descriptor.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "knowledge_bundle".to_string(),
-            rel_path: "share/mei/knowledge/editor".to_string(),
+            rel_path: "share/mei/knowledge/author".to_string(),
             purpose: "Authoring knowledge bundle: skill, docs, examples, recipes.".to_string(),
         },
         EditorRuntimePathDescriptor {
@@ -209,9 +248,9 @@ fn declared_layout() -> Vec<EditorRuntimePathDescriptor> {
 fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
     vec![
         EditorRuntimePathDescriptor {
-            id: "editor_mcp_adapter".to_string(),
-            rel_path: "scripts/mcp/mei-editor-stdio-adapter.mjs".to_string(),
-            purpose: "Current source-backed editor MCP adapter.".to_string(),
+            id: "author_mcp_adapter".to_string(),
+            rel_path: "scripts/mcp/mei-author-stdio-adapter.mjs".to_string(),
+            purpose: "Current source-backed author MCP adapter.".to_string(),
         },
         EditorRuntimePathDescriptor {
             id: "access_mcp_adapter".to_string(),
@@ -220,7 +259,7 @@ fn current_source_layout() -> Vec<EditorRuntimePathDescriptor> {
         },
         EditorRuntimePathDescriptor {
             id: "author_skill".to_string(),
-            rel_path: "guides/claude-skills/SKILL.md".to_string(),
+            rel_path: "guides/author-skills/SKILL.md".to_string(),
             purpose: "Current authoring skill entrypoint in the source tree.".to_string(),
         },
         EditorRuntimePathDescriptor {
@@ -357,13 +396,12 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
         artifacts: RuntimeManifestArtifactDescriptor {
             mei_toolchain: "bin/mei-toolchain".to_string(),
             mei_lsp: "bin/mei-lsp".to_string(),
-            compat_bin: "bin/mei".to_string(),
-            editor_mcp_adapter: "bin/editor-mcp-adapter".to_string(),
+            author_mcp_adapter: "bin/author-mcp-adapter".to_string(),
         },
         content: RuntimeManifestContentDescriptor {
             capability_catalog: "share/mei/catalog/capability-catalog.json".to_string(),
-            editor_surface: "share/mei/catalog/editor-surface.json".to_string(),
-            knowledge_path: "share/mei/knowledge/editor".to_string(),
+            author_surface: "share/mei/catalog/author-surface.json".to_string(),
+            knowledge_path: "share/mei/knowledge/author".to_string(),
             platform_assets_path: "share/mei/platform-assets/stock".to_string(),
             tooling_templates_path: "share/mei/tooling-templates".to_string(),
         },
@@ -377,7 +415,7 @@ pub fn workspace_runtime_manifest_for_package_root(package_root: &Path) -> Works
 
 pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> EditorRuntimeDescriptor {
     let editor_knowledge_bundle =
-        knowledge_bundle_descriptor_for_package_root(package_root, "editor").expect("editor bundle");
+        knowledge_bundle_descriptor_for_package_root(package_root, "author").expect("author bundle");
     EditorRuntimeDescriptor {
         schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
         package_root: package_root.display().to_string(),
@@ -389,11 +427,12 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
             "Fallback to source-tree package root for local development builds.".to_string(),
         ],
         standalone_flow: vec![
-            "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a standalone workspace.".to_string(),
+            "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a standalone workspace skeleton.".to_string(),
             "Run `mei-toolchain workspace materialize --source-root <dir>` to materialize .stock assets.".to_string(),
-            "Run `mei-toolchain editor-runtime scaffold --target-root <dir> --tool <tool>` to write tool glue files.".to_string(),
-            "Run `mei-toolchain knowledge --surface editor --include-content --json` to export packaged authoring docs/examples.".to_string(),
-            "Use `mei-lsp` for IDE semantics and `node scripts/mcp/mei-editor-stdio-adapter.mjs` for agent-side tools.".to_string(),
+            "Run `mei-toolchain workspace runtime install --source-root <dir>` to install workspace-local .mei runtime assets.".to_string(),
+            "Run `mei-toolchain editor-runtime scaffold --target-root <dir> --tool <tool>` to write tool glue files only.".to_string(),
+            "Run `mei-toolchain knowledge --surface author --include-content --json` to export packaged authoring docs/examples.".to_string(),
+            "Use `mei-lsp` for IDE semantics and `node scripts/mcp/mei-author-stdio-adapter.mjs` for agent-side tools.".to_string(),
         ],
         tooling_templates: tooling_templates(),
         editor_knowledge_bundle,
@@ -491,15 +530,20 @@ pub fn doctor_editor_runtime_for_workspace_root(
     package_root: &Path,
     workspace_root: &Path,
 ) -> EditorRuntimeDoctorReport {
-    let mut report = doctor_editor_runtime_for_package_root(package_root);
     let version_path = workspace_root.join(".mei/version.json");
     let manifest_path = workspace_root.join(".mei/runtime/MANIFEST.json");
     let editor_runtime_path = workspace_root.join(".mei/editor-runtime.json");
-    let knowledge_path = workspace_root.join(".mei/knowledge/editor-runtime.json");
+    let knowledge_path = workspace_root.join(".mei/knowledge/author-runtime.json");
+    let catalog_path = workspace_catalog_dir(workspace_root).join("capability-catalog.json");
+    let author_surface_path = workspace_catalog_dir(workspace_root).join("author-surface.json");
+    let access_surface_path = workspace_catalog_dir(workspace_root).join("access-surface.json");
+    let author_profile_path = workspace_profiles_dir(workspace_root).join("author.md");
+    let access_profile_path = workspace_profiles_dir(workspace_root).join("access.md");
+    let author_skill_entry = workspace_author_skill_dir(workspace_root).join("SKILL.md");
+    let runtime_adapter = workspace_runtime_bin_dir(workspace_root).join("author-mcp-adapter");
     let expected_version = workspace_runtime_version_descriptor();
     let expected_manifest = workspace_runtime_manifest_for_package_root(package_root);
-    report.workspace_root = Some(workspace_root.display().to_string());
-    report.checks.extend([
+    let checks = vec![
         EditorRuntimeCheck {
             id: "workspace_editor_runtime_descriptor".to_string(),
             ok: editor_runtime_path.is_file(),
@@ -511,13 +555,83 @@ pub fn doctor_editor_runtime_for_workspace_root(
             },
         },
         EditorRuntimeCheck {
-            id: "workspace_editor_knowledge_bundle".to_string(),
+            id: "workspace_author_knowledge_bundle".to_string(),
             ok: knowledge_path.is_file(),
             path: knowledge_path.display().to_string(),
             message: if knowledge_path.is_file() {
-                "workspace editor knowledge bundle present".to_string()
+                "workspace author knowledge bundle present".to_string()
             } else {
-                "missing workspace editor knowledge bundle".to_string()
+                "missing workspace author knowledge bundle".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_capability_catalog".to_string(),
+            ok: catalog_path.is_file(),
+            path: catalog_path.display().to_string(),
+            message: if catalog_path.is_file() {
+                "workspace-local capability catalog present".to_string()
+            } else {
+                "missing workspace-local capability catalog".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_author_surface".to_string(),
+            ok: author_surface_path.is_file(),
+            path: author_surface_path.display().to_string(),
+            message: if author_surface_path.is_file() {
+                "workspace-local author MCP surface descriptor present".to_string()
+            } else {
+                "missing workspace-local author MCP surface descriptor".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_access_surface".to_string(),
+            ok: access_surface_path.is_file(),
+            path: access_surface_path.display().to_string(),
+            message: if access_surface_path.is_file() {
+                "workspace-local access MCP surface descriptor present".to_string()
+            } else {
+                "missing workspace-local access MCP surface descriptor".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_author_profile".to_string(),
+            ok: author_profile_path.is_file(),
+            path: author_profile_path.display().to_string(),
+            message: if author_profile_path.is_file() {
+                "workspace-local author profile present".to_string()
+            } else {
+                "missing workspace-local author profile".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_access_profile".to_string(),
+            ok: access_profile_path.is_file(),
+            path: access_profile_path.display().to_string(),
+            message: if access_profile_path.is_file() {
+                "workspace-local access profile present".to_string()
+            } else {
+                "missing workspace-local access profile".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_author_skill".to_string(),
+            ok: author_skill_entry.is_file(),
+            path: author_skill_entry.display().to_string(),
+            message: if author_skill_entry.is_file() {
+                "workspace-local author skill package present".to_string()
+            } else {
+                "missing workspace-local author skill package".to_string()
+            },
+        },
+        EditorRuntimeCheck {
+            id: "workspace_author_mcp_adapter".to_string(),
+            ok: runtime_adapter.is_file(),
+            path: runtime_adapter.display().to_string(),
+            message: if runtime_adapter.is_file() {
+                "workspace-local author MCP adapter present".to_string()
+            } else {
+                "missing workspace-local author MCP adapter".to_string()
             },
         },
         json_value_matches(
@@ -546,9 +660,46 @@ pub fn doctor_editor_runtime_for_workspace_root(
                     && value["target_triple"] == expected_manifest.target_triple
             },
         ),
-    ]);
-    report.ok = report.checks.iter().all(|check| check.ok);
-    report
+    ];
+    let ok = checks.iter().all(|check| check.ok);
+    EditorRuntimeDoctorReport {
+        schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
+        ok,
+        package_root: package_root.display().to_string(),
+        workspace_root: Some(workspace_root.display().to_string()),
+        checks,
+    }
+}
+
+pub fn workspace_runtime_status_for_workspace_root(
+    package_root: &Path,
+    workspace_root: &Path,
+) -> WorkspaceRuntimeStatusReport {
+    let doctor = doctor_editor_runtime_for_workspace_root(package_root, workspace_root);
+    let version_path = workspace_root.join(".mei/version.json");
+    let manifest_path = workspace_root.join(".mei/runtime/MANIFEST.json");
+    let catalog_path = workspace_catalog_dir(workspace_root).join("capability-catalog.json");
+    let author_skill_dir = workspace_author_skill_dir(workspace_root);
+    let author_profile_path = workspace_profiles_dir(workspace_root).join("author.md");
+    let installed = version_path.is_file()
+        && manifest_path.is_file()
+        && catalog_path.is_file()
+        && author_skill_dir.join("SKILL.md").is_file();
+    let fallback_to_source_tree = false;
+    WorkspaceRuntimeStatusReport {
+        schema_version: EDITOR_RUNTIME_SCHEMA_VERSION.to_string(),
+        source_root: workspace_root.display().to_string(),
+        runtime_root: workspace_runtime_root(workspace_root).display().to_string(),
+        package_root: package_root.display().to_string(),
+        installed,
+        fallback_to_source_tree,
+        version_path: version_path.display().to_string(),
+        manifest_path: manifest_path.display().to_string(),
+        catalog_path: catalog_path.display().to_string(),
+        author_skill_dir: author_skill_dir.display().to_string(),
+        author_profile_path: author_profile_path.display().to_string(),
+        doctor,
+    }
 }
 
 fn write_file(path: &Path, content: &str, force: bool) -> Result<EditorRuntimeScaffoldFile> {
@@ -584,6 +735,143 @@ fn render_workspace_runtime_manifest_json(package_root: &Path) -> Result<String>
         .map_err(Into::into)
 }
 
+fn render_workspace_catalog_json(workspace_root: &Path, package_root: &Path) -> Result<String> {
+    serde_json::to_string_pretty(
+        &crate::capability_catalog::capability_catalog_descriptor_for_workspace_root(
+            workspace_root,
+            package_root,
+        ),
+    )
+    .map_err(Into::into)
+}
+
+fn render_workspace_surface_json(
+    workspace_root: &Path,
+    package_root: &Path,
+    surface: &str,
+) -> Result<String> {
+    let descriptor =
+        crate::capability_catalog::mcp_surface_descriptor_for_workspace_root(
+            workspace_root,
+            package_root,
+            surface,
+        )
+        .ok_or_else(|| anyhow::anyhow!("unsupported mcp surface `{surface}`"))?;
+    serde_json::to_string_pretty(&descriptor).map_err(Into::into)
+}
+
+fn copy_runtime_file(
+    target_root: &Path,
+    source_path: &Path,
+    destination_path: &Path,
+    force: bool,
+) -> Result<EditorRuntimeScaffoldFile> {
+    let content = fs::read_to_string(source_path)
+        .with_context(|| format!("read runtime asset {}", source_path.display()))?;
+    write_file(destination_path, content.as_str(), force).map(|mut file| {
+        file.rel_path = destination_path.display().to_string();
+        normalize_scaffold_files(target_root, vec![file])
+            .into_iter()
+            .next()
+            .expect("normalized runtime file")
+    })
+}
+
+fn copy_runtime_tree(
+    target_root: &Path,
+    source_dir: &Path,
+    destination_dir: &Path,
+    force: bool,
+) -> Result<Vec<EditorRuntimeScaffoldFile>> {
+    let mut files = Vec::new();
+    for entry in WalkDir::new(source_dir)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+    {
+        let source_path = entry.path();
+        let rel = source_path
+            .strip_prefix(source_dir)
+            .with_context(|| format!("strip runtime asset prefix {}", source_dir.display()))?;
+        if rel.as_os_str().is_empty() || entry.file_type().is_dir() {
+            continue;
+        }
+        files.push(copy_runtime_file(
+            target_root,
+            source_path,
+            &destination_dir.join(rel),
+            force,
+        )?);
+    }
+    Ok(files)
+}
+
+fn write_runtime_projection_files(
+    target_root: &Path,
+    package_root: &Path,
+    force: bool,
+) -> Result<Vec<EditorRuntimeScaffoldFile>> {
+    let mut files = Vec::new();
+    let catalog_dir = workspace_catalog_dir(target_root);
+    files.push(write_file(
+        &catalog_dir.join("capability-catalog.json"),
+        &render_workspace_catalog_json(target_root, package_root)?,
+        force,
+    )?);
+    files.push(write_file(
+        &catalog_dir.join("author-surface.json"),
+        &render_workspace_surface_json(target_root, package_root, "author")?,
+        force,
+    )?);
+    files.push(write_file(
+        &catalog_dir.join("access-surface.json"),
+        &render_workspace_surface_json(target_root, package_root, "access")?,
+        force,
+    )?);
+    files.push(copy_runtime_file(
+        target_root,
+        &package_root.join("guides/author-profile.md"),
+        &workspace_profiles_dir(target_root).join("author.md"),
+        force,
+    )?);
+    files.push(copy_runtime_file(
+        target_root,
+        &package_root.join("guides/access-profile.md"),
+        &workspace_profiles_dir(target_root).join("access.md"),
+        force,
+    )?);
+    files.extend(copy_runtime_tree(
+        target_root,
+        &package_root.join("guides/author-skills"),
+        &workspace_author_skill_dir(target_root),
+        force,
+    )?);
+    files.extend(copy_runtime_tree(
+        target_root,
+        &package_root.join("knowledge/editor-runtime"),
+        &workspace_knowledge_dir(target_root).join("author"),
+        force,
+    )?);
+    files.push(copy_runtime_file(
+        target_root,
+        &package_root.join("scripts/mcp/mei-author-stdio-adapter.mjs"),
+        &workspace_runtime_bin_dir(target_root).join("author-mcp-adapter"),
+        force,
+    )?);
+    files.push(copy_runtime_file(
+        target_root,
+        &package_root.join("scripts/mcp/mei-access-stdio-adapter.mjs"),
+        &workspace_runtime_bin_dir(target_root).join("access-mcp-adapter"),
+        force,
+    )?);
+    files.push(copy_runtime_file(
+        target_root,
+        &package_root.join("scripts/mcp/mcp-adapter-common.mjs"),
+        &workspace_runtime_bin_dir(target_root).join("mcp-adapter-common.mjs"),
+        force,
+    )?);
+    Ok(files)
+}
+
 fn normalize_scaffold_files(
     target_root: &Path,
     files: Vec<EditorRuntimeScaffoldFile>,
@@ -610,10 +898,10 @@ fn write_common_runtime_files(
         force,
     )?);
     files.push(write_file(
-        &target_root.join(".mei/knowledge/editor-runtime.json"),
+        &target_root.join(".mei/knowledge/author-runtime.json"),
         &serde_json::to_string_pretty(&crate::export_knowledge_bundle_for_package_root(
             package_root,
-            "editor",
+            "author",
             None,
             false,
         )?)?,
@@ -629,6 +917,7 @@ fn write_common_runtime_files(
         &render_workspace_runtime_manifest_json(package_root)?,
         force,
     )?);
+    files.extend(write_runtime_projection_files(target_root, package_root, force)?);
     Ok(files)
 }
 
@@ -647,16 +936,17 @@ pub fn install_editor_runtime_support_files(
     })
 }
 
-fn render_mcp_json(package_root: &Path) -> Result<String> {
-    let adapter = package_root.join("scripts/mcp/mei-editor-stdio-adapter.mjs");
+fn render_mcp_json(target_root: &Path) -> Result<String> {
+    let adapter = workspace_runtime_bin_dir(target_root).join("author-mcp-adapter");
     serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
-            "meilang-editor": {
+            "meilang-author": {
                 "command": "node",
                 "args": [adapter.display().to_string()],
                 "env": {
                     "MEI_TOOLCHAIN_BIN": "mei-toolchain",
-                    "MEI_HOST_WEB_BIN": "mei-host-web"
+                    "MEI_HOST_WEB_BIN": "mei-host-web",
+                    "MEI_SOURCE_ROOT": target_root.display().to_string()
                 }
             }
         }
@@ -671,8 +961,8 @@ globs: ["**/*.mei", ".mei/**"]
 alwaysApply: false
 ---
 
-- Treat `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical runtime entrypoints.
-- Prefer `mei-toolchain knowledge --surface editor --include-content --json` when you need bundled authoring docs, profile guidance, or examples.
+- Treat `workspace runtime status/install/update`, `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical workspace-local environment entrypoints.
+- Prefer `mei-toolchain knowledge --surface author --include-content --json --source-root <workspace>` when you need bundled authoring docs, profile guidance, or examples.
 - Use `mei-toolchain check --app <app> --source-root <workspace>` for compile diagnostics.
 - Use `mei-lsp` for symbol, hover, completion, definition, and in-editor diagnostics.
 "#
@@ -724,9 +1014,10 @@ fn render_tool_readme(tool: &str) -> String {
         "# MeiLang {tool} integration\n\n\
 Use the local `.mei/editor-runtime.json` as the runtime descriptor.\n\n\
 Recommended commands:\n\n\
-- `mei-toolchain editor-runtime doctor --json`\n\
-- `mei-toolchain knowledge --surface editor --include-content --json`\n\
-- `mei-toolchain knowledge --surface editor --topic author_profile --include-content --json`\n\
+- `mei-toolchain workspace runtime status --source-root <workspace> --json`\n\
+- `mei-toolchain editor-runtime doctor --source-root <workspace> --json`\n\
+- `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`\n\
+- `mei-toolchain knowledge --surface author --source-root <workspace> --topic author_profile --include-content --json`\n\
 - `mei-toolchain check --app <app> --source-root <workspace> --json`\n\
 - `mei-toolchain mcp describe --surface author --json`\n"
     )
@@ -734,7 +1025,7 @@ Recommended commands:\n\n\
 
 pub fn scaffold_editor_runtime_tooling(
     target_root: &Path,
-    package_root: &Path,
+    _package_root: &Path,
     tools: &[String],
     force: bool,
 ) -> Result<EditorRuntimeScaffoldReport> {
@@ -748,7 +1039,7 @@ pub fn scaffold_editor_runtime_tooling(
     };
     fs::create_dir_all(target_root)
         .with_context(|| format!("create target root {}", target_root.display()))?;
-    let mut files = write_common_runtime_files(target_root, package_root, force)?;
+    let mut files = Vec::new();
     for tool in &tools {
         match tool.as_str() {
             "cursor" => {
@@ -759,7 +1050,7 @@ pub fn scaffold_editor_runtime_tooling(
                 )?);
                 files.push(write_file(
                     &target_root.join(".cursor/mcp.json"),
-                    &render_mcp_json(package_root)?,
+                    &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
@@ -788,7 +1079,7 @@ pub fn scaffold_editor_runtime_tooling(
                 )?);
                 files.push(write_file(
                     &target_root.join(".trae/mcp.json"),
-                    &render_mcp_json(package_root)?,
+                    &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
@@ -800,7 +1091,7 @@ pub fn scaffold_editor_runtime_tooling(
                 )?);
                 files.push(write_file(
                     &target_root.join(".mei/tooling/codex/mcp.json"),
-                    &render_mcp_json(package_root)?,
+                    &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
@@ -812,7 +1103,7 @@ pub fn scaffold_editor_runtime_tooling(
                 )?);
                 files.push(write_file(
                     &target_root.join(".mei/tooling/claude-code/mcp.json"),
-                    &render_mcp_json(package_root)?,
+                    &render_mcp_json(target_root)?,
                     force,
                 )?);
             }
@@ -824,7 +1115,7 @@ pub fn scaffold_editor_runtime_tooling(
                 )?);
                 files.push(write_file(
                     &target_root.join(".mei/tooling/opencode/mcp.json"),
-                    &render_mcp_json(package_root)?,
+                    &render_mcp_json(target_root)?,
                     force,
                 )?);
             }

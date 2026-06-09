@@ -34,6 +34,14 @@ fn package_root_from_current_exe() -> Option<PathBuf> {
     looks_like_package_root.then_some(candidate)
 }
 
+fn source_root_from_env() -> Option<PathBuf> {
+    std::env::var("MEI_SOURCE_ROOT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 pub fn resolve_package_root() -> Result<PathBuf> {
     if let Some(path) = package_root_from_env().filter(|path| path.exists()) {
         return path
@@ -96,6 +104,19 @@ pub fn resolve_cli_source_root(package_root: &std::path::Path, raw: &PathBuf) ->
             source_root.display()
         )
     })
+}
+
+pub fn resolve_optional_cli_source_root(
+    package_root: &std::path::Path,
+    raw: Option<&PathBuf>,
+) -> Result<Option<PathBuf>> {
+    if let Some(raw) = raw {
+        return resolve_cli_source_root(package_root, raw).map(Some);
+    }
+    if let Some(raw) = source_root_from_env() {
+        return resolve_cli_source_root(package_root, &raw).map(Some);
+    }
+    Ok(None)
 }
 
 pub fn normalize_optional_arg(value: &Option<String>) -> Option<String> {

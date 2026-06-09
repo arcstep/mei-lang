@@ -62,6 +62,8 @@ pub enum WorkspaceCommand {
     Init(WorkspaceInitArgs),
     /// 从 mei-lang/stock 物化 components/templates 到 profile `.stock/`（可 Git 跟踪）
     Materialize(WorkspaceMaterializeArgs),
+    /// 管理 workspace-local `.mei/` runtime 元数据与资产
+    Runtime(WorkspaceRuntimeArgs),
     /// 在工作区内创建最小 mei 应用骨架
     CreateApp(WorkspaceCreateAppArgs),
     /// 输出 workspace 级别的 headless 摘要，便于 AI / 外部工具快速理解 app 列表与发现配置
@@ -90,6 +92,50 @@ pub struct WorkspaceInitArgs {
 
 #[derive(Args)]
 pub struct WorkspaceMaterializeArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceRuntimeArgs {
+    #[command(subcommand)]
+    pub command: WorkspaceRuntimeCommand,
+}
+
+#[derive(Subcommand)]
+pub enum WorkspaceRuntimeCommand {
+    /// 查看当前 workspace-local runtime 状态与 doctor 结果
+    Status(WorkspaceRuntimeStatusArgs),
+    /// 安装或补齐 workspace-local runtime 元数据与文本资产
+    Install(WorkspaceRuntimeInstallArgs),
+    /// 更新 workspace-local runtime，但保留 `.mei/local/**` 宿主状态
+    Update(WorkspaceRuntimeUpdateArgs),
+}
+
+#[derive(Args)]
+pub struct WorkspaceRuntimeStatusArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceRuntimeInstallArgs {
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long)]
+    pub force: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args)]
+pub struct WorkspaceRuntimeUpdateArgs {
     #[arg(long, default_value = "../workspaces/ws-dev")]
     pub source_root: PathBuf,
     #[arg(long)]
@@ -446,8 +492,10 @@ pub enum McpCommand {
 
 #[derive(Args, Clone)]
 pub struct McpDescribeArgs {
-    #[arg(long, value_parser = ["editor", "author", "access"])]
+    #[arg(long, value_parser = ["author", "access"])]
     pub surface: String,
+    #[arg(long)]
+    pub source_root: Option<PathBuf>,
     #[arg(long)]
     pub json: bool,
 }
@@ -455,13 +503,17 @@ pub struct McpDescribeArgs {
 #[derive(Args, Clone)]
 pub struct McpCatalogArgs {
     #[arg(long)]
+    pub source_root: Option<PathBuf>,
+    #[arg(long)]
     pub json: bool,
 }
 
 #[derive(Args, Clone)]
 pub struct KnowledgeArgs {
-    #[arg(long, default_value = "editor", value_parser = ["editor", "author", "access"])]
+    #[arg(long, default_value = "author", value_parser = ["author", "access"])]
     pub surface: String,
+    #[arg(long)]
+    pub source_root: Option<PathBuf>,
     #[arg(long)]
     pub topic: Option<String>,
     #[arg(long)]
@@ -485,6 +537,8 @@ pub enum EditorRuntimeCommand {
 
 #[derive(Args, Clone)]
 pub struct EditorRuntimeDescribeArgs {
+    #[arg(long)]
+    pub source_root: Option<PathBuf>,
     #[arg(long)]
     pub json: bool,
 }

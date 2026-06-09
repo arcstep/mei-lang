@@ -2,7 +2,9 @@ use anyhow::Result;
 use mei_lang_toolchain;
 use serde_json::json;
 
-use super::super::args::{WorkspaceArgs, WorkspaceCommand};
+use super::super::args::{
+    WorkspaceArgs, WorkspaceCommand, WorkspaceRuntimeCommand,
+};
 use super::super::util::{print_json_output, resolve_cli_source_root, resolve_package_root};
 
 pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
@@ -74,6 +76,61 @@ pub fn workspace_command(args: WorkspaceArgs) -> Result<()> {
             });
             print_json_output(&output, args.json)
         }
+        WorkspaceCommand::Runtime(args) => match args.command {
+            WorkspaceRuntimeCommand::Status(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let report = mei_lang_toolchain::workspace_runtime_status_for_workspace_root(
+                    &package_root,
+                    &source_root,
+                );
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.runtime.status",
+                    "report": report,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceRuntimeCommand::Install(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let report = mei_lang_toolchain::install_editor_runtime_support_files(
+                    &source_root,
+                    &package_root,
+                    args.force,
+                )?;
+                let status = mei_lang_toolchain::workspace_runtime_status_for_workspace_root(
+                    &package_root,
+                    &source_root,
+                );
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.runtime.install",
+                    "report": report,
+                    "status": status,
+                });
+                print_json_output(&output, args.json)
+            }
+            WorkspaceRuntimeCommand::Update(args) => {
+                let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
+                let report = mei_lang_toolchain::install_editor_runtime_support_files(
+                    &source_root,
+                    &package_root,
+                    true,
+                )?;
+                let status = mei_lang_toolchain::workspace_runtime_status_for_workspace_root(
+                    &package_root,
+                    &source_root,
+                );
+                let output = json!({
+                    "schema_version": "mei-cli-v1",
+                    "command": "workspace.runtime.update",
+                    "report": report,
+                    "status": status,
+                    "force_requested": args.force,
+                    "preserved": [".mei/local/**"],
+                });
+                print_json_output(&output, args.json)
+            }
+        },
         WorkspaceCommand::CreateApp(args) => {
             let source_root = resolve_cli_source_root(&package_root, &args.source_root)?;
             let app_root =
@@ -142,8 +199,6 @@ fn initialize_standalone_workspace(
     std::fs::create_dir_all(source_root.join(mei_lang_kernel::WORKSPACE_HOSTS_DIR_REL))?;
     if materialize {
         mei_lang_toolchain::materialize_workspace_stock(source_root, package_root, false)?;
-    } else {
-        mei_lang_toolchain::install_editor_runtime_support_files(source_root, package_root, true)?;
     }
     Ok(())
 }

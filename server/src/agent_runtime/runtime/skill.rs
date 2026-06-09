@@ -1,53 +1,17 @@
 use std::{
     fs,
     path::{Path as FsPath, PathBuf},
-    process::Command as ProcessCommand,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::Context;
 use mei_lang_toolchain::meilang_author_skill_package;
 use walkdir::WalkDir;
 
 use super::super::ManagedOpencodeSkillStatus;
 use crate::AppState;
 
-fn managed_skill_source_dir(package_root: &FsPath) -> PathBuf {
-    let descriptor = meilang_author_skill_package();
-    package_root.join(descriptor.source_dir_rel)
-}
-
 fn managed_skill_install_dir(source_root: &FsPath) -> PathBuf {
     let descriptor = meilang_author_skill_package();
     source_root.join(descriptor.install_dir_rel)
-}
-
-fn unix_timestamp_ms(value: SystemTime) -> Option<u128> {
-    value
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|dur| dur.as_millis())
-}
-
-fn directory_latest_modified_ms(path: &FsPath) -> Option<u128> {
-    if !path.exists() {
-        return None;
-    }
-    let mut latest = fs::metadata(path)
-        .ok()
-        .and_then(|meta| meta.modified().ok())
-        .and_then(unix_timestamp_ms);
-    for entry in WalkDir::new(path).into_iter().flatten() {
-        let modified = entry
-            .metadata()
-            .ok()
-            .and_then(|meta| meta.modified().ok())
-            .and_then(unix_timestamp_ms);
-        if modified > latest {
-            latest = modified;
-        }
-    }
-    latest
 }
 
 fn markdown_file_count(path: &FsPath) -> usize {
@@ -62,125 +26,83 @@ fn markdown_file_count(path: &FsPath) -> usize {
         .count()
 }
 
-fn git_revision_short(package_root: &FsPath) -> Option<String> {
-    let output = ProcessCommand::new("git")
-        .arg("-C")
-        .arg(package_root)
-        .arg("rev-parse")
-        .arg("--short")
-        .arg("HEAD")
-        .output()
-        .ok()?;
-    if !output.status.success() {
+fn directory_latest_modified_ms(path: &FsPath) -> Option<u128> {
+    if !path.exists() {
         return None;
     }
-    let revision = String::from_utf8(output.stdout).ok()?;
-    let revision = revision.trim();
-    if revision.is_empty() {
-        None
-    } else {
-        Some(revision.to_string())
+    let mut latest = fs::metadata(path)
+        .ok()
+        .and_then(|meta| meta.modified().ok())
+        .and_then(|value| {
+            value
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|dur| dur.as_millis())
+        });
+    for entry in WalkDir::new(path).into_iter().flatten() {
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|value| {
+                value
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|dur| dur.as_millis())
+            });
+        if modified > latest {
+            latest = modified;
+        }
     }
+    latest
 }
 
-fn copy_skill_tree(source_dir: &FsPath, install_dir: &FsPath) -> anyhow::Result<()> {
-    if install_dir.exists() {
-        fs::remove_dir_all(install_dir).with_context(|| {
-            format!(
-                "failed to reset installed skill directory {}",
-                install_dir.display()
-            )
-        })?;
-    }
-    fs::create_dir_all(install_dir).with_context(|| {
-        format!(
-            "failed to create installed skill directory {}",
-            install_dir.display()
-        )
-    })?;
-    for entry in WalkDir::new(source_dir).into_iter().flatten() {
-        let source_path = entry.path();
-        let Some(relative) = source_path.strip_prefix(source_dir).ok() else {
-            continue;
-        };
-        let target_path = install_dir.join(relative);
-        if entry.file_type().is_dir() {
-            fs::create_dir_all(&target_path)
-                .with_context(|| format!("failed to create {}", target_path.display()))?;
-            continue;
-        }
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        fs::copy(source_path, &target_path).with_context(|| {
-            format!(
-                "failed to copy skill file {} -> {}",
-                source_path.display(),
-                target_path.display()
-            )
-        })?;
-    }
-    Ok(())
-}
-
-fn build_skill_status(package_root: &FsPath, source_root: &FsPath) -> ManagedOpencodeSkillStatus {
+fn build_skill_status(source_root: &FsPath) -> ManagedOpencodeSkillStatus {
     let descriptor = meilang_author_skill_package();
-    let source_dir = managed_skill_source_dir(package_root);
     let install_dir = managed_skill_install_dir(source_root);
     let entry_file = install_dir.join(&descriptor.entry_file);
-    let source_present = source_dir.join(&descriptor.entry_file).exists();
     let installed = entry_file.exists();
-    let source_updated_at_ms = directory_latest_modified_ms(&source_dir);
     let install_updated_at_ms = directory_latest_modified_ms(&install_dir);
-    let stale = source_present
-        && installed
-        && source_updated_at_ms
-            .zip(install_updated_at_ms)
-            .is_some_and(|(source_ms, install_ms)| source_ms > install_ms);
     ManagedOpencodeSkillStatus {
-        source_dir: source_dir.display().to_string(),
+        source_dir: install_dir.display().to_string(),
         install_dir: install_dir.display().to_string(),
         entry_file: entry_file.display().to_string(),
-        source_present,
+        source_present: installed,
         installed,
-        stale,
-        source_updated_at_ms,
+        stale: false,
+        source_updated_at_ms: install_updated_at_ms,
         install_updated_at_ms,
-        file_count: markdown_file_count(if installed { &install_dir } else { &source_dir }),
-        revision: git_revision_short(package_root),
+        file_count: markdown_file_count(&install_dir),
+        revision: None,
     }
 }
 
 pub(crate) fn managed_agent_skill_status_for_root(
-    package_root: &FsPath,
+    _package_root: &FsPath,
     source_root: &FsPath,
 ) -> ManagedOpencodeSkillStatus {
-    build_skill_status(package_root, source_root)
+    build_skill_status(source_root)
 }
 
 pub(crate) fn managed_agent_skill_status(
     state: &AppState,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    Ok(build_skill_status(&state.package_root, &state.source_root))
+    Ok(build_skill_status(&state.source_root))
 }
 
 pub(crate) fn sync_managed_agent_skill_for_root(
-    package_root: &FsPath,
+    _package_root: &FsPath,
     source_root: &FsPath,
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    let descriptor = meilang_author_skill_package();
-    let source_dir = managed_skill_source_dir(package_root);
-    let source_entry = source_dir.join(&descriptor.entry_file);
-    if !source_entry.exists() {
+    let status = build_skill_status(source_root);
+    if !status.installed {
         anyhow::bail!(
-            "MeiLang skill source is missing: {}",
-            source_entry.display()
+            "workspace-local author skill is not installed at {}; run `mei-toolchain workspace runtime install --source-root {}`",
+            status.install_dir,
+            source_root.display()
         );
     }
-    let install_dir = managed_skill_install_dir(source_root);
-    copy_skill_tree(&source_dir, &install_dir)?;
-    Ok(build_skill_status(package_root, source_root))
+    Ok(status)
 }
 
 pub(crate) fn sync_managed_agent_skill(
@@ -188,17 +110,3 @@ pub(crate) fn sync_managed_agent_skill(
 ) -> anyhow::Result<ManagedOpencodeSkillStatus> {
     sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
 }
-
-pub(crate) fn ensure_managed_agent_skill_synced(
-    state: &AppState,
-) -> anyhow::Result<ManagedOpencodeSkillStatus> {
-    let status = build_skill_status(&state.package_root, &state.source_root);
-    if !status.source_present {
-        return Ok(status);
-    }
-    if status.installed && !status.stale {
-        return Ok(status);
-    }
-    sync_managed_agent_skill_for_root(&state.package_root, &state.source_root)
-}
-

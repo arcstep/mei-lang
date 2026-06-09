@@ -8,11 +8,14 @@ use mei_lang_kernel::RuntimeIntent;
 use mei_lang_kernel::{set_mei_package_root, CompileOptions};
 use mei_lang_toolchain::{
     build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
+    capability_catalog_descriptor_for_workspace_root,
     clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
     query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
-    scaffold_editor_runtime_tooling, doctor_editor_runtime_for_package_root,
+    init_workspace_profile, scaffold_editor_runtime_tooling,
+    doctor_editor_runtime_for_package_root,
     doctor_editor_runtime_for_workspace_root, editor_runtime_descriptor_for_package_root,
-    export_knowledge_bundle_for_package_root, install_editor_runtime_support_files,
+    export_knowledge_bundle_for_package_root, export_knowledge_bundle_for_workspace_root,
+    install_editor_runtime_support_files, workspace_runtime_status_for_workspace_root,
     RESOURCE_QUERY_SCHEMA_VERSION,
 };
 
@@ -284,12 +287,15 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
     assert!(descriptor["host_extensions"]["extensions"].is_array());
     assert!(descriptor["host_requirements"].is_array());
     assert!(descriptor["knowledge_bundles"].is_array());
+    let author_surface = descriptor["mcp_surfaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["surface"] == "author")
+        .expect("author mcp surface");
     assert!(
-        descriptor["mcp_surfaces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["surface"] == "author" && item["surface_aliases"][0] == "editor")
+        author_surface.get("surface_aliases").is_none(),
+        "author surface must not expose compatibility aliases"
     );
     assert!(
         descriptor["mcp_surfaces"]
@@ -340,10 +346,10 @@ fn editor_runtime_doctor_passes_for_source_tree_package_root() {
 }
 
 #[test]
-fn knowledge_bundle_exports_editor_assets() {
-    let payload = export_knowledge_bundle_for_package_root(&package_root(), "editor", None, false)
+fn knowledge_bundle_exports_author_assets() {
+    let payload = export_knowledge_bundle_for_package_root(&package_root(), "author", None, false)
         .expect("knowledge bundle");
-    assert_eq!(payload["descriptor"]["surface"], "editor");
+    assert_eq!(payload["descriptor"]["surface"], "author");
     assert!(
         payload["descriptor"]["available_topics"]
             .as_array()
@@ -393,9 +399,14 @@ fn scaffold_editor_runtime_tooling_writes_cursor_files() {
     )
     .expect("scaffold");
     assert!(report.files.iter().any(|item| item.rel_path == ".cursor/mcp.json"));
-    assert!(root.join(".mei/editor-runtime.json").is_file());
-    assert!(root.join(".mei/version.json").is_file());
-    assert!(root.join(".mei/runtime/MANIFEST.json").is_file());
+    assert!(
+        !root.join(".mei/version.json").exists(),
+        "scaffold must not install runtime metadata"
+    );
+    assert!(
+        !root.join(".mei/editor-runtime.json").exists(),
+        "scaffold must not install runtime descriptor"
+    );
     assert!(root.join(".cursor/rules/meilang-authoring.mdc").is_file());
     assert!(root.join(".vscode/settings.json").is_file());
     assert!(root.join(".trae/mcp.json").is_file());
@@ -438,6 +449,12 @@ fn install_editor_runtime_support_files_writes_version_metadata() {
     assert!(manifest["bundle_id"]
         .as_str()
         .is_some_and(|value| value.starts_with("mei-lang-")));
+    assert!(root.join(".mei/catalog/capability-catalog.json").is_file());
+    assert!(root.join(".mei/catalog/author-surface.json").is_file());
+    assert!(root.join(".mei/profiles/author.md").is_file());
+    assert!(root.join(".mei/skills/meilang-author/SKILL.md").is_file());
+    assert!(root.join(".mei/runtime/bin/author-mcp-adapter").is_file());
+    assert!(!root.join(".mei/catalog/editor-surface.json").exists());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -468,7 +485,101 @@ fn editor_runtime_doctor_checks_workspace_runtime_metadata() {
             .iter()
             .any(|item| item.id == "workspace_runtime_manifest" && item.ok)
     );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_author_skill" && item.ok)
+    );
+    assert!(
+        report
+            .checks
+            .iter()
+            .any(|item| item.id == "workspace_capability_catalog" && item.ok)
+    );
+    let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
+    assert!(status.installed, "runtime status should report installed");
+    assert!(
+        !status.fallback_to_source_tree,
+        "workspace-local assets should avoid source-tree fallback"
+    );
+    let bundle = export_knowledge_bundle_for_workspace_root(&root, &package_root(), "author", Some("author_profile"), true)
+        .expect("workspace knowledge bundle");
+    let author_profile = bundle["assets"]
+        .as_array()
+        .and_then(|items| items.first())
+        .expect("workspace author profile asset");
+    assert!(author_profile["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("Author")));
+    let catalog = capability_catalog_descriptor_for_workspace_root(&root, &package_root());
+    assert_eq!(catalog["workspace_root"], root.display().to_string());
     let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workspace_init_does_not_install_runtime_assets() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_workspace_init_no_runtime_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create init root");
+    let profile_root = init_workspace_profile(
+        &root,
+        "profile-a",
+        Some("test"),
+        &package_root(),
+        false,
+    )
+    .expect("init profile");
+    assert!(
+        !profile_root.join(".mei/version.json").exists(),
+        "workspace init must not install runtime metadata"
+    );
+    assert!(
+        !profile_root
+            .join(".mei/skills/meilang-author/SKILL.md")
+            .exists(),
+        "workspace init must not install author skill package"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workspace_knowledge_requires_runtime_install_without_package_fallback() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_workspace_knowledge_gate_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create knowledge root");
+    let error = export_knowledge_bundle_for_workspace_root(
+        &root,
+        &package_root(),
+        "author",
+        Some("author_profile"),
+        true,
+    )
+    .expect_err("workspace knowledge must fail before runtime install");
+    assert!(
+        error.to_string().contains("workspace runtime install"),
+        "error should point to runtime install, got: {error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn capability_catalog_rejects_editor_profile_alias() {
+    use mei_lang_toolchain::ai_profile_descriptor;
+    assert!(ai_profile_descriptor("editor").is_none());
+    assert!(ai_profile_descriptor("author").is_some());
 }
 
 #[test]

@@ -73,8 +73,32 @@ pub(crate) struct SessionContextSnapshot {
 }
 
 fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()> {
+    if flavor == BinaryFlavor::Compat {
+        let command_name = match command {
+            Command::Serve(_) => "serve",
+            Command::Agent(_) => "agent",
+            Command::Host(args) => match &args.command {
+                HostCommand::Describe(_) => "host describe",
+                HostCommand::Auth(_) => "host auth",
+            },
+            Command::Workspace(_) => "workspace",
+            Command::Knowledge(_) => "knowledge",
+            Command::EditorRuntime(_) => "editor-runtime",
+            Command::Compile(_) => "compile",
+            Command::Check(_) => "check",
+            Command::Inspect(_) => "inspect",
+            Command::Export(_) => "export",
+            Command::Query(_) => "query",
+            Command::Runtime(_) => "runtime",
+            Command::Mcp(_) => "mcp",
+        };
+        anyhow::bail!(
+            "the `mei` compatibility entrypoint is retired; use `mei-toolchain` for `{}` or `mei-host-web` for host commands",
+            command_name
+        );
+    }
     let allowed = match flavor {
-        BinaryFlavor::Compat => true,
+        BinaryFlavor::Compat => false,
         BinaryFlavor::Toolchain => matches!(
             command,
             Command::Workspace(_)
@@ -97,12 +121,12 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         return Ok(());
     }
     let hint = match flavor {
-        BinaryFlavor::Compat => "mei",
+        BinaryFlavor::Compat => "mei-toolchain",
         BinaryFlavor::Toolchain => "mei-host-web",
         BinaryFlavor::HostWeb => "mei-toolchain",
     };
     let role = match flavor {
-        BinaryFlavor::Compat => "full compatibility entrypoint",
+        BinaryFlavor::Compat => "retired compatibility entrypoint",
         BinaryFlavor::Toolchain => "toolchain-only entrypoint",
         BinaryFlavor::HostWeb => "host-web-only entrypoint",
     };
@@ -125,7 +149,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         Command::Mcp(_) => "mcp",
     };
     anyhow::bail!(
-        "`{}` does not expose `{}` under the current split; use `{}` or the compatibility `mei` entrypoint",
+        "`{}` does not expose `{}` under the current split; use `{}`",
         role,
         command_name,
         hint
@@ -221,7 +245,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
     };
     let preferred_server_url = crate::agent_runtime::runtime::preferred_agent_server_url();
     let auto_agent = args.auto_agent;
-    let sync_agent_skill = args.sync_agent_skill || auto_agent;
+    let _sync_agent_skill = args.sync_agent_skill || auto_agent;
     let native_agent = Arc::new(crate::mei_agent::NativeAgent::open_with_resource_tools(
         source_root.clone(),
         std::sync::Arc::new(crate::resource_tool_bridge::SceneResourceToolExecutor::default()),
@@ -249,30 +273,23 @@ async fn serve(args: ServeArgs) -> Result<()> {
         agent_backend = "native",
         "mei serve resolved paths"
     );
-    if sync_agent_skill {
-        match crate::agent_runtime::runtime::ensure_managed_agent_skill_synced(&state) {
-            Ok(status) => {
-                if status.source_present {
-                    tracing::info!(
-                        installed = status.installed,
-                        stale = status.stale,
-                        file_count = status.file_count,
-                        install_dir = %status.install_dir,
-                        "synced MeiLang skill on startup"
-                    );
-                } else {
-                    tracing::warn!(
-                        source_dir = %status.source_dir,
-                        "MeiLang skill source directory is missing on startup"
-                    );
-                }
+    match crate::agent_runtime::runtime::managed_agent_skill_status(&state) {
+        Ok(status) => {
+            if status.installed {
+                tracing::info!(
+                    installed = status.installed,
+                    file_count = status.file_count,
+                    install_dir = %status.install_dir,
+                    "using workspace-local MeiLang author skill"
+                );
+            } else {
+                tracing::warn!(
+                    install_dir = %status.install_dir,
+                    "workspace-local MeiLang author skill is missing; run `mei-toolchain workspace runtime install --source-root <workspace>`"
+                );
             }
-            Err(error) => tracing::warn!(%error, "failed to sync MeiLang skill on startup"),
         }
-    } else {
-        tracing::info!(
-            "skipped MeiLang skill sync on startup (pass --sync-agent-skill or --auto-agent to enable)"
-        );
+        Err(error) => tracing::warn!(%error, "failed to inspect workspace-local MeiLang skill"),
     }
     let app = Router::new()
         .merge(crate::http::router())
@@ -486,8 +503,8 @@ mod tests {
     use std::path::PathBuf;
 
     use crate::cli::args::{
-        CliAppSelectorArgs, Command, HostArgs, HostCommand, HostDescribeArgs, InspectArgs,
-        InspectCommand, QueryArgs, QueryCommand, ServeArgs,
+        CheckArgs, CliAppSelectorArgs, Command, HostArgs, HostCommand, HostDescribeArgs,
+        InspectArgs, InspectCommand, QueryArgs, QueryCommand, ServeArgs,
     };
 
     use super::{ensure_command_allowed, BinaryFlavor};
@@ -533,6 +550,14 @@ mod tests {
             command: HostCommand::Describe(HostDescribeArgs { json: true }),
         });
         assert!(ensure_command_allowed(BinaryFlavor::HostWeb, &command).is_ok());
+    }
+
+    #[test]
+    fn compat_entry_rejects_all_commands() {
+        let command = Command::Check(CheckArgs {
+            app: app_selector(),
+        });
+        assert!(ensure_command_allowed(BinaryFlavor::Compat, &command).is_err());
     }
 
     #[test]
