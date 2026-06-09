@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
+import {
+  appendFilters,
+  appendStringList,
+  buildScopeArgs,
+  catalogToolToMcpTool,
+  loadSurfaceDescriptor,
+  nonEmptyString,
+  optionalString,
+  runMei,
+  toolchainBinCandidates,
+  uniqueNonEmpty,
+} from "./mcp-adapter-common.mjs";
 
-const TOOLCHAIN_BIN_CANDIDATES = uniqueNonEmpty([
-  process.env.MEI_TOOLCHAIN_BIN,
-  process.env.MEI_BIN,
-  "mei-toolchain",
-  "mei",
-]);
+const TOOLCHAIN_BIN_CANDIDATES = toolchainBinCandidates();
 const HOST_WEB_BIN_CANDIDATES = uniqueNonEmpty([
   process.env.MEI_HOST_WEB_BIN,
   process.env.MEI_HOST_BIN,
@@ -17,144 +23,9 @@ const HOST_WEB_BIN_CANDIDATES = uniqueNonEmpty([
 ]);
 const DEFAULT_SOURCE_ROOT = process.env.MEI_SOURCE_ROOT || "";
 
-function uniqueNonEmpty(values) {
-  return [...new Set(values.filter((item) => typeof item === "string" && item.trim()))];
-}
-
-const TOOL_DEFS = [
-  {
-    name: "mei_check",
-    description: "Compile an app and return diagnostics plus revision metadata.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-      },
-      required: ["app"],
-    },
-  },
-  {
-    name: "mei_compile",
-    description: "Compile an app and return the same JSON contract as check for scripted consumers.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-      },
-      required: ["app"],
-    },
-  },
-  {
-    name: "mei_host_describe",
-    description: "Return machine-readable host runtime contract descriptor.",
-    inputSchema: {
-      type: "object",
-      properties: {},
-      additionalProperties: false,
-    },
-  },
-  {
-    name: "mei_inspect_world",
-    description: "Return the structured world/runtime snapshot for the selected app scope.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-      },
-      required: ["app"],
-    },
-  },
-  {
-    name: "mei_inspect_inventory",
-    description: "Return the app inventory/resource index for the selected scope.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-      },
-      required: ["app"],
-    },
-  },
-  {
-    name: "mei_query_dataset",
-    description: "Run bounded dataset row/schema queries.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        dataset_id: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-        search: { type: "string" },
-        filters: { type: "object", additionalProperties: { type: "string" } },
-        columns: { type: "array", items: { type: "string" } },
-        limit: { type: "integer", minimum: 1 },
-      },
-      required: ["app", "dataset_id"],
-    },
-  },
-  {
-    name: "mei_query_metric",
-    description: "Run bounded runtime metric queries for a dataset.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        dataset_id: { type: "string" },
-        metric_ids: { type: "array", items: { type: "string" } },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-        search: { type: "string" },
-        filters: { type: "object", additionalProperties: { type: "string" } },
-      },
-      required: ["app", "dataset_id"],
-    },
-  },
-  {
-    name: "mei_query_resource",
-    description: "Fetch a single world resource/entity payload.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        resource_id: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-      },
-      required: ["app", "resource_id"],
-    },
-  },
-  {
-    name: "mei_runtime_peek",
-    description: "Peek current runtime phase/result/actions for the selected scope.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        app: { type: "string" },
-        source_root: { type: "string" },
-        scene: { type: "string" },
-        target_file: { type: "string" },
-        trace_limit: { type: "integer", minimum: 1 },
-      },
-      required: ["app"],
-    },
-  },
-];
+let surfaceLoadPromise = null;
+let cachedTools = null;
+let cachedToolNames = null;
 
 function writeMessage(payload) {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
@@ -174,92 +45,132 @@ function replyError(id, code, message) {
   });
 }
 
-function nonEmptyString(value, name) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) {
-    throw new Error(`\`${name}\` is required`);
+async function ensureAuthorToolsLoaded() {
+  if (cachedTools) {
+    return cachedTools;
   }
-  return text;
+  if (!surfaceLoadPromise) {
+    surfaceLoadPromise = loadSurfaceDescriptor("author", TOOLCHAIN_BIN_CANDIDATES).then(
+      ({ descriptor }) => {
+        cachedTools = descriptor.tools.map(catalogToolToMcpTool);
+        cachedToolNames = new Set(cachedTools.map((tool) => tool.name));
+        const unsupported = cachedTools
+          .map((tool) => tool.name)
+          .filter((name) => !AUTHOR_TOOL_COMMAND_BUILDERS.has(name));
+        if (unsupported.length > 0) {
+          throw new Error(
+            `catalog exposes unsupported author tools without CLI mapping: ${unsupported.join(", ")}`,
+          );
+        }
+        return cachedTools;
+      },
+    );
+  }
+  return surfaceLoadPromise;
 }
 
-function optionalString(value) {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim();
-}
-
-function buildScopeArgs(args = {}) {
-  const cli = [];
-  const sourceRoot = optionalString(args.source_root) || DEFAULT_SOURCE_ROOT;
-  if (sourceRoot) {
-    cli.push("--source-root", sourceRoot);
-  }
-  const scene = optionalString(args.scene);
-  if (scene) {
-    cli.push("--scene", scene);
-  }
-  const targetFile = optionalString(args.target_file);
-  if (targetFile) {
-    cli.push("--target-file", targetFile);
-  }
-  return cli;
-}
-
-function appendFilters(cli, filters) {
-  if (!filters || typeof filters !== "object" || Array.isArray(filters)) {
-    return;
-  }
-  for (const [key, raw] of Object.entries(filters)) {
-    if (!key || raw == null) continue;
-    const value = String(raw).trim();
-    if (!value) continue;
-    cli.push("--filter", `${key}=${value}`);
-  }
-}
-
-function appendStringList(cli, flag, values) {
-  if (!Array.isArray(values)) return;
-  for (const item of values) {
-    const text = optionalString(item);
-    if (!text) continue;
-    cli.push(flag, text);
-  }
-}
-
-function buildToolCommand(name, args = {}) {
-  const cli = [];
-  let binCandidates = TOOLCHAIN_BIN_CANDIDATES;
-  switch (name) {
-    case "mei_check": {
+const AUTHOR_TOOL_COMMAND_BUILDERS = new Map([
+  [
+    "mei_author_knowledge",
+    (args) => {
+      const cli = ["knowledge", "--surface", "editor"];
+      const topic = optionalString(args.topic);
+      if (topic) {
+        cli.push("--topic", topic);
+      }
+      if (args.include_content === true) {
+        cli.push("--include-content");
+      }
+      cli.push("--json");
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli,
+      };
+    },
+  ],
+  [
+    "mei_editor_runtime_describe",
+    () => ({
+      binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+      cli: ["editor-runtime", "describe", "--json"],
+    }),
+  ],
+  [
+    "mei_editor_runtime_doctor",
+    () => ({
+      binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+      cli: ["editor-runtime", "doctor", "--json"],
+    }),
+  ],
+  [
+    "mei_check",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
-      cli.push("check", "--app", app, ...scopeArgs, "--json");
-      return { binCandidates, cli };
-    }
-    case "mei_compile": {
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: ["check", "--app", app, ...scopeArgs, "--json"],
+      };
+    },
+  ],
+  [
+    "mei_compile",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
-      cli.push("compile", "--app", app, ...scopeArgs, "--json");
-      return { binCandidates, cli };
-    }
-    case "mei_inspect_world": {
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: ["compile", "--app", app, ...scopeArgs, "--json"],
+      };
+    },
+  ],
+  [
+    "mei_workspace_summary",
+    (args) => ({
+      binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+      cli: ["workspace", "summary", ...buildScopeArgs(args, DEFAULT_SOURCE_ROOT), "--json"],
+    }),
+  ],
+  [
+    "mei_inspect_world",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
-      cli.push("inspect", "world", "--app", app, ...scopeArgs, "--json");
-      return { binCandidates, cli };
-    }
-    case "mei_inspect_inventory": {
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: ["inspect", "world", "--app", app, ...scopeArgs, "--json"],
+      };
+    },
+  ],
+  [
+    "mei_inspect_inventory",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
-      cli.push("inspect", "inventory", "--app", app, ...scopeArgs, "--json");
-      return { binCandidates, cli };
-    }
-    case "mei_query_dataset": {
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: ["inspect", "inventory", "--app", app, ...scopeArgs, "--json"],
+      };
+    },
+  ],
+  [
+    "mei_inspect_summary",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: ["inspect", "summary", "--app", app, ...scopeArgs, "--json"],
+      };
+    },
+  ],
+  [
+    "mei_query_dataset",
+    (args) => {
+      const app = nonEmptyString(args.app, "app");
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
       const datasetId = nonEmptyString(args.dataset_id, "dataset_id");
-      cli.push("query", "dataset", "--app", app, "--id", datasetId, ...scopeArgs);
+      const cli = ["query", "dataset", "--app", app, "--id", datasetId, ...scopeArgs];
       const search = optionalString(args.search);
       if (search) {
         cli.push("--search", search);
@@ -270,13 +181,16 @@ function buildToolCommand(name, args = {}) {
         cli.push("--limit", String(args.limit));
       }
       cli.push("--json");
-      return { binCandidates, cli };
-    }
-    case "mei_query_metric": {
+      return { binCandidates: TOOLCHAIN_BIN_CANDIDATES, cli };
+    },
+  ],
+  [
+    "mei_query_metric",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
       const datasetId = nonEmptyString(args.dataset_id, "dataset_id");
-      cli.push("query", "metric", "--app", app, "--id", datasetId, ...scopeArgs);
+      const cli = ["query", "metric", "--app", app, "--id", datasetId, ...scopeArgs];
       appendStringList(cli, "--metric-id", args.metric_ids);
       const search = optionalString(args.search);
       if (search) {
@@ -284,92 +198,58 @@ function buildToolCommand(name, args = {}) {
       }
       appendFilters(cli, args.filters);
       cli.push("--json");
-      return { binCandidates, cli };
-    }
-    case "mei_query_resource": {
+      return { binCandidates: TOOLCHAIN_BIN_CANDIDATES, cli };
+    },
+  ],
+  [
+    "mei_query_resource",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
       const resourceId = nonEmptyString(args.resource_id, "resource_id");
-      cli.push("query", "resource", "--app", app, "--id", resourceId, ...scopeArgs, "--json");
-      return { binCandidates, cli };
-    }
-    case "mei_runtime_peek": {
+      return {
+        binCandidates: TOOLCHAIN_BIN_CANDIDATES,
+        cli: [
+          "query",
+          "resource",
+          "--app",
+          app,
+          "--id",
+          resourceId,
+          ...scopeArgs,
+          "--json",
+        ],
+      };
+    },
+  ],
+  [
+    "mei_runtime_peek",
+    (args) => {
       const app = nonEmptyString(args.app, "app");
-      const scopeArgs = buildScopeArgs(args);
-      cli.push("runtime", "peek", "--app", app, ...scopeArgs);
+      const scopeArgs = buildScopeArgs(args, DEFAULT_SOURCE_ROOT);
+      const cli = ["runtime", "peek", "--app", app, ...scopeArgs];
       if (Number.isInteger(args.trace_limit) && args.trace_limit > 0) {
         cli.push("--trace-limit", String(args.trace_limit));
       }
       cli.push("--json");
-      return { binCandidates, cli };
-    }
-    case "mei_host_describe":
-      binCandidates = HOST_WEB_BIN_CANDIDATES;
-      cli.push("host", "describe", "--json");
-      return { binCandidates, cli };
-    default:
-      throw new Error(`unknown tool: ${name}`);
+      return { binCandidates: TOOLCHAIN_BIN_CANDIDATES, cli };
+    },
+  ],
+  [
+    "mei_host_describe",
+    () => ({
+      binCandidates: HOST_WEB_BIN_CANDIDATES,
+      cli: ["host", "describe", "--json"],
+    }),
+  ],
+]);
+
+function buildToolCommand(name, args = {}) {
+  const builder = AUTHOR_TOOL_COMMAND_BUILDERS.get(name);
+  if (!builder) {
+    throw new Error(`unknown tool: ${name}`);
   }
-}
-
-function runSingleMei(bin, cliArgs) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, cliArgs, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
-    });
-    let stdout = "";
-    let stderr = "";
-    let spawnError = null;
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", (error) => {
-      spawnError = error;
-    });
-    child.on("close", (code) => {
-      if (spawnError) {
-        reject(spawnError);
-        return;
-      }
-      if (code !== 0) {
-        reject(new Error(stderr.trim() || `${bin} exited with code ${code}`));
-        return;
-      }
-      const text = stdout.trim();
-      if (!text) {
-        resolve({ raw: "" });
-        return;
-      }
-      try {
-        resolve(JSON.parse(text));
-      } catch {
-        resolve({ raw: text });
-      }
-    });
-  });
-}
-
-async function runMei(binCandidates, cliArgs) {
-  const missingBins = [];
-  for (const bin of binCandidates) {
-    try {
-      return await runSingleMei(bin, cliArgs);
-    } catch (error) {
-      if (error && typeof error === "object" && error.code === "ENOENT") {
-        missingBins.push(bin);
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw new Error(
-    `no usable Mei CLI found; tried ${missingBins.join(", ")}`
-  );
+  return builder(args);
 }
 
 async function handleToolCall(id, params = {}) {
@@ -379,7 +259,8 @@ async function handleToolCall(id, params = {}) {
     replyError(id, -32602, "tools/call requires `name`");
     return;
   }
-  if (!TOOL_DEFS.some((tool) => tool.name === name)) {
+  await ensureAuthorToolsLoaded();
+  if (!cachedToolNames.has(name)) {
     replyError(id, -32602, `unsupported tool: ${name}`);
     return;
   }
@@ -417,19 +298,14 @@ async function handleMessage(msg) {
       capabilities: { tools: {} },
       serverInfo: {
         name: "mei-editor-stdio-adapter",
-        version: "0.1.0",
+        version: "0.2.0",
       },
     });
     return;
   }
   if (method === "tools/list") {
-    reply(id, {
-      tools: TOOL_DEFS.map((tool) => ({
-        name: tool.name,
-        description: tool.description,
-        inputSchema: tool.inputSchema,
-      })),
-    });
+    const tools = await ensureAuthorToolsLoaded();
+    reply(id, { tools });
     return;
   }
   if (method === "tools/call") {

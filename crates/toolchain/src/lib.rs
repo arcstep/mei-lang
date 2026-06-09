@@ -4,7 +4,9 @@ mod artifact_store;
 mod capability_catalog;
 mod compile_report;
 mod compile_service;
+mod editor_runtime;
 mod export;
+mod knowledge_bundle;
 mod observation;
 mod platform_assets;
 mod runtime_sim;
@@ -22,8 +24,11 @@ pub use artifact_store::{
     ArtifactWriteContext, TOOLCHAIN_ARTIFACT_STORE_VERSION,
 };
 pub use capability_catalog::{
-    capability_catalog_descriptor, capability_catalog_descriptor_for_package_root,
-    mcp_surface_descriptor, meilang_author_skill_package, SkillPackageDescriptor,
+    access_host_bound_query_tools, access_host_bound_tool_descriptors,
+    access_host_bound_tool_names, access_profile_descriptor, ai_profile_descriptor,
+    ai_profile_policy_lines, author_profile_descriptor, capability_catalog_descriptor,
+    capability_catalog_descriptor_for_package_root, mcp_surface_descriptor,
+    meilang_author_skill_package, AiProfileDescriptor, SkillPackageDescriptor,
     CAPABILITY_CATALOG_SCHEMA_VERSION, MCP_SURFACE_SCHEMA_VERSION,
 };
 pub use compile_report::{compile_report, CompileReport};
@@ -33,10 +38,22 @@ pub use compile_service::{
     resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, LayoutCheck,
     PeekCompileCacheHit, SourceLayoutInspection, SourceLayoutRoots,
 };
+pub use editor_runtime::{
+    doctor_editor_runtime_for_package_root, editor_runtime_descriptor_for_package_root,
+    scaffold_editor_runtime_tooling, EditorRuntimeCheck, EditorRuntimeDescriptor,
+    EditorRuntimeDoctorReport, EditorRuntimePathDescriptor, EditorRuntimeScaffoldFile,
+    EditorRuntimeScaffoldReport, EditorRuntimeTemplateDescriptor,
+    EDITOR_RUNTIME_SCHEMA_VERSION,
+};
 pub use export::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,
     export_semantic_dag, HeadlessArtifactEnvelope, HeadlessArtifactKind, HeadlessExportOptions,
     HEADLESS_EXPORT_SCHEMA_VERSION,
+};
+pub use knowledge_bundle::{
+    export_knowledge_bundle_for_package_root, knowledge_bundle_descriptor_for_package_root,
+    KnowledgeAssetContent, KnowledgeAssetDescriptor, KnowledgeBundleDescriptor,
+    KNOWLEDGE_BUNDLE_SCHEMA_VERSION,
 };
 pub use observation::{CompileObservation, EvalObservation, ExposureManifest};
 pub use platform_assets::{

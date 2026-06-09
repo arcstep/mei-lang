@@ -10,6 +10,8 @@ use mei_lang_toolchain::{
     build_world_context_snapshot, capability_catalog_descriptor_for_package_root,
     clear_compile_cache_for_app, compile_app_with_cache, compile_report, query_world_dataset,
     query_world_dataset_metrics, resolve_components_root, runtime_sim_step,
+    scaffold_editor_runtime_tooling, doctor_editor_runtime_for_package_root,
+    editor_runtime_descriptor_for_package_root, export_knowledge_bundle_for_package_root,
     RESOURCE_QUERY_SCHEMA_VERSION,
 };
 
@@ -271,6 +273,81 @@ fn capability_catalog_includes_platform_assets_and_profiles() {
             .iter()
             .any(|item| item["id"] == "cockpit")
     );
+    assert!(descriptor["host_extensions"]["extensions"].is_array());
+    assert!(descriptor["host_requirements"].is_array());
+    assert!(descriptor["knowledge_bundles"].is_array());
+    assert_eq!(
+        descriptor["host_requirements"][0]["consumer_id"],
+        "mei-host-web"
+    );
+}
+
+#[test]
+fn editor_runtime_descriptor_exposes_tooling_templates() {
+    let descriptor = editor_runtime_descriptor_for_package_root(&package_root());
+    assert_eq!(descriptor.schema_version, "mei-editor-runtime-v1");
+    assert!(
+        descriptor
+            .tooling_templates
+            .iter()
+            .any(|item| item.tool == "cursor")
+    );
+}
+
+#[test]
+fn editor_runtime_doctor_passes_for_source_tree_package_root() {
+    let report = doctor_editor_runtime_for_package_root(&package_root());
+    assert!(report.ok, "doctor should pass for source-tree package root");
+}
+
+#[test]
+fn knowledge_bundle_exports_editor_assets() {
+    let payload = export_knowledge_bundle_for_package_root(&package_root(), "editor", None, false)
+        .expect("knowledge bundle");
+    assert_eq!(payload["descriptor"]["surface"], "editor");
+    assert!(
+        payload["assets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["descriptor"]["id"] == "syntax_rules")
+    );
+}
+
+#[test]
+fn scaffold_editor_runtime_tooling_writes_cursor_files() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_editor_runtime_scaffold_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(&root).expect("create scaffold root");
+    let report = scaffold_editor_runtime_tooling(
+        &root,
+        &package_root(),
+        &[
+            "cursor".to_string(),
+            "vscode".to_string(),
+            "trae".to_string(),
+            "codex".to_string(),
+            "claude-code".to_string(),
+            "opencode".to_string(),
+        ],
+        false,
+    )
+    .expect("scaffold");
+    assert!(report.files.iter().any(|item| item.rel_path == ".cursor/mcp.json"));
+    assert!(root.join(".mei/editor-runtime.json").is_file());
+    assert!(root.join(".cursor/rules/meilang-authoring.mdc").is_file());
+    assert!(root.join(".vscode/settings.json").is_file());
+    assert!(root.join(".trae/mcp.json").is_file());
+    assert!(root.join(".mei/tooling/codex/mcp.json").is_file());
+    assert!(root.join(".mei/tooling/claude-code/mcp.json").is_file());
+    assert!(root.join(".mei/tooling/opencode/mcp.json").is_file());
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

@@ -2123,6 +2123,8 @@ version = "1.0.0"
 dependencies = [
  "anyhow",
  "mei-lang-kernel",
+ "mei-lang-toolchain",
+ "starlark",
  "tokio",
  "tower-lsp",
  "tracing",

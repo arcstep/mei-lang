@@ -21,13 +21,16 @@ fn package_root_from_env() -> Option<PathBuf> {
 
 fn package_root_from_current_exe() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let candidate = exe
-        .parent()?
-        .parent()?
-        .parent()?
-        .canonicalize()
-        .ok()?;
-    let looks_like_package_root = candidate.join("stock").is_dir() || candidate.join("app").is_dir();
+    let bin_dir = exe.parent()?;
+    let prefix = bin_dir.parent()?.canonicalize().ok()?;
+    let share_root = prefix.join("share/mei");
+    if share_root.join("stock").is_dir() {
+        return Some(share_root);
+    }
+    let candidate = prefix.parent()?.canonicalize().ok()?;
+    let looks_like_package_root = candidate.join("stock").is_dir()
+        || candidate.join("app").is_dir()
+        || candidate.join("guides").is_dir();
     looks_like_package_root.then_some(candidate)
 }
 

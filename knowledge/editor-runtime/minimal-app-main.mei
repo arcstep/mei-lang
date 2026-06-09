@@ -1,0 +1,6 @@
+app(
+    id = "minimal-app",
+    title = "Minimal App",
+    default_scene = "home",
+    scene = scene_ref(scene_file = "scenes/home.mei"),
+)

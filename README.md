@@ -114,6 +114,13 @@ cargo run -p mei-lang-server --bin mei-host-web -- host describe --json
 # editor MCP adapter（stdio）
 npm run mcp:editor-adapter
 npm run test:mcp:editor-adapter
+
+# standalone editor runtime
+cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime describe --json
+cargo run -p mei-lang-server --bin mei-toolchain -- editor-runtime doctor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- knowledge --surface editor --include-content --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace init --standalone --source-root /tmp/mei-demo --materialize --tool cursor --json
+cargo run -p mei-lang-server --bin mei-toolchain -- workspace create-app hello --source-root /tmp/mei-demo --scaffold --tool codex --json
 ```
 
 浏览器打开根路径即可；应用页面路由形如 **`/apps/manage/<app_id>`**。

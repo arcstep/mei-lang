@@ -1,10 +1,15 @@
 use std::path::Path;
 
-use mei_lang_kernel::{host_runtime_capabilities_catalog, host_runtime_contract_descriptor};
+use mei_lang_kernel::{
+    host_extension_registry_descriptor, host_requirements_descriptor,
+    host_runtime_capabilities_catalog, host_runtime_contract_descriptor,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use crate::knowledge_bundle::knowledge_bundle_descriptor_for_package_root;
 use crate::platform_assets::platform_asset_catalog_descriptor_for_package_root;
+use crate::types::ResourceQueryToolSpec;
 
 pub const CAPABILITY_CATALOG_SCHEMA_VERSION: &str = "mei-capability-catalog-v1";
 pub const MCP_SURFACE_SCHEMA_VERSION: &str = "mei-mcp-surface-v1";
@@ -100,6 +105,66 @@ pub fn access_profile_descriptor() -> AiProfileDescriptor {
     }
 }
 
+pub fn ai_profile_descriptor(profile_id: &str) -> Option<AiProfileDescriptor> {
+    match profile_id.trim().to_ascii_lowercase().as_str() {
+        "author" | "editor" => Some(author_profile_descriptor()),
+        "access" => Some(access_profile_descriptor()),
+        _ => None,
+    }
+}
+
+pub fn ai_profile_policy_lines(profile_id: &str) -> Vec<String> {
+    let Some(profile) = ai_profile_descriptor(profile_id) else {
+        return Vec::new();
+    };
+    let mut lines = vec![format!(
+        "Profile `{}` ({}) is {}.",
+        profile.id, profile.name, profile.description
+    )];
+    if !profile.primary_inputs.is_empty() {
+        lines.push(format!(
+            "Primary inputs: {}.",
+            profile.primary_inputs.join(", ")
+        ));
+    }
+    if !profile.recommended_flow.is_empty() {
+        lines.push("Recommended flow:".to_string());
+        for (index, step) in profile.recommended_flow.iter().enumerate() {
+            lines.push(format!("{}. {}", index + 1, humanize_flow_step(step)));
+        }
+    }
+    if let Some(guidance) = profile.guidance_file_rel.as_deref() {
+        lines.push(format!("Guidance file: `{guidance}`."));
+    }
+    lines
+}
+
+fn humanize_flow_step(step: &str) -> String {
+    match step {
+        "read_target_source" => "Read the target `.mei` source before runtime queries.".to_string(),
+        "read_author_docs_and_examples" => {
+            "Read author docs, examples, and component references.".to_string()
+        }
+        "run_mei_check_or_mei_lsp" => "Run `mei-toolchain check` or `mei-lsp` for diagnostics.".to_string(),
+        "use_inspect_or_query_only_when_runtime_facts_are_needed" => {
+            "Use inspect/query only when runtime facts are needed.".to_string()
+        }
+        "read_world_catalog_and_runtime_summary" => {
+            "Read world catalog and runtime summary for the active app/scene scope.".to_string()
+        }
+        "merge_browser_query_state_into_eval_scope" => {
+            "Merge browser `query_state` into bounded eval scope before answering.".to_string()
+        }
+        "prefer_preinjected_metric_preview_then_dataset_metric" => {
+            "Prefer injected metric previews, then call `dataset_metric` / `dataset_query`.".to_string()
+        }
+        "use_read_file_only_for_small_verbatim_evidence" => {
+            "Use `read_file` only for small verbatim DSL evidence.".to_string()
+        }
+        other => other.replace('_', " "),
+    }
+}
+
 pub fn capability_catalog_descriptor() -> Value {
     json!(capability_catalog_descriptor_for_package_root(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path()
@@ -124,6 +189,16 @@ pub fn capability_catalog_descriptor_for_package_root(package_root: &Path) -> Va
         "platform_assets": platform_asset_catalog_descriptor_for_package_root(package_root),
         "skill_packages": [
             meilang_author_skill_package()
+        ],
+        "knowledge_bundles": [
+            knowledge_bundle_descriptor_for_package_root(package_root, "editor")
+                .expect("editor knowledge bundle"),
+            knowledge_bundle_descriptor_for_package_root(package_root, "access")
+                .expect("access knowledge bundle")
+        ],
+        "host_extensions": host_extension_registry_descriptor(),
+        "host_requirements": [
+            host_requirements_descriptor("mei-host-web").expect("mei-host-web requirements")
         ],
         "mcp_surfaces": [
             mcp_surface_descriptor("author").expect("author surface"),
@@ -154,6 +229,10 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                 "adapter_entrypoint": "node ./scripts/mcp/mei-editor-stdio-adapter.mjs"
             },
             "skill_package": meilang_author_skill_package(),
+            "knowledge_bundle": knowledge_bundle_descriptor_for_package_root(
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").as_path(),
+                "editor"
+            ).expect("editor knowledge bundle"),
             "authoring_mode": {
                 "strategy": "source_first",
                 "guidance": [
@@ -163,6 +242,39 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                 ]
             },
             "tools": [
+                {
+                    "name": "mei_author_knowledge",
+                    "description": "Return packaged authoring docs, rules, and examples for standalone editor runtime consumers.",
+                    "backed_by": "mei knowledge export --surface editor [--topic <topic>] [--include-content] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "topic": { "type": "string" },
+                            "include_content": { "type": "boolean" }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                {
+                    "name": "mei_editor_runtime_describe",
+                    "description": "Describe the standalone MeiLang editor runtime layout, paths, and tool scaffolding contracts.",
+                    "backed_by": "mei editor-runtime describe --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    }
+                },
+                {
+                    "name": "mei_editor_runtime_doctor",
+                    "description": "Run readonly checks for the standalone editor runtime package layout and bundled assets.",
+                    "backed_by": "mei editor-runtime doctor --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": false
+                    }
+                },
                 {
                     "name": "mei_check",
                     "description": "Compile an app and return diagnostics plus revision metadata.",
@@ -356,8 +468,13 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
             "profile_id": "access",
             "profile": "access_readonly_world_v1",
             "transport": {
-                "status": "descriptor_ready",
-                "recommended": "bind these tools to host-side access agents after scope/auth is enforced"
+                "status": "adapter_ready",
+                "recommended": "run `npm run mcp:access-adapter` for stdio MCP; host-side agents should bind the same access surface tools after scope/auth is enforced"
+            },
+            "adapter": {
+                "reference": "scripts/mcp/mei-access-stdio-adapter.mjs",
+                "entrypoint": "node ./scripts/mcp/mei-access-stdio-adapter.mjs",
+                "smoke_test": "npm run test:mcp:access-adapter"
             },
             "context_ir": {
                 "primary": "world-first",
@@ -369,37 +486,131 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
                 {
                     "name": "dataset_query",
                     "description": "Bounded dataset schema/sample-row query for visitor-facing QA.",
-                    "backed_by": "mei query dataset --app <app> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json"
+                    "backed_by": "mei query dataset --app <app> --id <dataset_id> [--scene <scene>] [--filter key=value]... [--column name]... [--limit N] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "dataset_id": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "search": { "type": "string" },
+                            "filters": {
+                                "type": "object",
+                                "additionalProperties": { "type": "string" }
+                            },
+                            "columns": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            },
+                            "limit": { "type": "integer", "minimum": 1 }
+                        },
+                        "required": ["app", "dataset_id"]
+                    }
                 },
                 {
                     "name": "dataset_metric",
                     "description": "Bounded aggregate metric query for visitor-facing QA.",
-                    "backed_by": "mei query metric --app <app> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json"
+                    "backed_by": "mei query metric --app <app> --id <dataset_id> [--metric-id <metric>]... [--scene <scene>] [--filter key=value]... --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "dataset_id": { "type": "string" },
+                            "metric_ids": {
+                                "type": "array",
+                                "items": { "type": "string" }
+                            },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "search": { "type": "string" },
+                            "filters": {
+                                "type": "object",
+                                "additionalProperties": { "type": "string" }
+                            }
+                        },
+                        "required": ["app", "dataset_id"]
+                    }
                 },
                 {
                     "name": "resource_list",
                     "description": "List world assets/resources visible in the current scope.",
-                    "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei inspect inventory --app <app> [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "resource_get",
                     "description": "Fetch a single world resource/entity payload.",
-                    "backed_by": "mei query resource --app <app> --id <resource_id> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei query resource --app <app> --id <resource_id> [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "resource_id": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app", "resource_id"]
+                    }
                 },
                 {
                     "name": "resource_runtime_peek",
                     "description": "Peek runtime phase/result/actions for the current scope.",
-                    "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei runtime peek --app <app> [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "trace_limit": { "type": "integer", "minimum": 1 }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "resource_runtime_trace_export",
                     "description": "Export a bounded runtime trace envelope for the current scope.",
-                    "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] --json"
+                    "backed_by": "mei export runtime-trace --app <app> [--scene <scene>] [--target-file <file>] [--trace-limit N] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" },
+                            "trace_limit": { "type": "integer", "minimum": 1 }
+                        },
+                        "required": ["app"]
+                    }
                 },
                 {
                     "name": "resource_business_summary",
                     "description": "Return a bounded business summary for the current app/scene/world scope.",
-                    "backed_by": "mei inspect summary --app <app> [--scene <scene>] [--target-file <file>] --json"
+                    "backed_by": "mei inspect summary --app <app> [--scene <scene>] [--target-file <file>] --json",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "app": { "type": "string" },
+                            "source_root": { "type": "string" },
+                            "scene": { "type": "string" },
+                            "target_file": { "type": "string" }
+                        },
+                        "required": ["app"]
+                    }
                 }
             ],
             "write_policy": {
@@ -411,4 +622,194 @@ pub fn mcp_surface_descriptor(surface: &str) -> Option<Value> {
         })),
         _ => None,
     }
+}
+
+pub fn access_host_bound_tool_descriptors() -> Vec<Value> {
+    let Some(surface) = mcp_surface_descriptor("access") else {
+        return Vec::new();
+    };
+    surface
+        .get("tools")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(host_bound_access_tool_descriptor)
+        .collect()
+}
+
+pub fn access_host_bound_tool_names() -> Vec<String> {
+    access_host_bound_tool_descriptors()
+        .into_iter()
+        .filter_map(|tool| {
+            tool.get("name")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect()
+}
+
+pub fn access_host_bound_query_tools() -> Vec<ResourceQueryToolSpec> {
+    access_host_bound_tool_descriptors()
+        .into_iter()
+        .filter_map(|tool| {
+            let name = tool.get("name").and_then(Value::as_str)?.to_string();
+            let description = tool
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let input = format_host_bound_input_summary(
+                tool.get("input_schema").unwrap_or(&Value::Null),
+            );
+            Some(ResourceQueryToolSpec {
+                id: name.clone(),
+                status: access_query_tool_status(&name).to_string(),
+                purpose: description,
+                input,
+                output: access_query_tool_output(&name).to_string(),
+            })
+        })
+        .collect()
+}
+
+fn host_bound_access_tool_descriptor(tool: &Value) -> Option<Value> {
+    let name = tool.get("name")?.as_str()?.to_string();
+    let description = tool
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let input_schema = host_bound_access_input_schema(tool.get("input_schema")?);
+    Some(json!({
+        "name": name,
+        "description": description,
+        "input_schema": input_schema,
+    }))
+}
+
+fn host_bound_access_input_schema(input_schema: &Value) -> Value {
+    let mut schema = match input_schema.as_object() {
+        Some(map) => map.clone(),
+        None => return json!({ "type": "object", "properties": {} }),
+    };
+    let mut properties = schema
+        .remove("properties")
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    properties.remove("app");
+    properties.remove("source_root");
+    if let Some(scene) = properties.remove("scene") {
+        let mut scene_prop = scene;
+        if let Some(description) = scene_prop.get("description").and_then(Value::as_str) {
+            let normalized = description.replace("scene", "scene id");
+            if let Some(obj) = scene_prop.as_object_mut() {
+                obj.insert("description".to_string(), Value::String(normalized));
+            }
+        }
+        properties.insert("scene_id".to_string(), scene_prop);
+    }
+    schema.insert("properties".to_string(), Value::Object(properties));
+    let required = schema
+        .remove("required")
+        .and_then(|value| value.as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|value| value.as_str().map(str::to_string))
+        .filter(|name| name != "app" && name != "source_root")
+        .map(|name| {
+            if name == "scene" {
+                Value::String("scene_id".to_string())
+            } else {
+                Value::String(name)
+            }
+        })
+        .collect::<Vec<_>>();
+    if !required.is_empty() {
+        schema.insert("required".to_string(), Value::Array(required));
+    }
+    Value::Object(schema)
+}
+
+fn access_query_tool_status(name: &str) -> &'static str {
+    match name {
+        "dataset_query" | "dataset_metric" => "phase2_api_ready",
+        "resource_list" | "resource_get" | "resource_runtime_peek" => "phase3_native_ready",
+        "resource_runtime_trace_export" | "resource_business_summary" => "phase5_native_ready",
+        _ => "catalog_bound",
+    }
+}
+
+fn access_query_tool_output(name: &str) -> &'static str {
+    match name {
+        "dataset_query" => {
+            "bounded: {dataset{schema_preview,filters,metric_ids,analysis_contracts_preview}, sample_rows, truncation, usage_hint}"
+        }
+        "dataset_metric" => {
+            "bounded: {dataset_id, total_rows, metrics, analysis_contracts}; analysis_contracts mirrors host UI explain/popup contract"
+        }
+        "resource_list" => "bounded: WorldAssetListResponse JSON",
+        "resource_get" => "bounded: WorldAssetGetResponse JSON",
+        "resource_runtime_peek" => "bounded: WorldRuntimePeekResponse JSON",
+        "resource_runtime_trace_export" => {
+            "bounded: HeadlessArtifactEnvelope JSON for runtime_trace"
+        }
+        "resource_business_summary" => "bounded: WorldBusinessSummary JSON",
+        _ => "bounded JSON result",
+    }
+}
+
+fn format_host_bound_input_summary(schema: &Value) -> String {
+    let Some(props) = schema.get("properties").and_then(Value::as_object) else {
+        return "{}".to_string();
+    };
+    let required = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    let preferred_order = [
+        "dataset_id",
+        "metric_ids",
+        "resource_id",
+        "kind",
+        "search",
+        "filters",
+        "columns",
+        "limit",
+        "trace_limit",
+        "scene_id",
+        "target_file",
+    ];
+    let mut keys = preferred_order
+        .iter()
+        .filter(|key| props.contains_key(**key))
+        .map(|key| (*key).to_string())
+        .collect::<Vec<_>>();
+    let mut extras = props
+        .keys()
+        .filter(|key| !preferred_order.contains(&key.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    extras.sort();
+    keys.extend(extras);
+    let parts = keys
+        .into_iter()
+        .filter_map(|name| {
+            let ty = props
+                .get(&name)
+                .and_then(|value| value.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or("value");
+            let optional = !required.iter().any(|item| *item == name);
+            Some(format!(
+                "{}{}: {}",
+                name,
+                if optional { "?" } else { "" },
+                ty
+            ))
+        })
+        .collect::<Vec<_>>();
+    format!("{{{}}}", parts.join(", "))
 }

@@ -1,0 +1,22 @@
+scene(
+    id = "home",
+    world = "home_world",
+    frame = "home_frame",
+    profile = "page",
+)
+
+world(
+    id = "home_world",
+    resources = [],
+)
+
+frame(
+    id = "home_frame",
+    layout = flex(direction = "column", gap = "16px", padding = "20px"),
+)
+
+frame.add_panel(
+    id = "main",
+    area = "auto",
+    blocks = [],
+)

@@ -29,8 +29,9 @@ use crate::cli::util::{
     resolve_source_root_arg,
 };
 use crate::cli::{
-    agent_command, compile_or_check_command, export_command, host_command, inspect_command,
-    mcp_command, query_command, runtime_command, workspace_command,
+    agent_command, compile_or_check_command, editor_runtime_command, export_command,
+    host_command, inspect_command, knowledge_command, mcp_command, query_command,
+    runtime_command, workspace_command,
 };
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -77,6 +78,8 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         BinaryFlavor::Toolchain => matches!(
             command,
             Command::Workspace(_)
+                | Command::Knowledge(_)
+                | Command::EditorRuntime(_)
                 | Command::Compile(_)
                 | Command::Check(_)
                 | Command::Inspect(_)
@@ -111,6 +114,8 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
             HostCommand::Auth(_) => "host auth",
         },
         Command::Workspace(_) => "workspace",
+        Command::Knowledge(_) => "knowledge",
+        Command::EditorRuntime(_) => "editor-runtime",
         Command::Compile(_) => "compile",
         Command::Check(_) => "check",
         Command::Inspect(_) => "inspect",
@@ -157,6 +162,8 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         }),
         Command::Host(args) => host_command(args),
         Command::Workspace(args) => workspace_command(args),
+        Command::Knowledge(args) => knowledge_command(args),
+        Command::EditorRuntime(args) => editor_runtime_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),

@@ -2,6 +2,7 @@
 
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
+import { loadSurfaceDescriptor, toolchainBinCandidates } from "./mcp/mcp-adapter-common.mjs";
 
 function encodeMessage(payload) {
   const body = Buffer.from(JSON.stringify(payload), "utf8");
@@ -35,7 +36,7 @@ function createFrameReader(onMessage) {
   };
 }
 
-function waitForResponse(queue, id, timeoutMs = 5000) {
+function waitForResponse(queue, id, timeoutMs = 10000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
     const tick = () => {
@@ -57,6 +58,10 @@ function waitForResponse(queue, id, timeoutMs = 5000) {
 }
 
 async function main() {
+  const binCandidates = toolchainBinCandidates();
+  const { descriptor: catalogSurface } = await loadSurfaceDescriptor("author", binCandidates);
+  const catalogNames = catalogSurface.tools.map((tool) => tool.name).sort();
+
   const child = spawn(process.execPath, ["./scripts/mcp/mei-editor-stdio-adapter.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
@@ -94,10 +99,16 @@ async function main() {
 
     send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
     const tools = await waitForResponse(queue, 2);
-    const names = (tools.result?.tools || []).map((tool) => tool.name);
-    assert.ok(names.includes("mei_check"), "tools/list should include mei_check");
-    assert.ok(names.includes("mei_runtime_peek"), "tools/list should include mei_runtime_peek");
-    assert.ok(names.includes("mei_host_describe"), "tools/list should include mei_host_describe");
+    const names = (tools.result?.tools || []).map((tool) => tool.name).sort();
+    assert.deepEqual(
+      names,
+      catalogNames,
+      "tools/list should match mei-toolchain mcp describe --surface author",
+    );
+    assert.ok(names.includes("mei_workspace_summary"));
+    assert.ok(names.includes("mei_inspect_summary"));
+    assert.ok(names.includes("mei_author_knowledge"));
+    assert.ok(names.includes("mei_editor_runtime_describe"));
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => {

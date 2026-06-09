@@ -1,21 +1,29 @@
+mod source_index;
+
 use std::{
     collections::{HashMap, HashSet},
+    fs,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    compile_app_from_root_with_options, CompileOptions, Diagnostic as MeiDiagnostic,
-    Severity as MeiSeverity,
+    describe_dsl, load_component_assets, Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
 };
+use mei_lang_toolchain::{compile_app_with_cache, resolve_components_root};
+use starlark::syntax::{AstModule, Dialect};
 use tokio::sync::Mutex;
 use tower_lsp::{
     async_trait,
     lsp_types::{
-        Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, DidSaveTextDocumentParams, InitializeParams, InitializeResult,
-        InitializedParams, MessageType, NumberOrString, Position, Range, ServerCapabilities,
+        CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
+        CompletionResponse, Diagnostic, DiagnosticSeverity, DidChangeTextDocumentParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+        DocumentSymbolParams, DocumentSymbolResponse, GotoDefinitionParams,
+        GotoDefinitionResponse, Hover, HoverContents, HoverProviderCapability, HoverParams,
+        InitializeParams, InitializeResult, InitializedParams, Location, MarkupContent,
+        MarkupKind, MessageType, NumberOrString, OneOf, Position, Range, ServerCapabilities,
         ServerInfo, TextDocumentSyncCapability, TextDocumentSyncKind, TextDocumentSyncOptions,
         TextDocumentSyncSaveOptions, Url,
     },
@@ -27,11 +35,19 @@ const SERVER_NAME: &str = "mei-lang-lsp";
 #[derive(Default)]
 struct DiagnosticState {
     published_by_app: HashMap<PathBuf, HashSet<Url>>,
+    documents: HashMap<Url, String>,
 }
 
 struct Backend {
     client: Client,
     state: Arc<Mutex<DiagnosticState>>,
+}
+
+#[derive(Clone, Copy)]
+enum ValidationTrigger {
+    Open,
+    Change,
+    Save,
 }
 
 impl Backend {
@@ -42,7 +58,22 @@ impl Backend {
         }
     }
 
-    async fn validate_uri(&self, uri: Url) {
+    async fn upsert_document(&self, uri: Url, text: String) {
+        let mut guard = self.state.lock().await;
+        guard.documents.insert(uri, text);
+    }
+
+    async fn remove_document(&self, uri: &Url) {
+        let mut guard = self.state.lock().await;
+        guard.documents.remove(uri);
+    }
+
+    async fn document_text(&self, uri: &Url) -> Option<String> {
+        let guard = self.state.lock().await;
+        guard.documents.get(uri).cloned()
+    }
+
+    async fn validate_uri(&self, uri: Url, trigger: ValidationTrigger) {
         if uri.scheme() != "file" {
             return;
         }
@@ -60,34 +91,34 @@ impl Backend {
                     vec![compile_failure_diagnostic(
                         "app_root_not_found",
                         "未找到 app 根目录（缺少 main.mei）".to_string(),
+                        None,
                     )],
                     None,
                 )
                 .await;
             return;
         };
+        let buffer = self.document_text(&uri).await;
+        let disk = fs::read_to_string(&path).ok();
+        let active_source = buffer.clone().or(disk.clone()).unwrap_or_default();
+        let dirty = buffer
+            .as_ref()
+            .zip(disk.as_ref())
+            .is_some_and(|(buffer, disk)| buffer != disk);
+        if dirty && matches!(trigger, ValidationTrigger::Change) {
+            let mut grouped = HashMap::new();
+            grouped.insert(
+                uri.clone(),
+                syntax_only_diagnostics(uri.clone(), &path, &active_source),
+            );
+            self.publish_grouped(app_root, grouped).await;
+            return;
+        }
         let source_root = resolve_source_root_for_assets(&app_root);
-        let target = to_preview_target(&app_root, &path).unwrap_or_else(|| "main.mei".to_string());
-        let options = CompileOptions {
-            scene: None,
-            preview_target: Some(target),
-        };
-
-        let mut grouped = match compile_app_from_root_with_options(&source_root, &app_root, options)
-        {
-            Ok(compiled) => group_diagnostics(compiled.diagnostics, &source_root, &app_root, &uri),
-            Err(error) => {
-                let mut map = HashMap::new();
-                map.insert(
-                    uri.clone(),
-                    vec![compile_failure_diagnostic(
-                        "compile_error",
-                        error.to_string(),
-                    )],
-                );
-                map
-            }
-        };
+        let mut grouped = compile_grouped(&source_root, &app_root, &path, &uri);
+        if let Some(current) = grouped.get_mut(&uri) {
+            current.extend(syntax_only_diagnostics(uri.clone(), &path, &active_source));
+        }
         // 始终刷新当前文件，避免切换后残留旧诊断。
         grouped.entry(uri.clone()).or_default();
         self.publish_grouped(app_root, grouped).await;
@@ -115,6 +146,21 @@ impl Backend {
         let mut guard = self.state.lock().await;
         guard.published_by_app.insert(app_root, next_uris);
     }
+
+    async fn document_source(&self, uri: &Url, path: &Path) -> Option<String> {
+        self.document_text(uri)
+            .await
+            .or_else(|| fs::read_to_string(path).ok())
+    }
+
+    async fn source_index_for_uri(&self, uri: &Url) -> Option<(PathBuf, PathBuf, PathBuf, source_index::SourceIndex, String)> {
+        let path = uri.to_file_path().ok()?;
+        let app_root = find_app_root(&path)?;
+        let source_root = resolve_source_root_for_assets(&app_root);
+        let source = self.document_source(uri, &path).await?;
+        let index = source_index::analyze_source(&source);
+        Some((path, app_root, source_root, index, source))
+    }
 }
 
 #[async_trait]
@@ -137,6 +183,14 @@ impl LanguageServer for Backend {
                         ..TextDocumentSyncOptions::default()
                     },
                 )),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                definition_provider: Some(OneOf::Left(true)),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(false),
+                    trigger_characters: Some(vec!["\"".to_string(), ".".to_string(), "_".to_string()]),
+                    ..CompletionOptions::default()
+                }),
                 ..ServerCapabilities::default()
             },
         })
@@ -146,7 +200,7 @@ impl LanguageServer for Backend {
         self.client
             .log_message(
                 MessageType::INFO,
-                "MeiLang LSP 已启动（diagnostics-only）".to_string(),
+                "MeiLang LSP 已启动（editor runtime）".to_string(),
             )
             .await;
     }
@@ -156,21 +210,224 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.validate_uri(params.text_document.uri).await;
+        self.upsert_document(params.text_document.uri.clone(), params.text_document.text)
+            .await;
+        self.validate_uri(params.text_document.uri, ValidationTrigger::Open)
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        self.validate_uri(params.text_document.uri).await;
+        if let Some(change) = params.content_changes.into_iter().last() {
+            self.upsert_document(params.text_document.uri.clone(), change.text)
+                .await;
+        }
+        self.validate_uri(params.text_document.uri, ValidationTrigger::Change)
+            .await;
     }
 
     async fn did_save(&self, params: DidSaveTextDocumentParams) {
-        self.validate_uri(params.text_document.uri).await;
+        if let Some(text) = params.text {
+            self.upsert_document(params.text_document.uri.clone(), text).await;
+        }
+        self.validate_uri(params.text_document.uri, ValidationTrigger::Save)
+            .await;
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
+        self.remove_document(&params.text_document.uri).await;
         self.client
             .publish_diagnostics(params.text_document.uri, Vec::new(), None)
             .await;
+    }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<DocumentSymbolResponse>> {
+        let Some((_, _, _, index, _)) = self.source_index_for_uri(&params.text_document.uri).await else {
+            return Ok(None);
+        };
+        Ok(Some(DocumentSymbolResponse::Nested(
+            source_index::document_symbols(&index),
+        )))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<GotoDefinitionResponse>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let Some((path, app_root, source_root, index, source)) = self.source_index_for_uri(&uri).await else {
+            return Ok(None);
+        };
+        let Some(reference) = source_index::reference_at_position(&index, position) else {
+            return Ok(None);
+        };
+        if reference.kind == "scene_file" {
+            let target = app_root.join(&reference.value);
+            if let Some(location) = file_location(target.as_path()) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+            }
+        }
+        if reference.kind == "component" {
+            if let Ok(assets) = load_component_assets(&source_root) {
+                if let Some(asset) = assets.get(&reference.value) {
+                    let target = resolve_components_root(&source_root).join(&asset.script);
+                    if let Some(location) = file_location(target.as_path()) {
+                        return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+                    }
+                }
+            }
+        }
+        if let Some(location) = find_symbol_definition(
+            app_root.as_path(),
+            path.as_path(),
+            &source,
+            reference.kind,
+            &reference.value,
+        ) {
+            return Ok(Some(GotoDefinitionResponse::Scalar(location)));
+        }
+        Ok(None)
+    }
+
+    async fn hover(
+        &self,
+        params: HoverParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<Hover>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+        let Some((_, _, source_root, index, source)) = self.source_index_for_uri(&uri).await else {
+            return Ok(None);
+        };
+        if let Some(reference) = source_index::reference_at_position(&index, position) {
+            let contents = if reference.kind == "component" {
+                if let Ok(assets) = load_component_assets(&source_root) {
+                    assets.get(&reference.value).map(|asset| format!(
+                        "### component `{}`\n\n- tag: `{}`\n- script: `{}`",
+                        asset.key, asset.tag, asset.script
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                Some(format!(
+                    "### {} reference\n\nTarget: `{}`",
+                    reference.kind, reference.value
+                ))
+            };
+            if let Some(contents) = contents {
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: contents,
+                    }),
+                    range: Some(reference.range),
+                }));
+            }
+        }
+        if let Some(symbol) = source_index::symbol_at_position(&index, position) {
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: format!("### {}\n\nDeclared `{}`", symbol.detail, symbol.name),
+                }),
+                range: Some(symbol.selection_range),
+            }));
+        }
+        let Some(word) = source_index::word_at_position(&source, position) else {
+            return Ok(None);
+        };
+        if let Some(message) = hover_doc_for_word(&word) {
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: message.to_string(),
+                }),
+                range: None,
+            }));
+        }
+        Ok(None)
+    }
+
+    async fn completion(
+        &self,
+        params: CompletionParams,
+    ) -> tower_lsp::jsonrpc::Result<Option<CompletionResponse>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let Some((_, _, source_root, _, source)) = self.source_index_for_uri(&uri).await else {
+            return Ok(None);
+        };
+        let line = source.lines().nth(position.line as usize).unwrap_or("");
+        let prefix = &line[..line
+            .char_indices()
+            .nth(position.character as usize)
+            .map(|(offset, _)| offset)
+            .unwrap_or(line.len())];
+        let mut items = Vec::new();
+        if prefix.contains("component(") && prefix.matches('"').count() % 2 == 1 {
+            if let Ok(assets) = load_component_assets(&source_root) {
+                for asset in assets.values() {
+                    items.push(CompletionItem {
+                        label: asset.key.clone(),
+                        kind: Some(CompletionItemKind::CLASS),
+                        detail: Some(format!("tag={} script={}", asset.tag, asset.script)),
+                        documentation: Some(tower_lsp::lsp_types::Documentation::MarkupContent(
+                            MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: format!("Component `{}` from `{}`", asset.key, asset.script),
+                            },
+                        )),
+                        ..CompletionItem::default()
+                    });
+                }
+            }
+        } else {
+            let dsl = describe_dsl();
+            if let Some(surface) = dsl.get("public_surface").and_then(|value| value.as_array()) {
+                for item in surface {
+                    if let Some(label) = item.as_str() {
+                        items.push(CompletionItem {
+                            label: label.to_string(),
+                            kind: Some(CompletionItemKind::FUNCTION),
+                            detail: Some("MeiLang DSL surface".to_string()),
+                            documentation: hover_doc_for_word(label).map(|value| {
+                                tower_lsp::lsp_types::Documentation::MarkupContent(MarkupContent {
+                                    kind: MarkupKind::Markdown,
+                                    value: value.to_string(),
+                                })
+                            }),
+                            ..CompletionItem::default()
+                        });
+                    }
+                }
+            }
+            for label in [
+                "scene_ref",
+                "world_ref",
+                "frame_ref",
+                "resource_ref",
+                "dataset_ref",
+                "metric_ref",
+                "scene_file_ref",
+            ] {
+                items.push(CompletionItem {
+                    label: label.to_string(),
+                    kind: Some(CompletionItemKind::REFERENCE),
+                    detail: Some("Reference helper".to_string()),
+                    documentation: hover_doc_for_word(label).map(|value| {
+                        tower_lsp::lsp_types::Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: value.to_string(),
+                        })
+                    }),
+                    ..CompletionItem::default()
+                });
+            }
+        }
+        Ok(Some(CompletionResponse::Array(items)))
     }
 }
 
@@ -208,6 +465,45 @@ fn to_preview_target(app_root: &Path, file: &Path) -> Option<String> {
     file.strip_prefix(app_root)
         .ok()
         .map(|value| value.to_string_lossy().replace('\\', "/"))
+}
+
+fn app_id_from_roots(source_root: &Path, app_root: &Path) -> String {
+    app_root
+        .strip_prefix(source_root)
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|| {
+            app_root
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("")
+                .to_string()
+        })
+}
+
+fn compile_grouped(
+    source_root: &Path,
+    app_root: &Path,
+    current_file: &Path,
+    fallback_uri: &Url,
+) -> HashMap<Url, Vec<Diagnostic>> {
+    let app_id = app_id_from_roots(source_root, app_root);
+    let options = mei_lang_kernel::CompileOptions {
+        scene: None,
+        preview_target: to_preview_target(app_root, current_file),
+    };
+    let components_root = resolve_components_root(source_root);
+    match compile_app_with_cache(source_root, app_id.as_str(), options, components_root.as_path()) {
+        Ok(outcome) => group_diagnostics(outcome.compiled.diagnostics, source_root, app_root, fallback_uri),
+        Err(error) => {
+            let mut map = HashMap::new();
+            map.insert(
+                fallback_uri.clone(),
+                vec![compile_failure_diagnostic("compile_error", error.error.to_string(), None)],
+            );
+            map
+        }
+    }
 }
 
 fn group_diagnostics(
@@ -259,15 +555,42 @@ fn to_lsp_diagnostic(diag: MeiDiagnostic) -> Diagnostic {
     }
 }
 
-fn compile_failure_diagnostic(code: &str, message: String) -> Diagnostic {
+fn compile_failure_diagnostic(code: &str, message: String, range: Option<Range>) -> Diagnostic {
     Diagnostic {
-        range: zero_range(),
+        range: range.unwrap_or_else(zero_range),
         severity: Some(DiagnosticSeverity::ERROR),
         code: Some(NumberOrString::String(code.to_string())),
         source: Some(SERVER_NAME.to_string()),
         message,
         ..Diagnostic::default()
     }
+}
+
+fn syntax_only_diagnostics(uri: Url, path: &Path, source: &str) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    match AstModule::parse(path.to_string_lossy().as_ref(), source.to_string(), &Dialect::Standard) {
+        Ok(_) => {}
+        Err(error) => diagnostics.push(compile_failure_diagnostic(
+            "parse_error",
+            error.to_string(),
+            extract_range_from_error(source, &error.to_string()),
+        )),
+    }
+    let disk = fs::read_to_string(path).ok();
+    if disk.as_ref().is_some_and(|text| text != source) {
+        diagnostics.push(Diagnostic {
+            range: zero_range(),
+            severity: Some(DiagnosticSeverity::INFORMATION),
+            code: Some(NumberOrString::String("unsaved_buffer".to_string())),
+            source: Some(SERVER_NAME.to_string()),
+            message: format!(
+                "Unsaved buffer for `{}` is using syntax-only diagnostics; save for full app compile diagnostics.",
+                uri.path()
+            ),
+            ..Diagnostic::default()
+        });
+    }
+    diagnostics
 }
 
 fn zero_range() -> Range {
@@ -279,6 +602,106 @@ fn map_severity(severity: MeiSeverity) -> DiagnosticSeverity {
         MeiSeverity::Error => DiagnosticSeverity::ERROR,
         MeiSeverity::Warning => DiagnosticSeverity::WARNING,
         MeiSeverity::Info => DiagnosticSeverity::INFORMATION,
+    }
+}
+
+fn extract_range_from_error(source: &str, message: &str) -> Option<Range> {
+    let mut digits = message
+        .split(':')
+        .filter_map(|segment| segment.trim().parse::<u32>().ok());
+    let line = digits.next()?;
+    let col = digits.next()?;
+    let zero_line = line.saturating_sub(1);
+    let line_len = source
+        .lines()
+        .nth(zero_line as usize)
+        .map(|line| line.len() as u32)
+        .unwrap_or(col);
+    Some(Range::new(
+        Position::new(zero_line, col.saturating_sub(1)),
+        Position::new(zero_line, line_len.min(col + 1)),
+    ))
+}
+
+fn file_location(path: &Path) -> Option<Location> {
+    let uri = Url::from_file_path(path).ok()?;
+    Some(Location::new(uri, zero_range()))
+}
+
+fn collect_mei_files(root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_mei_files(path.as_path(), out);
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("mei") {
+            out.push(path);
+        }
+    }
+}
+
+fn definition_matches(symbol_kind: &str, reference_kind: &str) -> bool {
+    match reference_kind {
+        "scene" | "scene_file" => symbol_kind == "scene",
+        "world" => symbol_kind == "world",
+        "frame" => symbol_kind == "frame" || symbol_kind == "panel",
+        "resource" => symbol_kind == "resource",
+        "dataset" => symbol_kind == "dataset" || symbol_kind == "resource",
+        "metric" => symbol_kind == "metric",
+        _ => false,
+    }
+}
+
+fn find_symbol_definition(
+    app_root: &Path,
+    current_path: &Path,
+    current_source: &str,
+    reference_kind: &str,
+    value: &str,
+) -> Option<Location> {
+    let mut files = Vec::new();
+    collect_mei_files(app_root, &mut files);
+    files.sort();
+    for file in files {
+        let source = if file == current_path {
+            current_source.to_string()
+        } else {
+            match fs::read_to_string(&file) {
+                Ok(source) => source,
+                Err(_) => continue,
+            }
+        };
+        let index = source_index::analyze_source(&source);
+        if let Some(symbol) = index
+            .symbols
+            .iter()
+            .find(|symbol| symbol.name == value && definition_matches(symbol.kind, reference_kind))
+        {
+            let uri = Url::from_file_path(&file).ok()?;
+            return Some(Location::new(uri, symbol.selection_range));
+        }
+    }
+    None
+}
+
+fn hover_doc_for_word(word: &str) -> Option<&'static str> {
+    match word {
+        "app" => Some("### `app`\n\nDeclares the application entrypoint, title, and default scene."),
+        "scene" => Some("### `scene`\n\nDeclares the scene shell and binds world, flow, and frame."),
+        "world" => Some("### `world`\n\nDeclares world resources and business data roots."),
+        "flow" => Some("### `flow`\n\nDeclares runtime interaction and state transitions."),
+        "frame" => Some("### `frame`\n\nDeclares layout and panel slots for a scene."),
+        "component" => Some("### `component`\n\nUses a registered component key from the current component catalog."),
+        "scene_ref" => Some("### `scene_ref`\n\nReferences a scene object or a scene file binding."),
+        "world_ref" => Some("### `world_ref`\n\nReferences a world object or imported world binding."),
+        "frame_ref" => Some("### `frame_ref`\n\nReferences a frame object or imported frame binding."),
+        "resource_ref" => Some("### `resource_ref`\n\nReferences a resource id from the current world scope."),
+        "dataset_ref" => Some("### `dataset_ref`\n\nReferences a dataset or dataset view id from the current world scope."),
+        "metric_ref" => Some("### `metric_ref`\n\nReferences a runtime metric definition from the current world scope."),
+        "scene_file_ref" => Some("### `scene_file_ref`\n\nReferences an external scene file from the app root."),
+        _ => None,
     }
 }
 

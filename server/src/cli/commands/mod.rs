@@ -1,8 +1,10 @@
 mod agent;
 mod compile;
+mod editor_runtime;
 mod export;
 mod host;
 mod inspect;
+mod knowledge;
 mod mcp;
 mod query;
 mod runtime;
@@ -10,9 +12,11 @@ mod workspace;
 
 pub use agent::agent_command;
 pub use compile::compile_or_check_command;
+pub use editor_runtime::editor_runtime_command;
 pub use export::export_command;
 pub use host::host_command;
 pub use inspect::inspect_command;
+pub use knowledge::knowledge_command;
 pub use mcp::mcp_command;
 pub use query::query_command;
 pub use runtime::runtime_command;

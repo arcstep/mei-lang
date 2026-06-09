@@ -11,6 +11,8 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 mei-lang-kernel = { path = "../kernel" }
+mei-lang-toolchain = { path = "../toolchain" }
+starlark.workspace = true
 tokio = { workspace = true, features = ["io-std"] }
 tower-lsp.workspace = true
 tracing.workspace = true

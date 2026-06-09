@@ -15,6 +15,8 @@ pub enum Command {
     Agent(AgentArgs),
     Host(HostArgs),
     Workspace(WorkspaceArgs),
+    Knowledge(KnowledgeArgs),
+    EditorRuntime(EditorRuntimeArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
@@ -69,11 +71,17 @@ pub enum WorkspaceCommand {
 #[derive(Args)]
 pub struct WorkspaceInitArgs {
     /// profile 目录名，如 `ws-dev`（创建在 workspaces/ 下）
-    pub profile_id: String,
+    pub profile_id: Option<String>,
     #[arg(long)]
     pub label: Option<String>,
     #[arg(long, default_value = "../workspaces")]
     pub workspaces_root: PathBuf,
+    #[arg(long)]
+    pub source_root: Option<PathBuf>,
+    #[arg(long)]
+    pub standalone: bool,
+    #[arg(long = "tool")]
+    pub tools: Vec<String>,
     #[arg(long)]
     pub materialize: bool,
     #[arg(long)]
@@ -95,6 +103,10 @@ pub struct WorkspaceCreateAppArgs {
     pub app_id: String,
     #[arg(long, default_value = "../workspaces/ws-dev")]
     pub source_root: PathBuf,
+    #[arg(long = "tool")]
+    pub tools: Vec<String>,
+    #[arg(long)]
+    pub scaffold: bool,
     #[arg(long)]
     pub json: bool,
 }
@@ -442,6 +454,55 @@ pub struct McpDescribeArgs {
 
 #[derive(Args, Clone)]
 pub struct McpCatalogArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct KnowledgeArgs {
+    #[arg(long, default_value = "editor", value_parser = ["editor", "author", "access"])]
+    pub surface: String,
+    #[arg(long)]
+    pub topic: Option<String>,
+    #[arg(long)]
+    pub include_content: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct EditorRuntimeArgs {
+    #[command(subcommand)]
+    pub command: EditorRuntimeCommand,
+}
+
+#[derive(Subcommand, Clone)]
+pub enum EditorRuntimeCommand {
+    Describe(EditorRuntimeDescribeArgs),
+    Doctor(EditorRuntimeDoctorArgs),
+    Scaffold(EditorRuntimeScaffoldArgs),
+}
+
+#[derive(Args, Clone)]
+pub struct EditorRuntimeDescribeArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct EditorRuntimeDoctorArgs {
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct EditorRuntimeScaffoldArgs {
+    #[arg(long, default_value = ".")]
+    pub target_root: PathBuf,
+    #[arg(long = "tool")]
+    pub tools: Vec<String>,
+    #[arg(long)]
+    pub force: bool,
     #[arg(long)]
     pub json: bool,
 }
