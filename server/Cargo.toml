@@ -9,6 +9,14 @@ build = "build.rs"
 name = "mei"
 path = "src/main.rs"
 
+[[bin]]
+name = "mei-toolchain"
+path = "src/bin/mei-toolchain.rs"
+
+[[bin]]
+name = "mei-host-web"
+path = "src/bin/mei-host-web.rs"
+
 [dependencies]
 anyhow.workspace = true
 argon2 = "0.5"

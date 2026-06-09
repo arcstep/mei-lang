@@ -9,7 +9,6 @@ use super::super::util::{
     ensure_cli_layout_ready, inspect_layout_for_app, parse_cli_filters, print_json_output,
     resolve_cli_source_root, resolve_package_root, scope_json, world_scope_from_selector,
 };
-use crate::http;
 
 pub fn query_command(args: QueryArgs) -> Result<()> {
     match args.command {
@@ -35,7 +34,7 @@ pub fn query_dataset_command(args: QueryDatasetArgs) -> Result<()> {
     } else {
         Some(args.columns.as_slice())
     };
-    let result = http::scene_api::query_resource_dataset(
+    let result = toolchain::query_world_dataset(
         &source_root,
         app_id,
         scope.as_ref(),
@@ -69,7 +68,7 @@ pub fn query_metric_command(args: QueryMetricArgs) -> Result<()> {
     ensure_cli_layout_ready(&layout)?;
     let scope = world_scope_from_selector(&args.app);
     let filters = parse_cli_filters(&args.filters)?;
-    let result = http::scene_api::query_resource_dataset_metric(
+    let result = toolchain::query_world_dataset_metrics(
         &source_root,
         app_id,
         scope.as_ref(),

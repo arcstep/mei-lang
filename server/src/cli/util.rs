@@ -5,14 +5,41 @@ use mei_lang_kernel::{
     workspace_config_path, CompileOptions, CompileWatchedFile, Diagnostic, Severity,
 };
 
-use crate::http;
 use mei_lang_toolchain as toolchain;
 use serde::Serialize;
 use serde_json::json;
 
 use super::args::CliAppSelectorArgs;
 
+fn package_root_from_env() -> Option<PathBuf> {
+    std::env::var("MEI_PACKAGE_ROOT")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+fn package_root_from_current_exe() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let candidate = exe
+        .parent()?
+        .parent()?
+        .parent()?
+        .canonicalize()
+        .ok()?;
+    let looks_like_package_root = candidate.join("stock").is_dir() || candidate.join("app").is_dir();
+    looks_like_package_root.then_some(candidate)
+}
+
 pub fn resolve_package_root() -> Result<PathBuf> {
+    if let Some(path) = package_root_from_env().filter(|path| path.exists()) {
+        return path
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize MEI_PACKAGE_ROOT {}", path.display()));
+    }
+    if let Some(path) = package_root_from_current_exe() {
+        return Ok(path);
+    }
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .context("server crate manifest has no parent directory")
@@ -83,13 +110,13 @@ pub fn compile_options_from_selector(args: &CliAppSelectorArgs) -> CompileOption
     }
 }
 
-pub fn world_scope_from_selector(args: &CliAppSelectorArgs) -> Option<http::scene_api::WorldScope> {
+pub fn world_scope_from_selector(args: &CliAppSelectorArgs) -> Option<toolchain::WorldScope> {
     let scene_id = normalize_optional_arg(&args.scene);
     let target_file = normalize_optional_arg(&args.target_file);
     if scene_id.is_none() && target_file.is_none() {
         None
     } else {
-        Some(http::scene_api::WorldScope {
+        Some(toolchain::WorldScope {
             scene_id,
             target_file,
         })
@@ -197,7 +224,7 @@ pub fn watched_files_json(files: &[CompileWatchedFile]) -> Vec<serde_json::Value
         .collect()
 }
 
-pub fn scope_json(scope: Option<&http::scene_api::WorldScope>) -> serde_json::Value {
+pub fn scope_json(scope: Option<&toolchain::WorldScope>) -> serde_json::Value {
     match scope {
         Some(scope) => json!({
             "scene_id": scope.scene_id,

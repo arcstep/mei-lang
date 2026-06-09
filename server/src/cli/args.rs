@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "mei")]
 #[command(about = "MeiLang skeleton server", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
@@ -430,12 +429,19 @@ pub struct McpArgs {
 #[derive(Subcommand, Clone)]
 pub enum McpCommand {
     Describe(McpDescribeArgs),
+    Catalog(McpCatalogArgs),
 }
 
 #[derive(Args, Clone)]
 pub struct McpDescribeArgs {
     #[arg(long, value_parser = ["editor", "author", "access"])]
     pub surface: String,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct McpCatalogArgs {
     #[arg(long)]
     pub json: bool,
 }
