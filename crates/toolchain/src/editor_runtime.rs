@@ -585,7 +585,7 @@ pub fn editor_runtime_descriptor_for_package_root(package_root: &Path) -> Editor
             "Fallback to source-tree package root for local development builds.".to_string(),
         ],
         standalone_flow: vec![
-            "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a standalone workspace skeleton.".to_string(),
+            "Run `mei-toolchain workspace init --standalone --source-root <dir>` to create a source workspace skeleton.".to_string(),
             "Run `mei-toolchain workspace materialize --source-root <dir>` to materialize .stock assets.".to_string(),
             "Run `mei-toolchain workspace runtime install --source-root <dir>` to install workspace-local .mei runtime assets and `./start.sh`.".to_string(),
             "Run `./start.sh` from the workspace root to launch the MeiLang host.".to_string(),
@@ -1062,10 +1062,11 @@ fn render_common_runtime_json(package_root: &Path) -> Result<String> {
         "Prefer the workspace-local runtime under `.mei/runtime/bin/`.".to_string(),
         "Use explicit `MEI_TOOLCHAIN_BIN` / `MEI_HOST_WEB_BIN` only as a recovery override."
             .to_string(),
-        "A qualified workspace must not require a sibling `mei-lang` checkout.".to_string(),
+        "A runtime-installed workspace must not require a sibling `mei-lang` checkout.".to_string(),
     ];
     descriptor.standalone_flow = vec![
-        "Run `mei-toolchain workspace bootstrap --source-root <dir> [--app <app>] [--tool <tool>] --json` for the one-command path.".to_string(),
+        "Run `mei-toolchain workspace bootstrap --source-root <dir> [--app <app>] [--tool <tool>] --json` when creating a brand new source workspace.".to_string(),
+        "If the source workspace already exists, run `workspace runtime install` or `workspace runtime update` to refresh `.mei/`.".to_string(),
         "If you need the staged flow, run `workspace init`, `workspace runtime install`, then `editor-runtime scaffold`.".to_string(),
         "Use `./start.sh` to launch the workspace-local `mei-host-web` binary.".to_string(),
         "Use `.mei/runtime/bin/mei-toolchain` and `.mei/runtime/bin/mei-lsp` as the canonical local binaries.".to_string(),
@@ -1335,13 +1336,14 @@ fn render_mcp_json(target_root: &Path) -> Result<String> {
 
 fn render_cursor_rule() -> String {
     r#"---
-description: MeiLang authoring rule for standalone editor runtime workspaces.
+description: MeiLang authoring rule for source workspaces with local runtime.
 globs: ["**/*.mei", ".mei/**"]
 alwaysApply: false
 ---
 
 - Treat `workspace runtime status/install/update`, `mei-toolchain`, `mei-lsp`, and the local `.mei/editor-runtime.json` as the canonical workspace-local environment entrypoints.
-- Prefer `workspace bootstrap` when creating a brand new workspace; it is the shortest path to a qualified self-contained workspace.
+- Treat checked-in workspace files as the source-of-truth layer, and treat `.mei/` as the installed local runtime layer.
+- Prefer `workspace bootstrap` when creating a brand new workspace; prefer `workspace runtime install` or `workspace runtime update` when the source workspace already exists.
 - Prefer the workspace-local `.mei/runtime/bin/mei-toolchain`, `.mei/runtime/bin/mei-lsp`, and `./start.sh` over sibling source checkouts or global PATH assumptions.
 - Prefer `mei-toolchain knowledge --surface author --include-content --json --source-root <workspace>` when you need bundled authoring docs, profile guidance, or examples.
 - Use `mei-toolchain knowledge --surface access --include-content --json --source-root <workspace>` for world-first access guidance and query-state-aware runtime questions.
@@ -1394,9 +1396,11 @@ fn render_vscode_tasks() -> Result<String> {
 fn render_tool_readme(tool: &str) -> String {
     format!(
         "# MeiLang {tool} integration\n\n\
-Use the local `.mei/editor-runtime.json` as the runtime descriptor.\n\n\
+Use the local `.mei/editor-runtime.json` as the runtime descriptor. Treat the checked-in workspace files as the source-of-truth layer, and `.mei/` as locally installed runtime output.\n\n\
 Recommended commands:\n\n\
 - `mei-toolchain workspace bootstrap --source-root <workspace> [--app <app>] --tool <tool> --json`\n\
+- `mei-toolchain workspace runtime install --source-root <workspace> --force --json`\n\
+- `mei-toolchain workspace runtime update --source-root <workspace> --json`\n\
 - `mei-toolchain workspace runtime status --source-root <workspace> --json`\n\
 - `mei-toolchain editor-runtime doctor --source-root <workspace> --json`\n\
 - `mei-toolchain knowledge --surface author --source-root <workspace> --include-content --json`\n\

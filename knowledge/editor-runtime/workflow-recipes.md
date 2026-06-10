@@ -1,6 +1,6 @@
 # MeiLang Workflow Recipes
 
-## Bootstrap a standalone workspace
+## Bootstrap a source workspace
 
 ```bash
 mei-toolchain workspace bootstrap --source-root /path/to/workspace --app my-app --tool cursor --json
@@ -18,6 +18,14 @@ mei-toolchain workspace runtime install --source-root /path/to/workspace --json
 mei-toolchain editor-runtime scaffold --target-root /path/to/workspace --tool cursor --json
 mei-toolchain workspace create-app my-app --source-root /path/to/workspace --json
 ```
+
+## Restore runtime after cloning a workspace
+
+```bash
+mei-toolchain workspace runtime install --source-root /path/to/workspace --force --json
+```
+
+Use `workspace runtime update` for day-2 refreshes when the source workspace already exists and you want to rebuild `.mei/` without touching `.mei/local/**`.
 
 ## Start the host
 
@@ -91,7 +99,7 @@ mei-toolchain editor-runtime describe --json
 mei-toolchain editor-runtime doctor --json
 ```
 
-## Validate a standalone app
+## Validate an app in a runtime-installed workspace
 
 ```bash
 mei-toolchain check --app my-app --source-root /path/to/workspace --json

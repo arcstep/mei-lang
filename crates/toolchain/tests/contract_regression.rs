@@ -843,7 +843,7 @@ fn workspace_runtime_status_fails_when_core_binary_is_missing() {
 }
 
 #[test]
-fn workspace_bootstrap_cli_creates_self_contained_workspace() {
+fn workspace_bootstrap_cli_installs_runtime_for_new_source_workspace() {
     let root = std::env::temp_dir().join(format!(
         "mei_workspace_bootstrap_cli_{}_{}",
         std::process::id(),
@@ -878,7 +878,10 @@ fn workspace_bootstrap_cli_creates_self_contained_workspace() {
     assert!(root.join("demo/main.mei").is_file());
     assert!(root.join("start.sh").is_file());
     let status = workspace_runtime_status_for_workspace_root(&package_root(), &root);
-    assert!(status.installed, "bootstrapped workspace should report installed");
+    assert!(
+        status.installed,
+        "bootstrapped source workspace should report installed after runtime setup"
+    );
     let _ = fs::remove_dir_all(root);
 }
 
@@ -910,6 +913,32 @@ fn workspace_init_does_not_install_runtime_assets() {
             .join(".mei/skills/meilang-author/SKILL.md")
             .exists(),
         "workspace init must not install author skill package"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn workspace_runtime_update_preserves_local_state_files() {
+    let root = std::env::temp_dir().join(format!(
+        "mei_workspace_runtime_local_state_{}_{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_millis()
+    ));
+    fs::create_dir_all(root.join(".mei/local/hosts")).expect("create local hosts");
+    let local_state_path = root.join(".mei/local/hosts/preserved.state.json");
+    let local_state = r#"{"schemaVersion":1,"hostId":"test","auth":{"users":[]}}"#;
+    fs::write(&local_state_path, local_state).expect("write local state");
+
+    install_editor_runtime_support_files(&root, &package_root(), true).expect("install runtime");
+    install_editor_runtime_support_files(&root, &package_root(), true).expect("update runtime");
+
+    assert_eq!(
+        fs::read_to_string(&local_state_path).expect("read preserved local state"),
+        local_state,
+        "runtime update must preserve .mei/local/** content"
     );
     let _ = fs::remove_dir_all(root);
 }
@@ -958,7 +987,7 @@ fn standalone_workspace_init_install_create_app_and_check_form_a_smoke_path() {
         &package_root(),
         true,
     )
-    .expect("init standalone workspace");
+    .expect("init source workspace");
     install_editor_runtime_support_files(&workspace_root, &package_root(), true)
         .expect("install runtime");
     let app_root = create_app_skeleton(&workspace_root, "demo").expect("create app");

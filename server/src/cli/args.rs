@@ -58,7 +58,7 @@ pub struct WorkspaceArgs {
 
 #[derive(Subcommand)]
 pub enum WorkspaceCommand {
-    /// 一条命令创建自包含 standalone workspace（init + materialize + runtime install + scaffold + optional create-app）
+    /// 一条命令创建源码工作区，并可选安装本地 runtime（init + materialize + runtime install + scaffold + optional create-app）
     Bootstrap(WorkspaceBootstrapArgs),
     /// 创建 workspace profile 目录与 `.mei-workspace.json`
     Init(WorkspaceInitArgs),

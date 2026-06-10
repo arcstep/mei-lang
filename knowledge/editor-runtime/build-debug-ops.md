@@ -11,6 +11,7 @@
 - `mei-toolchain workspace bootstrap --source-root <workspace> [--app <app>] --tool cursor --json`
 - `mei-toolchain workspace init --standalone --source-root <workspace> --materialize --json`
 - `mei-toolchain workspace runtime install --source-root <workspace> --json`
+- `mei-toolchain workspace runtime update --source-root <workspace> --json`
 - `./start.sh` from the workspace root after runtime install
 - `./.mei/runtime/bin/mei-toolchain check --app <app> --source-root <workspace> --json`
 - `mei-toolchain workspace create-app <app> --source-root <workspace> --json`
@@ -24,6 +25,7 @@
 
 ## Common standalone issues
 
+- Fresh clone has no `.mei/`: run `workspace runtime install --force` before opening the workspace in an AI tool or starting `./start.sh`
 - Missing `.stock/`: run `workspace materialize`
 - Missing `.mei/` runtime assets after `workspace init`: run `workspace runtime install`
 - Missing workspace-local binaries after bootstrap/install: rerun `workspace runtime install --force` and verify `.mei/runtime/bin/mei-toolchain`, `mei-lsp`, and `mei-host-web`

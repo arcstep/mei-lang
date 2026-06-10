@@ -2,7 +2,7 @@
 
 This guide is the standalone-friendly public reference for creating a new workspace, creating a new app, and understanding the two JSON config files that AI tools should read before guessing paths.
 
-## Bootstrap a standalone workspace
+## Bootstrap a source workspace
 
 Prefer the one-command bootstrap path:
 
@@ -10,7 +10,7 @@ Prefer the one-command bootstrap path:
 mei-toolchain workspace bootstrap --source-root /path/to/workspace --app hello --tool cursor --json
 ```
 
-This writes a **qualified self-contained workspace**:
+This creates a new source workspace and immediately installs a local runtime:
 
 - `.mei-workspace.json`
 - `.stock/`
@@ -21,6 +21,8 @@ This writes a **qualified self-contained workspace**:
 - MCP adapters and packaged knowledge
 - tool glue such as `.cursor/rules/` and `.cursor/mcp.json`
 - optional minimal app skeleton
+
+Git 真源仍然是源码工作区本身；`.mei/` 只是安装后的消费面，不是默认提交对象。
 
 If you need the staged flow, use:
 
@@ -35,6 +37,15 @@ mei-toolchain workspace create-app hello --source-root /path/to/workspace --json
 - `workspace runtime install` writes the workspace-local runtime metadata, packaged docs, local binaries under `.mei/runtime/bin/`, and a workspace-root `./start.sh` launcher.
 - `editor-runtime scaffold` writes tool glue only. It should not replace runtime metadata or host-local state.
 
+## Restore runtime in an existing source workspace
+
+If the workspace already exists in Git, install or refresh `.mei/` locally instead of re-running bootstrap:
+
+```bash
+mei-toolchain workspace runtime install --source-root /path/to/workspace --force --json
+mei-toolchain workspace runtime update --source-root /path/to/workspace --json
+```
+
 ## Start the workspace host
 
 After bootstrap or `workspace runtime install`, launch the browser host from the workspace root:
@@ -43,7 +54,7 @@ After bootstrap or `workspace runtime install`, launch the browser host from the
 ./start.sh
 ```
 
-Defaults to **http://127.0.0.1:9527**. The script runs the workspace-local `.mei/runtime/bin/mei-host-web` by default. `MEI_HOST_WEB_BIN` or PATH `mei-host-web` are recovery overrides, not the qualified default.
+Defaults to **http://127.0.0.1:9527**. The script runs the workspace-local `.mei/runtime/bin/mei-host-web` by default. `MEI_HOST_WEB_BIN` or PATH `mei-host-web` are recovery overrides, not the normal source-workspace flow.
 
 Optional flags are forwarded to `mei-host-web serve`, for example:
 
@@ -83,7 +94,7 @@ Use the two JSON files for different concerns:
 
 | File | Scope | What belongs here |
 |------|-------|-------------------|
-| `.mei-workspace.json` | workspace root | workspace id/label, stock paths, discover rules, menu, runtime file cache, compliance, host auth state bootstrap |
+| `.mei-workspace.json` | workspace root | workspace id/label, stock paths, discover rules, menu, runtime file cache, compliance |
 | `<app>/.mei-config.json` | app root | app entry, app-local paths, host feature flags, `ops.themes`, `ops.sources`, `ops.basemaps`, `ops.params` |
 
 Do not treat them as interchangeable.
@@ -173,6 +184,7 @@ Authoring rule:
 
 - App-local sources, theme refs, basemap refs, and ops params live here.
 - Legacy workspace fields in `.mei-config.json` are compatibility-only and should not be used for new work.
+- Host auth state belongs in `.mei/local/hosts/*.state.json`, not in publish-safe Git config.
 
 ## Theme selection
 
