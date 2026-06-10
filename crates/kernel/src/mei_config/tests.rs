@@ -2,7 +2,7 @@ use super::auth_bundle::{workspace_auth_config_path, workspace_auth_host_id};
 use super::io::{write_mei_config, write_workspace_config};
 use super::types::{
     AppEntryConfig, AuthUserConfig, DiscoverConfig, MeiConfig, WorkspaceAuthConfig,
-    WorkspaceConfig, WorkspaceHostState, MEI_CONFIG_FILENAME,
+    WorkspaceConfig, WorkspaceHostState, WorkspaceWarmupDatasetConfig, MEI_CONFIG_FILENAME,
 };
 use super::workspace_paths::workspace_config_path;
 use super::*;
@@ -38,6 +38,52 @@ fn workspace_discover_skip_normalizes_segments() {
         ..Default::default()
     };
     assert_eq!(cfg.discover_skip_directories(), vec!["foo", "ok"]);
+}
+
+#[test]
+fn workspace_warmup_deserializes_from_json() {
+    let raw = r#"{
+            "warmup": {
+                "apps": {
+                    "zhifa": {
+                        "hotScenes": ["home", "  command-center  "],
+                        "datasets": [
+                            {
+                                "sceneId": "home",
+                                "datasetId": "warning_list"
+                            },
+                            {
+                                "sceneId": "home",
+                                "datasetId": "warning_metric",
+                                "metricId": "case_total"
+                            }
+                        ]
+                    }
+                }
+            }
+        }"#;
+    let cfg: WorkspaceConfig = serde_json::from_str(raw).expect("parse warmup");
+    let zhifa = cfg
+        .warmup
+        .apps
+        .get("zhifa")
+        .expect("zhifa warmup config");
+    assert_eq!(zhifa.hot_scenes.len(), 2);
+    assert_eq!(
+        zhifa.datasets,
+        vec![
+            WorkspaceWarmupDatasetConfig {
+                scene_id: Some("home".to_string()),
+                dataset_id: "warning_list".to_string(),
+                metric_id: None,
+            },
+            WorkspaceWarmupDatasetConfig {
+                scene_id: Some("home".to_string()),
+                dataset_id: "warning_metric".to_string(),
+                metric_id: Some("case_total".to_string()),
+            }
+        ]
+    );
 }
 
 #[test]

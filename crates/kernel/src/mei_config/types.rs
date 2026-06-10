@@ -12,6 +12,7 @@ pub const OPS_JOURNAL_REL_PATH: &str = "ops/.mei-ops-journal.json";
 pub const WORKSPACE_LOCAL_DIR_REL: &str = ".mei/local";
 pub const WORKSPACE_HOSTS_DIR_REL: &str = ".mei/local/hosts";
 pub const WORKSPACE_AUTH_DIR_REL: &str = ".mei/local/auth";
+pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL: &str = ".mei/runtime/warmup-manifest.json";
 pub const AUTH_JOURNAL_REL_PATH: &str = ".mei/local/auth/auth-journal.json";
 pub const LEGACY_AUTH_JOURNAL_REL_PATH: &str = ".mei/auth/auth-journal.json";
 pub const PRE_LOCAL_AUTH_JOURNAL_REL_PATH: &str = "auth/.mei-auth-journal.json";
@@ -103,12 +104,80 @@ pub struct WorkspaceConfig {
     pub menu: Value,
     #[serde(default)]
     pub runtime: RuntimeConfig,
+    #[serde(default)]
+    pub warmup: WorkspaceWarmupConfig,
     /// 登录页与底栏展示的备案号、版权等合规信息。
     #[serde(default)]
     pub compliance: WorkspaceComplianceConfig,
     /// 工作区级宿主认证配置（用户清单、JWT、登录加密密钥）。
     #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
     pub auth: WorkspaceAuthConfig,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceWarmupConfig {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub apps: BTreeMap<String, WorkspaceWarmupAppConfig>,
+}
+
+impl WorkspaceWarmupConfig {
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceWarmupAppConfig {
+    #[serde(default, rename = "hotScenes")]
+    pub hot_scenes: Vec<String>,
+    #[serde(default)]
+    pub datasets: Vec<WorkspaceWarmupDatasetConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceWarmupDatasetConfig {
+    #[serde(default, rename = "sceneId")]
+    pub scene_id: Option<String>,
+    #[serde(default, rename = "datasetId")]
+    pub dataset_id: String,
+    #[serde(default, rename = "metricId")]
+    pub metric_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RuntimeWarmupManifest {
+    #[serde(default, rename = "schemaVersion")]
+    pub schema_version: String,
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub apps: Vec<RuntimeWarmupApp>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RuntimeWarmupApp {
+    #[serde(rename = "appId")]
+    pub app_id: String,
+    #[serde(default, rename = "defaultScene")]
+    pub default_scene: Option<String>,
+    #[serde(default, rename = "hotScenes")]
+    pub hot_scenes: Vec<String>,
+    #[serde(default)]
+    pub scenes: Vec<String>,
+    #[serde(default)]
+    pub datasets: Vec<RuntimeWarmupDatasetRequest>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeWarmupDatasetRequest {
+    #[serde(default, rename = "sceneId")]
+    pub scene_id: Option<String>,
+    #[serde(rename = "datasetId")]
+    pub dataset_id: String,
+    #[serde(default, rename = "metricId")]
+    pub metric_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

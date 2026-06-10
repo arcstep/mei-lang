@@ -458,10 +458,33 @@ export function dispatchMapSelection(detail) {
 }
 
 /** 从 mei-lang SSR 注入的 meta 读取默认 Martin 地址（可被 .mei 中 mapSpec 覆盖） */
+function resolveTilesBaseUrl(raw) {
+  const base = String(raw || "").trim();
+  if (!base) {
+    return "";
+  }
+  if (base.startsWith("@same-host")) {
+    if (typeof window === "undefined") {
+      return "";
+    }
+    const suffix = base.slice("@same-host".length);
+    const protocol = window.location.protocol || "http:";
+    const hostname = window.location.hostname || "127.0.0.1";
+    if (!suffix) {
+      return `${protocol}//${hostname}`;
+    }
+    if (suffix.startsWith(":")) {
+      return `${protocol}//${hostname}${suffix}`;
+    }
+    return `${protocol}//${hostname}/${suffix.replace(/^\/+/, "")}`;
+  }
+  return base;
+}
+
 export function readHostGisTilesDefaults() {
   if (typeof document === "undefined") {
     return {
-      tilesUrl: "http://127.0.0.1:8080",
+      tilesUrl: "/gis",
       tilesJsonPath: "/shapingba-z10-16",
     };
   }
@@ -472,7 +495,7 @@ export function readHostGisTilesDefaults() {
     document.querySelector('meta[name="mei-tiles-json-path"]')?.getAttribute("content")?.trim() ||
     "";
   return {
-    tilesUrl: base || "http://127.0.0.1:8080",
+    tilesUrl: resolveTilesBaseUrl(base) || "/gis",
     tilesJsonPath: path || "/shapingba-z10-16",
   };
 }

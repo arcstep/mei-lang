@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -10,10 +11,17 @@ use walkdir::WalkDir;
 
 use crate::capability_catalog::CAPABILITY_CATALOG_SCHEMA_VERSION;
 use crate::{knowledge_bundle::package_root_hint, knowledge_bundle_descriptor_for_package_root};
+use mei_lang_kernel::{
+    discover_apps, load_workspace_config, resolve_app_root, resolve_default_scene_from_root,
+    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest,
+    WorkspaceWarmupDatasetConfig, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+};
 
 pub const EDITOR_RUNTIME_SCHEMA_VERSION: &str = "mei-editor-runtime-v1";
 pub const WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION: &str = "mei-runtime-version-v1";
 pub const WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION: &str = "mei-runtime-manifest-v1";
+pub const WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION: &str =
+    "mei-runtime-warmup-manifest-v1";
 pub const RUNTIME_BUNDLE_SCHEMA_VERSION: &str = "mei-runtime-bundle-v1";
 
 const TOOLCHAIN_VERSION: &str = env!("MEI_CARGO_PACKAGE_VERSION");
@@ -1280,6 +1288,11 @@ fn write_common_runtime_files(
         &render_workspace_runtime_manifest_json(package_root)?,
         force,
     )?);
+    files.push(write_file(
+        &target_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL),
+        &render_workspace_runtime_warmup_manifest_json(target_root)?,
+        force,
+    )?);
     files.extend(write_runtime_projection_files(target_root, package_root, force)?);
     files.push(write_executable_file(
         &target_root.join("start.sh"),
@@ -1302,6 +1315,125 @@ pub fn install_editor_runtime_support_files(
         target_root: target_root.display().to_string(),
         files,
     })
+}
+
+fn render_workspace_runtime_warmup_manifest_json(target_root: &Path) -> Result<String> {
+    serde_json::to_string_pretty(&build_workspace_runtime_warmup_manifest(target_root)?)
+        .context("serialize workspace warmup manifest")
+}
+
+fn build_workspace_runtime_warmup_manifest(target_root: &Path) -> Result<RuntimeWarmupManifest> {
+    let workspace_config = load_workspace_config(target_root);
+    if !workspace_config.warmup.is_enabled() {
+        return Ok(RuntimeWarmupManifest {
+            schema_version: WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION.to_string(),
+            enabled: false,
+            apps: Vec::new(),
+        });
+    }
+
+    let apps = discover_apps(target_root)?;
+    let mut warmup_apps = Vec::new();
+    for app in apps {
+        let app_root = resolve_app_root(target_root, &app.id);
+        let default_scene = resolve_default_scene_from_root(&app_root).ok().flatten();
+        let app_config = workspace_config.warmup.apps.get(&app.id);
+        let hot_scenes = normalize_hot_scenes(
+            app_config
+                .map(|config| config.hot_scenes.as_slice())
+                .unwrap_or(&[]),
+        );
+        let scenes = merge_warmup_scenes(default_scene.as_deref(), hot_scenes.as_slice());
+        let datasets = normalize_warmup_dataset_requests(
+            app_config
+                .map(|config| config.datasets.as_slice())
+                .unwrap_or(&[]),
+        );
+        warmup_apps.push(RuntimeWarmupApp {
+            app_id: app.id,
+            default_scene,
+            hot_scenes,
+            scenes,
+            datasets,
+        });
+    }
+
+    Ok(RuntimeWarmupManifest {
+        schema_version: WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION.to_string(),
+        enabled: true,
+        apps: warmup_apps,
+    })
+}
+
+fn normalize_hot_scenes(hot_scenes: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for scene in hot_scenes {
+        let scene = scene.trim();
+        if scene.is_empty() || !seen.insert(scene.to_string()) {
+            continue;
+        }
+        normalized.push(scene.to_string());
+    }
+    normalized
+}
+
+fn merge_warmup_scenes(default_scene: Option<&str>, hot_scenes: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Some(default_scene) = default_scene.map(str::trim).filter(|value| !value.is_empty()) {
+        if seen.insert(default_scene.to_string()) {
+            merged.push(default_scene.to_string());
+        }
+    }
+    for scene in hot_scenes {
+        let scene = scene.trim();
+        if scene.is_empty() || !seen.insert(scene.to_string()) {
+            continue;
+        }
+        merged.push(scene.to_string());
+    }
+    merged
+}
+
+fn normalize_warmup_dataset_requests(
+    requests: &[WorkspaceWarmupDatasetConfig],
+) -> Vec<RuntimeWarmupDatasetRequest> {
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for request in requests {
+        let dataset_id = request.dataset_id.trim();
+        if dataset_id.is_empty() {
+            continue;
+        }
+        let scene_id = request
+            .scene_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let metric_id = request
+            .metric_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let dedupe_key = format!(
+            "{}|{}|{}",
+            scene_id.as_deref().unwrap_or(""),
+            dataset_id,
+            metric_id.as_deref().unwrap_or("")
+        );
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        normalized.push(RuntimeWarmupDatasetRequest {
+            scene_id,
+            dataset_id: dataset_id.to_string(),
+            metric_id,
+        });
+    }
+    normalized
 }
 
 fn render_mcp_json(target_root: &Path) -> Result<String> {
@@ -1520,4 +1652,82 @@ pub fn scaffold_editor_runtime_tooling(
         tools,
         files,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use mei_lang_kernel::{RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL};
+
+    use super::*;
+
+    fn temp_workspace_root(name: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!("mei-editor-runtime-{name}-{nanos}"))
+    }
+
+    #[test]
+    fn install_runtime_writes_warmup_manifest() {
+        let workspace_root = temp_workspace_root("warmup");
+        let app_root = workspace_root.join("demo");
+        fs::create_dir_all(&app_root).expect("create app root");
+        fs::write(
+            app_root.join("main.mei"),
+            "app(id=\"demo\")\nscene(id=\"home\", target=\"home.mei\")\n",
+        )
+        .expect("write main");
+        fs::write(app_root.join("home.mei"), "frame()").expect("write scene");
+        fs::write(
+            workspace_root.join(".mei-workspace.json"),
+            r#"{
+  "warmup": {
+    "apps": {
+      "demo": {
+        "hotScenes": ["command-center"],
+        "datasets": [
+          {
+            "sceneId": "home",
+            "datasetId": "warning_list",
+            "metricId": "case_total"
+          }
+        ]
+      }
+    }
+  }
+}"#,
+        )
+        .expect("write workspace config");
+
+        let package_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("mei-lang package root")
+            .to_path_buf();
+        install_editor_runtime_support_files(&workspace_root, &package_root, true)
+            .expect("install runtime");
+
+        let manifest_path = workspace_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL);
+        let raw = fs::read_to_string(&manifest_path).expect("read manifest");
+        let manifest: RuntimeWarmupManifest =
+            serde_json::from_str(&raw).expect("parse warmup manifest");
+        assert!(manifest.enabled);
+        assert_eq!(manifest.apps.len(), 1);
+        assert_eq!(manifest.apps[0].app_id, "demo");
+        assert_eq!(manifest.apps[0].hot_scenes, vec!["command-center".to_string()]);
+        assert!(
+            manifest.apps[0]
+                .scenes
+                .contains(&"command-center".to_string()),
+            "expected hot scene to be included in merged warmup scenes"
+        );
+        assert_eq!(manifest.apps[0].datasets.len(), 1);
+        assert_eq!(manifest.apps[0].datasets[0].dataset_id, "warning_list");
+        assert_eq!(manifest.apps[0].datasets[0].metric_id.as_deref(), Some("case_total"));
+
+        let _ = fs::remove_dir_all(&workspace_root);
+    }
 }

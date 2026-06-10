@@ -2,6 +2,7 @@ pub(crate) mod agent_api;
 pub mod auth_api;
 mod compile_cache;
 mod datasets;
+pub(crate) mod host_api;
 pub(crate) mod host_error_page;
 pub(crate) mod observation;
 pub mod ops_api;
@@ -37,6 +38,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/session", get(auth_api::auth_session))
         .route("/api/auth/login", post(auth_api::auth_login))
         .route("/api/auth/logout", post(auth_api::auth_logout))
+        .route("/api/host/ready", get(host_api::api_host_ready))
         .route(
             "/api/auth/change-password",
             post(auth_api::auth_change_password),
@@ -142,6 +144,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/app-bundles/:mode", get(pages::app_bundle))
         .route("/app-assets/*path", get(pages::app_asset))
+        .route("/gis/*path", get(pages::gis_proxy))
         .route(
             "/workspace-app-assets/:app_id/*path",
             get(pages::workspace_app_asset),

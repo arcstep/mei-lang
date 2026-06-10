@@ -390,6 +390,7 @@ async fn middleware_redirects_unauthenticated_pages_with_next() {
     let state = make_state(source_root.clone(), AuthEnforcement::Required);
     let app = Router::new()
         .route("/apps/build/demo", get(|| async { "ok" }))
+        .route("/api/host/ready", get(|| async { "ok" }))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -416,8 +417,15 @@ async fn middleware_redirects_unauthenticated_pages_with_next() {
         .uri("/api/ops/config/demo")
         .body(Body::empty())
         .expect("api request");
-    let api_resp = app.oneshot(api_req).await.expect("api response");
+    let api_resp = app.clone().oneshot(api_req).await.expect("api response");
     assert_eq!(api_resp.status(), StatusCode::UNAUTHORIZED);
+
+    let ready_req = Request::builder()
+        .uri("/api/host/ready")
+        .body(Body::empty())
+        .expect("ready request");
+    let ready_resp = app.oneshot(ready_req).await.expect("ready response");
+    assert_eq!(ready_resp.status(), StatusCode::OK);
 }
 
 #[tokio::test]

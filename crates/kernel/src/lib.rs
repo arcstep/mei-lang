@@ -61,8 +61,10 @@ pub use mei_config::{
     write_workspace_config, AppEntryConfig, AppFeaturesConfig, AppPathsConfig,
     AuthKeyPairConfig, AuthUserConfig, DiscoverConfig, FileCacheConfig, FileCacheSettings,
     MeiConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig,
-    WorkspaceAuthBundle, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
-    WorkspaceHostState, WorkspacePathsConfig, WorkspaceProfile, AUTH_JOURNAL_REL_PATH,
+    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, WorkspaceAuthBundle,
+    WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceHostState,
+    WorkspacePathsConfig, WorkspaceProfile, WorkspaceWarmupAppConfig, WorkspaceWarmupConfig,
+    WorkspaceWarmupDatasetConfig, AUTH_JOURNAL_REL_PATH,
     LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,
     LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, PRE_LOCAL_AUTH_JOURNAL_REL_PATH,
     WORKSPACE_AGENT_DB_REL, WORKSPACE_AGENT_LOCAL_DIR_REL, WORKSPACE_AUTH_DIR_REL,
@@ -70,7 +72,8 @@ pub use mei_config::{
     DEFAULT_STOCK_TEMPLATES_REL, LEGACY_AUTH_JOURNAL_REL_PATH, MEI_CONFIG_FILENAME,
     MEI_WORKSPACE_CONFIG_FILENAME, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
     WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_LOCAL_DIR_REL,
-    WORKSPACE_SNAPSHOT_DIR_REL, WORKSPACE_SNAPSHOT_GIT_REL,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL,
+    WORKSPACE_SNAPSHOT_GIT_REL,
 };
 pub use model::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, BlockDecl, ColumnSchema, CompiledApp,

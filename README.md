@@ -22,16 +22,16 @@ cargo run -p mei-lang-server --bin mei-host-web -- serve
 ```
 
 - 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
-- 瓦片默认：**http://127.0.0.1:8080**，TileJSON 路径 **`/shapingba-z10-16`**
+- 浏览器瓦片默认：**同源 `/gis`**；宿主默认将 `/gis` 代理到 **http://127.0.0.1:8080**，TileJSON 路径 **`/shapingba-z10-16`**
 
 在 `mei-lang/.env` 中可改：
 
 ```bash
-MEI_TILES_BASE_URL=http://127.0.0.1:8080
+MEI_GIS_PROXY_UPSTREAM=http://127.0.0.1:8080
 MEI_TILES_JSON_PATH=/shapingba-z10-16
 ```
 
-未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会使用上述默认值。更完整的安装与排错见 monorepo **`gis/spb/docs/martin-setup.md`**。
+未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会默认走 `/gis`；实际代理上游由上述环境变量决定。更完整的安装与排错见 monorepo **`gis/spb/docs/martin-setup.md`**。
 
 停止 Martin：`./scripts/stop_martin_docker.sh`（在 mei-projects 根目录）。
 
@@ -75,7 +75,7 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web
 - 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）；生产对照用 **`--workspace ws-spbjw`**
 - 组件/模板：`mei workspace materialize` 物化到 profile 的 `.stock/`（Git 跟踪）；`.mei/` 仅运行时；未物化时只读 `mei-lang/stock/`
 - **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
-- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 RSA 加密链路输入，禁止命令行参数
+- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 RSA 加密链路输入，禁止命令行参数；若浏览器在 HTTP 下无法使用 Web Crypto，则仅允许 `localhost`、私网 IP，或 `MEI_HTTP_PLAINTEXT_LOGIN_HOSTS` 指定的受信主机回退为明文提交
 - 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
 - 启动后提供默认宿主/runtime；访问侧 AI 若启用，将按 `.env` 中 OpenAI 兼容配置连接模型服务
 

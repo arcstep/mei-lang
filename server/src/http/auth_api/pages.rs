@@ -115,7 +115,7 @@ pub(super) fn login_page_html(
       const canEncrypt = !!(window.crypto && window.crypto.subtle);
       const loginMessage = document.getElementById('login-message');
       if (!canEncrypt && loginMessage) {{
-        loginMessage.textContent = '当前为 HTTP 访问，浏览器无法使用 Web Crypto；将在受信主机（localhost 或 23.211.135.152）上直接提交密码。建议生产环境使用 HTTPS。';
+        loginMessage.textContent = '当前为 HTTP 访问，浏览器无法使用 Web Crypto；将在受信主机（localhost、内网私网 IP，或服务端配置的受信主机）上直接提交密码。建议生产环境使用 HTTPS。';
       }}
       async function resolvePublicKey() {{
         const resp = await fetch('/api/auth/public-key', {{ credentials: 'same-origin' }});

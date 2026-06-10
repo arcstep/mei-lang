@@ -24,6 +24,7 @@ fn is_public_path(path: &str) -> bool {
         || path == "/favicon.ico"
         || path.starts_with("/app-assets/")
         || path.starts_with("/app-bundles/")
+        || path == "/api/host/ready"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"
         || path == "/api/auth/session"

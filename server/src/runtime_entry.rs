@@ -291,6 +291,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
         Err(error) => tracing::warn!(%error, "failed to inspect workspace-local MeiLang skill"),
     }
+    let host_state = state.clone();
     let app = Router::new()
         .merge(crate::http::router())
         .layer(middleware::from_fn_with_state(
@@ -300,6 +301,7 @@ async fn serve(args: ServeArgs) -> Result<()> {
         .with_state(state)
         .layer(middleware::from_fn(log_request));
     let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
+    crate::http::host_api::schedule_startup_warmup(host_state);
     tracing::info!("serving MeiLang skeleton at http://{}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
@@ -318,9 +320,11 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
             | "/api/agent/skill"
             | "/api/agent/health"
             | "/api/agent/session"
+            | "/api/host/ready"
             | "/favicon.ico"
     ) || path.starts_with("/app-assets/")
         || path.starts_with("/workspace-components/")
+        || path.starts_with("/gis/")
         || path.ends_with("/events")
         || path.contains("/messages")
 }

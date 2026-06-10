@@ -7075,7 +7075,7 @@
           syncManageTabFromUrl(url);
           pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")));
         }
-        installDrilldownOverlayHost();
+        installSceneProjectionHost();
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
       } catch (err) {

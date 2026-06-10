@@ -36,6 +36,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
             discover: legacy_app.discover,
             menu: legacy_app.menu,
             runtime: legacy_app.runtime,
+            warmup: Default::default(),
             compliance: WorkspaceComplianceConfig::default(),
             auth: WorkspaceAuthConfig::default(),
         };

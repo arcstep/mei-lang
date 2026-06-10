@@ -44,6 +44,21 @@ fn emit_rustc_env(key: &str, value: &str) {
     println!("cargo:rustc-env={key}={value}");
 }
 
+fn env_override(key: &str) -> Option<String> {
+    env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn bool_env_override(key: &str) -> Option<bool> {
+    env_override(key).and_then(|value| match value.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    })
+}
+
 fn main() {
     let repo_root = repo_root_from_manifest();
     let target_tag = env::var("MEI_BUILD_TARGET_TAG")
@@ -60,20 +75,24 @@ fn main() {
         .unwrap_or("0")
         .to_string();
 
-    let git_commit_short = run_git(&repo_root, &["rev-parse", "--short", "HEAD"])
+    let git_commit_short = env_override("MEI_GIT_COMMIT_SHORT")
+        .or_else(|| run_git(&repo_root, &["rev-parse", "--short", "HEAD"]))
         .unwrap_or_else(|| "unknown".to_string());
-    let git_commit_full =
-        run_git(&repo_root, &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_string());
-    let git_branch = run_git(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"])
+    let git_commit_full = env_override("MEI_GIT_COMMIT_FULL")
+        .or_else(|| run_git(&repo_root, &["rev-parse", "HEAD"]))
         .unwrap_or_else(|| "unknown".to_string());
-    let git_dirty = git_dirty(&repo_root);
+    let git_branch = env_override("MEI_GIT_BRANCH")
+        .or_else(|| run_git(&repo_root, &["rev-parse", "--abbrev-ref", "HEAD"]))
+        .unwrap_or_else(|| "unknown".to_string());
+    let git_dirty = bool_env_override("MEI_GIT_DIRTY").unwrap_or_else(|| git_dirty(&repo_root));
     let internal_version = if git_dirty {
         format!("{git_commit_short}-dirty")
     } else {
         git_commit_short.clone()
     };
     let build_version = format!("{cargo_package_version}+{internal_version}");
-    let build_timestamp_utc = utc_timestamp();
+    let build_timestamp_utc =
+        env_override("MEI_BUILD_TIMESTAMP_UTC").unwrap_or_else(utc_timestamp);
 
     emit_rustc_env("MEI_MAJOR_VERSION", &major_version);
     emit_rustc_env("MEI_INTERNAL_VERSION", &internal_version);
@@ -109,4 +128,9 @@ fn main() {
     println!("cargo:rerun-if-changed=../.git/HEAD");
     println!("cargo:rerun-if-changed=../.git/index");
     println!("cargo:rerun-if-env-changed=MEI_BUILD_TARGET_TAG");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_COMMIT_SHORT");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_COMMIT_FULL");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_BRANCH");
+    println!("cargo:rerun-if-env-changed=MEI_GIT_DIRTY");
+    println!("cargo:rerun-if-env-changed=MEI_BUILD_TIMESTAMP_UTC");
 }

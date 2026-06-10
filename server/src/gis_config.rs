@@ -1,4 +1,4 @@
-//! 外部 Martin 瓦片服务地址（Docker / 本机独立进程），由 `.env` 或环境变量配置。
+//! 浏览器默认走同源 `/gis`；宿主再把 `/gis/*` 代理到真实 Martin 上游。
 //! 应用级 `ops.basemaps` 可覆盖默认 TileJSON 接缝（`basemap_ref` 真源）。
 
 use std::path::Path;
@@ -7,7 +7,7 @@ use mei_lang_kernel::{load_mei_config_for_app, OpsBasemapEntry};
 
 #[derive(Clone, Debug)]
 pub struct GisTilesConfig {
-    /// 例如 `http://127.0.0.1:8080`（无末尾斜杠）
+    /// 例如 `/gis`（推荐）或 `http://127.0.0.1:8080`（兼容直连）
     pub base_url: String,
     /// Martin TileJSON 路径，例如 `/shapingba-z10-16`
     pub json_path: String,
@@ -19,7 +19,7 @@ impl GisTilesConfig {
             .ok()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "http://127.0.0.1:8080".to_string());
+            .unwrap_or_else(|| "/gis".to_string());
         let json_path = std::env::var("MEI_TILES_JSON_PATH")
             .ok()
             .map(|s| {

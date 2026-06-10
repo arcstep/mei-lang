@@ -256,7 +256,7 @@ pub async fn auth_login(
         if !host_allows_http_plaintext_login(host) {
             return json_error(
                 StatusCode::BAD_REQUEST,
-                "password encryption is required for this host; use HTTPS or access via localhost / 23.211.135.152",
+                "password encryption is required for this host; use HTTPS or access via localhost, a private LAN IP, or a host listed in MEI_HTTP_PLAINTEXT_LOGIN_HOSTS",
             );
         }
         plain.to_string()
