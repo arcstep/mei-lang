@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "workspace_id": "your-workspace",
+  "app_id": "your-app",
+  "environment": "local_release_noauth",
+  "ledger_path": "../../../docs/mei-lang/benchmarks/your-app-perf-ledger.jsonl",
+  "pinned_baseline_path": "../../../docs/mei-lang/benchmarks/your-app-perf-baseline-pinned.jsonl",
+  "default_repeat": 3,
+  "tiers": {
+    "l0": "smoke",
+    "l1": "standard",
+    "l2": "heavy"
+  },
+  "scenarios": [
+    {
+      "scenario_id": "yourapp.access.home.cold",
+      "scenario_family": "l0_smoke",
+      "route_mode": "access",
+      "scene_id": "home",
+      "browser_window_ms": 6000,
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "yourapp.manage.home.cold",
+      "scenario_family": "l1_standard",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 6000,
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "yourapp.heavy.metric.home.top_chart.cold_clear",
+      "scenario_family": "l2_heavy",
+      "route_mode": "metric_probe",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "dataset_id": "home_dashboard_ds",
+      "metric_ids": ["top_chart"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    }
+  ]
+}
