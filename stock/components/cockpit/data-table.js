@@ -128,7 +128,7 @@ function formatCellValue(raw, descriptor, layoutPreset) {
     (descriptor?.key === "status" || descriptor?.key === "当前状态") &&
     (raw == null || raw === "")
   ) {
-    return "在办";
+    return "待办";
   }
   return formatCellDisplay(raw, descriptor);
 }
@@ -372,9 +372,10 @@ export class MeiCockpitDataTable extends HTMLElement {
 
   disconnectedCallback() {
     this.stopCarousel();
-    if (this._carouselHoverBound) {
-      this.removeEventListener("mouseenter", this._onCarouselPause);
-      this.removeEventListener("mouseleave", this._onCarouselResume);
+    if (this._carouselHoverTarget) {
+      this._carouselHoverTarget.removeEventListener("mouseenter", this._onCarouselPause);
+      this._carouselHoverTarget.removeEventListener("mouseleave", this._onCarouselResume);
+      this._carouselHoverTarget = null;
       this._carouselHoverBound = false;
     }
     if (this._fetchAbort) {
@@ -412,6 +413,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     this._paging = paginationEnabled(this._props);
     this._pagingMode = resolvePaginationMode(this._props);
     this._allRows = [];
+    this._lastFetchSignature = "";
     this._carouselEpoch = 0;
     this._carouselPageTurn = false;
     this._queryStateId = queryStateIdOf(this._props);
@@ -436,7 +438,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       this._pageSize = resolvePageSize(this._props);
       this._paging = paginationEnabled(this._props);
       this._pagingMode = resolvePaginationMode(this._props);
-      this._allRows = [];
+      this._lastFetchSignature = "";
       this._state.page = 1;
       this._state.sort = resolveSortConfig(this._props);
       this._state.columnState = resolveColumnStateConfig(this._props);
@@ -482,21 +484,29 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   bindCarouselHover() {
-    if (this._carouselHoverBound) return;
     const pauseOnHover =
       this._props?.carouselPauseOnHover !== false &&
       this._props?.carousel_pause_on_hover !== "false";
     if (!carouselEnabled(this._props) || !pauseOnHover) return;
-    this._onCarouselPause = () => {
-      this.stopCarousel();
-      this.shadowRoot?.querySelector(".table-wrap")?.classList.add("carousel-paused");
-    };
-    this._onCarouselResume = () => {
-      this.shadowRoot?.querySelector(".table-wrap")?.classList.remove("carousel-paused");
-      this.startCarousel();
-    };
-    this.addEventListener("mouseenter", this._onCarouselPause);
-    this.addEventListener("mouseleave", this._onCarouselResume);
+    if (!this._onCarouselPause) {
+      this._onCarouselPause = () => {
+        this.stopCarousel();
+        this.shadowRoot?.querySelector(".table-wrap")?.classList.add("carousel-paused");
+      };
+      this._onCarouselResume = () => {
+        this.shadowRoot?.querySelector(".table-wrap")?.classList.remove("carousel-paused");
+        this.startCarousel();
+      };
+    }
+    const wrap = this.shadowRoot?.querySelector(".table-wrap");
+    if (!wrap || wrap === this._carouselHoverTarget) return;
+    if (this._carouselHoverTarget) {
+      this._carouselHoverTarget.removeEventListener("mouseenter", this._onCarouselPause);
+      this._carouselHoverTarget.removeEventListener("mouseleave", this._onCarouselResume);
+    }
+    wrap.addEventListener("mouseenter", this._onCarouselPause);
+    wrap.addEventListener("mouseleave", this._onCarouselResume);
+    this._carouselHoverTarget = wrap;
     this._carouselHoverBound = true;
   }
 
@@ -635,8 +645,16 @@ export class MeiCockpitDataTable extends HTMLElement {
       fetchSignature === this._lastFetchSignature &&
       !this._state.loading &&
       !this._state.error &&
-      Array.isArray(this._allRows)
+      Array.isArray(this._allRows) &&
+      this._allRows.length > 0
     ) {
+      if (this._paging) {
+        this.applyPagedRows(this._allRows);
+      } else {
+        this._state.rows = this._allRows;
+      }
+      this.render();
+      this.startCarousel();
       return;
     }
     this._lastFetchSignature = fetchSignature;
@@ -1186,6 +1204,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       </div>
     `;
     this.bindCellPreviewEvents();
+    this.bindCarouselHover();
   }
 }
 

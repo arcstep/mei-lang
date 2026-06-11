@@ -143,3 +143,61 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         .or_else(|| rate.value.as_f64())
         .expect("effectiveness_issue_verification_rate should materialize value");
 }
+
+#[test]
+fn eval_spbjw_realtime_warnings_cockpit_table_rows_and_status() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|e| panic!("compile home preview failed: {e}"));
+    let owner = format!("__world_metrics__::scenes/06-实时预警.mei::metrics");
+    let owner_dataset = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == owner)
+        .and_then(|r| r.dataset.as_ref())
+        .unwrap_or_else(|| panic!("missing `{owner}`"));
+    let datasets: BTreeMap<_, _> = compiled
+        .resources
+        .iter()
+        .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
+        .collect();
+    let table_key = "scenes/06-实时预警.mei::warnings_realtime_cockpit_table";
+    let metrics = evaluate_runtime_metric_defs(
+        &owner_dataset.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[table_key.to_string()]),
+    )
+    .unwrap_or_else(|e| panic!("evaluate realtime warnings table failed: {e}"));
+    let table = metrics
+        .get(table_key)
+        .unwrap_or_else(|| panic!("missing metric `{table_key}`"));
+    let rows = table
+        .value
+        .as_array()
+        .unwrap_or_else(|| panic!("dataframe rows expected, got {:?}", table.value));
+    assert!(
+        rows.len() > 3,
+        "realtime warnings should exceed one carousel page (pageSize=3), got {}",
+        rows.len()
+    );
+    for row in rows {
+        let status = row
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        assert!(
+            status == "待办" || status == "在办",
+            "status should be 待办/在办, got {status:?} row={row:?}"
+        );
+    }
+}

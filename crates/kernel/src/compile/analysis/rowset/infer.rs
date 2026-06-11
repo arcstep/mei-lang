@@ -474,6 +474,17 @@ pub(super) fn eval_analysis_rowset(
             rows.truncate(limit as usize);
             Ok(rows)
         }
+        "concat_rowsets" => {
+            let rowsets = map
+                .get("rowsets")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("concat_rowsets expression missing rowsets"))?;
+            let mut out = Vec::new();
+            for rowset_expr in rowsets {
+                out.extend(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?);
+            }
+            Ok(out)
+        }
         other => Err(anyhow!("unsupported rowset analysis `{other}`")),
     }
 }
