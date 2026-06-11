@@ -4,7 +4,7 @@ use anyhow::Context;
 use axum::{
     body::Body,
     extract::Path as AxumPath,
-    http::{header, HeaderValue, StatusCode, Uri},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::Response,
 };
 use serde_json::Value;
@@ -44,12 +44,18 @@ fn build_gis_proxy_target(base: &str, path: &str, query: Option<&str>) -> String
     url
 }
 
-fn build_same_origin_gis_url(path: &str, query: Option<&str>) -> String {
+fn build_same_origin_gis_url(origin: Option<&str>, path: &str, query: Option<&str>) -> String {
     let normalized_path = path.trim_start_matches('/');
     let mut url = if normalized_path.is_empty() {
-        "/gis".to_string()
+        match origin {
+            Some(origin) => format!("{origin}/gis"),
+            None => "/gis".to_string(),
+        }
     } else {
-        format!("/gis/{normalized_path}")
+        match origin {
+            Some(origin) => format!("{origin}/gis/{normalized_path}"),
+            None => format!("/gis/{normalized_path}"),
+        }
     };
     if let Some(query) = query.map(str::trim).filter(|value| !value.is_empty()) {
         url.push('?');
@@ -58,7 +64,26 @@ fn build_same_origin_gis_url(path: &str, query: Option<&str>) -> String {
     url
 }
 
-fn rewrite_tile_entry(value: &str) -> Option<String> {
+fn request_origin(headers: &HeaderMap, uri: &Uri) -> Option<String> {
+    let proto = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| uri.scheme_str())
+        .unwrap_or("http");
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(format!("{proto}://{host}"))
+}
+
+fn rewrite_tile_entry(value: &str, origin: Option<&str>) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
@@ -72,15 +97,15 @@ fn rewrite_tile_entry(value: &str) -> Option<String> {
             Some((path, query)) => (path, Some(query)),
             None => (raw_path, None),
         };
-        return Some(build_same_origin_gis_url(path, query));
+        return Some(build_same_origin_gis_url(origin, path, query));
     }
     if trimmed.starts_with('/') {
-        return Some(build_same_origin_gis_url(trimmed, None));
+        return Some(build_same_origin_gis_url(origin, trimmed, None));
     }
     None
 }
 
-fn rewrite_tilejson_body(bytes: &[u8]) -> Option<Vec<u8>> {
+fn rewrite_tilejson_body(bytes: &[u8], origin: Option<&str>) -> Option<Vec<u8>> {
     let mut json: Value = serde_json::from_slice(bytes).ok()?;
     let tiles = json.get_mut("tiles")?.as_array_mut()?;
     let mut changed = false;
@@ -88,7 +113,7 @@ fn rewrite_tilejson_body(bytes: &[u8]) -> Option<Vec<u8>> {
         let Some(raw) = entry.as_str() else {
             continue;
         };
-        let Some(rewritten) = rewrite_tile_entry(raw) else {
+        let Some(rewritten) = rewrite_tile_entry(raw, origin) else {
             continue;
         };
         if rewritten != raw {
@@ -112,12 +137,17 @@ fn copy_proxy_header(
     }
 }
 
-pub async fn gis_proxy(AxumPath(path): AxumPath<String>, uri: Uri) -> Result<Response, AppError> {
+pub async fn gis_proxy(
+    AxumPath(path): AxumPath<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let target = build_gis_proxy_target(
         gis_proxy_upstream_base().as_str(),
         path.as_str(),
         uri.query(),
     );
+    let origin = request_origin(&headers, &uri);
     let upstream = gis_proxy_client()
         .get(target.as_str())
         .send()
@@ -138,7 +168,8 @@ pub async fn gis_proxy(AxumPath(path): AxumPath<String>, uri: Uri) -> Result<Res
         .map(|value| value.contains("application/json"))
         .unwrap_or(false);
     let body = if is_json {
-        rewrite_tilejson_body(upstream_body.as_ref()).unwrap_or_else(|| upstream_body.to_vec())
+        rewrite_tilejson_body(upstream_body.as_ref(), origin.as_deref())
+            .unwrap_or_else(|| upstream_body.to_vec())
     } else {
         upstream_body.to_vec()
     };
@@ -161,7 +192,9 @@ pub async fn gis_proxy(AxumPath(path): AxumPath<String>, uri: Uri) -> Result<Res
 
 #[cfg(test)]
 mod tests {
-    use super::{build_gis_proxy_target, rewrite_tilejson_body};
+    use axum::http::{header, HeaderMap, HeaderValue, Uri};
+
+    use super::{build_gis_proxy_target, request_origin, rewrite_tilejson_body};
 
     #[test]
     fn builds_proxy_target_without_duplicate_slashes() {
@@ -186,8 +219,34 @@ mod tests {
     #[test]
     fn rewrites_absolute_tilejson_tiles_to_same_origin_gis_proxy() {
         let raw = br#"{"tilejson":"3.0.0","tiles":["http://127.0.0.1:8080/shapingba-z10-16/{z}/{x}/{y}"]}"#;
-        let body = rewrite_tilejson_body(raw).expect("must rewrite tilejson");
+        let body = rewrite_tilejson_body(raw, Some("http://127.0.0.1:9527"))
+            .expect("must rewrite tilejson");
         let text = String::from_utf8(body).expect("utf8 json");
-        assert!(text.contains(r#""tiles":["/gis/shapingba-z10-16/{z}/{x}/{y}"]"#));
+        assert!(text.contains(
+            r#""tiles":["http://127.0.0.1:9527/gis/shapingba-z10-16/{z}/{x}/{y}"]"#
+        ));
+    }
+
+    #[test]
+    fn request_origin_prefers_forwarded_host_and_proto() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", HeaderValue::from_static("https"));
+        headers.insert("x-forwarded-host", HeaderValue::from_static("demo.example.com"));
+        let uri: Uri = "/gis/shapingba-z10-16".parse().expect("uri");
+        assert_eq!(
+            request_origin(&headers, &uri).as_deref(),
+            Some("https://demo.example.com")
+        );
+    }
+
+    #[test]
+    fn request_origin_falls_back_to_host_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:9527"));
+        let uri: Uri = "/gis/shapingba-z10-16".parse().expect("uri");
+        assert_eq!(
+            request_origin(&headers, &uri).as_deref(),
+            Some("http://127.0.0.1:9527")
+        );
     }
 }
