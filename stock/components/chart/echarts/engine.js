@@ -3,6 +3,7 @@ import {
   shouldReactToPreviewUpdated,
   fetchDatasetRows,
   fetchPanelRuntimeMetrics,
+  findRuntimeMetricInResults,
   parseProps,
   queryStateIdOf,
   resolveRuntimeDataRef,
@@ -25,11 +26,10 @@ function isAbortError(error) {
 
 function pickRuntimeMetricFromResult(result, metricRef) {
   const metrics = Array.isArray(result?.metrics) ? result.metrics : [];
-  const metricId = String(metricRef?.metric_id || "").trim();
-  if (!metricId) {
+  if (!metricRef?.metric_id) {
     return metrics[0] || null;
   }
-  return metrics.find((item) => String(item?.id || "").trim() === metricId) || metrics[0] || null;
+  return findRuntimeMetricInResults(metrics, metricRef);
 }
 
 function chartPropsNeedRuntimeFetch(props) {
@@ -555,22 +555,57 @@ async function ensureECharts() {
   return ensureEChartsGlobal();
 }
 
+function resolveTopN(props) {
+  const raw = props?.top_n ?? props?.topN ?? props?.composition_top_n ?? props?.compositionTopN;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+
+function limitCartesianRowsByTopY(rows, mapping, topN) {
+  const limit = Number(topN);
+  if (!Number.isFinite(limit) || limit <= 0 || !Array.isArray(rows) || rows.length === 0) {
+    return rows;
+  }
+  const xField = mapping.x[0]?.field;
+  const yField = mapping.y[0]?.field;
+  if (!xField || !yField) {
+    return rows;
+  }
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const label = String(row?.[xField] ?? "").trim();
+    if (!label) return;
+    const value = toNumber(row?.[yField]);
+    if (!Number.isFinite(value)) return;
+    grouped.set(label, (grouped.get(label) || 0) + value);
+  });
+  return Array.from(grouped.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, limit)
+    .map(([label, value]) => ({ [xField]: label, [yField]: value }));
+}
+
 function buildChartModel(kind, props, diagnostics) {
   const rows = resolveRows(props);
   const columns = resolveColumns(props, rows);
   const mapping = resolveMapping(props, columns);
   const legacy = resolveLegacyBehavior(props);
   const normalized = normalizeKind(kind);
+  const topN = resolveTopN(props);
+  const chartRows =
+    topN > 0 && normalized === "column"
+      ? limitCartesianRowsByTopY(rows, mapping, topN)
+      : rows;
   if (normalized === "ranking") {
     const layout = resolveRankingLayout(props);
     if (layout === "above") {
-      const { items, valueName } = buildRankingItems(rows, mapping, diagnostics);
+      const { items, valueName } = buildRankingItems(chartRows, mapping, diagnostics);
       const configuredMaxChars = resolveRankingLabelMaxChars(props, "above");
       const maxChars = configuredMaxChars > 0 ? configuredMaxChars : 20;
       return {
         kind: normalized,
         layout: "above",
-        rows,
+        rows: chartRows,
         mapping,
         items,
         valueName,
@@ -581,11 +616,11 @@ function buildChartModel(kind, props, diagnostics) {
         rowCount: items.length,
       };
     }
-    const ranking = buildRankingSideOption(rows, mapping, props, diagnostics);
+    const ranking = buildRankingSideOption(chartRows, mapping, props, diagnostics);
     return {
       kind: normalized,
       layout: "side",
-      rows,
+      rows: chartRows,
       mapping,
       option: ranking.option,
       meta: ranking.meta,
@@ -593,10 +628,10 @@ function buildChartModel(kind, props, diagnostics) {
       rowCount: ranking.rowCount,
     };
   }
-  const option = buildOption(kind, rows, mapping, legacy, diagnostics);
+  const option = buildOption(kind, chartRows, mapping, legacy, diagnostics);
   return {
     kind: normalized,
-    rows,
+    rows: chartRows,
     mapping,
     option,
     meta: `${mapping.titleLeft} -> ${mapping.titleRight}`,

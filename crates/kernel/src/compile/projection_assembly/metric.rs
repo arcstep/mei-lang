@@ -842,9 +842,6 @@ fn slot_from_explain_block(
     if let Some(by) = block_map.get("by") {
         slot.insert("by".to_string(), by.clone());
     }
-    if let Some(chart_kind) = block_map.get("chart_kind") {
-        slot.insert("chart_kind".to_string(), chart_kind.clone());
-    }
     if let Some(mapping) = block_map.get("mapping") {
         slot.insert("mapping".to_string(), mapping.clone());
     }
@@ -1005,11 +1002,6 @@ fn build_slot_from_root(
 }
 
 fn component_for_support_role(support_role: &str, block: &Map<String, Value>) -> String {
-    if let Some(kind) = block.get("chart_kind").and_then(Value::as_str) {
-        if !kind.trim().is_empty() {
-            return "chart".to_string();
-        }
-    }
     match support_role {
         "composition" | "trend" | "attribution" => "chart".to_string(),
         "detail" => "data_table".to_string(),

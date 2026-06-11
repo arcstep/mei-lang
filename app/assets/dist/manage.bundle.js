@@ -5571,7 +5571,29 @@
     };
   }
 
-  function buildStaticChartModel(title, tabId, rows, mapping = null) {
+  function isAnalyticsChartPresentation(config) {
+    return (
+      Boolean(config?.analyticsDrilldown) ||
+      (Array.isArray(config?.chartSlots) && config.chartSlots.length > 0)
+    );
+  }
+
+  function buildAnalyticsChartPresentationProps(config = null, overrides = {}) {
+    if (!isAnalyticsChartPresentation(config)) {
+      return { ...overrides };
+    }
+    return {
+      compact: true,
+      gridContainLabel: true,
+      label_max_chars: 6,
+      showLegend: false,
+      chartHeight: 300,
+      top_n: 6,
+      ...overrides,
+    };
+  }
+
+  function buildStaticChartModel(title, tabId, rows, mapping = null, config = null) {
     const normalized = normalizeTabId(tabId);
     const data = {
       columns: Array.isArray(rows) && rows.length > 0 ? Object.keys(rows[0]) : [],
@@ -5585,6 +5607,7 @@
       title: String(title || ""),
       data,
       mapping: mapping && typeof mapping === "object" ? mapping : defaultMapping,
+      ...buildAnalyticsChartPresentationProps(config),
     };
   }
 
@@ -5817,7 +5840,7 @@
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
         mapping,
-        chartHeight: 300,
+        ...buildAnalyticsChartPresentationProps(config),
       },
     };
   }
@@ -5978,7 +6001,7 @@
 
     try {
       await mountAnalyticsFilterBar(root, detail, config);
-      const chartMounts = chartSlots.map((slot, index) => {
+      const chartMounts = chartSlots.map(async (slot, index) => {
         const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
         const slotConfig = resolveDrilldownTabConfig(config, slot.id);
         const mergedConfig = {
@@ -5986,7 +6009,56 @@
           queryStateId: config.queryStateId,
           chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         };
-        return mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost);
+        if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
+          return true;
+        }
+        const fallbackRuntimeRef = {
+          ...(mergedConfig.runtimeRef && typeof mergedConfig.runtimeRef === "object"
+            ? mergedConfig.runtimeRef
+            : {}),
+          kind: "metric",
+          metricId: nonEmptyString(slot.metricId, mergedConfig?.runtimeRef?.metricId, mergedConfig?.runtimeRef?.metric_id),
+          datasetId: nonEmptyString(slot.datasetId, mergedConfig?.runtimeRef?.datasetId, mergedConfig?.runtimeRef?.dataset_id),
+          sceneId: nonEmptyString(mergedConfig?.runtimeRef?.sceneId, config.hostSceneId, config.sceneId),
+          scenePath: nonEmptyString(
+            mergedConfig?.runtimeRef?.scenePath,
+            config.hostSceneFile,
+            detail?.host_scene_file,
+            detail?.scene_path
+          ),
+        };
+        const fallbackConfig = {
+          ...mergedConfig,
+          supportRole: nonEmptyString(slot.supportRole, mergedConfig.supportRole, "composition"),
+          tableMetricId: nonEmptyString(slot.metricId, mergedConfig.tableMetricId),
+          datasetId: nonEmptyString(slot.datasetId, mergedConfig.datasetId),
+          runtimeRef: fallbackRuntimeRef,
+          compositionBy:
+            Array.isArray(slot.by) && slot.by.length > 0
+              ? slot.by
+              : Array.isArray(mergedConfig.compositionBy)
+                ? mergedConfig.compositionBy
+                : [],
+        };
+        const fallbackMounted = await mountDrilldownChart(
+          root,
+          detail,
+          fallbackConfig,
+          slot.id,
+          slotHost
+        );
+        if (!fallbackMounted) {
+          recordPopupDebugIssue({
+            level: "warn",
+            phase: "analytics_chart_mount_fallback_failed",
+            message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
+            detail,
+            config: fallbackConfig,
+            datasetId: fallbackConfig.datasetId,
+            metricId: fallbackConfig.tableMetricId,
+          });
+        }
+        return fallbackMounted;
       });
       const detailSlot = config?.detailSlot;
       const detailConfig = detailSlot
@@ -6079,10 +6151,16 @@
       host.replaceChildren();
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
-        buildStaticChartModel(config?.title || `${dimension}构成`, tabId, grouped, {
-          x: "label",
-          y: "value",
-        }),
+        buildStaticChartModel(
+          config?.title || `${dimension}构成`,
+          tabId,
+          grouped,
+          {
+            x: "label",
+            y: "value",
+          },
+          config,
+        ),
       );
       host.appendChild(node);
       dispatchPreviewUpdated("drilldown");
@@ -6109,10 +6187,16 @@
       host.replaceChildren();
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
-        buildStaticChartModel(config?.title || "趋势", tabId, grouped, {
-          x: "month",
-          y: "value",
-        }),
+        buildStaticChartModel(
+          config?.title || "趋势",
+          tabId,
+          grouped,
+          {
+            x: "month",
+            y: "value",
+          },
+          config,
+        ),
       );
       host.appendChild(node);
       dispatchPreviewUpdated("drilldown");

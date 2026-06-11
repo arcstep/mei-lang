@@ -207,7 +207,6 @@ def _explain_item(
     fields = None,
     headers = None,
     mapping = None,
-    chart_kind = None,
 ):
     return _without_empty({
         "__kind": "explain_item",
@@ -229,7 +228,6 @@ def _explain_item(
         "fields": fields,
         "headers": headers,
         "mapping": mapping,
-        "chart_kind": chart_kind,
     })
 
 def text(content):
@@ -290,14 +288,13 @@ def detail(id = "detail", label = None, source = None, fields = None, headers = 
         headers = headers,
     )
 
-def composition(id = "composition", label = None, by = None, source = None, chart_kind = None):
+def composition(id = "composition", label = None, by = None, source = None):
     return _explain_item(
         "composition",
         id = id,
         label = label,
         by = by,
         source = source,
-        chart_kind = chart_kind,
     )
 
 def analysis(kind, title = None, note = None, columns = None, headers = None, mapping = None, chart_kind = None):

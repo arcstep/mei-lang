@@ -2151,7 +2151,7 @@ function scheduleSceneRuntimeMetricRequest(
                 resolveRuntimeMetricRef(request.props)?.dataset_id || datasetId,
                 request.metricIds
               );
-              if (projected) {
+              if (projected && Array.isArray(projected.metrics) && projected.metrics.length > 0) {
                 request.resolve(projected);
                 return;
               }

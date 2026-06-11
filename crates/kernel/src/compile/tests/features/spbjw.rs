@@ -1,4 +1,7 @@
-use super::{compile_app_from_root_with_options, workspace_root, CompileOptions};
+use super::{
+    compile_app_from_root, compile_app_from_root_with_options, temp_root, workspace_root,
+    write_file, CompileOptions,
+};
 use serde_json::Value;
 
 #[test]
@@ -1146,8 +1149,8 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         "explicit analytics charts should reference explain block ids, got: {encoded}"
     );
     assert!(
-        encoded.contains("chart_kind") && encoded.contains("rose"),
-        "warnings_count composition should preserve rose chart_kind, got: {encoded}"
+        encoded.contains("chart_kind") && encoded.contains("column"),
+        "warnings_count composition should lower to column chart_kind, got: {encoded}"
     );
     assert!(
         encoded.contains("filter_schema"),
@@ -1161,6 +1164,44 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         encoded.contains("layout_mode") && encoded.contains("analytics"),
         "board assembly should lower to analytics layout_mode, got: {encoded}"
     );
+}
+
+#[test]
+fn compile_rejects_explain_chart_kind_in_composition() {
+    let source_root = temp_root("reject-explain-chart-kind");
+    let app_root = source_root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+BAD = ds.composition(id = "c", by = "分类", chart_kind = "bar")
+
+app(
+    id = "demo",
+    default_scene = "home",
+)
+
+scene(
+    id = "home",
+    profile = "page",
+)
+
+world()
+frame()
+"#,
+    );
+
+    let result = compile_app_from_root(&source_root, &app_root);
+    assert!(result.is_err(), "expected compile to fail for explain chart_kind ban");
+    let message = result
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(
+        message.contains("chart_kind") || message.contains("unexpected named argument"),
+        "expected error to mention chart_kind rejection, got: {message}"
+    );
+
+    let _ = std::fs::remove_dir_all(&source_root);
 }
 
 #[test]
