@@ -1082,6 +1082,84 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
 }
 
 #[test]
+fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "../.stock/templates/cockpit/drilldown/analytics-drilldown-board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile analytics drilldown preview `{target}` failed: {error}"));
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "analytics drilldown preview should have no error diagnostics: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("analytics drilldown preview should yield scene contract");
+    assert_eq!(contract.scene.id, "analytics_drilldown_board");
+}
+
+#[test]
+fn compile_spbjw_supervision_warning_analytics_projection_slots() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "scenes/05-监督预警.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+    let encoded = serde_json::to_string(contract).expect("encode scene contract");
+    assert!(
+        encoded.contains("analytics-drilldown-board.mei"),
+        "warnings card should reference analytics drilldown shell, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("layout_zone"),
+        "analytics projection slots should include layout_zone, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("composition_by_category"),
+        "explicit analytics charts should reference explain block ids, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("chart_kind") && encoded.contains("rose"),
+        "warnings_count composition should preserve rose chart_kind, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("filter_schema"),
+        "analytics link should include filter_schema, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("layout_mode") && encoded.contains("analytics"),
+        "board assembly should lower to analytics layout_mode, got: {encoded}"
+    );
+}
+
+#[test]
 fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
     use crate::MetricShape;
     let root = workspace_root();

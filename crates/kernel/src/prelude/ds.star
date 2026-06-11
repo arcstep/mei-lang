@@ -290,13 +290,14 @@ def detail(id = "detail", label = None, source = None, fields = None, headers = 
         headers = headers,
     )
 
-def composition(id = "composition", label = None, by = None, source = None):
+def composition(id = "composition", label = None, by = None, source = None, chart_kind = None):
     return _explain_item(
         "composition",
         id = id,
         label = label,
         by = by,
         source = source,
+        chart_kind = chart_kind,
     )
 
 def analysis(kind, title = None, note = None, columns = None, headers = None, mapping = None, chart_kind = None):

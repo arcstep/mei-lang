@@ -1,8 +1,12 @@
 # UI link / popup projection (not data-layer DSL).
 
+def _link_is_dict(value):
+    return type(value) == "dict"
+
 _BOARD_TEMPLATE_SCENE_FILES = {
     "metric_board_default": "templates/cockpit/drilldown/metric-explain-board.mei",
     "generic_drilldown_board": "templates/cockpit/drilldown/generic-drilldown-board.mei",
+    "analytics_drilldown_board": "templates/cockpit/drilldown/analytics-drilldown-board.mei",
 }
 
 def explain_metric_ref(id):
@@ -30,17 +34,32 @@ def _scene_ref_with_entry(scene = None, scene_file = None, scene_id = None, entr
     merged["entry"] = str(resolved_entry).strip()
     return merged
 
-def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None, tabs = None, default_slot = None):
-    """Link a home entry to a named secondary scene; projection only controls overlay vs route."""
-    scene_value = _scene_ref_with_entry(
-        scene = scene,
-        scene_file = scene_file,
-        scene_id = scene_id,
-        entry = entry,
-        entry_tab = entry_tab,
-        focus = focus,
-    )
-    resolved_entry = scene_value.get("entry")
+def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, board = None, tabs = None, default_slot = None):
+    """Open a board: prefer board=build_board_assembly(...); scene on link is legacy when board carries scene."""
+    scene_value = None
+    if scene != None or scene_file != None:
+        scene_value = _scene_ref_with_entry(
+            scene = scene,
+            scene_file = scene_file,
+            scene_id = scene_id,
+            entry = entry,
+            entry_tab = entry_tab,
+            focus = focus,
+        )
+    elif board != None and _link_is_dict(board) and board.get("scene") != None:
+        scene_value = board.get("scene")
+        if entry != None or entry_tab != None or focus != None:
+            scene_value = _scene_ref_with_entry(
+                scene = scene_value,
+                entry = entry,
+                entry_tab = entry_tab,
+                focus = focus,
+            )
+    resolved_entry = None
+    if scene_value != None and _link_is_dict(scene_value):
+        resolved_entry = scene_value.get("entry")
+    if resolved_entry == None:
+        resolved_entry = entry if entry != None else (entry_tab if entry_tab != None else focus)
     overrides = bindings if bindings != None else (entry_overrides if entry_overrides != None else slots)
     return _without_empty({
         "__kind": "board_link",
@@ -56,11 +75,13 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         "bindings": overrides,
         "slots": overrides,
         "title": title,
+        "overlay_size": overlay_size,
+        "board": board,
         "tabs": tabs,
         "default_slot": default_slot,
     })
 
-def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, entry_overrides = None, bindings = None, slots = None, tabs = None, default_slot = None):
+def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, board = None, tabs = None, default_slot = None):
     """Alias of board_link for metric-card / chart entry links."""
     return board_link(
         scene = scene,
@@ -72,9 +93,11 @@ def link(scene = None, scene_file = None, scene_id = None, projection = "overlay
         entry_tab = entry_tab,
         focus = focus,
         title = title,
+        overlay_size = overlay_size,
         entry_overrides = entry_overrides,
         bindings = bindings,
         slots = slots,
+        board = board,
         tabs = tabs,
         default_slot = default_slot,
     )

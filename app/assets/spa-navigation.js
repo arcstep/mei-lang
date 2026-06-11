@@ -50,6 +50,7 @@
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
     "templates/cockpit/drilldown/generic-drilldown-board.mei": "generic_drilldown_board",
+    "templates/cockpit/drilldown/analytics-drilldown-board.mei": "analytics_drilldown_board",
   };
   const BOARD_TEMPLATE_SCENE_FILES = {
     metric_board_default: "templates/cockpit/drilldown/metric-explain-board.mei",
@@ -442,15 +443,93 @@
           .filter(Boolean),
       ),
     );
-    if (!items.length && !kindOrder.length) return null;
+    const overlaySize = normalizeOverlaySize(
+      nonEmptyString(raw.overlay_size, raw.overlaySize),
+      "",
+    );
+    const kind = nonEmptyString(raw.kind);
+    const sceneId = nonEmptyString(raw.scene_id, raw.sceneId);
+    if (!items.length && !kindOrder.length && !overlaySize && !kind && !sceneId) return null;
     return {
-      kind: nonEmptyString(raw.kind),
-      sceneId: nonEmptyString(raw.scene_id, raw.sceneId),
+      kind,
+      sceneId,
       defaultEntry: normalizeTabId(nonEmptyString(raw.default_entry, raw.defaultEntry, raw.defaultEntryTab)),
       includeHero: boolValue(raw.include_hero, raw.includeHero, true),
+      overlaySize,
       items,
       kindOrder,
     };
+  }
+
+  const DRILLDOWN_OVERLAY_SIZE_CLASSES = [
+    "access-drilldown-overlay--size-comfortable",
+    "access-drilldown-overlay--size-large",
+    "access-drilldown-overlay--size-fullscreen",
+  ];
+  const DRILLDOWN_PANEL_SIZE_CLASSES = [
+    "access-drilldown-overlay-panel--size-comfortable",
+    "access-drilldown-overlay-panel--size-large",
+    "access-drilldown-overlay-panel--size-fullscreen",
+  ];
+
+  function normalizeOverlaySize(raw, fallback = "comfortable") {
+    const value = String(raw || fallback || "comfortable")
+      .trim()
+      .toLowerCase();
+    if (value === "large" || value === "fullscreen" || value === "comfortable") {
+      return value;
+    }
+    if (value === "full" || value === "max" || value === "maximum") {
+      return "fullscreen";
+    }
+    if (value === "medium" || value === "default" || value === "moderate") {
+      return "comfortable";
+    }
+    return fallback ? normalizeOverlaySize(fallback, "comfortable") : "comfortable";
+  }
+
+  function resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown }) {
+    const sceneRef =
+      popup?.scene && typeof popup.scene === "object" && !Array.isArray(popup.scene) ? popup.scene : {};
+    const localNav =
+      boardFields?.localNav ||
+      normalizeSceneLocalNav(
+        popup?.local_nav ||
+          popup?.localNav ||
+          sceneRef?.local_nav ||
+          sceneRef?.localNav,
+      );
+    const explicit = nonEmptyString(
+      popup?.overlay_size,
+      popup?.overlaySize,
+      sceneRef?.overlay_size,
+      sceneRef?.overlaySize,
+      localNav?.overlaySize,
+    );
+    if (explicit) {
+      return normalizeOverlaySize(explicit, analyticsDrilldown ? "large" : "comfortable");
+    }
+    return analyticsDrilldown ? "large" : "comfortable";
+  }
+
+  function applyDrilldownOverlaySize(root, config) {
+    const overlayEl = root.classList.contains("access-drilldown-overlay")
+      ? root
+      : root.closest(".access-drilldown-overlay");
+    const panelEl = root.querySelector(".access-drilldown-overlay-panel");
+    const size = normalizeOverlaySize(
+      config?.overlaySize,
+      config?.analyticsDrilldown ? "large" : "comfortable",
+    );
+    if (overlayEl instanceof HTMLElement) {
+      overlayEl.classList.remove(...DRILLDOWN_OVERLAY_SIZE_CLASSES);
+      overlayEl.classList.add(`access-drilldown-overlay--size-${size}`);
+    }
+    if (panelEl instanceof HTMLElement) {
+      panelEl.classList.remove(...DRILLDOWN_PANEL_SIZE_CLASSES);
+      panelEl.classList.add(`access-drilldown-overlay-panel--size-${size}`);
+      panelEl.dataset.drilldownOverlaySize = size;
+    }
   }
 
   function resolveSceneLocalNav(sceneFile, runtimeMap = null) {
@@ -1442,10 +1521,25 @@
     const boardMode = Boolean(
       config?.boardLink || (config?.panelPopup && config?.panelTemplate),
     );
+    const analyticsMode = Boolean(config?.analyticsDrilldown);
     if (panelEl) {
       panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
+      panelEl.classList.toggle("access-drilldown-overlay-panel--analytics", analyticsMode);
       panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
     }
+    const genericBody = root.querySelector('[data-drilldown-body-mode="generic"]');
+    const analyticsBody = root.querySelector('[data-drilldown-body-mode="analytics"]');
+    if (genericBody instanceof HTMLElement) {
+      genericBody.toggleAttribute("hidden", analyticsMode);
+    }
+    if (analyticsBody instanceof HTMLElement) {
+      analyticsBody.toggleAttribute("hidden", !analyticsMode);
+    }
+    const tabsHost = root.querySelector('[data-drilldown-tabs="true"]');
+    if (tabsHost instanceof HTMLElement) {
+      tabsHost.toggleAttribute("hidden", analyticsMode);
+    }
+    applyDrilldownOverlaySize(root, config);
     if (headMetaEl) {
       headMetaEl.toggleAttribute("hidden", boardMode);
     }
@@ -1568,9 +1662,38 @@
               ? entry.mapping
               : null,
           explainBlockId: nonEmptyString(entry.explain_block_id, entry.explainBlockId),
+          layoutZone: nonEmptyString(entry.layout_zone, entry.layoutZone),
         };
       })
       .filter((slot) => slot.metricId || slot.datasetId);
+  }
+
+  function isAnalyticsDrilldownBoard(boardSceneId, popup) {
+    const sceneId = nonEmptyString(boardSceneId, popup?.scene_id, popup?.sceneId);
+    if (sceneId === "analytics_drilldown_board") return true;
+    if (nonEmptyString(popup?.layout_mode, popup?.layoutMode) === "analytics") return true;
+    const sceneFile = nonEmptyString(popup?.scene_file, popup?.sceneFile);
+    return sceneFile.includes("analytics-drilldown-board.mei");
+  }
+
+  function normalizeAnalyticsFilterSchema(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { fields: [], rowsetDatasetId: "" };
+    }
+    const fields = Array.isArray(raw.fields)
+      ? raw.fields
+          .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+          .map((entry) => ({
+            key: nonEmptyString(entry.key),
+            label: nonEmptyString(entry.label, entry.key),
+            column: nonEmptyString(entry.column),
+          }))
+          .filter((entry) => entry.key)
+      : [];
+    return {
+      fields,
+      rowsetDatasetId: nonEmptyString(raw.rowset_dataset_id, raw.rowsetDatasetId),
+    };
   }
 
   function resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots) {
@@ -1597,16 +1720,39 @@
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
-  const title = nonEmptyString(
+    const title = nonEmptyString(
       popup?.title,
       detail?.label,
       defaultSlot?.label,
       metricId,
       "指标下钻",
     );
+    const analyticsDrilldown = isAnalyticsDrilldownBoard(boardSceneId, popup);
+    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown });
+    const filterSchema = normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema);
+    const queryStateId = analyticsDrilldown
+      ? nonEmptyString(
+          popup?.query_state_id,
+          popup?.queryStateId,
+          metricId ? `drilldown::${metricId}` : "",
+        )
+      : "";
+    const chartSlots = analyticsDrilldown
+      ? projectionSlots.filter((slot) => slot.layoutZone === "chart")
+      : [];
+    const detailSlot =
+      (analyticsDrilldown
+        ? projectionSlots.find((slot) => slot.layoutZone === "detail")
+        : null) || defaultSlot;
     return {
       enabled: Boolean(boardSceneId),
-      genericDrilldown: true,
+      genericDrilldown: !analyticsDrilldown,
+      analyticsDrilldown,
+      overlaySize,
+      filterSchema,
+      chartSlots,
+      detailSlot,
+      queryStateId,
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
@@ -1616,7 +1762,9 @@
         boardFields?.sceneFile,
         popup?.scene_file,
         popup?.sceneFile,
-        "templates/cockpit/drilldown/generic-drilldown-board.mei",
+        analyticsDrilldown
+          ? "templates/cockpit/drilldown/analytics-drilldown-board.mei"
+          : "templates/cockpit/drilldown/generic-drilldown-board.mei",
       ),
       projection,
       title,
@@ -1835,12 +1983,16 @@
       denominator: ratioDenominator,
       formula: ratioFormula,
     });
+    const analyticsDrilldown = isAnalyticsDrilldownBoard(boardSceneId, popup);
+    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown });
     return {
       enabled:
         (boardLink && Boolean(boardSceneId)) ||
         (panelPopup && Boolean(boardSceneId) && Boolean(panelTemplate)) ||
         popup?.mode === "popup" ||
         (runtimeEnabled !== false && Boolean(hostSceneId || boardSceneId)),
+      analyticsDrilldown,
+      overlaySize,
       sceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
@@ -2391,6 +2543,7 @@
   };
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
+  const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
 
   async function ensureDrilldownChartRegistered(tagName) {
     const tag = String(tagName || "").trim().toLowerCase();
@@ -2412,6 +2565,17 @@
     await loadScript(DRILLDOWN_TABLE_SCRIPT, {
       module: true,
       persistentKey: DRILLDOWN_TABLE_SCRIPT,
+      softFail: false,
+    });
+    return Boolean(customElements.get(tag));
+  }
+
+  async function ensureDrilldownFilterBarRegistered() {
+    const tag = "mei-dataset-filter-bar";
+    if (customElements.get(tag)) return true;
+    await loadScript(DRILLDOWN_FILTER_BAR_SCRIPT, {
+      module: true,
+      persistentKey: DRILLDOWN_FILTER_BAR_SCRIPT,
       softFail: false,
     });
     return Boolean(customElements.get(tag));
@@ -2452,8 +2616,22 @@
     };
   }
 
-  async function mountDrilldownChart(root, detail, config, tabId) {
-    const host = root.querySelector('[data-drilldown-table-host="true"]');
+  async function mountAnalyticsChartSlot(root, detail, config, tabId, hostOverride = null) {
+    const kind = explainMetricKind(config, tabId);
+    const supportRole = nonEmptyString(config?.supportRole, config?.slotByTab?.[normalizeTabId(tabId)]?.supportRole);
+    if (kind === "composition" || supportRole === "composition") {
+      if (await mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride)) {
+        return true;
+      }
+    }
+    return mountDrilldownChart(root, detail, config, tabId, hostOverride);
+  }
+
+  async function mountDrilldownChart(root, detail, config, tabId, hostOverride = null) {
+    const host =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
@@ -2468,8 +2646,11 @@
     return true;
   }
 
-  async function mountDrilldownTable(root, detail, config) {
-    const host = root.querySelector('[data-drilldown-table-host="true"]');
+  async function mountDrilldownTable(root, detail, config, hostOverride = null) {
+    const host =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
@@ -2506,8 +2687,105 @@
     return true;
   }
 
-  async function mountDerivedDrilldownContent(root, detail, config, tabId) {
-    const host = root.querySelector('[data-drilldown-table-host="true"]');
+  function buildAnalyticsFilterBarProps(config) {
+    const fields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
+    return {
+      title: "筛选条件",
+      description: "调整条件后图表与明细表将同步刷新。",
+      query_state: config?.queryStateId || undefined,
+      fields: fields.map((field) => ({
+        key: field.key,
+        label: field.label || field.key,
+        type: "text",
+      })),
+    };
+  }
+
+  async function mountAnalyticsFilterBar(root, config) {
+    const host = root.querySelector('[data-drilldown-filter-host="true"]');
+    if (!(host instanceof HTMLElement)) return false;
+    const registered = await ensureDrilldownFilterBarRegistered();
+    if (!registered) return false;
+    host.replaceChildren();
+    const node = document.createElement("mei-dataset-filter-bar");
+    node.dataset.props = JSON.stringify(buildAnalyticsFilterBarProps(config));
+    host.appendChild(node);
+    return true;
+  }
+
+  async function renderAnalyticsDrilldownContent(root, detail, config) {
+    applyDrilldownOverlayMeta(root, config);
+    setDrilldownOverlayStatus(root, "loading");
+    const chartsHost = root.querySelector('[data-drilldown-charts-host="true"]');
+    const tableHost = root.querySelector('[data-drilldown-analytics-table-host="true"]');
+    if (!(chartsHost instanceof HTMLElement) || !(tableHost instanceof HTMLElement)) {
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+    chartsHost.replaceChildren();
+    tableHost.replaceChildren();
+    const chartSlots = Array.isArray(config?.chartSlots) ? config.chartSlots : [];
+    chartSlots.forEach((slot, index) => {
+      const slotEl = document.createElement("div");
+      slotEl.className = "access-drilldown-analytics-chart-slot";
+      slotEl.dataset.chartSlotIndex = String(index);
+      chartsHost.appendChild(slotEl);
+    });
+    chartsHost.style.gridTemplateColumns =
+      chartSlots.length > 1 ? `repeat(${chartSlots.length}, minmax(0, 1fr))` : "1fr";
+    chartsHost.toggleAttribute("hidden", chartSlots.length === 0);
+
+    try {
+      await mountAnalyticsFilterBar(root, config);
+      const chartMounts = chartSlots.map((slot, index) => {
+        const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
+        const slotConfig = resolveDrilldownTabConfig(config, slot.id);
+        const mergedConfig = {
+          ...slotConfig,
+          queryStateId: config.queryStateId,
+          chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
+        };
+        return mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost);
+      });
+      const detailSlot = config?.detailSlot;
+      const detailConfig = detailSlot
+        ? {
+            ...resolveDrilldownTabConfig(config, detailSlot.id),
+            queryStateId: config.queryStateId,
+            columns: cloneArray(detailSlot.fields).length
+              ? cloneArray(detailSlot.fields)
+              : cloneArray(resolveDrilldownTabConfig(config, detailSlot.id).columns),
+          }
+        : config;
+      const [chartsOk, tableOk] = await Promise.all([
+        Promise.all(chartMounts).then((results) => chartSlots.length === 0 || results.every(Boolean)),
+        mountDrilldownTable(root, detail, detailConfig, tableHost),
+      ]);
+      if (!tableOk || !chartsOk) {
+        setDrilldownOverlayStatus(root, "error");
+        return false;
+      }
+      setDrilldownOverlayStatus(root, "ready");
+      dispatchPreviewUpdated("drilldown");
+      return true;
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "分析型下钻看板渲染失败"),
+        phase: "analytics_render_error",
+        detail,
+        config,
+      });
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+  }
+
+  async function mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride = null) {
+    const host =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
@@ -2554,10 +2832,11 @@
       }
       const grouped = groupRowsByCount(rows, dimension, columns);
       if (!grouped.length) return false;
-      const registered = await ensureDrilldownChartRegistered("mei-chart-bar");
+      const chartTag = drilldownChartTag(config?.chartKind, tabId) || "mei-chart-bar";
+      const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
       host.replaceChildren();
-      const node = document.createElement("mei-chart-bar");
+      const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(config?.title || `${dimension}构成`, tabId, grouped, {
           x: "label",
@@ -2810,7 +3089,36 @@
 
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
-    if (root) return root;
+    if (root) {
+      if (!root.querySelector('[data-drilldown-body-mode="analytics"]')) {
+        const panel = root.querySelector(".access-drilldown-overlay-panel");
+        if (panel instanceof HTMLElement) {
+          panel.insertAdjacentHTML(
+            "beforeend",
+            '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--analytics" data-drilldown-body-mode="analytics" hidden>' +
+              '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载分析看板...</div>' +
+              '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>分析看板加载失败，请稍后重试。</div>' +
+              '<div class="access-drilldown-analytics-shell" data-drilldown-status="ready" hidden>' +
+              '<div class="access-drilldown-analytics-layout">' +
+              '<aside class="access-drilldown-analytics-filters" data-drilldown-filter-host="true"></aside>' +
+              '<div class="access-drilldown-analytics-main">' +
+              '<div class="access-drilldown-analytics-charts" data-drilldown-charts-host="true"></div>' +
+              '<div class="access-drilldown-analytics-table-shell">' +
+              '<div class="access-drilldown-analytics-table-host" data-drilldown-analytics-table-host="true"></div>' +
+              "</div>" +
+              "</div>" +
+              "</div>" +
+              "</div>" +
+              "</div>",
+          );
+        }
+        const genericBody = root.querySelector(".access-drilldown-overlay-body");
+        if (genericBody instanceof HTMLElement && !genericBody.dataset.drilldownBodyMode) {
+          genericBody.dataset.drilldownBodyMode = "generic";
+        }
+      }
+      return root;
+    }
     root = document.createElement("div");
     root.id = DRILLDOWN_OVERLAY_ROOT_ID;
     root.className = "access-drilldown-overlay";
@@ -2830,11 +3138,26 @@
       '<div class="access-drilldown-panel-hero-note" data-drilldown-hero-note="true" hidden></div>' +
       "</div>" +
       '<div class="access-drilldown-overlay-tabs" data-drilldown-tabs="true" hidden></div>' +
-      '<div class="access-drilldown-overlay-body">' +
+      '<div class="access-drilldown-overlay-body" data-drilldown-body-mode="generic">' +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载明细表...</div>' +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>明细表加载失败，请稍后重试。</div>' +
       '<div class="access-drilldown-table-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-drilldown-table-host" data-drilldown-table-host="true"></div>' +
+      "</div>" +
+      "</div>" +
+      '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--analytics" data-drilldown-body-mode="analytics" hidden>' +
+      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载分析看板...</div>' +
+      '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>分析看板加载失败，请稍后重试。</div>' +
+      '<div class="access-drilldown-analytics-shell" data-drilldown-status="ready" hidden>' +
+      '<div class="access-drilldown-analytics-layout">' +
+      '<aside class="access-drilldown-analytics-filters" data-drilldown-filter-host="true"></aside>' +
+      '<div class="access-drilldown-analytics-main">' +
+      '<div class="access-drilldown-analytics-charts" data-drilldown-charts-host="true"></div>' +
+      '<div class="access-drilldown-analytics-table-shell">' +
+      '<div class="access-drilldown-analytics-table-host" data-drilldown-analytics-table-host="true"></div>' +
+      "</div>" +
+      "</div>" +
+      "</div>" +
       "</div>" +
       "</div>" +
       "</section>";
@@ -2859,9 +3182,16 @@
     if (!root) return;
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
-    const host = root.querySelector('[data-drilldown-table-host="true"]');
-    if (host instanceof HTMLElement) {
-      host.replaceChildren();
+    for (const selector of [
+      '[data-drilldown-table-host="true"]',
+      '[data-drilldown-analytics-table-host="true"]',
+      '[data-drilldown-charts-host="true"]',
+      '[data-drilldown-filter-host="true"]',
+    ]) {
+      const host = root.querySelector(selector);
+      if (host instanceof HTMLElement) {
+        host.replaceChildren();
+      }
     }
     document.body.classList.remove("access-drilldown-open");
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
@@ -3001,6 +3331,13 @@
     }
     const root = ensureDrilldownOverlayRoot();
     applyDrilldownOverlayMeta(root, config);
+    if (config.analyticsDrilldown) {
+      renderAnalyticsDrilldownContent(root, detail, config);
+      root.removeAttribute("hidden");
+      root.classList.add("is-open");
+      document.body.classList.add("access-drilldown-open");
+      return;
+    }
     const activeTab = renderDrilldownTabs(root, detail, config);
     if (!renderDrilldownContent(root, detail, config, activeTab)) {
       root.removeAttribute("hidden");

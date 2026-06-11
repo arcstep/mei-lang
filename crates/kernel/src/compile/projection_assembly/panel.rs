@@ -2,7 +2,9 @@ use serde_json::{json, Map, Value};
 
 use crate::model::{Diagnostic, PanelDecl, Severity, UiNodeDecl};
 
-use super::metric::{expand_drilldown_tabs, lower_projection_slot};
+use super::metric::{
+    expand_analytics_drilldown_tabs, expand_board_assembly, expand_drilldown_tabs, lower_projection_slot,
+};
 
 pub(crate) fn lower_projection_assembly_in_panels(
     panels: &mut [PanelDecl],
@@ -104,21 +106,17 @@ fn lower_board_link(
     import_scope: Option<&str>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    let Some(tabs_value) = link.get("tabs").cloned() else {
+    let board_value = link.get("board").cloned();
+    let tabs_value = link.get("tabs").cloned();
+    if board_value.is_none() && tabs_value.is_none() {
         return;
-    };
+    }
+
     let world_hint = resolve_world_hint(link.get("world"), import_scope, target_file);
     let default_slot = link
         .get("default_slot")
         .and_then(Value::as_u64)
-        .map(|v| v as usize)
-        .or_else(|| {
-            tabs_value
-                .as_object()
-                .and_then(|map| map.get("default_slot"))
-                .and_then(Value::as_u64)
-                .map(|v| v as usize)
-        });
+        .map(|v| v as usize);
     let title = link
         .get("title")
         .and_then(Value::as_str)
@@ -126,32 +124,103 @@ fn lower_board_link(
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
-    let slots = match expand_tabs_value(
-        &tabs_value,
-        resources,
-        world_hint.as_ref(),
-        diagnostics,
-        target_file,
-    ) {
-        Some(slots) if !slots.is_empty() => slots,
-        Some(_) => {
+    let analytics_layout;
+    let mut analytics_filter_schema = None;
+    let tabs_default_slot = tabs_value
+        .as_ref()
+        .and_then(Value::as_object)
+        .and_then(|map| map.get("default_slot"))
+        .and_then(Value::as_u64)
+        .map(|v| v as usize);
+
+    let slots = if let Some(board) = board_value.as_ref() {
+        let Some(board_map) = board.as_object() else {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "empty_projection_slots".to_string(),
-                message: "link tabs expanded to an empty projection_slots list".to_string(),
+                code: "board_assembly_invalid".to_string(),
+                message: "link board must be build_board_assembly(...)".to_string(),
+                source_path: Some(target_file.to_string()),
+            });
+            return;
+        };
+        if board_map.get("__kind").and_then(Value::as_str) != Some("board_assembly") {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "board_assembly_invalid".to_string(),
+                message: "link board must use __kind=board_assembly".to_string(),
                 source_path: Some(target_file.to_string()),
             });
             return;
         }
-        None => return,
+        if let Some(scene) = board_map.get("scene") {
+            link.insert("scene".to_string(), scene.clone());
+        }
+        let Some(expanded) = expand_board_assembly(
+            board_map,
+            resources,
+            world_hint.as_ref(),
+            diagnostics,
+            target_file,
+        ) else {
+            return;
+        };
+        analytics_layout = expanded.2;
+        analytics_filter_schema = expanded.1;
+        expanded.0
+    } else {
+        let Some(tabs_value) = tabs_value else {
+            return;
+        };
+        analytics_layout = tabs_value
+            .as_object()
+            .and_then(|map| map.get("__kind"))
+            .and_then(Value::as_str)
+            == Some("analytics_projection_slot_list");
+        match expand_tabs_value(
+            &tabs_value,
+            resources,
+            world_hint.as_ref(),
+            diagnostics,
+            target_file,
+            &mut analytics_filter_schema,
+        ) {
+            Some(slots) if !slots.is_empty() => slots,
+            Some(_) => {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "empty_projection_slots".to_string(),
+                    message: "link tabs expanded to an empty projection_slots list".to_string(),
+                    source_path: Some(target_file.to_string()),
+                });
+                return;
+            }
+            None => return,
+        }
     };
+
+    if slots.is_empty() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "empty_projection_slots".to_string(),
+            message: "board assembly expanded to an empty projection_slots list".to_string(),
+            source_path: Some(target_file.to_string()),
+        });
+        return;
+    }
+
+    let resolved_default_slot = default_slot.or(tabs_default_slot);
 
     let mut projection_slots = Vec::new();
     for (index, slot) in slots.into_iter().enumerate() {
         let mut slot_obj = slot;
-        let is_default = default_slot
+        let is_default = resolved_default_slot
             .map(|preferred| preferred == index)
-            .unwrap_or(index == 0);
+            .unwrap_or_else(|| {
+                slot_obj
+                    .get("default")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(index == 0)
+            });
         slot_obj.insert("default".to_string(), Value::Bool(is_default));
         projection_slots.push(Value::Object(slot_obj));
     }
@@ -160,10 +229,17 @@ fn lower_board_link(
         "projection_slots".to_string(),
         Value::Array(projection_slots),
     );
+    if analytics_layout {
+        link.insert("layout_mode".to_string(), Value::String("analytics".to_string()));
+        if let Some(schema) = analytics_filter_schema {
+            link.insert("filter_schema".to_string(), schema);
+        }
+    }
     if let Some(title) = title {
         link.insert("title".to_string(), Value::String(title));
     }
     link.remove("world");
+    link.remove("board");
     link.remove("tabs");
 }
 
@@ -194,8 +270,20 @@ fn expand_tabs_value(
     world_hint: Option<&Value>,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
+    analytics_filter_schema: &mut Option<Value>,
 ) -> Option<Vec<Map<String, Value>>> {
     if let Some(map) = tabs.as_object() {
+        if map.get("__kind").and_then(Value::as_str) == Some("analytics_projection_slot_list") {
+            let expanded = expand_analytics_drilldown_tabs(
+                map,
+                resources,
+                world_hint,
+                diagnostics,
+                target_file,
+            )?;
+            *analytics_filter_schema = Some(expanded.1);
+            return Some(expanded.0);
+        }
         if map.get("__kind").and_then(Value::as_str) == Some("projection_slot_list") {
             let metric = map.get("source")?;
             let include_hero = map
@@ -224,9 +312,14 @@ fn expand_tabs_value(
     if let Some(items) = tabs.as_array() {
         let mut out = Vec::new();
         for item in items {
-            if let Some(mut slots) =
-                expand_tabs_value(item, resources, world_hint, diagnostics, target_file)
-            {
+            if let Some(mut slots) = expand_tabs_value(
+                item,
+                resources,
+                world_hint,
+                diagnostics,
+                target_file,
+                analytics_filter_schema,
+            ) {
                 out.append(&mut slots);
             }
         }

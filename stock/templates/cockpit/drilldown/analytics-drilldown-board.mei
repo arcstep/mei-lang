@@ -1,0 +1,26 @@
+# 分析型二级看板壳：左过滤 + 右上图表（1~3）+ 下明细；布局由宿主 overlay 消费 projection_slots.layout_zone。
+
+scene(
+    id = "analytics_drilldown_board",
+    profile = "cockpit",
+    theme = "cockpit",
+    summary = "分析型二级看板：左过滤 + 右上图表 + 下明细",
+    local_nav = {
+        "kind": "analytics_drilldown_board",
+        "scene_id": "analytics_drilldown_board",
+        "max_charts": 3,
+        "overlay_size": "large",
+    },
+)
+
+world(resources = [])
+
+frame()
+
+frame.add_panel(
+    id = "analytics_drilldown_shell",
+    variant = "container",
+    title = "指标分析",
+    props = {},
+    blocks = [],
+)
