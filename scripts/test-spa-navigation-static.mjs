@@ -41,6 +41,11 @@ for (const slug of [
 ]) {
   assert.match(src, new RegExp(`"${slug.replace("-", "\\-")}"`), `route slug ${slug}`);
 }
+assert.match(src, /SCENE_BUNDLE_PATH_PREFIX/, "scene bundle path prefix");
+assert.match(src, /findSceneBundleSrcInDoc/, "scene bundle discovery in fetched HTML");
+assert.match(src, /syncSceneBundleFromDoc/, "scene bundle SPA sync");
+assert.match(src, /data-mei-scene-bundle/, "scene bundle script marker");
+
 assert.match(src, /shouldMountDrilldownHost/, "drilldown host gate");
 assert.match(
   src,

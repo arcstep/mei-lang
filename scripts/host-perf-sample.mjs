@@ -182,6 +182,10 @@ async function sampleScenario(context) {
     notes.push("warmup_page_prefetch=1");
   }
 
+  if (scenario.bootstrap_mode === "disabled") {
+    notes.push("bootstrap_mode=disabled");
+  }
+
   if (isPageScenario(scenario.route_mode)) {
     const pageUrl = buildPageUrl(baseUrl, targetAppId, scenario);
     if (browserWindowMs > 0) {
@@ -194,8 +198,17 @@ async function sampleScenario(context) {
         notes.push(`browser_window_error=${sanitizeNote(error)}`);
       }
     }
-    const page = await fetchPage(pageUrl, headers);
+    const page = await fetchPageUntilReady(pageUrl, headers, {
+      maxBootstrapWaitMs: Number.isFinite(scenario.bootstrap_max_wait_ms)
+        ? scenario.bootstrap_max_wait_ms
+        : 60000,
+    });
     perf.page_http_elapsed_ms = page.elapsed_ms;
+    perf.page_request_roundtrips = page.request_roundtrips;
+    perf.bootstrap_shell_roundtrips = page.bootstrap_shell_roundtrips;
+    perf.bootstrap_total_wall_ms = page.bootstrap_total_wall_ms;
+    perf.bootstrap_waited_ms = page.bootstrap_waited_ms;
+    perf.bootstrap_timed_out = page.bootstrap_timed_out;
     applyPagePerf(perf, page.headers);
     if (scenario.route_mode === "manage") {
       const pipeline = extractManagePipeline(page.body);
@@ -204,6 +217,12 @@ async function sampleScenario(context) {
       } else {
         notes.push("manage_pipeline_missing=1");
       }
+    }
+    if (page.bootstrap_shell_roundtrips > 0) {
+      notes.push(`bootstrap_shell_roundtrips=${page.bootstrap_shell_roundtrips}`);
+    }
+    if (page.bootstrap_timed_out >= 1) {
+      notes.push("bootstrap_probe_timeout=1");
     }
   }
 
@@ -304,12 +323,17 @@ Options:
   --scenario-family <name>  Sample only one scenario family
   --browser-window-ms <n>   Optional browser request window in ms
   --repeat <n>              Repeat each scenario n times
+  --environment <name>      Environment label
   --auth-bearer <token>     Optional bearer token
   --cookie <header>         Optional cookie header
   --append                  Append output (default)
   --no-append               Overwrite output
-  --environment <name>      Environment label
   --help                    Show help
+
+Scenario extensions:
+  bootstrap_mode            default | disabled (disabled adds diag_filter sentinel)
+  bootstrap_max_wait_ms     Max shell follow-up wait before timeout
+  query_params              Extra URL query params for A/B experiments
 `);
 }
 
@@ -341,6 +365,7 @@ function normalizeScenario(raw) {
   const metricIds = Array.isArray(raw.metric_ids)
     ? raw.metric_ids.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
+  const queryParams = normalizeQueryParams(raw.query_params);
   const scenario = {
     scenario_id: String(raw.scenario_id || "").trim(),
     scenario_family: String(raw.scenario_family || "").trim(),
@@ -355,11 +380,14 @@ function normalizeScenario(raw) {
       : "",
     chrome: raw.chrome ? String(raw.chrome).trim() : "",
     browser_window_ms: toFinite(raw.browser_window_ms),
+    bootstrap_max_wait_ms: toFinite(raw.bootstrap_max_wait_ms),
+    bootstrap_mode: String(raw.bootstrap_mode || "default").trim().toLowerCase() || "default",
     clear_before_sample: raw.clear_before_sample === true,
     clear_mode: String(raw.clear_mode || "clear_only").trim().toLowerCase() || "clear_only",
     sample_metric_api: raw.sample_metric_api === true,
     sample_dataset_query: raw.sample_dataset_query === true,
     metric_ids: metricIds,
+    query_params: queryParams,
   };
   if (!scenario.scenario_id) {
     throw new Error(`scenario_id is required: ${JSON.stringify(raw)}`);
@@ -369,6 +397,11 @@ function normalizeScenario(raw) {
   }
   if (!["cold", "warm", "switch_back"].includes(scenario.run_kind)) {
     throw new Error(`unsupported run_kind for ${scenario.scenario_id}: ${scenario.run_kind}`);
+  }
+  if (!["default", "disabled"].includes(scenario.bootstrap_mode)) {
+    throw new Error(
+      `unsupported bootstrap_mode for ${scenario.scenario_id}: ${scenario.bootstrap_mode}`
+    );
   }
   if ((scenario.route_mode === "access" || scenario.route_mode === "metric_probe") && !scenario.scene_id) {
     throw new Error(`scene_id is required for scenario: ${scenario.scenario_id}`);
@@ -380,6 +413,22 @@ function normalizeScenario(raw) {
     throw new Error(`metric_ids is required for metric_probe scenario: ${scenario.scenario_id}`);
   }
   return scenario;
+}
+
+function normalizeQueryParams(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const out = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const normalizedKey = String(key || "").trim();
+    const normalizedValue = String(value ?? "").trim();
+    if (!normalizedKey || !normalizedValue) {
+      continue;
+    }
+    out[normalizedKey] = normalizedValue;
+  }
+  return out;
 }
 
 function isPageScenario(routeMode) {
@@ -418,6 +467,12 @@ function buildPageUrl(baseUrl, appId, scenario) {
   } else if (scenario.route_mode === "access") {
     params.set("chrome", "none");
   }
+  if (scenario.bootstrap_mode === "disabled") {
+    params.set("diag_filter", "__mei_compile_no_bootstrap__");
+  }
+  for (const [key, value] of Object.entries(scenario.query_params || {})) {
+    params.set(key, value);
+  }
   if (scenario.route_mode === "access") {
     const pathScene = scenario.scene_id ? `/scene/${encodeURIComponent(scenario.scene_id)}` : "";
     const query = params.toString();
@@ -448,6 +503,72 @@ async function fetchPage(url, extraHeaders = {}) {
     body,
     elapsed_ms: Date.now() - started,
   };
+}
+
+async function fetchPageUntilReady(url, extraHeaders = {}, options = {}) {
+  const startedAt = Date.now();
+  const maxWaitMs = Number.isFinite(options.maxBootstrapWaitMs)
+    ? Math.max(2000, options.maxBootstrapWaitMs)
+    : 60000;
+  const maxAttempts = 120;
+  let attempts = 0;
+  let shellRounds = 0;
+  let lastPage = null;
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    const page = await fetchPage(url, extraHeaders);
+    lastPage = page;
+    if (!isCompileBootstrapShell(page)) {
+      return {
+        ...page,
+        request_roundtrips: attempts,
+        bootstrap_shell_roundtrips: shellRounds,
+        bootstrap_total_wall_ms: Date.now() - startedAt,
+        bootstrap_waited_ms: Math.max(Date.now() - startedAt - page.elapsed_ms, 0),
+        bootstrap_timed_out: 0,
+      };
+    }
+    shellRounds += 1;
+    if (Date.now() - startedAt >= maxWaitMs) {
+      break;
+    }
+    await delay(bootstrapProbeDelay(shellRounds));
+  }
+  return {
+    ...(lastPage || { headers: new Headers(), body: "", elapsed_ms: NaN }),
+    request_roundtrips: attempts,
+    bootstrap_shell_roundtrips: shellRounds,
+    bootstrap_total_wall_ms: Date.now() - startedAt,
+    bootstrap_waited_ms: Math.max(Date.now() - startedAt - toFinite(lastPage?.elapsed_ms), 0),
+    bootstrap_timed_out: 1,
+  };
+}
+
+function isCompileBootstrapShell(page) {
+  const body = String(page?.body || "");
+  if (body.includes("data-mei-compile-shell=\"true\"")) {
+    return true;
+  }
+  if (body.includes("MeiLang 编译引导页")) {
+    return true;
+  }
+  const ready = Number(page?.headers?.get?.("x-mei-handler-html-ready-ms"));
+  if (Number.isFinite(ready)) {
+    return false;
+  }
+  return false;
+}
+
+function bootstrapProbeDelay(shellRounds) {
+  const rounds = Math.max(1, Number(shellRounds) || 1);
+  if (rounds <= 3) return 220;
+  if (rounds <= 8) return 320;
+  if (rounds <= 16) return 460;
+  return 720;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
 async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options = {}) {
@@ -1335,6 +1456,9 @@ function printSummary({ outputPath, append: appendMode, records }) {
     const perf = row.perf || {};
     const preview = {
       handler_html_ready_ms: perf.handler_html_ready_ms,
+      bootstrap_total_wall_ms: perf.bootstrap_total_wall_ms,
+      bootstrap_shell_roundtrips: perf.bootstrap_shell_roundtrips,
+      page_request_roundtrips: perf.page_request_roundtrips,
       first_stable_render_ms: perf.first_stable_render_ms,
       first_interactive_ms: perf.first_interactive_ms,
       stable_render_within_window: perf.stable_render_within_window,

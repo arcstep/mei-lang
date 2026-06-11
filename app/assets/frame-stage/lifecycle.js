@@ -47,9 +47,6 @@
     tracked.set(root, observersForRoot);
     invalidateManageLayout(root);
     updateViewport(root);
-    if (!manage) {
-      scheduleMetricPrefetch();
-    }
   }
 
   function scan(event) {
@@ -60,13 +57,40 @@
     scheduleMetricPrefetch();
   }
 
+  const RUNTIME_QUERY_READY_EVENT = "meilang:runtime-query-ready";
+  let runtimeQueryReady = Boolean(
+    window.__meiDatasetRuntime &&
+      typeof window.__meiDatasetRuntime.prefetchVisiblePanelMetrics === "function",
+  );
+  let pendingMetricPrefetch = false;
+
+  function markRuntimeQueryReady() {
+    runtimeQueryReady = true;
+    if (pendingMetricPrefetch) {
+      pendingMetricPrefetch = false;
+      scheduleMetricPrefetch(0, { force: true });
+    }
+  }
+
   let metricPrefetchTimer = null;
-  function scheduleMetricPrefetch(delayMs = 16) {
+  function scheduleMetricPrefetch(delayMs = 0, options = {}) {
+    const opts = options || {};
+    if (!opts.force && !runtimeQueryReady) {
+      pendingMetricPrefetch = true;
+      return;
+    }
+    if (metricPrefetchTimer != null && !opts.force) {
+      return;
+    }
     if (metricPrefetchTimer != null) {
       clearTimeout(metricPrefetchTimer);
     }
     metricPrefetchTimer = window.setTimeout(() => {
       metricPrefetchTimer = null;
+      if (!opts.force && !runtimeQueryReady) {
+        pendingMetricPrefetch = true;
+        return;
+      }
       if (document.body?.classList?.contains("access-drilldown-open")) {
         return;
       }
@@ -109,10 +133,15 @@
     scheduleViewportRelayout();
   }
 
+  function onRuntimeQueryReady() {
+    markRuntimeQueryReady();
+  }
+
   window.addEventListener("resize", onWindowResize);
   window.visualViewport?.addEventListener("resize", onWindowResize);
   window.visualViewport?.addEventListener("scroll", onWindowResize);
   window.addEventListener("meilang:preview-updated", scan);
+  window.addEventListener(RUNTIME_QUERY_READY_EVENT, onRuntimeQueryReady);
   document.addEventListener("mei:manage-tab-change", onManageTabChange);
   document.addEventListener("click", (event) => {
     const btn = event.target.closest("[data-preview-zoom]");
@@ -141,6 +170,7 @@
     window.visualViewport?.removeEventListener("resize", onWindowResize);
     window.visualViewport?.removeEventListener("scroll", onWindowResize);
     window.removeEventListener("meilang:preview-updated", scan);
+    window.removeEventListener(RUNTIME_QUERY_READY_EVENT, onRuntimeQueryReady);
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
     if (domReadyHandler) {
       document.removeEventListener("DOMContentLoaded", domReadyHandler);

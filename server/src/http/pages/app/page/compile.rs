@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use axum::{
     http::{HeaderName, HeaderValue},
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
 use mei_lang_app::{render_page, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
@@ -11,10 +12,13 @@ use mei_lang_kernel::{read_source_file, resolve_app_root, CompileOptions, Worksp
 use crate::AppState;
 
 use crate::http::compile_cache::{
-    compile_app_with_cache, peek_compile_cache_hit, recent_compile_failure,
+    compile_app_with_cache, is_compile_inflight, peek_compile_cache_hit, recent_compile_failure,
     start_compile_in_background_if_needed, CompileWithCacheFailure, CompileWithCacheOutcome,
 };
-use crate::http::pages::app::compiling_shell::{compile_bootstrap_enabled, render_compiling_shell};
+use crate::http::pages::app::compiling_shell::{
+    compile_bootstrap_disabled_for_request, compile_bootstrap_enabled,
+    compile_bootstrap_probe_requested, render_compiling_shell,
+};
 use crate::http::pages::app::page_render::insert_manage_compile_observability_headers;
 use crate::http::pages::app::query::AppQuery;
 use crate::http::pages::app::scene::manage_scene_for_render;
@@ -27,6 +31,71 @@ use crate::http::pages::util::{
 pub(super) enum CompileResolution {
     Outcome(CompileWithCacheOutcome),
     EarlyResponse(Response),
+}
+
+pub(super) fn maybe_handle_compile_bootstrap_probe(
+    state: &AppState,
+    route_mode: UiRouteMode,
+    app_id: &str,
+    query: &AppQuery,
+    compile_options: &CompileOptions,
+    components_root: &std::path::Path,
+    access_path_scene: Option<&str>,
+) -> Option<Response> {
+    if route_mode != UiRouteMode::Build {
+        return None;
+    }
+    if !compile_bootstrap_probe_requested(query) {
+        return None;
+    }
+    if compile_bootstrap_disabled_for_request(query) || !compile_bootstrap_enabled() {
+        return Some(compile_bootstrap_probe_response(true, "bootstrap_disabled"));
+    }
+    if recent_compile_failure(state, app_id, compile_options) {
+        return Some(compile_bootstrap_probe_response(true, "recent_compile_failure"));
+    }
+    if peek_compile_cache_hit(state, app_id, compile_options, components_root).is_some() {
+        return Some(compile_bootstrap_probe_response(true, "cache_hit"));
+    }
+    if is_compile_inflight(state, app_id, compile_options) {
+        return Some(compile_bootstrap_probe_response(false, "compile_inflight"));
+    }
+    start_compile_in_background_if_needed(
+        state.clone(),
+        app_id.to_string(),
+        compile_options.clone(),
+        components_root.to_path_buf(),
+    );
+    let scene_hint = compile_options.scene.as_deref().or(access_path_scene);
+    tracing::info!(
+        app_id = %app_id,
+        route_mode = route_mode.slug(),
+        phase = "compile_bootstrap_probe_start_background",
+        scene_hint = %scene_hint.unwrap_or("-"),
+        "bootstrap probe started background compile"
+    );
+    Some(compile_bootstrap_probe_response(false, "compile_started"))
+}
+
+fn compile_bootstrap_probe_response(ready: bool, reason: &str) -> Response {
+    let mut response = if ready {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::ACCEPTED.into_response()
+    };
+    if let Ok(value) = HeaderValue::from_str(if ready { "1" } else { "0" }) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-compile-bootstrap-ready"),
+            value,
+        );
+    }
+    if let Ok(value) = HeaderValue::from_str(reason) {
+        response.headers_mut().insert(
+            HeaderName::from_static("x-mei-compile-bootstrap-reason"),
+            value,
+        );
+    }
+    response
 }
 
 pub(super) fn resolve_compile_outcome(
@@ -50,7 +119,10 @@ pub(super) fn resolve_compile_outcome(
     discover_ms: u64,
     app_started: Instant,
 ) -> CompileResolution {
-    if compile_bootstrap_enabled() && !recent_compile_failure(state, app_id, &compile_options) {
+    if compile_bootstrap_enabled()
+        && !compile_bootstrap_disabled_for_request(query)
+        && !recent_compile_failure(state, app_id, &compile_options)
+    {
         let peek_started = Instant::now();
         match peek_compile_cache_hit(state, app_id, &compile_options, components_root.as_path()) {
             Some(hit) => {
@@ -66,6 +138,41 @@ pub(super) fn resolve_compile_outcome(
                 });
             }
             None => {
+                if is_compile_inflight(state, app_id, &compile_options) {
+                    tracing::info!(
+                        app_id = %app_id,
+                        route_mode = route_mode.slug(),
+                        phase = "compile_bootstrap_wait_inflight",
+                        "compile inflight detected; waiting for singleflight result"
+                    );
+                    return match compile_app_with_cache(
+                        state,
+                        app_id,
+                        compile_options.clone(),
+                        components_root.as_path(),
+                    ) {
+                        Ok(outcome) => CompileResolution::Outcome(outcome),
+                        Err(failure) => CompileResolution::EarlyResponse(render_compile_failure(
+                            failure,
+                            state,
+                            route_mode,
+                            app_id,
+                            query,
+                            manage_file,
+                            apps,
+                            topbar_menus,
+                            normalized_preview_target,
+                            chrome_hidden,
+                            upload_enabled,
+                            upload_root_label,
+                            upload_files,
+                            auth_enabled,
+                            account_view,
+                            discover_ms,
+                            app_started,
+                        )),
+                    };
+                }
                 start_compile_in_background_if_needed(
                     state.clone(),
                     app_id.to_string(),
@@ -201,6 +308,7 @@ fn render_compile_failure(
             upload_files,
             auth_enabled,
             account_view,
+            None,
         );
         let ssr_emit_ms = elapsed_ms(t);
         let total_wall = elapsed_ms(app_started);

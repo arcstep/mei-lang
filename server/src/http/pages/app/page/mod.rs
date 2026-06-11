@@ -37,7 +37,7 @@ use super::query::{
 use crate::http::compile_cache::CompileWithCacheOutcome;
 
 use access_gate::check_access_scene_gate;
-use compile::{resolve_compile_outcome, CompileResolution};
+use compile::{maybe_handle_compile_bootstrap_probe, resolve_compile_outcome, CompileResolution};
 use light_pages::{try_render_light_page, LightPageContext};
 
 pub async fn app_page(
@@ -152,6 +152,41 @@ pub async fn app_page(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+    let manage_file = if route_mode == UiRouteMode::Build {
+        request_file.clone()
+    } else {
+        None
+    };
+    let manage_script_file = manage_file
+        .as_deref()
+        .filter(|t| is_script_target(t))
+        .map(ToString::to_string);
+    let normalized_preview_target = if route_mode == UiRouteMode::Build {
+        manage_script_file.clone()
+    } else {
+        None
+    };
+    let compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
+        url_path_scene.clone().or_else(|| query.scene.clone())
+    } else {
+        query.scene.clone()
+    };
+    let components_root = resolve_components_root(&state.source_root);
+    let compile_options = CompileOptions {
+        scene: compile_scene.clone(),
+        preview_target: normalized_preview_target.clone(),
+    };
+    if let Some(response) = maybe_handle_compile_bootstrap_probe(
+        &state,
+        route_mode,
+        &app_id,
+        &query,
+        &compile_options,
+        components_root.as_path(),
+        access_path_scene.as_deref(),
+    ) {
+        return Ok(response);
+    }
     if route_mode == UiRouteMode::Presentation && request_file.is_some() {
         return Ok(
             Redirect::temporary(&presentation_sanitized_redirect_location(&app_id, &query))
@@ -267,11 +302,6 @@ pub async fn app_page(
         .unwrap_or_default();
     let upload_root_label = upload_rel.as_deref().unwrap_or("upload").to_string();
     let lightweight_scene = lightweight_access_scene(&app_root, query.scene.as_deref());
-    let manage_file = if route_mode == UiRouteMode::Build {
-        request_file.clone()
-    } else {
-        None
-    };
     if let Some(response) = try_render_light_page(LightPageContext {
         state: &state,
         route_mode,
@@ -292,25 +322,6 @@ pub async fn app_page(
     }) {
         return Ok(response);
     }
-    let manage_script_file = manage_file
-        .as_deref()
-        .filter(|t| is_script_target(t))
-        .map(ToString::to_string);
-    let normalized_preview_target = if route_mode == UiRouteMode::Build {
-        manage_script_file.clone()
-    } else {
-        None
-    };
-    let compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
-        url_path_scene.clone().or_else(|| query.scene.clone())
-    } else {
-        query.scene.clone()
-    };
-    let components_root = resolve_components_root(&state.source_root);
-    let compile_options = CompileOptions {
-        scene: compile_scene.clone(),
-        preview_target: normalized_preview_target.clone(),
-    };
     let compile_resolution = resolve_compile_outcome(
         &state,
         route_mode,

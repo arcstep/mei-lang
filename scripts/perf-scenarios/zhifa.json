@@ -71,6 +71,24 @@
       "run_kind": "cold"
     },
     {
+      "scenario_id": "zhifa.manage.home.cold",
+      "scenario_family": "baseline_overview",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.home.warm",
+      "scenario_family": "baseline_overview",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "run_kind": "warm"
+    },
+    {
       "scenario_id": "zhifa.manage.administrative_inspection.cold",
       "scenario_family": "baseline_overview",
       "route_mode": "manage",
@@ -128,6 +146,52 @@
       "browser_window_ms": 0,
       "clear_before_sample": true,
       "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.home.cold_clear.bootstrap",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "bootstrap_mode": "default",
+      "bootstrap_max_wait_ms": 65000,
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.home.cold_clear.no_bootstrap",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "bootstrap_mode": "disabled",
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.home.bundle_eval.default",
+      "scenario_family": "bundle_expansion_eval",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.home.bundle_eval.no_runtime_share",
+      "scenario_family": "bundle_expansion_eval",
+      "route_mode": "manage",
+      "scene_id": "home",
+      "target_file": "scenes/home.mei",
+      "browser_window_ms": 10000,
+      "query_params": {
+        "mei_perf_disable": "scene_metric_batch,runtime_metric_share,runtime_dataset_share"
+      },
       "run_kind": "cold"
     },
     {

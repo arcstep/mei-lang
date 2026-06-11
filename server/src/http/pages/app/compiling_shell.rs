@@ -1,10 +1,31 @@
 use mei_lang_app::UiRouteMode;
 
+use crate::http::pages::app::query::AppQuery;
+
+pub(crate) const COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER: &str = "__mei_compile_probe__";
+pub(crate) const COMPILE_BOOTSTRAP_DISABLE_DIAG_FILTER: &str = "__mei_compile_no_bootstrap__";
+
 pub(crate) fn compile_bootstrap_enabled() -> bool {
     if cfg!(test) {
         return false;
     }
     !crate::http::compile_cache::env_flag_enabled("MEI_DISABLE_COMPILE_BOOTSTRAP")
+}
+
+pub(crate) fn compile_bootstrap_probe_requested(query: &AppQuery) -> bool {
+    query
+        .diag_filter
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value == COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER)
+}
+
+pub(crate) fn compile_bootstrap_disabled_for_request(query: &AppQuery) -> bool {
+    query
+        .diag_filter
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| value == COMPILE_BOOTSTRAP_DISABLE_DIAG_FILTER)
 }
 
 pub(crate) fn render_compiling_shell(
@@ -28,6 +49,7 @@ pub(crate) fn render_compiling_shell(
             format!("<p class=\"mei-compile-scene\">场景 <code>{scene_esc}</code></p>")
         })
         .unwrap_or_default();
+    let probe_diag_filter = COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER;
     format!(
         r#"<!doctype html>
 <html lang="zh-CN">
@@ -107,7 +129,7 @@ pub(crate) fn render_compiling_shell(
 </head>
 <body>
   <div class="mei-compile-page">
-    <div class="mei-compile-card" role="status" aria-live="polite">
+    <div class="mei-compile-card" role="status" aria-live="polite" data-mei-compile-shell="true">
       <div class="mei-compile-head">
         <img src="/app-assets/favicon.svg" alt=""/>
         <h1 class="mei-compile-title">正在编译应用</h1>
@@ -120,10 +142,61 @@ pub(crate) fn render_compiling_shell(
   </div>
   <script>
     (function () {{
-      var delayMs = 1500;
-      window.setTimeout(function () {{
-        window.location.reload();
-      }}, delayMs);
+      var baseHref = window.location.href;
+      var nextDelayMs = 260;
+      var maxDelayMs = 1200;
+      var stopped = false;
+      function computeNextDelay() {{
+        var current = nextDelayMs;
+        nextDelayMs = Math.min(maxDelayMs, Math.round(nextDelayMs * 1.35));
+        return current;
+      }}
+      function buildProbeUrl() {{
+        var probeUrl = new URL(baseHref, window.location.href);
+        probeUrl.searchParams.set("diag_filter", "{probe_diag_filter}");
+        probeUrl.searchParams.set("__mei_probe_ts", String(Date.now()));
+        return probeUrl.toString();
+      }}
+      function schedule() {{
+        if (stopped) return;
+        window.setTimeout(tick, computeNextDelay());
+      }}
+      function doneReload() {{
+        if (stopped) return;
+        stopped = true;
+        window.location.replace(baseHref);
+      }}
+      function tick() {{
+        if (stopped) return;
+        fetch(buildProbeUrl(), {{
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: {{
+            "x-mei-compile-probe": "1"
+          }}
+        }})
+          .then(function (response) {{
+            if (response.status === 204) {{
+              doneReload();
+              return;
+            }}
+            if (response.status >= 500) {{
+              doneReload();
+              return;
+            }}
+            schedule();
+          }})
+          .catch(function () {{
+            schedule();
+          }});
+      }}
+      document.addEventListener("visibilitychange", function () {{
+        if (document.visibilityState === "visible") {{
+          nextDelayMs = 220;
+        }}
+      }});
+      schedule();
     }})();
   </script>
 </body>
@@ -141,11 +214,35 @@ fn html_escape_min(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::pages::app::query::AppQuery;
 
     #[test]
     fn compiling_shell_escapes_app_id() {
         let html = render_compiling_shell(UiRouteMode::Build, "<bad>", None);
         assert!(html.contains("&lt;bad&gt;"));
         assert!(!html.contains("<bad>"));
+    }
+
+    #[test]
+    fn compile_bootstrap_probe_and_disable_flags_are_query_scoped() {
+        let probe = AppQuery {
+            file: None,
+            scene: None,
+            tab: None,
+            diag_filter: Some(COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER.to_string()),
+            chrome: None,
+        };
+        assert!(compile_bootstrap_probe_requested(&probe));
+        assert!(!compile_bootstrap_disabled_for_request(&probe));
+
+        let disabled = AppQuery {
+            file: None,
+            scene: None,
+            tab: None,
+            diag_filter: Some(COMPILE_BOOTSTRAP_DISABLE_DIAG_FILTER.to_string()),
+            chrome: None,
+        };
+        assert!(compile_bootstrap_disabled_for_request(&disabled));
+        assert!(!compile_bootstrap_probe_requested(&disabled));
     }
 }

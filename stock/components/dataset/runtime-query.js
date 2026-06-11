@@ -14,6 +14,7 @@ const ACTIVE_RUNTIME_FETCH_CONTROLLERS = new Set();
 const PARSED_DATA_PROPS_CACHE = new WeakMap();
 export const MEI_DRILLDOWN_OVERLAY_ID = "mei-access-drilldown-overlay";
 export const MEI_PREFETCH_PANEL_METRICS = "meilang:prefetch-panel-metrics";
+export const MEI_RUNTIME_QUERY_READY = "meilang:runtime-query-ready";
 export const MEI_ABORT_RUNTIME_QUERIES = "mei:abort-runtime-queries";
 const PANEL_METRIC_BATCHES = new Map();
 
@@ -785,6 +786,61 @@ function normalizeSceneMetricBatchGroups(groups = []) {
     .filter((entry) => entry.metric_ids.length > 0);
 }
 
+function metricIdMatchesRequested(metricId, requestedIds = []) {
+  const normalized = safeTrim(metricId);
+  if (!normalized) {
+    return false;
+  }
+  for (const requestedId of Array.isArray(requestedIds) ? requestedIds : []) {
+    const wanted = safeTrim(requestedId);
+    if (!wanted) continue;
+    if (normalized === wanted || normalized.endsWith(`::${wanted}`)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function filterMetricsForRequestedIds(metrics = [], requestedIds = []) {
+  const normalizedRequested = [...new Set(
+    (Array.isArray(requestedIds) ? requestedIds : [])
+      .map((value) => safeTrim(value))
+      .filter(Boolean)
+  )];
+  if (normalizedRequested.length === 0) {
+    return Array.isArray(metrics) ? metrics : [];
+  }
+  return (Array.isArray(metrics) ? metrics : []).filter((metric) =>
+    metricIdMatchesRequested(metric?.id, normalizedRequested)
+  );
+}
+
+function projectScheduledSceneMetricBatchResult(batchData, datasetId, requestedIds = []) {
+  const normalizedDatasetId = safeTrim(datasetId);
+  if (!normalizedDatasetId) {
+    return null;
+  }
+  const groups = Array.isArray(batchData?.groups) ? batchData.groups : [];
+  const group = groups.find(
+    (candidate) => safeTrim(candidate?.dataset_id) === normalizedDatasetId
+  );
+  if (!group) {
+    return null;
+  }
+  const metrics = filterMetricsForRequestedIds(group.metrics, requestedIds);
+  const perf = mergeServerAndClientPerf(group?.perf, {});
+  perf.client_scene_batch_schedule_hit = 1;
+  perf.client_scene_batch_schedule_group_count = groups.length;
+  return {
+    scene_id: safeTrim(batchData?.scene_id),
+    scene_path: safeTrim(batchData?.scene_path) || undefined,
+    dataset_id: normalizedDatasetId,
+    total_rows: Number(group?.total_rows) || 0,
+    metrics,
+    perf,
+  };
+}
+
 function scheduleAfterStablePaint(fn, options = {}) {
   if (typeof window === "undefined") {
     const timer = setTimeout(() => fn(), 0);
@@ -1194,7 +1250,10 @@ if (typeof window !== "undefined") {
   window.addEventListener(MEI_ABORT_RUNTIME_QUERIES, (event) => {
     abortRuntimeQueries(event?.detail?.reason || "");
   });
-  window.addEventListener("meilang:preview-updated", () => {
+  window.addEventListener("meilang:preview-updated", (event) => {
+    if (event?.detail?.resetRuntimeQueryCache === false) {
+      return;
+    }
     clearRuntimeQueryCaches();
   });
   window.addEventListener("pagehide", () => {
@@ -1203,6 +1262,11 @@ if (typeof window !== "undefined") {
   window.addEventListener(MEI_PREFETCH_PANEL_METRICS, () => {
     prefetchVisiblePanelMetrics();
   });
+  window.dispatchEvent(
+    new CustomEvent(MEI_RUNTIME_QUERY_READY, {
+      detail: { source: "runtime-query" },
+    }),
+  );
   window.__meiAbortRuntimeQueries = abortRuntimeQueries;
 }
 
@@ -2053,8 +2117,9 @@ function scheduleSceneRuntimeMetricRequest(
         }))
       );
       try {
+        let sceneBatchData = null;
         if (groups.length > 1) {
-          await fetchSceneRuntimeMetricBatch(schedule.props, groups, {
+          sceneBatchData = await fetchSceneRuntimeMetricBatch(schedule.props, groups, {
             queryStateId: schedule.queryStateId,
             search: schedule.search,
             filters: schedule.filters,
@@ -2064,7 +2129,8 @@ function scheduleSceneRuntimeMetricRequest(
               request_id: meta?.request_id ?? meta?.requestId,
             }),
           });
-        } else if (groups.length === 1) {
+        }
+        if (groups.length === 1) {
           await fetchRuntimeMetrics(schedule.props, {
             metricIds: groups[0].metric_ids,
             queryStateId: schedule.queryStateId,
@@ -2079,6 +2145,17 @@ function scheduleSceneRuntimeMetricRequest(
         }
         await Promise.all(
           liveRequests.map(async (request) => {
+            if (sceneBatchData && groups.length > 1) {
+              const projected = projectScheduledSceneMetricBatchResult(
+                sceneBatchData,
+                resolveRuntimeMetricRef(request.props)?.dataset_id || datasetId,
+                request.metricIds
+              );
+              if (projected) {
+                request.resolve(projected);
+                return;
+              }
+            }
             const data = await fetchRuntimeMetrics(request.props, {
               metricIds: request.metricIds,
               queryStateId: request.queryStateId,
