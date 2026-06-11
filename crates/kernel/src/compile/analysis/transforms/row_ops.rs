@@ -9,6 +9,21 @@ fn scalar_text(value: &Value) -> String {
     value_display_text(value)
 }
 
+fn regex_capture_text(text: &str, pattern: &str) -> String {
+    if pattern.is_empty() {
+        return String::new();
+    }
+    Regex::new(pattern)
+        .ok()
+        .and_then(|regex| {
+            regex
+                .captures(text)
+                .and_then(|captures| captures.get(1).or_else(|| captures.get(0)))
+                .map(|matched| matched.as_str().to_string())
+        })
+        .unwrap_or_default()
+}
+
 pub fn select_fields(row: &Value, fields: &[String]) -> Value {
     let Some(object) = row.as_object() else {
         return row.clone();
@@ -153,23 +168,22 @@ pub fn eval_row_value(expr: &Value, row: &serde_json::Map<String, Value>) -> Val
                             .filter(|ch| ch.is_ascii_digit() || *ch == '.')
                             .collect::<String>()
                     } else {
-                        Regex::new(pattern)
-                            .ok()
-                            .and_then(|regex| {
-                                regex
-                                    .captures(&text)
-                                    .and_then(|captures| {
-                                        captures.get(1).or_else(|| captures.get(0))
-                                    })
-                                    .map(|matched| matched.as_str().to_string())
-                            })
-                            .unwrap_or_default()
+                        regex_capture_text(&text, pattern)
                     };
                     extracted
                         .parse::<f64>()
                         .ok()
                         .map(|value| json!(value))
                         .unwrap_or(Value::Null)
+                }
+                "extract_match" => {
+                    let field = analysis.get("field").and_then(Value::as_str).unwrap_or("");
+                    let text = row.get(field).map(scalar_text).unwrap_or_default();
+                    let pattern = analysis
+                        .get("pattern")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    Value::String(regex_capture_text(&text, pattern))
                 }
                 "sub" => {
                     let left_field = analysis

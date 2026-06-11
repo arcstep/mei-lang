@@ -664,6 +664,9 @@ def date(source, field = None):
 def extract_number(source = None, field = None, pattern = None):
     return _analysis("extract_number", source = source, field = field, pattern = pattern)
 
+def extract_match(source = None, field = None, pattern = None):
+    return _analysis("extract_match", source = source, field = field, pattern = pattern)
+
 def split_text(rowset, field, delimiter = "、"):
     return _analysis("split_text", rowset = rowset, field = field, delimiter = delimiter)
 
