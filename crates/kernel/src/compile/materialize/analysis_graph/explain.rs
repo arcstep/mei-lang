@@ -101,6 +101,7 @@ pub(super) fn explain_block_value(
     copy_field(item_map, &mut block, "fields");
     copy_field(item_map, &mut block, "headers");
     copy_field(item_map, &mut block, "mapping");
+    copy_field(item_map, &mut block, "top_n");
     let scoped_dataframe_metric_id =
         infer_explain_scoped_dataframe(explain_items, item_index, support_role.as_str());
     let lineage_dataset_id =
@@ -352,6 +353,7 @@ pub(super) fn tab_metric_value(block: &Map<String, Value>) -> Option<Map<String,
         "fields",
         "headers",
         "mapping",
+        "top_n",
         "by",
         "date_field",
         "grain",

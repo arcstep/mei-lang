@@ -19,7 +19,7 @@ def explain_ref(id):
         "id": str(id).strip(),
     }
 
-def build_view(kind, source, chart_kind = None, mapping = None, label = None, columns = None, fields = None):
+def build_view(kind, source, chart_kind = None, mapping = None, label = None, columns = None, fields = None, top_n = None, topN = None):
     """Explicit view descriptor: data source + how to render (not inferred from explain alone)."""
     if kind == None or str(kind).strip() == "":
         fail("build_view requires kind=chart|table|metric_card|summary")
@@ -42,6 +42,9 @@ def build_view(kind, source, chart_kind = None, mapping = None, label = None, co
     resolved_columns = columns if columns != None else fields
     if resolved_columns != None:
         payload["columns"] = resolved_columns
+    resolved_top_n = top_n if top_n != None else topN
+    if resolved_top_n != None:
+        payload["top_n"] = resolved_top_n
     return _without_empty(payload)
 
 def filter_field(key, label = None, column = None, control = "multi_select"):

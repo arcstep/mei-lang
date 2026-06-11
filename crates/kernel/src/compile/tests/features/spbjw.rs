@@ -1153,6 +1153,10 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         "warnings_count composition should lower to column chart_kind, got: {encoded}"
     );
     assert!(
+        encoded.contains("\"top_n\":6"),
+        "warnings analytics chart slots should carry configurable top_n=6, got: {encoded}"
+    );
+    assert!(
         encoded.contains("filter_schema"),
         "analytics link should include filter_schema, got: {encoded}"
     );

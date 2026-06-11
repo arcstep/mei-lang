@@ -315,6 +315,9 @@ fn slot_from_board_view(
     if let Some(mapping) = map.get("mapping") {
         slot.insert("mapping".to_string(), mapping.clone());
     }
+    if let Some(top_n) = map.get("top_n") {
+        slot.insert("top_n".to_string(), top_n.clone());
+    }
     if let Some(columns) = map.get("columns") {
         slot.insert("fields".to_string(), columns.clone());
     }
@@ -844,6 +847,9 @@ fn slot_from_explain_block(
     }
     if let Some(mapping) = block_map.get("mapping") {
         slot.insert("mapping".to_string(), mapping.clone());
+    }
+    if let Some(top_n) = block_map.get("top_n") {
+        slot.insert("top_n".to_string(), top_n.clone());
     }
     if let Some(block_id) = block_map.get("id").and_then(Value::as_str) {
         slot.insert(
