@@ -17,7 +17,8 @@ use crate::http::compile_cache::{
 };
 use crate::http::pages::app::compiling_shell::{
     compile_bootstrap_disabled_for_request, compile_bootstrap_enabled,
-    compile_bootstrap_probe_requested, render_compiling_shell,
+    compile_bootstrap_probe_requested, compile_bootstrap_route_supported,
+    render_compiling_shell,
 };
 use crate::http::pages::app::page_render::insert_manage_compile_observability_headers;
 use crate::http::pages::app::query::AppQuery;
@@ -42,7 +43,7 @@ pub(super) fn maybe_handle_compile_bootstrap_probe(
     components_root: &std::path::Path,
     access_path_scene: Option<&str>,
 ) -> Option<Response> {
-    if route_mode != UiRouteMode::Build {
+    if !compile_bootstrap_route_supported(route_mode) {
         return None;
     }
     if !compile_bootstrap_probe_requested(query) {
@@ -120,6 +121,7 @@ pub(super) fn resolve_compile_outcome(
     app_started: Instant,
 ) -> CompileResolution {
     if compile_bootstrap_enabled()
+        && compile_bootstrap_route_supported(route_mode)
         && !compile_bootstrap_disabled_for_request(query)
         && !recent_compile_failure(state, app_id, &compile_options)
     {

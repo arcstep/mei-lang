@@ -28,6 +28,14 @@ pub(crate) fn compile_bootstrap_disabled_for_request(query: &AppQuery) -> bool {
         .is_some_and(|value| value == COMPILE_BOOTSTRAP_DISABLE_DIAG_FILTER)
 }
 
+/// Routes that may serve [`render_compiling_shell`] must also handle compile-bootstrap probes.
+pub(crate) fn compile_bootstrap_route_supported(route_mode: UiRouteMode) -> bool {
+    matches!(
+        route_mode,
+        UiRouteMode::Build | UiRouteMode::App | UiRouteMode::Presentation
+    )
+}
+
 pub(crate) fn render_compiling_shell(
     route_mode: UiRouteMode,
     app_id: &str,
@@ -168,6 +176,11 @@ pub(crate) fn render_compiling_shell(
       }}
       function tick() {{
         if (stopped) return;
+        function probeReady(response) {{
+          if (response.status === 204) return true;
+          if (response.headers.get("x-mei-compile-bootstrap-ready") === "1") return true;
+          return false;
+        }}
         fetch(buildProbeUrl(), {{
           method: "GET",
           cache: "no-store",
@@ -177,13 +190,22 @@ pub(crate) fn render_compiling_shell(
           }}
         }})
           .then(function (response) {{
-            if (response.status === 204) {{
+            if (probeReady(response)) {{
               doneReload();
               return;
             }}
             if (response.status >= 500) {{
               doneReload();
               return;
+            }}
+            if (response.status === 200) {{
+              return response.text().then(function (html) {{
+                if (!html.includes('data-mei-compile-shell="true"')) {{
+                  doneReload();
+                  return;
+                }}
+                schedule();
+              }});
             }}
             schedule();
           }})
@@ -221,6 +243,15 @@ mod tests {
         let html = render_compiling_shell(UiRouteMode::Build, "<bad>", None);
         assert!(html.contains("&lt;bad&gt;"));
         assert!(!html.contains("<bad>"));
+    }
+
+    #[test]
+    fn compile_bootstrap_route_support_matches_access_like_modes() {
+        assert!(compile_bootstrap_route_supported(UiRouteMode::Build));
+        assert!(compile_bootstrap_route_supported(UiRouteMode::App));
+        assert!(compile_bootstrap_route_supported(UiRouteMode::Presentation));
+        assert!(!compile_bootstrap_route_supported(UiRouteMode::Config));
+        assert!(!compile_bootstrap_route_supported(UiRouteMode::Upload));
     }
 
     #[test]
