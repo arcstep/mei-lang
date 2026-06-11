@@ -419,13 +419,15 @@ pub(crate) fn diagnostics_view(
                     <code class="text-slate-200">"dataset.summary-cards"</code>
                     " / "
                     <code class="text-slate-200">"chart.*"</code>
-                    " 在请求失败时写入（最新 25 条）。"
+                    " / "
+                    <code class="text-slate-200">"map.maplibre"</code>
+                    " 在运行时失败时写入（最新 25 条）。"
                 </span>
                 <div
                     id="mei-runtime-query-errors"
                     class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
                 >
-                    "尚无 /api/datasets/query 或 metrics 运行时错误上报。"
+                    "尚无数据查询或地图运行时错误上报。"
                 </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-slate-500/35">

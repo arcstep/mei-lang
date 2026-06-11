@@ -4,6 +4,8 @@ import {
   escapeHtml,
   parseProps,
   queryStateIdOf,
+  recordRuntimeDatasetQueryError,
+  runtimeCallerMeta,
   setQueryStateFilter,
 } from "../../dataset/runtime-query.js";
 import {
@@ -208,6 +210,45 @@ if (!customElements.get(TAG)) {
       }
     }
 
+    reportRuntimeError(kind, basemap, error, extra = {}) {
+      const detail = String(error?.message || error || kind || "runtime error").trim();
+      if (!detail) return;
+      const meta = runtimeCallerMeta(this, TAG);
+      const api = basemapTileJsonUrl(basemap);
+      const phase = String(extra.phase || "").trim();
+      const dedupeKey =
+        kind === "map_runtime_error"
+          ? [kind, phase, api, meta.panel_id || ""].join("|")
+          : [kind, phase, api, detail, meta.panel_id || ""].join("|");
+      const now = Date.now();
+      if (this._lastRuntimeErrorKey === dedupeKey && now - (this._lastRuntimeErrorAt || 0) < 3000) {
+        return;
+      }
+      this._lastRuntimeErrorKey = dedupeKey;
+      this._lastRuntimeErrorAt = now;
+      recordRuntimeDatasetQueryError({
+        kind: String(kind || "map_runtime_error"),
+        datasetId: "__maplibre__",
+        api,
+        message: detail,
+        sceneId: meta.scene_id,
+        target: meta.target,
+        component: meta.component || TAG,
+        panelId: meta.panel_id,
+        phase,
+      });
+      if (typeof console !== "undefined" && typeof console.error === "function") {
+        console.error(`[${TAG}] ${kind}`, {
+          api,
+          phase,
+          message: detail,
+          panelId: meta.panel_id || "",
+          sceneId: meta.scene_id || "",
+          target: meta.target || "",
+        });
+      }
+    }
+
     async renderMap(props, basemap, layers, layout) {
       const renderToken = (this._renderToken || 0) + 1;
       this._renderToken = renderToken;
@@ -265,9 +306,14 @@ if (!customElements.get(TAG)) {
               layer_count: layers.length,
             });
           } catch (err) {
-            this.errorEl.textContent = String(err?.message || err);
+            const message = String(err?.message || err);
+            this.errorEl.textContent = message;
             this._renderTrace?.mark("render_error", {
-              message: String(err?.message || err),
+              message,
+              tilejson_url: basemapTileJsonUrl(basemap),
+            });
+            this.reportRuntimeError("map_render_error", basemap, message, {
+              phase: "sync_layers",
             });
             this.renderLayerControl(layers, props);
             this.mountLayerToggleInNav();
@@ -279,15 +325,25 @@ if (!customElements.get(TAG)) {
           if (!this.isConnected || renderToken !== this._renderToken || this.map !== map) {
             return;
           }
-          this.errorEl.textContent = basemapUnavailableMessage(basemap, event?.error);
+          const message = basemapUnavailableMessage(basemap, event?.error);
+          this.errorEl.textContent = message;
           this._renderTrace?.mark("map_error", {
             message: String(event?.error?.message || event?.error || "map error"),
+            tilejson_url: basemapTileJsonUrl(basemap),
+          });
+          this.reportRuntimeError("map_runtime_error", basemap, message, {
+            phase: "style_or_tile_load",
           });
         });
       } catch (error) {
-        this.errorEl.textContent = String(error?.message || error);
+        const message = String(error?.message || error);
+        this.errorEl.textContent = message;
         this._renderTrace?.mark("render_error", {
-          message: String(error?.message || error),
+          message,
+          tilejson_url: basemapTileJsonUrl(basemap),
+        });
+        this.reportRuntimeError("map_render_error", basemap, message, {
+          phase: "map_init",
         });
       }
     }
