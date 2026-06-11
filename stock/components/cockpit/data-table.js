@@ -174,6 +174,37 @@ function carouselShowsPager(props) {
   return props?.carouselShowPager === true || props?.carousel_show_pager === "true";
 }
 
+function carouselShowsHint(props) {
+  if (props?.carouselHint === false || props?.carousel_hint === "false") return false;
+  if (!carouselEnabled(props)) return false;
+  if (props?.carouselHint === true || props?.carousel_hint === "true") return true;
+  return !carouselShowsPager(props);
+}
+
+const CAROUSEL_RING_RADIUS = 8;
+const CAROUSEL_RING_C = 2 * Math.PI * CAROUSEL_RING_RADIUS;
+
+function renderCarouselHintHtml(page, totalPages, intervalMs, epoch) {
+  const dots = Array.from({ length: totalPages }, (_, index) => {
+    const pageNo = index + 1;
+    const active = pageNo === page;
+    return `<span class="carousel-dot${active ? " is-active" : ""}"></span>`;
+  }).join("");
+  return `
+    <div class="carousel-hint" role="status" aria-label="轮播第 ${page} 页，共 ${totalPages} 页">
+      <div class="carousel-dots" aria-hidden="true">${dots}</div>
+      <span class="carousel-page-label">
+        <span class="carousel-page-current" data-epoch="${epoch}">${page}</span><span class="carousel-page-sep">/</span><span class="carousel-page-total">${totalPages}</span>
+      </span>
+      <div class="carousel-timer" style="--carousel-ms:${intervalMs}ms;--carousel-c:${CAROUSEL_RING_C}" data-epoch="${epoch}" title="自动切页倒计时">
+        <svg class="carousel-ring" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+          <circle class="carousel-ring-track" cx="10" cy="10" r="${CAROUSEL_RING_RADIUS}" />
+          <circle class="carousel-ring-progress" cx="10" cy="10" r="${CAROUSEL_RING_RADIUS}" />
+        </svg>
+      </div>
+    </div>`;
+}
+
 function shouldRenderPager(props, paging) {
   if (!paging) return false;
   if (carouselEnabled(props) && !carouselShowsPager(props)) return false;
@@ -381,6 +412,8 @@ export class MeiCockpitDataTable extends HTMLElement {
     this._paging = paginationEnabled(this._props);
     this._pagingMode = resolvePaginationMode(this._props);
     this._allRows = [];
+    this._carouselEpoch = 0;
+    this._carouselPageTurn = false;
     this._queryStateId = queryStateIdOf(this._props);
     this._sharedFilters = getQueryState(this._queryStateId).filters || {};
     this._sharedSearch = String(getQueryState(this._queryStateId).search || "").trim();
@@ -454,8 +487,14 @@ export class MeiCockpitDataTable extends HTMLElement {
       this._props?.carouselPauseOnHover !== false &&
       this._props?.carousel_pause_on_hover !== "false";
     if (!carouselEnabled(this._props) || !pauseOnHover) return;
-    this._onCarouselPause = () => this.stopCarousel();
-    this._onCarouselResume = () => this.startCarousel();
+    this._onCarouselPause = () => {
+      this.stopCarousel();
+      this.shadowRoot?.querySelector(".table-wrap")?.classList.add("carousel-paused");
+    };
+    this._onCarouselResume = () => {
+      this.shadowRoot?.querySelector(".table-wrap")?.classList.remove("carousel-paused");
+      this.startCarousel();
+    };
     this.addEventListener("mouseenter", this._onCarouselPause);
     this.addEventListener("mouseleave", this._onCarouselResume);
     this._carouselHoverBound = true;
@@ -478,8 +517,11 @@ export class MeiCockpitDataTable extends HTMLElement {
       } else {
         this._state.page = 1;
       }
+      this._carouselEpoch += 1;
+      this._carouselPageTurn = true;
       this.applyPagedRows(this._allRows);
       this.render();
+      this._carouselPageTurn = false;
     }, interval);
   }
 
@@ -499,6 +541,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (action === "prev" && this._state.page > 1) {
       this._state.page -= 1;
       if (this._pagingMode === "client") {
+        this._carouselEpoch += 1;
         this.applyPagedRows(this._allRows);
         this.render();
         this.startCarousel();
@@ -509,6 +552,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (action === "next" && this._state.hasMore) {
       this._state.page += 1;
       if (this._pagingMode === "client") {
+        this._carouselEpoch += 1;
         this.applyPagedRows(this._allRows);
         this.render();
         this.startCarousel();
@@ -532,6 +576,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     return JSON.stringify({
       scene: this._props?._mei?.active_scene_id || "",
       target: this._props?._mei?.active_target_file || "",
+      compileEpoch: this._props?._mei?.compile_epoch || "",
       metric: metricRef,
       data: dataRef,
       page: this._state.page,
@@ -646,6 +691,14 @@ export class MeiCockpitDataTable extends HTMLElement {
       }
     } finally {
       this._state.loading = false;
+      if (
+        carouselEnabled(this._props) &&
+        this._paging &&
+        this._pagingMode === "client" &&
+        this._allRows.length > (this._pageSize || 1)
+      ) {
+        this._carouselEpoch = (this._carouselEpoch || 0) + 1;
+      }
       this.render();
       this.startCarousel();
     }
@@ -797,10 +850,17 @@ export class MeiCockpitDataTable extends HTMLElement {
     const page = Math.max(1, Number(this._state?.page) || 1);
     const rowCount = Math.max(0, Number(this._state?.total) || rows.length || 0);
     const pageSize = this._pageSize || 1;
-    const totalPages = rowCount > 0 && showPager ? Math.max(1, Math.ceil(rowCount / pageSize)) : 1;
+    const carouselPaging = paging && carouselEnabled(p);
+    const totalPages =
+      rowCount > 0 && (showPager || carouselPaging)
+        ? Math.max(1, Math.ceil(rowCount / pageSize))
+        : 1;
+    const showCarouselHint =
+      carouselShowsHint(p) && totalPages > 1 && !this._state?.loading;
     const rowCountLabel = escapeHtml(formatTableRowCountLabel(rowCount));
+    const carouselEpoch = this._carouselEpoch || 0;
     const footerHtml = `
-        <div class="table-footer">
+        <div class="table-footer${showCarouselHint ? " has-carousel-hint" : ""}">
           <span class="row-total">${rowCountLabel}</span>
           ${
             showPager
@@ -811,7 +871,22 @@ export class MeiCockpitDataTable extends HTMLElement {
         </div>`
               : ""
           }
+          ${
+            showCarouselHint
+              ? renderCarouselHintHtml(
+                  page,
+                  totalPages,
+                  resolveCarouselIntervalMs(p),
+                  carouselEpoch
+                )
+              : ""
+          }
         </div>`;
+    const tbodyClass = [
+      this._carouselPageTurn ? "page-turn" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     this.shadowRoot.innerHTML = `
       <style>
@@ -849,6 +924,13 @@ export class MeiCockpitDataTable extends HTMLElement {
         }
         .table-wrap.carousel-active .tbody {
           opacity: 1;
+        }
+        .tbody.page-turn {
+          animation: carousel-body-turn 340ms cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        @keyframes carousel-body-turn {
+          0% { opacity: 0.45; transform: translateY(8px); }
+          100% { opacity: 1; transform: translateY(0); }
         }
         .table-canvas {
           width: ${gridSizing.width};
@@ -995,6 +1077,101 @@ export class MeiCockpitDataTable extends HTMLElement {
           font-size: ${embedded ? "15px" : "11px"};
           color: #94a3b8;
         }
+        .table-footer.has-carousel-hint {
+          justify-content: space-between;
+        }
+        .carousel-hint {
+          flex: 0 0 auto;
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          margin-left: auto;
+          padding: 2px 4px;
+        }
+        .carousel-dots {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+        }
+        .carousel-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: rgba(125, 211, 252, 0.22);
+          transition:
+            transform 280ms cubic-bezier(0.34, 1.4, 0.64, 1),
+            background 220ms ease,
+            box-shadow 220ms ease;
+        }
+        .carousel-dot.is-active {
+          background: #38bdf8;
+          transform: scale(1.4);
+          box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+        }
+        .carousel-page-label {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 2px;
+          font-size: ${embedded ? "14px" : "11px"};
+          color: #94a3b8;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 0.02em;
+        }
+        .carousel-page-current {
+          display: inline-block;
+          min-width: 0.65em;
+          text-align: center;
+          color: #e0f2fe;
+          font-weight: 600;
+          animation: carousel-page-bump 380ms cubic-bezier(0.34, 1.4, 0.64, 1);
+        }
+        .carousel-page-sep {
+          opacity: 0.55;
+          padding: 0 1px;
+        }
+        .carousel-page-total {
+          color: #7dd3fc;
+          font-weight: 500;
+        }
+        @keyframes carousel-page-bump {
+          0% { transform: scale(0.82); opacity: 0.55; }
+          55% { transform: scale(1.14); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .carousel-timer {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          flex: 0 0 auto;
+        }
+        .carousel-ring {
+          display: block;
+        }
+        .carousel-ring-track {
+          fill: none;
+          stroke: rgba(125, 211, 252, 0.16);
+          stroke-width: 2;
+        }
+        .carousel-ring-progress {
+          fill: none;
+          stroke: #38bdf8;
+          stroke-width: 2;
+          stroke-linecap: round;
+          transform: rotate(-90deg);
+          transform-origin: 50% 50%;
+          stroke-dasharray: var(--carousel-c);
+          stroke-dashoffset: 0;
+          animation: carousel-ring-countdown var(--carousel-ms) linear forwards;
+        }
+        .table-wrap.carousel-paused .carousel-ring-progress {
+          animation-play-state: paused;
+        }
+        @keyframes carousel-ring-countdown {
+          from { stroke-dashoffset: 0; }
+          to { stroke-dashoffset: var(--carousel-c); }
+        }
         ${cellTableChromeStyleBlock()}
         ${cellPopoverStyleBlock(popoverVariant)}
       </style>
@@ -1002,7 +1179,7 @@ export class MeiCockpitDataTable extends HTMLElement {
         <div class="table-scroll">
           <div class="table-canvas">
             <div class="thead">${headCells}</div>
-            <div class="tbody">${this._state?.loading ? `<div class="empty">加载中…</div>` : body || emptyHint}</div>
+            <div class="tbody${tbodyClass ? ` ${tbodyClass}` : ""}">${this._state?.loading ? `<div class="empty">加载中…</div>` : body || emptyHint}</div>
           </div>
         </div>
         ${footerHtml}

@@ -1402,8 +1402,25 @@ function pruneDatasetQueryCaches(now = Date.now()) {
   }
 }
 
-function datasetQueryCacheKey(api, payload) {
-  return `dataset|${String(api || "").trim()}|${stableSerialize(payload)}`;
+function runtimeCompileEpoch(props) {
+  return String(props?._mei?.compile_epoch || "").trim();
+}
+
+function maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch) {
+  const next = String(compileEpoch || "").trim();
+  if (!next || typeof window === "undefined") {
+    return;
+  }
+  const last = String(window.__meiLastCompileEpoch || "").trim();
+  if (last && last !== next) {
+    clearRuntimeQueryCaches();
+  }
+  window.__meiLastCompileEpoch = next;
+}
+
+function datasetQueryCacheKey(api, payload, compileEpoch = "") {
+  const epoch = String(compileEpoch || "").trim();
+  return `dataset|${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
 }
 
 function stableSerialize(value) {
@@ -1419,14 +1436,16 @@ function stableSerialize(value) {
   return JSON.stringify(value ?? null);
 }
 
-function metricQueryCacheKey(api, payload) {
-  return `${String(api || "").trim()}|${stableSerialize(payload)}`;
+function metricQueryCacheKey(api, payload, compileEpoch = "") {
+  const epoch = String(compileEpoch || "").trim();
+  return `${String(api || "").trim()}|${epoch}|${stableSerialize(payload)}`;
 }
 
-function metricQueryScopeCacheKey(api, payload) {
+function metricQueryScopeCacheKey(api, payload, compileEpoch = "") {
   const scopePayload = payload && typeof payload === "object" ? { ...payload } : {};
   delete scopePayload.metric_ids;
-  return `scope|${String(api || "").trim()}|${stableSerialize(scopePayload)}`;
+  const epoch = String(compileEpoch || "").trim();
+  return `scope|${String(api || "").trim()}|${epoch}|${stableSerialize(scopePayload)}`;
 }
 
 function metricQueryRequestedIds(payload) {
@@ -2164,6 +2183,8 @@ export async function fetchDatasetRows(
     panel_id: safeTrim(meta?.panel_id || meta?.panelId),
     request_id: safeTrim(meta?.request_id || meta?.requestId),
   };
+  const compileEpoch = runtimeCompileEpoch(props);
+  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch);
   if (runtimePerfDisabled("runtime_dataset_share")) {
     const managedController = createManagedAbortController([signal]);
     return fetchDatasetRowsUncached(api, payload, errorContext, {
@@ -2174,7 +2195,7 @@ export async function fetchDatasetRows(
       managedController.__meiRelease?.();
     });
   }
-  const cacheKey = datasetQueryCacheKey(api, payload);
+  const cacheKey = datasetQueryCacheKey(api, payload, compileEpoch);
   const now = Date.now();
   pruneDatasetQueryCaches(now);
   const cached = DATASET_QUERY_RESULT_CACHE.get(cacheKey);
@@ -2319,6 +2340,8 @@ export async function fetchRuntimeMetrics(
     panel_id: safeTrim(meta?.panel_id || meta?.panelId),
     request_id: safeTrim(meta?.request_id || meta?.requestId),
   };
+  const compileEpoch = runtimeCompileEpoch(props);
+  maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch);
   if (runtimePerfDisabled("runtime_metric_share")) {
     const managedController = createManagedAbortController([signal]);
     return fetchRuntimeMetricsUncached(
@@ -2330,8 +2353,8 @@ export async function fetchRuntimeMetrics(
       managedController.__meiRelease?.();
     });
   }
-  const cacheKey = metricQueryCacheKey(api, payload);
-  const scopeKey = metricQueryScopeCacheKey(api, payload);
+  const cacheKey = metricQueryCacheKey(api, payload, compileEpoch);
+  const scopeKey = metricQueryScopeCacheKey(api, payload, compileEpoch);
   const requestedIds = metricQueryRequestedIds(payload);
   const now = Date.now();
   pruneMetricQueryCaches(now);
