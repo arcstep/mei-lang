@@ -13,6 +13,7 @@ mod static_serve;
 mod util;
 
 pub use app::{app_page, index};
+pub(crate) use app::clear_page_render_cache;
 pub use assets::{app_asset, app_bundle, workspace_app_asset};
 pub use components::component_asset;
 pub use dataset_api::{dataset_query_api, dataset_recompute_api};

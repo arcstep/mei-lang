@@ -95,6 +95,7 @@ pub(super) fn page_render_cache_key(
     gis: &crate::gis_config::GisTilesConfig,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    scene_bundle_marker: &str,
 ) -> Option<String> {
     let compile_revision = compile_revision.trim();
     if compile_revision.is_empty() {
@@ -123,6 +124,7 @@ pub(super) fn page_render_cache_key(
         "upload_sig": upload_sig,
         "auth_sig": auth_sig,
         "auth_enabled": auth_enabled,
+        "scene_bundle_marker": scene_bundle_marker,
         "gis_base_url": gis.base_url.as_str(),
         "gis_json_path": gis.json_path.as_str(),
     });

@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::Context;
 use axum::{
     extract::{Path as AxumPath, State},
-    http::{header::CONTENT_TYPE, HeaderName, HeaderValue, StatusCode},
+    http::{header::CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::Response,
 };
 
@@ -11,36 +11,50 @@ use mei_lang_kernel::{resolve_app_root, resolve_templates_root};
 
 use crate::{AppError, AppState};
 
-use super::static_serve::serve_static_asset;
+use super::static_serve::serve_static_asset_with_cache;
+
+const PUBLIC_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
+const PRIVATE_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
 
 // 脚本顺序由 `scripts/bundle-manifest.json` 定义；`npm run assets:build` 生成下方 include 文件。
 include!("bundle_order_generated.rs");
 
 pub async fn app_asset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
-    serve_static_asset(
+    serve_static_asset_with_cache(
         state.package_root.join("app").join("assets").join(&path),
         "app asset",
+        &headers,
+        PUBLIC_REVALIDATE_CACHE_CONTROL,
     )
 }
 
 pub async fn app_bundle(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(mode): AxumPath<String>,
 ) -> Result<Response, AppError> {
     let assets_root = state.package_root.join("app").join("assets");
     if let Some(dist_rel_path) = app_bundle_dist_path(&mode) {
         let dist_path = assets_root.join(dist_rel_path);
         if dist_path.exists() {
-            return serve_static_asset(dist_path, "app dist bundle");
+            return serve_static_asset_with_cache(
+                dist_path,
+                "app dist bundle",
+                &headers,
+                PUBLIC_REVALIDATE_CACHE_CONTROL,
+            );
         }
     }
     if matches!(mode.as_str(), "shoelace.js" | "shoelace") {
-        return serve_static_asset(
+        return serve_static_asset_with_cache(
             assets_root.join("shoelace-local.js"),
             "shoelace fallback bundle",
+            &headers,
+            PUBLIC_REVALIDATE_CACHE_CONTROL,
         );
     }
     if matches!(mode.as_str(), "styles.css" | "styles") {
@@ -67,7 +81,7 @@ pub async fn app_bundle(
         );
         response.headers_mut().insert(
             HeaderName::from_static("cache-control"),
-            HeaderValue::from_static("no-store"),
+            HeaderValue::from_static(PRIVATE_REVALIDATE_CACHE_CONTROL),
         );
         return Ok(response);
     }
@@ -97,13 +111,14 @@ pub async fn app_bundle(
     );
     response.headers_mut().insert(
         HeaderName::from_static("cache-control"),
-        HeaderValue::from_static("no-store"),
+        HeaderValue::from_static(PRIVATE_REVALIDATE_CACHE_CONTROL),
     );
     Ok(response)
 }
 
 pub async fn workspace_app_asset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath((app_id, path)): AxumPath<(String, String)>,
 ) -> Result<Response, AppError> {
     let asset_root = if app_id == "templates" {
@@ -111,7 +126,12 @@ pub async fn workspace_app_asset(
     } else {
         resolve_app_root(state.source_root.as_path(), &app_id).join(&path)
     };
-    serve_static_asset(asset_root, "workspace app asset")
+    serve_static_asset_with_cache(
+        asset_root,
+        "workspace app asset",
+        &headers,
+        PRIVATE_REVALIDATE_CACHE_CONTROL,
+    )
 }
 
 fn app_bundle_scripts(mode: &str) -> Option<&'static [&'static str]> {

@@ -24,10 +24,11 @@ fn is_public_path(path: &str) -> bool {
         || path == "/favicon.ico"
         || path.starts_with("/app-assets/")
         || path.starts_with("/app-bundles/")
+        || path.starts_with("/workspace-components/bundles/")
         // 地图运行时：瓦片代理与 MapLibre vendor 资源为只读 GET，子请求常不带 session。
         || path == "/gis"
         || path.starts_with("/gis/")
-        || path.starts_with("/workspace-components/vendor/maplibre/")
+        || path.starts_with("/workspace-components/vendor/")
         || path == "/api/host/ready"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"

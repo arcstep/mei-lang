@@ -3,15 +3,22 @@ use std::path::Path;
 use axum::{
     body::Body,
     extract::{Path as AxumPath, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::Response,
 };
 
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
-use crate::{AppError, AppState};
+use mei_lang_kernel::resolve_app_root;
 
-use super::static_serve::serve_static_asset;
+use crate::{AppError, AppState};
+use crate::http::scene_bundle::parse_scene_bundle_request_path;
+
+use super::static_serve::serve_static_asset_with_cache;
+
+const COMPONENT_REVALIDATE_CACHE_CONTROL: &str = "private, no-cache";
+const VENDOR_REVALIDATE_CACHE_CONTROL: &str = "public, no-cache";
+const IMMUTABLE_BUNDLE_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 
 pub(crate) fn resolve_components_root(source_root: &Path) -> std::path::PathBuf {
     kernel_resolve_components_root(source_root)
@@ -59,8 +66,23 @@ fn is_missing_optional_source_map(request_path: &str, asset_path: &Path) -> bool
 
 pub async fn component_asset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     AxumPath(path): AxumPath<String>,
 ) -> Result<Response, AppError> {
+    if let Some((app_id, scene_id, revision)) = parse_scene_bundle_request_path(path.as_str()) {
+        let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
+        let bundle_path = crate::http::scene_bundle::resolve_scene_bundle_cache_path(
+            app_root.as_path(),
+            scene_id.as_str(),
+            revision.as_str(),
+        );
+        return serve_static_asset_with_cache(
+            bundle_path,
+            "scene component bundle",
+            &headers,
+            IMMUTABLE_BUNDLE_CACHE_CONTROL,
+        );
+    }
     let components_root = resolve_components_root(&state.source_root);
     let asset_path = resolve_component_asset_path(&components_root, &path);
     if is_missing_optional_source_map(path.as_str(), asset_path.as_path()) {
@@ -70,7 +92,12 @@ pub async fn component_asset(
             .body(Body::empty())
             .expect("empty source-map probe response"));
     }
-    serve_static_asset(asset_path, "component asset")
+    let cache_control = if path.starts_with("vendor/") {
+        VENDOR_REVALIDATE_CACHE_CONTROL
+    } else {
+        COMPONENT_REVALIDATE_CACHE_CONTROL
+    };
+    serve_static_asset_with_cache(asset_path, "component asset", &headers, cache_control)
 }
 
 #[cfg(test)]

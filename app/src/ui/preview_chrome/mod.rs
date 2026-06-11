@@ -26,6 +26,9 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     scripts::chrome_scripts_view(route_mode)
 }
 
-pub(crate) fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
-    scripts::component_scripts(compiled)
+pub(crate) fn component_scripts(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> impl IntoView {
+    scripts::component_scripts(compiled, scene_bundle_url)
 }

@@ -103,8 +103,8 @@ pub(crate) fn render_document(
                 data-mei-auth-capabilities=auth_capabilities_meta
             >
                 {shell}
-                {component_scripts_view}
                 {chrome_scripts}
+                {component_scripts_view}
             </body>
         </html>
     };

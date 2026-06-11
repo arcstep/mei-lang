@@ -9,6 +9,7 @@ pub mod ops_api;
 pub mod pages;
 pub mod projection_api;
 pub mod scene_api;
+pub(crate) mod scene_bundle;
 pub mod upload_api;
 
 use axum::{

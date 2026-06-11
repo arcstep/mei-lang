@@ -32,7 +32,21 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     }
 }
 
-pub(crate) fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
+pub(crate) fn component_scripts(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> impl IntoView {
+    if let Some(bundle_url) = scene_bundle_url.map(str::trim).filter(|value| !value.is_empty()) {
+        return view! {
+            <script
+                type="module"
+                src=bundle_url
+                data-mei-scene-bundle="true"
+                data-mei-persistent-script=bundle_url
+            ></script>
+        }
+        .into_any();
+    }
     let scripts = compiled
         .component_assets
         .iter()
@@ -41,5 +55,5 @@ pub(crate) fn component_scripts(compiled: &CompiledApp) -> impl IntoView {
             view! { <script type="module" src=src></script> }
         })
         .collect_view();
-    view! { <>{scripts}</> }
+    view! { <>{scripts}</> }.into_any()
 }

@@ -300,6 +300,8 @@ pub struct AppPathsConfig {
 pub struct AppFeaturesConfig {
     #[serde(default, rename = "aiChat")]
     pub ai_chat: Option<bool>,
+    #[serde(default, rename = "sceneBundle")]
+    pub scene_bundle: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -10,6 +10,10 @@ use mei_lang_kernel::{
 };
 
 use crate::AppState;
+use crate::http::scene_bundle::{
+    probe_scene_component_bundle, scene_bundle_cache_marker, scene_bundle_status,
+    schedule_scene_component_bundle_build, should_build_scene_bundle,
+};
 
 use crate::http::pages::app::page_cache::{page_render_cache_key, render_page_template_with_cache};
 use crate::http::pages::app::page_render::{
@@ -119,7 +123,8 @@ pub(super) fn render_compiled_success(
             "compile completed with error diagnostics"
         );
     }
-    let source_path = resolve_app_root(state.source_root.as_path(), app_id).join(&target);
+    let app_root = resolve_app_root(state.source_root.as_path(), app_id);
+    let source_path = app_root.join(&target);
     let source_started = Instant::now();
     let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
     let source_read_ms = elapsed_ms(source_started);
@@ -142,10 +147,16 @@ pub(super) fn render_compiled_success(
         elapsed_ms(app_started),
     );
     let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-        &resolve_app_root(state.source_root.as_path(), app_id),
+        &app_root,
         Some(state.source_root.as_path()),
         None,
     );
+    let scene_id = manage_scene_resolved
+        .as_deref()
+        .or(compiled.active_scene.as_deref())
+        .unwrap_or("home");
+    let scene_bundle_enabled = should_build_scene_bundle(app_root.as_path(), route_mode, scene_id);
+    let scene_bundle_marker = scene_bundle_cache_marker(app_root.as_path(), route_mode, scene_id);
     let render_cache_key = page_render_cache_key(
         app_id,
         route_mode,
@@ -165,10 +176,42 @@ pub(super) fn render_compiled_success(
         &gis,
         auth_enabled,
         account_view,
+        scene_bundle_marker.as_str(),
     );
+    let mut scene_bundle_header_status = if scene_bundle_enabled {
+        "cached".to_string()
+    } else {
+        "disabled".to_string()
+    };
+    let mut scene_bundle_revision_header: Option<String> = None;
     let (html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
+            let scene_bundle_probe = if scene_bundle_enabled {
+                probe_scene_component_bundle(
+                    state.package_root.as_path(),
+                    state.source_root.as_path(),
+                    app_id,
+                    scene_id,
+                    compile_revision,
+                    &compiled.component_assets,
+                )
+            } else {
+                crate::http::scene_bundle::SceneBundleProbe {
+                    bundle: None,
+                    cache_marker: scene_bundle_marker.clone(),
+                    build: None,
+                }
+            };
+            scene_bundle_header_status = scene_bundle_status(&scene_bundle_probe).to_string();
+            if let Some(bundle) = scene_bundle_probe.bundle.as_ref() {
+                scene_bundle_revision_header = Some(bundle.revision.clone());
+            }
+            if let Some(build) = scene_bundle_probe.build.as_ref() {
+                schedule_scene_component_bundle_build(state.package_root.as_path(), build);
+            }
+            let scene_bundle_for_render =
+                scene_bundle_probe.bundle.as_ref().map(|bundle| bundle.url.as_str());
             let rendered = render_page(
                 apps,
                 compiled,
@@ -188,6 +231,7 @@ pub(super) fn render_compiled_success(
                 upload_files,
                 auth_enabled,
                 account_view,
+                scene_bundle_for_render,
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });
@@ -208,6 +252,16 @@ pub(super) fn render_compiled_success(
             HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
             v,
         );
+    }
+    if let Ok(v) = HeaderValue::from_str(scene_bundle_header_status.as_str()) {
+        res.headers_mut()
+            .insert(HeaderName::from_static("x-mei-scene-bundle-status"), v);
+    }
+    if let Some(bundle_revision) = scene_bundle_revision_header.as_deref() {
+        if let Ok(v) = HeaderValue::from_str(bundle_revision) {
+            res.headers_mut()
+                .insert(HeaderName::from_static("x-mei-scene-bundle-revision"), v);
+        }
     }
     insert_page_render_cache_hit_header(&mut res, page_render_cache_hit);
     insert_manage_compile_observability_headers(&mut res, compiled);

@@ -13,7 +13,7 @@ use crate::{agent_runtime, auth::AuthEnforcement, mei_agent, AppState};
 use axum::{
     body::to_bytes,
     extract::{Path as AxumPath, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 
@@ -197,7 +197,11 @@ async fn app_bundle_returns_merged_javascript() {
         native_agent,
     };
 
-    let response = app_bundle(State(state), AxumPath("manage.js".to_string()))
+    let response = app_bundle(
+        State(state),
+        HeaderMap::new(),
+        AxumPath("manage.js".to_string()),
+    )
         .await
         .expect("build manage bundle");
 
@@ -234,7 +238,11 @@ async fn app_bundle_supports_shoelace_mode() {
         native_agent,
     };
 
-    let response = app_bundle(State(state), AxumPath("shoelace.js".to_string()))
+    let response = app_bundle(
+        State(state),
+        HeaderMap::new(),
+        AxumPath("shoelace.js".to_string()),
+    )
         .await
         .expect("build shoelace bundle");
     assert_eq!(response.status(), StatusCode::OK);
@@ -260,7 +268,11 @@ async fn app_bundle_supports_styles_mode() {
         agent_session_context: Arc::new(Mutex::new(HashMap::new())),
         native_agent,
     };
-    let response = app_bundle(State(state), AxumPath("styles.css".to_string()))
+    let response = app_bundle(
+        State(state),
+        HeaderMap::new(),
+        AxumPath("styles.css".to_string()),
+    )
         .await
         .expect("build styles bundle");
     assert_eq!(response.status(), StatusCode::OK);
@@ -454,6 +466,7 @@ async fn access_static_html_file_renders_without_scene_redirect() {
 
     let asset_response = workspace_app_asset(
         State(state),
+        HeaderMap::new(),
         AxumPath(("html-app".to_string(), "demo/index.html".to_string())),
     )
     .await

@@ -749,7 +749,7 @@ class MeiText extends HTMLElement {
       this._refreshMetricRuntime(props, queryStateId);
     };
     this._previewHandler = refresh;
-    window.addEventListener("mei-preview-updated", refresh);
+    window.addEventListener("meilang:preview-updated", refresh);
     this._queryUnsubscribe = subscribeQueryState(queryStateId, refresh);
     deferUntilDisplayed(this, refresh);
   }
@@ -802,7 +802,7 @@ class MeiText extends HTMLElement {
     }
     this._queryUnsubscribe = null;
     if (this._previewHandler) {
-      window.removeEventListener("mei-preview-updated", this._previewHandler);
+      window.removeEventListener("meilang:preview-updated", this._previewHandler);
     }
     this._previewHandler = null;
     if (this._metricAbort) {

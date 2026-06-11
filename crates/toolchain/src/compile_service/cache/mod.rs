@@ -112,6 +112,7 @@ pub(super) fn compile_failure_latch() -> &'static StdMutex<HashMap<String, Insta
 }
 
 const COMPILE_FAILURE_LATCH_TTL: Duration = Duration::from_secs(45);
+const COMPILE_CACHE_MAX_ENTRIES: usize = 128;
 
 pub(super) fn record_compile_failure(cache_key: &str) {
     if let Ok(mut guard) = compile_failure_latch().lock() {
@@ -318,8 +319,8 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     let write_lock_started = Instant::now();
     if let Ok(mut cache) = compile_cache().write() {
         compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
-        if cache.len() >= 128 {
-            cache.clear();
+        if cache.len() >= COMPILE_CACHE_MAX_ENTRIES {
+            evict_compile_cache_entries_for_write(&mut cache, source_root, app_id);
         }
         let cache_entry = CachedCompiledApp {
             coarse_revision,
@@ -349,6 +350,56 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
         compile_cache_lock_wait_ms,
         compile_ms,
     })
+}
+
+fn evict_compile_cache_entries_for_write(
+    cache: &mut HashMap<String, CachedCompiledApp>,
+    source_root: &Path,
+    app_id: &str,
+) {
+    let app_prefix = format!("{}#{app_id}|", normalize_path(source_root));
+    let before = cache.len();
+    let target_len = COMPILE_CACHE_MAX_ENTRIES.saturating_sub(16).max(1);
+    let mut overflow = cache.len().saturating_sub(target_len);
+    if overflow > 0 {
+        let app_keys = cache
+            .keys()
+            .filter(|key| key.starts_with(app_prefix.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in app_keys.into_iter().take(overflow) {
+            cache.remove(&key);
+            overflow = overflow.saturating_sub(1);
+            if overflow == 0 {
+                break;
+            }
+        }
+    }
+    if overflow > 0 {
+        let keys = cache.keys().cloned().collect::<Vec<_>>();
+        for key in keys.into_iter().take(overflow) {
+            cache.remove(&key);
+            overflow = overflow.saturating_sub(1);
+            if overflow == 0 {
+                break;
+            }
+        }
+    }
+    let removed = before.saturating_sub(cache.len());
+    if removed > 0 {
+        tracing::info!(
+            app_id = %app_id,
+            removed,
+            cache_size = cache.len(),
+            "compile cache reached max size; evicted oldest-ish entries"
+        );
+    }
+}
+
+fn remove_stale_compile_cache_entry(cache_key: &str) {
+    if let Ok(mut cache) = compile_cache().write() {
+        cache.remove(cache_key);
+    }
 }
 
 fn validate_cached_entry(
@@ -493,10 +544,7 @@ pub fn peek_compile_cache_shared(
     options: &CompileOptions,
     components_root: &Path,
 ) -> Option<Arc<CompiledApp>> {
-    let cache_key = compile_cache_key(source_root, app_id, options);
-    let cache = compile_cache().read().ok()?;
-    let entry = cache.get(&cache_key)?;
-    validate_cached_entry(source_root, app_id, entry, components_root, options).map(|hit| hit.compiled)
+    peek_compile_cache_hit_shared(source_root, app_id, options, components_root).map(|hit| hit.compiled)
 }
 
 pub fn peek_compile_cache_hit(
@@ -516,9 +564,15 @@ pub fn peek_compile_cache_hit_shared(
     components_root: &Path,
 ) -> Option<PeekCompileCacheHitShared> {
     let cache_key = compile_cache_key(source_root, app_id, options);
-    let cache = compile_cache().read().ok()?;
-    let entry = cache.get(&cache_key)?;
-    validate_cached_entry(source_root, app_id, entry, components_root, options)
+    let hit = {
+        let cache = compile_cache().read().ok()?;
+        let entry = cache.get(&cache_key)?;
+        validate_cached_entry(source_root, app_id, entry, components_root, options)
+    };
+    if hit.is_none() {
+        remove_stale_compile_cache_entry(&cache_key);
+    }
+    hit
 }
 
 pub fn is_compile_inflight(source_root: &Path, app_id: &str, options: &CompileOptions) -> bool {

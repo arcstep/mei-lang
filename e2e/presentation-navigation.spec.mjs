@@ -32,6 +32,17 @@ test.describe("presentation route smoke", () => {
     );
   });
 
+  test("presentation 页 SSR 含 scene bundle 或逐文件组件脚本", async ({ page }) => {
+    await openPresentation(page);
+    const bundleCount = await page
+      .locator('script[data-mei-scene-bundle="true"][src*="/workspace-components/bundles/"]')
+      .count();
+    const moduleCount = await page
+      .locator('script[type="module"][src^="/workspace-components/"]:not([data-mei-scene-bundle])')
+      .count();
+    expect(bundleCount + moduleCount).toBeGreaterThan(0);
+  });
+
   test("presentation 页支持左右键翻页并在首尾保持边界", async ({ page }) => {
     await openPresentation(page);
 

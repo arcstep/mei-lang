@@ -37,15 +37,33 @@
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
   const ANALYSIS_OPEN_EVENT = "mei:analysis-open";
   const POPUP_OPEN_EVENT = "mei:popup-open";
+  const PREFETCH_PANEL_METRICS_EVENT = "meilang:prefetch-panel-metrics";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 
-  function dispatchPreviewUpdated(scope = "page") {
+  function dispatchPreviewUpdated(scope = "page", detail = {}) {
     window.dispatchEvent(
       new CustomEvent("meilang:preview-updated", {
-        detail: { scope: String(scope || "page") },
+        detail: {
+          scope: String(scope || "page"),
+          ...detail,
+        },
       }),
     );
+  }
+
+  function dispatchPanelMetricPrefetch() {
+    window.dispatchEvent(new CustomEvent(PREFETCH_PANEL_METRICS_EVENT));
+  }
+
+  function wakeRuntimeAfterSceneBundleLoaded() {
+    dispatchPreviewUpdated("page", {
+      resetRuntimeQueryCache: false,
+      source: "scene_bundle_ready",
+    });
+    requestAnimationFrame(() => {
+      dispatchPanelMetricPrefetch();
+    });
   }
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
@@ -3825,6 +3843,78 @@
     }
   }
 
+  const SCENE_BUNDLE_PATH_PREFIX = "/workspace-components/bundles/";
+
+  function isSceneBundlePath(path) {
+    return Boolean(path && path.startsWith(SCENE_BUNDLE_PATH_PREFIX));
+  }
+
+  function isWorkspaceComponentModulePath(path) {
+    return path.startsWith("/workspace-components/") && !isSceneBundlePath(path);
+  }
+
+  function findSceneBundleSrcInDoc(doc) {
+    if (!doc || !doc.body) return "";
+    for (const script of doc.body.querySelectorAll("script[src]")) {
+      const src = (script.getAttribute("src") || "").trim();
+      if (!src) continue;
+      const path = normalizePath(src);
+      if (isSceneBundlePath(path) || script.getAttribute("data-mei-scene-bundle") === "true") {
+        return src;
+      }
+    }
+    return "";
+  }
+
+  function currentSceneBundlePath() {
+    const node = document.querySelector('script[data-mei-scene-bundle="true"]');
+    if (!node) return "";
+    const persisted = (node.getAttribute("data-mei-persistent-script") || "").trim();
+    if (persisted) return persisted;
+    return normalizePath(node.getAttribute("src") || "");
+  }
+
+  function shouldForceHardNavForSceneBundleSwitch(doc) {
+    const nextBundleSrc = findSceneBundleSrcInDoc(doc);
+    if (!nextBundleSrc) return false;
+    const nextPath = normalizePath(nextBundleSrc);
+    if (!nextPath) return false;
+    const currentPath = currentSceneBundlePath();
+    if (!currentPath) return false;
+    return currentPath !== nextPath;
+  }
+
+  function removeExistingSceneBundleScripts() {
+    document.querySelectorAll('script[data-mei-scene-bundle="true"]').forEach((node) => {
+      node.remove();
+    });
+  }
+
+  async function syncSceneBundleFromDoc(doc, navigationId) {
+    const bundleSrc = findSceneBundleSrcInDoc(doc);
+    if (!bundleSrc) {
+      removeExistingSceneBundleScripts();
+      return true;
+    }
+    const path = normalizePath(bundleSrc);
+    const alreadyLoaded = document.querySelector(
+      'script[data-mei-scene-bundle="true"][data-mei-persistent-script="' + path + '"]',
+    );
+    if (alreadyLoaded) return true;
+    removeExistingSceneBundleScripts();
+    if (navigationId !== currentNavigationId) return false;
+    await loadScript(bundleSrc, {
+      module: true,
+      persistentKey: path,
+      sceneBundle: true,
+      softFail: true,
+    });
+    if (navigationId === currentNavigationId) {
+      wakeRuntimeAfterSceneBundleLoaded();
+    }
+    return navigationId === currentNavigationId;
+  }
+
   function collectBodyScripts(doc) {
     return Array.from(doc.body.querySelectorAll("script[src]"))
       .map((script) => script.getAttribute("src") || "")
@@ -3838,7 +3928,12 @@
       if (!src) return;
       const path = normalizePath(src);
       if (!path || path === SPA_NAV_SCRIPT) return;
-      if (path.startsWith("/workspace-components/")) {
+      if (isSceneBundlePath(path) || script.getAttribute("data-mei-scene-bundle") === "true") {
+        script.setAttribute("data-mei-scene-bundle", "true");
+        script.setAttribute("data-mei-persistent-script", path);
+        return;
+      }
+      if (isWorkspaceComponentModulePath(path)) {
         script.setAttribute("data-mei-persistent-script", path);
         return;
       }
@@ -3926,6 +4021,9 @@
       if (opts.persistentKey) {
         script.setAttribute("data-mei-persistent-script", opts.persistentKey);
       }
+      if (opts.sceneBundle) {
+        script.setAttribute("data-mei-scene-bundle", "true");
+      }
       if (opts.reloadKey) {
         script.setAttribute("data-mei-reload-script", opts.reloadKey);
       }
@@ -3942,11 +4040,16 @@
     });
   }
 
-  function pulseManagePreview(detail) {
+  function pulseManagePreview(detail, options) {
+    const opts = options || {};
     dispatchManageContextChange(detail);
-    dispatchPreviewUpdated("page");
+    dispatchPreviewUpdated("page", {
+      resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
+    });
     requestAnimationFrame(() => {
-      dispatchPreviewUpdated("page");
+      dispatchPreviewUpdated("page", {
+        resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
+      });
       if (typeof boot.scheduleFrameViewportRelayout === "function") {
         try {
           boot.scheduleFrameViewportRelayout();
@@ -3955,11 +4058,11 @@
     });
   }
 
-  function publishManagePreviewFromDoc(doc) {
+  function publishManagePreviewFromDoc(doc, options) {
     const panelRoot =
       document.querySelector("#meilang-author-panel") ||
       (doc && doc.querySelector("#meilang-author-panel"));
-    pulseManagePreview(extractManagePanelContext(panelRoot));
+    pulseManagePreview(extractManagePanelContext(panelRoot), options);
   }
 
   function replaceShellFromDoc(doc, url, replaceHistory) {
@@ -3979,9 +4082,12 @@
   }
 
   async function syncMissingWorkspaceModulesOnly(doc, navigationId) {
+    const bundleReady = await syncSceneBundleFromDoc(doc, navigationId);
+    if (!bundleReady || navigationId !== currentNavigationId) return false;
+    if (findSceneBundleSrcInDoc(doc)) return true;
     const scripts = collectBodyScripts(doc).filter((src) => {
       const path = normalizePath(src);
-      return path.startsWith("/workspace-components/");
+      return isWorkspaceComponentModulePath(path);
     });
     for (const src of scripts) {
       if (navigationId !== currentNavigationId) return false;
@@ -4026,6 +4132,9 @@
     const opts = options || {};
     const currentUrl = opts.currentUrl;
     const nextUrl = opts.nextUrl;
+    const bundleReady = await syncSceneBundleFromDoc(doc, navigationId);
+    if (!bundleReady || navigationId !== currentNavigationId) return false;
+    const docUsesSceneBundle = Boolean(findSceneBundleSrcInDoc(doc));
     const scripts = collectBodyScripts(doc);
     for (const src of scripts) {
       if (navigationId !== currentNavigationId) return false;
@@ -4073,7 +4182,13 @@
       ) {
         continue;
       }
-      if (path.startsWith("/workspace-components/")) {
+      if (isSceneBundlePath(path)) {
+        continue;
+      }
+      if (docUsesSceneBundle && isWorkspaceComponentModulePath(path)) {
+        continue;
+      }
+      if (isWorkspaceComponentModulePath(path)) {
         await loadScript(src, { module: true, persistentKey: path, softFail: true });
         continue;
       }
@@ -4335,6 +4450,7 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
+        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         if (nextUrl.pathname.startsWith("/apps/manage/")) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
@@ -4343,7 +4459,9 @@
             boot.mountSourceTreeControls();
           }
           syncManageTabFromUrl(url);
-          pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")));
+          pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")), {
+            resetRuntimeQueryCache: false,
+          });
         }
         installSceneProjectionHost();
         applyDrilldownContextFromQuery();
@@ -4382,6 +4500,11 @@
       err.meiSpaHardNav = true;
       throw err;
     }
+    if (shouldForceHardNavForSceneBundleSwitch(doc)) {
+      const err = new Error("scene bundle changed; fallback to hard navigation");
+      err.meiSpaHardNav = true;
+      throw err;
+    }
     const currentUrl = new URL(window.location.href);
     const nextUrl = new URL(url, window.location.href);
     const preserveManageWorkspace = shouldPreserveManageWorkspace(currentUrl, nextUrl);
@@ -4412,7 +4535,6 @@
       replaceShellFromDoc(doc, url, replaceHistory);
     }
     if (navigationId !== currentNavigationId) return false;
-    publishManagePreviewFromDoc(doc);
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
     return true;
   }

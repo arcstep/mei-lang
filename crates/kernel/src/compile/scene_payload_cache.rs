@@ -131,19 +131,35 @@ fn is_revision_relevant(path: &Path, scope: RevisionScope) -> bool {
             .extension()
             .and_then(|value| value.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("mei")),
-        RevisionScope::Components => is_component_manifest(path),
+        RevisionScope::Components => is_component_manifest(path) || is_component_js(path),
     }
+}
+
+fn is_components_tree_path(normalized: &str) -> bool {
+    normalized.contains("/.stock/components/") || normalized.contains("/_components/")
 }
 
 fn is_component_manifest(path: &Path) -> bool {
     let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
         return false;
     };
-    if !name.eq_ignore_ascii_case("component.manifest.json") {
+    if !name.eq_ignore_ascii_case("manifest.json")
+        && !name.eq_ignore_ascii_case("component.manifest.json")
+    {
         return false;
     }
-    let normalized = path.to_string_lossy().replace('\\', "/");
-    normalized.contains("/_components/")
+    is_components_tree_path(&path.to_string_lossy().replace('\\', "/"))
+}
+
+fn is_component_js(path: &Path) -> bool {
+    if !path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("js"))
+    {
+        return false;
+    }
+    is_components_tree_path(&path.to_string_lossy().replace('\\', "/"))
 }
 
 fn normalize_target_file(target_file: &str) -> String {
@@ -273,4 +289,24 @@ pub(crate) fn clear_scene_payload_cache_for_tests() {
 #[cfg(test)]
 pub(crate) fn scene_payload_cache_len_for_tests() -> usize {
     SCENE_PAYLOAD_CACHE.lock().map(|c| c.len()).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::{is_component_js, is_component_manifest};
+    use std::path::Path;
+
+    #[test]
+    fn stock_components_manifest_and_js_are_revision_relevant() {
+        let manifest = Path::new("/ws/zhifa/.stock/components/mei/manifest.json");
+        let script = Path::new("/ws/zhifa/.stock/components/mei/text.js");
+        assert!(is_component_manifest(manifest));
+        assert!(is_component_js(script));
+    }
+
+    #[test]
+    fn legacy_components_manifest_still_counts() {
+        let manifest = Path::new("/ws/zhifa/_components/mei/component.manifest.json");
+        assert!(is_component_manifest(manifest));
+    }
 }

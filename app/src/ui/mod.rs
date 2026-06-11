@@ -128,6 +128,7 @@ pub fn render_page(
     upload_files: &[UploadFileEntry],
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    scene_component_bundle_url: Option<&str>,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -205,7 +206,7 @@ pub fn render_page(
         route_mode,
         chrome_hidden,
         shell,
-        component_scripts(compiled).into_any(),
+        component_scripts(compiled, scene_component_bundle_url).into_any(),
         auth_enabled,
         auth_account,
     )
