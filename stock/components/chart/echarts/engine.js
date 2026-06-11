@@ -784,6 +784,20 @@ function metricSparkBarItemStyle() {
   };
 }
 
+function resolveColorPalette(props) {
+  const raw = props?.palette ?? props?.color_palette ?? props?.colors;
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw
+      .split(",")
+      .map((item) => String(item || "").trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function resolveLegacyBehavior(props) {
   const compact = props.compact === true || props.compact === "true";
   const variant = String(props.variant ?? "").trim().toLowerCase();
@@ -798,6 +812,7 @@ function resolveLegacyBehavior(props) {
     compact,
     chartHeight: Number(props.chartHeight) > 0 ? Number(props.chartHeight) : 0,
     barGradient,
+    palette: resolveColorPalette(props),
     barLine: variant === "bar-line" || props.barLine === true || props.bar_line === true,
     showLegend:
       props.showLegend !== false &&
@@ -930,6 +945,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   const seriesType = isBar ? "bar" : "line";
   const compact = legacy.compact === true || legacy.compact === "true";
   const metricSpark = legacy.barGradient === "metric-spark";
+  const palette = Array.isArray(legacy.palette) ? legacy.palette : [];
   for (const yField of yFields) {
     if (groups.length === 0) {
       const data = categories.map((category) => aggregateValue(rows, xField, category, yField));
@@ -968,6 +984,13 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
       } else {
         const sparkBar =
           metricSpark && seriesType === "bar" && (kind === "column" || kind === "bar");
+        const coloredData =
+          !sparkBar && isBar && palette.length > 1
+            ? data.map((value, index) => ({
+                value,
+                itemStyle: { color: palette[index % palette.length] },
+              }))
+            : data;
         series.push({
           name: yField,
           type: seriesType,
@@ -976,7 +999,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           stack: legacy.stack ? "total" : undefined,
           barWidth: sparkBar && compact ? 8 : undefined,
           itemStyle: sparkBar ? metricSparkBarItemStyle() : undefined,
-          data,
+          data: coloredData,
         });
       }
     } else {
@@ -1025,6 +1048,9 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     yAxis: kind === "bar" ? { type: "category", data: categories } : { type: "value" },
     series,
   };
+  if (palette.length > 0) {
+    option.color = palette;
+  }
   if (legacy.compact && !metricSpark) {
     if (kind === "bar") {
       option.xAxis = {
@@ -1112,7 +1138,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     : compact
       ? ["52%", "78%"]
       : ["45%", "72%"];
-  return {
+  const option = {
     tooltip: { trigger: "item" },
     legend: compact ? { show: false } : { top: 0 },
     toolbox: compact ? undefined : { feature: { saveAsImage: {} } },
@@ -1128,6 +1154,10 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       },
     ],
   };
+  if (Array.isArray(legacy.palette) && legacy.palette.length > 0) {
+    option.color = legacy.palette;
+  }
+  return option;
 }
 
 function buildScatterOption(rows, mapping, diagnostics) {

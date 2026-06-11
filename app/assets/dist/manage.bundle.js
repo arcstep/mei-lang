@@ -4004,6 +4004,7 @@
         source: entry.source && typeof entry.source === "object" && !Array.isArray(entry.source) ? entry.source : null,
         tableMetricId: nonEmptyString(entry.table_metric_id, entry.tableMetricId, entry.metric_id, entry.metricId),
         datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
+        topN: positiveInt(entry.top_n, entry.topN),
         numerator: nonEmptyString(entry.numerator),
         denominator: nonEmptyString(entry.denominator),
         formula: nonEmptyString(entry.formula),
@@ -4266,6 +4267,7 @@
             : entry.by
               ? [String(entry.by)]
               : [],
+          topN: positiveInt(entry.top_n, entry.topN),
           trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
           trendGrain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
         };
@@ -4330,6 +4332,7 @@
             },
             tableMetricId: nonEmptyString(source.metric_id, source.metricId, entry.table_metric_id, entry.tableMetricId),
             datasetId: nonEmptyString(source.dataset_id, source.datasetId, entry.dataset_id, entry.datasetId),
+            topN: positiveInt(entry.top_n, entry.topN),
           };
           return;
         }
@@ -4362,6 +4365,7 @@
           headers: cloneArray(entry.headers),
           mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+          topN: positiveInt(entry.top_n, entry.topN),
           compositionBy: cloneArray(entry.composition_by).length
             ? cloneArray(entry.composition_by)
             : cloneArray(entry.compositionBy),
@@ -4387,6 +4391,7 @@
         headers: cloneArray(entry.headers),
         layoutPreset: nonEmptyString(entry.layout_preset, entry.layoutPreset),
         chartKind: nonEmptyString(entry.chart_kind, entry.chartKind, entry.chart),
+        topN: positiveInt(entry.top_n, entry.topN),
         mapping: entry.mapping && typeof entry.mapping === "object" ? entry.mapping : null,
         compositionBy: cloneArray(entry.composition_by).length
           ? cloneArray(entry.composition_by)
@@ -4403,6 +4408,7 @@
         !override.headers.length &&
         !override.layoutPreset &&
         !override.chartKind &&
+        !override.topN &&
         !override.mapping &&
         !override.compositionBy.length &&
         !override.trendField
@@ -4493,7 +4499,7 @@
     const overrideDatasetId = nonEmptyString(override?.datasetId);
     const overrideTableMetricId = nonEmptyString(override?.tableMetricId);
     const suppressDetailMetricFallback = Boolean(overrideDatasetId && !overrideTableMetricId);
-      const merged = {
+    const merged = {
       ...config,
       title: nonEmptyString(override?.title, override?.label, explainMetric?.label, config.title),
       note: nonEmptyString(override?.note, config.note),
@@ -4504,6 +4510,13 @@
       suppressDetailMetricFallback,
       layoutPreset: nonEmptyString(override?.layoutPreset, config.layoutPreset),
       chartKind: nonEmptyString(override?.chartKind, explainMetric?.chartKind, config.chartKind),
+      topN: positiveInt(
+        override?.top_n,
+        override?.topN,
+        explainMetric?.topN,
+        config?.top_n,
+        config?.topN,
+      ),
       mapping:
         override?.mapping && typeof override.mapping === "object"
           ? override.mapping
@@ -4582,7 +4595,8 @@
       !(override.runtimeRef && typeof override.runtimeRef === "object") &&
       !cloneArray(override.columns).length &&
       !compositionFieldsFromOverride(override).length &&
-      !nonEmptyString(override.trendField)
+      !nonEmptyString(override.trendField) &&
+      Number(override.topN) <= 0
     ) {
       return false;
     }
@@ -4591,6 +4605,7 @@
         nonEmptyString(override.tableMetricId, override.datasetId) ||
         cloneArray(override.columns).length ||
         cloneArray(override.headers).length ||
+        Number(override.topN) > 0 ||
         nonEmptyString(override.layoutPreset, override.chartKind) ||
         (override.mapping && typeof override.mapping === "object")
     );
@@ -4790,13 +4805,22 @@
       resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
     );
     const explicitDatasetId = nonEmptyString(runtimeRefConfig.datasetId, config?.datasetId);
+    const rowsetDatasetId = nonEmptyString(
+      runtimeRefConfig.rowsetDatasetId,
+      config?.rowsetDatasetId,
+      config?.filterSchema?.rowsetDatasetId,
+    );
     const detailDatasetId = nonEmptyString(detail?.dataset_id);
     const safeDetailDatasetId = isWorldMetricsOwnerDatasetId(detailDatasetId) ? "" : detailDatasetId;
     const mappedDatasetId = sceneId ? nonEmptyString(DRILLDOWN_DATASET_BY_SCENE[sceneId]) : "";
     const tableMetricId = nonEmptyString(config?.tableMetricId, detail?.table_metric_id);
+    if (config?.analyticsDrilldown && rowsetDatasetId) {
+      return rowsetDatasetId;
+    }
     if (tableMetricId) {
       return nonEmptyString(
         explicitDatasetId,
+        rowsetDatasetId,
         detail?.explain_detail_dataset,
         mappedDatasetId,
         safeDetailDatasetId,
@@ -4806,6 +4830,7 @@
     return nonEmptyString(
       detail?.explain_detail_dataset,
       explicitDatasetId,
+      rowsetDatasetId,
       mappedDatasetId,
       safeDetailDatasetId,
       detailDatasetId,
@@ -4867,6 +4892,7 @@
           fields,
           by,
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
+          topN: positiveInt(entry.top_n, entry.topN),
           mapping:
             entry.mapping && typeof entry.mapping === "object" && !Array.isArray(entry.mapping)
               ? entry.mapping
@@ -4964,6 +4990,7 @@
       chartSlots,
       detailSlot,
       queryStateId,
+      rowsetDatasetId: filterSchema.rowsetDatasetId,
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
@@ -5008,6 +5035,7 @@
             tableMetricId: slot.metricId,
             datasetId: slot.datasetId,
             chartKind: slot.chartKind,
+            topN: slot.topN,
             by: slot.by[0] || "",
             fields: slot.fields,
             compositionBy: slot.by,
@@ -5582,15 +5610,28 @@
     if (!isAnalyticsChartPresentation(config)) {
       return { ...overrides };
     }
-    return {
+    const topN = positiveInt(
+      overrides?.top_n,
+      overrides?.topN,
+      config?.top_n,
+      config?.topN,
+    );
+    const props = {
       compact: true,
       gridContainLabel: true,
       label_max_chars: 6,
       showLegend: false,
       chartHeight: 300,
-      top_n: 6,
+      color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
       ...overrides,
     };
+    if (topN > 0) {
+      props.top_n = topN;
+    } else {
+      delete props.top_n;
+    }
+    delete props.topN;
+    return props;
   }
 
   function buildStaticChartModel(title, tabId, rows, mapping = null, config = null) {
@@ -5977,9 +6018,83 @@
     return true;
   }
 
+  function cleanupAnalyticsDrilldownWatcher(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const cleanup = root.__meiAnalyticsQueryStateCleanup;
+    if (typeof cleanup === "function") {
+      cleanup();
+    }
+    root.__meiAnalyticsQueryStateCleanup = null;
+  }
+
+  async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
+    const chartMounts = chartSlots.map(async (slot, index) => {
+      const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
+      const slotConfig = resolveDrilldownTabConfig(config, slot.id);
+      const mergedConfig = {
+        ...slotConfig,
+        queryStateId: config.queryStateId,
+        chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
+      };
+      if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
+        return true;
+      }
+      const fallbackRuntimeRef = {
+        ...(mergedConfig.runtimeRef && typeof mergedConfig.runtimeRef === "object"
+          ? mergedConfig.runtimeRef
+          : {}),
+        kind: "metric",
+        metricId: nonEmptyString(slot.metricId, mergedConfig?.runtimeRef?.metricId, mergedConfig?.runtimeRef?.metric_id),
+        datasetId: nonEmptyString(slot.datasetId, mergedConfig?.runtimeRef?.datasetId, mergedConfig?.runtimeRef?.dataset_id),
+        sceneId: nonEmptyString(mergedConfig?.runtimeRef?.sceneId, config.hostSceneId, config.sceneId),
+        scenePath: nonEmptyString(
+          mergedConfig?.runtimeRef?.scenePath,
+          config.hostSceneFile,
+          detail?.host_scene_file,
+          detail?.scene_path
+        ),
+      };
+      const fallbackConfig = {
+        ...mergedConfig,
+        supportRole: nonEmptyString(slot.supportRole, mergedConfig.supportRole, "composition"),
+        tableMetricId: nonEmptyString(slot.metricId, mergedConfig.tableMetricId),
+        datasetId: nonEmptyString(slot.datasetId, mergedConfig.datasetId),
+        runtimeRef: fallbackRuntimeRef,
+        compositionBy:
+          Array.isArray(slot.by) && slot.by.length > 0
+            ? slot.by
+            : Array.isArray(mergedConfig.compositionBy)
+              ? mergedConfig.compositionBy
+              : [],
+      };
+      const fallbackMounted = await mountDrilldownChart(
+        root,
+        detail,
+        fallbackConfig,
+        slot.id,
+        slotHost
+      );
+      if (!fallbackMounted) {
+        recordPopupDebugIssue({
+          level: "warn",
+          phase: "analytics_chart_mount_fallback_failed",
+          message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
+          detail,
+          config: fallbackConfig,
+          datasetId: fallbackConfig.datasetId,
+          metricId: fallbackConfig.tableMetricId,
+        });
+      }
+      return fallbackMounted;
+    });
+    const results = await Promise.all(chartMounts);
+    return chartSlots.length === 0 || results.every(Boolean);
+  }
+
   async function renderAnalyticsDrilldownContent(root, detail, config) {
     applyDrilldownOverlayMeta(root, config);
     setDrilldownOverlayStatus(root, "loading");
+    cleanupAnalyticsDrilldownWatcher(root);
     const chartsHost = root.querySelector('[data-drilldown-charts-host="true"]');
     const tableHost = root.querySelector('[data-drilldown-analytics-table-host="true"]');
     if (!(chartsHost instanceof HTMLElement) || !(tableHost instanceof HTMLElement)) {
@@ -6001,65 +6116,6 @@
 
     try {
       await mountAnalyticsFilterBar(root, detail, config);
-      const chartMounts = chartSlots.map(async (slot, index) => {
-        const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
-        const slotConfig = resolveDrilldownTabConfig(config, slot.id);
-        const mergedConfig = {
-          ...slotConfig,
-          queryStateId: config.queryStateId,
-          chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
-        };
-        if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
-          return true;
-        }
-        const fallbackRuntimeRef = {
-          ...(mergedConfig.runtimeRef && typeof mergedConfig.runtimeRef === "object"
-            ? mergedConfig.runtimeRef
-            : {}),
-          kind: "metric",
-          metricId: nonEmptyString(slot.metricId, mergedConfig?.runtimeRef?.metricId, mergedConfig?.runtimeRef?.metric_id),
-          datasetId: nonEmptyString(slot.datasetId, mergedConfig?.runtimeRef?.datasetId, mergedConfig?.runtimeRef?.dataset_id),
-          sceneId: nonEmptyString(mergedConfig?.runtimeRef?.sceneId, config.hostSceneId, config.sceneId),
-          scenePath: nonEmptyString(
-            mergedConfig?.runtimeRef?.scenePath,
-            config.hostSceneFile,
-            detail?.host_scene_file,
-            detail?.scene_path
-          ),
-        };
-        const fallbackConfig = {
-          ...mergedConfig,
-          supportRole: nonEmptyString(slot.supportRole, mergedConfig.supportRole, "composition"),
-          tableMetricId: nonEmptyString(slot.metricId, mergedConfig.tableMetricId),
-          datasetId: nonEmptyString(slot.datasetId, mergedConfig.datasetId),
-          runtimeRef: fallbackRuntimeRef,
-          compositionBy:
-            Array.isArray(slot.by) && slot.by.length > 0
-              ? slot.by
-              : Array.isArray(mergedConfig.compositionBy)
-                ? mergedConfig.compositionBy
-                : [],
-        };
-        const fallbackMounted = await mountDrilldownChart(
-          root,
-          detail,
-          fallbackConfig,
-          slot.id,
-          slotHost
-        );
-        if (!fallbackMounted) {
-          recordPopupDebugIssue({
-            level: "warn",
-            phase: "analytics_chart_mount_fallback_failed",
-            message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
-            detail,
-            config: fallbackConfig,
-            datasetId: fallbackConfig.datasetId,
-            metricId: fallbackConfig.tableMetricId,
-          });
-        }
-        return fallbackMounted;
-      });
       const detailSlot = config?.detailSlot;
       const detailConfig = detailSlot
         ? {
@@ -6071,12 +6127,39 @@
           }
         : config;
       const [chartsOk, tableOk] = await Promise.all([
-        Promise.all(chartMounts).then((results) => chartSlots.length === 0 || results.every(Boolean)),
+        mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost),
         mountDrilldownTable(root, detail, detailConfig, tableHost),
       ]);
       if (!tableOk || !chartsOk) {
         setDrilldownOverlayStatus(root, "error");
         return false;
+      }
+      const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+      if (queryStateId) {
+        let refreshSeq = 0;
+        const onQueryStateChange = (event) => {
+          if (event?.detail?.id !== queryStateId) return;
+          if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
+          const currentSeq = ++refreshSeq;
+          mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost)
+            .then((ok) => {
+              if (!ok || currentSeq !== refreshSeq) return;
+              dispatchPreviewUpdated("drilldown");
+            })
+            .catch((error) => {
+              recordPopupDebugIssue({
+                level: "error",
+                message: String(error?.message || error || "分析型下钻图表刷新失败"),
+                phase: "analytics_chart_refresh_error",
+                detail,
+                config,
+              });
+            });
+        };
+        window.addEventListener("mei:query-state-change", onQueryStateChange);
+        root.__meiAnalyticsQueryStateCleanup = () => {
+          window.removeEventListener("mei:query-state-change", onQueryStateChange);
+        };
       }
       setDrilldownOverlayStatus(root, "ready");
       dispatchPreviewUpdated("drilldown");
@@ -6505,6 +6588,7 @@
   function closeDrilldownOverlay() {
     const root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (!root) return;
+    cleanupAnalyticsDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
     for (const selector of [
