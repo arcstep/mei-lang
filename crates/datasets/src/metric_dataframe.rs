@@ -9,10 +9,11 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     evaluate_runtime_metric_defs_with_scope_and_dag, runtime_eval_node_cache_enabled, CompiledApp,
-    EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
+    DatasetView, EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
 };
 use serde_json::Value;
 
+use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 use super::metric_locate::locate_runtime_metric_resource;
 use super::paginate::paginate_rows;
@@ -215,11 +216,13 @@ pub fn query_metric_dataframe(
         return Ok(cached);
     }
 
+    let primary_filters =
+        resolve_dataset_query_bindings_from_state(&effective_query_state, dataset).mapped_filters;
     let base_query = DatasetQueryOptions {
         page: 1,
         page_size: 0,
         search: options.search.clone(),
-        filters: options.filters.clone(),
+        filters: primary_filters,
         group: options.group.clone(),
         time_range: options.time_range.clone(),
         collect_all: true,
@@ -257,6 +260,11 @@ pub fn query_metric_dataframe(
         )
     })?;
 
+    let binding_datasets = unique_dataset_views(dataset, datasets.values());
+    let supplementary_binding_datasets: Vec<&DatasetView> = binding_datasets
+        .into_iter()
+        .filter(|view| view.id != dataset.id)
+        .collect();
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
         Some(dataset),
@@ -268,6 +276,7 @@ pub fn query_metric_dataframe(
         Some(&effective_query_state),
         &filter_intents,
         &dependency_revision_key,
+        &supplementary_binding_datasets,
     )
     .with_context(|| {
         format!(

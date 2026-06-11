@@ -12,12 +12,10 @@ use mei_lang_kernel::{
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::metric_hydrate::{
-    collect_dataset_ids_from_metric_defs, resolve_dataset_query_bindings_from_state,
-};
+use crate::metric_hydrate::collect_dataset_ids_from_metric_defs;
 
 use super::query_normalize::{
-    dimension_bindings_from_query_state, dimension_bindings_from_query_state_for_dataset,
+    dimension_bindings_from_query_state, dimension_bindings_from_query_state_for_datasets,
     filter_intents_from_request, normalize_query_filters, query_state_from_request,
 };
 
@@ -208,7 +206,7 @@ fn dataset_source_cache_fingerprint(dataset: &DatasetView) -> String {
 }
 
 pub(crate) fn runtime_metric_eval_scope(
-    binding_dataset: Option<&DatasetView>,
+    binding_datasets: &[&DatasetView],
     base_dataset_id: &str,
     scene_id: &str,
     target: Option<&str>,
@@ -222,16 +220,12 @@ pub(crate) fn runtime_metric_eval_scope(
     let query_state = query_state_from_request(&normalized_filters, search, query_state_override);
     let normalized_search = query_state.search.clone().unwrap_or_default();
     let filter_intents = filter_intents_from_request(&query_state, filter_intents_override);
-    let dimension_bindings = binding_dataset
-        .map(|dataset| {
-            validate_runtime_scope_bindings(&query_state, dataset)?;
-            Ok::<_, anyhow::Error>(dimension_bindings_from_query_state_for_dataset(
-                &query_state,
-                dataset,
-            ))
-        })
-        .transpose()?
-        .unwrap_or_else(|| dimension_bindings_from_query_state(&query_state));
+    let dimension_bindings = if binding_datasets.is_empty() {
+        dimension_bindings_from_query_state(&query_state)
+    } else {
+        validate_runtime_scope_bindings(&query_state, binding_datasets)?;
+        dimension_bindings_from_query_state_for_datasets(&query_state, binding_datasets)
+    };
     Ok(RuntimeMetricEvalScope {
         base_dataset_id: base_dataset_id.trim().to_string(),
         scene_id: scene_id.trim().to_string(),
@@ -245,21 +239,32 @@ pub(crate) fn runtime_metric_eval_scope(
     })
 }
 
-fn validate_runtime_scope_bindings(state: &QueryState, dataset: &DatasetView) -> Result<()> {
-    let resolution = resolve_dataset_query_bindings_from_state(state, dataset);
-    if !resolution.unresolved_filter_dimensions.is_empty() {
+fn validate_runtime_scope_bindings(state: &QueryState, datasets: &[&DatasetView]) -> Result<()> {
+    use crate::metric_hydrate::{
+        resolve_dataset_query_bindings_from_state, unresolved_filter_dimensions_for_datasets,
+    };
+    let unresolved = unresolved_filter_dimensions_for_datasets(state, datasets);
+    if !unresolved.is_empty() {
+        let dataset_ids = datasets
+            .iter()
+            .map(|dataset| dataset.id.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
         return Err(anyhow!(
-            "runtime metric query requires resolvable filter bindings for dataset `{}`: {}",
-            dataset.id,
-            resolution.unresolved_filter_dimensions.join(", ")
+            "runtime metric query requires resolvable filter bindings across datasets [{}]: {}",
+            dataset_ids,
+            unresolved.join(", ")
         ));
     }
-    if let Some(dimension) = resolution.unresolved_time_range_dimension {
-        return Err(anyhow!(
-            "runtime metric query requires resolvable time_range.dimension binding for dataset `{}`: {}",
-            dataset.id,
-            dimension
-        ));
+    for dataset in datasets {
+        let resolution = resolve_dataset_query_bindings_from_state(state, dataset);
+        if let Some(dimension) = resolution.unresolved_time_range_dimension {
+            return Err(anyhow!(
+                "runtime metric query requires resolvable time_range.dimension binding for dataset `{}`: {}",
+                dataset.id,
+                dimension
+            ));
+        }
     }
     Ok(())
 }

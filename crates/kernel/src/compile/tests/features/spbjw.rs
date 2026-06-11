@@ -1154,6 +1154,10 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         "analytics link should include filter_schema, got: {encoded}"
     );
     assert!(
+        encoded.contains("supervisionDomain") && encoded.contains("month_multi_select"),
+        "warnings analytics board should include explicit filter fields, got: {encoded}"
+    );
+    assert!(
         encoded.contains("layout_mode") && encoded.contains("analytics"),
         "board assembly should lower to analytics layout_mode, got: {encoded}"
     );

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 
-use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Utc};
 use serde_json::Value;
 
 use super::table_contract::TableSortSpec;
@@ -257,6 +257,66 @@ fn sort_datetime(text: &str) -> Option<i64> {
     None
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterMatchMode {
+    Contains,
+    InValues,
+    Month,
+}
+
+fn parse_filter_expected(expected: &str) -> (FilterMatchMode, &str) {
+    if let Some(rest) = expected.strip_prefix("in:") {
+        return (FilterMatchMode::InValues, rest);
+    }
+    if let Some(rest) = expected.strip_prefix("m:") {
+        return (FilterMatchMode::Month, rest);
+    }
+    (FilterMatchMode::Contains, expected)
+}
+
+fn split_filter_values(raw: &str) -> Vec<&str> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn extract_year_month(text: &str) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.len() >= 7 && trimmed.as_bytes().get(4) == Some(&b'-') {
+        let prefix = &trimmed[..7];
+        if prefix.chars().take(4).all(|ch| ch.is_ascii_digit())
+            && prefix.as_bytes().get(4) == Some(&b'-')
+            && prefix[5..].chars().all(|ch| ch.is_ascii_digit())
+        {
+            return Some(prefix.to_string());
+        }
+    }
+    if let Some(ms) = sort_datetime(trimmed) {
+        let datetime = DateTime::<Utc>::from_timestamp_millis(ms)?;
+        return Some(format!("{:04}-{:02}", datetime.year(), datetime.month()));
+    }
+    None
+}
+
+fn row_matches_filter_value(actual: &str, expected: &str) -> bool {
+    let (mode, payload) = parse_filter_expected(expected);
+    match mode {
+        FilterMatchMode::Contains => actual.contains(payload),
+        FilterMatchMode::InValues => split_filter_values(payload)
+            .iter()
+            .any(|part| actual == *part),
+        FilterMatchMode::Month => {
+            let Some(actual_month) = extract_year_month(actual) else {
+                return false;
+            };
+            split_filter_values(payload)
+                .iter()
+                .any(|part| actual_month == *part)
+        }
+    }
+}
+
 pub(crate) fn row_matches(
     row: &Value,
     filters: &BTreeMap<String, String>,
@@ -271,7 +331,7 @@ pub(crate) fn row_matches(
             continue;
         }
         let actual = value_to_text(map.get(key).unwrap_or(&Value::Null));
-        if !actual.contains(expected) {
+        if !row_matches_filter_value(&actual, expected) {
             return false;
         }
     }

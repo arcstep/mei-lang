@@ -16,7 +16,10 @@ use crate::query::query_dataset_rows;
 use crate::types::DatasetQueryOptions;
 use crate::util::elapsed_ms;
 
-pub(crate) use binding::{dataset_dimension_bindings, resolve_dataset_query_bindings_from_state};
+pub(crate) use binding::{
+    dimension_bindings_from_query_state_for_datasets, resolve_dataset_query_bindings_from_state,
+    unique_dataset_views, unresolved_filter_dimensions_for_datasets,
+};
 
 pub(crate) fn hydrate_file_backed_datasets_for_metric_defs(
     app_root: &Path,

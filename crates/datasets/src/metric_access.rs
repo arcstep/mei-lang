@@ -9,6 +9,7 @@ use mei_lang_kernel::{
     RuntimeMetricEvalScope,
 };
 
+use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_locate::{plan_access_metric_eval_for_ids, AccessMetricEvalPlan};
 use super::types::DatasetQueryOptions;
 use super::util::elapsed_ms;
@@ -167,8 +168,14 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         &defs_for_hydrate,
     );
 
+    let primary_filters =
+        resolve_dataset_query_bindings_from_state(query_state, primary_dataset).mapped_filters;
+    let primary_query_options = DatasetQueryOptions {
+        filters: primary_filters,
+        ..query_options.clone()
+    };
     let query_started = Instant::now();
-    let filtered_rows = query_dataset_rows(app_root, primary_dataset, query_options.clone())?;
+    let filtered_rows = query_dataset_rows(app_root, primary_dataset, primary_query_options)?;
     let query_ms = elapsed_ms(query_started);
     let total_rows = filtered_rows.rows.len();
     let query_perf = filtered_rows.perf.clone();
@@ -195,6 +202,11 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     )?;
     let hydrate_ms = elapsed_ms(hydrate_started);
 
+    let binding_datasets = unique_dataset_views(primary_dataset, datasets.values());
+    let supplementary_binding_datasets: Vec<&DatasetView> = binding_datasets
+        .into_iter()
+        .filter(|view| view.id != primary_dataset.id)
+        .collect();
     let eval_scope_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
         Some(primary_dataset),
@@ -206,6 +218,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         Some(query_state),
         filter_intents,
         &dependency_revision_key,
+        &supplementary_binding_datasets,
     )?;
     let eval_scope_ms = elapsed_ms(eval_scope_started);
 

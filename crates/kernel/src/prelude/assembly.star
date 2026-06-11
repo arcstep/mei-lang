@@ -44,6 +44,20 @@ def build_view(kind, source, chart_kind = None, mapping = None, label = None, co
         payload["columns"] = resolved_columns
     return _without_empty(payload)
 
+def filter_field(key, label = None, column = None, control = "multi_select"):
+    """Explicit analytics filter field (V1: rowset-backed options at runtime)."""
+    if key == None or str(key).strip() == "":
+        fail("filter_field requires key")
+    resolved_column = column if column != None and str(column).strip() != "" else str(key).strip()
+    resolved_label = label if label != None and str(label).strip() != "" else resolved_column
+    resolved_control = control if control != None and str(control).strip() != "" else "multi_select"
+    return _without_empty({
+        "key": str(key).strip(),
+        "label": str(resolved_label).strip(),
+        "column": str(resolved_column).strip(),
+        "control": str(resolved_control).strip(),
+    })
+
 def build_board_assembly(scene, context, charts = None, detail = None, filters = None, include_hero = False):
     """Build a board instance independent of link/route/popup.
 
@@ -51,7 +65,7 @@ def build_board_assembly(scene, context, charts = None, detail = None, filters =
     context: root metric_ref for explain-first lineage (V1).
     charts: ordered list of build_view(kind=chart, ...) descriptors (analytics: 1..3).
     detail: build_view(kind=table, ...) or omitted when shell allows default.
-    filters: e.g. {"rowset_dataset_id": "warning_list"} for analytics filter bar.
+    filters: e.g. {"rowset_dataset_id": "warning_list", "fields": [filter_field(...), ...]}.
     """
     if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
         fail("build_board_assembly requires scene=scene_ref(...)")

@@ -62,6 +62,7 @@ pub(super) fn expand_board_assembly(
             &slots,
             rowset_dataset_id.as_deref(),
             contract.as_ref(),
+            payload.get("filters"),
         ))
     } else {
         None
@@ -456,6 +457,7 @@ pub(super) fn expand_analytics_drilldown_tabs(
         &slots,
         rowset_dataset_id,
         contract.as_ref(),
+        None,
     );
     Some((slots, filter_schema))
 }
@@ -1126,7 +1128,23 @@ fn build_analytics_filter_schema(
     slots: &[Map<String, Value>],
     rowset_dataset_id: Option<&str>,
     contract: Option<&Map<String, Value>>,
+    board_filters: Option<&Value>,
 ) -> Value {
+    if let Some(explicit) = board_filters_explicit_fields(board_filters) {
+        let mut payload = serde_json::Map::new();
+        payload.insert("fields".to_string(), Value::Array(explicit));
+        if let Some(dataset_id) = rowset_dataset_id
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            payload.insert(
+                "rowset_dataset_id".to_string(),
+                Value::String(dataset_id.to_string()),
+            );
+        }
+        return Value::Object(payload);
+    }
+
     let mut fields = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
     for (column, key, label) in ANALYTICS_FILTER_COLUMNS {
@@ -1221,6 +1239,54 @@ fn build_analytics_filter_schema(
         }
     }
     Value::Object(payload)
+}
+
+fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Value>> {
+    let map = board_filters?.as_object()?;
+    let items = map.get("fields")?.as_array()?;
+    if items.is_empty() {
+        return None;
+    }
+    let mut fields = Vec::new();
+    for item in items {
+        let Some(field_map) = item.as_object() else {
+            continue;
+        };
+        let key = field_map
+            .get("key")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+        let column = field_map
+            .get("column")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(key);
+        let label = field_map
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(column);
+        let control = field_map
+            .get("control")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("text");
+        fields.push(serde_json::json!({
+            "key": key,
+            "label": label,
+            "column": column,
+            "control": control,
+        }));
+    }
+    if fields.is_empty() {
+        None
+    } else {
+        Some(fields)
+    }
 }
 
 const ANALYTICS_FILTER_COLUMNS: &[(&str, &str, &str)] = &[

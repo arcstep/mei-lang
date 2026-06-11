@@ -180,7 +180,7 @@ mod tests {
             runtime_analysis_contracts: Default::default(),
         };
         let scope = runtime_metric_eval_scope(
-            Some(&dataset),
+            &[&dataset],
             "warning_list",
             "home",
             Some("scenes/home.mei"),
@@ -222,7 +222,7 @@ mod tests {
             source: FilterIntentSource::FilterBar,
         }];
         let scope = runtime_metric_eval_scope(
-            None,
+            &[],
             "warning_list",
             "home",
             Some("scenes/home.mei"),
@@ -277,7 +277,7 @@ mod tests {
             runtime_analysis_contracts: Default::default(),
         };
         let err = runtime_metric_eval_scope(
-            Some(&dataset),
+            &[&dataset],
             "warning_list",
             "home",
             Some("scenes/home.mei"),
@@ -288,9 +288,7 @@ mod tests {
             "deps=v1",
         )
         .expect_err("unresolved binding should fail");
-        assert!(err.to_string().contains(
-            "requires resolvable filter bindings for dataset `warning_list`: department"
-        ));
+        assert!(err.to_string().contains("department"));
     }
 
     #[test]
@@ -323,7 +321,7 @@ mod tests {
             runtime_analysis_contracts: Default::default(),
         };
         let err = runtime_metric_eval_scope(
-            Some(&dataset),
+            &[&dataset],
             "warning_list",
             "home",
             Some("scenes/home.mei"),

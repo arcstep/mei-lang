@@ -17,7 +17,7 @@ mod types;
 mod util;
 mod xlsx_dataset;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use anyhow::Result;
@@ -152,9 +152,22 @@ pub fn runtime_metric_eval_scope(
     query_state_override: Option<&QueryState>,
     filter_intents_override: &[FilterIntent],
     dependency_revision_key: &str,
+    supplementary_binding_datasets: &[&DatasetView],
 ) -> Result<RuntimeMetricEvalScope> {
+    let mut binding_datasets = Vec::new();
+    let mut seen = BTreeSet::new();
+    if let Some(primary) = binding_dataset {
+        if seen.insert(primary.id.clone()) {
+            binding_datasets.push(primary);
+        }
+    }
+    for dataset in supplementary_binding_datasets {
+        if seen.insert(dataset.id.clone()) {
+            binding_datasets.push(*dataset);
+        }
+    }
     metric_cache_key::runtime_metric_eval_scope(
-        binding_dataset,
+        &binding_datasets,
         base_dataset_id,
         scene_id,
         target,

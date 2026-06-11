@@ -168,27 +168,9 @@ pub(crate) fn dimension_bindings_from_query_state(state: &QueryState) -> Vec<Dim
         .collect()
 }
 
-pub(crate) fn dimension_bindings_from_query_state_for_dataset(
+pub(crate) fn dimension_bindings_from_query_state_for_datasets(
     state: &QueryState,
-    dataset: &DatasetView,
+    datasets: &[&DatasetView],
 ) -> Vec<DimensionBinding> {
-    use crate::metric_hydrate::dataset_dimension_bindings;
-    let catalog = dataset_dimension_bindings(dataset);
-    state
-        .filters
-        .keys()
-        .filter_map(|dimension| {
-            let normalized = dimension.trim();
-            if normalized.is_empty() {
-                return None;
-            }
-            catalog
-                .iter()
-                .find(|binding| binding.dimension == normalized)
-                .map(|binding| DimensionBinding {
-                    dimension: normalized.to_string(),
-                    field: binding.field.clone(),
-                })
-        })
-        .collect()
+    crate::metric_hydrate::dimension_bindings_from_query_state_for_datasets(state, datasets)
 }

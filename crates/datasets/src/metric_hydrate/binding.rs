@@ -11,6 +11,20 @@ pub(crate) struct DatasetQueryBindingResolution {
     pub unresolved_time_range_dimension: Option<String>,
 }
 
+pub(crate) fn unique_dataset_views<'a>(
+    primary: &'a DatasetView,
+    others: impl IntoIterator<Item = &'a DatasetView>,
+) -> Vec<&'a DatasetView> {
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    for dataset in std::iter::once(primary).chain(others) {
+        if seen.insert(dataset.id.clone()) {
+            out.push(dataset);
+        }
+    }
+    out
+}
+
 pub(crate) fn compatible_hydrate_binding_resolution(
     query: &DatasetQueryOptions,
     dataset: &DatasetView,
@@ -95,6 +109,55 @@ pub(crate) fn dataset_dimension_bindings(dataset: &DatasetView) -> Vec<Dimension
         push_binding(name, name);
     }
     bindings
+}
+
+pub(crate) fn dimension_bindings_from_query_state_for_datasets(
+    state: &QueryState,
+    datasets: &[&DatasetView],
+) -> Vec<DimensionBinding> {
+    let mut bindings = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (dimension, _) in &state.filters {
+        let normalized = dimension.trim();
+        if normalized.is_empty() || !seen.insert(normalized.to_string()) {
+            continue;
+        }
+        for dataset in datasets {
+            let catalog = dataset_dimension_bindings(dataset);
+            let Some(binding) = resolve_filter_binding(catalog.as_slice(), normalized) else {
+                continue;
+            };
+            bindings.push(DimensionBinding {
+                dimension: normalized.to_string(),
+                field: binding.field.clone(),
+            });
+            break;
+        }
+    }
+    bindings
+}
+
+pub(crate) fn unresolved_filter_dimensions_for_datasets(
+    state: &QueryState,
+    datasets: &[&DatasetView],
+) -> Vec<String> {
+    let mut unresolved = Vec::new();
+    for (dimension, _) in &state.filters {
+        let normalized = dimension.trim();
+        if normalized.is_empty() {
+            continue;
+        }
+        let resolves = datasets.iter().any(|dataset| {
+            let catalog = dataset_dimension_bindings(dataset);
+            resolve_filter_binding(catalog.as_slice(), normalized).is_some()
+        });
+        if !resolves {
+            unresolved.push(normalized.to_string());
+        }
+    }
+    unresolved.sort();
+    unresolved.dedup();
+    unresolved
 }
 
 fn resolve_filter_binding<'a>(
