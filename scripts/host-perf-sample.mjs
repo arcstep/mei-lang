@@ -952,6 +952,10 @@ function applyPagePerf(target, headers) {
   setNumeric(target, "compile_cache_hit", headers.get("x-mei-compile-cache-hit"));
   setNumeric(target, "compile_cache_lookup_ms", headers.get("x-mei-compile-cache-lookup-ms"));
   setNumeric(target, "page_render_cache_hit", headers.get("x-mei-page-render-cache-hit"));
+  applyKeyValueHeaderPerf(target, headers.get("x-mei-compile-stage-timing"));
+  applyKeyValueHeaderPerf(target, headers.get("x-mei-compile-cache-stats"));
+  applyKeyValueHeaderPerf(target, headers.get("x-mei-dependency-graph-stats"));
+  applyKeyValueHeaderPerf(target, headers.get("x-mei-catalog-compile-stats"));
   const revisionScope = headers.get("x-mei-compile-revision-scope");
   if (revisionScope) {
     target.compile_revision_scope = revisionScope;
@@ -960,6 +964,30 @@ function applyPagePerf(target, headers) {
   if (cacheValidation) {
     target.compile_cache_validation = cacheValidation;
   }
+}
+
+function applyKeyValueHeaderPerf(target, raw) {
+  for (const [key, value] of Object.entries(parseKeyValueStats(raw))) {
+    setNumeric(target, key, value);
+  }
+}
+
+function parseKeyValueStats(raw) {
+  const out = {};
+  const text = String(raw || "").trim();
+  if (!text) {
+    return out;
+  }
+  for (const part of text.split(",")) {
+    const [keyRaw, valueRaw] = part.split("=");
+    const key = String(keyRaw || "").trim();
+    const value = toFinite(valueRaw);
+    if (!key || !Number.isFinite(value)) {
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
 }
 
 function applyManagePipelinePerf(target, pipeline) {
@@ -1123,6 +1151,15 @@ async function collectDatasetPerf(
     dataset_total_ms: toFinite(perf.total_ms),
     dataset_compile_cache_lookup_ms: toFinite(perf.compile_cache_lookup_ms),
     dataset_compile_cache_lock_wait_ms: toFinite(perf.compile_cache_lock_wait_ms),
+    dependency_graph_build_ms: toFinite(perf.dependency_graph_build_ms),
+    official_results_all_routes_ms: toFinite(perf.official_results_all_routes_ms),
+    active_payload_pick_or_compile_ms: toFinite(perf.active_payload_pick_or_compile_ms),
+    catalog_compile_ms: toFinite(perf.catalog_compile_ms),
+    resource_merge_ms: toFinite(perf.resource_merge_ms),
+    world_metric_ledger_ms: toFinite(perf.world_metric_ledger_ms),
+    scene_projection_assembly_ms: toFinite(perf.scene_projection_assembly_ms),
+    source_tree_ms: toFinite(perf.source_tree_ms),
+    world_finalize_ms: toFinite(perf.world_finalize_ms),
   };
 }
 
@@ -1141,6 +1178,15 @@ function buildMetricPerfObject(payload, perf, elapsedMs) {
     metric_response_cache_lookup_ms: toFinite(perf.response_cache_lookup_ms),
     metric_compile_cache_lookup_ms: toFinite(perf.compile_cache_lookup_ms),
     metric_compile_cache_lock_wait_ms: toFinite(perf.compile_cache_lock_wait_ms),
+    dependency_graph_build_ms: toFinite(perf.dependency_graph_build_ms),
+    official_results_all_routes_ms: toFinite(perf.official_results_all_routes_ms),
+    active_payload_pick_or_compile_ms: toFinite(perf.active_payload_pick_or_compile_ms),
+    catalog_compile_ms: toFinite(perf.catalog_compile_ms),
+    resource_merge_ms: toFinite(perf.resource_merge_ms),
+    world_metric_ledger_ms: toFinite(perf.world_metric_ledger_ms),
+    scene_projection_assembly_ms: toFinite(perf.scene_projection_assembly_ms),
+    source_tree_ms: toFinite(perf.source_tree_ms),
+    world_finalize_ms: toFinite(perf.world_finalize_ms),
     file_cache_hit: toFinite(perf.file_cache_hit),
     file_cache_load_ms: toFinite(perf.file_cache_load_ms),
     file_cache_paginate_ms: toFinite(perf.file_cache_paginate_ms),

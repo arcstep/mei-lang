@@ -7,3 +7,9 @@ node_modules/
 # 仅离线内网构建时本地生成（见 mei-release/scripts/prepare-offline-vendor.sh）
 /vendor/
 /.cargo/config.toml
+
+# Host perf：本地 ad-hoc 采样/报告（正式台账见 docs/mei-lang/benchmarks/*.jsonl）
+/scripts/perf-wave*.jsonl
+/scripts/perf-wave*-report.md
+# scenario 目录只保留 *.json 配置，采样输出勿落盘到此
+/scripts/perf-scenarios/**/*.jsonl

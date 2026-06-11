@@ -98,6 +98,50 @@
       "run_kind": "warm"
     },
     {
+      "scenario_id": "zhifa.manage.enforcement_elements.cold_clear",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "enforcement_elements",
+      "target_file": "scenes/01-执法要素.mei",
+      "browser_window_ms": 0,
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.administrative_inspection.cold_clear",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "administrative_inspection",
+      "target_file": "scenes/02-行政检查.mei",
+      "browser_window_ms": 0,
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.penalty_dashboard.cold_clear",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "penalty_dashboard",
+      "target_file": "scenes/04-行政处罚.mei",
+      "browser_window_ms": 0,
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
+      "scenario_id": "zhifa.manage.map.cold_clear",
+      "scenario_family": "manage_cold_compile",
+      "route_mode": "manage",
+      "scene_id": "zhifa_map_panel",
+      "target_file": "scenes/10-地图.mei",
+      "browser_window_ms": 0,
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold"
+    },
+    {
       "scenario_id": "zhifa.heavy.access.administrative_inspection.cold_clear",
       "scenario_family": "heavy_bottleneck",
       "route_mode": "access",

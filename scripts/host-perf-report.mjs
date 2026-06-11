@@ -88,6 +88,7 @@ for (const entry of currentEntries) {
     compareMode,
     entry,
     pinnedBaselineMap,
+    pinnedBaselineEntries,
     ledgerHistory,
   });
   if (!baseline) {
@@ -101,13 +102,14 @@ for (const entry of currentEntries) {
     continue;
   }
   const { red, yellow } = compareEntry(baseline.entry, entry);
+  const contextDetails = buildContextDetails(baseline.entry, entry);
   if (red.length > 0) {
     redCount += 1;
     reportRows.push({
       scenario_id: entry.scenario_id,
       status: "RED",
       baseline_source: baseline.source,
-      details: red,
+      details: [...red, ...contextDetails],
     });
     continue;
   }
@@ -117,7 +119,7 @@ for (const entry of currentEntries) {
       scenario_id: entry.scenario_id,
       status: "YELLOW",
       baseline_source: baseline.source,
-      details: yellow,
+      details: [...yellow, ...contextDetails],
     });
     continue;
   }
@@ -125,7 +127,7 @@ for (const entry of currentEntries) {
     scenario_id: entry.scenario_id,
     status: "OK",
     baseline_source: baseline.source,
-    details: [`sample_count=${entry.sample_count}`],
+    details: [`sample_count=${entry.sample_count}`, ...contextDetails],
   });
 }
 
@@ -268,10 +270,14 @@ function aggregateRecordGroup(group) {
   };
 }
 
-function resolveBaseline({ compareMode, entry, pinnedBaselineMap, ledgerHistory }) {
+function resolveBaseline({ compareMode, entry, pinnedBaselineMap, pinnedBaselineEntries, ledgerHistory }) {
   const pinned = pinnedBaselineMap.get(baselineKey(entry));
   if (compareMode === "pinned") {
-    return pinned ? { source: "pinned", entry: pinned } : null;
+    if (pinned) {
+      return { source: "pinned", entry: pinned };
+    }
+    const pinnedAnyEnv = findPinnedAnyEnv(pinnedBaselineEntries, entry);
+    return pinnedAnyEnv ? { source: "pinned:any-env", entry: pinnedAnyEnv } : null;
   }
   if (compareMode === "latest") {
     const latest = findLastHistory(ledgerHistory, entry);
@@ -280,8 +286,24 @@ function resolveBaseline({ compareMode, entry, pinnedBaselineMap, ledgerHistory 
   if (pinned) {
     return { source: "pinned", entry: pinned };
   }
+  const pinnedAnyEnv = findPinnedAnyEnv(pinnedBaselineEntries, entry);
+  if (pinnedAnyEnv) {
+    return { source: "pinned:any-env", entry: pinnedAnyEnv };
+  }
   const latest = findLastHistory(ledgerHistory, entry);
   return latest ? { source: latest.source, entry: latest.entry } : null;
+}
+
+function findPinnedAnyEnv(entries, currentEntry) {
+  for (const entry of entries) {
+    if (
+      entry.scenario_id === currentEntry.scenario_id &&
+      entry.run_kind === currentEntry.run_kind
+    ) {
+      return entry;
+    }
+  }
+  return null;
 }
 
 function findLastHistory(list, currentEntry) {
@@ -444,6 +466,51 @@ function pushRatioRegression(bucket, field, prev, curr, threshold) {
   const ratio = (now - base) / base;
   if (ratio >= threshold) {
     bucket.push(`${field} ${base} -> ${now} (+${Math.round(ratio * 100)}%)`);
+  }
+}
+
+function buildContextDetails(prev, curr) {
+  const compileStage = formatStageComparison(prev?.perf || {}, curr?.perf || {}, [
+    "dependency_graph_build_ms",
+    "active_payload_pick_or_compile_ms",
+    "catalog_compile_ms",
+    "world_finalize_ms",
+  ]);
+  return [compileStage].filter(Boolean);
+}
+
+function formatStageComparison(prevPerf, currPerf, fields) {
+  const parts = [];
+  for (const field of fields) {
+    const prev = toFinite(prevPerf?.[field]);
+    const curr = toFinite(currPerf?.[field]);
+    if (!Number.isFinite(prev) && !Number.isFinite(curr)) {
+      continue;
+    }
+    parts.push(
+      Number.isFinite(prev)
+        ? `${shortStageField(field)}=${prev}->${curr}`
+        : `${shortStageField(field)}=${curr}`
+    );
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return `compile_stage ${parts.join(" ")}`;
+}
+
+function shortStageField(field) {
+  switch (field) {
+    case "dependency_graph_build_ms":
+      return "graph";
+    case "active_payload_pick_or_compile_ms":
+      return "active";
+    case "catalog_compile_ms":
+      return "catalog";
+    case "world_finalize_ms":
+      return "finalize";
+    default:
+      return field;
   }
 }
 
