@@ -148,3 +148,22 @@ def build_analytics_drilldown_tabs(metric, include_hero = False, rowset_dataset_
     if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
         payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
     return _without_empty(payload)
+
+def warning_list_filter_fields():
+    """Shared filter_field list for alert_tracking / warning_list analytics boards."""
+    return [
+        filter_field(key = "supervisionDomain", label = "监督领域", column = "监督领域", control = "multi_select"),
+        filter_field(key = "supervisionCategory", label = "监督类别", column = "监督类别", control = "multi_select"),
+        filter_field(key = "warningId", label = "预警ID", column = "预警ID", control = "text"),
+        filter_field(key = "agency", label = "主责单位", column = "主责单位", control = "multi_select"),
+        filter_field(key = "category", label = "问题分类名称", column = "问题分类名称", control = "multi_select"),
+        filter_field(key = "warningType", label = "预警类型", column = "预警类型", control = "multi_select"),
+        filter_field(key = "warningLevel", label = "预警等级", column = "预警等级", control = "multi_select"),
+        filter_field(key = "warningTime", label = "预警时间", column = "预警时间", control = "month_multi_select"),
+        filter_field(key = "trackingId", label = "问题跟踪ID", column = "问题跟踪ID", control = "text"),
+        filter_field(key = "handlingDept", label = "承办部门", column = "承办部门", control = "multi_select"),
+        filter_field(key = "assignTime", label = "分办时间", column = "分办时间", control = "month_multi_select"),
+        filter_field(key = "closeTime", label = "办结时间", column = "办结时间", control = "month_multi_select"),
+        filter_field(key = "verified", label = "是否查实", column = "是否查实", control = "multi_select"),
+        filter_field(key = "transferredToClue", label = "是否转问题线索", column = "是否转问题线索", control = "multi_select"),
+    ]

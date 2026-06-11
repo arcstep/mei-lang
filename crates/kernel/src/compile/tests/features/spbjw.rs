@@ -1171,6 +1171,79 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
 }
 
 #[test]
+fn compile_spbjw_issue_handling_analytics_projection_slots() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "scenes/07-问题办理.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+    let encoded = serde_json::to_string(contract).expect("encode scene contract");
+    for metric_id in [
+        "warnings_pending_count",
+        "effectiveness_in_progress_count",
+        "effectiveness_completed_count",
+        "effectiveness_issue_verification_rate",
+    ] {
+        assert!(
+            encoded.contains(metric_id),
+            "issue handling scene contract should include metric `{metric_id}`, got: {encoded}"
+        );
+    }
+    assert!(
+        encoded.contains("analytics-drilldown-board.mei"),
+        "issue handling cards should reference analytics drilldown shell, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("layout_zone"),
+        "issue handling analytics projection slots should include layout_zone, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("composition_by_category"),
+        "pending/in-progress/completed boards should reference composition_by_category, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("composition_by_verified"),
+        "verification rate board should reference composition_by_verified, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("composition_by_dept"),
+        "verification rate board should reference composition_by_dept, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("chart_kind") && encoded.contains("rose"),
+        "issue handling analytics charts should lower rose chart_kind, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"top_n\":6"),
+        "issue handling analytics chart slots should carry top_n=6, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("filter_schema"),
+        "issue handling analytics links should include filter_schema, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("supervisionDomain") && encoded.contains("month_multi_select"),
+        "issue handling analytics boards should include warning_list filter fields, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("layout_mode") && encoded.contains("analytics"),
+        "issue handling board assembly should lower to analytics layout_mode, got: {encoded}"
+    );
+}
+
+#[test]
 fn compile_rejects_explain_chart_kind_in_composition() {
     let source_root = temp_root("reject-explain-chart-kind");
     let app_root = source_root.join("demo");
