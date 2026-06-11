@@ -575,3 +575,59 @@ async fn middleware_allows_admin_authoring_routes() {
     let api_resp = app.oneshot(api_req).await.expect("api resp");
     assert_eq!(api_resp.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn middleware_allows_unauthenticated_gis_tile_proxy() {
+    let source_root = temp_source_root("gis-public");
+    bootstrap_admin_user(source_root.as_path());
+    let state = make_state(source_root.clone(), AuthEnforcement::Required);
+    let app = Router::new()
+        .route("/gis/*path", get(|| async { "tilejson" }))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let req = Request::builder()
+        .uri("/gis/shapingba-z10-16")
+        .body(Body::empty())
+        .expect("gis request");
+    let resp = app.oneshot(req).await.expect("gis response");
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn middleware_allows_unauthenticated_maplibre_vendor_assets() {
+    let source_root = temp_source_root("maplibre-public");
+    bootstrap_guest_user(source_root.as_path(), &["demo"]);
+    let token = token_for(source_root.as_path(), "guest01", "GuestPwd1!safe");
+    let runtime = load_auth_runtime(source_root.as_path()).expect("runtime");
+    let state = make_state(source_root.clone(), AuthEnforcement::Required);
+    let app = Router::new()
+        .route(
+            "/workspace-components/vendor/maplibre/fonts/*path",
+            get(|| async { "glyphs" }),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+
+    let unauth_req = Request::builder()
+        .uri("/workspace-components/vendor/maplibre/fonts/Open%20Sans%20Regular,Arial%20Unicode%20MS%20Regular/0-255.pbf")
+        .body(Body::empty())
+        .expect("glyph request");
+    let unauth_resp = app.clone().oneshot(unauth_req).await.expect("glyph response");
+    assert_eq!(unauth_resp.status(), StatusCode::OK);
+
+    let cookie = format!("{}={}", runtime.cookie_name, token);
+    let guest_req = Request::builder()
+        .uri("/workspace-components/vendor/maplibre/fonts/Open%20Sans%20Regular,Arial%20Unicode%20MS%20Regular/0-255.pbf")
+        .header(header::COOKIE, cookie.as_str())
+        .body(Body::empty())
+        .expect("guest glyph request");
+    let guest_resp = app.oneshot(guest_req).await.expect("guest glyph response");
+    assert_eq!(guest_resp.status(), StatusCode::OK);
+}

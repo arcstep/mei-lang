@@ -24,6 +24,10 @@ fn is_public_path(path: &str) -> bool {
         || path == "/favicon.ico"
         || path.starts_with("/app-assets/")
         || path.starts_with("/app-bundles/")
+        // 地图运行时：瓦片代理与 MapLibre vendor 资源为只读 GET，子请求常不带 session。
+        || path == "/gis"
+        || path.starts_with("/gis/")
+        || path.starts_with("/workspace-components/vendor/maplibre/")
         || path == "/api/host/ready"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"
@@ -364,17 +368,17 @@ pub async fn auth_middleware(
         .and_then(|token| runtime.decode_jwt(token).ok())
         .map(|claims| AuthPrincipal::from_claims(&claims));
 
-    if let Some(ref principal) = principal {
-        if let Err(error) = authorize_path(&path, principal) {
-            return forbidden_response(path.as_str(), &error.to_string());
-        }
-    }
-
     if is_public_path(path.as_str()) {
         if let Some(principal) = principal {
             request.extensions_mut().insert(principal);
         }
         return next.run(request).await;
+    }
+
+    if let Some(ref principal) = principal {
+        if let Err(error) = authorize_path(&path, principal) {
+            return forbidden_response(path.as_str(), &error.to_string());
+        }
     }
 
     let Some(principal) = principal else {
