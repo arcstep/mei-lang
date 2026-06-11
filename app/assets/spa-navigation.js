@@ -2294,11 +2294,18 @@
         : tableScrollX
           ? 88
           : 56;
+    const drilldownFilters =
+      detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
+        ? detail.drilldown_filters
+        : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
+          ? detail.default_filters
+          : null;
     return {
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
+      default_filters: drilldownFilters || undefined,
       embedded: true,
       tableScrollX,
       autoFitColumns: true,

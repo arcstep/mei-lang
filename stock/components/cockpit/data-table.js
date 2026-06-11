@@ -51,6 +51,11 @@ import {
   resolveToneToken,
 } from "../dataset/table-runtime/format.js";
 import { formatTableRowCountLabel } from "../dataset/table-runtime/footer.js";
+import {
+  buildTableRowDrilldownDetail,
+  emitTableRowDrilldown,
+  tableDrilldownMeta,
+} from "./drilldown-meta.js";
 
 function resolveTableSpec(props) {
   const keys = Array.isArray(props.columns)
@@ -71,7 +76,7 @@ const LAYOUT_PRESETS = {
   drilldown_issues: "1.05fr 1.2fr 1.6fr 1.1fr 0.9fr 0.9fr",
   drilldown_models: "1fr 1fr 1.5fr 0.95fr 0.8fr",
   drilldown_matters: "1fr 1.4fr 0.75fr 1.45fr 1.2fr",
-  cases: "1fr 0.35fr",
+  cases: "1.35fr 0.65fr",
   default: "",
 };
 
@@ -478,6 +483,10 @@ export class MeiCockpitDataTable extends HTMLElement {
       this._pagerBound = true;
       this.addEventListener("click", (event) => this.onPagerClick(event));
     }
+    if (!this._rowDrilldownBound) {
+      this._rowDrilldownBound = true;
+      this.addEventListener("click", (event) => this.onRowDrilldownClick(event));
+    }
     this.bindCarouselHover();
     this.render();
     this.refresh();
@@ -738,6 +747,29 @@ export class MeiCockpitDataTable extends HTMLElement {
     });
   }
 
+  onRowDrilldownClick(event) {
+    const rowEl = event?.target?.closest?.(".tr.drilldown-row");
+    if (!(rowEl instanceof HTMLElement)) {
+      return;
+    }
+    if (event?.target?.closest?.(".pager, .carousel-timer, .cell-preview-trigger")) {
+      return;
+    }
+    const index = Number(rowEl.dataset.rowIndex);
+    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    const row = Number.isFinite(index) && index >= 0 ? rows[index] : null;
+    if (!row) {
+      return;
+    }
+    const meta = tableDrilldownMeta(this._props || {});
+    const detail = buildTableRowDrilldownDetail(meta, row, this._props || {});
+    if (!detail) {
+      return;
+    }
+    event.preventDefault();
+    emitTableRowDrilldown(this, detail);
+  }
+
   bindCellPreviewEvents() {
     if (typeof this._cellPreviewCleanup === "function") {
       this._cellPreviewCleanup();
@@ -829,6 +861,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       )
       .join("");
     const layoutKey = String(p.layoutPreset ?? "");
+    const drilldownEnabled = Boolean(tableDrilldownMeta(p));
     const body = rows
       .map((row, ri) => {
         const cells = layoutDescriptors
@@ -856,7 +889,14 @@ export class MeiCockpitDataTable extends HTMLElement {
             )}</span>`;
           })
           .join("");
-        return `<div class="tr ${ri % 2 === 1 ? "zebra" : ""}">${cells}</div>`;
+        const rowClass = [
+          "tr",
+          ri % 2 === 1 ? "zebra" : "",
+          drilldownEnabled ? "drilldown-row" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        return `<div class="${rowClass}" data-row-index="${ri}" role="${drilldownEnabled ? "button" : "row"}" tabindex="${drilldownEnabled ? "0" : "-1"}">${cells}</div>`;
       })
       .join("");
     const emptyHint =
@@ -992,6 +1032,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           transition: background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
         }
         .tr.zebra { background: rgba(8, 24, 48, 0.25); }
+        .tr.drilldown-row { cursor: pointer; }
         .tr:hover {
           background: rgba(14, 58, 94, 0.42);
           box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.2);

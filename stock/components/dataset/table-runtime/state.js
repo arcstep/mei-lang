@@ -14,7 +14,13 @@ export function sharedFiltersForProps(props, queryStateId) {
 }
 
 export function activeTableFilters(props, queryStateId, localFilters = {}) {
-  return mergeFilters(sharedFiltersForProps(props, queryStateId), localFilters);
+  const defaultFilters =
+    props?.default_filters && typeof props.default_filters === "object" && !Array.isArray(props.default_filters)
+      ? props.default_filters
+      : props?.defaultFilters && typeof props.defaultFilters === "object" && !Array.isArray(props.defaultFilters)
+        ? props.defaultFilters
+        : {};
+  return mergeFilters(sharedFiltersForProps(props, queryStateId), defaultFilters, localFilters);
 }
 
 export function normalizeSort(sort) {
