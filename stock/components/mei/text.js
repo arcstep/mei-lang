@@ -338,7 +338,20 @@ function popupConfigOf(props) {
   ) {
     return null;
   }
+  const passthrough = {};
+  const filterSchema = raw.filter_schema ?? raw.filterSchema;
+  if (filterSchema && typeof filterSchema === "object" && !Array.isArray(filterSchema)) {
+    passthrough.filter_schema = filterSchema;
+  }
+  const layoutMode = String(raw.layout_mode ?? raw.layoutMode ?? "").trim();
+  if (layoutMode) passthrough.layout_mode = layoutMode;
+  const overlaySize = String(raw.overlay_size ?? raw.overlaySize ?? "").trim();
+  if (overlaySize) passthrough.overlay_size = overlaySize;
+  const queryStateId = String(raw.query_state_id ?? raw.queryStateId ?? "").trim();
+  if (queryStateId) passthrough.query_state_id = queryStateId;
+
   return {
+    ...passthrough,
     mode: mode || (isBoardLink ? "board_link" : isPanelPopup ? "popup_panel" : "popup"),
     type: popupType || "popup",
     template,

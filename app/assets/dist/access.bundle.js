@@ -10177,7 +10177,8 @@
           .map((entry) => ({
             key: nonEmptyString(entry.key),
             label: nonEmptyString(entry.label, entry.key),
-            column: nonEmptyString(entry.column),
+            column: nonEmptyString(entry.column, entry.key),
+            control: nonEmptyString(entry.control, entry.type, "text"),
           }))
           .filter((entry) => entry.key)
       : [];
@@ -11178,28 +11179,63 @@
     return true;
   }
 
-  function buildAnalyticsFilterBarProps(config) {
+  function buildAnalyticsFilterBarProps(config, detail) {
     const fields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
+    const tableProps = buildDrilldownTableProps(detail, config) || {};
+    const rowsetDatasetId = nonEmptyString(
+      config?.filterSchema?.rowsetDatasetId,
+      tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
+      tableProps?.dataset?.id,
+    );
     return {
       title: "筛选条件",
       description: "调整条件后图表与明细表将同步刷新。",
+      live: true,
       query_state: config?.queryStateId || undefined,
-      fields: fields.map((field) => ({
-        key: field.key,
-        label: field.label || field.key,
-        type: "text",
-      })),
+      rowset_dataset_id: rowsetDatasetId || undefined,
+      dataset: rowsetDatasetId
+        ? {
+            id: rowsetDatasetId,
+            shape: "table",
+            __mei_runtime_ref: {
+              dataset_id: rowsetDatasetId,
+              scene_id: nonEmptyString(config?.hostSceneId, config?.sceneId),
+            },
+          }
+        : tableProps.dataset,
+      data: rowsetDatasetId ? { id: rowsetDatasetId } : tableProps.dataset,
+      _mei: tableProps._mei,
+      fields: fields.map((field) => {
+        const column = nonEmptyString(field.column, field.key);
+        const control = nonEmptyString(field.control, "text");
+        const needsRowsetOptions = control === "multi_select" || control === "month_multi_select";
+        return {
+          key: column,
+          label: field.label || field.key || column,
+          column,
+          control,
+          options_from: needsRowsetOptions ? "rowset" : "",
+          options_field: column,
+        };
+      }),
     };
   }
 
-  async function mountAnalyticsFilterBar(root, config) {
+  async function mountAnalyticsFilterBar(root, detail, config) {
     const host = root.querySelector('[data-drilldown-filter-host="true"]');
     if (!(host instanceof HTMLElement)) return false;
+    const filterProps = buildAnalyticsFilterBarProps(config, detail);
+    const fieldCount = Array.isArray(filterProps?.fields) ? filterProps.fields.length : 0;
+    host.toggleAttribute("hidden", fieldCount === 0);
+    if (fieldCount === 0) {
+      host.replaceChildren();
+      return false;
+    }
     const registered = await ensureDrilldownFilterBarRegistered();
     if (!registered) return false;
     host.replaceChildren();
     const node = document.createElement("mei-dataset-filter-bar");
-    node.dataset.props = JSON.stringify(buildAnalyticsFilterBarProps(config));
+    node.dataset.props = JSON.stringify(filterProps);
     host.appendChild(node);
     return true;
   }
@@ -11227,7 +11263,7 @@
     chartsHost.toggleAttribute("hidden", chartSlots.length === 0);
 
     try {
-      await mountAnalyticsFilterBar(root, config);
+      await mountAnalyticsFilterBar(root, detail, config);
       const chartMounts = chartSlots.map((slot, index) => {
         const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
         const slotConfig = resolveDrilldownTabConfig(config, slot.id);

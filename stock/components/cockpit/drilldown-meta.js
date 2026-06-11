@@ -4,6 +4,31 @@ export const DRILLDOWN_EVENT_NAME = "mei:metric-drilldown";
 export const ANALYSIS_OPEN_EVENT_NAME = "mei:analysis-open";
 export const POPUP_OPEN_EVENT_NAME = "mei:popup-open";
 
+/** Lowered board_link analytics fields must survive popupConfigOf → drilldown host. */
+export function boardLinkPassthroughFields(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {};
+  }
+  const out = {};
+  const filterSchema = raw.filter_schema ?? raw.filterSchema;
+  if (filterSchema && typeof filterSchema === "object" && !Array.isArray(filterSchema)) {
+    out.filter_schema = filterSchema;
+  }
+  const layoutMode = String(raw.layout_mode ?? raw.layoutMode ?? "").trim();
+  if (layoutMode) {
+    out.layout_mode = layoutMode;
+  }
+  const overlaySize = String(raw.overlay_size ?? raw.overlaySize ?? "").trim();
+  if (overlaySize) {
+    out.overlay_size = overlaySize;
+  }
+  const queryStateId = String(raw.query_state_id ?? raw.queryStateId ?? "").trim();
+  if (queryStateId) {
+    out.query_state_id = queryStateId;
+  }
+  return out;
+}
+
 function normalizeProjectionSlots(raw) {
   if (!Array.isArray(raw)) {
     return [];
@@ -133,6 +158,7 @@ export function popupConfigOf(props) {
     return null;
   }
   return {
+    ...boardLinkPassthroughFields(raw),
     mode: mode || (isBoardLink ? "board_link" : isPanelPopup ? "popup_panel" : "popup"),
     type: popupType || "popup",
     template,
