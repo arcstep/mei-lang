@@ -52,15 +52,29 @@ pub(super) fn precompile_and_pick_active(
         }
     } else {
         let mut route_by_target = BTreeMap::<String, CompiledSceneRoute>::new();
+        let explicit_scene_scope = options
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+            || options
+                .preview_target
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some();
         if let Some(route) = active_route_meta.as_ref() {
             route_by_target.insert(route.target_file.clone(), route.clone());
         }
-        if let Some(default_route) = route_registry
-            .default_scene_id
-            .as_deref()
-            .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
-        {
-            route_by_target.insert(default_route.target_file.clone(), default_route.clone());
+        if !explicit_scene_scope {
+            if let Some(default_route) = route_registry
+                .default_scene_id
+                .as_deref()
+                .and_then(|scene_id| find_scene_route(&route_registry.routes, scene_id))
+            {
+                route_by_target.insert(default_route.target_file.clone(), default_route.clone());
+            }
         }
         if let Some(preview_route) = options
             .preview_target

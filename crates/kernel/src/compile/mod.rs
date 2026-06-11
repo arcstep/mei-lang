@@ -32,8 +32,10 @@ pub use loaders::materialize_xlsx_column_headers;
 
 pub use app_compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
-    compile_app_with_options, compile_revision_plan_from_root_with_options,
+    compile_app_from_root_with_options_and_revision, compile_app_with_options,
+    compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
+    CompileAppArtifacts,
 };
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
 

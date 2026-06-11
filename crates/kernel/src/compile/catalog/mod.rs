@@ -45,6 +45,7 @@ pub(super) fn catalog_compile_parallelism(max_jobs: usize) -> usize {
 /// 收集 dataset 声明 `.mei`（`data/dataset/**` 或 `scenes/**`），供驾驶舱 panel 等跨入口 `metric_ref` 解析。
 ///
 /// **硬约束**：仅当 `filter.is_active()` 且路径命中过滤器时才物化；绝不因 `filter == None` 或空过滤器而扫全库。
+#[cfg(test)]
 pub(super) fn compile_dataset_catalog_resources(
     app_root: &Path,
     source_root: &Path,
@@ -58,6 +59,24 @@ pub(super) fn compile_dataset_catalog_resources(
     }
 
     let compile_rels = resolve_dataset_catalog_compile_rels(app_root, filter);
+    compile_dataset_catalog_resources_for_rels(
+        app_root,
+        source_root,
+        app_decls,
+        asset_map,
+        dependency_graph,
+        compile_rels,
+    )
+}
+
+pub(super) fn compile_dataset_catalog_resources_for_rels(
+    app_root: &Path,
+    source_root: &Path,
+    app_decls: &Value,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    dependency_graph: &DependencyGraph,
+    compile_rels: Vec<String>,
+) -> Vec<LoadedResource> {
     if compile_rels.is_empty() {
         return Vec::new();
     }

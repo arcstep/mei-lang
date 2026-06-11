@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use mei_lang_kernel::{
-    host_runtime_capabilities_catalog, HOST_RUNTIME_CONTRACT_SCHEMA, HOST_RUNTIME_PROTOCOL_SCHEMA,
+    host_runtime_capabilities_catalog, CompiledApp, HOST_RUNTIME_CONTRACT_SCHEMA,
+    HOST_RUNTIME_PROTOCOL_SCHEMA,
 };
 use serde::Serialize;
 
@@ -17,6 +18,8 @@ pub struct CompileObservation {
     pub compile_cache_hit: u64,
     pub compile_cache_lookup_ms: u64,
     pub compile_cache_lock_wait_ms: u64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stage_perf: BTreeMap<String, u64>,
 }
 
 impl CompileObservation {
@@ -38,6 +41,7 @@ impl CompileObservation {
             compile_cache_hit: u64::from(outcome.cache_hit),
             compile_cache_lookup_ms: outcome.cache_lookup_ms,
             compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
+            stage_perf: collect_compile_diag_perf(&outcome.compiled),
         }
     }
 
@@ -59,6 +63,7 @@ impl CompileObservation {
             compile_cache_hit: u64::from(outcome.cache_hit),
             compile_cache_lookup_ms: outcome.cache_lookup_ms,
             compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
+            stage_perf: collect_compile_diag_perf(&outcome.compiled),
         }
     }
 
@@ -80,6 +85,7 @@ impl CompileObservation {
             compile_cache_hit: 0,
             compile_cache_lookup_ms: 0,
             compile_cache_lock_wait_ms: 0,
+            stage_perf: BTreeMap::new(),
         }
     }
 
@@ -94,6 +100,40 @@ impl CompileObservation {
             "compile_cache_lock_wait_ms".to_string(),
             self.compile_cache_lock_wait_ms,
         );
+        for (key, value) in &self.stage_perf {
+            perf.insert(key.clone(), *value);
+        }
+    }
+}
+
+fn collect_compile_diag_perf(compiled: &CompiledApp) -> BTreeMap<String, u64> {
+    let mut perf = BTreeMap::new();
+    for diag in &compiled.diagnostics {
+        match diag.code.as_str() {
+            "compile_stage_timing"
+            | "catalog_compile_stats"
+            | "dependency_graph_stats"
+            | "compile_cache_stats" => insert_numeric_pairs(&diag.message, &mut perf),
+            _ => {}
+        }
+    }
+    perf
+}
+
+fn insert_numeric_pairs(message: &str, perf: &mut BTreeMap<String, u64>) {
+    for part in message.split(',') {
+        let Some((key, value)) = part.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim();
+        if key.is_empty() {
+            continue;
+        }
+        let Ok(parsed) = value.parse::<u64>() else {
+            continue;
+        };
+        perf.insert(key.to_string(), parsed);
     }
 }
 

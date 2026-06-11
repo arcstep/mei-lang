@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use mei_lang_kernel::{
-    compile_app_with_options, resolve_app_root, CompileOptions, CompileWatchedFile, CompiledApp,
-    COMPILE_SEMANTICS_GENERATION,
+    compile_app_with_options, compile_app_with_options_and_revision, resolve_app_root,
+    CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
 };
 
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
@@ -233,10 +233,12 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     let lookup_lock_started = Instant::now();
     let cache_lookup_ms;
     let mut compile_cache_lock_wait_ms = 0u64;
+    let mut had_cache_entry = false;
     if let Ok(cache) = compile_cache().read() {
         compile_cache_lock_wait_ms += elapsed_ms(lookup_lock_started);
         let lookup_started = Instant::now();
         if let Some(entry) = cache.get(cache_key) {
+            had_cache_entry = true;
             if let Some(hit) =
                 validate_cached_entry(source_root, app_id, entry, components_root, &options)
             {
@@ -261,21 +263,54 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
         );
         cache_lookup_ms = elapsed_ms(lookup_lock_started);
     }
-    let revision_stamp = compile_revision(source_root, app_id, &options, components_root);
-    let coarse_revision = coarse_compile_revision(source_root, app_id, components_root);
     let alias_options = options.clone();
     let compile_started = Instant::now();
-    let compiled = match compile_app_with_options(source_root, app_id, options) {
-        Ok(compiled) => compiled,
-        Err(error) => {
-            return Err(CompileWithCacheFailure {
-                error,
-                revision_scope: revision_stamp.scope.to_string(),
-                cache_validation: "miss".to_string(),
-                cache_lookup_ms,
-                compile_cache_lock_wait_ms,
-                compile_ms: elapsed_ms(compile_started),
-            });
+    let (compiled, revision_stamp, coarse_revision) = if had_cache_entry {
+        let revision_stamp = compile_revision(source_root, app_id, &options, components_root);
+        let coarse_revision = coarse_compile_revision(source_root, app_id, components_root);
+        let compiled = match compile_app_with_options(source_root, app_id, options) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                return Err(CompileWithCacheFailure {
+                    error,
+                    revision_scope: revision_stamp.scope.to_string(),
+                    cache_validation: "miss".to_string(),
+                    cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
+                    compile_ms: elapsed_ms(compile_started),
+                });
+            }
+        };
+        (compiled, revision_stamp, coarse_revision)
+    } else {
+        match compile_app_with_options_and_revision(source_root, app_id, options) {
+            Ok(artifacts) => {
+                let coarse_revision = if artifacts.revision_plan.watched_files.is_empty() {
+                    coarse_compile_revision(source_root, app_id, components_root)
+                } else {
+                    0
+                };
+                (
+                    artifacts.compiled,
+                    revision::CompileRevisionStamp {
+                        token: artifacts.revision_plan.token,
+                        scope: "focused_graph",
+                        watched_files: artifacts.revision_plan.watched_files,
+                        components_revision: artifacts.revision_plan.components_revision,
+                    },
+                    coarse_revision,
+                )
+            }
+            Err(error) => {
+                return Err(CompileWithCacheFailure {
+                    error,
+                    revision_scope: "miss".to_string(),
+                    cache_validation: "miss".to_string(),
+                    cache_lookup_ms,
+                    compile_cache_lock_wait_ms,
+                    compile_ms: elapsed_ms(compile_started),
+                });
+            }
         }
     };
     let compile_ms = elapsed_ms(compile_started);

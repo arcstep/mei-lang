@@ -10,12 +10,15 @@ use crate::{
     mei_config::{
         app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MEI_CONFIG_FILENAME,
     },
+    model::CompiledSceneRoute,
     typed_refs::SceneRegistry,
     workspace::load_component_assets,
 };
 
 use crate::compile::app_decl::decode_app_decl;
-use crate::compile::catalog::{build_dataset_catalog_filter, DatasetCatalogFilter};
+use crate::compile::catalog::{
+    build_dataset_catalog_filter, resolve_dataset_catalog_compile_rels, DatasetCatalogFilter,
+};
 use crate::compile::dependency_graph::DependencyGraph;
 use crate::compile::discover_routes::{
     catalog_focus_target, inject_discovered_entry_scene_routes, is_dataset_manage_preview,
@@ -69,9 +72,6 @@ pub fn compile_revision_plan_from_root_with_options(
         options.scene.as_deref(),
         preview_only,
     );
-    let dependency_graph =
-        DependencyGraph::build_cached(app_root, &app_decls, &route_registry.routes);
-
     let active_route_meta = if let Some(requested) = options.scene.as_deref() {
         let selected = find_scene_route(&route_registry.routes, requested).cloned();
         if selected.is_none() {
@@ -106,6 +106,10 @@ pub fn compile_revision_plan_from_root_with_options(
             .cloned()
             .or_else(|| route_registry.routes.first().cloned())
     };
+    let dependency_graph_routes =
+        scoped_dependency_graph_routes(&route_registry.routes, active_route_meta.as_ref(), options);
+    let dependency_graph =
+        DependencyGraph::build_cached(app_root, &app_decls, &dependency_graph_routes);
 
     let selected_target = options
         .preview_target
@@ -128,42 +132,61 @@ pub fn compile_revision_plan_from_root_with_options(
     } else {
         build_dataset_catalog_filter(app_root, &app_decls, &dependency_graph, catalog_focus)
     };
+    Ok(build_compile_revision_plan_from_inputs(
+        source_root,
+        app_root,
+        app_entry_main.as_str(),
+        &app_decls,
+        &dependency_graph,
+        primary_target.as_str(),
+        dataset_manage_preview,
+        &catalog_filter,
+    ))
+}
 
+pub fn compile_revision_token_from_root_with_options(
+    source_root: &Path,
+    app_root: &Path,
+    options: &CompileOptions,
+) -> Result<String> {
+    Ok(compile_revision_plan_from_root_with_options(source_root, app_root, options)?.token)
+}
+
+pub(crate) fn build_compile_revision_plan_from_inputs(
+    source_root: &Path,
+    app_root: &Path,
+    app_entry_main: &str,
+    app_decls: &serde_json::Value,
+    dependency_graph: &DependencyGraph,
+    primary_target: &str,
+    dataset_manage_preview: bool,
+    catalog_filter: &DatasetCatalogFilter,
+) -> CompileRevisionPlan {
     let mut token_parts = BTreeMap::<String, String>::new();
     let mut watched_paths = BTreeSet::<String>::new();
-    watched_paths.insert(app_entry_main.clone());
-    if let Some(main_token) = dependency_graph.dependency_fingerprint_for_target(
-        app_root,
-        &app_decls,
-        app_entry_main.as_str(),
-    ) {
+    watched_paths.insert(app_entry_main.to_string());
+    if let Some(main_token) =
+        dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, app_entry_main)
+    {
         token_parts.insert("main".to_string(), main_token);
-        watched_paths.extend(dependency_graph.closure_for_target(
-            app_root,
-            &app_decls,
-            app_entry_main.as_str(),
-        ));
+        watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, app_entry_main));
     }
     if let Some(primary_token) =
-        dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &primary_target)
+        dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, primary_target)
     {
         token_parts.insert(format!("target:{primary_target}"), primary_token);
-        watched_paths.extend(dependency_graph.closure_for_target(
-            app_root,
-            &app_decls,
-            &primary_target,
-        ));
+        watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, primary_target));
     }
     if !dataset_manage_preview {
-        for rel in
-            crate::compile::catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter)
+        for rel in resolve_dataset_catalog_compile_rels(app_root, catalog_filter)
+            .into_iter()
+            .filter(|rel| rel != primary_target)
         {
             if let Some(token) =
-                dependency_graph.dependency_fingerprint_for_target(app_root, &app_decls, &rel)
+                dependency_graph.dependency_fingerprint_for_target(app_root, app_decls, &rel)
             {
                 token_parts.insert(format!("catalog:{rel}"), token);
-                watched_paths
-                    .extend(dependency_graph.closure_for_target(app_root, &app_decls, &rel));
+                watched_paths.extend(dependency_graph.closure_for_target(app_root, app_decls, &rel));
             }
         }
     }
@@ -194,17 +217,49 @@ pub fn compile_revision_plan_from_root_with_options(
             }
         })
         .collect();
-    Ok(CompileRevisionPlan {
+    CompileRevisionPlan {
         token: token_parts.into_values().collect::<Vec<_>>().join("||"),
         watched_files,
         components_revision,
-    })
+    }
 }
 
-pub fn compile_revision_token_from_root_with_options(
-    source_root: &Path,
-    app_root: &Path,
+pub(crate) fn scoped_dependency_graph_routes(
+    routes: &[CompiledSceneRoute],
+    active_route_meta: Option<&CompiledSceneRoute>,
     options: &CompileOptions,
-) -> Result<String> {
-    Ok(compile_revision_plan_from_root_with_options(source_root, app_root, options)?.token)
+) -> Vec<CompiledSceneRoute> {
+    let explicit_scene_scope = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .is_some()
+        || options
+            .preview_target
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some();
+    if !explicit_scene_scope {
+        return routes.to_vec();
+    }
+    let mut scoped = BTreeMap::<String, CompiledSceneRoute>::new();
+    if let Some(route) = active_route_meta.cloned() {
+        scoped.insert(route.target_file.clone(), route);
+    }
+    if let Some(preview_route) = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .and_then(|target| routes.iter().find(|route| route.target_file == target))
+        .cloned()
+    {
+        scoped.insert(preview_route.target_file.clone(), preview_route);
+    }
+    if scoped.is_empty() {
+        return routes.to_vec();
+    }
+    scoped.into_values().collect()
 }

@@ -49,8 +49,10 @@ pub(super) fn insert_manage_compile_observability_headers(
             "x-mei-compile-optimization-status",
             "compile_optimization_status",
         ),
+        ("x-mei-compile-stage-timing", "compile_stage_timing"),
         ("x-mei-compile-cache-stats", "compile_cache_stats"),
         ("x-mei-dependency-graph-stats", "dependency_graph_stats"),
+        ("x-mei-catalog-compile-stats", "catalog_compile_stats"),
         ("x-mei-catalog-filter-stats", "catalog_filter_stats"),
     ] {
         let Some(message) = diagnostic_message_by_code(compiled, code) else {

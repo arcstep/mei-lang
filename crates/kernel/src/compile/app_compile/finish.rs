@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::Path,
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -14,7 +15,7 @@ use super::super::catalog::DatasetCatalogFilter;
 use super::super::decl_file_cache::decl_file_cache_metrics_snapshot;
 use super::super::dependency_graph::DependencyGraph;
 use super::super::materialize_cache::dataset_materialize_cache_metrics_snapshot;
-use super::super::route_compile::RoutePrecompileStats;
+use super::super::route_compile::{elapsed_ms, RoutePrecompileStats};
 use super::super::scene::SceneRouteRegistry;
 use super::super::shards;
 use super::super::{
@@ -80,17 +81,40 @@ pub(super) fn finish_compiled_app(
         ..
     } = catalog;
 
+    let world_finalize_started = Instant::now();
+    let scene_projection_started = Instant::now();
+    let (
+        scene_local_nav_by_target,
+        scene_bindings_by_id,
+        scene_examples_by_id,
+        scene_projection_assembly_by_id,
+    ) = build_scene_projection_maps(
+        &route_registry,
+        &official_results,
+        active_scene.as_deref(),
+        &active_target_file,
+        &active_payload,
+    );
+    let scene_projection_assembly_ms = elapsed_ms(scene_projection_started);
+    let source_tree_started = Instant::now();
+    let file_tree = source_tree(app_root)?;
+    let source_tree_ms = elapsed_ms(source_tree_started);
+    let world_finalize_ms = elapsed_ms(world_finalize_started);
+
     diagnostics.push(Diagnostic {
         severity: Severity::Info,
         code: "compile_stage_timing".to_string(),
         message: format!(
-            "dependency_graph_build_ms={}, official_results_all_routes_ms={}, active_payload_pick_or_compile_ms={}, catalog_compile_ms={}, resource_merge_ms={}, world_metric_ledger_ms={}",
+            "dependency_graph_build_ms={}, official_results_all_routes_ms={}, active_payload_pick_or_compile_ms={}, catalog_compile_ms={}, resource_merge_ms={}, world_metric_ledger_ms={}, scene_projection_assembly_ms={}, source_tree_ms={}, world_finalize_ms={}",
             dependency_graph_build_ms,
             official_results_all_routes_ms,
             active_payload_pick_or_compile_ms,
             catalog_compile_ms,
             resource_merge_ms,
-            world_metric_ledger_ms
+            world_metric_ledger_ms,
+            scene_projection_assembly_ms,
+            source_tree_ms,
+            world_finalize_ms
         ),
         source_path: Some(app_main_source.clone()),
     });
@@ -112,19 +136,6 @@ pub(super) fn finish_compiled_app(
         &app_main_source,
     );
 
-    let (
-        scene_local_nav_by_target,
-        scene_bindings_by_id,
-        scene_examples_by_id,
-        scene_projection_assembly_by_id,
-    ) = build_scene_projection_maps(
-        &route_registry,
-        &official_results,
-        active_scene.as_deref(),
-        &active_target_file,
-        &active_payload,
-    );
-
     Ok(CompiledApp {
         app_id: app_id.to_string(),
         title,
@@ -132,7 +143,7 @@ pub(super) fn finish_compiled_app(
         scene_routes: route_registry.routes,
         active_scene,
         active_target_file,
-        file_tree: source_tree(app_root)?,
+        file_tree,
         scene_contract: active_payload.scene_contract.take(),
         scene_local_nav_by_target,
         scene_bindings_by_id,

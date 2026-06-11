@@ -20,7 +20,8 @@ pub use compile::{
     clear_runtime_compile_caches, clear_runtime_eval_node_cache, coerce_row_to_schema,
     coerce_rows_to_schema,
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
-    compile_app_with_options, compile_revision_plan_from_root_with_options,
+    compile_app_from_root_with_options_and_revision, compile_app_with_options,
+    compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
     evaluate_runtime_metric_defs_with_scope_and_dag,
@@ -28,7 +29,7 @@ pub use compile::{
     materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
     resolve_runtime_metric_def_key, runtime_analysis_closure_metric_ids,
     runtime_eval_node_cache_enabled, scene_payload_cache_epoch, try_get_cached_xlsx_table_snapshot,
-    CompileOptions, CompileRevisionPlan, CompileWatchedFile, EvalPlan, EvalPlanEdge,
+    CompileAppArtifacts, CompileOptions, CompileRevisionPlan, CompileWatchedFile, EvalPlan, EvalPlanEdge,
     EvalPlanEdgeKind, EvalPlanNode, EvalPlanNodeKind, EvalPlanScope, RequestDagMetrics,
     RuntimeMetricEvalReport, RuntimeMetricEvalScope, TableSnapshot, TableSnapshotKey,
 };

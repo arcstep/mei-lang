@@ -11,8 +11,8 @@ use crate::model::{Diagnostic, LoadedResource, Severity, WorldMetricLedgerEntry}
 use crate::typed_refs::SceneRegistry;
 
 use super::super::catalog::{
-    build_dataset_catalog_filter, catalog_compile_parallelism, compile_dataset_catalog_resources,
-    merge_resource_catalog, DatasetCatalogFilter,
+    build_dataset_catalog_filter, catalog_compile_parallelism,
+    compile_dataset_catalog_resources_for_rels, merge_resource_catalog, DatasetCatalogFilter,
 };
 use super::super::dependency_graph::DependencyGraph;
 use super::super::discover_routes::{
@@ -73,17 +73,22 @@ pub(super) fn compile_catalog_and_merge_resources(
     } else {
         let l2_before_catalog = scene_payload_cache_metrics_snapshot();
         let catalog_started = Instant::now();
-        catalog_compile_rels =
-            super::super::catalog::resolve_dataset_catalog_compile_rels(app_root, &catalog_filter)
-                .len();
+        let compile_rels = super::super::catalog::resolve_dataset_catalog_compile_rels(
+            app_root,
+            &catalog_filter,
+        )
+        .into_iter()
+        .filter(|rel| rel != active_target_file)
+        .collect::<Vec<_>>();
+        catalog_compile_rels = compile_rels.len();
         catalog_parallelism = catalog_compile_parallelism(catalog_compile_rels);
-        let out = compile_dataset_catalog_resources(
+        let out = compile_dataset_catalog_resources_for_rels(
             app_root,
             source_root,
             app_decls,
             asset_map,
-            &catalog_filter,
             dependency_graph,
+            compile_rels,
         );
         catalog_compile_ms = elapsed_ms(catalog_started);
         let l2_after_catalog = scene_payload_cache_metrics_snapshot();

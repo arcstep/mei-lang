@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
+use crate::http::observation::CompileObservation;
 
 use super::app::clear_page_render_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
@@ -194,8 +195,13 @@ pub async fn dataset_query_api(
                 );
                 AppError::from(failure.error)
             })?;
+    let compile_observation = CompileObservation::from_compile_outcome_shared(
+        &app_id,
+        "-",
+        None,
+        &compile_outcome,
+    );
     let compiled = compile_outcome.compiled;
-    let compile_ms = compile_outcome.compile_ms;
     let scene_ctx = resolved_scene_context(&compiled);
     let normalized_dataset_id = request.dataset_id.trim();
     let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
@@ -293,19 +299,7 @@ pub async fn dataset_query_api(
     let query_ms = elapsed_ms(query_started);
     result = enrich_table_result(dataset, &query, result);
     let mut perf = result.perf.clone();
-    perf.insert("compile_ms".to_string(), compile_ms);
-    perf.insert(
-        "compile_cache_hit".to_string(),
-        u64::from(compile_outcome.cache_hit),
-    );
-    perf.insert(
-        "compile_cache_lookup_ms".to_string(),
-        compile_outcome.cache_lookup_ms,
-    );
-    perf.insert(
-        "compile_cache_lock_wait_ms".to_string(),
-        compile_outcome.compile_cache_lock_wait_ms,
-    );
+    compile_observation.write_perf(&mut perf);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
     let total_ms = elapsed_ms(request_started);
@@ -320,7 +314,7 @@ pub async fn dataset_query_api(
         page_size = result.page_size,
         total_rows = result.total,
         compile_cache_hit = compile_outcome.cache_hit,
-        compile_ms,
+        compile_ms = compile_observation.compile_ms,
         query_api_ms = query_ms,
         total_ms,
         "dataset query finished"

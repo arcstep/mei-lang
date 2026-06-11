@@ -26,8 +26,8 @@ use super::dependency_graph::{
     DependencyGraph,
 };
 use super::discover_routes::{
-    inject_discovered_entry_scene_routes, is_manage_preview_only_compile,
-    push_app_config_diagnostics, CompileOptions,
+    inject_discovered_entry_scene_routes, is_dataset_manage_preview, is_manage_preview_only_compile,
+    push_app_config_diagnostics, CompileOptions, CompileRevisionPlan,
 };
 use super::materialize_cache::dataset_materialize_cache_metrics_snapshot;
 use super::route_compile::{elapsed_ms, resolve_active_route_meta};
@@ -35,6 +35,9 @@ use super::scene::resolve_scene_routes;
 use super::scene_payload_cache::scene_payload_cache_metrics_snapshot;
 
 use active::precompile_and_pick_active;
+use app_compile_revision::{
+    build_compile_revision_plan_from_inputs, scoped_dependency_graph_routes,
+};
 use catalog::{compile_catalog_and_merge_resources, push_catalog_compile_diagnostics};
 use finish::{finish_compiled_app, CompileCacheBefore};
 
@@ -42,6 +45,11 @@ pub use app_compile_revision::{
     compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
     resolve_default_scene_from_root,
 };
+
+pub struct CompileAppArtifacts {
+    pub compiled: CompiledApp,
+    pub revision_plan: CompileRevisionPlan,
+}
 
 pub fn compile_app(source_root: &Path, app_id: &str) -> Result<CompiledApp> {
     compile_app_with_options(source_root, app_id, CompileOptions::default())
@@ -52,8 +60,19 @@ pub fn compile_app_with_options(
     app_id: &str,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
+    Ok(
+        compile_app_with_options_and_revision(source_root, app_id, options)?
+            .compiled,
+    )
+}
+
+pub fn compile_app_with_options_and_revision(
+    source_root: &Path,
+    app_id: &str,
+    options: CompileOptions,
+) -> Result<CompileAppArtifacts> {
     let app_root = resolve_app_root(source_root, app_id);
-    compile_app_from_root_with_options(source_root, &app_root, options)
+    compile_app_from_root_with_options_and_revision(source_root, &app_root, options)
 }
 
 pub fn compile_app_from_root(source_root: &Path, app_root: &Path) -> Result<CompiledApp> {
@@ -65,6 +84,17 @@ pub fn compile_app_from_root_with_options(
     app_root: &Path,
     options: CompileOptions,
 ) -> Result<CompiledApp> {
+    Ok(
+        compile_app_from_root_with_options_and_revision(source_root, app_root, options)?
+            .compiled,
+    )
+}
+
+pub fn compile_app_from_root_with_options_and_revision(
+    source_root: &Path,
+    app_root: &Path,
+    options: CompileOptions,
+) -> Result<CompileAppArtifacts> {
     let cache_before = CompileCacheBefore {
         l2_hits: scene_payload_cache_metrics_snapshot().0,
         l2_misses: scene_payload_cache_metrics_snapshot().1,
@@ -103,9 +133,17 @@ pub fn compile_app_from_root_with_options(
         preview_only,
     );
     let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    let (active_route_meta, unknown_scene_requested) = resolve_active_route_meta(
+        &route_registry.routes,
+        route_registry.default_scene_id.as_deref(),
+        options.scene.as_deref(),
+        options.preview_target.as_deref(),
+    );
+    let dependency_graph_routes =
+        scoped_dependency_graph_routes(&route_registry.routes, active_route_meta.as_ref(), &options);
     let dependency_graph_started = Instant::now();
     let dependency_graph =
-        DependencyGraph::build_cached(app_root, &app_decls, &route_registry.routes);
+        DependencyGraph::build_cached(app_root, &app_decls, &dependency_graph_routes);
     let dependency_graph_build_ms = elapsed_ms(dependency_graph_started);
     let preview_affected_targets = options
         .preview_target
@@ -113,12 +151,6 @@ pub fn compile_app_from_root_with_options(
         .map(str::trim)
         .filter(|target| !target.is_empty())
         .map(|target| dependency_graph.dependent_targets_for_file(target));
-    let (active_route_meta, unknown_scene_requested) = resolve_active_route_meta(
-        &route_registry.routes,
-        route_registry.default_scene_id.as_deref(),
-        options.scene.as_deref(),
-        options.preview_target.as_deref(),
-    );
     if unknown_scene_requested {
         diagnostics.push(Diagnostic {
             severity: Severity::Warning,
@@ -168,7 +200,18 @@ pub fn compile_app_from_root_with_options(
     )?;
     push_catalog_compile_diagnostics(&mut diagnostics, &app_main, &catalog);
 
-    finish_compiled_app(
+    let revision_plan = build_compile_revision_plan_from_inputs(
+        source_root,
+        app_root,
+        app_entry_main.as_str(),
+        &app_decls,
+        &dependency_graph,
+        active.active_target_file.as_str(),
+        is_dataset_manage_preview(&options, app_entry_main.as_str()),
+        &catalog.catalog_filter,
+    );
+
+    let compiled = finish_compiled_app(
         app_root,
         app_decl.id.as_str(),
         title,
@@ -181,5 +224,10 @@ pub fn compile_app_from_root_with_options(
         cache_before,
         &app_main,
         &mut diagnostics,
-    )
+    )?;
+
+    Ok(CompileAppArtifacts {
+        compiled,
+        revision_plan,
+    })
 }
