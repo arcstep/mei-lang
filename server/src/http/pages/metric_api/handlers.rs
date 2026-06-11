@@ -1,16 +1,17 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::time::Instant;
 
-use super::super::super::compile_cache::compile_app_with_cache;
+use super::super::super::compile_cache::compile_app_with_cache_shared;
 use super::super::components::resolve_components_root;
 use super::super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
-    strict_runtime_query_contract, strict_scene_query_coords,
+    strict_runtime_query_contract, strict_scene_query_coords, SceneQueryCoords,
 };
 use super::super::util::elapsed_ms;
 use super::assembly::{
     hash_metric_response_cache_key, metric_eval_diagnostic_code, write_dag_perf,
-    MetricQueryRequest, MetricQueryResponse,
+    MetricQueryGroupRequest, MetricQueryGroupResponse, MetricQueryRequest, MetricQueryResponse,
 };
 use crate::http::observation::{CompileObservation, EvalObservation};
 use crate::{AppError, AppState};
@@ -20,12 +21,28 @@ use axum::{
     Json,
 };
 use mei_lang_datasets::{
-    collect_all_query_options, evaluate_runtime_metrics_from_plan, metric_response_cache_scope_key,
+    collect_all_query_options, evaluate_runtime_metrics_from_plan,
+    metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
     project_requested_metrics, query_state_from_request, runtime_metric_scope_requested,
-    store_cached_metric_response, take_cached_metric_response, RuntimeMetricEvalMode,
+    runtime_metric_workset, store_cached_metric_response, take_cached_metric_response,
+    RuntimeMetricEvalMode,
 };
-use mei_lang_kernel::resolve_app_root;
+use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
+
+#[derive(Debug, Clone)]
+struct MetricQueryExecutionContext<'a> {
+    app_id: &'a str,
+    app_root: &'a Path,
+    compiled: &'a mei_lang_kernel::CompiledApp,
+    coords: &'a SceneQueryCoords,
+    scene_id: &'a str,
+    scene_path: Option<&'a str>,
+    compile_observation: CompileObservation,
+    compile_revision: &'a str,
+    effective_query_state: &'a QueryState,
+    filter_intents: &'a [FilterIntent],
+}
 
 pub async fn dataset_metric_api(
     State(state): State<AppState>,
@@ -59,17 +76,23 @@ pub async fn dataset_metric_api(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("-");
-    let requested_dataset_id = request.dataset_id.trim().to_string();
-    let requested_metric_ids = if request.metric_ids.is_empty() {
-        "-".to_string()
+    let request_groups = normalize_metric_query_groups(&request)?;
+    let request_group_count = request_groups.len();
+    let requested_dataset_id = if request_group_count > 1 {
+        format!("batch:{request_group_count}")
     } else {
-        request
-            .metric_ids
-            .iter()
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>()
-            .join(",")
+        request_groups
+            .first()
+            .map(|group| group.dataset_id.clone())
+            .unwrap_or_else(|| "-".to_string())
+    };
+    let requested_metric_ids = if request_group_count > 1 {
+        format!("batch_groups={request_group_count}")
+    } else {
+        request_groups
+            .first()
+            .map(|group| requested_metric_ids_label(&group.metric_ids))
+            .unwrap_or_else(|| "-".to_string())
     };
     let request_span = tracing::info_span!(
         "dataset_metric_api",
@@ -80,7 +103,8 @@ pub async fn dataset_metric_api(
         metric_ids = %requested_metric_ids
     );
     let _request_span_guard = request_span.enter();
-    tracing::info!("metric query started");
+    tracing::info!(metric_group_count = request_group_count, "metric query started");
+
     let coords = strict_scene_query_coords(
         request.scene_id.clone(),
         request.target.clone(),
@@ -89,7 +113,7 @@ pub async fn dataset_metric_api(
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
     let compile_outcome =
-        compile_app_with_cache(&state, &app_id, compile_options, components_root.as_path())
+        compile_app_with_cache_shared(&state, &app_id, compile_options, components_root.as_path())
             .map_err(|failure| {
                 tracing::warn!(
                     app_id = %app_id,
@@ -106,38 +130,13 @@ pub async fn dataset_metric_api(
                 );
                 AppError::from(failure.error)
             })?;
-    let compile_ms = compile_outcome.compile_ms;
     let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
-    let compile_observation = CompileObservation::from_compile_outcome(
+    let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
         &scene_ctx.scene_id,
         scene_ctx.scene_path.as_deref(),
         &compile_outcome,
     );
-    let compiled = compile_outcome.compiled;
-    let normalized_dataset_id = request.dataset_id.trim();
-    let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
-        .map_err(|error| {
-            tracing::warn!(
-                app_id = %app_id,
-                scene_id = %requested_scene_id,
-                target = %requested_target,
-                dataset_id = %requested_dataset_id,
-                metric_ids = %requested_metric_ids,
-                phase = "locate_dataset",
-                error = ?error,
-                "metric query locate failed"
-            );
-            AppError::from(error)
-        })?;
-    let locate_started = Instant::now();
-    let locate_dataset_ms = elapsed_ms(locate_started);
-    let dataset = resource.dataset.as_ref().ok_or_else(|| {
-        AppError::status(
-            StatusCode::BAD_REQUEST,
-            format!("resource `{}` is not a dataset", resource.id),
-        )
-    })?;
     let normalized_search = normalize_query_search(request.search.as_deref());
     let normalized_filters = normalize_query_filters(&request.filters);
     let effective_query_state = query_state_from_request(
@@ -145,12 +144,136 @@ pub async fn dataset_metric_api(
         normalized_search.as_deref(),
         request.query_state.as_ref(),
     );
-    if !dataset.has_runtime_metric_defs() && dataset.uses_compiled_metric_snapshot_only() {
-        if runtime_metric_scope_requested(&effective_query_state, &request.filter_intents) {
+    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
+    let execution_ctx = MetricQueryExecutionContext {
+        app_id: &app_id,
+        app_root: app_root.as_path(),
+        compiled: &compile_outcome.compiled,
+        coords: &coords,
+        scene_id: &scene_ctx.scene_id,
+        scene_path: scene_ctx.scene_path.as_deref(),
+        compile_observation,
+        compile_revision: &compile_outcome.compile_revision,
+        effective_query_state: &effective_query_state,
+        filter_intents: &request.filter_intents,
+    };
+
+    if request_group_count == 1 {
+        let group = execute_metric_query_group(&execution_ctx, &request_groups[0])?;
+        return Ok(Json(MetricQueryResponse {
+            scene_id: scene_ctx.scene_id,
+            scene_path: scene_ctx.scene_path,
+            dataset_id: group.dataset_id.clone(),
+            total_rows: group.total_rows,
+            metrics: group.metrics,
+            perf: group.perf,
+            groups: Vec::new(),
+        }));
+    }
+
+    let mut groups = Vec::with_capacity(request_groups.len());
+    let batch_started = Instant::now();
+    for group in &request_groups {
+        groups.push(execute_metric_query_group(&execution_ctx, group)?);
+    }
+    let mut perf = BTreeMap::new();
+    execution_ctx.compile_observation.write_perf(&mut perf);
+    perf.insert("metric_group_count".to_string(), groups.len() as u64);
+    perf.insert("metric_group_dataset_count".to_string(), groups.len() as u64);
+    perf.insert("response_group_count".to_string(), groups.len() as u64);
+    perf.insert("batch_eval_ms".to_string(), elapsed_ms(batch_started));
+    perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+    Ok(Json(MetricQueryResponse {
+        scene_id: scene_ctx.scene_id,
+        scene_path: scene_ctx.scene_path,
+        dataset_id: "__scene_batch__".to_string(),
+        total_rows: groups.iter().map(|group| group.total_rows).max().unwrap_or(0),
+        metrics: Vec::new(),
+        perf,
+        groups,
+    }))
+}
+
+fn normalize_metric_query_groups(
+    request: &MetricQueryRequest,
+) -> Result<Vec<MetricQueryGroupRequest>, AppError> {
+    let mut groups = if request.metric_groups.is_empty() {
+        vec![MetricQueryGroupRequest {
+            dataset_id: request.dataset_id.trim().to_string(),
+            metric_ids: request.metric_ids.clone(),
+        }]
+    } else {
+        request.metric_groups.clone()
+    };
+    if groups.is_empty() {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            "metric query requires at least one dataset binding",
+        ));
+    }
+    for group in &mut groups {
+        group.dataset_id = group.dataset_id.trim().to_string();
+        if group.dataset_id.is_empty() {
+            return Err(AppError::status(
+                StatusCode::BAD_REQUEST,
+                "metric query batch requires non-empty `dataset_id`",
+            ));
+        }
+        group.metric_ids = group
+            .metric_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        group.metric_ids.sort();
+        group.metric_ids.dedup();
+    }
+    Ok(groups)
+}
+
+fn requested_metric_ids_label(metric_ids: &[String]) -> String {
+    if metric_ids.is_empty() {
+        "-".to_string()
+    } else {
+        metric_ids.join(",")
+    }
+}
+
+fn execute_metric_query_group(
+    ctx: &MetricQueryExecutionContext<'_>,
+    request: &MetricQueryGroupRequest,
+) -> Result<MetricQueryGroupResponse, AppError> {
+    let request_started = Instant::now();
+    let requested_metric_ids = requested_metric_ids_label(&request.metric_ids);
+    let locate_started = Instant::now();
+    let resource = locate_dataset_resource(ctx.compiled, request.dataset_id.trim(), Some(ctx.coords))
+        .map_err(|error| {
             tracing::warn!(
-                app_id = %app_id,
-                scene_id = %scene_ctx.scene_id,
-                target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+                app_id = %ctx.app_id,
+                scene_id = %ctx.scene_id,
+                target = %ctx.scene_path.unwrap_or("-"),
+                dataset_id = %request.dataset_id,
+                metric_ids = %requested_metric_ids,
+                phase = "locate_dataset",
+                error = ?error,
+                "metric query locate failed"
+            );
+            AppError::from(error)
+        })?;
+    let locate_dataset_ms = elapsed_ms(locate_started);
+    let dataset = resource.dataset.as_ref().ok_or_else(|| {
+        AppError::status(
+            StatusCode::BAD_REQUEST,
+            format!("resource `{}` is not a dataset", resource.id),
+        )
+    })?;
+    if !dataset.has_runtime_metric_defs() && dataset.uses_compiled_metric_snapshot_only() {
+        if runtime_metric_scope_requested(ctx.effective_query_state, ctx.filter_intents) {
+            tracing::warn!(
+                app_id = %ctx.app_id,
+                scene_id = %ctx.scene_id,
+                target = %ctx.scene_path.unwrap_or("-"),
                 dataset_id = %resource.id,
                 metric_ids = %requested_metric_ids,
                 phase = "metric_defs",
@@ -174,41 +297,27 @@ pub async fn dataset_metric_api(
                 .collect::<Vec<_>>()
         };
         let mut perf = BTreeMap::new();
-        compile_observation.write_perf(&mut perf);
+        ctx.compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("compat_compiled_metric_snapshot_fallback".to_string(), 1);
-        let total_ms = elapsed_ms(request_started);
-        perf.insert("total_ms".to_string(), total_ms);
-        tracing::info!(
-            app_id = %app_id,
-            scene_id = %scene_ctx.scene_id,
-            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-            dataset_id = %resource.id,
-            metric_ids = %requested_metric_ids,
-            compile_cache_hit = compile_outcome.cache_hit,
-            compile_ms,
-            total_rows = 0,
-            total_ms,
-            "metric query finished (dataset static metrics fallback)"
-        );
-        return Ok(Json(MetricQueryResponse {
-            scene_id: scene_ctx.scene_id,
-            scene_path: scene_ctx.scene_path,
+        perf.insert("total_ms".to_string(), elapsed_ms(request_started));
+        return Ok(MetricQueryGroupResponse {
             dataset_id: resource.id.clone(),
             total_rows: 0,
             metrics,
             perf,
-        }));
+        });
     }
+
     let request_all_metrics = request.metric_ids.is_empty();
     let access_plan =
-        plan_access_metric_eval_for_ids(&compiled, normalized_dataset_id, &request.metric_ids)
+        plan_access_metric_eval_for_ids(ctx.compiled, request.dataset_id.trim(), &request.metric_ids)
             .map_err(|error| {
                 tracing::warn!(
-                    app_id = %app_id,
-                    scene_id = %scene_ctx.scene_id,
-                    target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-                    dataset_id = %requested_dataset_id,
+                    app_id = %ctx.app_id,
+                    scene_id = %ctx.scene_id,
+                    target = %ctx.scene_path.unwrap_or("-"),
+                    dataset_id = %request.dataset_id,
                     metric_ids = %requested_metric_ids,
                     phase = "metric_defs",
                     error = %error,
@@ -217,40 +326,33 @@ pub async fn dataset_metric_api(
                 AppError::status(StatusCode::BAD_REQUEST, error.to_string())
             })?;
     let owner_dataset = access_plan.owner_dataset;
-    let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
-    let query = collect_all_query_options(&effective_query_state);
-    let response_cache_key = metric_response_cache_scope_key(
-        &app_id,
-        &scene_ctx.scene_id,
-        scene_ctx.scene_path.as_deref(),
-        &access_plan.owner.id,
-        &query,
-        &compile_outcome.compile_revision,
-        &mei_lang_datasets::metric_request_revision_fingerprint(
-            &app_root,
-            &mei_lang_datasets::build_compiled_datasets_map(
-                &compiled,
-                &access_plan.primary.id,
-                access_plan.primary_dataset.clone(),
-            ),
-            &access_plan.owner.id,
-            &mei_lang_datasets::runtime_metric_workset(
-                &access_plan.owner.id,
-                &access_plan.request_metric_ids,
-                owner_dataset,
-            )
-            .defs_for_hydrate,
-        ),
-    );
-    let requested_eval_metric_ids = mei_lang_datasets::runtime_metric_workset(
+    let runtime_workset = runtime_metric_workset(
         &access_plan.owner.id,
         &access_plan.request_metric_ids,
         owner_dataset,
-    )
-    .eval_metric_ids
-    .unwrap_or_default()
-    .into_iter()
-    .collect::<BTreeSet<_>>();
+    );
+    let requested_eval_metric_ids = runtime_workset
+        .eval_metric_ids
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        ctx.app_root,
+        ctx.compiled,
+        &access_plan.owner.id,
+        &runtime_workset.defs_for_hydrate,
+    );
+    let query = collect_all_query_options(ctx.effective_query_state);
+    let response_cache_key = metric_response_cache_scope_key(
+        ctx.app_id,
+        ctx.scene_id,
+        ctx.scene_path,
+        &access_plan.owner.id,
+        &query,
+        ctx.compile_revision,
+        &dependency_revision_key,
+    );
     let response_cache_lookup_started = Instant::now();
     if let Some(cached) = take_cached_metric_response(
         &response_cache_key,
@@ -258,7 +360,7 @@ pub async fn dataset_metric_api(
         request_all_metrics,
     ) {
         let mut perf = BTreeMap::new();
-        compile_observation.write_perf(&mut perf);
+        ctx.compile_observation.write_perf(&mut perf);
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         let mut eval_observation = EvalObservation::new(true)
             .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
@@ -278,31 +380,30 @@ pub async fn dataset_metric_api(
             "response_cache_complete".to_string(),
             u64::from(cached.complete),
         );
-        let total_ms = elapsed_ms(request_started);
-        perf.insert("total_ms".to_string(), total_ms);
+        perf.insert("total_ms".to_string(), elapsed_ms(request_started));
         eval_observation.write_perf(&mut perf);
-        return Ok(Json(MetricQueryResponse {
-            scene_id: scene_ctx.scene_id,
-            scene_path: scene_ctx.scene_path,
+        let metrics = project_requested_metrics(
+            &access_plan.owner.id,
+            &access_plan.request_metric_ids,
+            &owner_dataset.runtime_metric_defs,
+            &cached.metrics_map,
+        );
+        return Ok(MetricQueryGroupResponse {
             dataset_id: resource.id.clone(),
             total_rows: cached.total_rows,
-            metrics: project_requested_metrics(
-                &access_plan.owner.id,
-                &access_plan.request_metric_ids,
-                &owner_dataset.runtime_metric_defs,
-                &cached.metrics_map,
-            ),
+            metrics,
             perf,
-        }));
+        });
     }
+
     let eval_outcome = evaluate_runtime_metrics_from_plan(
-        &compiled,
-        &app_root,
+        ctx.compiled,
+        ctx.app_root,
         &access_plan,
-        &scene_ctx.scene_id,
-        scene_ctx.scene_path.as_deref(),
-        &effective_query_state,
-        &request.filter_intents,
+        ctx.scene_id,
+        ctx.scene_path,
+        ctx.effective_query_state,
+        ctx.filter_intents,
         RuntimeMetricEvalMode::WithDag,
         request_all_metrics,
     )
@@ -310,9 +411,9 @@ pub async fn dataset_metric_api(
         let error_text = error.to_string();
         let diagnostic_code = metric_eval_diagnostic_code(&error_text);
         tracing::warn!(
-            app_id = %app_id,
-            scene_id = %scene_ctx.scene_id,
-            target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
+            app_id = %ctx.app_id,
+            scene_id = %ctx.scene_id,
+            target = %ctx.scene_path.unwrap_or("-"),
             dataset_id = %resource.id,
             metric_ids = %requested_metric_ids,
             diagnostic_code,
@@ -325,7 +426,7 @@ pub async fn dataset_metric_api(
     let metrics = eval_outcome.metrics;
     let metrics_map = eval_outcome.metrics_map;
     let mut perf = eval_outcome.query_perf;
-    compile_observation.write_perf(&mut perf);
+    ctx.compile_observation.write_perf(&mut perf);
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     let mut eval_observation = EvalObservation::new(false)
         .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
@@ -363,22 +464,7 @@ pub async fn dataset_metric_api(
         perf.insert(key, value);
     }
     perf.insert("metric_eval_ms".to_string(), eval_outcome.metric_eval_ms);
-    let total_ms = elapsed_ms(request_started);
-    perf.insert("total_ms".to_string(), total_ms);
-    tracing::info!(
-        app_id = %app_id,
-        scene_id = %scene_ctx.scene_id,
-        target = %scene_ctx.scene_path.as_deref().unwrap_or("-"),
-        dataset_id = %resource.id,
-        metric_ids = %requested_metric_ids,
-        compile_cache_hit = compile_outcome.cache_hit,
-        compile_ms,
-        query_api_ms = eval_outcome.query_ms,
-        metric_eval_ms = eval_outcome.metric_eval_ms,
-        total_rows = eval_outcome.total_rows,
-        total_ms,
-        "metric query finished"
-    );
+    perf.insert("total_ms".to_string(), elapsed_ms(request_started));
     store_cached_metric_response(
         response_cache_key,
         eval_outcome.total_rows,
@@ -386,12 +472,10 @@ pub async fn dataset_metric_api(
         &requested_eval_metric_ids,
         request_all_metrics,
     );
-    Ok(Json(MetricQueryResponse {
-        scene_id: scene_ctx.scene_id,
-        scene_path: scene_ctx.scene_path,
+    Ok(MetricQueryGroupResponse {
         dataset_id: resource.id.clone(),
         total_rows: eval_outcome.total_rows,
         metrics,
         perf,
-    }))
+    })
 }

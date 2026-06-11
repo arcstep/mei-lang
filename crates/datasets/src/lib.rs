@@ -128,6 +128,20 @@ pub fn metric_request_revision_fingerprint(
     )
 }
 
+pub fn metric_request_revision_fingerprint_for_compiled(
+    app_root: &Path,
+    compiled: &CompiledApp,
+    base_dataset_id: &str,
+    metric_defs: &BTreeMap<String, Value>,
+) -> String {
+    metric_cache_key::metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        compiled,
+        base_dataset_id,
+        metric_defs,
+    )
+}
+
 pub fn runtime_metric_eval_scope(
     binding_dataset: Option<&DatasetView>,
     base_dataset_id: &str,

@@ -15,8 +15,21 @@ pub(crate) fn paginate_rows(
     options: &DatasetQueryOptions,
     lazy: bool,
 ) -> DatasetQueryResult {
+    paginate_rows_iter(rows, columns_hint, normalize, options, lazy)
+}
+
+pub(crate) fn paginate_rows_iter<I>(
+    rows: I,
+    columns_hint: &[String],
+    normalize: &BTreeMap<String, String>,
+    options: &DatasetQueryOptions,
+    lazy: bool,
+) -> DatasetQueryResult
+where
+    I: IntoIterator<Item = Value>,
+{
     if !options.sort.is_empty() {
-        return paginate_rows_sorted(rows, columns_hint, normalize, options, lazy);
+        return paginate_rows_sorted_iter(rows, columns_hint, normalize, options, lazy);
     }
     let collect_all = options.collect_all;
     let offset = if collect_all {
@@ -76,13 +89,16 @@ pub(crate) fn paginate_rows(
     }
 }
 
-fn paginate_rows_sorted(
-    rows: Vec<Value>,
+fn paginate_rows_sorted_iter<I>(
+    rows: I,
     columns_hint: &[String],
     normalize: &BTreeMap<String, String>,
     options: &DatasetQueryOptions,
     lazy: bool,
-) -> DatasetQueryResult {
+) -> DatasetQueryResult
+where
+    I: IntoIterator<Item = Value>,
+{
     let search = normalize_search(options.search.as_deref());
     let mut matched = Vec::new();
     let mut columns = if columns_hint.is_empty() {
@@ -147,7 +163,7 @@ fn paginate_rows_sorted(
     }
 }
 
-fn normalize_search(search: Option<&str>) -> Option<String> {
+pub(crate) fn normalize_search(search: Option<&str>) -> Option<String> {
     search
         .map(str::trim)
         .filter(|value| !value.is_empty())

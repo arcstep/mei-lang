@@ -2111,7 +2111,7 @@
   }
 
   let metricPrefetchTimer = null;
-  function scheduleMetricPrefetch() {
+  function scheduleMetricPrefetch(delayMs = 16) {
     if (metricPrefetchTimer != null) {
       clearTimeout(metricPrefetchTimer);
     }
@@ -2121,7 +2121,7 @@
         return;
       }
       window.dispatchEvent(new CustomEvent("meilang:prefetch-panel-metrics"));
-    }, 80);
+    }, Math.max(0, Number(delayMs) || 0));
   }
 
   function scheduleViewportRelayout() {
@@ -2132,16 +2132,20 @@
           if (isManagePreviewRoute(root)) invalidateManageLayout(root);
           queueUpdateViewport(root);
         });
-      requestAnimationFrame(() => scheduleMetricPrefetch());
+      scheduleMetricPrefetch(0);
     });
   }
 
   let domReadyHandler = null;
   if (document.readyState === "loading") {
-    domReadyHandler = () => scan();
+    domReadyHandler = () => {
+      scan();
+      scheduleMetricPrefetch(0);
+    };
     document.addEventListener("DOMContentLoaded", domReadyHandler, { once: true });
   } else {
     scan();
+    scheduleMetricPrefetch(0);
   }
 
   function onManageTabChange(event) {
@@ -10815,6 +10819,11 @@
             scene_qualified: true,
           },
           metric_query: {
+            enabled: true,
+            api: `/api/datasets/metrics/${appPath}`,
+            scene_qualified: true,
+          },
+          metric_batch_query: {
             enabled: true,
             api: `/api/datasets/metrics/${appPath}`,
             scene_qualified: true,

@@ -51,7 +51,7 @@ pub struct HostExtensionDescriptor {
     pub requires_browser_context: Option<bool>,
 }
 
-const HOST_EXTENSION_REGISTRY: [HostExtensionDescriptor; 5] = [
+const HOST_EXTENSION_REGISTRY: [HostExtensionDescriptor; 6] = [
     HostExtensionDescriptor {
         id: "rows_query(scene_qualified)",
         kind: HostExtensionKind::RuntimeCapability,
@@ -64,6 +64,14 @@ const HOST_EXTENSION_REGISTRY: [HostExtensionDescriptor; 5] = [
         id: "metric_query(scene_qualified)",
         kind: HostExtensionKind::RuntimeCapability,
         description: "Scene-qualified aggregate metric query exposed by the host runtime.",
+        consumer: "mei-host-web",
+        requires_auth: None,
+        requires_browser_context: Some(true),
+    },
+    HostExtensionDescriptor {
+        id: "metric_batch_query(scene_qualified)",
+        kind: HostExtensionKind::RuntimeCapability,
+        description: "Scene-qualified batch aggregate metric query exposed by the host runtime.",
         consumer: "mei-host-web",
         requires_auth: None,
         requires_browser_context: Some(true),

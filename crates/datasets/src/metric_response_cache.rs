@@ -8,6 +8,7 @@ use super::serialize_cache_value;
 use super::types::DatasetQueryOptions;
 
 const METRIC_RESPONSE_CACHE_TTL_MS: u64 = 300_000;
+const METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
 
 #[derive(Debug, Clone)]
 pub struct CachedMetricResponse {
@@ -18,9 +19,26 @@ pub struct CachedMetricResponse {
     expires_at: Instant,
 }
 
-fn metric_response_cache() -> &'static Mutex<BTreeMap<String, CachedMetricResponse>> {
-    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedMetricResponse>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+#[derive(Default)]
+struct MetricResponseCacheState {
+    entries: BTreeMap<String, CachedMetricResponse>,
+    next_prune_at: Option<Instant>,
+}
+
+impl MetricResponseCacheState {
+    fn prune_if_due(&mut self, now: Instant) {
+        if self.next_prune_at.is_some_and(|next| now < next) {
+            return;
+        }
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        self.next_prune_at =
+            Some(now + Duration::from_millis(METRIC_RESPONSE_CACHE_PRUNE_INTERVAL_MS));
+    }
+}
+
+fn metric_response_cache() -> &'static Mutex<MetricResponseCacheState> {
+    static CACHE: OnceLock<Mutex<MetricResponseCacheState>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(MetricResponseCacheState::default()))
 }
 
 fn metric_response_cache_ttl() -> Duration {
@@ -70,8 +88,8 @@ pub fn take_cached_metric_response(
         return None;
     };
     let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
-    let entry = cache.get(key)?;
+    cache.prune_if_due(now);
+    let entry = cache.entries.get(key)?;
     cached_metric_response_covers_request(entry, requested_metric_ids, request_all_metrics)
         .then(|| entry.clone())
 }
@@ -86,9 +104,10 @@ pub fn store_cached_metric_response(
     let Ok(mut cache) = metric_response_cache().lock() else {
         return;
     };
-    cache.retain(|_, entry| entry.expires_at > Instant::now());
+    let now = Instant::now();
+    cache.prune_if_due(now);
     let expires_at = Instant::now() + metric_response_cache_ttl();
-    if let Some(existing) = cache.get_mut(&key) {
+    if let Some(existing) = cache.entries.get_mut(&key) {
         existing.expires_at = expires_at;
         existing.total_rows = total_rows;
         existing.metrics_map.extend(metrics_map.clone());
@@ -98,7 +117,7 @@ pub fn store_cached_metric_response(
         existing.complete |= complete;
         return;
     }
-    cache.insert(
+    cache.entries.insert(
         key,
         CachedMetricResponse {
             expires_at,
@@ -114,8 +133,9 @@ pub fn clear_metric_response_cache() -> usize {
     let Ok(mut cache) = metric_response_cache().lock() else {
         return 0;
     };
-    let removed = cache.len();
-    cache.clear();
+    let removed = cache.entries.len();
+    cache.entries.clear();
+    cache.next_prune_at = None;
     removed
 }
 

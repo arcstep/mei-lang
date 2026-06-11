@@ -166,6 +166,11 @@ pub(crate) fn attach_host_meta(
                     "api": format!("/api/datasets/metrics/{}", app_path),
                     "scene_qualified": true,
                 },
+                "metric_batch_query": {
+                    "enabled": true,
+                    "api": format!("/api/datasets/metrics/{}", app_path),
+                    "scene_qualified": true,
+                },
                 "catalog": host_runtime_capabilities_catalog(),
                 "host_contract": host_runtime_contract_descriptor(),
             }),

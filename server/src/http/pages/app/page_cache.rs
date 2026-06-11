@@ -55,6 +55,15 @@ fn store_cached_page_render_template(key: String, html: &str) {
     );
 }
 
+pub(crate) fn clear_page_render_cache() -> usize {
+    let Ok(mut cache) = page_render_cache().lock() else {
+        return 0;
+    };
+    let cleared = cache.len();
+    cache.clear();
+    cleared
+}
+
 fn hash_signature(value: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);

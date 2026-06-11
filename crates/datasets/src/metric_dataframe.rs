@@ -20,13 +20,15 @@ use super::query::query_dataset_rows;
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 use super::{
-    metric_request_revision_fingerprint, metric_scope_cache_key, query_state_from_request,
-    runtime_metric_eval_scope, runtime_metric_workset, serialize_cache_value,
+    build_compiled_datasets_map, metric_request_revision_fingerprint_for_compiled,
+    metric_scope_cache_key, query_state_from_request, runtime_metric_eval_scope,
+    runtime_metric_workset, serialize_cache_value,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize = 1000;
 const METRIC_DATAFRAME_CACHE_TTL_MS: u64 = 1500;
+const METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
 
 #[derive(Clone)]
 struct CachedMetricDataframeResult {
@@ -34,10 +36,26 @@ struct CachedMetricDataframeResult {
     result: DatasetQueryResult,
 }
 
-fn metric_dataframe_result_cache() -> &'static Mutex<BTreeMap<String, CachedMetricDataframeResult>>
-{
-    static CACHE: OnceLock<Mutex<BTreeMap<String, CachedMetricDataframeResult>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+#[derive(Default)]
+struct MetricDataframeCacheState {
+    entries: BTreeMap<String, CachedMetricDataframeResult>,
+    next_prune_at: Option<Instant>,
+}
+
+impl MetricDataframeCacheState {
+    fn prune_if_due(&mut self, now: Instant) {
+        if self.next_prune_at.is_some_and(|next| now < next) {
+            return;
+        }
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        self.next_prune_at =
+            Some(now + Duration::from_millis(METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS));
+    }
+}
+
+fn metric_dataframe_result_cache() -> &'static Mutex<MetricDataframeCacheState> {
+    static CACHE: OnceLock<Mutex<MetricDataframeCacheState>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(MetricDataframeCacheState::default()))
 }
 
 fn metric_dataframe_cache_ttl() -> Duration {
@@ -91,16 +109,16 @@ fn take_cached_metric_dataframe_result(key: &str) -> Option<DatasetQueryResult> 
         return None;
     };
     let now = Instant::now();
-    cache.retain(|_, entry| entry.expires_at > now);
-    cache.get(key).map(|entry| entry.result.clone())
+    cache.prune_if_due(now);
+    cache.entries.get(key).map(|entry| entry.result.clone())
 }
 
 fn store_cached_metric_dataframe_result(key: String, result: &DatasetQueryResult) {
     let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
         return;
     };
-    cache.retain(|_, entry| entry.expires_at > Instant::now());
-    cache.insert(
+    cache.prune_if_due(Instant::now());
+    cache.entries.insert(
         key,
         CachedMetricDataframeResult {
             expires_at: Instant::now() + metric_dataframe_cache_ttl(),
@@ -113,8 +131,9 @@ pub(crate) fn clear_metric_dataframe_result_cache() -> usize {
     let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
         return 0;
     };
-    let removed = cache.len();
-    cache.clear();
+    let removed = cache.entries.len();
+    cache.entries.clear();
+    cache.next_prune_at = None;
     removed
 }
 
@@ -148,15 +167,6 @@ pub fn query_metric_dataframe(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
-    let mut datasets = compiled
-        .resources
-        .iter()
-        .filter_map(|entry| entry.dataset.clone().map(|view| (entry.id.clone(), view)))
-        .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
-            acc.insert(resource_id, dataset.clone());
-            acc.entry(dataset.id.clone()).or_insert(dataset);
-            acc
-        });
     let workset = runtime_metric_workset(
         &resource.id,
         std::slice::from_ref(&resolved_metric_id),
@@ -167,8 +177,14 @@ pub fn query_metric_dataframe(
         .clone()
         .unwrap_or_else(|| vec![resolved_metric_id.clone()]);
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let dependency_revision_key =
-        metric_request_revision_fingerprint(app_root, &datasets, &resource.id, &defs_for_hydrate);
+    let referenced_dataset_ids =
+        super::metric_hydrate::collect_dataset_ids_from_metric_defs(&defs_for_hydrate);
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        compiled,
+        &resource.id,
+        &defs_for_hydrate,
+    );
     let response_cache_key = metric_dataframe_cache_key(
         app_root,
         scene_id,
@@ -221,7 +237,12 @@ pub fn query_metric_dataframe(
         runtime_dataset.columns = filtered_rows.columns.clone();
     }
 
-    datasets.insert(resource.id.clone(), runtime_dataset.clone());
+    let mut datasets = build_compiled_datasets_map(
+        compiled,
+        &resource.id,
+        runtime_dataset.clone(),
+        &referenced_dataset_ids,
+    );
 
     hydrate_file_backed_datasets_for_metric_defs(
         app_root,

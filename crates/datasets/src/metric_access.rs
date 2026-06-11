@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
 
@@ -13,7 +13,7 @@ use super::metric_locate::{plan_access_metric_eval_for_ids, AccessMetricEvalPlan
 use super::types::DatasetQueryOptions;
 use super::util::elapsed_ms;
 use super::{
-    hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint,
+    hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint_for_compiled,
     project_requested_metrics, query_dataset_rows, runtime_metric_eval_scope,
     runtime_metric_workset,
 };
@@ -49,7 +49,9 @@ pub fn build_compiled_datasets_map(
     compiled: &CompiledApp,
     primary_resource_id: &str,
     runtime_dataset: DatasetView,
+    referenced_dataset_ids: &BTreeSet<String>,
 ) -> BTreeMap<String, DatasetView> {
+    let runtime_dataset_id = runtime_dataset.id.clone();
     let mut datasets = compiled
         .resources
         .iter()
@@ -57,14 +59,24 @@ pub fn build_compiled_datasets_map(
             resource
                 .dataset
                 .clone()
-                .map(|dataset| (resource.id.clone(), dataset))
+                    .map(|dataset| (resource.id.clone(), dataset))
+        })
+        .filter(|(resource_id, dataset)| {
+            resource_id == primary_resource_id
+                || dataset.id == runtime_dataset_id
+                || referenced_dataset_ids.contains(resource_id)
+                || referenced_dataset_ids.contains(&dataset.id)
         })
         .fold(BTreeMap::new(), |mut acc, (resource_id, dataset)| {
+            let primary_alias_missing = !acc.contains_key(&dataset.id);
             acc.insert(resource_id, dataset.clone());
-            acc.entry(dataset.id.clone()).or_insert(dataset);
+            if primary_alias_missing {
+                acc.insert(dataset.id.clone(), dataset);
+            }
             acc
         });
-    datasets.insert(primary_resource_id.to_string(), runtime_dataset);
+    datasets.insert(primary_resource_id.to_string(), runtime_dataset.clone());
+    datasets.insert(runtime_dataset_id, runtime_dataset);
     datasets
 }
 
@@ -137,19 +149,6 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     let primary_dataset = eval_plan.primary_dataset;
     let owner_dataset = eval_plan.owner_dataset;
     let query_options = collect_all_query_options(query_state);
-
-    let query_started = Instant::now();
-    let filtered_rows = query_dataset_rows(app_root, primary_dataset, query_options.clone())?;
-    let query_ms = elapsed_ms(query_started);
-
-    let mut runtime_dataset = primary_dataset.clone();
-    runtime_dataset.rows = filtered_rows.rows.clone();
-    if !filtered_rows.columns.is_empty() {
-        runtime_dataset.columns = filtered_rows.columns.clone();
-    }
-
-    let mut datasets =
-        build_compiled_datasets_map(compiled, &eval_plan.primary.id, runtime_dataset.clone());
     let workset = runtime_metric_workset(
         &eval_plan.owner.id,
         &eval_plan.request_metric_ids,
@@ -159,11 +158,32 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     let covered_eval_metric_ids = workset.eval_metric_ids.clone().unwrap_or_default();
     let metric_filter = workset.eval_metric_ids.as_deref();
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let dependency_revision_key = metric_request_revision_fingerprint(
+    let referenced_dataset_ids =
+        super::metric_hydrate::collect_dataset_ids_from_metric_defs(&defs_for_hydrate);
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root,
-        &datasets,
+        compiled,
         &eval_plan.owner.id,
         &defs_for_hydrate,
+    );
+
+    let query_started = Instant::now();
+    let filtered_rows = query_dataset_rows(app_root, primary_dataset, query_options.clone())?;
+    let query_ms = elapsed_ms(query_started);
+    let total_rows = filtered_rows.rows.len();
+    let query_perf = filtered_rows.perf.clone();
+
+    let mut runtime_dataset = primary_dataset.clone();
+    runtime_dataset.rows = filtered_rows.rows;
+    if !filtered_rows.columns.is_empty() {
+        runtime_dataset.columns = filtered_rows.columns;
+    }
+
+    let mut datasets = build_compiled_datasets_map(
+        compiled,
+        &eval_plan.primary.id,
+        runtime_dataset.clone(),
+        &referenced_dataset_ids,
     );
 
     let hydrate_started = Instant::now();
@@ -232,10 +252,10 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         closure_metric_ids,
         covered_eval_metric_ids,
         dependency_revision_key,
-        total_rows: runtime_dataset.rows.len(),
+        total_rows,
         metrics_map,
         metrics,
-        query_perf: filtered_rows.perf,
+        query_perf,
         hydrate_perf,
         query_ms,
         hydrate_ms,

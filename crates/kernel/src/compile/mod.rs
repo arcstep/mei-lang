@@ -27,7 +27,7 @@ mod scene_payload_cache;
 mod shards;
 mod ui_data_policy;
 
-pub use analysis::dates::coerce_rows_to_schema;
+pub use analysis::dates::{coerce_row_to_schema, coerce_rows_to_schema};
 pub use loaders::materialize_xlsx_column_headers;
 
 pub use app_compile::{

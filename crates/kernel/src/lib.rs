@@ -17,7 +17,8 @@ mod workspace;
 pub use compile::{
     build_runtime_analysis_contracts, build_runtime_analysis_graph, build_runtime_eval_plan,
     cached_load_xlsx_table_snapshot, capsule_path_from_namespaced_resource_id,
-    clear_runtime_compile_caches, clear_runtime_eval_node_cache, coerce_rows_to_schema,
+    clear_runtime_compile_caches, clear_runtime_eval_node_cache, coerce_row_to_schema,
+    coerce_rows_to_schema,
     compile_app, compile_app_from_root, compile_app_from_root_with_options,
     compile_app_with_options, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,

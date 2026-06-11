@@ -41,6 +41,27 @@ impl CompileObservation {
         }
     }
 
+    pub fn from_compile_outcome_shared(
+        app_id: &str,
+        scene_id: &str,
+        target_file: Option<&str>,
+        outcome: &crate::CompileWithCacheOutcomeShared,
+    ) -> Self {
+        Self {
+            app_id: app_id.to_string(),
+            scene_id: scene_id.to_string(),
+            target_file: target_file
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            compile_revision: Some(outcome.compile_revision.clone()),
+            compile_ms: outcome.compile_ms,
+            compile_cache_hit: u64::from(outcome.cache_hit),
+            compile_cache_lookup_ms: outcome.cache_lookup_ms,
+            compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
+        }
+    }
+
     pub fn for_world_bundle(
         app_id: &str,
         scene_id: &str,

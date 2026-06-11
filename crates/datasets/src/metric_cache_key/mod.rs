@@ -7,7 +7,8 @@ pub(crate) use query_normalize::{
 };
 
 pub(crate) use cache_key::{
-    eval_node_cache_key, metric_request_revision_fingerprint, metric_scope_cache_key,
+    eval_node_cache_key, metric_request_revision_fingerprint,
+    metric_request_revision_fingerprint_for_compiled, metric_scope_cache_key,
     runtime_metric_eval_scope, serialize_cache_value,
 };
 pub(crate) use workset::runtime_metric_workset;

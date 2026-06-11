@@ -1,10 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    dataset_materialize_cache_epoch, resolve_versioned_source_identifier, DatasetView,
+    dataset_materialize_cache_epoch, resolve_versioned_source_identifier, CompiledApp, DatasetView,
     FilterIntent, QueryState, RuntimeMetricEvalScope,
 };
 use serde::Serialize;
@@ -18,6 +20,20 @@ use super::query_normalize::{
     dimension_bindings_from_query_state, dimension_bindings_from_query_state_for_dataset,
     filter_intents_from_request, normalize_query_filters, query_state_from_request,
 };
+
+const REVISION_FINGERPRINT_CACHE_TTL: Duration = Duration::from_millis(4000);
+const REVISION_FINGERPRINT_CACHE_MAX: usize = 512;
+
+#[derive(Clone)]
+struct RevisionFingerprintCacheEntry {
+    value: String,
+    cached_at: Instant,
+}
+
+fn revision_fingerprint_cache() -> &'static Mutex<BTreeMap<String, RevisionFingerprintCacheEntry>> {
+    static CACHE: OnceLock<Mutex<BTreeMap<String, RevisionFingerprintCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
 
 pub(crate) fn metric_scope_cache_key(resolved_metric_ids: &[String]) -> String {
     if resolved_metric_ids.is_empty() {
@@ -49,16 +65,145 @@ pub(crate) fn metric_request_revision_fingerprint(
     if !base_dataset_id.is_empty() {
         dataset_ids.insert(base_dataset_id.to_string());
     }
+    let cache_key = revision_fingerprint_cache_key(app_root, datasets, &dataset_ids);
+    if let Ok(cache) = revision_fingerprint_cache().lock() {
+        if let Some(entry) = cache.get(&cache_key) {
+            if entry.cached_at.elapsed() <= REVISION_FINGERPRINT_CACHE_TTL {
+                return entry.value.clone();
+            }
+        }
+    }
     let mut fingerprints = dataset_ids
         .into_iter()
         .filter_map(|dataset_id| lookup_dataset_view(datasets, dataset_id.as_str()))
         .map(|dataset| dataset_source_fingerprint(app_root, dataset))
         .collect::<Vec<_>>();
     fingerprints.sort();
-    format!(
+    let value = format!(
         "materialize={}|deps={}",
         dataset_materialize_cache_epoch(),
         serialize_cache_value(&fingerprints)
+    );
+    if let Ok(mut cache) = revision_fingerprint_cache().lock() {
+        cache.insert(
+            cache_key,
+            RevisionFingerprintCacheEntry {
+                value: value.clone(),
+                cached_at: Instant::now(),
+            },
+        );
+        if cache.len() > REVISION_FINGERPRINT_CACHE_MAX {
+            let overflow = cache.len().saturating_sub(REVISION_FINGERPRINT_CACHE_MAX);
+            if overflow > 0 {
+                let keys = cache.keys().take(overflow).cloned().collect::<Vec<_>>();
+                for key in keys {
+                    cache.remove(&key);
+                }
+            }
+        }
+    }
+    value
+}
+
+pub(crate) fn metric_request_revision_fingerprint_for_compiled(
+    app_root: &Path,
+    compiled: &CompiledApp,
+    base_dataset_id: &str,
+    metric_defs: &BTreeMap<String, Value>,
+) -> String {
+    let mut dataset_ids = collect_dataset_ids_from_metric_defs(metric_defs);
+    let base_dataset_id = base_dataset_id.trim();
+    if !base_dataset_id.is_empty() {
+        dataset_ids.insert(base_dataset_id.to_string());
+    }
+    let cache_key = revision_fingerprint_cache_key_for_compiled(app_root, compiled, &dataset_ids);
+    if let Ok(cache) = revision_fingerprint_cache().lock() {
+        if let Some(entry) = cache.get(&cache_key) {
+            if entry.cached_at.elapsed() <= REVISION_FINGERPRINT_CACHE_TTL {
+                return entry.value.clone();
+            }
+        }
+    }
+    let mut fingerprints = dataset_ids
+        .into_iter()
+        .filter_map(|dataset_id| lookup_compiled_dataset_view(compiled, dataset_id.as_str()))
+        .map(|dataset| dataset_source_fingerprint(app_root, dataset))
+        .collect::<Vec<_>>();
+    fingerprints.sort();
+    let value = format!(
+        "materialize={}|deps={}",
+        dataset_materialize_cache_epoch(),
+        serialize_cache_value(&fingerprints)
+    );
+    if let Ok(mut cache) = revision_fingerprint_cache().lock() {
+        cache.insert(
+            cache_key,
+            RevisionFingerprintCacheEntry {
+                value: value.clone(),
+                cached_at: Instant::now(),
+            },
+        );
+        if cache.len() > REVISION_FINGERPRINT_CACHE_MAX {
+            let overflow = cache.len().saturating_sub(REVISION_FINGERPRINT_CACHE_MAX);
+            if overflow > 0 {
+                let keys = cache.keys().take(overflow).cloned().collect::<Vec<_>>();
+                for key in keys {
+                    cache.remove(&key);
+                }
+            }
+        }
+    }
+    value
+}
+
+fn revision_fingerprint_cache_key(
+    app_root: &Path,
+    datasets: &BTreeMap<String, DatasetView>,
+    dataset_ids: &BTreeSet<String>,
+) -> String {
+    let mut items = dataset_ids
+        .iter()
+        .filter_map(|dataset_id| lookup_dataset_view(datasets, dataset_id.as_str()))
+        .map(dataset_source_cache_fingerprint)
+        .collect::<Vec<_>>();
+    items.sort();
+    format!(
+        "{}|materialize={}|deps={}",
+        app_root.display(),
+        dataset_materialize_cache_epoch(),
+        serialize_cache_value(&items)
+    )
+}
+
+fn revision_fingerprint_cache_key_for_compiled(
+    app_root: &Path,
+    compiled: &CompiledApp,
+    dataset_ids: &BTreeSet<String>,
+) -> String {
+    let mut items = dataset_ids
+        .iter()
+        .filter_map(|dataset_id| lookup_compiled_dataset_view(compiled, dataset_id.as_str()))
+        .map(dataset_source_cache_fingerprint)
+        .collect::<Vec<_>>();
+    items.sort();
+    format!(
+        "{}|materialize={}|deps={}",
+        app_root.display(),
+        dataset_materialize_cache_epoch(),
+        serialize_cache_value(&items)
+    )
+}
+
+fn dataset_source_cache_fingerprint(dataset: &DatasetView) -> String {
+    let kind = dataset.source.kind.trim();
+    let path = dataset.source.path.trim();
+    format!(
+        "{}|kind={}|path={}|sheet={}|header_row={}",
+        dataset.id,
+        kind,
+        path,
+        dataset.source.sheet.as_deref().unwrap_or(""),
+        dataset.source.header_row.unwrap_or(1).max(1)
     )
 }
 
@@ -185,4 +330,19 @@ fn lookup_dataset_view<'a>(
                 .then_some(dataset)
             })
         })
+}
+
+fn lookup_compiled_dataset_view<'a>(
+    compiled: &'a CompiledApp,
+    dataset_id: &str,
+) -> Option<&'a DatasetView> {
+    let normalized = dataset_id.strip_prefix("dataset.").unwrap_or(dataset_id);
+    compiled.resources.iter().find_map(|resource| {
+        let dataset = resource.dataset.as_ref()?;
+        (resource.id == normalized
+            || dataset.id == normalized
+            || resource.id.ends_with(&format!("::{normalized}"))
+            || resource.id.ends_with(&format!("/{normalized}")))
+        .then_some(dataset)
+    })
 }

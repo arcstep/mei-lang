@@ -1,9 +1,14 @@
+use std::sync::Arc;
+
 use mei_lang_kernel::{CompileOptions, CompiledApp};
 use mei_lang_toolchain as toolchain;
 
 use crate::AppState;
 
-pub(crate) use toolchain::{CompileWithCacheFailure, CompileWithCacheOutcome, PeekCompileCacheHit};
+pub(crate) use toolchain::{
+    CompileWithCacheFailure, CompileWithCacheOutcome, CompileWithCacheOutcomeShared,
+    PeekCompileCacheHit,
+};
 
 pub(crate) fn compile_app_with_cache(
     state: &AppState,
@@ -14,13 +19,22 @@ pub(crate) fn compile_app_with_cache(
     toolchain::compile_app_with_cache(&state.source_root, app_id, options, components_root)
 }
 
-pub(crate) fn peek_compile_cache(
+pub(crate) fn compile_app_with_cache_shared(
+    state: &AppState,
+    app_id: &str,
+    options: CompileOptions,
+    components_root: &std::path::Path,
+) -> Result<CompileWithCacheOutcomeShared, CompileWithCacheFailure> {
+    toolchain::compile_app_with_cache_shared(&state.source_root, app_id, options, components_root)
+}
+
+pub(crate) fn peek_compile_cache_shared(
     state: &AppState,
     app_id: &str,
     options: &CompileOptions,
     components_root: &std::path::Path,
-) -> Option<CompiledApp> {
-    toolchain::peek_compile_cache(&state.source_root, app_id, options, components_root)
+) -> Option<Arc<CompiledApp>> {
+    toolchain::peek_compile_cache_shared(&state.source_root, app_id, options, components_root)
 }
 
 pub(crate) fn peek_compile_cache_hit(
@@ -54,7 +68,7 @@ pub(crate) fn start_compile_in_background_if_needed(
     options: CompileOptions,
     components_root: std::path::PathBuf,
 ) {
-    if peek_compile_cache(&state, &app_id, &options, components_root.as_path()).is_some() {
+    if peek_compile_cache_shared(&state, &app_id, &options, components_root.as_path()).is_some() {
         return;
     }
     if is_compile_inflight(&state, &app_id, &options) {

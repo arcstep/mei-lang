@@ -117,9 +117,12 @@ pub struct MetricQueryRequest {
     pub scene_id: Option<String>,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default)]
     pub dataset_id: String,
     #[serde(default)]
     pub metric_ids: Vec<String>,
+    #[serde(default)]
+    pub metric_groups: Vec<MetricQueryGroupRequest>,
     #[serde(default)]
     pub search: Option<String>,
     #[serde(default)]
@@ -128,6 +131,21 @@ pub struct MetricQueryRequest {
     pub query_state: Option<QueryState>,
     #[serde(default)]
     pub filter_intents: Vec<FilterIntent>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MetricQueryGroupRequest {
+    pub dataset_id: String,
+    #[serde(default)]
+    pub metric_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MetricQueryGroupResponse {
+    pub dataset_id: String,
+    pub total_rows: usize,
+    pub metrics: Vec<MetricContract>,
+    pub perf: BTreeMap<String, u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -139,4 +157,6 @@ pub struct MetricQueryResponse {
     pub total_rows: usize,
     pub metrics: Vec<MetricContract>,
     pub perf: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub groups: Vec<MetricQueryGroupResponse>,
 }

@@ -96,33 +96,39 @@ pub(super) fn format_iso_date((year, month, day): (i32, u32, u32)) -> String {
 }
 
 /// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
+pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
+    if schema.is_empty() {
+        return row.clone();
+    }
+    let Some(obj) = row.as_object() else {
+        return row.clone();
+    };
+    let mut out = obj.clone();
+    for column in schema {
+        let type_name = column.type_name.as_str();
+        if type_name == "integer" {
+            if let Some(value) = out.get(&column.name) {
+                out.insert(column.name.clone(), coerce_value_to_integer(value));
+            }
+            continue;
+        }
+        if type_name != "date" && type_name != "datetime" {
+            continue;
+        }
+        if let Some(value) = out.get(&column.name) {
+            out.insert(column.name.clone(), coerce_value_to_date_string(value));
+        }
+    }
+    Value::Object(out)
+}
+
+/// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
 pub fn coerce_rows_to_schema(rows: Vec<Value>, schema: &[ColumnSchema]) -> Vec<Value> {
     if schema.is_empty() {
         return rows;
     }
     rows.into_iter()
-        .map(|row| {
-            let Some(obj) = row.as_object() else {
-                return row;
-            };
-            let mut out = obj.clone();
-            for column in schema {
-                let type_name = column.type_name.as_str();
-                if type_name == "integer" {
-                    if let Some(value) = out.get(&column.name) {
-                        out.insert(column.name.clone(), coerce_value_to_integer(value));
-                    }
-                    continue;
-                }
-                if type_name != "date" && type_name != "datetime" {
-                    continue;
-                }
-                if let Some(value) = out.get(&column.name) {
-                    out.insert(column.name.clone(), coerce_value_to_date_string(value));
-                }
-            }
-            Value::Object(out)
-        })
+        .map(|row| coerce_row_to_schema(&row, schema))
         .collect()
 }
 

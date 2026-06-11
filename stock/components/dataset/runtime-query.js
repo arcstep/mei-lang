@@ -8,6 +8,8 @@ const METRIC_QUERY_CACHE_TTL_MS = 300_000;
 const DATASET_QUERY_INFLIGHT = new Map();
 const DATASET_QUERY_RESULT_CACHE = new Map();
 const DATASET_QUERY_CACHE_TTL_MS = 300_000;
+const SCENE_METRIC_BATCH_INFLIGHT = new Map();
+const SCENE_METRIC_BATCH_SCHEDULES = new Map();
 const ACTIVE_RUNTIME_FETCH_CONTROLLERS = new Set();
 const PARSED_DATA_PROPS_CACHE = new WeakMap();
 export const MEI_DRILLDOWN_OVERLAY_ID = "mei-access-drilldown-overlay";
@@ -216,6 +218,21 @@ function metricQueryCapabilityConfig(props) {
       defaultRequiresSceneId: true,
       missingEndpointReason: "missing runtime metric query endpoint",
       disabledReason: "runtime metric query capability disabled by host/runtime contract",
+    }
+  );
+}
+
+function metricBatchQueryCapabilityConfig(props) {
+  const capabilities = runtimeCapabilityMap(props);
+  const raw =
+    capabilities.metric_batch_query ??
+    capabilities.metricBatchQuery;
+  return normalizeRuntimeQueryCapability(
+    raw,
+    {
+      defaultRequiresSceneId: true,
+      missingEndpointReason: "missing runtime metric batch query endpoint",
+      disabledReason: "runtime metric batch query capability disabled by host/runtime contract",
     }
   );
 }
@@ -429,9 +446,7 @@ export function deferUntilDisplayed(el, fn) {
     if (!shouldReactToPreviewUpdated(event, el)) {
       return;
     }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => tryRun());
-    });
+    requestAnimationFrame(() => tryRun());
   }
 
   tryRun();
@@ -460,7 +475,8 @@ export function deferUntilDisplayed(el, fn) {
     }
   }
 
-  fallbackTimer = window.setTimeout(() => tryRun(), 12000);
+  // Keep fallback short so cold path does not wait 10s+ for IO edge cases.
+  fallbackTimer = window.setTimeout(() => tryRun(), 2500);
 
   return () => {
     canceled = true;
@@ -719,7 +735,57 @@ function panelMetricBatchKey(panel, props, queryStateId = "", filters = {}, sear
   ].join("|");
 }
 
-function scheduleAfterStablePaint(fn) {
+function sceneMetricBatchScopeKey(props, queryStateId = "", filters = {}, search = "") {
+  const runtimeRef = resolveRuntimeMetricRef(props);
+  if (!runtimeRef?.dataset_id) {
+    return "";
+  }
+  const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
+  const coords = sceneQueryCoords(props, runtimeRef);
+  const mergedFilters = canonicalMetricFilters(effectiveQueryStateId, filters);
+  const mergedSearch = canonicalMetricSearch(effectiveQueryStateId, search);
+  return [
+    coords.scene_id || "",
+    coords.target || "",
+    effectiveQueryStateId,
+    mergedSearch,
+    JSON.stringify(mergedFilters),
+  ].join("|");
+}
+
+function normalizeSceneMetricBatchGroups(groups = []) {
+  const dedup = new Map();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    const datasetId = safeTrim(group?.datasetId || group?.dataset_id);
+    if (!datasetId) {
+      continue;
+    }
+    const metricIds = (Array.isArray(group?.metricIds)
+      ? group.metricIds
+      : Array.isArray(group?.metric_ids)
+      ? group.metric_ids
+      : [])
+      .map((value) => safeTrim(value))
+      .filter(Boolean);
+    let entry = dedup.get(datasetId);
+    if (!entry) {
+      entry = {
+        dataset_id: datasetId,
+        metric_ids: new Set(),
+      };
+      dedup.set(datasetId, entry);
+    }
+    metricIds.forEach((metricId) => entry.metric_ids.add(metricId));
+  }
+  return [...dedup.values()]
+    .map((entry) => ({
+      dataset_id: entry.dataset_id,
+      metric_ids: [...entry.metric_ids].sort(),
+    }))
+    .filter((entry) => entry.metric_ids.length > 0);
+}
+
+function scheduleAfterStablePaint(fn, options = {}) {
   if (typeof window === "undefined") {
     const timer = setTimeout(() => fn(), 0);
     return () => clearTimeout(timer);
@@ -728,9 +794,14 @@ function scheduleAfterStablePaint(fn) {
     const timer = window.setTimeout(() => fn(), 0);
     return () => window.clearTimeout(timer);
   }
+  const aggressive = options?.aggressive === true;
   let first = 0;
   let second = 0;
   first = window.requestAnimationFrame(() => {
+    if (aggressive) {
+      fn();
+      return;
+    }
     second = window.requestAnimationFrame(() => {
       fn();
     });
@@ -791,8 +862,31 @@ function abortPendingPanelMetricBatches() {
   PANEL_METRIC_BATCHES.clear();
 }
 
+function abortPendingSceneMetricBatchSchedules() {
+  for (const schedule of SCENE_METRIC_BATCH_SCHEDULES.values()) {
+    if (typeof schedule?.cancelFlush === "function") {
+      try {
+        schedule.cancelFlush();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    const requests = Array.isArray(schedule?.requests) ? schedule.requests : [];
+    requests.forEach((request) => {
+      try {
+        request?.reject?.(sharedAbortError());
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    schedule.requests = [];
+  }
+  SCENE_METRIC_BATCH_SCHEDULES.clear();
+}
+
 export function abortRuntimeQueries(reason = "") {
   abortPendingPanelMetricBatches();
+  abortPendingSceneMetricBatchSchedules();
   for (const controller of [...ACTIVE_RUNTIME_FETCH_CONTROLLERS]) {
     try {
       controller.abort(sharedAbortError());
@@ -955,9 +1049,11 @@ function schedulePanelMetricBatch(panel, element, props, options = {}) {
   if (typeof batch.cancelFlush === "function") {
     batch.cancelFlush();
   }
+  const aggressivePrefetch =
+    options.prefetchEager === true || isPrefetchMetricRequest(options.meta);
   batch.cancelFlush = scheduleAfterStablePaint(() => {
     void batch.flush();
-  });
+  }, { aggressive: aggressivePrefetch });
 
   return batch.promise;
 }
@@ -969,7 +1065,10 @@ export function prefetchPanelRuntimeMetrics(panel, anchor, props, options = {}) 
   if (!elementIsDisplayed(panel) || isDrilldownOverlayOpen()) {
     return Promise.resolve(null);
   }
-  return schedulePanelMetricBatch(panel, anchor, props, options);
+  return schedulePanelMetricBatch(panel, anchor, props, {
+    ...options,
+    prefetchEager: true,
+  });
 }
 
 /**
@@ -990,7 +1089,7 @@ export function prefetchViewportRuntimeMetrics(root = document) {
       continue;
     }
     viewport.querySelectorAll("[data-props]").forEach((node) => {
-      if (!(node instanceof Element) || !elementIsDisplayed(node)) {
+      if (!(node instanceof Element) || !node.isConnected) {
         return;
       }
       const props = parseProps(node);
@@ -1003,32 +1102,44 @@ export function prefetchViewportRuntimeMetrics(root = document) {
         return;
       }
       const effectiveQueryStateId = String(queryStateIdOf(props) || "").trim();
-      const coords = sceneQueryCoords(props, runtimeRef);
-      const mergedFilters = canonicalMetricFilters(effectiveQueryStateId, {});
-      const mergedSearch = canonicalMetricSearch(effectiveQueryStateId, "");
-      const groupKey = [
-        coords.scene_id || "",
-        coords.target || "",
-        runtimeRef.dataset_id,
-        effectiveQueryStateId,
-        mergedSearch,
-        JSON.stringify(mergedFilters),
-      ].join("|");
+      const groupKey = sceneMetricBatchScopeKey(props, effectiveQueryStateId, {}, "");
       let group = groups.get(groupKey);
       if (!group) {
-        group = { props, metricIds: new Set() };
+        group = { props, queryStateId: effectiveQueryStateId, entries: new Map() };
         groups.set(groupKey, group);
       }
-      group.metricIds.add(String(runtimeRef.metric_id).trim());
+      const datasetId = safeTrim(runtimeRef.dataset_id);
+      if (!datasetId) {
+        return;
+      }
+      let entry = group.entries.get(datasetId);
+      if (!entry) {
+        entry = { datasetId, metricIds: new Set() };
+        group.entries.set(datasetId, entry);
+      }
+      entry.metricIds.add(String(runtimeRef.metric_id).trim());
     });
   }
   for (const group of groups.values()) {
-    const metricIds = [...group.metricIds].sort();
-    if (!metricIds.length) {
+    const batchGroups = [...group.entries.values()]
+      .map((entry) => ({
+        datasetId: entry.datasetId,
+        metricIds: [...entry.metricIds].sort(),
+      }))
+      .filter((entry) => entry.metricIds.length > 0);
+    if (!batchGroups.length) {
+      continue;
+    }
+    if (batchGroups.length > 1) {
+      void fetchSceneRuntimeMetricBatch(group.props, batchGroups, {
+        queryStateId: group.queryStateId,
+        meta: { component: "prefetch_viewport" },
+      });
       continue;
     }
     void fetchRuntimeMetrics(group.props, {
-      metricIds,
+      metricIds: batchGroups[0].metricIds,
+      queryStateId: group.queryStateId,
       meta: { component: "prefetch_viewport" },
     });
   }
@@ -1418,6 +1529,8 @@ function clearRuntimeQueryCaches() {
   METRIC_QUERY_RESULT_CACHE.clear();
   METRIC_QUERY_SCOPE_INFLIGHT.clear();
   METRIC_QUERY_SCOPE_RESULT_CACHE.clear();
+  SCENE_METRIC_BATCH_INFLIGHT.clear();
+  SCENE_METRIC_BATCH_SCHEDULES.clear();
   DATASET_QUERY_INFLIGHT.clear();
   DATASET_QUERY_RESULT_CACHE.clear();
 }
@@ -1444,6 +1557,17 @@ function withMetricScopeSharePerf(data, flags = {}) {
 function isPrefetchMetricRequest(meta = {}) {
   const component = String(meta?.component || "").trim();
   return component === "prefetch" || component === "prefetch_viewport";
+}
+
+function shouldUseScheduledSceneMetricBatch(meta = {}) {
+  if (runtimePerfDisabled("scene_metric_batch")) {
+    return false;
+  }
+  return !(
+    meta?.scene_batch_disabled === true ||
+    meta?.sceneBatchDisabled === true ||
+    meta?.__skipSceneBatch === true
+  );
 }
 
 function sharedAbortError() {
@@ -1542,6 +1666,423 @@ async function fetchRuntimeMetricsUncached(api, payload, errorContext = {}, sign
   const serverPerf = data && typeof data.perf === "object" ? data.perf : {};
   data.perf = mergeServerAndClientPerf(serverPerf, clientPerf);
   return data;
+}
+
+function sceneMetricBatchRequestKey(api, payload) {
+  return `scene_metric_batch|${String(api || "").trim()}|${stableSerialize(payload)}`;
+}
+
+function singleMetricPayloadFromBatchPayload(batchPayload, group) {
+  return {
+    ...batchPayload,
+    dataset_id: safeTrim(group?.dataset_id),
+    metric_ids: Array.isArray(group?.metric_ids) ? [...group.metric_ids] : [],
+  };
+}
+
+function sceneMetricBatchGroupPerf(serverPerf, clientPerf, groupCount) {
+  const perf = mergeServerAndClientPerf(serverPerf, {});
+  if (Number.isFinite(Number(clientPerf?.client_ttfb_ms))) {
+    perf.client_batch_ttfb_ms = Number(clientPerf.client_ttfb_ms);
+  }
+  if (Number.isFinite(Number(clientPerf?.client_json_ms))) {
+    perf.client_batch_json_ms = Number(clientPerf.client_json_ms);
+  }
+  if (Number.isFinite(Number(clientPerf?.client_total_ms))) {
+    perf.client_batch_total_ms = Number(clientPerf.client_total_ms);
+  }
+  if (Number.isFinite(Number(clientPerf?.client_fetch_parse_ms))) {
+    perf.client_batch_fetch_parse_ms = Number(clientPerf.client_fetch_parse_ms);
+  }
+  const requestId = safeTrim(clientPerf?.request_id);
+  if (requestId) {
+    perf.request_id = requestId;
+  }
+  perf.client_scene_batch = 1;
+  perf.client_scene_batch_group_count = Number(groupCount) || 0;
+  return perf;
+}
+
+function registerSceneMetricBatchGroupInflight(api, batchPayload, group) {
+  const singlePayload = singleMetricPayloadFromBatchPayload(batchPayload, group);
+  const cacheKey = metricQueryCacheKey(api, singlePayload);
+  const scopeKey = metricQueryScopeCacheKey(api, singlePayload);
+  const requestedIds = metricQueryRequestedIds(singlePayload);
+  let resolvePromise;
+  let rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  const scopeEntry = registerMetricScopeInflight(scopeKey, requestedIds, promise);
+  METRIC_QUERY_INFLIGHT.set(cacheKey, { promise });
+  return {
+    datasetId: safeTrim(group?.dataset_id),
+    cacheKey,
+    scopeKey,
+    requestedIds,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+    cleanup() {
+      METRIC_QUERY_INFLIGHT.delete(cacheKey);
+      unregisterMetricScopeInflight(scopeKey, scopeEntry);
+    },
+  };
+}
+
+async function fetchSceneRuntimeMetricBatchUncached(
+  api,
+  payload,
+  errorContext = {},
+  signal = undefined
+) {
+  const context = errorContext || {};
+  let response;
+  let data;
+  let clientPerf = {};
+  let errorText = "";
+  try {
+    ({ response, data, clientPerf, errorText } = await fetchJsonWithClientPerf(api, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      signal,
+    }));
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    recordRuntimeDatasetQueryError({
+      kind: "metric_query_batch",
+      datasetId: "__scene_batch__",
+      api,
+      status: 0,
+      message: String(error?.message || error || "network fetch failed"),
+      sceneId: context.scene_id,
+      target: context.target,
+      component: context.component,
+      panelId: context.panel_id,
+      requestId: context.request_id,
+      phase: "metric_batch_fetch",
+    });
+    throw error;
+  }
+  if (!response.ok) {
+    const text = String(errorText || "");
+    recordRuntimeDatasetQueryError({
+      kind: "metric_query_batch",
+      datasetId: "__scene_batch__",
+      api,
+      status: response.status,
+      message: text,
+      sceneId: context.scene_id,
+      target: context.target,
+      component: context.component,
+      panelId: context.panel_id,
+      requestId: safeTrim(clientPerf.request_id) || context.request_id,
+      phase: "metric_batch_fetch",
+    });
+    throw new Error(text);
+  }
+  return { data, clientPerf };
+}
+
+export async function fetchSceneRuntimeMetricBatch(
+  props,
+  groups,
+  {
+    queryStateId = "",
+    search = "",
+    filters = {},
+    signal = undefined,
+    meta = {},
+  } = {}
+) {
+  const capability = metricBatchQueryCapabilityConfig(props);
+  const api = capability.api;
+  const normalizedGroups = normalizeSceneMetricBatchGroups(groups);
+  if (!capability.enabled || normalizedGroups.length <= 1) {
+    return null;
+  }
+  const runtimeRef = resolveRuntimeMetricRef(props);
+  if (!runtimeRef?.dataset_id) {
+    return null;
+  }
+  const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
+  const queryStatePayload = mergedQueryStatePayload(effectiveQueryStateId, filters, {
+    search,
+    filterIntentSource: meta?.filter_intent_source ?? meta?.filterIntentSource,
+  });
+  const baseCoords = sceneQueryCoords(props, runtimeRef);
+  const coords = capability.requiresSceneId
+    ? requireSceneQualifiedRequest(baseCoords, "metric batch query", meta)
+    : baseCoords;
+  const basePayload = {
+    ...coords,
+    search: queryStatePayload.search || undefined,
+    filters: queryStatePayload.filters,
+    query_state: {
+      filters: queryStatePayload.filters,
+      search: queryStatePayload.search || undefined,
+      group: queryStatePayload.group.length > 0 ? queryStatePayload.group : undefined,
+      time_range: queryStatePayload.timeRange || undefined,
+    },
+    filter_intents:
+      queryStatePayload.filterIntents.length > 0 ? queryStatePayload.filterIntents : undefined,
+  };
+  const now = Date.now();
+  pruneMetricQueryCaches(now);
+  const pendingGroups = normalizedGroups.filter((group) => {
+    const singlePayload = singleMetricPayloadFromBatchPayload(basePayload, group);
+    const cacheKey = metricQueryCacheKey(api, singlePayload);
+    const scopeKey = metricQueryScopeCacheKey(api, singlePayload);
+    const requestedIds = metricQueryRequestedIds(singlePayload);
+    const cached = METRIC_QUERY_RESULT_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return false;
+    }
+    if (findCoveringMetricScopeResult(scopeKey, requestedIds, now)) {
+      return false;
+    }
+    if (findCoveringMetricScopeInflight(scopeKey, requestedIds)) {
+      return false;
+    }
+    return true;
+  });
+  if (pendingGroups.length <= 1) {
+    return null;
+  }
+  const payload = {
+    ...basePayload,
+    metric_groups: pendingGroups,
+  };
+  const errorContext = {
+    scene_id: safeTrim(payload.scene_id || props?._mei?.active_scene_id),
+    target: safeTrim(payload.target || props?._mei?.active_target_file),
+    component: safeTrim(meta?.component),
+    panel_id: safeTrim(meta?.panel_id || meta?.panelId),
+    request_id: safeTrim(meta?.request_id || meta?.requestId),
+  };
+  const batchKey = sceneMetricBatchRequestKey(api, payload);
+  let shared = SCENE_METRIC_BATCH_INFLIGHT.get(batchKey);
+  if (!shared) {
+    const managedController = createManagedAbortController();
+    const registrations = pendingGroups.map((group) =>
+      registerSceneMetricBatchGroupInflight(api, basePayload, group)
+    );
+    const promise = fetchSceneRuntimeMetricBatchUncached(
+      api,
+      payload,
+      errorContext,
+      managedController.signal,
+    )
+      .then(({ data, clientPerf }) => {
+        const expiresAt = Date.now() + METRIC_QUERY_CACHE_TTL_MS;
+        const groupMap = new Map(
+          (Array.isArray(data?.groups) ? data.groups : []).map((group) => [
+            safeTrim(group?.dataset_id),
+            group,
+          ])
+        );
+        for (const registration of registrations) {
+          const group = groupMap.get(registration.datasetId);
+          const normalized = {
+            scene_id: safeTrim(data?.scene_id),
+            scene_path: safeTrim(data?.scene_path) || undefined,
+            dataset_id: registration.datasetId,
+            total_rows: Number(group?.total_rows) || 0,
+            metrics: Array.isArray(group?.metrics) ? group.metrics : [],
+            perf: sceneMetricBatchGroupPerf(group?.perf, clientPerf, registrations.length),
+          };
+          METRIC_QUERY_RESULT_CACHE.set(registration.cacheKey, {
+            data: normalized,
+            expiresAt,
+          });
+          rememberMetricScopeResult(
+            registration.scopeKey,
+            registration.requestedIds,
+            normalized,
+            expiresAt
+          );
+          registration.resolve(normalized);
+        }
+        return data;
+      })
+      .catch((error) => {
+        registrations.forEach((registration) => registration.reject(error));
+        throw error;
+      })
+      .finally(() => {
+        managedController.__meiRelease?.();
+        SCENE_METRIC_BATCH_INFLIGHT.delete(batchKey);
+        registrations.forEach((registration) => registration.cleanup());
+      });
+    shared = { promise };
+    SCENE_METRIC_BATCH_INFLIGHT.set(batchKey, shared);
+  }
+  return waitForSharedPromise(shared.promise, signal);
+}
+
+function sceneMetricBatchScheduleKey(api, props, queryStateId = "", filters = {}, search = "") {
+  const scopeKey = sceneMetricBatchScopeKey(props, queryStateId, filters, search);
+  if (!scopeKey) {
+    return "";
+  }
+  return `${String(api || "").trim()}|${scopeKey}`;
+}
+
+function scheduledSceneMetricMeta(meta = {}) {
+  return {
+    ...(meta || {}),
+    scene_batch_disabled: true,
+    __skipSceneBatch: true,
+  };
+}
+
+function scheduleSceneRuntimeMetricRequest(
+  api,
+  props,
+  metricIds,
+  {
+    queryStateId = "",
+    search = "",
+    filters = {},
+    signal = undefined,
+    meta = {},
+  } = {}
+) {
+  const capability = metricBatchQueryCapabilityConfig(props);
+  if (!capability.enabled) {
+    return null;
+  }
+  const runtimeRef = resolveRuntimeMetricRef(props);
+  const datasetId = safeTrim(runtimeRef?.dataset_id);
+  if (!datasetId) {
+    return null;
+  }
+  const requestedIds = [...new Set(
+    (Array.isArray(metricIds) ? metricIds : [])
+      .map((value) => safeTrim(value))
+      .filter(Boolean)
+  )].sort();
+  if (requestedIds.length === 0) {
+    return null;
+  }
+  const effectiveQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
+  const scheduleKey = sceneMetricBatchScheduleKey(
+    api,
+    props,
+    effectiveQueryStateId,
+    filters,
+    search
+  );
+  if (!scheduleKey) {
+    return null;
+  }
+  let schedule = SCENE_METRIC_BATCH_SCHEDULES.get(scheduleKey);
+  if (!schedule) {
+    schedule = {
+      props,
+      queryStateId: effectiveQueryStateId,
+      search,
+      filters,
+      requests: [],
+      cancelFlush: null,
+      flush: null,
+    };
+    SCENE_METRIC_BATCH_SCHEDULES.set(scheduleKey, schedule);
+  } else {
+    schedule.props = props;
+    schedule.queryStateId = effectiveQueryStateId;
+    schedule.search = search;
+    schedule.filters = filters;
+  }
+  let resolvePromise;
+  let rejectPromise;
+  const promise = new Promise((resolve, reject) => {
+    resolvePromise = resolve;
+    rejectPromise = reject;
+  });
+  schedule.requests.push({
+    props,
+    metricIds: requestedIds,
+    queryStateId: effectiveQueryStateId,
+    search,
+    filters,
+    signal,
+    meta,
+    resolve: resolvePromise,
+    reject: rejectPromise,
+  });
+  if (typeof schedule.flush !== "function") {
+    schedule.flush = async () => {
+      schedule.cancelFlush = null;
+      const active = SCENE_METRIC_BATCH_SCHEDULES.get(scheduleKey);
+      if (!active || active !== schedule) {
+        return;
+      }
+      SCENE_METRIC_BATCH_SCHEDULES.delete(scheduleKey);
+      const requests = schedule.requests.splice(0);
+      const liveRequests = requests.filter((request) => request?.signal?.aborted !== true);
+      if (liveRequests.length === 0) {
+        return;
+      }
+      const groups = normalizeSceneMetricBatchGroups(
+        liveRequests.map((request) => ({
+          dataset_id: resolveRuntimeMetricRef(request.props)?.dataset_id || datasetId,
+          metric_ids: request.metricIds,
+        }))
+      );
+      try {
+        if (groups.length > 1) {
+          await fetchSceneRuntimeMetricBatch(schedule.props, groups, {
+            queryStateId: schedule.queryStateId,
+            search: schedule.search,
+            filters: schedule.filters,
+            meta: scheduledSceneMetricMeta({
+              component: safeTrim(meta?.component) || "scene_batch_schedule",
+              panel_id: meta?.panel_id ?? meta?.panelId,
+              request_id: meta?.request_id ?? meta?.requestId,
+            }),
+          });
+        } else if (groups.length === 1) {
+          await fetchRuntimeMetrics(schedule.props, {
+            metricIds: groups[0].metric_ids,
+            queryStateId: schedule.queryStateId,
+            search: schedule.search,
+            filters: schedule.filters,
+            meta: scheduledSceneMetricMeta({
+              component: safeTrim(meta?.component) || "scene_batch_schedule",
+              panel_id: meta?.panel_id ?? meta?.panelId,
+              request_id: meta?.request_id ?? meta?.requestId,
+            }),
+          });
+        }
+        await Promise.all(
+          liveRequests.map(async (request) => {
+            const data = await fetchRuntimeMetrics(request.props, {
+              metricIds: request.metricIds,
+              queryStateId: request.queryStateId,
+              search: request.search,
+              filters: request.filters,
+              signal: request.signal,
+              meta: scheduledSceneMetricMeta(request.meta),
+            });
+            request.resolve(data);
+          })
+        );
+      } catch (error) {
+        liveRequests.forEach((request) => request.reject(error));
+      }
+    };
+  }
+  if (typeof schedule.cancelFlush === "function") {
+    schedule.cancelFlush();
+  }
+  schedule.cancelFlush = scheduleAfterStablePaint(() => {
+    void schedule.flush();
+  }, { aggressive: isPrefetchMetricRequest(meta) });
+  return waitForSharedPromise(promise, signal);
 }
 
 export async function fetchDatasetRows(
@@ -1823,6 +2364,18 @@ export async function fetchRuntimeMetrics(
           ),
           signal
         );
+      }
+    }
+    if (shouldUseScheduledSceneMetricBatch(meta)) {
+      const scheduled = scheduleSceneRuntimeMetricRequest(api, props, ids, {
+        queryStateId: effectiveQueryStateId,
+        search,
+        filters,
+        signal,
+        meta,
+      });
+      if (scheduled) {
+        return scheduled;
       }
     }
     const managedController = createManagedAbortController();

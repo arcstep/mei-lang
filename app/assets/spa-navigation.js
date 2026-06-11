@@ -2332,6 +2332,11 @@
             api: `/api/datasets/metrics/${appPath}`,
             scene_qualified: true,
           },
+          metric_batch_query: {
+            enabled: true,
+            api: `/api/datasets/metrics/${appPath}`,
+            scene_qualified: true,
+          },
         },
         active_scene_id: sceneId,
         active_target_file: ownerScenePath,

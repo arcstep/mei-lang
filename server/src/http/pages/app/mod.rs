@@ -6,6 +6,7 @@ mod query;
 mod scene;
 
 pub use page::app_page;
+pub(crate) use page_cache::clear_page_render_cache;
 
 /// 仅用于 `http::pages` 集成测试；运行态页面从 `query` 模块直接引用 `AppQuery`。
 #[cfg(test)]

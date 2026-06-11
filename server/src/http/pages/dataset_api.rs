@@ -11,8 +11,9 @@ use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 
+use super::app::clear_page_render_cache;
 use super::super::compile_cache::clear_compile_cache_for_app;
-use super::super::compile_cache::compile_app_with_cache;
+use super::super::compile_cache::compile_app_with_cache_shared;
 use super::super::datasets::clear_metric_response_cache;
 use super::super::datasets::{
     clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows,
@@ -171,8 +172,12 @@ pub async fn dataset_query_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let compile_outcome =
-        compile_app_with_cache(&state, &app_id, compile_options, components_root.as_path())
+    let compile_outcome = compile_app_with_cache_shared(
+        &state,
+        &app_id,
+        compile_options,
+        components_root.as_path(),
+    )
             .map_err(|failure| {
                 tracing::warn!(
                     app_id = %app_id,
@@ -368,6 +373,7 @@ pub async fn dataset_recompute_api(
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let clear_started = Instant::now();
     let compile_cache_cleared = clear_compile_cache_for_app(&state, &app_id);
+    let page_render_cache_cleared = clear_page_render_cache();
     let file_cache_cleared = clear_external_file_cache_for_app(app_root.as_path());
     let metric_response_cache_cleared = clear_metric_response_cache();
     let metric_dataframe_cache_cleared = clear_metric_dataframe_result_cache();
@@ -376,6 +382,10 @@ pub async fn dataset_recompute_api(
     let warmed = mode == "clear_and_warm";
     let mut perf = BTreeMap::new();
     perf.insert("clear_ms".to_string(), clear_ms);
+    perf.insert(
+        "page_render_cache_cleared".to_string(),
+        page_render_cache_cleared as u64,
+    );
     perf.insert(
         "metric_response_cache_cleared".to_string(),
         metric_response_cache_cleared as u64,
@@ -413,9 +423,13 @@ pub async fn dataset_recompute_api(
         let compile_options = compile_options_from_coords(&coords);
         let components_root = resolve_components_root(&state.source_root);
         let compile_started = Instant::now();
-        let compile_outcome =
-            compile_app_with_cache(&state, &app_id, compile_options, components_root.as_path())
-                .map_err(|failure| AppError::from(failure.error))?;
+        let compile_outcome = compile_app_with_cache_shared(
+            &state,
+            &app_id,
+            compile_options,
+            components_root.as_path(),
+        )
+        .map_err(|failure| AppError::from(failure.error))?;
         let compile_ms = elapsed_ms(compile_started);
         perf.insert("compile_ms".to_string(), compile_ms);
         perf.insert(

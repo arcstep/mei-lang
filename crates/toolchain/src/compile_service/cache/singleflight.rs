@@ -5,7 +5,7 @@ use std::sync::{Arc, Condvar, Mutex as StdMutex, OnceLock};
 use mei_lang_kernel::CompiledApp;
 
 pub(super) struct CompileInflight {
-    pub(super) result: StdMutex<Option<Result<CompiledApp, String>>>,
+    pub(super) result: StdMutex<Option<Result<Arc<CompiledApp>, String>>>,
     pub(super) ready: Condvar,
 }
 
@@ -57,7 +57,7 @@ pub(super) fn register_compile_inflight(cache_key: &str) -> Option<(Arc<CompileI
 pub(super) fn finish_compile_inflight(
     cache_key: &str,
     entry: &Arc<CompileInflight>,
-    result: Result<CompiledApp, String>,
+    result: Result<Arc<CompiledApp>, String>,
 ) {
     if let Ok(mut slot) = entry.result.lock() {
         *slot = Some(result);
@@ -70,7 +70,7 @@ pub(super) fn finish_compile_inflight(
 
 pub(super) fn wait_for_compile_inflight(
     entry: &Arc<CompileInflight>,
-) -> Result<CompiledApp, String> {
+) -> Result<Arc<CompiledApp>, String> {
     let mut slot = entry
         .result
         .lock()

@@ -3,7 +3,7 @@ mod singleflight;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex as StdMutex, OnceLock};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use mei_lang_kernel::{
@@ -27,11 +27,22 @@ pub(super) struct CachedCompiledApp {
     compile_revision: String,
     watched_files: Vec<CompileWatchedFile>,
     components_revision: u128,
-    compiled: CompiledApp,
+    compiled: Arc<CompiledApp>,
 }
 
 pub struct CompileWithCacheOutcome {
     pub compiled: CompiledApp,
+    pub cache_hit: bool,
+    pub compile_revision: String,
+    pub revision_scope: String,
+    pub cache_validation: String,
+    pub cache_lookup_ms: u64,
+    pub compile_cache_lock_wait_ms: u64,
+    pub compile_ms: u64,
+}
+
+pub struct CompileWithCacheOutcomeShared {
+    pub compiled: Arc<CompiledApp>,
     pub cache_hit: bool,
     pub compile_revision: String,
     pub revision_scope: String,
@@ -57,9 +68,42 @@ pub struct PeekCompileCacheHit {
     pub cache_validation: String,
 }
 
-pub(super) fn compile_cache() -> &'static StdMutex<HashMap<String, CachedCompiledApp>> {
-    static COMPILE_CACHE: OnceLock<StdMutex<HashMap<String, CachedCompiledApp>>> = OnceLock::new();
-    COMPILE_CACHE.get_or_init(|| StdMutex::new(HashMap::new()))
+pub struct PeekCompileCacheHitShared {
+    pub compiled: Arc<CompiledApp>,
+    pub compile_revision: String,
+    pub revision_scope: String,
+    pub cache_validation: String,
+}
+
+impl CompileWithCacheOutcomeShared {
+    fn into_owned(self) -> CompileWithCacheOutcome {
+        CompileWithCacheOutcome {
+            compiled: (*self.compiled).clone(),
+            cache_hit: self.cache_hit,
+            compile_revision: self.compile_revision,
+            revision_scope: self.revision_scope,
+            cache_validation: self.cache_validation,
+            cache_lookup_ms: self.cache_lookup_ms,
+            compile_cache_lock_wait_ms: self.compile_cache_lock_wait_ms,
+            compile_ms: self.compile_ms,
+        }
+    }
+}
+
+impl PeekCompileCacheHitShared {
+    fn into_owned(self) -> PeekCompileCacheHit {
+        PeekCompileCacheHit {
+            compiled: (*self.compiled).clone(),
+            compile_revision: self.compile_revision,
+            revision_scope: self.revision_scope,
+            cache_validation: self.cache_validation,
+        }
+    }
+}
+
+pub(super) fn compile_cache() -> &'static RwLock<HashMap<String, CachedCompiledApp>> {
+    static COMPILE_CACHE: OnceLock<RwLock<HashMap<String, CachedCompiledApp>>> = OnceLock::new();
+    COMPILE_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 pub(super) fn compile_failure_latch() -> &'static StdMutex<HashMap<String, Instant>> {
@@ -97,9 +141,19 @@ pub fn compile_app_with_cache(
     options: CompileOptions,
     components_root: &Path,
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
+    compile_app_with_cache_shared(source_root, app_id, options, components_root)
+        .map(CompileWithCacheOutcomeShared::into_owned)
+}
+
+pub fn compile_app_with_cache_shared(
+    source_root: &Path,
+    app_id: &str,
+    options: CompileOptions,
+    components_root: &Path,
+) -> Result<CompileWithCacheOutcomeShared, CompileWithCacheFailure> {
     let cache_key = compile_cache_key(source_root, app_id, &options);
     if !compile_singleflight_enabled() {
-        let outcome = compile_app_with_cache_uncached_path(
+        let outcome = compile_app_with_cache_uncached_path_shared(
             source_root,
             app_id,
             &cache_key,
@@ -118,7 +172,7 @@ pub fn compile_app_with_cache(
             app_id = %app_id,
             "compile inflight map lock poisoned; fallback to direct compile path"
         );
-        return compile_app_with_cache_uncached_path(
+        return compile_app_with_cache_uncached_path_shared(
             source_root,
             app_id,
             &cache_key,
@@ -128,7 +182,7 @@ pub fn compile_app_with_cache(
     };
     if !is_leader {
         return match wait_for_compile_inflight(&inflight) {
-            Ok(compiled) => Ok(CompileWithCacheOutcome {
+            Ok(compiled) => Ok(CompileWithCacheOutcomeShared {
                 compiled,
                 cache_hit: true,
                 compile_revision: compile_revision(source_root, app_id, &options, components_root)
@@ -149,7 +203,7 @@ pub fn compile_app_with_cache(
             }),
         };
     }
-    let outcome = compile_app_with_cache_uncached_path(
+    let outcome = compile_app_with_cache_uncached_path_shared(
         source_root,
         app_id,
         &cache_key,
@@ -169,56 +223,30 @@ pub fn compile_app_with_cache(
     outcome
 }
 
-pub(super) fn compile_app_with_cache_uncached_path(
+pub(super) fn compile_app_with_cache_uncached_path_shared(
     source_root: &Path,
     app_id: &str,
     cache_key: &str,
     options: CompileOptions,
     components_root: &Path,
-) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
+) -> Result<CompileWithCacheOutcomeShared, CompileWithCacheFailure> {
     let lookup_lock_started = Instant::now();
     let cache_lookup_ms;
     let mut compile_cache_lock_wait_ms = 0u64;
-    if let Ok(cache) = compile_cache().lock() {
+    if let Ok(cache) = compile_cache().read() {
         compile_cache_lock_wait_ms += elapsed_ms(lookup_lock_started);
         let lookup_started = Instant::now();
         if let Some(entry) = cache.get(cache_key) {
-            if watched_files_are_fresh(source_root, app_id, entry, components_root) {
+            if let Some(hit) =
+                validate_cached_entry(source_root, app_id, entry, components_root, &options)
+            {
                 cache_lookup_ms = elapsed_ms(lookup_started);
-                return Ok(CompileWithCacheOutcome {
+                return Ok(CompileWithCacheOutcomeShared {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
-                    compile_revision: entry.compile_revision.clone(),
-                    revision_scope: "watch_set".to_string(),
-                    cache_validation: "watch_set".to_string(),
-                    cache_lookup_ms,
-                    compile_cache_lock_wait_ms,
-                    compile_ms: 0,
-                });
-            }
-            let coarse_revision = coarse_compile_revision(source_root, app_id, components_root);
-            if entry.coarse_revision == coarse_revision {
-                cache_lookup_ms = elapsed_ms(lookup_started);
-                return Ok(CompileWithCacheOutcome {
-                    compiled: entry.compiled.clone(),
-                    cache_hit: true,
-                    compile_revision: entry.compile_revision.clone(),
-                    revision_scope: "coarse_fast_path".to_string(),
-                    cache_validation: "coarse_fast_path".to_string(),
-                    cache_lookup_ms,
-                    compile_cache_lock_wait_ms,
-                    compile_ms: 0,
-                });
-            }
-            let revision_stamp = compile_revision(source_root, app_id, &options, components_root);
-            if entry.compile_revision == revision_stamp.token {
-                cache_lookup_ms = elapsed_ms(lookup_started);
-                return Ok(CompileWithCacheOutcome {
-                    compiled: entry.compiled.clone(),
-                    cache_hit: true,
-                    compile_revision: revision_stamp.token.clone(),
-                    revision_scope: revision_stamp.scope.to_string(),
-                    cache_validation: "focused_token".to_string(),
+                    compile_revision: hit.compile_revision,
+                    revision_scope: hit.revision_scope,
+                    cache_validation: hit.cache_validation,
                     cache_lookup_ms,
                     compile_cache_lock_wait_ms,
                     compile_ms: 0,
@@ -251,8 +279,9 @@ pub(super) fn compile_app_with_cache_uncached_path(
         }
     };
     let compile_ms = elapsed_ms(compile_started);
+    let compiled = Arc::new(compiled);
     let write_lock_started = Instant::now();
-    if let Ok(mut cache) = compile_cache().lock() {
+    if let Ok(mut cache) = compile_cache().write() {
         compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
         if cache.len() >= 128 {
             cache.clear();
@@ -275,7 +304,7 @@ pub(super) fn compile_app_with_cache_uncached_path(
         );
         compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
     }
-    Ok(CompileWithCacheOutcome {
+    Ok(CompileWithCacheOutcomeShared {
         compiled,
         cache_hit: false,
         compile_revision: revision_stamp.token.clone(),
@@ -284,6 +313,38 @@ pub(super) fn compile_app_with_cache_uncached_path(
         cache_lookup_ms,
         compile_cache_lock_wait_ms,
         compile_ms,
+    })
+}
+
+fn validate_cached_entry(
+    source_root: &Path,
+    app_id: &str,
+    entry: &CachedCompiledApp,
+    components_root: &Path,
+    options: &CompileOptions,
+) -> Option<PeekCompileCacheHitShared> {
+    if watched_files_are_fresh(source_root, app_id, entry, components_root) {
+        return Some(PeekCompileCacheHitShared {
+            compiled: entry.compiled.clone(),
+            compile_revision: entry.compile_revision.clone(),
+            revision_scope: "watch_set".to_string(),
+            cache_validation: "watch_set".to_string(),
+        });
+    }
+    if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root) {
+        return Some(PeekCompileCacheHitShared {
+            compiled: entry.compiled.clone(),
+            compile_revision: entry.compile_revision.clone(),
+            revision_scope: "coarse_fast_path".to_string(),
+            cache_validation: "coarse_fast_path".to_string(),
+        });
+    }
+    let revision_stamp = compile_revision(source_root, app_id, options, components_root);
+    (entry.compile_revision == revision_stamp.token).then(|| PeekCompileCacheHitShared {
+        compiled: entry.compiled.clone(),
+        compile_revision: revision_stamp.token,
+        revision_scope: revision_stamp.scope.to_string(),
+        cache_validation: "focused_token".to_string(),
     })
 }
 
@@ -387,22 +448,20 @@ pub fn peek_compile_cache(
     options: &CompileOptions,
     components_root: &Path,
 ) -> Option<CompiledApp> {
+    peek_compile_cache_shared(source_root, app_id, options, components_root)
+        .map(|compiled| (*compiled).clone())
+}
+
+pub fn peek_compile_cache_shared(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<Arc<CompiledApp>> {
     let cache_key = compile_cache_key(source_root, app_id, options);
-    let cache = compile_cache().lock().ok()?;
+    let cache = compile_cache().read().ok()?;
     let entry = cache.get(&cache_key)?;
-    if watched_files_are_fresh(source_root, app_id, entry, components_root) {
-        Some(entry.compiled.clone())
-    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root)
-    {
-        Some(entry.compiled.clone())
-    } else {
-        let revision_stamp = compile_revision(source_root, app_id, options, components_root);
-        if entry.compile_revision == revision_stamp.token {
-            Some(entry.compiled.clone())
-        } else {
-            None
-        }
-    }
+    validate_cached_entry(source_root, app_id, entry, components_root, options).map(|hit| hit.compiled)
 }
 
 pub fn peek_compile_cache_hit(
@@ -411,37 +470,20 @@ pub fn peek_compile_cache_hit(
     options: &CompileOptions,
     components_root: &Path,
 ) -> Option<PeekCompileCacheHit> {
+    peek_compile_cache_hit_shared(source_root, app_id, options, components_root)
+        .map(PeekCompileCacheHitShared::into_owned)
+}
+
+pub fn peek_compile_cache_hit_shared(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<PeekCompileCacheHitShared> {
     let cache_key = compile_cache_key(source_root, app_id, options);
-    let cache = compile_cache().lock().ok()?;
+    let cache = compile_cache().read().ok()?;
     let entry = cache.get(&cache_key)?;
-    if watched_files_are_fresh(source_root, app_id, entry, components_root) {
-        Some(PeekCompileCacheHit {
-            compiled: entry.compiled.clone(),
-            compile_revision: entry.compile_revision.clone(),
-            revision_scope: "watch_set".to_string(),
-            cache_validation: "watch_set".to_string(),
-        })
-    } else if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root)
-    {
-        Some(PeekCompileCacheHit {
-            compiled: entry.compiled.clone(),
-            compile_revision: entry.compile_revision.clone(),
-            revision_scope: "coarse_fast_path".to_string(),
-            cache_validation: "coarse_fast_path".to_string(),
-        })
-    } else {
-        let revision_stamp = compile_revision(source_root, app_id, options, components_root);
-        if entry.compile_revision == revision_stamp.token {
-            Some(PeekCompileCacheHit {
-                compiled: entry.compiled.clone(),
-                compile_revision: revision_stamp.token.clone(),
-                revision_scope: revision_stamp.scope.to_string(),
-                cache_validation: "focused_token".to_string(),
-            })
-        } else {
-            None
-        }
-    }
+    validate_cached_entry(source_root, app_id, entry, components_root, options)
 }
 
 pub fn is_compile_inflight(source_root: &Path, app_id: &str, options: &CompileOptions) -> bool {
@@ -449,7 +491,7 @@ pub fn is_compile_inflight(source_root: &Path, app_id: &str, options: &CompileOp
 }
 
 pub fn clear_compile_cache_for_app(source_root: &Path, app_id: &str) -> usize {
-    let Ok(mut cache) = compile_cache().lock() else {
+    let Ok(mut cache) = compile_cache().write() else {
         tracing::warn!(app_id = %app_id, "compile cache lock poisoned during clear");
         return 0;
     };

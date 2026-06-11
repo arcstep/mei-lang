@@ -36,10 +36,12 @@ pub use capability_catalog::{
 };
 pub use compile_report::{compile_report, CompileReport};
 pub use compile_service::{
-    clear_compile_cache_for_app, compile_app_with_cache, env_flag_enabled, inspect_source_layout,
-    is_compile_inflight, peek_compile_cache, peek_compile_cache_hit, recent_compile_failure,
-    resolve_components_root, CompileWithCacheFailure, CompileWithCacheOutcome, LayoutCheck,
-    PeekCompileCacheHit, SourceLayoutInspection, SourceLayoutRoots,
+    clear_compile_cache_for_app, compile_app_with_cache, compile_app_with_cache_shared,
+    env_flag_enabled, inspect_source_layout, is_compile_inflight, peek_compile_cache,
+    peek_compile_cache_hit, peek_compile_cache_hit_shared, peek_compile_cache_shared,
+    recent_compile_failure, resolve_components_root, CompileWithCacheFailure,
+    CompileWithCacheOutcome, CompileWithCacheOutcomeShared, LayoutCheck, PeekCompileCacheHit,
+    PeekCompileCacheHitShared, SourceLayoutInspection, SourceLayoutRoots,
 };
 pub use editor_runtime::{
     doctor_editor_runtime_for_package_root, doctor_editor_runtime_for_workspace_root,
