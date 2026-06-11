@@ -3499,14 +3499,34 @@
   let loadingVisibleAt = 0;
   let drilldownContextRetryTimer = null;
 
-  function isAppRoute(pathname = window.location.pathname) {
+  // Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
+  const ACCESS_LIKE_ROUTE_SLUGS = new Set([
+    "app",
+    "access",
+    "run",
+    "access-only",
+    "access_only",
+    "presentation",
+    "slides",
+  ]);
+  const BUILD_ROUTE_SLUGS = new Set(["build", "manage"]);
+
+  function appRouteSlugFromPathname(pathname = window.location.pathname) {
     const path = String(pathname || "");
-    return path.startsWith("/apps/app/") || path.startsWith("/apps/access/");
+    const match = path.match(/^\/apps\/([^/]+)\//);
+    return match ? String(match[1] || "").trim().toLowerCase() : "";
+  }
+
+  function appRoutePrefixesFromSlugs(slugs) {
+    return Array.from(slugs, (slug) => `/apps/${slug}/`);
+  }
+
+  function isAppRoute(pathname = window.location.pathname) {
+    return ACCESS_LIKE_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
   }
 
   function isBuildRoute(pathname = window.location.pathname) {
-    const path = String(pathname || "");
-    return path.startsWith("/apps/build/") || path.startsWith("/apps/manage/");
+    return BUILD_ROUTE_SLUGS.has(appRouteSlugFromPathname(pathname));
   }
 
   function isConfigRoute(pathname = window.location.pathname) {
@@ -3529,8 +3549,10 @@
     return isBuildRoute(pathname);
   }
 
+  /** Preview-capable host routes: access-like scene shells + build/manage editors. */
   function shouldMountDrilldownHost(pathname = window.location.pathname) {
-    return isAppRoute(pathname) || isBuildRoute(pathname);
+    const slug = appRouteSlugFromPathname(pathname);
+    return ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug);
   }
 
   function isBoardLinkConfig(popup) {
@@ -4697,8 +4719,10 @@
   }
 
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
+    const slug = appRouteSlugFromPathname(pathname);
+    if (!ACCESS_LIKE_ROUTE_SLUGS.has(slug)) return "";
+    const prefix = `/apps/${slug}/`;
     const raw = String(pathname || "");
-    const prefix = "/apps/access/";
     if (!raw.startsWith(prefix)) return "";
     const tail = raw.slice(prefix.length);
     const marker = tail.indexOf("/scene/");
@@ -5258,20 +5282,15 @@
   }
 
   function resolveAccessAppPath(pathname = window.location.pathname) {
-    return resolveAppPathByPrefixes(pathname, ["/apps/access/"]);
+    return resolveAppPathByPrefixes(pathname, appRoutePrefixesFromSlugs(ACCESS_LIKE_ROUTE_SLUGS));
   }
 
   function resolvePreviewAppId(pathname = window.location.pathname) {
-    return nonEmptyString(
-      resolveAccessAppPath(pathname),
-      resolveAppPathByPrefixes(pathname, [
-        "/apps/app/",
-        "/apps/upload/",
-        "/apps/config/",
-        "/apps/build/",
-        "/apps/manage/",
-      ]),
-    );
+    const slug = appRouteSlugFromPathname(pathname);
+    if (ACCESS_LIKE_ROUTE_SLUGS.has(slug) || BUILD_ROUTE_SLUGS.has(slug)) {
+      return resolveAppPathByPrefixes(pathname, [`/apps/${slug}/`]);
+    }
+    return resolveAppPathByPrefixes(pathname, ["/apps/upload/", "/apps/config/"]);
   }
 
   function resolvePopupDebugHost() {
@@ -6819,8 +6838,8 @@
       return cur !== next;
     }
     if (path === "/app-bundles/access.js") {
-      const cur = currentUrl.pathname.startsWith("/apps/access/");
-      const next = nextUrl.pathname.startsWith("/apps/access/");
+      const cur = isAppRoute(currentUrl.pathname);
+      const next = isAppRoute(nextUrl.pathname);
       return cur !== next;
     }
     return false;

@@ -27,4 +27,25 @@ assert.match(src, /void navigateInternal\(/, "click handler must call navigateIn
 assert.match(src, /runPostSpaWork\(/, "post-spa work must be async after DOM swap");
 assert.match(src, /publishManagePreviewFromDoc\(/, "preview event after swap");
 
+assert.match(src, /ACCESS_LIKE_ROUTE_SLUGS/, "access-like route slugs must be centralized");
+assert.match(src, /BUILD_ROUTE_SLUGS/, "build route slugs must be centralized");
+for (const slug of [
+  "app",
+  "access",
+  "run",
+  "access-only",
+  "presentation",
+  "slides",
+  "build",
+  "manage",
+]) {
+  assert.match(src, new RegExp(`"${slug.replace("-", "\\-")}"`), `route slug ${slug}`);
+}
+assert.match(src, /shouldMountDrilldownHost/, "drilldown host gate");
+assert.match(
+  src,
+  /function resolvePreviewAppId[\s\S]*?appRouteSlugFromPathname/,
+  "resolvePreviewAppId must derive app id from route slug",
+);
+
 console.log("spa-navigation static checks ok");
