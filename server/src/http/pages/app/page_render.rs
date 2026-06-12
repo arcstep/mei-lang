@@ -115,11 +115,18 @@ pub(super) fn upload_rel_from_config(app_root: &Path, source_root: &Path) -> Opt
         .map(|value| value.replace('\\', "/"))
 }
 
-pub(super) fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<UploadFileEntry> {
-    let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(upload_root) else {
-        return out;
+fn push_upload_entries(upload_root: &Path, rel_dir: &str, out: &mut Vec<UploadFileEntry>) {
+    let current_dir = if rel_dir.is_empty() {
+        upload_root.to_path_buf()
+    } else {
+        upload_root.join(rel_dir)
     };
+    let Ok(entries) = fs::read_dir(&current_dir) else {
+        return;
+    };
+
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
     for entry in entries.flatten() {
         let Ok(file_type) = entry.file_type() else {
             continue;
@@ -128,13 +135,42 @@ pub(super) fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<Up
         if name.starts_with('.') {
             continue;
         }
-        out.push(UploadFileEntry {
-            path: name.clone(),
+        let path = if rel_dir.is_empty() {
+            name.clone()
+        } else {
+            format!("{rel_dir}/{name}")
+        };
+        let item = UploadFileEntry {
+            path: path.clone(),
             name,
             is_dir: file_type.is_dir(),
-        });
+            size_bytes: if file_type.is_dir() {
+                None
+            } else {
+                entry.metadata().ok().map(|meta| meta.len())
+            },
+        };
+        if item.is_dir {
+            dirs.push(item);
+        } else {
+            files.push(item);
+        }
     }
-    out.sort_by(|left, right| left.name.cmp(&right.name));
+
+    dirs.sort_by(|left, right| left.path.cmp(&right.path));
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+
+    for dir in dirs {
+        let next_rel = dir.path.clone();
+        out.push(dir);
+        push_upload_entries(upload_root, &next_rel, out);
+    }
+    out.extend(files);
+}
+
+pub(super) fn list_upload_files(upload_root: &Path, _upload_rel: &str) -> Vec<UploadFileEntry> {
+    let mut out = Vec::new();
+    push_upload_entries(upload_root, "", &mut out);
     out
 }
 

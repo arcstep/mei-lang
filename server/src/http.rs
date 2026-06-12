@@ -13,9 +13,10 @@ pub(crate) mod scene_bundle;
 pub mod upload_api;
 
 use axum::{
+    extract::DefaultBodyLimit,
     http::StatusCode,
     response::{IntoResponse, Json, Redirect, Response},
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use serde_json::json;
@@ -82,8 +83,29 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/ops/journal/*app_id", get(ops_api::ops_journal_get))
         .route(
+            "/api/upload/init/*app_id",
+            post(upload_api::upload_chunk_init_post)
+                .layer(DefaultBodyLimit::max(256 * 1024)),
+        )
+        .route(
+            "/api/upload/status/*app_id",
+            get(upload_api::upload_chunk_status_get),
+        )
+        .route(
+            "/api/upload/chunk/*app_id",
+            put(upload_api::upload_chunk_put)
+                .layer(DefaultBodyLimit::max(9 * 1024 * 1024)),
+        )
+        .route(
+            "/api/upload/complete/*app_id",
+            post(upload_api::upload_chunk_complete_post)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
             "/api/upload/*app_id",
-            post(upload_api::upload_file_post).delete(upload_api::upload_file_delete),
+            post(upload_api::upload_file_post)
+                .delete(upload_api::upload_file_delete)
+                .layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
         )
         .route("/api/agent/config", get(agent_api::api_agent_config))
         .route("/api/agent/runtime", get(agent_api::api_agent_runtime))
