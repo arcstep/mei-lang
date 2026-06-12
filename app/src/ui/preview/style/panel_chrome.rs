@@ -157,6 +157,13 @@ pub(crate) fn container_visual_style_without_background(props: &Value) -> String
     append_string_style(&mut style, map.get("max_width"), "max-width");
     append_string_style(&mut style, map.get("min_width"), "min-width");
     append_string_style(&mut style, map.get("box_sizing"), "box-sizing");
+    append_string_style(
+        &mut style,
+        map
+            .get("pointer_events")
+            .or_else(|| map.get("pointer-events")),
+        "pointer-events",
+    );
     style
 }
 pub(crate) fn container_visual_style(props: &Value) -> String {
