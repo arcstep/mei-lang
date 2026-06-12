@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     response::{Html, IntoResponse, Redirect, Response},
     Json,
 };
@@ -17,7 +17,6 @@ use crate::{
     AppState,
 };
 
-use super::http_plaintext::host_allows_http_plaintext_login;
 use super::pages::{change_password_page_html, login_page_html};
 
 fn auth_login_ready(state: &AppState, _runtime: &crate::auth::AuthRuntime) -> bool {
@@ -218,7 +217,6 @@ pub async fn auth_session(
 
 pub async fn auth_login(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     if let Some(response) = reject_if_auth_disabled(&state) {
@@ -234,34 +232,31 @@ pub async fn auth_login(
             "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
         );
     }
-    let password = if let Some(encrypted) = body
+    if body
+        .password
+        .as_deref()
+        .is_some_and(|value| !value.trim().is_empty())
+    {
+        return json_error(
+            StatusCode::BAD_REQUEST,
+            "plaintext password is not accepted; submit encryptedPassword only",
+        );
+    }
+    let Some(encrypted) = body
         .encrypted_password
         .as_deref()
         .filter(|value| !value.is_empty())
-    {
-        match runtime.decrypt_password_field(encrypted) {
-            Ok(value) => value,
-            Err(error) => {
-                return json_error(
-                    StatusCode::BAD_REQUEST,
-                    format!("failed to decrypt password: {error}"),
-                )
-            }
-        }
-    } else if let Some(plain) = body.password.as_deref().filter(|value| !value.is_empty()) {
-        let host = headers
-            .get(header::HOST)
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or("");
-        if !host_allows_http_plaintext_login(host) {
+    else {
+        return json_error(StatusCode::BAD_REQUEST, "encryptedPassword is required");
+    };
+    let password = match runtime.decrypt_password_field(encrypted) {
+        Ok(value) => value,
+        Err(error) => {
             return json_error(
                 StatusCode::BAD_REQUEST,
-                "password encryption is required for this host; use HTTPS or access via localhost, a private LAN IP, or a host listed in MEI_HTTP_PLAINTEXT_LOGIN_HOSTS",
-            );
+                format!("failed to decrypt password: {error}"),
+            )
         }
-        plain.to_string()
-    } else {
-        return json_error(StatusCode::BAD_REQUEST, "password is required");
     };
     let Some(claims) = (match runtime.authenticate(body.username.as_str(), password.as_str()) {
         Ok(value) => value,

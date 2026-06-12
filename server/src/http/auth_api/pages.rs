@@ -21,6 +21,26 @@ const PASSWORD_TOGGLE_BUTTON: &str = r#"<button type="button" class="mei-host-sh
         </svg>
       </button>"#;
 
+const AUTH_RSA_BUNDLE_SCRIPT: &str =
+    r#"<script src="/app-assets/dist/auth-rsa.bundle.js"></script>"#;
+
+const AUTH_RSA_CLIENT_SCRIPT: &str = r#"
+      function encryptWithPem(publicKeyPem, text) {
+        const rsa = window.MeiAuthRsa;
+        if (!rsa || typeof rsa.encryptPasswordWithPem !== 'function') {
+          throw new Error('密码加密模块未加载');
+        }
+        return rsa.encryptPasswordWithPem(publicKeyPem, text);
+      }
+      async function resolvePublicKey() {
+        const resp = await fetch('/api/auth/public-key', { credentials: 'same-origin' });
+        const data = await resp.json();
+        if (!resp.ok || !data.public_key_pem) {
+          throw new Error(data.error || '获取公钥失败');
+        }
+        return data.public_key_pem;
+      }"#;
+
 const PASSWORD_TOGGLE_SCRIPT: &str = r#"
       document.querySelectorAll('.mei-host-shell__password-toggle').forEach((button) => {
         button.addEventListener('click', () => {
@@ -73,8 +93,10 @@ pub(super) fn login_page_html(
         " disabled"
     };
     let password_toggle_script = PASSWORD_TOGGLE_SCRIPT;
+    let auth_rsa_bundle_script = AUTH_RSA_BUNDLE_SCRIPT;
+    let auth_rsa_client_script = AUTH_RSA_CLIENT_SCRIPT;
     let card_inner = format!(
-        r#"<p class="mei-host-shell__message" id="login-message">密码字段会使用宿主公钥加密后再提交。</p>
+        r#"<p class="mei-host-shell__message" id="login-message">密码内容将使用服务器公钥 RSA-OAEP 加密后再提交，确保安全。</p>
       {setup_notice}
       <form class="mei-host-shell__form" id="login-form">
         <label for="username">用户名</label>
@@ -85,46 +107,12 @@ pub(super) fn login_page_html(
         <button type="submit"{form_disabled}>登录</button>
       </form>
       <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
+    {auth_rsa_bundle_script}
     <script>
       const errorBox = document.getElementById('error');
       function clearError() {{ errorBox.textContent = ''; }}
       function setError(message) {{ errorBox.textContent = message || '登录失败'; }}
-      function pemToArrayBuffer(pem) {{
-        const body = pem.replace(/-----BEGIN PUBLIC KEY-----/g, '').replace(/-----END PUBLIC KEY-----/g, '').replace(/\s+/g, '');
-        const binary = atob(body);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        return bytes.buffer;
-      }}
-      async function encryptWithPem(publicKeyPem, text) {{
-        const keyData = pemToArrayBuffer(publicKeyPem);
-        const cryptoKey = await crypto.subtle.importKey(
-          'spki',
-          keyData,
-          {{ name: 'RSA-OAEP', hash: 'SHA-256' }},
-          false,
-          ['encrypt']
-        );
-        const encoded = new TextEncoder().encode(text);
-        const encrypted = await crypto.subtle.encrypt({{ name: 'RSA-OAEP' }}, cryptoKey, encoded);
-        const bytes = new Uint8Array(encrypted);
-        let bin = '';
-        bytes.forEach((b) => {{ bin += String.fromCharCode(b); }});
-        return btoa(bin);
-      }}
-      const canEncrypt = !!(window.crypto && window.crypto.subtle);
-      const loginMessage = document.getElementById('login-message');
-      if (!canEncrypt && loginMessage) {{
-        loginMessage.textContent = '当前为 HTTP 访问，浏览器无法使用 Web Crypto；将在受信主机（localhost、内网私网 IP，或服务端配置的受信主机）上直接提交密码。建议生产环境使用 HTTPS。';
-      }}
-      async function resolvePublicKey() {{
-        const resp = await fetch('/api/auth/public-key', {{ credentials: 'same-origin' }});
-        const data = await resp.json();
-        if (!resp.ok || !data.public_key_pem) {{
-          throw new Error(data.error || '获取公钥失败');
-        }}
-        return data.public_key_pem;
-      }}
+      {auth_rsa_client_script}
       document.getElementById('login-form').addEventListener('submit', async (event) => {{
         event.preventDefault();
         clearError();
@@ -136,14 +124,9 @@ pub(super) fn login_page_html(
             return;
           }}
           const next = document.getElementById('next').value || '/';
-          let body;
-          if (canEncrypt) {{
-            const publicKeyPem = await resolvePublicKey();
-            const encryptedPassword = await encryptWithPem(publicKeyPem, password);
-            body = {{ username, encryptedPassword, next }};
-          }} else {{
-            body = {{ username, password, next }};
-          }}
+          const publicKeyPem = await resolvePublicKey();
+          const encryptedPassword = encryptWithPem(publicKeyPem, password);
+          const body = {{ username, encryptedPassword, next }};
           const resp = await fetch('/api/auth/login', {{
             method: 'POST',
             credentials: 'same-origin',
@@ -161,7 +144,9 @@ pub(super) fn login_page_html(
         }}
       }});
       {password_toggle_script}
-    </script>"#
+    </script>"#,
+        auth_rsa_bundle_script = auth_rsa_bundle_script,
+        auth_rsa_client_script = auth_rsa_client_script,
     );
     host_error_page::render_auth_card_page(
         "登录 - MeiLang",
@@ -180,6 +165,8 @@ pub(super) fn change_password_page_html(username: &str, role: &str, footer_html:
     let confirm_password_field =
         password_field_html("confirm-password", "new-password", false, true);
     let password_toggle_script = PASSWORD_TOGGLE_SCRIPT;
+    let auth_rsa_bundle_script = AUTH_RSA_BUNDLE_SCRIPT;
+    let auth_rsa_client_script = AUTH_RSA_CLIENT_SCRIPT;
     let card_inner = format!(
         r#"<div class="mei-host-shell__meta">当前账户：{user}（{role}）</div>
       <form class="mei-host-shell__form" id="change-password-form">
@@ -194,42 +181,13 @@ pub(super) fn change_password_page_html(username: &str, role: &str, footer_html:
       <div id="error" class="mei-host-shell__feedback mei-host-shell__feedback--error"></div>
       <div id="ok" class="mei-host-shell__feedback mei-host-shell__feedback--ok"></div>
       <a class="mei-host-shell__link" href="/">返回首页</a>
+    {auth_rsa_bundle_script}
     <script>
       const errorBox = document.getElementById('error');
       const okBox = document.getElementById('ok');
       function setError(message) {{ errorBox.textContent = message || '修改失败'; okBox.textContent = ''; }}
       function setOk(message) {{ okBox.textContent = message || '修改成功'; errorBox.textContent = ''; }}
-      function pemToArrayBuffer(pem) {{
-        const body = pem.replace(/-----BEGIN PUBLIC KEY-----/g, '').replace(/-----END PUBLIC KEY-----/g, '').replace(/\s+/g, '');
-        const binary = atob(body);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        return bytes.buffer;
-      }}
-      async function encryptWithPem(publicKeyPem, text) {{
-        const keyData = pemToArrayBuffer(publicKeyPem);
-        const cryptoKey = await crypto.subtle.importKey(
-          'spki',
-          keyData,
-          {{ name: 'RSA-OAEP', hash: 'SHA-256' }},
-          false,
-          ['encrypt']
-        );
-        const encoded = new TextEncoder().encode(text);
-        const encrypted = await crypto.subtle.encrypt({{ name: 'RSA-OAEP' }}, cryptoKey, encoded);
-        const bytes = new Uint8Array(encrypted);
-        let bin = '';
-        bytes.forEach((b) => {{ bin += String.fromCharCode(b); }});
-        return btoa(bin);
-      }}
-      async function resolvePublicKey() {{
-        const resp = await fetch('/api/auth/public-key', {{ credentials: 'same-origin' }});
-        const data = await resp.json();
-        if (!resp.ok || !data.public_key_pem) {{
-          throw new Error(data.error || '获取公钥失败');
-        }}
-        return data.public_key_pem;
-      }}
+      {auth_rsa_client_script}
       document.getElementById('change-password-form').addEventListener('submit', async (event) => {{
         event.preventDefault();
         setError('');
@@ -269,7 +227,9 @@ pub(super) fn change_password_page_html(username: &str, role: &str, footer_html:
         }}
       }});
       {password_toggle_script}
-    </script>"#
+    </script>"#,
+        auth_rsa_bundle_script = auth_rsa_bundle_script,
+        auth_rsa_client_script = auth_rsa_client_script,
     );
     host_error_page::render_auth_card_page(
         "修改密码 - MeiLang",

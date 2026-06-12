@@ -98,6 +98,21 @@ async function bundleShoelace() {
   return outputPath;
 }
 
+async function bundleAuthRsa() {
+  const outputPath = path.join(distRoot, "auth-rsa.bundle.js");
+  await build({
+    entryPoints: [path.join(assetsRoot, "auth", "rsa-oaep.js")],
+    outfile: outputPath,
+    bundle: true,
+    minify: true,
+    format: "iife",
+    globalName: "MeiAuthRsa",
+    target: "es2020",
+    legalComments: "none",
+  });
+  return outputPath;
+}
+
 function stripJsSourceMapReference(js) {
   return String(js || "")
     .replace(/\/\/# sourceMappingURL=.*\r?\n?$/u, "")
@@ -152,6 +167,7 @@ async function main() {
       ? await concatScripts("upload.bundle.js", manifest.uploadScripts)
       : null;
   const shoelaceOut = await bundleShoelace();
+  const authRsaOut = await bundleAuthRsa();
   const stylesOut = await concatStyles("styles.bundle.css", manifest.styles);
   console.log("[assets:build] generated:");
   console.log(`- ${path.relative(root, rustOutPath)}`);
@@ -167,6 +183,7 @@ async function main() {
     console.log(`- ${path.relative(root, uploadOut)}`);
   }
   console.log(`- ${path.relative(root, shoelaceOut)}`);
+  console.log(`- ${path.relative(root, authRsaOut)}`);
   console.log(`- ${path.relative(root, stylesOut)}`);
   console.log(`- ${path.relative(root, path.join(vendorRoot, "echarts", "echarts.min.js"))}`);
   console.log(`- ${path.relative(root, path.join(vendorRoot, "maplibre", "maplibre-gl.js"))}`);

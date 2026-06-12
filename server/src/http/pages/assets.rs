@@ -153,6 +153,7 @@ fn app_bundle_dist_path(mode: &str) -> Option<&'static str> {
         "config.js" | "config" => Some("dist/config.bundle.js"),
         "upload.js" | "upload" => Some("dist/upload.bundle.js"),
         "shoelace.js" | "shoelace" => Some("dist/shoelace.bundle.js"),
+        "auth-rsa.js" | "auth-rsa" => Some("dist/auth-rsa.bundle.js"),
         "styles.css" | "styles" => Some("dist/styles.bundle.css"),
         _ => None,
     }

@@ -75,7 +75,7 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web
 - 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）；生产对照用 **`--workspace ws-spbjw`**
 - 组件/模板：`mei workspace materialize` 物化到 profile 的 `.stock/`（Git 跟踪）；`.mei/` 仅运行时；未物化时只读 `mei-lang/stock/`
 - **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
-- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 RSA 加密链路输入，禁止命令行参数；若浏览器在 HTTP 下无法使用 Web Crypto，则仅允许 `localhost`、私网 IP，或 `MEI_HTTP_PLAINTEXT_LOGIN_HOSTS` 指定的受信主机回退为明文提交
+- 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 **RSA-OAEP(SHA-256)** 加密后提交，禁止命令行参数与登录 API 明文 `password` 字段（HTTP 内网不依赖 SSL，登录页内置纯 JS 加密）
 - 启动时**不会**自动同步 MeiLang skill；需要时显式传 **`--sync-agent-skill`**（或与 **`--auto-agent`** 联用）
 - 启动后提供默认宿主/runtime；访问侧 AI 若启用，将按 `.env` 中 OpenAI 兼容配置连接模型服务
 

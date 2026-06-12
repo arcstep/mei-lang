@@ -263,6 +263,37 @@ fn rsa_roundtrip_for_sensitive_payload() {
 }
 
 #[test]
+fn forge_js_rsa_oaep_sha256_compat() {
+    let (public_pem, private_pem) = generate_key_pair_pem().expect("generate keypair");
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir.parent().expect("mei-lang repo root");
+    let script = repo_root.join("scripts/verify-forge-rsa-compat.mjs");
+    assert!(
+        script.is_file(),
+        "missing forge compat script: {}",
+        script.display()
+    );
+    let public_file = std::env::temp_dir().join("mei-auth-forge-public.pem");
+    fs::write(&public_file, public_pem.as_str()).expect("write public pem");
+    let output = std::process::Command::new("node")
+        .arg(script.as_os_str())
+        .arg(&public_file)
+        .arg("Hello#Sensitive1")
+        .output()
+        .expect("run forge compat script");
+    let _ = fs::remove_file(public_file);
+    assert!(
+        output.status.success(),
+        "forge compat script failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let encrypted_b64 = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let decrypted =
+        decrypt_base64_with_private_key(private_pem.as_str(), encrypted_b64.trim()).expect("decrypt");
+    assert_eq!(decrypted, "Hello#Sensitive1");
+}
+
+#[test]
 fn prepare_auth_fails_without_users_when_required() {
     let source_root = temp_source_root("prepare-no-users");
     let err = prepare_auth_for_serve(source_root.as_path(), AuthEnforcement::Required)
