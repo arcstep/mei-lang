@@ -6,6 +6,8 @@
  * - { "fraction_digits": 2 }  → 16.40
  * - { "mode": "significant", "significant_digits": 2 }  → 0.000034 → "0.000034"
  * - { "mode": "compact" }     → 16.4 不变成 16.40
+ *
+ * 未声明 value_format 时：unit 为 % 默认保留 1 位小数（52.4%），避免 ratio×100 后出现长小数尾。
  */
 
 function clampInt(n, min, max) {
@@ -67,6 +69,9 @@ export function formatMetricNumber(raw, { unit = "", format = null } = {}) {
 
   const spec = normalizeMetricValueFormat(format);
   if (!spec || spec.mode === "compact") {
+    if (unitText === "%") {
+      return display.toFixed(1);
+    }
     if (Number.isInteger(display)) {
       return String(display);
     }
