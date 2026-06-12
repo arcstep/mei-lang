@@ -102,6 +102,21 @@ pub fn router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
+            "/api/upload/move/*app_id",
+            post(upload_api::upload_file_move_post)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/upload/dir/*app_id",
+            post(upload_api::upload_dir_create_post)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
+            "/api/upload/rename/*app_id",
+            post(upload_api::upload_entry_rename_post)
+                .layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
             "/api/upload/*app_id",
             post(upload_api::upload_file_post)
                 .delete(upload_api::upload_file_delete)

@@ -65,6 +65,7 @@ pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
 
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
+    "workspace-splitters.js",
     "upload-upload-panel.js",
 ];
 

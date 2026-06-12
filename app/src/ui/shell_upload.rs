@@ -2,8 +2,8 @@ use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceAppMeta;
 use serde::Serialize;
 
-use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
+use super::source_tree::{self, tree_icon_for_upload_entry};
 use super::statusbar::statusbar_view;
 use super::topbar::topbar_view;
 use super::view_routing::upload_href;
@@ -15,6 +15,8 @@ pub struct UploadFileEntry {
     pub name: String,
     pub is_dir: bool,
     pub size_bytes: Option<u64>,
+    pub modified_ms: Option<u64>,
+    pub modified_label: Option<String>,
 }
 
 fn format_upload_bytes(bytes: u64) -> String {
@@ -33,43 +35,96 @@ fn format_upload_bytes(bytes: u64) -> String {
     }
 }
 
-fn upload_entry_depth(path: &str) -> usize {
-    path.split('/')
-        .filter(|segment| !segment.is_empty())
-        .count()
-        .saturating_sub(1)
-}
-
-fn upload_file_token(name: &str) -> (&'static str, &'static str) {
-    let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-    match ext.as_str() {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" | "svg" => ("image", "IMG"),
-        "mp4" | "mov" | "avi" | "mkv" | "webm" | "m4v" => ("video", "VID"),
-        "mp3" | "wav" | "flac" | "aac" | "m4a" => ("audio", "AUD"),
-        "csv" | "xlsx" | "xls" => ("sheet", "CSV"),
-        "json" | "jsonc" | "yaml" | "yml" | "toml" => ("data", "JSON"),
-        "js" | "jsx" | "mjs" | "cjs" => ("code", "JS"),
-        "ts" | "tsx" => ("code", "TS"),
-        "css" | "scss" | "less" => ("code", "CSS"),
-        "md" | "markdown" | "txt" => ("doc", "TXT"),
-        "pdf" => ("doc", "PDF"),
-        "zip" | "tar" | "gz" | "rar" | "7z" => ("archive", "ZIP"),
-        _ => ("file", "FILE"),
-    }
-}
-
-fn upload_entry_icon(entry: &UploadFileEntry) -> AnyView {
-    let (kind, token) = if entry.is_dir {
-        ("dir", "DIR")
+fn upload_entry_size_label(entry: &UploadFileEntry) -> String {
+    if entry.is_dir {
+        "目录".to_string()
     } else {
-        upload_file_token(entry.name.as_str())
-    };
-    view! {
-        <span class="upload-entry-token shrink-0" data-kind=kind aria-hidden="true">
-            {token}
-        </span>
+        entry.size_bytes
+            .map(format_upload_bytes)
+            .unwrap_or_else(|| "--".to_string())
     }
-    .into_any()
+}
+
+fn upload_entry_time_label(entry: &UploadFileEntry) -> String {
+    entry.modified_label
+        .clone()
+        .unwrap_or_else(|| "时间未知".to_string())
+}
+
+fn upload_entry_parent_label(entry: &UploadFileEntry) -> String {
+    let parent = entry.path.rsplit_once('/').map(|(value, _)| value).unwrap_or("");
+    if parent.is_empty() {
+        "根目录".to_string()
+    } else {
+        parent.to_string()
+    }
+}
+
+fn upload_parent_rel(path: &str) -> &str {
+    path.rsplit_once('/').map(|(parent, _)| parent).unwrap_or("")
+}
+
+fn upload_tree_view(
+    files: &[UploadFileEntry],
+    parent: &str,
+    selected: &str,
+    app_path: &str,
+) -> AnyView {
+    let items = files
+        .iter()
+        .filter(|entry| upload_parent_rel(entry.path.as_str()) == parent)
+        .map(|entry| {
+            let href = upload_href(app_path, Some(entry.path.as_str()));
+            let class = if entry.path == selected {
+                "upload-file-row upload-file-row--active"
+            } else if entry.is_dir {
+                "upload-file-row upload-file-row--dir"
+            } else {
+                "upload-file-row"
+            };
+            let icon = tree_icon_for_upload_entry(entry.path.as_str(), entry.is_dir);
+            let size_label = upload_entry_size_label(entry);
+            let time_label = upload_entry_time_label(entry);
+            let parent_label = upload_entry_parent_label(entry);
+            let meta_label = format!("{parent_label} · {time_label}");
+            let entry_kind = if entry.is_dir { "dir" } else { "file" };
+            let children = if entry.is_dir {
+                Some(upload_tree_view(files, entry.path.as_str(), selected, app_path))
+            } else {
+                None
+            };
+            let item_class = if entry.is_dir {
+                "tree-node tree-li-branch upload-tree-branch"
+            } else {
+                "tree-node upload-file-item"
+            };
+            view! {
+                <li class=item_class>
+                    <a
+                        class=class
+                        href=href
+                        title=entry.path.clone()
+                        data-entry-kind=entry_kind
+                        data-entry-path=entry.path.clone()
+                        data-entry-name=entry.name.clone()
+                        data-entry-size=entry.size_bytes.unwrap_or(0).to_string()
+                        data-entry-modified=entry.modified_ms.unwrap_or(0).to_string()
+                    >
+                        <span class="upload-file-leading shrink-0" aria-hidden="true">{icon}</span>
+                        <span class="upload-file-copy min-w-0 flex-1">
+                            <span class="upload-file-name min-w-0 truncate">{entry.name.clone()}</span>
+                            <span class="upload-file-path">{meta_label}</span>
+                        </span>
+                        <span class="upload-file-side shrink-0">
+                            <span class="upload-file-badge">{size_label}</span>
+                        </span>
+                    </a>
+                    {children}
+                </li>
+            }
+        })
+        .collect_view();
+    view! { <ul class="tree upload-file-list upload-file-tree m-0 grid list-none gap-1 p-0">{items}</ul> }.into_any()
 }
 
 pub(crate) fn upload_shell(
@@ -82,7 +137,7 @@ pub(crate) fn upload_shell(
     upload_root_label: &str,
     files: &[UploadFileEntry],
     selected_file: Option<&str>,
-    source: Option<&str>,
+    _source: Option<&str>,
     source_meta: Option<&SourcePanelMeta>,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -90,15 +145,10 @@ pub(crate) fn upload_shell(
     let selected = selected_file.unwrap_or("");
     let selected_entry = files.iter().find(|entry| entry.path == selected);
     let selected_is_dir = selected_entry.is_some_and(|entry| entry.is_dir);
-    let selected_dir = if selected.is_empty() {
-        String::new()
-    } else if selected_is_dir {
+    let selected_dir = if selected_is_dir {
         selected.to_string()
     } else {
-        selected
-            .rsplit_once('/')
-            .map(|(parent, _)| parent.to_string())
-            .unwrap_or_default()
+        String::new()
     };
     let target_dir_label = if selected_dir.is_empty() {
         upload_root_label.to_string()
@@ -135,92 +185,27 @@ pub(crate) fn upload_shell(
         false,
         false,
     );
-    let file_links = files
-        .iter()
-        .map(|entry| {
-            let href = upload_href(app_path, Some(entry.path.as_str()));
-            let class = if entry.path == selected {
-                "upload-file-row upload-file-row--active"
-            } else {
-                "upload-file-row"
-            };
-            let icon = upload_entry_icon(entry);
-            let meta = if entry.is_dir {
-                "目录".to_string()
-            } else {
-                entry.size_bytes
-                    .map(format_upload_bytes)
-                    .unwrap_or_else(|| "文件".to_string())
-            };
-            let row_style = format!("padding-left:{}px", 12 + upload_entry_depth(&entry.path) * 14);
-            view! {
-                <li class="tree-node">
-                    <a class=class href=href title=entry.path.clone() style=row_style>
-                        {icon}
-                        <span class="upload-file-copy min-w-0 flex-1">
-                            <span class="upload-file-name min-w-0 truncate">{entry.name.clone()}</span>
-                            <span class="upload-file-meta">{meta}</span>
-                        </span>
-                    </a>
-                </li>
-            }
-        })
-        .collect_view();
-    let preview = if selected.is_empty() || selected_is_dir {
-        let title = if selected_is_dir {
-            "目录已选中"
-        } else {
-            "准备上传"
-        };
-        let note = if selected_is_dir {
-            format!(
-                "当前目录：{target_dir_label}。选择目录中的文件即可预览；上传的新文件也会直接落在这里。"
-            )
-        } else {
-            format!(
-                "当前目录：{target_dir_label}。从左侧选择上传目录中的文件，或使用下方上传面板添加新文件。"
-            )
-        };
-        view! {
-            <section class="upload-empty-state upload-empty-state--hero flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-600/55 bg-slate-900/35 p-8 text-sm text-slate-400">
-                <div class="upload-empty-state-copy">
-                    <div class="upload-empty-state-title">{title}</div>
-                    <div class="upload-empty-state-note">{note}</div>
-                </div>
-            </section>
-        }
-        .into_any()
-    } else {
-        view! {
-            <section class="upload-preview-pane flex min-h-0 flex-1 flex-col overflow-hidden">
-                <div class="main-pane-scroll flex-1 min-h-0 overflow-auto p-0">
-                    {asset_preview_body(
-                        app_path,
-                        selected,
-                        source.unwrap_or(""),
-                    )}
-                </div>
-            </section>
-        }
-        .into_any()
-    };
+    let file_tree = upload_tree_view(files, "", selected, app_path);
     view! {
         <div class="shell shell-surface upload-view-shell text-slate-200">
+            <div
+                id="tree-icons-sprite-root"
+                class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
+                aria-hidden="true"
+                inner_html=source_tree::TREE_ICONS_SPRITE_SVG
+            ></div>
             {topbar}
             <div
-                class="upload-workspace chrome-inset min-h-0 flex flex-1 overflow-hidden"
-                id="upload-workspace-root"
+                class="workspace upload-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+                id="workspace-root"
                 data-app-id=app_path.to_string()
                 data-upload-root=upload_root_label.to_string()
             >
-                <aside class="upload-sidebar workspace-panel workspace-panel-side h-full min-h-0 min-w-0 w-72 shrink-0 overflow-hidden border-r border-slate-700/40 px-3 py-3">
+                <aside class="upload-sidebar sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col">
                     <div class="upload-sidebar-head">
                         <div class="upload-sidebar-title-row">
-                            <div class="upload-sidebar-title">"上传目录"</div>
+                            <div class="upload-sidebar-title">"文件清单"</div>
                             <div class="upload-sidebar-root">{upload_root_label}</div>
-                        </div>
-                        <div class="upload-sidebar-note">
-                            "支持滚动浏览已上传文件；新文件默认上传到当前选中文件所在目录。"
                         </div>
                         <div class="upload-sidebar-stats">
                             <span class="upload-sidebar-chip">{format!("{file_count} 个文件")}</span>
@@ -228,21 +213,69 @@ pub(crate) fn upload_shell(
                             <span class="upload-sidebar-chip">{format_upload_bytes(total_bytes)}</span>
                         </div>
                     </div>
-                    <div class="upload-sidebar-scroll">
-                        <ul class="tree upload-file-list m-0 grid list-none gap-1 p-0">{file_links}</ul>
+                    <div class="upload-sidebar-scroll sidebar-scroll flex-1 min-h-0 overflow-auto">
+                        {file_tree}
                     </div>
-                    <div
-                        id="upload-panel-root"
-                        class="upload-panel-root"
-                        data-app-id=app_path.to_string()
-                        data-selected-file=selected.to_string()
-                        data-selected-dir=selected_dir
-                        data-selected-is-dir=if selected_is_dir { "1" } else { "0" }
-                        data-upload-root=upload_root_label.to_string()
-                    ></div>
                 </aside>
-                <main class="upload-main min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden px-4 py-3">
-                    {preview}
+                <div
+                    class="splitter splitter-left"
+                    data-workspace-splitter="left"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label="调整左侧文件清单宽度"
+                >
+                    <button
+                        class="splitter-toggle"
+                        type="button"
+                        data-workspace-toggle="left"
+                        aria-label="折叠左侧文件清单"
+                        title="折叠左侧文件清单"
+                    >
+                        <span class="splitter-toggle-icon" aria-hidden="true">
+                            <svg
+                                viewBox="0 0 20 20"
+                                width="12"
+                                height="12"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="1.8"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                            >
+                                <path d="M12.5 4.5L7.5 10l5 5.5"></path>
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+                <main class="upload-main main h-full min-h-0 min-w-0 overflow-hidden flex flex-col">
+                    <section class="upload-main-pane workspace-panel workspace-panel-main flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 p-0">
+                        <div class="upload-workbench-head">
+                            <div class="upload-workbench-title">"上传工作台"</div>
+                            <div class="upload-workbench-note">{format!("当前工作目录：{target_dir_label}")}</div>
+                            <div class="upload-workbench-subnote">
+                                {
+                                    if selected.is_empty() {
+                                        "未选择目录时，上传会直接落到根目录。"
+                                    } else if selected_is_dir {
+                                        "当前选中目录，上传会直接落到该目录。"
+                                    } else {
+                                        "当前选中文件，上传仍会落到根目录；如需调整路径，请在下方修改项中直接改路径。"
+                                    }
+                                }
+                            </div>
+                        </div>
+                        <div class="upload-workbench-body">
+                            <div
+                                id="upload-panel-root"
+                                class="upload-panel-root"
+                                data-app-id=app_path.to_string()
+                                data-selected-file=selected.to_string()
+                                data-selected-dir=selected_dir
+                                data-selected-is-dir=if selected_is_dir { "1" } else { "0" }
+                                data-upload-root=upload_root_label.to_string()
+                            ></div>
+                        </div>
+                    </section>
                 </main>
             </div>
             {statusbar}

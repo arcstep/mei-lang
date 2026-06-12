@@ -126,6 +126,288 @@
 
 ;
 
+/* ===== workspace-splitters.js ===== */
+(function initWorkspaceSplitters() {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (typeof boot.disposeWorkspaceSplitters === "function") {
+    try {
+      boot.disposeWorkspaceSplitters();
+    } catch (_) {}
+    boot.disposeWorkspaceSplitters = null;
+  }
+  const root = document.getElementById("workspace-root");
+  const handles = Array.from(document.querySelectorAll("[data-workspace-splitter]"));
+  const toggleButtons = Array.from(document.querySelectorAll("[data-workspace-toggle]"));
+  const splitterPx = 8;
+  const activateDragDeltaPx = 3;
+  const minMain = 320;
+  const config = {
+    left: {
+      cssVar: "--workspace-left-aside",
+      storageKey: "mei-lang.workspaceLeftAsidePx",
+      collapsedKey: "mei-lang.workspaceLeftAsideCollapsed",
+      fallback: 260,
+      min: 220,
+      axis: "x",
+      target: root
+    },
+    right: {
+      cssVar: "--workspace-right-aside",
+      storageKey: "mei-lang.workspaceRightAsidePx",
+      collapsedKey: "mei-lang.workspaceRightAsideCollapsed",
+      fallback: 320,
+      min: 280,
+      axis: "x",
+      target: root
+    }
+  };
+  const activeHandles = handles.filter(function (handle) {
+    const side = handle && handle.getAttribute ? handle.getAttribute("data-workspace-splitter") : "";
+    return !!config[side];
+  });
+  const activeSides = Array.from(
+    new Set(
+      activeHandles
+        .map(function (handle) {
+          return handle.getAttribute("data-workspace-splitter") || "";
+        })
+        .concat(
+          toggleButtons
+            .map(function (button) {
+              return button.getAttribute("data-workspace-toggle") || "";
+            })
+            .filter(function (side) {
+              return !!config[side];
+            })
+        )
+    )
+  );
+  if (!root || !activeHandles.length || !activeSides.length) return;
+  const collapsed = { left: false, right: false };
+  function toggleButton(side) {
+    return toggleButtons.find(function (button) {
+      return button.getAttribute("data-workspace-toggle") === side;
+    }) || null;
+  }
+  function syncCollapsedUi() {
+    root.dataset.leftCollapsed = collapsed.left ? "true" : "false";
+    root.dataset.rightCollapsed = collapsed.right ? "true" : "false";
+    ["left", "right"].forEach(function (side) {
+      const button = toggleButton(side);
+      if (!button) return;
+      const isCollapsed = !!collapsed[side];
+      button.dataset.collapsed = isCollapsed ? "true" : "false";
+      const noun = side === "left" ? "左侧资源栏" : "右侧助手栏";
+      const action = isCollapsed ? "展开" : "折叠";
+      button.setAttribute("aria-label", action + noun);
+      button.setAttribute("title", action + noun);
+    });
+  }
+  function clamp(n, lo, hi) {
+    return Math.max(lo, Math.min(hi, n));
+  }
+  function readPx(side) {
+    const meta = config[side];
+    if (!meta || !meta.target) return 0;
+    const raw = getComputedStyle(meta.target).getPropertyValue(meta.cssVar).trim();
+    const m = raw.match(/^(\d+(?:\.\d+)?)px$/);
+    if (m) return Math.round(parseFloat(m[1], 10));
+    return meta.fallback;
+  }
+  function writePx(side, px) {
+    const meta = config[side];
+    if (!meta || !meta.target) return;
+    meta.target.style.setProperty(meta.cssVar, px + "px");
+  }
+  function maxPx(side) {
+    const meta = config[side];
+    if (!meta || !meta.target) return meta ? meta.fallback : 0;
+    const otherSide = side === "left" ? "right" : "left";
+    const otherWidth = activeSides.includes(otherSide) ? readPx(otherSide) : 0;
+    const rect = root.getBoundingClientRect();
+    const splittersTotalPx = activeHandles.length * splitterPx;
+    return Math.max(
+      meta.min,
+      rect.width - otherWidth - splittersTotalPx - minMain
+    );
+  }
+  activeSides.forEach((side) => {
+    try {
+      const meta = config[side];
+      if (!meta.target) return;
+      collapsed[side] = localStorage.getItem(meta.collapsedKey) === "1";
+      const saved = localStorage.getItem(meta.storageKey);
+      let px = meta.fallback;
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed >= meta.min) {
+          px = parsed;
+        }
+      }
+      if (collapsed[side]) {
+        writePx(side, 0);
+      } else {
+        writePx(side, clamp(px, meta.min, maxPx(side)));
+      }
+    } catch (_) {}
+  });
+  syncCollapsedUi();
+  let dragging = false;
+  let draggingSide = "";
+  let activeHandle = null;
+  let startCoord = 0;
+  let startW = 0;
+  let dragActivated = false;
+  function applySize(clientCoord) {
+    if (!draggingSide) return;
+    const meta = config[draggingSide];
+    const delta = clientCoord - startCoord;
+    const rawNext =
+      draggingSide === "left" || draggingSide === "preview"
+        ? startW + delta
+        : startW - delta;
+    const next = clamp(rawNext, meta.min, maxPx(draggingSide));
+    writePx(draggingSide, next);
+  }
+  function onMove(ev) {
+    if (!dragging) return;
+    const meta = config[draggingSide];
+    const point = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
+    const coord = meta && meta.axis === "y" ? point.clientY : point.clientX;
+    if (!dragActivated && Math.abs(coord - startCoord) >= activateDragDeltaPx) {
+      dragActivated = true;
+      if (activeHandle) activeHandle.classList.add("splitter-active");
+    }
+    applySize(coord);
+    if (ev.cancelable) ev.preventDefault();
+  }
+  function onEnd() {
+    if (!dragging) return;
+    dragging = false;
+    if (activeHandle) activeHandle.classList.remove("splitter-active");
+    dragActivated = false;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onEnd);
+    window.removeEventListener("touchmove", onMove);
+    window.removeEventListener("touchend", onEnd);
+    window.removeEventListener("touchcancel", onEnd);
+    try {
+      const meta = config[draggingSide];
+      if (meta) {
+        localStorage.setItem(meta.storageKey, String(readPx(draggingSide)));
+      }
+    } catch (_) {}
+    activeHandle = null;
+    draggingSide = "";
+  }
+  function onStart(ev) {
+    if (ev.type === "mousedown" && ev.button !== 0) return;
+    if (ev.target instanceof Element && ev.target.closest("[data-workspace-toggle]")) return;
+    const handle = ev.currentTarget;
+    const side = handle && handle.getAttribute ? handle.getAttribute("data-workspace-splitter") : "";
+    if (!config[side]) return;
+    if (collapsed[side]) return;
+    const meta = config[side];
+    if (!meta.target) return;
+    dragging = true;
+    draggingSide = side;
+    activeHandle = handle;
+    const point = ev.touches && ev.touches[0] ? ev.touches[0] : ev;
+    startCoord = meta.axis === "y" ? point.clientY : point.clientX;
+    startW = readPx(side);
+    dragActivated = false;
+    handle.classList.remove("splitter-active");
+    document.body.style.cursor = meta.axis === "y" ? "row-resize" : "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onEnd);
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchcancel", onEnd);
+    ev.preventDefault();
+  }
+  function toggleSide(side) {
+    const meta = config[side];
+    if (!meta || !meta.target) return;
+    if (collapsed[side]) {
+      collapsed[side] = false;
+      try {
+        localStorage.removeItem(meta.collapsedKey);
+      } catch (_) {}
+      const saved = localStorage.getItem(meta.storageKey);
+      let px = meta.fallback;
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed >= meta.min) {
+          px = parsed;
+        }
+      }
+      writePx(side, clamp(px, meta.min, maxPx(side)));
+    } else {
+      const current = readPx(side);
+      if (current >= meta.min) {
+        try {
+          localStorage.setItem(meta.storageKey, String(current));
+        } catch (_) {}
+      }
+      collapsed[side] = true;
+      writePx(side, 0);
+      try {
+        localStorage.setItem(meta.collapsedKey, "1");
+      } catch (_) {}
+    }
+    syncCollapsedUi();
+  }
+  function onToggleClick(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const button = ev.currentTarget;
+    const side = button && button.getAttribute ? button.getAttribute("data-workspace-toggle") || "" : "";
+    if (!side) return;
+    toggleSide(side);
+  }
+  activeHandles.forEach((handle) => {
+    handle.addEventListener("mousedown", onStart);
+    handle.addEventListener("touchstart", onStart, { passive: false });
+  });
+  toggleButtons.forEach((button) => {
+    button.addEventListener("click", onToggleClick);
+  });
+  const onResize = function () {
+    activeSides.forEach((side) => {
+      const meta = config[side];
+      if (!meta || !meta.target) return;
+      if (collapsed[side]) {
+        writePx(side, 0);
+      } else {
+        writePx(side, clamp(readPx(side), meta.min, maxPx(side)));
+      }
+    });
+    syncCollapsedUi();
+  };
+  window.addEventListener("resize", onResize);
+  boot.disposeWorkspaceSplitters = function () {
+    onEnd();
+    activeHandles.forEach((handle) => {
+      handle.removeEventListener("mousedown", onStart);
+      handle.removeEventListener("touchstart", onStart, { passive: false });
+    });
+    toggleButtons.forEach((button) => {
+      button.removeEventListener("click", onToggleClick);
+    });
+    window.removeEventListener("resize", onResize);
+    window.removeEventListener("mousemove", onMove);
+    window.removeEventListener("mouseup", onEnd);
+    window.removeEventListener("touchmove", onMove);
+    window.removeEventListener("touchend", onEnd);
+    window.removeEventListener("touchcancel", onEnd);
+  };
+})();
+
+;
+
 /* ===== upload-upload-panel.js ===== */
 (function initUploadPanel() {
   const root = document.getElementById("upload-panel-root");
@@ -136,10 +418,43 @@
   const selectedDir = root.dataset.selectedDir || "";
   const selectedIsDir = root.dataset.selectedIsDir === "1";
   const uploadRoot = root.dataset.uploadRoot || "upload";
+  const fileListEl = document.querySelector(".upload-file-list");
+  if (!fileListEl) return;
+
   const CHUNK_THRESHOLD_BYTES = 16 * 1024 * 1024;
   const CHUNK_SIZE_BYTES = 8 * 1024 * 1024;
+  const collator = new Intl.Collator("zh-Hans-CN", {
+    numeric: true,
+    sensitivity: "base",
+  });
   let isUploading = false;
   let queue = [];
+
+  const entryModels = Array.from(fileListEl.querySelectorAll(".upload-file-row"))
+    .map((row, index) => {
+      const itemEl = row.closest(".upload-file-item") || row.closest("li");
+      const path = row.dataset.entryPath || "";
+      const name = row.dataset.entryName || path;
+      const kind = row.dataset.entryKind || "file";
+      return {
+        index,
+        row,
+        itemEl,
+        path,
+        name,
+        isDir: kind === "dir",
+        size: Number(row.dataset.entrySize || 0),
+        modified: Number(row.dataset.entryModified || 0),
+      };
+    })
+    .filter((entry) => entry.itemEl);
+
+  const directoryOptions = Array.from(
+    new Set([
+      "",
+      ...entryModels.filter((entry) => entry.isDir).map((entry) => entry.path),
+    ]),
+  );
 
   function escapeHtml(value) {
     return String(value || "")
@@ -161,6 +476,20 @@
     }
     const digits = unit === 0 ? 0 : value >= 100 ? 0 : value >= 10 ? 1 : 1;
     return `${value.toFixed(digits)} ${units[unit]}`;
+  }
+
+  function normalizeRelativeDir(value) {
+    return String(value || "")
+      .replaceAll("\\", "/")
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/\/+/g, "/")
+      .replace(/\/+$/, "");
+  }
+
+  function formatRelativeDirLabel(dir) {
+    const normalized = normalizeRelativeDir(dir);
+    return normalized ? `${uploadRoot}/${normalized}` : uploadRoot;
   }
 
   function queueKey(file) {
@@ -208,29 +537,69 @@
     return { kind: "file", label: "FILE" };
   }
 
-  function currentDirLabel() {
-    return selectedDir ? `${uploadRoot}/${selectedDir}` : uploadRoot;
+  function selectedDirLabel() {
+    return formatRelativeDirLabel(selectedDir);
+  }
+
+  function buildDirOptionsHtml() {
+    return directoryOptions
+      .map((dir) => {
+        const label = dir ? formatRelativeDirLabel(dir) : `${uploadRoot}（根目录）`;
+        return `<option value="${escapeHtml(dir)}">${escapeHtml(label)}</option>`;
+      })
+      .join("");
+  }
+
+  function buildDirChipsHtml(scope) {
+    return directoryOptions
+      .map((dir) => {
+        const label = dir ? dir : "根目录";
+        return `
+          <button
+            type="button"
+            class="upload-folder-chip"
+            data-fill-dir="${escapeHtml(dir)}"
+            data-fill-scope="${escapeHtml(scope)}"
+          >
+            ${escapeHtml(label)}
+          </button>
+        `;
+      })
+      .join("");
   }
 
   root.innerHTML = `
     <div class="upload-panel-shell">
-      <section class="upload-panel-card upload-panel-card--hero">
-        <div class="upload-panel-hero">
-          <div class="upload-panel-hero-copy">
-            <div class="upload-panel-kicker">上传中心</div>
-            <div class="upload-panel-title">批量上传与大文件分段上传</div>
-            <div class="upload-panel-note">
-              当前目标目录：<span class="upload-panel-dir">${escapeHtml(currentDirLabel())}</span>
-            </div>
+      <section class="upload-panel-card upload-panel-card--toolbar">
+        <div class="upload-panel-toolbar">
+          <div class="upload-panel-toolbar-copy">
+            <div class="upload-panel-section-title">上传文件管理</div>
+            <div id="upload-current-dir-label" class="upload-panel-context-path">${escapeHtml(selectedDirLabel())}</div>
+            <div class="upload-panel-note">${selectedIsDir ? "当前选中目录，上传将直接进入这里。" : "未选中目录时，上传将直接进入根目录。"}</div>
           </div>
-          <div class="upload-panel-badges">
-            <span class="upload-panel-badge">自动滚动清单</span>
-            <span class="upload-panel-badge">拖拽上传</span>
-            <span class="upload-panel-badge">>${formatBytes(CHUNK_THRESHOLD_BYTES)} 自动分段</span>
+          <label class="upload-panel-field upload-panel-field--toolbar">
+            <span class="upload-panel-field-label">上传目标子文件夹</span>
+            <input
+              id="upload-target-dir-input"
+              class="upload-panel-field-input"
+              type="text"
+              list="upload-dir-options"
+              value="${escapeHtml(selectedDir)}"
+              placeholder="留空为根目录，如 media/2026"
+            />
+          </label>
+          <div class="upload-panel-inline-actions">
+            <button type="button" id="upload-target-use-current-btn" class="upload-btn upload-btn--secondary">当前目录</button>
+            <button type="button" id="upload-target-use-root-btn" class="upload-btn upload-btn--secondary">根目录</button>
           </div>
+        </div>
+        <div class="upload-panel-folder-bank">
+          <div class="upload-panel-field-label">现有目录</div>
+          <div class="upload-folder-chip-list">${buildDirChipsHtml("upload")}</div>
         </div>
         <form id="upload-file-form" class="upload-form">
           <input id="upload-file-input" type="file" name="file" multiple hidden />
+          <datalist id="upload-dir-options">${buildDirOptionsHtml()}</datalist>
           <div
             id="upload-dropzone"
             class="upload-dropzone"
@@ -240,8 +609,8 @@
           >
             <div class="upload-dropzone-icon" aria-hidden="true">UP</div>
             <div class="upload-dropzone-copy">
-              <div class="upload-dropzone-title">拖拽文件到这里，或点击选择文件</div>
-              <div class="upload-dropzone-note">支持多文件队列；较大的视频文件会自动走分段上传。</div>
+              <div class="upload-dropzone-title">拖拽或点击选择文件</div>
+              <div class="upload-dropzone-note">队列会显示每个文件的体积、进度与上传策略。</div>
             </div>
           </div>
           <div class="upload-form-actions">
@@ -253,18 +622,34 @@
           <p id="upload-panel-status" class="upload-panel-status"></p>
         </form>
       </section>
-    ${
-      selectedFile && !selectedIsDir
-        ? `
-      <section class="upload-panel-card upload-panel-card--danger">
-        <div class="upload-panel-danger-copy">
-          <div class="upload-panel-danger-title">删除当前文件</div>
-          <div class="upload-panel-danger-note">${escapeHtml(selectedFile)}</div>
+      ${
+        selectedFile
+          ? `
+      <section class="upload-panel-card upload-panel-card--selection">
+        <div class="upload-panel-section-title">修改文件或文件夹</div>
+        <div class="upload-panel-note">
+          当前${selectedIsDir ? "目录" : "文件"}：<span class="upload-panel-dir">${escapeHtml(selectedFile)}</span>
         </div>
-        <button type="button" id="upload-delete-btn" class="upload-btn upload-btn--danger">删除当前文件</button>
+        <label class="upload-panel-field">
+          <span class="upload-panel-field-label">新的相对路径</span>
+          <input
+            id="upload-update-path-input"
+            class="upload-panel-field-input"
+            type="text"
+            value="${escapeHtml(selectedFile)}"
+            placeholder="${selectedIsDir ? "例如 archive/2026/new-folder" : "例如 archive/2026/report.csv"}"
+          />
+        </label>
+        <div class="upload-panel-field-note">
+          直接改路径即可完成重命名或迁移；中间目录不存在时会自动创建。
+        </div>
+        <div class="upload-panel-inline-actions">
+          <button type="button" id="upload-update-path-btn" class="upload-btn upload-btn--primary">应用路径修改</button>
+          <button type="button" id="upload-delete-btn" class="upload-btn upload-btn--danger">删除当前${selectedIsDir ? "目录" : "文件"}</button>
+        </div>
       </section>`
-        : ""
-    }
+          : ""
+      }
     </div>
   `;
 
@@ -276,7 +661,66 @@
   const dropzone = document.getElementById("upload-dropzone");
   const selectedListEl = document.getElementById("upload-selected-list");
   const selectionSummaryEl = document.getElementById("upload-selection-summary");
+  const currentDirLabelEl = document.getElementById("upload-current-dir-label");
+  const uploadTargetDirInput = document.getElementById("upload-target-dir-input");
+  const uploadUseCurrentBtn = document.getElementById("upload-target-use-current-btn");
+  const uploadUseRootBtn = document.getElementById("upload-target-use-root-btn");
+  const updatePathInput = document.getElementById("upload-update-path-input");
+  const updatePathBtn = document.getElementById("upload-update-path-btn");
   const deleteBtn = document.getElementById("upload-delete-btn");
+
+  function currentUploadTargetDir() {
+    return normalizeRelativeDir(uploadTargetDirInput?.value || selectedDir);
+  }
+
+  function basenameOfPath(path) {
+    const normalized = normalizeRelativeDir(path);
+    if (!normalized) return "";
+    const parts = normalized.split("/").filter(Boolean);
+    return parts[parts.length - 1] || "";
+  }
+
+  function parentDirOfPath(path) {
+    const normalized = normalizeRelativeDir(path);
+    if (!normalized) return "";
+    const parts = normalized.split("/").filter(Boolean);
+    parts.pop();
+    return parts.join("/");
+  }
+
+  function joinRelativePath(baseDir, childPath) {
+    const base = normalizeRelativeDir(baseDir);
+    const child = normalizeRelativeDir(childPath);
+    if (!base) return child;
+    if (!child) return base;
+    return `${base}/${child}`;
+  }
+
+  function uploadPageHref(path) {
+    const normalized = normalizeRelativeDir(path);
+    if (!normalized) {
+      return `/apps/upload/${encodeURIComponent(appId)}`;
+    }
+    return `/apps/upload/${encodeURIComponent(appId)}?file=${encodeURIComponent(normalized)}`;
+  }
+
+  function navigateToUploadPath(path) {
+    window.location.href = uploadPageHref(path);
+  }
+
+  function syncCurrentDirLabel() {
+    if (currentDirLabelEl) {
+      currentDirLabelEl.textContent = formatRelativeDirLabel(currentUploadTargetDir());
+    }
+  }
+
+  function setDirInputValue(inputEl, value) {
+    if (!inputEl) return;
+    inputEl.value = normalizeRelativeDir(value);
+    if (inputEl === uploadTargetDirInput) {
+      syncCurrentDirLabel();
+    }
+  }
 
   function setStatus(text, tone) {
     if (!statusEl) return;
@@ -291,6 +735,10 @@
     if (pickBtn) pickBtn.disabled = isUploading;
     if (submitBtn) submitBtn.disabled = isUploading || queue.length === 0;
     if (input) input.disabled = isUploading;
+    if (updatePathBtn) updatePathBtn.disabled = isUploading;
+    if (updatePathInput) updatePathInput.disabled = isUploading;
+    if (deleteBtn) deleteBtn.disabled = isUploading;
+    if (uploadTargetDirInput) uploadTargetDirInput.disabled = isUploading;
   }
 
   function syncSelectionSummary() {
@@ -390,9 +838,10 @@
         uploadedChunks: 0,
         totalChunks: 0,
         status: "idle",
-        note: file.size >= CHUNK_THRESHOLD_BYTES
-          ? `将自动分段上传（每段 ${formatBytes(CHUNK_SIZE_BYTES)}）`
-          : "将使用常规上传",
+        note:
+          file.size >= CHUNK_THRESHOLD_BYTES
+            ? `将自动分段上传（每段 ${formatBytes(CHUNK_SIZE_BYTES)}）`
+            : "将使用常规上传",
       });
     }
     renderQueue();
@@ -410,8 +859,9 @@
 
     const body = new FormData();
     body.append("file", item.file, item.file.name);
-    if (selectedDir) {
-      body.append("dir", selectedDir);
+    const targetDir = currentUploadTargetDir();
+    if (targetDir) {
+      body.append("dir", targetDir);
     }
 
     const response = await fetch(`/api/upload/${encodeURIComponent(appId)}`, {
@@ -425,7 +875,7 @@
 
     item.progress = 1;
     item.status = "done";
-    item.note = "常规上传完成";
+    item.note = `常规上传完成 → ${payload.path || item.file.name}`;
     renderQueue();
   }
 
@@ -437,7 +887,7 @@
       },
       body: JSON.stringify({
         file_name: item.file.name,
-        dir: selectedDir || null,
+        dir: currentUploadTargetDir() || null,
         size_bytes: item.file.size,
         chunk_size: CHUNK_SIZE_BYTES,
         last_modified_ms: item.file.lastModified || null,
@@ -524,7 +974,7 @@
 
     item.progress = 1;
     item.status = "done";
-    item.note = "分段上传完成";
+    item.note = `分段上传完成 → ${completePayload.path || item.file.name}`;
     renderQueue();
   }
 
@@ -541,7 +991,10 @@
     setUploading(true);
     let successCount = 0;
     let failedCount = 0;
-    setStatus(`开始上传 ${queue.length} 个文件`, "info");
+    setStatus(
+      `开始上传 ${queue.length} 个文件到 ${formatRelativeDirLabel(currentUploadTargetDir())}`,
+      "info",
+    );
     renderQueue();
 
     for (const item of queue) {
@@ -566,6 +1019,48 @@
         "danger",
       );
       setUploading(false);
+    }
+  }
+
+  async function updateSelectedEntryPath() {
+    if (!selectedFile || !updatePathBtn || isUploading) return;
+    const nextPath = normalizeRelativeDir(updatePathInput?.value || "");
+    if (!nextPath) {
+      setStatus("请输入新的相对路径", "danger");
+      return;
+    }
+    if (nextPath === normalizeRelativeDir(selectedFile)) {
+      setStatus("路径未变化", "info");
+      return;
+    }
+    updatePathBtn.disabled = true;
+    setStatus("正在修改路径…", "info");
+    try {
+      const response = await fetch(`/api/upload/rename/${encodeURIComponent(appId)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from_path: selectedFile,
+          to_path: nextPath,
+        }),
+      });
+      const payload = await readResponseJson(response);
+      if (!response.ok) {
+        throw new Error(payload.error || `修改路径失败 (${response.status})`);
+      }
+      setStatus("路径修改完成，正在跳转…", "good");
+      navigateToUploadPath(payload.path || nextPath);
+    } catch (error) {
+      setStatus(error?.message || "修改路径失败", "danger");
+      updatePathBtn.disabled = false;
+    }
+  }
+
+  function clearStatusWhenIdle() {
+    if (!queue.length && !isUploading) {
+      setStatus("", "");
     }
   }
 
@@ -594,9 +1089,7 @@
     const removeKey = button.getAttribute("data-remove-key");
     queue = queue.filter((item) => item.key !== removeKey);
     renderQueue();
-    if (!queue.length) {
-      setStatus("", "");
-    }
+    clearStatusWhenIdle();
   });
 
   function markDropzone(active) {
@@ -636,6 +1129,28 @@
     addFiles(event.dataTransfer?.files);
   });
 
+  uploadTargetDirInput?.addEventListener("input", syncCurrentDirLabel);
+  uploadUseCurrentBtn?.addEventListener("click", () => {
+    setDirInputValue(uploadTargetDirInput, selectedDir);
+  });
+  uploadUseRootBtn?.addEventListener("click", () => {
+    setDirInputValue(uploadTargetDirInput, "");
+  });
+  updatePathBtn?.addEventListener("click", updateSelectedEntryPath);
+  updatePathInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      updateSelectedEntryPath();
+    }
+  });
+
+  root.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-fill-dir][data-fill-scope]");
+    if (!button) return;
+    const dir = button.getAttribute("data-fill-dir") || "";
+    setDirInputValue(uploadTargetDirInput, dir);
+  });
+
   deleteBtn?.addEventListener("click", async () => {
     if (!selectedFile || !window.confirm(`确认删除 ${selectedFile}？`)) return;
     setStatus("删除中…", "info");
@@ -649,12 +1164,13 @@
         throw new Error(payload.error || `删除失败 (${response.status})`);
       }
       setStatus("已删除，正在刷新…", "good");
-      window.location.href = `/apps/upload/${encodeURIComponent(appId)}`;
+      navigateToUploadPath(parentDirOfPath(selectedFile));
     } catch (error) {
       setStatus(error?.message || "删除失败", "danger");
     }
   });
 
+  syncCurrentDirLabel();
   renderQueue();
 })();
 

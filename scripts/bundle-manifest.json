@@ -60,6 +60,7 @@
   ],
   "uploadScripts": [
     "host-http-feedback.js",
+    "workspace-splitters.js",
     "upload-upload-panel.js"
   ],
   "styles": [

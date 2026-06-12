@@ -34,6 +34,30 @@ fn tree_sprite_icon(
     .into_any()
 }
 
+fn folder_icon_svg(title: &'static str, span_class: &'static str) -> AnyView {
+    view! {
+        <span class=span_class title=title aria-hidden="true">
+            <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                <path
+                    fill="#0f172a"
+                    stroke="#38bdf8"
+                    stroke-width="1.2"
+                    stroke-linejoin="round"
+                    d="M2.6 4.5h3l1.3 1.4h6.5a1 1 0 0 1 1 1v4.8a1 1 0 0 1-1 1H2.6a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z"
+                />
+                <path
+                    fill="none"
+                    stroke="#7dd3fc"
+                    stroke-width="1"
+                    stroke-linecap="round"
+                    d="M2.8 6.2h10.3"
+                />
+            </svg>
+        </span>
+    }
+    .into_any()
+}
+
 pub(crate) fn source_tree_view(
     nodes: &[WorkspaceNode],
     route_mode: UiRouteMode,
@@ -131,10 +155,9 @@ pub(crate) fn source_tree_view(
     view! { <ul class="tree m-0 grid list-none gap-0.5 p-0">{items}</ul> }.into_any()
 }
 
-fn file_row_icon(node: &WorkspaceNode) -> AnyView {
-    let path = node.path.as_str();
+pub(crate) fn tree_file_icon_for_path(path: &str) -> AnyView {
     if path.ends_with(".mei") {
-        return mei_coin_file_icon(node.mei_kind.as_deref());
+        return mei_coin_file_icon(None);
     }
     let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let span_class = "inline-flex h-4 w-4 items-center justify-center";
@@ -160,6 +183,23 @@ fn file_row_icon(node: &WorkspaceNode) -> AnyView {
         "sh" | "bash" | "zsh" => tree_sprite_icon("i-shell", "Shell", span_class),
         _ => tree_sprite_icon("i-file", "文件", span_class),
     }
+}
+
+pub(crate) fn tree_icon_for_upload_entry(path: &str, is_dir: bool) -> AnyView {
+    let span_class = "inline-flex h-4 w-4 items-center justify-center";
+    if is_dir {
+        folder_icon_svg("文件夹", span_class)
+    } else {
+        tree_file_icon_for_path(path)
+    }
+}
+
+fn file_row_icon(node: &WorkspaceNode) -> AnyView {
+    let path = node.path.as_str();
+    if path.ends_with(".mei") {
+        return mei_coin_file_icon(node.mei_kind.as_deref());
+    }
+    tree_file_icon_for_path(path)
 }
 
 fn mei_coin_file_icon(mei_kind: Option<&str>) -> AnyView {

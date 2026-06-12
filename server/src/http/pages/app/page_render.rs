@@ -1,9 +1,14 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::Path,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use axum::{
     http::{HeaderName, HeaderValue},
     response::Response,
 };
+use chrono::{Local, TimeZone};
 use mei_lang_app::{HostAccountView, UploadFileEntry};
 use mei_lang_kernel::{
     load_mei_config_for_app, resolve_default_scene_from_root, CompiledApp, HostSurface,
@@ -115,6 +120,22 @@ pub(super) fn upload_rel_from_config(app_root: &Path, source_root: &Path) -> Opt
         .map(|value| value.replace('\\', "/"))
 }
 
+fn system_time_to_epoch_ms(value: SystemTime) -> Option<u64> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis() as u64)
+}
+
+fn format_upload_modified_label(value: Option<u64>) -> Option<String> {
+    value.and_then(|ms| {
+        Local
+            .timestamp_millis_opt(ms as i64)
+            .single()
+            .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+    })
+}
+
 fn push_upload_entries(upload_root: &Path, rel_dir: &str, out: &mut Vec<UploadFileEntry>) {
     let current_dir = if rel_dir.is_empty() {
         upload_root.to_path_buf()
@@ -144,11 +165,19 @@ fn push_upload_entries(upload_root: &Path, rel_dir: &str, out: &mut Vec<UploadFi
             path: path.clone(),
             name,
             is_dir: file_type.is_dir(),
-            size_bytes: if file_type.is_dir() {
-                None
-            } else {
-                entry.metadata().ok().map(|meta| meta.len())
-            },
+            size_bytes: entry.metadata().ok().and_then(|meta| {
+                if file_type.is_dir() {
+                    None
+                } else {
+                    Some(meta.len())
+                }
+            }),
+            modified_ms: entry.metadata().ok().and_then(|meta| {
+                meta.modified().ok().and_then(system_time_to_epoch_ms)
+            }),
+            modified_label: entry.metadata().ok().and_then(|meta| {
+                format_upload_modified_label(meta.modified().ok().and_then(system_time_to_epoch_ms))
+            }),
         };
         if item.is_dir {
             dirs.push(item);
