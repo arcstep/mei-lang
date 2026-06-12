@@ -2465,3 +2465,31 @@ fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
         serde_json::to_string(&metric.value).unwrap_or_default()
     );
 }
+
+#[test]
+fn compile_spbjw_qunfu_home_scene_succeeds() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("qunfu");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile qunfu home failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "qunfu home should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled.scene_contract.is_some(),
+        "qunfu home should produce scene contract"
+    );
+}
