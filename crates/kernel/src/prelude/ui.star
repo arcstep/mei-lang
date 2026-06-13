@@ -257,6 +257,8 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
     if title_align != None:
         panel_head_props["align"] = title_align
     if _is_dict(slot):
+        if panel_props.get("__mei_panel_slot") == None:
+            panel_props["__mei_panel_slot"] = slot
         slot_kind = slot.get("kind")
         if slot_kind != None and str(slot_kind).strip() != "" and panel_props.get("projection_role") == None:
             panel_props["projection_role"] = str(slot_kind).strip()

@@ -2132,6 +2132,10 @@
     };
   }
 
+  function resolveSceneOpenRequest(detail) {
+    return resolveDrilldownConfig(detail);
+  }
+
   function resolveAppPathByPrefixes(pathname, prefixes) {
     const raw = String(pathname || "");
     if (!raw || !Array.isArray(prefixes)) return "";
@@ -3966,36 +3970,36 @@
     return url.toString();
   }
 
-  function openBoardRouteProjection(detail, config) {
-    stashSceneProjectionContext(detail, config);
-    const targetUrl = resolveBoardRouteUrl(config);
+  function openBoardRouteProjection(detail, sceneRequest) {
+    stashSceneProjectionContext(detail, sceneRequest);
+    const targetUrl = resolveBoardRouteUrl(sceneRequest);
     if (!targetUrl) {
-      openDrilldownOverlay(detail);
+      openDrilldownOverlay(detail, sceneRequest);
       return;
     }
     void navigateInternal(targetUrl, false);
   }
 
-  function openSceneProjection(detail) {
-    const config = resolveDrilldownConfig(detail);
-    if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
-      if (config.errorMessage) {
+  function openSceneProjection(detail, preResolvedRequest = null) {
+    const sceneRequest = preResolvedRequest || resolveSceneOpenRequest(detail);
+    if (!sceneRequest.enabled || !(sceneRequest.boardSceneId || sceneRequest.sceneId)) {
+      if (sceneRequest.errorMessage) {
         recordPopupDebugIssue({
-          phase: config.errorCode || "scene_projection",
-          message: config.errorMessage,
+          phase: sceneRequest.errorCode || "scene_projection",
+          message: sceneRequest.errorMessage,
           detail,
-          config,
+          config: sceneRequest,
           datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
           metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
         });
       }
       return;
     }
-    if (config.projection === "route") {
-      openBoardRouteProjection(detail, config);
+    if (sceneRequest.projection === "route") {
+      openBoardRouteProjection(detail, sceneRequest);
       return;
     }
-    openDrilldownOverlay(detail);
+    openDrilldownOverlay(detail, sceneRequest);
   }
 
   function applySceneProjectionContextFromStorage() {
@@ -4019,8 +4023,8 @@
     openDrilldownOverlay(detail);
   }
 
-  function openDrilldownOverlay(detail) {
-    const config = resolveDrilldownConfig(detail);
+  function openDrilldownOverlay(detail, preResolvedRequest = null) {
+    const config = preResolvedRequest || resolveSceneOpenRequest(detail);
     if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
       if (config.errorMessage) {
         recordPopupDebugIssue({
@@ -4064,7 +4068,7 @@
     const openByEvent = (event) => {
       if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
-      const config = resolveDrilldownConfig(detail);
+      const config = resolveSceneOpenRequest(detail);
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
         if (config.errorMessage) {
           recordPopupDebugIssue({
@@ -4078,7 +4082,7 @@
         }
         return;
       }
-      openSceneProjection(detail);
+      openSceneProjection(detail, config);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);

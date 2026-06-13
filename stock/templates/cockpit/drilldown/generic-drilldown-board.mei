@@ -7,11 +7,12 @@ scene(
     summary = "通用指标下钻：动态 projection_slots",
     params = {
         "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
         "entry": param(type = "string"),
     },
     local_nav = {
-        "kind": "generic_drilldown",
         "scene_id": "generic_drilldown_board",
+        "include_hero": True,
     },
 )
 

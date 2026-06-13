@@ -35,7 +35,7 @@ def _scene_ref_with_entry(scene = None, scene_file = None, scene_id = None, entr
     return merged
 
 def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, params = None, board = None, tabs = None, default_slot = None):
-    """Open a board: prefer board=build_board_assembly(...); scene on link is legacy when board carries scene."""
+    """Compatibility entry. Prefer link(scene=..., params=..., projection=...)."""
     scene_value = None
     if scene != None or scene_file != None:
         scene_value = _scene_ref_with_entry(
@@ -83,7 +83,7 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
     })
 
 def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, params = None, board = None, tabs = None, default_slot = None):
-    """Alias of board_link for metric-card / chart entry links."""
+    """Primary scene-first link entry: scene + params + projection."""
     return board_link(
         scene = scene,
         scene_file = scene_file,
