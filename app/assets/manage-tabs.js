@@ -155,18 +155,17 @@
         requestRuntimeAbort(`manage_tab:${active}`);
       }
       if (active === "preview") {
-        window.dispatchEvent(
-          new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
-        );
         requestAnimationFrame(() => {
-          window.dispatchEvent(
-            new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
-          );
           if (typeof boot.scheduleFrameViewportRelayout === "function") {
             try {
               boot.scheduleFrameViewportRelayout();
             } catch (_) {}
           }
+          requestAnimationFrame(() => {
+            window.dispatchEvent(
+              new CustomEvent("meilang:preview-updated", { detail: { scope: "page" } }),
+            );
+          });
         });
       }
       return active;

@@ -1,18 +1,26 @@
   function pulseManagePreview(detail, options) {
     const opts = options || {};
+    const resetCache = opts.resetRuntimeQueryCache !== false;
     dispatchManageContextChange(detail);
-    dispatchPreviewUpdated("page", {
-      resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
-    });
     requestAnimationFrame(() => {
-      dispatchPreviewUpdated("page", {
-        resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
-      });
       if (typeof boot.scheduleFrameViewportRelayout === "function") {
         try {
           boot.scheduleFrameViewportRelayout();
         } catch (_) {}
       }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!resetCache) {
+            dispatchPanelMetricPrefetch();
+          }
+          dispatchPreviewUpdated("page", {
+            resetRuntimeQueryCache: resetCache,
+          });
+          if (resetCache) {
+            dispatchPanelMetricPrefetch();
+          }
+        });
+      });
     });
   }
 

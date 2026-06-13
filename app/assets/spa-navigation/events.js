@@ -14,11 +14,20 @@
   }
 
   function wakeRuntimeAfterSceneBundleLoaded() {
-    dispatchPreviewUpdated("page", {
-      resetRuntimeQueryCache: false,
-      source: "scene_bundle_ready",
-    });
     requestAnimationFrame(() => {
-      dispatchPanelMetricPrefetch();
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          dispatchPanelMetricPrefetch();
+          dispatchPreviewUpdated("page", {
+            resetRuntimeQueryCache: false,
+            source: "scene_bundle_ready",
+          });
+        });
+      });
     });
   }

@@ -9,8 +9,8 @@
   }
 
   function findSceneBundleSrcInDoc(doc) {
-    if (!doc || !doc.body) return "";
-    for (const script of doc.body.querySelectorAll("script[src]")) {
+    if (!doc) return "";
+    for (const script of doc.querySelectorAll("script[src]")) {
       const src = (script.getAttribute("src") || "").trim();
       if (!src) continue;
       const path = normalizePath(src);
@@ -71,14 +71,15 @@
   }
 
   function collectBodyScripts(doc) {
-    return Array.from(doc.body.querySelectorAll("script[src]"))
+    if (!doc) return [];
+    return Array.from(doc.querySelectorAll("script[src]"))
       .map((script) => script.getAttribute("src") || "")
       .map((src) => src.trim())
       .filter(Boolean);
   }
 
   function tagExistingBodyScripts() {
-    Array.from(document.body.querySelectorAll("script[src]")).forEach((script) => {
+    Array.from(document.querySelectorAll("script[src]")).forEach((script) => {
       const src = script.getAttribute("src");
       if (!src) return;
       const path = normalizePath(src);

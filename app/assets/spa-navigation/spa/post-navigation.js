@@ -14,7 +14,6 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
-        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         if (nextUrl.pathname.startsWith("/apps/manage/")) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
@@ -23,10 +22,8 @@
             boot.mountSourceTreeControls();
           }
           syncManageTabFromUrl(url);
-          pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")), {
-            resetRuntimeQueryCache: false,
-          });
         }
+        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         installSceneProjectionHost();
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();

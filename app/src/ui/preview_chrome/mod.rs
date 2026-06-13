@@ -26,9 +26,20 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     scripts::chrome_scripts_view(route_mode)
 }
 
+pub(crate) fn chrome_script_preloads_view(route_mode: UiRouteMode) -> AnyView {
+    scripts::chrome_script_preloads_view(route_mode)
+}
+
 pub(crate) fn component_scripts(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,
 ) -> impl IntoView {
     scripts::component_scripts(compiled, scene_bundle_url)
+}
+
+pub(crate) fn component_script_preloads(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> AnyView {
+    scripts::component_script_preloads(compiled, scene_bundle_url)
 }

@@ -183,6 +183,60 @@ pub(crate) fn push_manage_page_pipeline_diag(
     });
 }
 
+/// SSR 页面体积观测：用于诊断 `data-props` 重复膨胀导致的慢首屏。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PageHtmlPayloadStats {
+    pub html_bytes: usize,
+    pub data_props_count: usize,
+    pub data_props_bytes: usize,
+    pub data_props_max_bytes: usize,
+    pub scene_drilldown_context_bytes: usize,
+}
+
+const DATA_PROPS_ATTR: &str = "data-props='";
+const SCENE_DRILLDOWN_CONTEXT_ID: &str = "id=\"mei-scene-drilldown-context\"";
+
+pub(crate) fn measure_page_html_payload(html: &str) -> PageHtmlPayloadStats {
+    let html_bytes = html.len();
+    let mut data_props_count = 0usize;
+    let mut data_props_bytes = 0usize;
+    let mut data_props_max_bytes = 0usize;
+
+    let mut search_from = 0usize;
+    while let Some(rel) = html[search_from..].find(DATA_PROPS_ATTR) {
+        let payload_start = search_from + rel + DATA_PROPS_ATTR.len();
+        if let Some(end_rel) = html[payload_start..].find('\'') {
+            data_props_count += 1;
+            data_props_bytes += end_rel;
+            data_props_max_bytes = data_props_max_bytes.max(end_rel);
+            search_from = payload_start + end_rel + 1;
+        } else {
+            break;
+        }
+    }
+
+    PageHtmlPayloadStats {
+        html_bytes,
+        data_props_count,
+        data_props_bytes,
+        data_props_max_bytes,
+        scene_drilldown_context_bytes: scene_drilldown_context_json_bytes(html),
+    }
+}
+
+fn scene_drilldown_context_json_bytes(html: &str) -> usize {
+    let Some((_, after_id)) = html.split_once(SCENE_DRILLDOWN_CONTEXT_ID) else {
+        return 0;
+    };
+    let Some((_, after_open)) = after_id.split_once('>') else {
+        return 0;
+    };
+    let Some((json, _)) = after_open.split_once("</script>") else {
+        return 0;
+    };
+    json.len()
+}
+
 pub(crate) fn fill_perf_placeholders(mut html: String, render_ms: u64, total_ms: u64) -> String {
     html = html.replace(
         "render_ms=__RENDER_MS__",
@@ -267,4 +321,31 @@ pub(crate) fn fill_page_shell_placeholders(
         fill_host_build_placeholders(fill_gis_tiles_placeholders(html, cfg)),
         source_root,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{measure_page_html_payload, PageHtmlPayloadStats};
+
+    #[test]
+    fn measure_page_html_payload_counts_data_props_and_scene_context() {
+        let html = concat!(
+            "<mei-text data-props='{\"a\":1}'></mei-text>",
+            "<mei-text data-props='{\"b\":22}'></mei-text>",
+            "<script id=\"mei-scene-drilldown-context\" type=\"application/json\">",
+            "{\"scene_bindings_by_id\":{}}",
+            "</script>",
+        );
+        let stats = measure_page_html_payload(html);
+        assert_eq!(
+            stats,
+            PageHtmlPayloadStats {
+                html_bytes: html.len(),
+                data_props_count: 2,
+                data_props_bytes: 7 + 8,
+                data_props_max_bytes: 8,
+                scene_drilldown_context_bytes: "{\"scene_bindings_by_id\":{}}".len(),
+            }
+        );
+    }
 }

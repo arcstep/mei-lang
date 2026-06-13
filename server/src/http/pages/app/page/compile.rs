@@ -26,7 +26,7 @@ use crate::http::pages::app::scene::manage_scene_for_render;
 use crate::http::pages::app_render::{compile_error_fallback_app, source_panel_meta};
 use crate::http::pages::util::{
     elapsed_ms, fill_manage_wall_clock_placeholders, fill_page_shell_placeholders,
-    fill_perf_placeholders, push_manage_page_pipeline_diag,
+    fill_perf_placeholders, measure_page_html_payload, push_manage_page_pipeline_diag,
 };
 
 pub(super) enum CompileResolution {
@@ -325,6 +325,7 @@ fn render_compile_failure(
         let h = fill_page_shell_placeholders(h, &gis, state.source_root.as_path());
         (h, ssr_emit_ms, handler_ms)
     };
+    let payload_stats = measure_page_html_payload(&html);
     let mut res = Html(html).into_response();
     if matches!(route_mode, UiRouteMode::Build) {
         if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
@@ -336,6 +337,18 @@ fn render_compile_failure(
                 HeaderName::from_static("x-mei-ssr-http-response-body-ms"),
                 v,
             );
+        }
+        if let Ok(v) = HeaderValue::from_str(&payload_stats.html_bytes.to_string()) {
+            res.headers_mut()
+                .insert(HeaderName::from_static("x-mei-html-bytes"), v);
+        }
+        if let Ok(v) = HeaderValue::from_str(&payload_stats.data_props_bytes.to_string()) {
+            res.headers_mut()
+                .insert(HeaderName::from_static("x-mei-data-props-bytes"), v);
+        }
+        if let Ok(v) = HeaderValue::from_str(&payload_stats.data_props_count.to_string()) {
+            res.headers_mut()
+                .insert(HeaderName::from_static("x-mei-data-props-count"), v);
         }
         insert_manage_compile_observability_headers(&mut res, &compiled);
     }
@@ -349,6 +362,11 @@ fn render_compile_failure(
         source_read_ms,
         handler_html_ready_ms,
         ssr_http_response_body_ms,
+        html_bytes = payload_stats.html_bytes,
+        data_props_count = payload_stats.data_props_count,
+        data_props_bytes = payload_stats.data_props_bytes,
+        data_props_max_bytes = payload_stats.data_props_max_bytes,
+        scene_drilldown_context_bytes = payload_stats.scene_drilldown_context_bytes,
         total_ms = elapsed_ms(app_started),
         phase = "finish_compile_fallback",
         "app page request finished with compile fallback"

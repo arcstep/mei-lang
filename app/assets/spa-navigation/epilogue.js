@@ -1,3 +1,4 @@
+// @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
   tagExistingBodyScripts();
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
@@ -37,4 +38,3 @@
     }
   });
 })();
-

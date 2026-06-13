@@ -1,8 +1,43 @@
-/** 表格行 / 指标槽位共用的 drilldown 元数据解析。 */
+/** 表格行 / 指标槽位共用的 scene-open 元数据解析（保留 drilldown 事件别名作兼容）。 */
 
 export const DRILLDOWN_EVENT_NAME = "mei:metric-drilldown";
 export const ANALYSIS_OPEN_EVENT_NAME = "mei:analysis-open";
 export const POPUP_OPEN_EVENT_NAME = "mei:popup-open";
+
+function globalSceneDrilldownContext() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const cached = window.__meiSceneDrilldownContext;
+  if (cached && typeof cached === "object") {
+    return cached;
+  }
+  const script = document.getElementById("mei-scene-drilldown-context");
+  const raw = String(script?.textContent || "").trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      window.__meiSceneDrilldownContext = parsed;
+      return parsed;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+function sceneDrilldownContextValue(props, key) {
+  const local = props?._mei?.[key];
+  if (local && typeof local === "object" && !Array.isArray(local)) {
+    return local;
+  }
+  const global = globalSceneDrilldownContext();
+  const value = global?.[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
 
 /** Lowered board_link analytics fields must survive popupConfigOf → drilldown host. */
 export function boardLinkPassthroughFields(raw) {
@@ -241,30 +276,13 @@ export function tableDrilldownMeta(props) {
     board_scene_file: String(popup.scene_file || "").trim(),
     board_scene_id: String(popup.scene_id || "").trim(),
     projection: String(popup.projection || "overlay").trim() || "overlay",
-    scene_local_nav_by_target:
-      props?._mei?.scene_local_nav_by_target &&
-      typeof props._mei.scene_local_nav_by_target === "object" &&
-      !Array.isArray(props._mei.scene_local_nav_by_target)
-        ? props._mei.scene_local_nav_by_target
-        : null,
-    scene_bindings_by_id:
-      props?._mei?.scene_bindings_by_id &&
-      typeof props._mei.scene_bindings_by_id === "object" &&
-      !Array.isArray(props._mei.scene_bindings_by_id)
-        ? props._mei.scene_bindings_by_id
-        : null,
-    scene_examples_by_id:
-      props?._mei?.scene_examples_by_id &&
-      typeof props._mei.scene_examples_by_id === "object" &&
-      !Array.isArray(props._mei.scene_examples_by_id)
-        ? props._mei.scene_examples_by_id
-        : null,
-    scene_projection_assembly_by_id:
-      props?._mei?.scene_projection_assembly_by_id &&
-      typeof props._mei.scene_projection_assembly_by_id === "object" &&
-      !Array.isArray(props._mei.scene_projection_assembly_by_id)
-        ? props._mei.scene_projection_assembly_by_id
-        : null,
+    scene_local_nav_by_target: sceneDrilldownContextValue(props, "scene_local_nav_by_target"),
+    scene_bindings_by_id: sceneDrilldownContextValue(props, "scene_bindings_by_id"),
+    scene_examples_by_id: sceneDrilldownContextValue(props, "scene_examples_by_id"),
+    scene_projection_assembly_by_id: sceneDrilldownContextValue(
+      props,
+      "scene_projection_assembly_by_id"
+    ),
   };
 }
 

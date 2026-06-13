@@ -1156,35 +1156,18 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
             include_scene_drilldown_context: true,
         },
     );
-    assert_eq!(
-        drilldown_props
-            .get("_mei")
-            .and_then(|value| value.get("scene_local_nav_by_target"))
-            .and_then(|value| value.get("templates/cockpit/drilldown/metric-explain-board.mei"))
-            .and_then(|value| value.get("kind"))
-            .and_then(Value::as_str),
-        Some("metric_explain_board")
-    );
-    assert_eq!(
-        drilldown_props
-            .get("_mei")
-            .and_then(|value| value.get("scene_bindings_by_id"))
-            .and_then(|value| value.get("inspection_total_popup"))
-            .and_then(|value| value.get("detail"))
-            .and_then(|value| value.get("__ref"))
-            .and_then(Value::as_str),
-        Some("metric")
-    );
-    assert_eq!(
-        drilldown_props
-            .get("_mei")
-            .and_then(|value| value.get("scene_projection_assembly_by_id"))
-            .and_then(|value| value.get("inspection_total_popup"))
-            .and_then(|value| value.get("local_nav"))
-            .and_then(|value| value.get("default_entry"))
-            .and_then(Value::as_str),
-        Some("definition")
-    );
+    assert!(drilldown_props
+        .get("_mei")
+        .and_then(|value| value.get("scene_local_nav_by_target"))
+        .is_none());
+    assert!(drilldown_props
+        .get("_mei")
+        .and_then(|value| value.get("scene_bindings_by_id"))
+        .is_none());
+    assert!(drilldown_props
+        .get("_mei")
+        .and_then(|value| value.get("scene_projection_assembly_by_id"))
+        .is_none());
 }
 
 #[test]

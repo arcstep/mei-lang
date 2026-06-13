@@ -9162,12 +9162,21 @@
   }
 
   function wakeRuntimeAfterSceneBundleLoaded() {
-    dispatchPreviewUpdated("page", {
-      resetRuntimeQueryCache: false,
-      source: "scene_bundle_ready",
-    });
     requestAnimationFrame(() => {
-      dispatchPanelMetricPrefetch();
+      if (typeof boot.scheduleFrameViewportRelayout === "function") {
+        try {
+          boot.scheduleFrameViewportRelayout();
+        } catch (_) {}
+      }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          dispatchPanelMetricPrefetch();
+          dispatchPreviewUpdated("page", {
+            resetRuntimeQueryCache: false,
+            source: "scene_bundle_ready",
+          });
+        });
+      });
     });
   }
 
@@ -13771,8 +13780,8 @@
   }
 
   function findSceneBundleSrcInDoc(doc) {
-    if (!doc || !doc.body) return "";
-    for (const script of doc.body.querySelectorAll("script[src]")) {
+    if (!doc) return "";
+    for (const script of doc.querySelectorAll("script[src]")) {
       const src = (script.getAttribute("src") || "").trim();
       if (!src) continue;
       const path = normalizePath(src);
@@ -13833,14 +13842,15 @@
   }
 
   function collectBodyScripts(doc) {
-    return Array.from(doc.body.querySelectorAll("script[src]"))
+    if (!doc) return [];
+    return Array.from(doc.querySelectorAll("script[src]"))
       .map((script) => script.getAttribute("src") || "")
       .map((src) => src.trim())
       .filter(Boolean);
   }
 
   function tagExistingBodyScripts() {
-    Array.from(document.body.querySelectorAll("script[src]")).forEach((script) => {
+    Array.from(document.querySelectorAll("script[src]")).forEach((script) => {
       const src = script.getAttribute("src");
       if (!src) return;
       const path = normalizePath(src);
@@ -13967,19 +13977,27 @@
 /* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
     const opts = options || {};
+    const resetCache = opts.resetRuntimeQueryCache !== false;
     dispatchManageContextChange(detail);
-    dispatchPreviewUpdated("page", {
-      resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
-    });
     requestAnimationFrame(() => {
-      dispatchPreviewUpdated("page", {
-        resetRuntimeQueryCache: opts.resetRuntimeQueryCache !== false,
-      });
       if (typeof boot.scheduleFrameViewportRelayout === "function") {
         try {
           boot.scheduleFrameViewportRelayout();
         } catch (_) {}
       }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!resetCache) {
+            dispatchPanelMetricPrefetch();
+          }
+          dispatchPreviewUpdated("page", {
+            resetRuntimeQueryCache: resetCache,
+          });
+          if (resetCache) {
+            dispatchPanelMetricPrefetch();
+          }
+        });
+      });
     });
   }
 
@@ -14383,7 +14401,6 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
-        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         if (nextUrl.pathname.startsWith("/apps/manage/")) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
@@ -14392,10 +14409,8 @@
             boot.mountSourceTreeControls();
           }
           syncManageTabFromUrl(url);
-          pulseManagePreview(extractManagePanelContext(document.querySelector("#meilang-author-panel")), {
-            resetRuntimeQueryCache: false,
-          });
         }
+        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         installSceneProjectionHost();
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
@@ -14550,6 +14565,7 @@
 ;
 
 /* ===== spa-navigation/epilogue.js ===== */
+// @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
   tagExistingBodyScripts();
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
@@ -14589,6 +14605,5 @@
     }
   });
 })();
-
 
 ;

@@ -32,6 +32,35 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     }
 }
 
+pub(crate) fn chrome_script_preloads_view(route_mode: UiRouteMode) -> AnyView {
+    match route_mode {
+        UiRouteMode::Build => view! {
+            <>
+                <link rel="preload" href="/app-bundles/manage.js"/>
+            </>
+        }
+        .into_any(),
+        UiRouteMode::App | UiRouteMode::Presentation => view! {
+            <>
+                <link rel="preload" href="/app-bundles/access.js"/>
+            </>
+        }
+        .into_any(),
+        UiRouteMode::Config => view! {
+            <>
+                <link rel="preload" href="/app-bundles/config.js"/>
+            </>
+        }
+        .into_any(),
+        UiRouteMode::Upload => view! {
+            <>
+                <link rel="preload" href="/app-bundles/upload.js"/>
+            </>
+        }
+        .into_any(),
+    }
+}
+
 pub(crate) fn component_scripts(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,
@@ -56,4 +85,25 @@ pub(crate) fn component_scripts(
         })
         .collect_view();
     view! { <>{scripts}</> }.into_any()
+}
+
+pub(crate) fn component_script_preloads(
+    compiled: &CompiledApp,
+    scene_bundle_url: Option<&str>,
+) -> AnyView {
+    if let Some(bundle_url) = scene_bundle_url.map(str::trim).filter(|value| !value.is_empty()) {
+        return view! {
+            <link rel="modulepreload" href=bundle_url/>
+        }
+        .into_any();
+    }
+    let links = compiled
+        .component_assets
+        .iter()
+        .map(|asset| {
+            let href = format!("/workspace-components/{}", asset.script);
+            view! { <link rel="modulepreload" href=href/> }
+        })
+        .collect_view();
+    view! { <>{links}</> }.into_any()
 }

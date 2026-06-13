@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
+use std::sync::Arc;
 
 use super::super::super::compile_cache::compile_app_with_cache_shared;
 use super::super::components::resolve_components_root;
@@ -42,6 +43,37 @@ struct MetricQueryExecutionContext<'a> {
     compile_revision: &'a str,
     effective_query_state: &'a QueryState,
     filter_intents: &'a [FilterIntent],
+}
+
+#[derive(Debug, Clone)]
+struct MetricQueryExecutionShared {
+    app_id: String,
+    app_root: std::path::PathBuf,
+    compiled: Arc<mei_lang_kernel::CompiledApp>,
+    coords: SceneQueryCoords,
+    scene_id: String,
+    scene_path: Option<String>,
+    compile_observation: CompileObservation,
+    compile_revision: String,
+    effective_query_state: QueryState,
+    filter_intents: Vec<FilterIntent>,
+}
+
+impl MetricQueryExecutionShared {
+    fn as_borrowed(&self) -> MetricQueryExecutionContext<'_> {
+        MetricQueryExecutionContext {
+            app_id: &self.app_id,
+            app_root: self.app_root.as_path(),
+            compiled: self.compiled.as_ref(),
+            coords: &self.coords,
+            scene_id: &self.scene_id,
+            scene_path: self.scene_path.as_deref(),
+            compile_observation: self.compile_observation.clone(),
+            compile_revision: &self.compile_revision,
+            effective_query_state: &self.effective_query_state,
+            filter_intents: &self.filter_intents,
+        }
+    }
 }
 
 pub async fn dataset_metric_api(
@@ -171,11 +203,38 @@ pub async fn dataset_metric_api(
         }));
     }
 
-    let mut groups = Vec::with_capacity(request_groups.len());
     let batch_started = Instant::now();
-    for group in &request_groups {
-        groups.push(execute_metric_query_group(&execution_ctx, group)?);
+    let shared_ctx = MetricQueryExecutionShared {
+        app_id: app_id.clone(),
+        app_root: app_root.clone(),
+        compiled: compile_outcome.compiled.clone(),
+        coords: coords.clone(),
+        scene_id: scene_ctx.scene_id.clone(),
+        scene_path: scene_ctx.scene_path.clone(),
+        compile_observation: execution_ctx.compile_observation.clone(),
+        compile_revision: compile_outcome.compile_revision.clone(),
+        effective_query_state: effective_query_state.clone(),
+        filter_intents: request.filter_intents.clone(),
+    };
+    let mut tasks = tokio::task::JoinSet::new();
+    for (index, group) in request_groups.into_iter().enumerate() {
+        let shared_ctx = shared_ctx.clone();
+        tasks.spawn_blocking(move || {
+            let ctx = shared_ctx.as_borrowed();
+            execute_metric_query_group(&ctx, &group).map(|response| (index, response))
+        });
     }
+    let mut indexed_groups = Vec::new();
+    while let Some(task) = tasks.join_next().await {
+        let (index, group) = task
+            .map_err(|error| AppError::msg(format!("metric batch worker join failed: {error}")))??;
+        indexed_groups.push((index, group));
+    }
+    indexed_groups.sort_by_key(|(index, _)| *index);
+    let groups = indexed_groups
+        .into_iter()
+        .map(|(_, group)| group)
+        .collect::<Vec<_>>();
     let mut perf = BTreeMap::new();
     execution_ctx.compile_observation.write_perf(&mut perf);
     perf.insert("metric_group_count".to_string(), groups.len() as u64);

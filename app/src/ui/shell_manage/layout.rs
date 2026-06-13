@@ -13,6 +13,7 @@ use super::super::source_tree;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
+use serde_json::json;
 
 fn asset_codemirror_stack(
     app_path: &str,
@@ -231,6 +232,19 @@ pub(crate) fn manage_shell(
     let source_tab_active = active_manage_tab == ManageViewTab::Source;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
     let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
+    let scene_drilldown_context_json = if script_target {
+        Some(
+            serde_json::to_string(&json!({
+                "scene_local_nav_by_target": compiled.scene_local_nav_by_target,
+                "scene_bindings_by_id": compiled.scene_bindings_by_id,
+                "scene_examples_by_id": compiled.scene_examples_by_id,
+                "scene_projection_assembly_by_id": compiled.scene_projection_assembly_by_id,
+            }))
+            .unwrap_or_else(|_| "{}".to_string()),
+        )
+    } else {
+        None
+    };
 
     let non_script_main = match asset_shell {
         AssetShellKind::Dual => view! {
@@ -315,6 +329,19 @@ pub(crate) fn manage_shell(
 
     view! {
         <div class=shell_class>
+            {scene_drilldown_context_json
+                .as_ref()
+                .map(|payload| {
+                    view! {
+                        <script
+                            id="mei-scene-drilldown-context"
+                            type="application/json"
+                            inner_html=payload.clone()
+                        ></script>
+                    }
+                        .into_any()
+                })
+                .unwrap_or_else(|| view! { <></> }.into_any())}
             <div
                 id="tree-icons-sprite-root"
                 class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"

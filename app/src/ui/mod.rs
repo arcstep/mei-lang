@@ -26,7 +26,7 @@ pub use capabilities::HostCapabilities;
 pub use route::UiRouteMode;
 pub use shell_upload::UploadFileEntry;
 
-use preview_chrome::component_scripts;
+use preview_chrome::{component_script_preloads, component_scripts};
 use shell_access::access_shell;
 use shell_config::config_shell;
 use shell_manage::{manage_shell, manage_source_shell};
@@ -206,6 +206,7 @@ pub fn render_page(
         route_mode,
         chrome_hidden,
         shell,
+        component_script_preloads(compiled, scene_component_bundle_url),
         component_scripts(compiled, scene_component_bundle_url).into_any(),
         auth_enabled,
         auth_account,
@@ -241,6 +242,7 @@ pub fn render_config_page(
         UiRouteMode::Config,
         false,
         shell,
+        view! { <></> }.into_any(),
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
@@ -283,6 +285,7 @@ pub fn render_upload_page(
         false,
         shell,
         view! { <></> }.into_any(),
+        view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
     )
@@ -323,6 +326,7 @@ pub fn render_build_source_page(
         UiRouteMode::Build,
         false,
         shell,
+        view! { <></> }.into_any(),
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,

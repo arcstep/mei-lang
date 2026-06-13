@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::ui::capabilities::HostCapabilities;
+use crate::ui::preview_chrome::chrome_script_preloads_view;
 use crate::ui::preview_chrome::chrome_scripts_view;
 use crate::ui::route::UiRouteMode;
 use crate::ui::HostAccountView;
@@ -10,6 +11,7 @@ pub(crate) fn render_document(
     route_mode: UiRouteMode,
     chrome_hidden: bool,
     shell: AnyView,
+    head_script_preloads_view: AnyView,
     component_scripts_view: AnyView,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -24,6 +26,7 @@ pub(crate) fn render_document(
     };
     let body_class = format!("{shell_mode_class} sl-theme-dark");
     let chrome_scripts = chrome_scripts_view(route_mode);
+    let chrome_script_preloads = chrome_script_preloads_view(route_mode);
     let auth_user_meta = if auth_enabled {
         auth_account
             .map(|view| view.username.as_str())
@@ -90,6 +93,10 @@ pub(crate) fn render_document(
                     type="module"
                     src="/app-bundles/shoelace.js"
                 ></script>
+                {chrome_script_preloads}
+                {head_script_preloads_view}
+                {chrome_scripts}
+                {component_scripts_view}
                 {manage_timing_meta}
             </head>
             <body
@@ -103,8 +110,6 @@ pub(crate) fn render_document(
                 data-mei-auth-capabilities=auth_capabilities_meta
             >
                 {shell}
-                {chrome_scripts}
-                {component_scripts_view}
             </body>
         </html>
     };
