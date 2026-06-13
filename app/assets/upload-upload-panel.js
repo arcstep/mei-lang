@@ -130,6 +130,12 @@
     return formatRelativeDirLabel(selectedDir);
   }
 
+  function downloadHrefForPath(relPath) {
+    const rel = String(relPath || "").trim();
+    if (!rel) return "#";
+    return `/api/upload/download/${encodeURIComponent(appId)}?path=${encodeURIComponent(rel)}`;
+  }
+
   function buildDirOptionsHtml() {
     return directoryOptions
       .map((dir) => {
@@ -233,6 +239,16 @@
           直接改路径即可完成重命名或迁移；中间目录不存在时会自动创建。
         </div>
         <div class="upload-panel-inline-actions">
+          ${
+            selectedIsDir
+              ? ""
+              : `<a
+            id="upload-download-btn"
+            class="upload-btn upload-btn--secondary"
+            href="${escapeHtml(downloadHrefForPath(selectedFile))}"
+            download
+          >下载当前文件</a>`
+          }
           <button type="button" id="upload-update-path-btn" class="upload-btn upload-btn--primary">应用路径修改</button>
           <button type="button" id="upload-delete-btn" class="upload-btn upload-btn--danger">删除当前${selectedIsDir ? "目录" : "文件"}</button>
         </div>

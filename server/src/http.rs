@@ -117,6 +117,10 @@ pub fn router() -> Router<AppState> {
                 .layer(DefaultBodyLimit::max(128 * 1024)),
         )
         .route(
+            "/api/upload/download/*app_id",
+            get(upload_api::upload_file_download_get),
+        )
+        .route(
             "/api/upload/*app_id",
             post(upload_api::upload_file_post)
                 .delete(upload_api::upload_file_delete)

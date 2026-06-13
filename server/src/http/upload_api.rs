@@ -1,13 +1,17 @@
 use std::{
     fs,
-    io::{BufWriter, Write},
+    io::{BufWriter, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
 use axum::{
-    body::Bytes,
+    body::{Body, Bytes},
     extract::{Json as AxumJson, Multipart, Path as AxumPath, Query, State},
-    http::StatusCode,
+    http::{
+        header::{CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+        HeaderValue, StatusCode,
+    },
+    response::Response,
     Json,
 };
 use mei_lang_kernel::load_mei_config_for_app;
@@ -15,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{AppError, AppState};
+
+use super::pages::content_type_for_path;
 
 const MIN_UPLOAD_CHUNK_BYTES: usize = 1024 * 1024;
 const MAX_UPLOAD_CHUNK_BYTES: usize = 8 * 1024 * 1024;
@@ -577,6 +583,123 @@ pub async fn upload_dir_create_post(
     Ok(Json(json!({ "ok": true, "path": rel, "isDir": true })))
 }
 
+fn percent_encode_for_content_disposition(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' | b'~' => {
+                (byte as char).to_string()
+            }
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
+fn ascii_content_disposition_filename(file_name: &str) -> String {
+    let fallback = file_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if fallback.trim().is_empty() {
+        "download".to_string()
+    } else {
+        fallback
+    }
+}
+
+fn content_disposition_attachment(file_name: &str) -> Result<HeaderValue, AppError> {
+    let ascii_name = ascii_content_disposition_filename(file_name);
+    let encoded = percent_encode_for_content_disposition(file_name);
+    let value = format!("attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}");
+    HeaderValue::from_str(&value)
+        .map_err(|error| AppError::msg(format!("invalid download header: {error}")))
+}
+
+fn download_content_type(path: &Path) -> &'static str {
+    match path.extension().and_then(|value| value.to_str()) {
+        Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        Some("xls") => "application/vnd.ms-excel",
+        Some("docx") => {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        }
+        Some("doc") => "application/msword",
+        Some("pptx") => {
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        }
+        Some("ppt") => "application/vnd.ms-powerpoint",
+        Some("zip") | Some("rar") | Some("7z") | Some("gz") | Some("tar") => {
+            "application/octet-stream"
+        }
+        _ => content_type_for_path(path),
+    }
+}
+
+pub async fn upload_file_download_get(
+    State(state): State<AppState>,
+    AxumPath(app_id): AxumPath<String>,
+    Query(query): Query<UploadDeleteQuery>,
+) -> Result<Response, AppError> {
+    let upload_root = resolve_upload_root(&state, &app_id)?;
+    let rel = sanitize_upload_rel(&query.path)?;
+    let target = resolve_existing_upload_file(&upload_root, &rel)?;
+    if target.is_dir() {
+        return Err(AppError::status(
+            StatusCode::BAD_REQUEST,
+            "cannot download a directory",
+        ));
+    }
+    let metadata = fs::metadata(&target)
+        .map_err(|error| AppError::msg(format!("failed to stat upload file: {error}")))?;
+    let file_name = file_name_from_upload_rel(&rel)?;
+    let content_type = download_content_type(&target);
+    let file_len = metadata.len();
+    let stream_path = target.clone();
+    let stream = async_stream::stream! {
+        let mut file = match std::fs::File::open(&stream_path) {
+            Ok(file) => file,
+            Err(error) => {
+                yield Err(std::io::Error::other(error.to_string()));
+                return;
+            }
+        };
+        let mut buf = vec![0u8; 1024 * 1024];
+        loop {
+            let read = match file.read(&mut buf) {
+                Ok(read) => read,
+                Err(error) => {
+                    yield Err(std::io::Error::other(error.to_string()));
+                    return;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            yield Ok(Bytes::from(buf[..read].to_vec()));
+        }
+    };
+
+    let mut response = Response::new(Body::from_stream(stream));
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static(content_type),
+    );
+    response.headers_mut().insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_str(&file_len.to_string())
+            .map_err(|error| AppError::msg(format!("invalid content length: {error}")))?,
+    );
+    response
+        .headers_mut()
+        .insert(CONTENT_DISPOSITION, content_disposition_attachment(&file_name)?);
+    Ok(response)
+}
+
 pub async fn upload_file_delete(
     State(state): State<AppState>,
     AxumPath(app_id): AxumPath<String>,
@@ -679,7 +802,23 @@ pub async fn upload_entry_rename_post(
 
 #[cfg(test)]
 mod tests {
-    use super::build_rename_target_rel;
+    use super::{
+        ascii_content_disposition_filename, build_rename_target_rel,
+        content_disposition_attachment, percent_encode_for_content_disposition,
+    };
+
+    #[test]
+    fn content_disposition_supports_utf8_filename() {
+        let header = content_disposition_attachment("11.预警清单.xlsx").expect("header");
+        let value = header.to_str().expect("header str");
+        assert!(value.contains("filename=\"11.____.xlsx\""));
+        assert!(value.contains("filename*=UTF-8''"));
+        assert!(percent_encode_for_content_disposition("预警").contains("%E9%A2%84"));
+        assert_eq!(
+            ascii_content_disposition_filename("11.预警清单.xlsx"),
+            "11.____.xlsx"
+        );
+    }
 
     #[test]
     fn build_rename_target_rel_accepts_full_target_path() {

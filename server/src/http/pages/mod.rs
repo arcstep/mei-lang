@@ -19,6 +19,7 @@ pub use components::component_asset;
 pub use dataset_api::{dataset_query_api, dataset_recompute_api};
 pub use gis_proxy::gis_proxy;
 pub use metric_api::dataset_metric_api;
+pub(crate) use static_serve::content_type_for_path;
 
 #[cfg(test)]
 mod tests;

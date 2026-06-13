@@ -3802,6 +3802,21 @@ a.tree-link {
   text-overflow: ellipsis;
 }
 
+.upload-file-download {
+  flex-shrink: 0;
+  margin-right: 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1;
+  color: rgb(125 211 252);
+  text-decoration: none;
+}
+
+.upload-file-download:hover,
+.upload-file-download:focus-visible {
+  color: rgb(186 230 253);
+  text-decoration: underline;
+}
+
 .upload-file-side {
   display: flex;
   align-items: center;

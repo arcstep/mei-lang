@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceAppMeta;
 use serde::Serialize;
 
+use super::manage_routing::encode_query_value;
 use super::route::UiRouteMode;
 use super::source_tree::{self, tree_icon_for_upload_entry};
 use super::statusbar::statusbar_view;
@@ -88,6 +89,15 @@ fn upload_tree_view(
             let parent_label = upload_entry_parent_label(entry);
             let meta_label = format!("{parent_label} · {time_label}");
             let entry_kind = if entry.is_dir { "dir" } else { "file" };
+            let download_href = if entry.is_dir {
+                None
+            } else {
+                Some(format!(
+                    "/api/upload/download/{}?path={}",
+                    app_path.trim_start_matches('/'),
+                    encode_query_value(entry.path.as_str())
+                ))
+            };
             let children = if entry.is_dir {
                 Some(upload_tree_view(files, entry.path.as_str(), selected, app_path))
             } else {
@@ -116,6 +126,17 @@ fn upload_tree_view(
                             <span class="upload-file-path">{meta_label}</span>
                         </span>
                         <span class="upload-file-side shrink-0">
+                            {download_href.clone().map(|href| view! {
+                                <a
+                                    class="upload-file-download"
+                                    href=href
+                                    download=true
+                                    title="下载"
+                                    on:click=|event| event.stop_propagation()
+                                >
+                                    "下载"
+                                </a>
+                            })}
                             <span class="upload-file-badge">{size_label}</span>
                         </span>
                     </a>
