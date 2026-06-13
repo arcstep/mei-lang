@@ -106,12 +106,33 @@
   }
 
   function applySessionTimingFromPayload(payload) {
-    if (payload && payload.authenticated && payload.expiresAt) {
+    if (payload && payload.expiresAt && payload.authenticated !== false) {
       scheduleAgentExpiryStop(payload.expiresAt);
-    } else {
+      return;
+    }
+    if (!payload || !payload.authenticated) {
       clearAgentExpiryTimer();
     }
   }
+
+  function shouldUnblockAfterSessionRefresh(reason) {
+    return (
+      reason === "session_expired" ||
+      reason === "unauthenticated" ||
+      reason === "session_check_failed" ||
+      reason === "session_check_error"
+    );
+  }
+
+  function onAuthSessionRefreshed(event) {
+    const payload = event && event.detail;
+    if (agentRequestsBlocked && shouldUnblockAfterSessionRefresh(agentRequestsBlockReason)) {
+      unblockAgentRequests();
+    }
+    applySessionTimingFromPayload(payload);
+  }
+
+  document.addEventListener("mei:auth-session-refreshed", onAuthSessionRefreshed);
 
   function blockAgentRequests(reason) {
     if (agentRequestsBlocked && agentRequestsBlockReason === String(reason || "")) {

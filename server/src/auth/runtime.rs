@@ -9,6 +9,8 @@ use super::types::{AuthClaims, AuthRole, AuthRuntime, AuthUserRecord};
 
 pub(crate) const DEFAULT_JWT_COOKIE_NAME: &str = "mei_auth_token";
 pub(crate) const DEFAULT_JWT_TTL_SECONDS: u64 = 8 * 60 * 60;
+/// 前端在 JWT 到期前多久触发滑动续期（秒）。
+pub const SESSION_REFRESH_LEAD_SECONDS: u64 = 30 * 60;
 
 pub fn load_auth_runtime(source_root: &Path) -> Result<AuthRuntime> {
     let source_root = source_root.canonicalize().with_context(|| {
@@ -103,6 +105,21 @@ pub fn normalize_id(value: &str) -> String {
     value.trim().trim_start_matches('/').replace('\\', "/")
 }
 
+fn claims_for_user_record(user: &AuthUserRecord, jwt_ttl_seconds: u64) -> AuthClaims {
+    let iat = now_ts();
+    let exp = iat + jwt_ttl_seconds as usize;
+    AuthClaims {
+        sub: user.username.clone(),
+        profile: user.profile.clone(),
+        role: user.role.as_str().to_string(),
+        app_allowlist: user.app_allowlist.clone(),
+        app_denylist: user.app_denylist.clone(),
+        scene_allowlist: user.scene_allowlist.clone(),
+        iat,
+        exp,
+    }
+}
+
 impl AuthRuntime {
     pub fn user_count(&self) -> usize {
         self.users.len()
@@ -110,6 +127,20 @@ impl AuthRuntime {
 
     pub fn cookie_name(&self) -> &str {
         self.cookie_name.as_str()
+    }
+
+    pub fn refresh_claims_for_user(&self, username: &str) -> Result<Option<AuthClaims>> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let key = username.trim();
+        let Some(user) = self.users.get(key) else {
+            return Ok(None);
+        };
+        Ok(Some(claims_for_user_record(
+            user,
+            self.jwt_ttl_seconds,
+        )))
     }
 
     pub fn authenticate(&self, username: &str, password: &str) -> Result<Option<AuthClaims>> {
@@ -123,18 +154,10 @@ impl AuthRuntime {
         if !verify_password_hash(password, &user.password_hash)? {
             return Ok(None);
         }
-        let iat = now_ts();
-        let exp = iat + self.jwt_ttl_seconds as usize;
-        Ok(Some(AuthClaims {
-            sub: user.username.clone(),
-            profile: user.profile.clone(),
-            role: user.role.as_str().to_string(),
-            app_allowlist: user.app_allowlist.clone(),
-            app_denylist: user.app_denylist.clone(),
-            scene_allowlist: user.scene_allowlist.clone(),
-            iat,
-            exp,
-        }))
+        Ok(Some(claims_for_user_record(
+            user,
+            self.jwt_ttl_seconds,
+        )))
     }
 
     pub fn issue_jwt(&self, claims: &AuthClaims) -> Result<String> {

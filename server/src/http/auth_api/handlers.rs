@@ -10,8 +10,8 @@ use serde_json::json;
 use crate::{
     auth::{
         authorize_next_path, clear_cookie_header_value, cookie_header_value, hash_password,
-        load_auth_runtime, sanitize_next_path, update_workspace_user_password, AuthEnforcement,
-        AuthPrincipal,
+        load_auth_runtime, sanitize_next_path, SESSION_REFRESH_LEAD_SECONDS,
+        update_workspace_user_password, AuthEnforcement, AuthPrincipal,
     },
     http::host_error_page,
     AppState,
@@ -87,6 +87,24 @@ struct SessionPayload {
     expires_at: Option<usize>,
     #[serde(rename = "jwtTtlSeconds", skip_serializing_if = "Option::is_none")]
     jwt_ttl_seconds: Option<u64>,
+    #[serde(rename = "refreshLeadSeconds", skip_serializing_if = "Option::is_none")]
+    refresh_lead_seconds: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct RefreshPayload {
+    ok: bool,
+    #[serde(rename = "expiresAt")]
+    expires_at: usize,
+    #[serde(rename = "jwtTtlSeconds")]
+    jwt_ttl_seconds: u64,
+    #[serde(rename = "refreshLeadSeconds")]
+    refresh_lead_seconds: u64,
+    user: SessionUserPayload,
+}
+
+fn session_refresh_lead_seconds() -> u64 {
+    SESSION_REFRESH_LEAD_SECONDS
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
@@ -206,6 +224,7 @@ pub async fn auth_session(
                     user: None,
                     expires_at: None,
                     jwt_ttl_seconds: None,
+                    refresh_lead_seconds: None,
                 }),
             )
                 .into_response()
@@ -213,6 +232,7 @@ pub async fn auth_session(
     };
     let enabled = runtime.enabled;
     let jwt_ttl_seconds = Some(runtime.jwt_ttl_seconds);
+    let refresh_lead_seconds = Some(session_refresh_lead_seconds());
     let payload = if let Some(Extension(principal)) = principal {
         let role = principal.role_slug().to_string();
         let expires_at = if principal.session_exp > 0 {
@@ -230,6 +250,7 @@ pub async fn auth_session(
             }),
             expires_at,
             jwt_ttl_seconds,
+            refresh_lead_seconds,
         }
     } else {
         SessionPayload {
@@ -238,9 +259,76 @@ pub async fn auth_session(
             user: None,
             expires_at: None,
             jwt_ttl_seconds,
+            refresh_lead_seconds,
         }
     };
     (StatusCode::OK, Json(payload)).into_response()
+}
+
+pub async fn auth_refresh(
+    State(state): State<AppState>,
+    principal: Option<Extension<AuthPrincipal>>,
+) -> impl IntoResponse {
+    if let Some(response) = reject_if_auth_disabled(&state) {
+        return response;
+    }
+    let Some(Extension(principal)) = principal else {
+        return json_error(StatusCode::UNAUTHORIZED, "authentication required");
+    };
+    let runtime = match load_auth_runtime(state.source_root.as_path()) {
+        Ok(value) => value,
+        Err(error) => return json_error(StatusCode::INTERNAL_SERVER_ERROR, error.to_string()),
+    };
+    if !runtime.enabled {
+        return json_error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "auth is not configured; initialize `.mei/local/hosts/*.state.json` via `mei host auth ensure-keys` and `mei host auth bootstrap-users` (or `add-user --password-stdin`)",
+        );
+    }
+    let claims = match runtime.refresh_claims_for_user(principal.username.as_str()) {
+        Ok(value) => value,
+        Err(error) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to refresh session: {error}"),
+            )
+        }
+    };
+    let Some(claims) = claims else {
+        return json_error(StatusCode::UNAUTHORIZED, "session refresh failed");
+    };
+    let token = match runtime.issue_jwt(&claims) {
+        Ok(value) => value,
+        Err(error) => {
+            return json_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("failed to issue refreshed session: {error}"),
+            )
+        }
+    };
+    let cookie = cookie_header_value(
+        runtime.cookie_name.as_str(),
+        token.as_str(),
+        runtime.jwt_ttl_seconds,
+    );
+    let payload = RefreshPayload {
+        ok: true,
+        expires_at: claims.exp,
+        jwt_ttl_seconds: runtime.jwt_ttl_seconds,
+        refresh_lead_seconds: session_refresh_lead_seconds(),
+        user: SessionUserPayload {
+            username: claims.sub,
+            profile: claims.profile,
+            role: claims.role,
+        },
+    };
+    let mut response = (StatusCode::OK, Json(payload)).into_response();
+    if let Ok(header_value) = HeaderValue::from_str(&cookie) {
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, header_value);
+    }
+    response
 }
 
 pub async fn auth_login(

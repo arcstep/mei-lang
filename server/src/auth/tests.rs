@@ -666,3 +666,103 @@ async fn middleware_allows_unauthenticated_maplibre_vendor_assets() {
     let guest_resp = app.oneshot(guest_req).await.expect("guest glyph response");
     assert_eq!(guest_resp.status(), StatusCode::OK);
 }
+
+#[tokio::test]
+async fn auth_refresh_extends_session_exp() {
+    use axum::body::to_bytes;
+
+    let source_root = temp_source_root("auth-refresh");
+    bootstrap_guest_user(source_root.as_path(), &[]);
+    let runtime = load_auth_runtime(source_root.as_path()).expect("runtime");
+    let old_token = token_for(source_root.as_path(), "guest01", "GuestPwd1!safe");
+    let old_claims = runtime
+        .decode_jwt(old_token.as_str())
+        .expect("decode old token");
+    let state = make_state(source_root.clone(), AuthEnforcement::Required);
+    let app = Router::new()
+        .route(
+            "/api/auth/refresh",
+            post(crate::http::auth_api::auth_refresh),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+    let cookie = format!("{}={}", runtime.cookie_name, old_token);
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/refresh")
+                .header(header::COOKIE, cookie.as_str())
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers().get(header::SET_COOKIE).is_some());
+    let body = to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    let new_exp = json
+        .get("expiresAt")
+        .and_then(serde_json::Value::as_u64)
+        .expect("expiresAt");
+    assert!(new_exp >= old_claims.exp as u64);
+    assert_eq!(json.get("ok").and_then(serde_json::Value::as_bool), Some(true));
+}
+
+#[tokio::test]
+async fn auth_refresh_without_token_returns_401() {
+    let source_root = temp_source_root("auth-refresh-unauth");
+    bootstrap_guest_user(source_root.as_path(), &[]);
+    let state = make_state(source_root.clone(), AuthEnforcement::Required);
+    let app = Router::new()
+        .route(
+            "/api/auth/refresh",
+            post(crate::http::auth_api::auth_refresh),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
+        .with_state(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/refresh")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn disabled_auth_refresh_returns_not_found() {
+    let source_root = temp_source_root("disabled-auth-refresh");
+    let state = make_state(source_root.clone(), AuthEnforcement::Disabled);
+    let app = Router::new()
+        .route(
+            "/api/auth/refresh",
+            post(crate::http::auth_api::auth_refresh),
+        )
+        .with_state(state);
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/auth/refresh")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}

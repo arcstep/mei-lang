@@ -7,6 +7,7 @@
   let probeFailureStreak = 0;
   let probeLastSuccessAtMs = 0;
   let probeHasResult = false;
+  let stoppedForAuth = false;
   const PROBE_RED_AFTER_STREAK = 3;
   const PROBE_RED_AFTER_MS = 20000;
   const PROBE_COLD_START_RED_AFTER_STREAK = 5;
@@ -242,6 +243,7 @@
   }
 
   function onAgentAuthBlocked() {
+    stoppedForAuth = true;
     stop();
     const nodes = els();
     if (!nodes.modelService) return;
@@ -255,8 +257,28 @@
 
   document.addEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
 
+  async function onAuthSessionRefreshed() {
+    if (!hasTargets() || !stoppedForAuth) return;
+    const U = agentUtils();
+    if (!U || typeof U.resolveAgentAuthGate !== "function") return;
+    try {
+      const gate = await U.resolveAgentAuthGate();
+      if (!gate.allowed) return;
+      if (typeof U.unblockAgentRequests === "function") {
+        U.unblockAgentRequests();
+      }
+      stoppedForAuth = false;
+      boot.statusBarMounted = true;
+      refresh();
+      startInterval();
+    } catch (_) {}
+  }
+
+  document.addEventListener("mei:auth-session-refreshed", onAuthSessionRefreshed);
+
   boot.disposeStatusBar = function () {
     document.removeEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+    document.removeEventListener("mei:auth-session-refreshed", onAuthSessionRefreshed);
     stop();
   };
   start();

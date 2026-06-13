@@ -38,6 +38,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/api/auth/public-key", get(auth_api::auth_public_key))
         .route("/api/auth/session", get(auth_api::auth_session))
+        .route("/api/auth/refresh", post(auth_api::auth_refresh))
         .route("/api/auth/login", post(auth_api::auth_login))
         .route("/api/auth/logout", post(auth_api::auth_logout))
         .route("/api/host/ready", get(host_api::api_host_ready))
