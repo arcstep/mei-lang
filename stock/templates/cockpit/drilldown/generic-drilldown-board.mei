@@ -5,6 +5,10 @@ scene(
     profile = "cockpit",
     theme = "cockpit",
     summary = "通用指标下钻：动态 projection_slots",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
     local_nav = {
         "kind": "generic_drilldown",
         "scene_id": "generic_drilldown_board",
@@ -13,12 +17,26 @@ scene(
 
 world(resources = [])
 
-frame()
+frame(
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["tabs"], ["content"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+)
 
 frame.add_panel(
-    id = "generic_drilldown_shell",
-    variant = "container",
-    title = "指标下钻",
-    props = {},
+    id = "tabs",
+    area = "tabs",
+    slot = panel_slot(kind = "tab_bar"),
+    blocks = [],
+)
+
+frame.add_panel(
+    id = "content",
+    area = "content",
+    slot = panel_slot(kind = "tab_content"),
     blocks = [],
 )

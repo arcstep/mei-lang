@@ -68,7 +68,6 @@
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
     "templates/cockpit/drilldown/generic-drilldown-board.mei": "generic_drilldown_board",
-    "templates/cockpit/drilldown/analytics-drilldown-board.mei": "analytics_drilldown_board",
   };
   const BOARD_TEMPLATE_SCENE_FILES = {
     metric_board_default: "templates/cockpit/drilldown/metric-explain-board.mei",
@@ -90,249 +89,11 @@
   };
   const SCENE_KIND_ORDER_FALLBACK = ["definition", "composition", "trend", "numerator_denominator", "detail"];
   const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
-  const DRILLDOWN_DATASET_BY_SCENE = {
-    enforcement_units: "enforcement_units",
-    enforcement_officers: "enforcement_officers",
-    enforcement_matters: "enforcement_matters",
-    key_enterprises: "key_enterprises",
-    enforcement_parks: "enforcement_parks",
-    enterprise_whitelist: "enterprise_whitelist",
-    administrative_inspection: "administrative_inspection_dashboard_ds",
-    enterprise_complaints: "enterprise_complaints",
-    ai_recognition_warnings: "ai_recognition_warnings",
-    body_cameras: "body_cameras",
-    penalty_dashboard: "penalty_result_dashboard_ds",
-    admin_reconsideration_register: "admin_reconsideration_register",
-    supervision_matters: "supervision_matters",
-    warning_models: "warning_models",
-    warning_list: "warning_list",
-    issue_result_list: "issue_result_list",
-  };
-  const ENFORCEMENT_UNIT_COLUMNS = [
-    "序号",
-    "类别",
-    "执法单位",
-    "办公地址",
-    "GCJ02经度",
-    "GCJ02纬度",
-    "GCJ02经度度分秒",
-    "GCJ02纬度度分秒",
-    "BD09经度",
-    "BD09纬度",
-    "BD09经度度分秒",
-    "BD09纬度度分秒",
-    "CGCS2000经度",
-    "CGCS2000纬度",
-    "CGCS2000经度度分秒",
-    "CGCS2000纬度度分秒",
-  ];
-  const ENFORCEMENT_OFFICER_COLUMNS = [
-    "序号",
-    "所属部门",
-    "姓名",
-    "性别",
-    "出生日期",
-    "民族",
-    "政治面貌",
-    "最高学历",
-    "执法性质",
-    "执法证号",
-    "人员编制",
-    "职级",
-    "证件生效日期",
-    "证件终止日期",
-    "备注",
-  ];
-  const ENFORCEMENT_MATTER_COLUMNS = [
-    "序号",
-    "事项编码",
-    "事项名称",
-    "事项类型",
-    "业务领域",
-    "监管层级",
-    "监管对象",
-    "编制部门",
-    "是否编制清单",
-    "法定依据",
-    "检查方式",
-    "是否涉企事项",
-  ];
-  const KEY_ENTERPRISE_COLUMNS = [
-    "所属街道",
-    "所属园区",
-    "组团分区",
-    "企业名称",
-    "社会信用代码",
-    "基本情况",
-    "行业代码",
-    "员工人数",
-    "企业经营用地",
-    "占地面积平方米",
-    "建筑面积平方米",
-    "注册企业",
-    "企业规模",
-    "注册地址",
-    "法定代表人",
-    "注册资本万元",
-    "成立日期",
-    "经营范围",
-    "企业经纬度坐标",
-    "企业联系人及电话",
-    "上市情况",
-    "升规入统时间",
-  ];
-  const PARK_COLUMNS = ["id", "name", "townId", "townName", "address"];
-  const PARK_HEADERS = ["园区ID", "园区名称", "所属街镇ID", "所属街镇", "地址"];
-  const WHITELIST_COLUMNS = ["序号", "企业名称", "统一社会信用代码"];
-  const INSPECTION_COLUMNS = [
-    "序号",
-    "检查日期",
-    "检查机构",
-    "检查人员1",
-    "检查人员2",
-    "检查对象名称",
-    "检查对象编码",
-    "任务名称",
-    "检查结果",
-    "后续处置",
-    "备注",
-  ];
-  const COMPLAINT_COLUMNS = ["id", "source", "complaintTime", "title", "content", "agency", "status"];
-  const COMPLAINT_HEADERS = ["流水号", "反映来源", "反映时间", "反映事项", "反映内容", "办结机构", "办结状态"];
-  const AI_WARNING_COLUMNS = [
-    "id",
-    "inspectionDate",
-    "inspectionAgency",
-    "subjectName",
-    "inspectionResult",
-    "aiRecognitionResult",
-    "actionLabel",
-    "recognizedAt",
-    "behaviorType",
-    "confidence",
-  ];
-  const AI_WARNING_HEADERS = [
-    "记录ID",
-    "检查日期",
-    "检查机构",
-    "检查对象名称",
-    "检查结果",
-    "AI识别结果",
-    "行为标签",
-    "识别时间",
-    "行为类型",
-    "置信度",
-  ];
-  const BODY_CAMERA_COLUMNS = ["序号", "设备号", "所属单位", "使用人", "可回放时长", "备注"];
-  const PENALTY_COLUMNS = [
-    "序号",
-    "执法类型",
-    "处罚决定书文号",
-    "办案单位",
-    "主办人",
-    "协办人",
-    "当事人",
-    "案件来源",
-    "案件领域",
-    "处罚事项",
-    "立案日期",
-    "做出处罚日期",
-    "执行日期",
-    "拟处罚金额",
-    "罚款金额",
-    "是否柔性执法事项",
-    "备注",
-  ];
-  const RECONSIDERATION_COLUMNS = [
-    "案号",
-    "收到日期",
-    "申请人",
-    "被申请人",
-    "第三人",
-    "复议事项",
-    "行政类别",
-    "复议请求事项",
-    "复议决定",
-    "结案日期",
-    "是否化解",
-    "备注",
-  ];
-  const TREND_COLUMNS = ["month", "value"];
-  const STATUS_COUNT_COLUMNS = ["是否查实", "value"];
-  const MECHANISM_COUNT_COLUMNS = ["健全机制", "value"];
-  const WARNING_COLUMNS = [
-    "预警ID",
-    "主责单位",
-    "问题分类名称",
-    "问题描述",
-    "预警类型",
-    "预警等级",
-    "预警时间",
-    "问题跟踪ID",
-    "承办部门",
-    "分办时间",
-    "办结时间",
-    "是否查实",
-    "是否转问题线索",
-    "核查情况",
-    "处理结果",
-  ];
-  const WARNING_PENDING_COLUMNS = [
-    "预警ID",
-    "主责单位",
-    "问题分类名称",
-    "问题描述",
-    "预警等级",
-    "预警时间",
-    "承办部门",
-    "问题跟踪ID",
-    "分办时间",
-    "办结时间",
-    "是否查实",
-    "是否转问题线索",
-  ];
-  const ISSUE_COLUMNS = [
-    "处理结果ID",
-    "问题跟踪ID",
-    "预警ID",
-    "主责单位",
-    "问题分类名称",
-    "问题描述",
-    "承办部门",
-    "分办时间",
-    "办结时间",
-    "是否查实",
-    "是否转问题线索",
-    "是否立案",
-    "处理处分",
-    "挽回资金",
-    "健全机制",
-  ];
-  const MATTERS_COLUMNS = ["序号", "监督类别", "监督事项", "预警等级", "存在的问题", "表现形式"];
-  const MODEL_COLUMNS = [
-    "序号",
-    "监督领域",
-    "监督类别",
-    "监督模型",
-    "模型ID",
-    "政策文件",
-    "模型依据",
-    "预警类型",
-    "模型类别",
-    "监督规则",
-    "监督数据",
-    "预警等级",
-  ];
-  const DETAIL_TABLE_DEFAULTS = {
-    pageSize: 9,
-    cellPreviewMaxChars: 16,
-    columnMinWidth: 180,
-  };
-  const EXPLAIN_TABLE_DEFAULTS = {
-    pageSize: 10,
-    cellPreviewMaxChars: 28,
-    columnMinWidth: 140,
-  };
+
+  function sceneParamRowsetDatasetId(params) {
+    if (!params || typeof params !== "object" || Array.isArray(params)) return "";
+    return nonEmptyString(params.rowset_dataset_id, params.rowsetDatasetId);
+  }
 
   function inferDrilldownColumnFormats(columns) {
     const formats = {};
@@ -455,6 +216,105 @@
     return "overlay";
   }
 
+  function normalizeShellLayout(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const columns = Array.isArray(raw.columns)
+      ? raw.columns.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+    const rows = Array.isArray(raw.rows)
+      ? raw.rows.map((entry) => String(entry || "").trim()).filter(Boolean)
+      : [];
+    const areas = Array.isArray(raw.areas)
+      ? raw.areas
+          .map((row) =>
+            Array.isArray(row)
+              ? row.map((entry) => String(entry || "").trim()).filter(Boolean)
+              : []
+          )
+          .filter((row) => row.length > 0)
+      : [];
+    const gap = nonEmptyString(raw.gap);
+    const padding = nonEmptyString(raw.padding);
+    if (!columns.length && !rows.length && !areas.length && !gap && !padding) return null;
+    return {
+      columns,
+      rows,
+      areas,
+      gap,
+      padding,
+    };
+  }
+
+  function inferSceneShellLayoutMode(zones = []) {
+    const roles = new Set(
+      (Array.isArray(zones) ? zones : []).map((zone) => nonEmptyString(zone?.role)).filter(Boolean),
+    );
+    if (roles.has("tab_bar") && roles.has("tab_content")) return "generic_tabs";
+    if (roles.has("row_preview")) return "list_preview";
+    if (roles.has("filter") && roles.has("slots")) return "analytics";
+    return "";
+  }
+
+  function normalizeSceneShellZone(raw, parent = "") {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? raw.props : {};
+    const slot = raw.slot && typeof raw.slot === "object" && !Array.isArray(raw.slot) ? raw.slot : {};
+    const id = nonEmptyString(raw.id, props.projection_id, props.zone_id);
+    const role = nonEmptyString(slot.kind, slot.role, props.projection_role, props.zone_role);
+    if (!id || !role) return null;
+    const accepts = Array.isArray(slot.accepts)
+      ? slot.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+      : Array.isArray(props.projection_accepts)
+        ? props.projection_accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+      : [];
+    return {
+      id,
+      role,
+      area: nonEmptyString(raw.area, props.area),
+      parent,
+      source: nonEmptyString(slot.source, props.projection_source, props.source),
+      selectionSource: nonEmptyString(
+        slot.selection_from,
+        slot.selectionFrom,
+        props.selection_source,
+        props.selectionSource,
+      ),
+      required: boolValue(slot.required, props.projection_required, false),
+      max: positiveInt(slot.max, props.projection_max, props.max),
+      accepts,
+      layout: normalizeShellLayout(raw.layout),
+    };
+  }
+
+  function normalizeSceneShellContract(rawFrame, rawPanels) {
+    const frame =
+      rawFrame && typeof rawFrame === "object" && !Array.isArray(rawFrame) ? rawFrame : null;
+    const panels = Array.isArray(rawPanels) ? rawPanels : [];
+    const zones = [];
+    const collectZones = (items, parent = "") => {
+      (Array.isArray(items) ? items : []).forEach((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item) || item.kind !== "panel") return;
+        const zone = normalizeSceneShellZone(item, parent);
+        if (zone) {
+          zones.push(zone);
+        }
+        const childPanels = Array.isArray(item.blocks)
+          ? item.blocks.filter((block) => block && typeof block === "object" && block.kind === "panel")
+          : [];
+        collectZones(childPanels, nonEmptyString(item.id));
+      });
+    };
+    collectZones(panels);
+    const layout = normalizeShellLayout(frame?.layout);
+    const layoutMode = inferSceneShellLayoutMode(zones);
+    if (!layoutMode && !zones.length && !layout) return null;
+    return {
+      layoutMode,
+      layout,
+      zones,
+    };
+  }
+
   function normalizeSceneLocalNav(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const itemsRaw = Array.isArray(raw.items)
@@ -528,7 +388,7 @@
     return fallback ? normalizeOverlaySize(fallback, "comfortable") : "comfortable";
   }
 
-  function resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown }) {
+  function resolveDrilldownOverlaySize({ popup, boardFields, structuredBoard, sceneShell = null }) {
     const sceneRef =
       popup?.scene && typeof popup.scene === "object" && !Array.isArray(popup.scene) ? popup.scene : {};
     const localNav =
@@ -546,10 +406,11 @@
       sceneRef?.overlaySize,
       localNav?.overlaySize,
     );
+    const largeDefault = structuredBoard && sceneShell?.layoutMode !== "generic_tabs";
     if (explicit) {
-      return normalizeOverlaySize(explicit, analyticsDrilldown ? "large" : "comfortable");
+      return normalizeOverlaySize(explicit, largeDefault ? "large" : "comfortable");
     }
-    return analyticsDrilldown ? "large" : "comfortable";
+    return largeDefault ? "large" : "comfortable";
   }
 
   function applyDrilldownOverlaySize(root, config) {
@@ -559,7 +420,9 @@
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");
     const size = normalizeOverlaySize(
       config?.overlaySize,
-      config?.analyticsDrilldown ? "large" : "comfortable",
+      config?.structuredBoard && config?.sceneShell?.layoutMode !== "generic_tabs"
+        ? "large"
+        : "comfortable",
     );
     if (overlayEl instanceof HTMLElement) {
       overlayEl.classList.remove(...DRILLDOWN_OVERLAY_SIZE_CLASSES);
@@ -589,6 +452,17 @@
       .filter((tab) => tab && tab !== "hero");
   }
 
+  function normalizeSceneParams(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const normalized = {};
+    Object.entries(raw).forEach(([key, value]) => {
+      const id = String(key || "").trim();
+      if (!id) return;
+      normalized[id] = value;
+    });
+    return normalized;
+  }
+
   function resolveBoardLinkFields(popup, runtimeSceneNavMap = null) {
     if (!popup || typeof popup !== "object") return null;
     const boardLink = isBoardLinkConfig(popup);
@@ -597,6 +471,7 @@
     const legacyTemplate = panelPopup && !boardLink ? normalizePanelTemplateId(popup?.template) : "";
     const sceneRef =
       popup?.scene && typeof popup.scene === "object" && !Array.isArray(popup.scene) ? popup.scene : {};
+    const params = normalizeSceneParams(popup?.params);
     const sceneFile = normalizeDrilldownScenePath(
       nonEmptyString(
         popup?.scene_file,
@@ -630,6 +505,10 @@
         sceneRef?.entry_tab,
         sceneRef?.entryTab,
         popup?.focus,
+        params?.entry,
+        params?.entry_tab,
+        params?.entryTab,
+        params?.focus,
         localNav?.defaultEntry,
       ),
     );
@@ -643,6 +522,7 @@
       projection: normalizeProjection(popup?.projection),
       entry,
       localNav,
+      params,
     };
   }
 
@@ -1567,6 +1447,7 @@
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");
     const heroEl = root.querySelector('[data-drilldown-hero="true"]');
     const headMetaEl = root.querySelector(".access-drilldown-overlay-head-meta");
+    const structuredLayout = root.querySelector('[data-drilldown-structured-layout="true"]');
     if (titleEl) titleEl.textContent = String(config?.title || "");
     if (noteEl) {
       const note = String(config?.note || "").trim();
@@ -1576,23 +1457,26 @@
     const boardMode = Boolean(
       config?.boardLink || (config?.panelPopup && config?.panelTemplate),
     );
-    const analyticsMode = Boolean(config?.analyticsDrilldown);
+    const structuredBoardMode = Boolean(config?.structuredBoard);
     if (panelEl) {
       panelEl.classList.toggle("access-drilldown-overlay-panel--board", boardMode);
-      panelEl.classList.toggle("access-drilldown-overlay-panel--analytics", analyticsMode);
       panelEl.dataset.drilldownPanelTemplate = boardMode ? String(config.panelTemplate) : "";
+      panelEl.dataset.drilldownLayoutMode = String(config?.sceneShell?.layoutMode || "");
     }
     const genericBody = root.querySelector('[data-drilldown-body-mode="generic"]');
-    const analyticsBody = root.querySelector('[data-drilldown-body-mode="analytics"]');
+    const structuredBody = root.querySelector('[data-drilldown-body-mode="structured"]');
     if (genericBody instanceof HTMLElement) {
-      genericBody.toggleAttribute("hidden", analyticsMode);
+      genericBody.toggleAttribute("hidden", structuredBoardMode);
     }
-    if (analyticsBody instanceof HTMLElement) {
-      analyticsBody.toggleAttribute("hidden", !analyticsMode);
+    if (structuredBody instanceof HTMLElement) {
+      structuredBody.toggleAttribute("hidden", !structuredBoardMode);
     }
     const tabsHost = root.querySelector('[data-drilldown-tabs="true"]');
     if (tabsHost instanceof HTMLElement) {
-      tabsHost.toggleAttribute("hidden", analyticsMode);
+      tabsHost.toggleAttribute("hidden", structuredBoardMode);
+    }
+    if (structuredLayout instanceof HTMLElement) {
+      structuredLayout.dataset.shellLayoutMode = String(config?.sceneShell?.layoutMode || "");
     }
     applyDrilldownOverlaySize(root, config);
     if (headMetaEl) {
@@ -1628,25 +1512,22 @@
 
   function resolveDrilldownDatasetId(detail, config = {}) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
-    const sceneId = nonEmptyString(
-      runtimeRefConfig.sceneId,
-      config?.hostSceneId,
-      config?.sceneId,
-      detail?.host_scene_id,
-      detail?.scene_id,
-      resolveDrilldownSceneId(detail, runtimeDrilldownConfig(detail)),
-    );
+    const popupParams =
+      detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup)
+        ? detail.popup.params
+        : null;
     const explicitDatasetId = nonEmptyString(runtimeRefConfig.datasetId, config?.datasetId);
     const rowsetDatasetId = nonEmptyString(
       runtimeRefConfig.rowsetDatasetId,
       config?.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
+      sceneParamRowsetDatasetId(config?.params),
+      sceneParamRowsetDatasetId(popupParams),
     );
     const detailDatasetId = nonEmptyString(detail?.dataset_id);
     const safeDetailDatasetId = isWorldMetricsOwnerDatasetId(detailDatasetId) ? "" : detailDatasetId;
-    const mappedDatasetId = sceneId ? nonEmptyString(DRILLDOWN_DATASET_BY_SCENE[sceneId]) : "";
     const tableMetricId = nonEmptyString(config?.tableMetricId, detail?.table_metric_id);
-    if (config?.analyticsDrilldown && rowsetDatasetId) {
+    if (config?.structuredBoard && rowsetDatasetId) {
       return rowsetDatasetId;
     }
     if (tableMetricId) {
@@ -1654,7 +1535,6 @@
         explicitDatasetId,
         rowsetDatasetId,
         detail?.explain_detail_dataset,
-        mappedDatasetId,
         safeDetailDatasetId,
         detailDatasetId,
       );
@@ -1663,7 +1543,6 @@
       detail?.explain_detail_dataset,
       explicitDatasetId,
       rowsetDatasetId,
-      mappedDatasetId,
       safeDetailDatasetId,
       detailDatasetId,
     );
@@ -1736,12 +1615,41 @@
       .filter((slot) => slot.metricId || slot.datasetId);
   }
 
-  function isAnalyticsDrilldownBoard(boardSceneId, popup) {
-    const sceneId = nonEmptyString(boardSceneId, popup?.scene_id, popup?.sceneId);
-    if (sceneId === "analytics_drilldown_board") return true;
-    if (nonEmptyString(popup?.layout_mode, popup?.layoutMode) === "analytics") return true;
-    const sceneFile = nonEmptyString(popup?.scene_file, popup?.sceneFile);
-    return sceneFile.includes("analytics-drilldown-board.mei");
+  function resolveSceneShell(sceneAssembly) {
+    return normalizeSceneShellContract(sceneAssembly?.frame, sceneAssembly?.panels);
+  }
+
+  function sceneShellZoneById(sceneShell, zoneId) {
+    if (!sceneShell || !Array.isArray(sceneShell.zones) || !zoneId) return null;
+    return sceneShell.zones.find((zone) => zone?.id === zoneId) || null;
+  }
+
+  function sceneShellZonesByRole(sceneShell, role) {
+    if (!sceneShell || !Array.isArray(sceneShell.zones)) return [];
+    return sceneShell.zones.filter((zone) => zone?.role === role);
+  }
+
+  function sceneShellFirstSlotZone(sceneShell, component) {
+    if (!sceneShell || !Array.isArray(sceneShell.zones)) return null;
+    return (
+      sceneShell.zones.find(
+        (zone) =>
+          (zone?.role === "slots" || zone?.role === "row_preview" || zone?.role === "tab_content") &&
+          Array.isArray(zone?.accepts) &&
+          zone.accepts.includes(component),
+      ) || null
+    );
+  }
+
+  function groupProjectionSlotsByZone(projectionSlots = []) {
+    const grouped = {};
+    projectionSlots.forEach((slot) => {
+      const zoneId = nonEmptyString(slot?.layoutZone);
+      if (!zoneId) return;
+      if (!Array.isArray(grouped[zoneId])) grouped[zoneId] = [];
+      grouped[zoneId].push(slot);
+    });
+    return grouped;
   }
 
   function normalizeAnalyticsFilterSchema(raw) {
@@ -1796,33 +1704,54 @@
       metricId,
       "指标下钻",
     );
-    const analyticsDrilldown = isAnalyticsDrilldownBoard(boardSceneId, popup);
-    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown });
+    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
+    const sceneShell = resolveSceneShell(sceneAssembly);
+    const structuredBoard = Boolean(sceneShell?.layoutMode);
+    const overlaySize = resolveDrilldownOverlaySize({
+      popup,
+      boardFields,
+      structuredBoard,
+      sceneShell,
+    });
     const filterSchema = normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema);
-    const queryStateId = analyticsDrilldown
+    const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
+    const queryStateId = structuredBoard
       ? nonEmptyString(
           popup?.query_state_id,
           popup?.queryStateId,
           metricId ? `drilldown::${metricId}` : "",
         )
       : "";
-    const chartSlots = analyticsDrilldown
-      ? projectionSlots.filter((slot) => slot.layoutZone === "chart")
-      : [];
-    const detailSlot =
-      (analyticsDrilldown
-        ? projectionSlots.find((slot) => slot.layoutZone === "detail")
-        : null) || defaultSlot;
+    const slotsByZone = groupProjectionSlotsByZone(projectionSlots);
+    const defaultTableSlot =
+      projectionSlots.find((slot) => slot.component === "data_table") || defaultSlot;
+    const rowPreviewZone = sceneShellZonesByRole(sceneShell, "row_preview")[0] || null;
+    const rowPreviewZoneId = rowPreviewZone?.id || "";
+    const rowPreviewSlot = rowPreviewZoneId ? (slotsByZone[rowPreviewZoneId] || [])[0] || null : null;
+    const rowPreviewSourceZoneId = nonEmptyString(
+      rowPreviewZone?.selectionSource,
+      sceneShellFirstSlotZone(sceneShell, "data_table")?.id,
+    );
+    const tabBarZoneId = sceneShellZonesByRole(sceneShell, "tab_bar")[0]?.id || "";
+    const tabContentZoneId = sceneShellZonesByRole(sceneShell, "tab_content")[0]?.id || "";
+    const genericSceneShell = sceneShell?.layoutMode === "generic_tabs";
     return {
       enabled: Boolean(boardSceneId),
-      genericDrilldown: !analyticsDrilldown,
-      analyticsDrilldown,
+      genericDrilldown: !structuredBoard || genericSceneShell,
+      structuredBoard,
+      sceneShell,
       overlaySize,
       filterSchema,
-      chartSlots,
-      detailSlot,
+      slotsByZone,
+      detailSlot: defaultTableSlot,
+      rowPreviewZoneId,
+      rowPreviewSlot,
+      rowPreviewSourceZoneId,
+      tabBarZoneId,
+      tabContentZoneId,
       queryStateId,
-      rowsetDatasetId: filterSchema.rowsetDatasetId,
+      rowsetDatasetId: nonEmptyString(filterSchema.rowsetDatasetId, paramRowsetDatasetId),
+      params: boardFields?.params || normalizeSceneParams(popup?.params),
       sceneId: hostSceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
@@ -1832,19 +1761,19 @@
         boardFields?.sceneFile,
         popup?.scene_file,
         popup?.sceneFile,
-        analyticsDrilldown
-          ? "templates/cockpit/drilldown/analytics-drilldown-board.mei"
-          : "templates/cockpit/drilldown/generic-drilldown-board.mei",
+        "templates/cockpit/drilldown/generic-drilldown-board.mei",
       ),
       projection,
       title,
       note: "",
-      tableMetricId: nonEmptyString(defaultSlot?.metricId, metricId),
+      tableMetricId: nonEmptyString(defaultTableSlot?.metricId, metricId),
       datasetId: nonEmptyString(
-        defaultSlot?.datasetId,
+        defaultTableSlot?.datasetId,
         detail?.dataset_id,
         detail?.__mei_runtime_ref?.dataset_id,
       ),
+      hasChartZone: projectionSlots.some((slot) => slot.component === "chart"),
+      hasRowPreviewZone: Boolean(rowPreviewZoneId),
       tabs,
       slotByTab,
       explainMetrics: Object.fromEntries(
@@ -1884,6 +1813,21 @@
       ),
       popup: {
         ...popup,
+        entry: nonEmptyString(
+          popup?.entry,
+          popup?.entry_tab,
+          popup?.entryTab,
+          popup?.focus,
+          boardFields?.entry,
+        ),
+        focus: nonEmptyString(
+          popup?.entry,
+          popup?.focus,
+          popup?.entry_tab,
+          popup?.entryTab,
+          boardFields?.entry,
+        ),
+        params: boardFields?.params || normalizeSceneParams(popup?.params),
         projection_slots: projectionSlots,
       },
       link: {
@@ -2029,6 +1973,7 @@
       normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
       resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
       null;
+    const sceneShell = resolveSceneShell(sceneAssembly);
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
@@ -2054,20 +1999,32 @@
       denominator: ratioDenominator,
       formula: ratioFormula,
     });
-    const analyticsDrilldown = isAnalyticsDrilldownBoard(boardSceneId, popup);
-    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, analyticsDrilldown });
+    const structuredBoard = Boolean(sceneShell?.layoutMode) && sceneShell.layoutMode !== "generic_tabs";
+    const overlaySize = resolveDrilldownOverlaySize({ popup, boardFields, structuredBoard, sceneShell });
+    const legacyParams = boardFields?.params || normalizeSceneParams(popup?.params);
+    const legacyFilterSchema = normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema);
     return {
       enabled:
         (boardLink && Boolean(boardSceneId)) ||
         (panelPopup && Boolean(boardSceneId) && Boolean(panelTemplate)) ||
         popup?.mode === "popup" ||
         (runtimeEnabled !== false && Boolean(hostSceneId || boardSceneId)),
-      analyticsDrilldown,
+      genericDrilldown: !structuredBoard,
+      structuredBoard,
+      sceneShell,
+      hasChartZone: false,
+      hasRowPreviewZone: false,
       overlaySize,
       sceneId,
       hostSceneId,
       hostSceneFile: nonEmptyString(detail?.host_scene_file, detail?.scene_path),
       queryStateId,
+      params: legacyParams,
+      filterSchema: legacyFilterSchema,
+      rowsetDatasetId: nonEmptyString(
+        legacyFilterSchema.rowsetDatasetId,
+        sceneParamRowsetDatasetId(legacyParams),
+      ),
       boardSceneId,
       boardLink,
       boardSceneFile,
@@ -2140,6 +2097,7 @@
         scene: boardFields?.sceneRef || popup?.scene || null,
         projection,
         local_nav: sceneLocalNav,
+        params: boardFields?.params || normalizeSceneParams(popup?.params),
         entry_overrides: panelPopupSlotSources(popup),
         slots: panelPopupSlotSources(popup),
       },
@@ -2435,7 +2393,7 @@
         throw error;
       }
     }
-    if (config?.analyticsDrilldown && tableMetricId) {
+    if (config?.hasChartZone && tableMetricId) {
       recordPopupDebugIssue({
         level: "error",
         message: "分析型构成图需要 metric 行集，但未能通过 metric 查询拿到明细行",
@@ -2559,7 +2517,7 @@
 
   function isAnalyticsChartPresentation(config) {
     return (
-      Boolean(config?.analyticsDrilldown) ||
+      Boolean(config?.hasChartZone) ||
       (Array.isArray(config?.chartSlots) && config.chartSlots.length > 0)
     );
   }
@@ -2687,6 +2645,7 @@
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
+      rowSelectionMode: nonEmptyString(config?.rowSelectionMode),
       tableScrollX,
       autoFitColumns: true,
       fitColumnsFromSample: true,
@@ -2924,9 +2883,12 @@
       tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
       tableProps?.dataset?.id,
     );
+    const listPreview = Boolean(config?.hasRowPreviewZone);
     return {
       title: "筛选条件",
-      description: "调整条件后图表与明细表将同步刷新。",
+      description: listPreview
+        ? "调整条件后清单与预览将同步刷新。"
+        : "调整条件后图表与明细表将同步刷新。",
       live: true,
       query_state: config?.queryStateId || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
@@ -2958,8 +2920,11 @@
     };
   }
 
-  async function mountAnalyticsFilterBar(root, detail, config) {
-    const host = root.querySelector('[data-drilldown-filter-host="true"]');
+  async function mountAnalyticsFilterBar(root, detail, config, hostOverride = null) {
+    const host =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-filter-host="true"]');
     if (!(host instanceof HTMLElement)) return false;
     const filterProps = buildAnalyticsFilterBarProps(config, detail);
     const fieldCount = Array.isArray(filterProps?.fields) ? filterProps.fields.length : 0;
@@ -2993,7 +2958,7 @@
       const boardMetricId = nonEmptyString(config.tableMetricId);
       const mergedConfig = {
         ...slotConfig,
-        analyticsDrilldown: config.analyticsDrilldown,
+        hasChartZone: config.hasChartZone,
         rowsetDatasetId: config.rowsetDatasetId,
         hostSceneId: config.hostSceneId,
         hostSceneFile: config.hostSceneFile,
@@ -3080,7 +3045,10 @@
     chartsHost.toggleAttribute("hidden", chartSlots.length === 0);
 
     try {
-      await mountAnalyticsFilterBar(root, detail, config);
+      const filterHost = root.querySelector(
+        '[data-drilldown-body-mode="analytics"] [data-drilldown-filter-host="true"]',
+      );
+      await mountAnalyticsFilterBar(root, detail, config, filterHost);
       const detailSlot = config?.detailSlot;
       const detailConfig = detailSlot
         ? {
@@ -3134,6 +3102,398 @@
         level: "error",
         message: String(error?.message || error || "分析型下钻看板渲染失败"),
         phase: "analytics_render_error",
+        detail,
+        config,
+      });
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+  }
+
+  const LIST_PREVIEW_ROW_SELECT_EVENT = "mei:table-row-select";
+
+  function resolveListPreviewFields(config) {
+    const previewFields = cloneArray(config?.rowPreviewSlot?.fields || config?.previewSlot?.fields);
+    if (previewFields.length) return previewFields;
+    const listFields = cloneArray(config?.detailSlot?.fields || config?.listSlot?.fields);
+    if (listFields.length) return listFields;
+    return cloneArray(config?.columns);
+  }
+
+  function renderListPreviewItemPanel(host, row, config) {
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    if (!row || typeof row !== "object") {
+      const empty = document.createElement("div");
+      empty.className = "access-drilldown-list-preview-empty";
+      empty.textContent = "点击清单中的条目查看详情";
+      host.appendChild(empty);
+      return;
+    }
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-list-preview-panel";
+    const title = document.createElement("div");
+    title.className = "access-drilldown-list-preview-title";
+    title.textContent = String(
+      row?.label ??
+        row?.案例名称 ??
+        row?.预警ID ??
+        row?.问题跟踪ID ??
+        row?.标题 ??
+        "条目详情",
+    );
+    panel.appendChild(title);
+    const fields = resolveListPreviewFields(config);
+    const entries =
+      fields.length > 0
+        ? fields.map((field) => {
+            const key = String(field?.column || field?.key || field || "").trim();
+            if (!key) return null;
+            const label = String(field?.label || key).trim();
+            const value = row?.[key];
+            return { label, value };
+          })
+        : Object.entries(row).map(([key, value]) => ({ label: key, value }));
+    const list = document.createElement("dl");
+    list.className = "access-drilldown-list-preview-fields";
+    entries
+      .filter(Boolean)
+      .forEach((entry) => {
+        const dt = document.createElement("dt");
+        dt.textContent = entry.label;
+        const dd = document.createElement("dd");
+        dd.textContent =
+          entry.value === null || entry.value === undefined ? "" : String(entry.value);
+        list.appendChild(dt);
+        list.appendChild(dd);
+      });
+    panel.appendChild(list);
+    host.appendChild(panel);
+  }
+
+  function cleanupListPreviewDrilldownWatcher(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const cleanup = root.__meiListPreviewQueryStateCleanup;
+    if (typeof cleanup === "function") {
+      cleanup();
+    }
+    root.__meiListPreviewQueryStateCleanup = null;
+    const rowSelectCleanup = root.__meiListPreviewRowSelectCleanup;
+    if (typeof rowSelectCleanup === "function") {
+      rowSelectCleanup();
+    }
+    root.__meiListPreviewRowSelectCleanup = null;
+  }
+
+  async function renderListPreviewDrilldownContent(root, detail, config) {
+    applyDrilldownOverlayMeta(root, config);
+    setDrilldownOverlayStatus(root, "loading");
+    cleanupListPreviewDrilldownWatcher(root);
+    const listHost = root.querySelector('[data-drilldown-list-host="true"]');
+    const previewHost = root.querySelector('[data-drilldown-preview-host="true"]');
+    if (!(listHost instanceof HTMLElement) || !(previewHost instanceof HTMLElement)) {
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+    listHost.replaceChildren();
+    renderListPreviewItemPanel(previewHost, null, config);
+    const listSlot = config?.listSlot || config?.detailSlot;
+    const listConfig = listSlot
+      ? {
+          ...resolveDrilldownTabConfig(config, listSlot.id),
+          listPreviewDrilldown: true,
+          queryStateId: config.queryStateId,
+          columns: cloneArray(listSlot.fields).length
+            ? cloneArray(listSlot.fields)
+            : cloneArray(resolveDrilldownTabConfig(config, listSlot.id).columns),
+        }
+      : { ...config, listPreviewDrilldown: true };
+    try {
+      const filterHost = root.querySelector(
+        '[data-drilldown-body-mode="list-preview"] [data-drilldown-filter-host="true"]',
+      );
+      await mountAnalyticsFilterBar(root, detail, config, filterHost);
+      const tableOk = await mountDrilldownTable(root, detail, listConfig, listHost);
+      if (!tableOk) {
+        setDrilldownOverlayStatus(root, "error");
+        return false;
+      }
+      const onRowSelect = (event) => {
+        if (event?.detail?.query_state_id && event.detail.query_state_id !== config?.queryStateId) {
+          return;
+        }
+        renderListPreviewItemPanel(previewHost, event?.detail?.row || null, config);
+      };
+      listHost.addEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
+      root.__meiListPreviewRowSelectCleanup = () => {
+        listHost.removeEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
+      };
+      const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+      if (queryStateId) {
+        const onQueryStateChange = (event) => {
+          if (event?.detail?.id !== queryStateId) return;
+          if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
+          mountDrilldownTable(root, detail, listConfig, listHost)
+            .then((ok) => {
+              if (!ok) return;
+              renderListPreviewItemPanel(previewHost, null, config);
+              dispatchPreviewUpdated("drilldown");
+            })
+            .catch((error) => {
+              recordPopupDebugIssue({
+                level: "error",
+                message: String(error?.message || error || "清单预览看板刷新失败"),
+                phase: "list_preview_refresh_error",
+                detail,
+                config,
+              });
+            });
+        };
+        window.addEventListener("mei:query-state-change", onQueryStateChange);
+        root.__meiListPreviewQueryStateCleanup = () => {
+          window.removeEventListener("mei:query-state-change", onQueryStateChange);
+        };
+      }
+      setDrilldownOverlayStatus(root, "ready");
+      dispatchPreviewUpdated("drilldown");
+      return true;
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "清单预览看板渲染失败"),
+        phase: "list_preview_render_error",
+        detail,
+        config,
+      });
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+  }
+
+  function cleanupStructuredDrilldownWatcher(root) {
+    if (!(root instanceof HTMLElement)) return;
+    cleanupAnalyticsDrilldownWatcher(root);
+    cleanupListPreviewDrilldownWatcher(root);
+    const queryCleanup = root.__meiStructuredQueryStateCleanup;
+    if (typeof queryCleanup === "function") {
+      queryCleanup();
+    }
+    root.__meiStructuredQueryStateCleanup = null;
+    const rowCleanup = root.__meiStructuredRowSelectionCleanup;
+    if (typeof rowCleanup === "function") {
+      rowCleanup();
+    }
+    root.__meiStructuredRowSelectionCleanup = null;
+  }
+
+  function boardLayoutAreasCss(areas = []) {
+    if (!Array.isArray(areas) || areas.length === 0) return "";
+    return areas
+      .filter((row) => Array.isArray(row) && row.length > 0)
+      .map((row) => `"${row.map((entry) => String(entry || "").trim() || ".").join(" ")}"`)
+      .join(" ");
+  }
+
+  function applySceneShellLayout(node, layout) {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.display = "grid";
+    node.style.gridTemplateColumns =
+      Array.isArray(layout?.columns) && layout.columns.length ? layout.columns.join(" ") : "";
+    node.style.gridTemplateRows =
+      Array.isArray(layout?.rows) && layout.rows.length ? layout.rows.join(" ") : "";
+    node.style.gridTemplateAreas = boardLayoutAreasCss(layout?.areas);
+    node.style.gap = nonEmptyString(layout?.gap);
+    node.style.padding = nonEmptyString(layout?.padding);
+  }
+
+  function ensureStructuredDrilldownZoneHosts(root, sceneShell) {
+    const layoutHost = root.querySelector('[data-drilldown-structured-layout="true"]');
+    if (!(layoutHost instanceof HTMLElement) || !sceneShell) return null;
+    layoutHost.replaceChildren();
+    layoutHost.dataset.shellLayoutMode = String(sceneShell.layoutMode || "");
+    applySceneShellLayout(layoutHost, sceneShell.layout);
+    const zoneHosts = {};
+    const zones = Array.isArray(sceneShell.zones) ? sceneShell.zones : [];
+    const childrenByParent = new Map();
+    zones.forEach((zone) => {
+      const parent = nonEmptyString(zone?.parent);
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push(zone);
+    });
+
+    const createZoneNode = (zone) => {
+      const wrapper = document.createElement(zone.role === "filter" || zone.role === "row_preview" ? "aside" : "div");
+      wrapper.className = "access-drilldown-shell-zone";
+      wrapper.dataset.shellZoneId = zone.id;
+      wrapper.dataset.shellZoneRole = zone.role;
+      if (zone.area) {
+        wrapper.style.gridArea = zone.area;
+      }
+      if (zone.role === "container") {
+        wrapper.classList.add("access-drilldown-shell-zone--container");
+        applySceneShellLayout(wrapper, zone.layout);
+      } else {
+        const host =
+          zone.role === "filter" || zone.role === "tab_bar"
+            ? wrapper
+            : (() => {
+                const surface = document.createElement("div");
+                surface.className = "access-drilldown-shell-surface";
+                wrapper.appendChild(surface);
+                return surface;
+              })();
+        host.classList.add("access-drilldown-shell-host");
+        host.dataset.drilldownZoneHost = zone.id;
+        zoneHosts[zone.id] = host;
+      }
+      const children = childrenByParent.get(zone.id) || [];
+      children.forEach((child) => wrapper.appendChild(createZoneNode(child)));
+      return wrapper;
+    };
+
+    const rootZones = childrenByParent.get("") || [];
+    rootZones.forEach((zone) => layoutHost.appendChild(createZoneNode(zone)));
+    return zoneHosts;
+  }
+
+  async function mountStructuredSlotZone(root, detail, config, zone, host) {
+    if (!(host instanceof HTMLElement)) return false;
+    host.replaceChildren();
+    host.style.gridTemplateColumns = "";
+    const zoneSlots = Array.isArray(config?.slotsByZone?.[zone.id]) ? config.slotsByZone[zone.id] : [];
+    if (!zoneSlots.length) {
+      return !zone.required;
+    }
+    if (zoneSlots.every((slot) => slot.component === "chart")) {
+      zoneSlots.forEach((slot, index) => {
+        const slotEl = document.createElement("div");
+        slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
+        slotEl.dataset.chartSlotIndex = String(index);
+        host.appendChild(slotEl);
+      });
+      host.style.display = "grid";
+      host.style.gridTemplateColumns =
+        zoneSlots.length > 1 ? `repeat(${zoneSlots.length}, minmax(0, 1fr))` : "1fr";
+      return mountAnalyticsChartSlots(root, detail, config, zoneSlots, host);
+    }
+    const primarySlot = zoneSlots[0];
+    const baseConfig = resolveDrilldownTabConfig(config, primarySlot.id);
+    const slotConfig = {
+      ...baseConfig,
+      queryStateId: config.queryStateId,
+      hasChartZone: config.hasChartZone,
+      hasRowPreviewZone: config.hasRowPreviewZone,
+      tableMetricId: nonEmptyString(primarySlot.metricId, baseConfig.tableMetricId, config.tableMetricId),
+      datasetId: nonEmptyString(primarySlot.datasetId, baseConfig.datasetId, config.datasetId),
+      columns: cloneArray(primarySlot.fields).length
+        ? cloneArray(primarySlot.fields)
+        : cloneArray(baseConfig.columns),
+      rowSelectionMode:
+        config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
+    };
+    if (primarySlot.component === "data_table") {
+      return mountDrilldownTable(root, detail, slotConfig, host);
+    }
+    if (primarySlot.component === "summary" || primarySlot.component === "metric_card") {
+      host.appendChild(createDrilldownSummaryNode(slotConfig, primarySlot.id));
+      return true;
+    }
+    return false;
+  }
+
+  function mountStructuredRowPreviewZone(root, zoneHosts, config) {
+    const previewZoneId = nonEmptyString(config?.rowPreviewZoneId);
+    const sourceZoneId = nonEmptyString(config?.rowPreviewSourceZoneId);
+    if (!previewZoneId || !sourceZoneId) return;
+    const previewHost = zoneHosts?.[previewZoneId];
+    const sourceHost = zoneHosts?.[sourceZoneId];
+    if (!(previewHost instanceof HTMLElement) || !(sourceHost instanceof HTMLElement)) return;
+    renderListPreviewItemPanel(previewHost, null, config);
+    const onRowSelect = (event) => {
+      if (event?.detail?.query_state_id && event.detail.query_state_id !== config?.queryStateId) {
+        return;
+      }
+      renderListPreviewItemPanel(previewHost, event?.detail?.row || null, config);
+    };
+    sourceHost.addEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
+    root.__meiStructuredRowSelectionCleanup = () => {
+      sourceHost.removeEventListener(LIST_PREVIEW_ROW_SELECT_EVENT, onRowSelect);
+    };
+  }
+
+  function renderStructuredTabZones(root, detail, config, zoneHosts) {
+    const tabsHost = zoneHosts?.[config?.tabBarZoneId];
+    const contentHost = zoneHosts?.[config?.tabContentZoneId];
+    if (!(tabsHost instanceof HTMLElement) || !(contentHost instanceof HTMLElement)) {
+      return false;
+    }
+    const activeTab = renderDrilldownTabs(root, detail, config, tabsHost, contentHost);
+    return renderDrilldownContent(root, detail, config, activeTab, contentHost);
+  }
+
+  async function renderStructuredDrilldownContent(root, detail, config) {
+    applyDrilldownOverlayMeta(root, config);
+    setDrilldownOverlayStatus(root, "loading");
+    cleanupStructuredDrilldownWatcher(root);
+    const zoneHosts = ensureStructuredDrilldownZoneHosts(root, config?.sceneShell);
+    if (!zoneHosts) {
+      setDrilldownOverlayStatus(root, "error");
+      return false;
+    }
+    try {
+      if (config?.sceneShell?.layoutMode === "generic_tabs") {
+        const ok = renderStructuredTabZones(root, detail, config, zoneHosts);
+        if (!ok) {
+          setDrilldownOverlayStatus(root, "error");
+          return false;
+        }
+        return true;
+      }
+      const filterZone = sceneShellZonesByRole(config?.sceneShell, "filter")[0] || null;
+      if (filterZone && zoneHosts[filterZone.id] instanceof HTMLElement) {
+        await mountAnalyticsFilterBar(root, detail, config, zoneHosts[filterZone.id]);
+      }
+      const slotZones = sceneShellZonesByRole(config?.sceneShell, "slots");
+      for (const zone of slotZones) {
+        const ok = await mountStructuredSlotZone(root, detail, config, zone, zoneHosts[zone.id]);
+        if (!ok) {
+          setDrilldownOverlayStatus(root, "error");
+          return false;
+        }
+      }
+      mountStructuredRowPreviewZone(root, zoneHosts, config);
+      const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+      if (queryStateId) {
+        const onQueryStateChange = (event) => {
+          if (event?.detail?.id !== queryStateId) return;
+          if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
+          renderStructuredDrilldownContent(root, detail, config)
+            .then((ok) => {
+              if (ok) dispatchPreviewUpdated("drilldown");
+            })
+            .catch((error) => {
+              recordPopupDebugIssue({
+                level: "error",
+                message: String(error?.message || error || "通用下钻壳刷新失败"),
+                phase: "structured_shell_refresh_error",
+                detail,
+                config,
+              });
+            });
+        };
+        window.addEventListener("mei:query-state-change", onQueryStateChange);
+        root.__meiStructuredQueryStateCleanup = () => {
+          window.removeEventListener("mei:query-state-change", onQueryStateChange);
+        };
+      }
+      setDrilldownOverlayStatus(root, "ready");
+      dispatchPreviewUpdated("drilldown");
+      return true;
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "通用下钻壳渲染失败"),
+        phase: "structured_shell_render_error",
         detail,
         config,
       });
@@ -3252,10 +3612,13 @@
     return false;
   }
 
-  function renderDrilldownContent(root, detail, config, tabId) {
+  function renderDrilldownContent(root, detail, config, tabId, hostOverride = null) {
     const activeConfig = resolveDrilldownTabConfig(config, tabId);
     applyDrilldownOverlayMeta(root, activeConfig);
-    const host = root.querySelector('[data-drilldown-table-host="true"]');
+    const host =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-table-host="true"]');
     if (!(host instanceof HTMLElement)) {
       return false;
     }
@@ -3302,20 +3665,20 @@
           window.__meiDatasetRuntime.isYearMonthMatrixMetricConfig(activeConfig));
       const mountAnalysisContent = async () => {
         if (config?.genericDrilldown && config?.slotByTab?.[normalizedTab]?.supportRole === "composition") {
-          if (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId)) {
+          if (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId, host)) {
             return true;
           }
         }
-        if (preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
+        if (preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig, host))) {
           return true;
         }
-        if (await mountDrilldownChart(root, detail, activeConfig, tabId)) {
+        if (await mountDrilldownChart(root, detail, activeConfig, tabId, host)) {
           return true;
         }
-        if (!preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig))) {
+        if (!preferTableFirst && (await mountDrilldownTable(root, detail, activeConfig, host))) {
           return true;
         }
-        if (config?.genericDrilldown && (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId))) {
+        if (config?.genericDrilldown && (await mountDerivedDrilldownContent(root, detail, activeConfig, tabId, host))) {
           return true;
         }
         return false;
@@ -3348,7 +3711,7 @@
             datasetId: activeConfig?.datasetId,
             metricId: activeConfig?.tableMetricId,
           });
-          if (await mountDrilldownTable(root, detail, activeConfig)) {
+          if (await mountDrilldownTable(root, detail, activeConfig, host)) {
             setDrilldownOverlayStatus(root, "ready");
             dispatchPreviewUpdated("drilldown");
             return;
@@ -3358,7 +3721,7 @@
       return true;
     }
     setDrilldownOverlayStatus(root, "loading");
-    mountDrilldownTable(root, detail, activeConfig)
+    mountDrilldownTable(root, detail, activeConfig, host)
       .then((mounted) => {
         if (mounted) {
           setDrilldownOverlayStatus(root, "ready");
@@ -3391,8 +3754,11 @@
     return true;
   }
 
-  function renderDrilldownTabs(root, detail, config) {
-    const tabsHost = root.querySelector('[data-drilldown-tabs="true"]');
+  function renderDrilldownTabs(root, detail, config, hostOverride = null, contentHostOverride = null) {
+    const tabsHost =
+      hostOverride instanceof HTMLElement
+        ? hostOverride
+        : root.querySelector('[data-drilldown-tabs="true"]');
     if (!(tabsHost instanceof HTMLElement)) {
       return defaultActiveDrilldownTab(config?.tabs || []);
     }
@@ -3452,7 +3818,7 @@
         tabsHost
           .querySelectorAll(".access-drilldown-tab-button")
           .forEach((node) => node.setAttribute("aria-selected", node === button ? "true" : "false"));
-        renderDrilldownContent(root, detail, config, tab);
+        renderDrilldownContent(root, detail, config, tab, contentHostOverride);
       });
       tabsHost.appendChild(button);
     });
@@ -3462,33 +3828,6 @@
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (root) {
-      if (!root.querySelector('[data-drilldown-body-mode="analytics"]')) {
-        const panel = root.querySelector(".access-drilldown-overlay-panel");
-        if (panel instanceof HTMLElement) {
-          panel.insertAdjacentHTML(
-            "beforeend",
-            '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--analytics" data-drilldown-body-mode="analytics" hidden>' +
-              '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载分析看板...</div>' +
-              '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>分析看板加载失败，请稍后重试。</div>' +
-              '<div class="access-drilldown-analytics-shell" data-drilldown-status="ready" hidden>' +
-              '<div class="access-drilldown-analytics-layout">' +
-              '<aside class="access-drilldown-analytics-filters" data-drilldown-filter-host="true"></aside>' +
-              '<div class="access-drilldown-analytics-main">' +
-              '<div class="access-drilldown-analytics-charts" data-drilldown-charts-host="true"></div>' +
-              '<div class="access-drilldown-analytics-table-shell">' +
-              '<div class="access-drilldown-analytics-table-host" data-drilldown-analytics-table-host="true"></div>' +
-              "</div>" +
-              "</div>" +
-              "</div>" +
-              "</div>" +
-              "</div>",
-          );
-        }
-        const genericBody = root.querySelector(".access-drilldown-overlay-body");
-        if (genericBody instanceof HTMLElement && !genericBody.dataset.drilldownBodyMode) {
-          genericBody.dataset.drilldownBodyMode = "generic";
-        }
-      }
       return root;
     }
     root = document.createElement("div");
@@ -3517,19 +3856,11 @@
       '<div class="access-drilldown-table-host" data-drilldown-table-host="true"></div>' +
       "</div>" +
       "</div>" +
-      '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--analytics" data-drilldown-body-mode="analytics" hidden>' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载分析看板...</div>' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>分析看板加载失败，请稍后重试。</div>' +
-      '<div class="access-drilldown-analytics-shell" data-drilldown-status="ready" hidden>' +
-      '<div class="access-drilldown-analytics-layout">' +
-      '<aside class="access-drilldown-analytics-filters" data-drilldown-filter-host="true"></aside>' +
-      '<div class="access-drilldown-analytics-main">' +
-      '<div class="access-drilldown-analytics-charts" data-drilldown-charts-host="true"></div>' +
-      '<div class="access-drilldown-analytics-table-shell">' +
-      '<div class="access-drilldown-analytics-table-host" data-drilldown-analytics-table-host="true"></div>' +
-      "</div>" +
-      "</div>" +
-      "</div>" +
+      '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--structured" data-drilldown-body-mode="structured" hidden>' +
+      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
+      '<div class="access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
+      '<div class="access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
       "</div>" +
       "</div>" +
       "</section>";
@@ -3552,19 +3883,20 @@
   function closeDrilldownOverlay() {
     const root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (!root) return;
-    cleanupAnalyticsDrilldownWatcher(root);
+    cleanupStructuredDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
     for (const selector of [
       '[data-drilldown-table-host="true"]',
-      '[data-drilldown-analytics-table-host="true"]',
-      '[data-drilldown-charts-host="true"]',
       '[data-drilldown-filter-host="true"]',
+      '[data-drilldown-zone-host]',
+      '[data-drilldown-structured-layout="true"]',
     ]) {
-      const host = root.querySelector(selector);
-      if (host instanceof HTMLElement) {
-        host.replaceChildren();
-      }
+      root.querySelectorAll(selector).forEach((host) => {
+        if (host instanceof HTMLElement) {
+          host.replaceChildren();
+        }
+      });
     }
     document.body.classList.remove("access-drilldown-open");
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
@@ -3704,8 +4036,8 @@
     }
     const root = ensureDrilldownOverlayRoot();
     applyDrilldownOverlayMeta(root, config);
-    if (config.analyticsDrilldown) {
-      renderAnalyticsDrilldownContent(root, detail, config);
+    if (config.structuredBoard) {
+      renderStructuredDrilldownContent(root, detail, config);
       root.removeAttribute("hidden");
       root.classList.add("is-open");
       document.body.classList.add("access-drilldown-open");

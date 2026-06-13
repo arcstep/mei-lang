@@ -9,6 +9,70 @@ use crate::typed_refs::decode_binding_value;
 
 use super::super::helpers::all_world_resource_decls;
 
+pub(super) fn normalize_scene_params(
+    value: &mut Value,
+    context: &str,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    if value.is_null() {
+        *value = serde_json::json!({});
+        return;
+    }
+    let Some(map) = value.as_object() else {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "invalid_scene_params_value".to_string(),
+            message: format!("{context} 必须是对象（dict），键为参数名，值为 param(...)"),
+            source_path: Some(target_file.to_string()),
+        });
+        *value = serde_json::json!({});
+        return;
+    };
+    let mut out = serde_json::Map::new();
+    for (key, param) in map {
+        let normalized_key = key.trim();
+        if normalized_key.is_empty() {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_scene_param_key".to_string(),
+                message: format!("{context} 含空参数名"),
+                source_path: Some(target_file.to_string()),
+            });
+            continue;
+        }
+        let Some(obj) = param.as_object() else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_scene_param_value".to_string(),
+                message: format!("{context}.{normalized_key} 必须是 param(...)"),
+                source_path: Some(target_file.to_string()),
+            });
+            continue;
+        };
+        if obj.get("__kind").and_then(Value::as_str) != Some("scene_param") {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "invalid_scene_param_value".to_string(),
+                message: format!("{context}.{normalized_key} 必须是 param(...)"),
+                source_path: Some(target_file.to_string()),
+            });
+            continue;
+        }
+        let mut normalized = obj.clone();
+        let param_type = normalized
+            .get("type")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("string")
+            .to_string();
+        normalized.insert("type".to_string(), Value::String(param_type));
+        out.insert(normalized_key.to_string(), Value::Object(normalized));
+    }
+    *value = Value::Object(out);
+}
+
 pub(super) fn normalize_scene_bindings(
     value: &mut Value,
     context: &str,

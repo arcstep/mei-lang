@@ -19,6 +19,112 @@ def explain_ref(id):
         "id": str(id).strip(),
     }
 
+def _shell_layout(columns = None, rows = None, areas = None, gap = None, padding = None):
+    return _without_empty({
+        "columns": columns,
+        "rows": rows,
+        "areas": areas,
+        "gap": gap,
+        "padding": padding,
+    })
+
+def _shell_zone(id, role, area = None, parent = None, accepts = None, source = None, required = None, max = None, layout = None, selection_source = None):
+    if id == None or str(id).strip() == "":
+        fail("shell zone requires id")
+    if role == None or str(role).strip() == "":
+        fail("shell zone requires role")
+    return _without_empty({
+        "id": str(id).strip(),
+        "role": str(role).strip(),
+        "area": area,
+        "parent": parent,
+        "accepts": accepts,
+        "source": source,
+        "required": required,
+        "max": max,
+        "layout": layout,
+        "selection_source": selection_source,
+    })
+
+def _shell_contract(layout_mode, zones, overlay_size = None, layout = None):
+    if layout_mode == None or str(layout_mode).strip() == "":
+        fail("shell contract requires layout_mode")
+    if zones == None or type(zones) != "list" or len(zones) == 0:
+        fail("shell contract requires zones=[...]")
+    return _without_empty({
+        "__kind": "scene_shell_contract",
+        "layout_mode": str(layout_mode).strip(),
+        "overlay_size": overlay_size,
+        "layout": layout,
+        "zones": zones,
+    })
+
+_GENERIC_DRILLDOWN_SCENE_SHELL = _shell_contract(
+    "generic_tabs",
+    zones = [
+        _shell_zone("tabs", "tab_bar"),
+        _shell_zone("content", "tab_content"),
+    ],
+)
+
+_ANALYTICS_DRILLDOWN_SCENE_SHELL = _shell_contract(
+    "analytics",
+    overlay_size = "large",
+    layout = _shell_layout(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "main"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+    zones = [
+        _shell_zone("filter", "filter", area = "filter", source = "filter_schema"),
+        _shell_zone(
+            "main",
+            "container",
+            area = "main",
+            layout = _shell_layout(
+                columns = ["1fr"],
+                rows = ["auto", "minmax(0, 1fr)"],
+                areas = [["chart"], ["detail"]],
+                gap = "12px",
+            ),
+        ),
+        _shell_zone("chart", "slots", area = "chart", parent = "main", accepts = ["chart"], max = 3),
+        _shell_zone("detail", "slots", area = "detail", parent = "main", accepts = ["data_table"], required = True),
+    ],
+)
+
+_LIST_PREVIEW_DRILLDOWN_SCENE_SHELL = _shell_contract(
+    "list_preview",
+    overlay_size = "large",
+    layout = _shell_layout(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 2.2fr)", "minmax(220px, 1.1fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "list", "preview"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+    zones = [
+        _shell_zone("filter", "filter", area = "filter", source = "filter_schema"),
+        _shell_zone("list", "slots", area = "list", accepts = ["data_table"], required = True),
+        _shell_zone("preview", "row_preview", area = "preview", accepts = ["summary"], selection_source = "list"),
+    ],
+)
+
+def _builtin_scene_shell_contract(scene):
+    if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
+        return None
+    scene_id = str(scene.get("scene_id") or "").strip()
+    scene_file = str(scene.get("scene_file") or "").strip()
+    if scene_id == "analytics_drilldown_board" or "analytics-drilldown-board" in scene_file:
+        return _ANALYTICS_DRILLDOWN_SCENE_SHELL
+    if scene_id == "list_preview_drilldown_board" or "list-preview-drilldown-board" in scene_file:
+        return _LIST_PREVIEW_DRILLDOWN_SCENE_SHELL
+    if scene_id == "generic_drilldown_board" or "generic-drilldown-board" in scene_file:
+        return _GENERIC_DRILLDOWN_SCENE_SHELL
+    return None
+
 def build_view(kind, source, chart_kind = None, mapping = None, label = None, columns = None, fields = None, top_n = None, topN = None):
     """Explicit view descriptor: data source + how to render (not inferred from explain alone)."""
     if kind == None or str(kind).strip() == "":
@@ -61,18 +167,21 @@ def filter_field(key, label = None, column = None, control = "multi_select"):
         "control": str(resolved_control).strip(),
     })
 
-def build_board_assembly(scene, context, charts = None, detail = None, filters = None, include_hero = False):
+def build_board_assembly(scene, context, charts = None, detail = None, filters = None, include_hero = False, preview = None, shell_contract = None):
     """Build a board instance independent of link/route/popup.
 
     scene: target board shell (scene_ref).
     context: root metric_ref for explain-first lineage (V1).
     charts: ordered list of build_view(kind=chart, ...) descriptors (analytics: 1..3).
     detail: build_view(kind=table, ...) or omitted when shell allows default.
+    preview: build_view(kind=summary, ...) for list_preview shell right pane (optional).
+    shell_contract: internal shell override; omitted uses built-in scene shell registry for known drilldown scenes.
     filters: e.g. {"rowset_dataset_id": "warning_list", "fields": [filter_field(...), ...]}.
     """
     if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
         fail("build_board_assembly requires scene=scene_ref(...)")
     _metric_ref_id(context)
+    resolved_shell = shell_contract if shell_contract != None else _builtin_scene_shell_contract(scene)
     payload = {
         "__kind": "board_assembly",
         "scene": scene,
@@ -83,6 +192,10 @@ def build_board_assembly(scene, context, charts = None, detail = None, filters =
         payload["charts"] = charts
     if detail != None:
         payload["detail"] = detail
+    if preview != None:
+        payload["preview"] = preview
+    if resolved_shell != None:
+        payload["shell_contract"] = resolved_shell
     if filters != None:
         payload["filters"] = filters
     return _without_empty(payload)
@@ -111,7 +224,7 @@ def build_from_explain(metric):
         "include_hero": False,
     })
 
-def build_drilldown_tabs(metric, include_hero = True, default_slot = None):
+def build_drilldown_tabs(metric, include_hero = True, default_slot = None, rowset_dataset_id = None):
     """Hero + explain slots; default_tab index is 0-based. Legacy generic drilldown."""
     payload = {
         "__kind": "projection_slot_list",
@@ -120,7 +233,30 @@ def build_drilldown_tabs(metric, include_hero = True, default_slot = None):
     }
     if default_slot != None:
         payload["default_slot"] = default_slot
+    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
+        payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
     return _without_empty(payload)
+
+def generic_drilldown_link(scene, metric, include_hero = True, default_slot = None, rowset_dataset_id = None, title = None):
+    """Scene-first generic drilldown popup: explicit scene + metric + optional rowset dataset."""
+    if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
+        fail("generic_drilldown_link requires scene=scene_ref(...)")
+    params = {}
+    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
+        params["rowset_dataset_id"] = str(rowset_dataset_id).strip()
+    return link(
+        type = "popup",
+        projection = "overlay",
+        scene = scene,
+        title = title,
+        params = params,
+        tabs = build_drilldown_tabs(
+            metric,
+            include_hero = include_hero,
+            default_slot = default_slot,
+            rowset_dataset_id = rowset_dataset_id,
+        ),
+    )
 
 def build_analytics_drilldown(metric, charts, detail = None, include_hero = False, rowset_dataset_id = None):
     """Legacy analytics assembly via link.tabs. Prefer build_board_assembly + link(board=...)."""

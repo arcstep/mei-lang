@@ -5,15 +5,17 @@ mod finish;
 #[path = "../app_compile_revision.rs"]
 mod app_compile_revision;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Instant;
 
 use anyhow::{anyhow, Result};
+use serde_json::Value;
 
 use crate::{
     eval::evaluate_mei_file,
     mei_config::{resolve_app_entry_main, resolve_app_main_path, resolve_app_root},
-    model::{CompiledApp, Diagnostic, Severity},
+    model::{CompiledApp, CompiledSceneRoute, Diagnostic, SceneContract, Severity},
     typed_refs::SceneRegistry,
     workspace::load_component_assets,
 };
@@ -33,6 +35,7 @@ use super::materialize_cache::dataset_materialize_cache_metrics_snapshot;
 use super::route_compile::{elapsed_ms, resolve_active_route_meta};
 use super::scene::resolve_scene_routes;
 use super::scene_payload_cache::scene_payload_cache_metrics_snapshot;
+use super::entry_payload::compile_scene_payload_for_target_uncached;
 
 use active::precompile_and_pick_active;
 use app_compile_revision::{
@@ -178,6 +181,14 @@ pub fn compile_app_from_root_with_options_and_revision(
         preview_affected_targets.clone(),
         &options,
     );
+    hydrate_scene_first_board_links(
+        app_root,
+        &app_decls,
+        &asset_map,
+        &scene_registry,
+        &mut active.active_payload,
+        active.active_target_file.as_str(),
+    );
     diagnostics.append(&mut active.active_payload.diagnostics);
 
     let title = app_decl
@@ -230,4 +241,142 @@ pub fn compile_app_from_root_with_options_and_revision(
         compiled,
         revision_plan,
     })
+}
+
+fn hydrate_scene_first_board_links(
+    app_root: &Path,
+    app_decls: &Value,
+    asset_map: &BTreeMap<String, crate::model::ComponentAsset>,
+    scene_registry: &SceneRegistry,
+    active_payload: &mut super::entry_payload::CompiledScenePayload,
+    active_target_file: &str,
+) {
+    let Some(contract) = active_payload.scene_contract.as_ref() else {
+        return;
+    };
+    let scene_refs = collect_scene_first_target_refs(&contract.panels);
+    if scene_refs.is_empty() {
+        return;
+    }
+    let mut target_scene_contracts = BTreeMap::<String, SceneContract>::new();
+    let mut target_scene_ids_by_file = BTreeMap::<String, String>::new();
+    for (scene_id, scene_file) in scene_refs {
+        let target_file = if scene_file.trim().is_empty() {
+            active_target_file.to_string()
+        } else {
+            scene_file.trim().to_string()
+        };
+        let route_meta = CompiledSceneRoute {
+            scene_id: scene_id.clone(),
+            frame_id: None,
+            target_file: target_file.clone(),
+            kind: "scene_first_board".to_string(),
+            title: None,
+            is_default: false,
+            access_export: true,
+        };
+        let payload = compile_scene_payload_for_target_uncached(
+            app_root,
+            app_decls,
+            asset_map,
+            target_file.as_str(),
+            Some(&route_meta),
+            scene_registry,
+        );
+        if let Some(contract) = payload.scene_contract {
+            target_scene_ids_by_file.insert(target_file, scene_id.clone());
+            target_scene_contracts.insert(scene_id, contract);
+        }
+        active_payload.diagnostics.extend(payload.diagnostics);
+    }
+    if let Some(contract) = active_payload.scene_contract.as_mut() {
+        crate::compile::projection_assembly::lower_scene_first_board_links_in_panels(
+            &mut contract.panels,
+            &active_payload.resources,
+            active_target_file,
+            &target_scene_contracts,
+            &target_scene_ids_by_file,
+            &mut active_payload.diagnostics,
+        );
+    }
+}
+
+fn collect_scene_first_target_refs(
+    panels: &[crate::model::PanelDecl],
+) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    for panel in panels {
+        collect_scene_first_target_refs_from_value(&panel.props, &mut out);
+        collect_scene_first_target_refs_from_nodes(&panel.blocks, &mut out);
+    }
+    out
+}
+
+fn collect_scene_first_target_refs_from_nodes(
+    nodes: &[crate::model::UiNodeDecl],
+    out: &mut BTreeMap<String, String>,
+) {
+    for node in nodes {
+        match node {
+            crate::model::UiNodeDecl::Panel(panel) => {
+                collect_scene_first_target_refs_from_value(&panel.props, out);
+                collect_scene_first_target_refs_from_nodes(&panel.blocks, out);
+            }
+            crate::model::UiNodeDecl::Block(block) => {
+                collect_scene_first_target_refs_from_value(&block.props, out);
+                if let Some(component) = block.component.as_ref() {
+                    collect_scene_first_target_refs_from_value(component, out);
+                }
+                for child in &block.blocks {
+                    collect_scene_first_target_refs_from_value(child, out);
+                }
+            }
+            crate::model::UiNodeDecl::PanelRefEmbed(_) => {}
+        }
+    }
+}
+
+fn collect_scene_first_target_refs_from_value(
+    value: &Value,
+    out: &mut BTreeMap<String, String>,
+) {
+    match value {
+        Value::Object(map) => {
+            let is_board_link = map.get("__kind").and_then(Value::as_str) == Some("board_link")
+                || map.get("mode").and_then(Value::as_str) == Some("board_link");
+            if is_board_link
+                && map.get("board").is_none()
+                && map.get("tabs").is_none()
+                && map.get("projection_slots").is_none()
+            {
+                if let Some(scene_ref) = map.get("scene").and_then(Value::as_object) {
+                    let scene_id = scene_ref
+                        .get("scene_id")
+                        .or_else(|| scene_ref.get("sceneId"))
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty());
+                    if let Some(scene_id) = scene_id {
+                        let scene_file = scene_ref
+                            .get("scene_file")
+                            .or_else(|| scene_ref.get("sceneFile"))
+                            .and_then(Value::as_str)
+                            .map(str::trim)
+                            .unwrap_or("");
+                        out.entry(scene_id.to_string())
+                            .or_insert_with(|| scene_file.to_string());
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_scene_first_target_refs_from_value(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                collect_scene_first_target_refs_from_value(child, out);
+            }
+        }
+        _ => {}
+    }
 }

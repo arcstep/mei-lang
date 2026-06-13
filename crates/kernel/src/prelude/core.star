@@ -132,7 +132,7 @@ def app_add_scene(scene = None, id = None, profile = None, theme = None, summary
         examples = examples,
     )
 
-def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None, base = None):
+def scene_decl(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
     payload = {
         "kind": "scene",
         "id": id,
@@ -146,6 +146,7 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         "state": state if state != None else {},
         "shared": shared if shared != None else {},
         "local_nav": local_nav,
+        "params": params if params != None else {},
         "access_export": access_export,
         "bindings": bindings if bindings != None else {},
         "examples": examples if examples != None else [],
@@ -159,7 +160,7 @@ def scene_decl(id = None, world = None, flow = None, frame = None, profile = Non
         cleaned["access_export"] = False
     return _declare(cleaned)
 
-def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, access_export = None, bindings = None, examples = None, base = None):
+def scene(id = None, world = None, flow = None, frame = None, profile = None, theme = None, summary = None, goal = None, state = None, shared = None, local_nav = None, params = None, access_export = None, bindings = None, examples = None, base = None):
     return scene_decl(
         id = id,
         world = world,
@@ -172,11 +173,36 @@ def scene(id = None, world = None, flow = None, frame = None, profile = None, th
         state = state,
         shared = shared,
         local_nav = local_nav,
+        params = params,
         access_export = access_export,
         bindings = bindings,
         examples = examples,
         base = base,
     )
+
+def param(type = "string", required = None, default = None, multiple = None, description = None):
+    return _without_empty({
+        "__kind": "scene_param",
+        "type": type if type != None else "string",
+        "required": required,
+        "default": default,
+        "multiple": multiple,
+        "description": description,
+    })
+
+def param_ref(id, default = None):
+    return _without_empty({
+        "__ref": "scene_param",
+        "id": id,
+        "default": default,
+    })
+
+def binding_ref(id, default = None):
+    return _without_empty({
+        "__ref": "scene_binding",
+        "id": id,
+        "default": default,
+    })
 
 def shared_ref(id, default = None):
     return _without_empty({

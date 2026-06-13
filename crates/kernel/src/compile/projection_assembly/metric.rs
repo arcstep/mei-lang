@@ -11,7 +11,7 @@ pub(super) fn expand_board_assembly(
     world_hint: Option<&Value>,
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
-) -> Option<(Vec<Map<String, Value>>, Option<Value>, bool)> {
+) -> Option<(Vec<Map<String, Value>>, Option<Value>, Option<String>)> {
     let context_ref = payload.get("context")?;
     let metric_id = parse_metric_ref_id(context_ref)?;
     let include_hero = payload
@@ -30,13 +30,36 @@ pub(super) fn expand_board_assembly(
     let (dataset_id, contract) =
         lookup_metric_contract(metric_id, resources, world_hint, diagnostics, target_file)?;
 
-    let analytics_layout = board_assembly_is_analytics_layout(payload);
+    let Some(shell) = resolve_scene_shell_contract(payload) else {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "scene_shell_missing".to_string(),
+            message: format!(
+                "board assembly for context metric `{metric_id}` requires a scene shell contract"
+            ),
+            source_path: Some(target_file.to_string()),
+        });
+        return None;
+    };
+    let layout_mode = scene_shell_layout_mode(&shell);
 
-    let slots = if analytics_layout {
-        expand_board_analytics_slots(
+    let slots = match layout_mode.as_deref() {
+        Some("generic_tabs") => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "board_assembly_unsupported_shell".to_string(),
+                message: format!(
+                    "board assembly for context metric `{metric_id}` does not support generic_tabs shell; use build_drilldown_tabs(...)"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        }
+        Some("analytics") => expand_board_analytics_slots(
             metric_id,
             &dataset_id,
             contract.as_ref(),
+            &shell,
             payload.get("charts"),
             payload.get("detail"),
             include_hero,
@@ -44,20 +67,47 @@ pub(super) fn expand_board_assembly(
             world_hint,
             diagnostics,
             target_file,
-        )?
-    } else {
-        diagnostics.push(Diagnostic {
-            severity: Severity::Error,
-            code: "board_assembly_unsupported_shell".to_string(),
-            message: format!(
-                "board assembly for context metric `{metric_id}` requires a supported board shell (V1: analytics_drilldown_board)"
-            ),
-            source_path: Some(target_file.to_string()),
-        });
-        return None;
+        )?,
+        Some("list_preview") => expand_board_list_preview_slots(
+            metric_id,
+            &dataset_id,
+            contract.as_ref(),
+            &shell,
+            payload.get("detail"),
+            payload.get("preview"),
+            resources,
+            world_hint,
+            diagnostics,
+            target_file,
+        )?,
+        Some(_) => expand_board_zoned_slots(
+            metric_id,
+            &dataset_id,
+            contract.as_ref(),
+            &shell,
+            payload.get("charts"),
+            payload.get("detail"),
+            payload.get("preview"),
+            include_hero,
+            resources,
+            world_hint,
+            diagnostics,
+            target_file,
+        )?,
+        _ => {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "board_assembly_unsupported_shell".to_string(),
+                message: format!(
+                    "board assembly for context metric `{metric_id}` requires shell.layout_mode"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        }
     };
 
-    let filter_schema = if analytics_layout {
+    let filter_schema = if scene_shell_has_filter_zone(&shell) {
         Some(build_analytics_filter_schema(
             &slots,
             rowset_dataset_id.as_deref(),
@@ -67,24 +117,173 @@ pub(super) fn expand_board_assembly(
     } else {
         None
     };
-    Some((slots, filter_schema, analytics_layout))
+    Some((slots, filter_schema, layout_mode))
 }
 
-fn board_assembly_is_analytics_layout(payload: &Map<String, Value>) -> bool {
-    let Some(scene) = payload.get("scene").and_then(Value::as_object) else {
-        return payload.contains_key("charts") || payload.contains_key("detail");
-    };
-    if scene
-        .get("scene_id")
+fn resolve_scene_shell_contract(payload: &Map<String, Value>) -> Option<Map<String, Value>> {
+    payload
+        .get("shell_contract")
+        .and_then(Value::as_object)
+        .cloned()
+}
+
+fn scene_shell_layout_mode(shell: &Map<String, Value>) -> Option<String> {
+    shell.get("layout_mode")
         .and_then(Value::as_str)
-        .is_some_and(|id| id == "analytics_drilldown_board")
-    {
-        return true;
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn scene_shell_zones<'a>(shell: &'a Map<String, Value>) -> Vec<&'a Map<String, Value>> {
+    shell.get("zones")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter()
+                .filter_map(Value::as_object)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn scene_zone_id(zone: &Map<String, Value>) -> Option<&str> {
+    zone.get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn scene_zone_role(zone: &Map<String, Value>) -> Option<&str> {
+    zone.get("role")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn scene_shell_has_filter_zone(shell: &Map<String, Value>) -> bool {
+    scene_shell_zones(shell)
+        .iter()
+        .any(|zone| scene_zone_role(zone) == Some("filter"))
+}
+
+fn scene_zone_accepts_component(zone: &Map<String, Value>, component: &str) -> bool {
+    zone.get("accepts")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items.iter().any(|item| {
+                item.as_str()
+                    .map(str::trim)
+                    .is_some_and(|value| value == component)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn first_slot_zone_for_component(shell: &Map<String, Value>, component: &str) -> Option<String> {
+    scene_shell_zones(shell)
+        .into_iter()
+        .find(|zone| {
+            matches!(scene_zone_role(zone), Some("slots") | Some("row_preview") | Some("tab_content"))
+                && scene_zone_accepts_component(zone, component)
+        })
+        .and_then(scene_zone_id)
+        .map(str::to_string)
+}
+
+fn validate_scene_shell_slots(
+    shell: &Map<String, Value>,
+    slots: &[Map<String, Value>],
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+    root_metric_id: &str,
+) -> Option<()> {
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for slot in slots {
+        let Some(zone_id) = slot
+            .get("layout_zone")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_missing".to_string(),
+                message: format!(
+                    "board assembly for metric `{root_metric_id}` produced a slot without layout_zone"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
+        let Some(zone) = scene_shell_zones(shell)
+            .into_iter()
+            .find(|zone| scene_zone_id(zone) == Some(zone_id))
+        else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_unknown".to_string(),
+                message: format!(
+                    "board assembly for metric `{root_metric_id}` resolved unknown shell zone `{zone_id}`"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
+        let component = slot
+            .get("component")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .unwrap_or("");
+        if !component.is_empty() && !scene_zone_accepts_component(zone, component) {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_component_mismatch".to_string(),
+                message: format!(
+                    "scene shell zone `{zone_id}` does not accept component `{component}` for metric `{root_metric_id}`"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        }
+        *counts.entry(zone_id.to_string()).or_insert(0) += 1;
     }
-    scene
-        .get("scene_file")
-        .and_then(Value::as_str)
-        .is_some_and(|path| path.contains("analytics-drilldown-board"))
+
+    for zone in scene_shell_zones(shell) {
+        let Some(zone_id) = scene_zone_id(zone) else {
+            continue;
+        };
+        let count = counts.get(zone_id).copied().unwrap_or(0);
+        if zone
+            .get("required")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+            && count == 0
+        {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_required".to_string(),
+                message: format!(
+                    "scene shell zone `{zone_id}` is required for metric `{root_metric_id}`"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        }
+        if let Some(max) = zone.get("max").and_then(Value::as_u64).map(|value| value as usize) {
+            if count > max {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "scene_shell_zone_max".to_string(),
+                    message: format!(
+                        "scene shell zone `{zone_id}` allows at most {max} items for metric `{root_metric_id}`, got {count}"
+                    ),
+                    source_path: Some(target_file.to_string()),
+                });
+                return None;
+            }
+        }
+    }
+    Some(())
 }
 
 fn resolve_board_filters_rowset_dataset_id(filters: Option<&Value>) -> Option<String> {
@@ -100,6 +299,7 @@ fn expand_board_analytics_slots(
     root_metric_id: &str,
     root_dataset_id: &str,
     contract: Option<&Map<String, Value>>,
+    shell: &Map<String, Value>,
     charts: Option<&Value>,
     detail: Option<&Value>,
     include_hero: bool,
@@ -108,42 +308,158 @@ fn expand_board_analytics_slots(
     diagnostics: &mut Vec<Diagnostic>,
     target_file: &str,
 ) -> Option<Vec<Map<String, Value>>> {
-    let empty_charts: &[Value] = &[];
-    let chart_entries = charts
-        .and_then(Value::as_array)
-        .map(|items| items.as_slice())
-        .unwrap_or(empty_charts);
-    if chart_entries.len() > 3 {
-        diagnostics.push(Diagnostic {
-            severity: Severity::Error,
-            code: "board_assembly_too_many_charts".to_string(),
-            message: format!(
-                "board assembly for metric `{root_metric_id}` allows at most 3 charts, got {}",
-                chart_entries.len()
-            ),
-            source_path: Some(target_file.to_string()),
-        });
-        return None;
-    }
+    let slots = expand_board_zoned_slots(
+        root_metric_id,
+        root_dataset_id,
+        contract,
+        shell,
+        charts,
+        detail,
+        None,
+        include_hero,
+        resources,
+        world_hint,
+        diagnostics,
+        target_file,
+    )?;
+    validate_analytics_slots(root_metric_id, &slots, diagnostics, target_file)?;
+    Some(slots)
+}
 
+fn expand_board_list_preview_slots(
+    root_metric_id: &str,
+    root_dataset_id: &str,
+    contract: Option<&Map<String, Value>>,
+    shell: &Map<String, Value>,
+    list: Option<&Value>,
+    preview: Option<&Value>,
+    resources: &[crate::model::LoadedResource],
+    world_hint: Option<&Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+) -> Option<Vec<Map<String, Value>>> {
+    let preview_value = preview.cloned().or_else(|| default_preview_view(contract));
+    expand_board_zoned_slots(
+        root_metric_id,
+        root_dataset_id,
+        contract,
+        shell,
+        None,
+        list,
+        preview_value.as_ref(),
+        false,
+        resources,
+        world_hint,
+        diagnostics,
+        target_file,
+    )
+}
+
+fn expand_board_zoned_slots(
+    root_metric_id: &str,
+    root_dataset_id: &str,
+    contract: Option<&Map<String, Value>>,
+    shell: &Map<String, Value>,
+    charts: Option<&Value>,
+    detail: Option<&Value>,
+    preview: Option<&Value>,
+    include_hero: bool,
+    resources: &[crate::model::LoadedResource],
+    world_hint: Option<&Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+    target_file: &str,
+) -> Option<Vec<Map<String, Value>>> {
     let mut slots = Vec::new();
     if include_hero {
+        let Some(hero_zone_id) = first_slot_zone_for_component(shell, "metric_card") else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_missing".to_string(),
+                message: format!(
+                    "board shell for metric `{root_metric_id}` does not declare a metric_card zone for include_hero"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
         let mut hero = build_root_metric_slot(
             root_metric_id,
             root_dataset_id,
             contract,
             "metric_card",
         );
-        hero.insert(
-            "layout_zone".to_string(),
-            Value::String("hero".to_string()),
-        );
+        hero.insert("layout_zone".to_string(), Value::String(hero_zone_id));
         slots.push(hero);
     }
 
-    for (index, entry) in chart_entries.iter().enumerate() {
-        let Some(mut slot) = slot_from_board_view(
-            entry,
+    let empty_charts: &[Value] = &[];
+    let chart_entries = charts
+        .and_then(Value::as_array)
+        .map(|items| items.as_slice())
+        .unwrap_or(empty_charts);
+    if !chart_entries.is_empty() {
+        let Some(chart_zone_id) = first_slot_zone_for_component(shell, "chart") else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_missing".to_string(),
+                message: format!(
+                    "board shell for metric `{root_metric_id}` does not declare a chart zone"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
+        for (index, entry) in chart_entries.iter().enumerate() {
+            let Some(mut slot) = slot_from_board_view(
+                entry,
+                root_metric_id,
+                root_dataset_id,
+                contract,
+                resources,
+                world_hint,
+                diagnostics,
+                target_file,
+                &chart_zone_id,
+            ) else {
+                return None;
+            };
+            if slot.get("component").and_then(Value::as_str) != Some("chart") {
+                diagnostics.push(Diagnostic {
+                    severity: Severity::Error,
+                    code: "board_assembly_chart_component".to_string(),
+                    message: format!(
+                        "board chart view #{index} for metric `{root_metric_id}` must use kind=chart"
+                    ),
+                    source_path: Some(target_file.to_string()),
+                });
+                return None;
+            }
+            slot.insert(
+                "layout_zone".to_string(),
+                Value::String(chart_zone_id.clone()),
+            );
+            slots.push(slot);
+        }
+    }
+
+    let detail_value = match detail {
+        Some(value) => Some(value.clone()),
+        None => default_detail_view(contract, diagnostics, root_metric_id, target_file),
+    };
+    if let Some(detail_value) = detail_value {
+        let Some(detail_zone_id) = first_slot_zone_for_component(shell, "data_table") else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_missing".to_string(),
+                message: format!(
+                    "board shell for metric `{root_metric_id}` does not declare a data_table zone"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
+        let Some(mut detail_slot) = slot_from_board_view(
+            &detail_value,
             root_metric_id,
             root_dataset_id,
             contract,
@@ -151,65 +467,93 @@ fn expand_board_analytics_slots(
             world_hint,
             diagnostics,
             target_file,
-            "chart",
+            &detail_zone_id,
         ) else {
             return None;
         };
-        if slot.get("component").and_then(Value::as_str) != Some("chart") {
+        if detail_slot.get("component").and_then(Value::as_str) != Some("data_table") {
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                code: "board_assembly_chart_component".to_string(),
+                code: "board_assembly_detail_component".to_string(),
                 message: format!(
-                    "board chart view #{index} for metric `{root_metric_id}` must use kind=chart"
+                    "board detail view for metric `{root_metric_id}` must use kind=table"
                 ),
                 source_path: Some(target_file.to_string()),
             });
             return None;
         }
-        slot.insert(
+        detail_slot.insert(
             "layout_zone".to_string(),
-            Value::String("chart".to_string()),
+            Value::String(detail_zone_id),
         );
-        slots.push(slot);
+        detail_slot.insert("default".to_string(), Value::Bool(true));
+        slots.push(detail_slot);
     }
 
-    let detail_value = match detail {
-        Some(value) => value.clone(),
-        None => default_detail_view(contract, diagnostics, root_metric_id, target_file)?,
-    };
-    let Some(mut detail_slot) = slot_from_board_view(
-        &detail_value,
-        root_metric_id,
-        root_dataset_id,
-        contract,
-        resources,
-        world_hint,
-        diagnostics,
-        target_file,
-        "detail",
-    ) else {
-        return None;
-    };
-    if detail_slot.get("component").and_then(Value::as_str) != Some("data_table") {
-        diagnostics.push(Diagnostic {
-            severity: Severity::Error,
-            code: "board_assembly_detail_component".to_string(),
-            message: format!(
-                "board detail view for metric `{root_metric_id}` must use kind=table"
-            ),
-            source_path: Some(target_file.to_string()),
-        });
-        return None;
+    if let Some(preview_value) = preview {
+        let Some(preview_zone_id) = first_slot_zone_for_component(shell, "summary") else {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "scene_shell_zone_missing".to_string(),
+                message: format!(
+                    "board shell for metric `{root_metric_id}` does not declare a summary zone"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        };
+        let Some(mut preview_slot) = slot_from_board_view(
+            preview_value,
+            root_metric_id,
+            root_dataset_id,
+            contract,
+            resources,
+            world_hint,
+            diagnostics,
+            target_file,
+            &preview_zone_id,
+        ) else {
+            return None;
+        };
+        if preview_slot.get("component").and_then(Value::as_str) != Some("summary") {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "board_assembly_preview_component".to_string(),
+                message: format!(
+                    "board preview view for metric `{root_metric_id}` must use kind=summary"
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return None;
+        }
+        preview_slot.insert(
+            "layout_zone".to_string(),
+            Value::String(preview_zone_id),
+        );
+        slots.push(preview_slot);
     }
-    detail_slot.insert(
-        "layout_zone".to_string(),
-        Value::String("detail".to_string()),
-    );
-    detail_slot.insert("default".to_string(), Value::Bool(true));
-    slots.push(detail_slot);
 
-    validate_analytics_slots(root_metric_id, &slots, diagnostics, target_file)?;
+    validate_scene_shell_slots(shell, &slots, diagnostics, target_file, root_metric_id)?;
     Some(slots)
+}
+
+fn default_preview_view(contract: Option<&Map<String, Value>>) -> Option<Value> {
+    let block_ref = default_detail_entry(contract)?;
+    let block_id = block_ref.as_str()?.to_string();
+    let mut source = Map::new();
+    source.insert(
+        "__ref".to_string(),
+        Value::String("explain_block".to_string()),
+    );
+    source.insert("id".to_string(), Value::String(block_id));
+    let mut view = Map::new();
+    view.insert(
+        "__kind".to_string(),
+        Value::String("board_view".to_string()),
+    );
+    view.insert("kind".to_string(), Value::String("summary".to_string()));
+    view.insert("source".to_string(), Value::Object(source));
+    Some(Value::Object(view))
 }
 
 fn default_detail_view(
@@ -1237,6 +1581,13 @@ fn build_analytics_filter_schema(
         }
     }
     Value::Object(payload)
+}
+
+pub(super) fn build_generic_rowset_filter_schema(
+    slots: &[Map<String, Value>],
+    rowset_dataset_id: &str,
+) -> Value {
+    build_analytics_filter_schema(slots, Some(rowset_dataset_id), None, None)
 }
 
 fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Value>> {

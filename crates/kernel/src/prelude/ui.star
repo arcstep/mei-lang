@@ -202,7 +202,20 @@ def _merge_head_props(head_props = None, heading = None, heading_variant = None)
         merged["variant"] = heading_variant
     return merged
 
-def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
+def panel_slot(kind = None, role = None, accepts = None, required = None, max = None, source = None, active = None, selection_from = None):
+    resolved_kind = kind if kind != None else role
+    return _without_empty({
+        "__kind": "panel_slot",
+        "kind": resolved_kind,
+        "accepts": accepts,
+        "required": required,
+        "max": max,
+        "source": source,
+        "active": active,
+        "selection_from": selection_from,
+    })
+
+def _panel_node(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, slot = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     if base != None:
         panel_id = id if id != None and str(id).strip() != "" else ""
     else:
@@ -243,6 +256,22 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         panel_head_props["height"] = title_height
     if title_align != None:
         panel_head_props["align"] = title_align
+    if _is_dict(slot):
+        slot_kind = slot.get("kind")
+        if slot_kind != None and str(slot_kind).strip() != "" and panel_props.get("projection_role") == None:
+            panel_props["projection_role"] = str(slot_kind).strip()
+        if slot.get("accepts") != None and panel_props.get("projection_accepts") == None:
+            panel_props["projection_accepts"] = slot.get("accepts")
+        if slot.get("required") != None and panel_props.get("projection_required") == None:
+            panel_props["projection_required"] = slot.get("required")
+        if slot.get("max") != None and panel_props.get("projection_max") == None:
+            panel_props["projection_max"] = slot.get("max")
+        source_value = slot.get("source")
+        if type(source_value) == "string" and str(source_value).strip() != "" and panel_props.get("projection_source") == None:
+            panel_props["projection_source"] = str(source_value).strip()
+        selection_value = slot.get("selection_from")
+        if type(selection_value) == "string" and str(selection_value).strip() != "" and panel_props.get("selection_source") == None:
+            panel_props["selection_source"] = str(selection_value).strip()
     variant_key = variant
     if type(variant_key) == "string":
         variant_norm = variant_key.strip().lower()
@@ -258,6 +287,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         "layout": layout,
         "data_ref": _data_ref_value(data),
         "props": panel_props,
+        "slot": slot if slot != None else {},
         "head_props": panel_head_props,
         "body_props": panel_body_props,
         "data": data_plan,
@@ -268,7 +298,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         payload["blocks"] = blocks
     return _clean(payload)
 
-def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
+def panel(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, slot = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     return _panel_node(
         id = id,
         title = title,
@@ -278,6 +308,7 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         blocks = blocks,
         data = data,
         props = props,
+        slot = slot,
         head_props = head_props,
         body_props = body_props,
         data_plan = data_plan,
@@ -298,7 +329,7 @@ def panel(id = None, title = None, subtitle = None, area = None, layout = None, 
         scale = scale,
     )
 
-def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
+def panel_decl(id = None, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, slot = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
     return _declare(_panel_node(
         id = id,
         title = title,
@@ -308,6 +339,7 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         blocks = blocks,
         data = data,
         props = props,
+        slot = slot,
         head_props = head_props,
         body_props = body_props,
         data_plan = data_plan,

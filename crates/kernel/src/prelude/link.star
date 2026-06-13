@@ -34,7 +34,7 @@ def _scene_ref_with_entry(scene = None, scene_file = None, scene_id = None, entr
     merged["entry"] = str(resolved_entry).strip()
     return merged
 
-def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, board = None, tabs = None, default_slot = None):
+def board_link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, params = None, board = None, tabs = None, default_slot = None):
     """Open a board: prefer board=build_board_assembly(...); scene on link is legacy when board carries scene."""
     scene_value = None
     if scene != None or scene_file != None:
@@ -74,6 +74,7 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         "entry_overrides": overrides,
         "bindings": overrides,
         "slots": overrides,
+        "params": params if params != None else {},
         "title": title,
         "overlay_size": overlay_size,
         "board": board,
@@ -81,7 +82,7 @@ def board_link(scene = None, scene_file = None, scene_id = None, projection = "o
         "default_slot": default_slot,
     })
 
-def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, board = None, tabs = None, default_slot = None):
+def link(scene = None, scene_file = None, scene_id = None, projection = "overlay", type = None, entry = None, entry_tab = None, focus = None, title = None, overlay_size = None, entry_overrides = None, bindings = None, slots = None, params = None, board = None, tabs = None, default_slot = None):
     """Alias of board_link for metric-card / chart entry links."""
     return board_link(
         scene = scene,
@@ -97,6 +98,7 @@ def link(scene = None, scene_file = None, scene_id = None, projection = "overlay
         entry_overrides = entry_overrides,
         bindings = bindings,
         slots = slots,
+        params = params,
         board = board,
         tabs = tabs,
         default_slot = default_slot,

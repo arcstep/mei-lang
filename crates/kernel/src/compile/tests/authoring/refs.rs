@@ -494,6 +494,95 @@ frame(layout = flex(direction = "column"))
 }
 
 #[test]
+fn compile_collects_scene_params_for_scene_contracts() {
+    let root = temp_root("scene-params-scene-contract");
+    let app_root = root.join("params-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "params-app", scene = scene_ref(scene_file = "home.mei"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(
+    id = "home",
+    profile = "page",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
+)
+world(resources = [])
+frame(layout = flex(direction = "column"))
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile scene params");
+    let contract = compiled.scene_contract.expect("scene contract");
+    assert_eq!(
+        contract
+            .scene
+            .params
+            .get("metric")
+            .and_then(|value| value.get("__kind"))
+            .and_then(|value| value.as_str()),
+        Some("scene_param")
+    );
+    assert_eq!(
+        compiled
+            .scene_projection_assembly_by_id
+            .get("home")
+            .and_then(|value| value.get("params"))
+            .and_then(|value| value.get("entry"))
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str()),
+        Some("string")
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_reports_invalid_scene_params_value() {
+    let root = temp_root("scene-params-invalid");
+    let app_root = root.join("params-invalid-app");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "params-invalid-app", scene = scene_ref(scene_file = "home.mei"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(
+    id = "home",
+    profile = "page",
+    params = {
+        "metric": "not-a-param",
+    },
+)
+world(resources = [])
+frame(layout = flex(direction = "column"))
+"#,
+    );
+
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile invalid scene params");
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .any(|diag| diag.code == "invalid_scene_param_value"),
+        "expected invalid_scene_param_value diagnostic, got {:?}",
+        compiled.diagnostics
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_reports_missing_required_scene_binding() {
     let root = temp_root("scene-binding-required");
     let app_root = root.join("binding-required-app");

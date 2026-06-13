@@ -190,6 +190,9 @@ pub struct SceneDecl {
     /// Scene 级局部导航约定（如 tabs/sub-nav），由宿主按 scene contract 消费。
     #[serde(default)]
     pub local_nav: Value,
+    /// Scene 级显式输入声明；供 caller 通过 link.params / route params 传值。
+    #[serde(default)]
+    pub params: Value,
     /// Scene 级装配默认绑定；用于把可复用 scene 壳接到本地 world 资源。
     #[serde(default)]
     pub bindings: Value,

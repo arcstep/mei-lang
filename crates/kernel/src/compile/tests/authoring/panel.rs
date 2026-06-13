@@ -1335,6 +1335,494 @@ frame.add_panel(
 }
 
 #[test]
+fn compile_panel_slot_syntax_maps_to_projection_props() {
+    let root = temp_root("panel-slot-syntax");
+    let app_root = root.join("panel-slot-syntax");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "panel-slot-syntax", default_scene = "home")
+scene(id = "home", profile = "page")
+world(resources = [])
+frame()
+frame.add_panel(
+    id = "filter",
+    area = "auto",
+    slot = panel_slot(kind = "filter", source = "filter_schema"),
+    blocks = [],
+)
+frame.add_panel(
+    id = "preview",
+    area = "auto",
+    slot = panel_slot(kind = "row_preview", accepts = ["summary"], selection_from = "list"),
+    blocks = [],
+)
+"#,
+    );
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile panel slot syntax");
+    let contract = compiled.scene_contract.expect("contract");
+    assert_eq!(
+        contract.panels[0]
+            .props
+            .get("projection_role")
+            .and_then(|value| value.as_str()),
+        Some("filter")
+    );
+    assert_eq!(
+        contract.panels[0]
+            .props
+            .get("projection_source")
+            .and_then(|value| value.as_str()),
+        Some("filter_schema")
+    );
+    assert_eq!(
+        contract.panels[1]
+            .props
+            .get("projection_role")
+            .and_then(|value| value.as_str()),
+        Some("row_preview")
+    );
+    assert_eq!(
+        contract.panels[1]
+            .props
+            .get("selection_source")
+            .and_then(|value| value.as_str()),
+        Some("list")
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_link_params_passthrough() {
+    let root = temp_root("link-params-passthrough");
+    let app_root = root.join("link-params-passthrough");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "link-params-passthrough", default_scene = "home")
+scene(id = "home", profile = "page")
+world(resources = [])
+frame()
+frame.add_panel(
+    id = "launch",
+    area = "auto",
+    props = {
+        "popup": link(
+            type = "popup",
+            projection = "overlay",
+            scene = scene_ref(scene_file = "detail.mei", scene_id = "detail"),
+            params = {
+                "entry": "overview",
+                "tab": "chart",
+            },
+        ),
+    },
+    blocks = [],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("detail.mei"),
+        r#"
+scene(
+    id = "detail",
+    profile = "page",
+    params = {
+        "entry": param(type = "string"),
+        "tab": param(type = "string"),
+    },
+)
+world(resources = [])
+frame()
+"#,
+    );
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile link params passthrough");
+    let contract = compiled.scene_contract.expect("contract");
+    let popup = contract.panels[0].props.get("popup").expect("popup");
+    assert_eq!(
+        popup.get("params")
+            .and_then(|value| value.get("entry"))
+            .and_then(|value| value.as_str()),
+        Some("overview")
+    );
+    assert_eq!(
+        popup.get("params")
+            .and_then(|value| value.get("tab"))
+            .and_then(|value| value.as_str()),
+        Some("chart")
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_generic_drilldown_link_rowset_contract() {
+    let root = temp_root("generic-drilldown-rowset");
+    let app_root = root.join("generic-drilldown-rowset");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "generic-drilldown-rowset", default_scene = "home")
+scene(id = "home", profile = "page")
+world(resources = [])
+world.add_metric(
+    ds.scalar_map(
+        id = "sales_total",
+        label = "销售总额",
+        values = {"value": 1},
+        schema = [ds.column("value", "number")],
+        explain = [
+            ds.detail(label = "明细", fields = ["value"]),
+        ],
+    ),
+)
+frame()
+frame.add_panel(
+    id = "launch",
+    area = "auto",
+    props = {
+        "popup": generic_drilldown_link(
+            scene = scene_ref(scene_file = "board.mei", scene_id = "generic_drilldown_board"),
+            metric = metric_ref("sales_total"),
+            default_slot = 1,
+            rowset_dataset_id = "sales_metrics",
+        ),
+    },
+    blocks = [],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("board.mei"),
+        r#"
+scene(
+    id = "generic_drilldown_board",
+    profile = "cockpit",
+)
+world(resources = [])
+frame()
+"#,
+    );
+    let compiled = compile_app_from_root(&root, &app_root).expect("compile generic drilldown rowset");
+    let contract = compiled.scene_contract.expect("contract");
+    let popup = contract.panels[0].props.get("popup").expect("popup");
+    assert_eq!(
+        popup
+            .get("params")
+            .and_then(|value| value.get("rowset_dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some("sales_metrics")
+    );
+    assert_eq!(
+        popup
+            .get("filter_schema")
+            .and_then(|value| value.get("rowset_dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some("sales_metrics")
+    );
+    assert!(
+        popup.get("projection_slots").and_then(|value| value.as_array()).is_some_and(|slots| !slots.is_empty()),
+        "expected lowered projection_slots, got {:?}",
+        popup
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_scene_first_analytics_board_from_target_bindings() {
+    let root = temp_root("scene-first-analytics-board");
+    let app_root = root.join("scene-first-analytics-board");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "scene-first-analytics-board", scene = scene_ref(scene_file = "home.mei", scene_id = "home"))
+app_add_scene(scene = scene_ref(scene_file = "board.mei", scene_id = "analytics_board"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(id = "home", profile = "page")
+world(resources = [])
+world.add_metric(
+    ds.scalar_map(
+        id = "sales_total",
+        label = "销售总额",
+        values = {"value": 1},
+        schema = [
+            ds.column("category", "string"),
+            ds.column("value", "number"),
+        ],
+        explain = [
+            ds.composition(id = "composition", label = "分类构成", by = "category"),
+            ds.detail(id = "detail", label = "明细", fields = ["category", "value"]),
+        ],
+    ),
+)
+frame()
+frame.add_panel(
+    id = "launch",
+    area = "auto",
+    props = {
+        "popup": link(
+            type = "popup",
+            projection = "overlay",
+            scene = scene_ref(scene_file = "board.mei", scene_id = "analytics_board"),
+            params = {
+                "metric": metric_ref("sales_total"),
+                "rowset_dataset_id": "sales_metrics",
+            },
+        ),
+    },
+    blocks = [],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("board.mei"),
+        r#"
+scene(
+    id = "analytics_board",
+    profile = "cockpit",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+    },
+    bindings = {
+        "filter_schema": {
+            "rowset_dataset_id": param_ref("rowset_dataset_id"),
+            "fields": [filter_field(key = "category", label = "分类", column = "category")],
+        },
+        "chart": [
+            build_view(
+                kind = "chart",
+                source = explain_ref("composition"),
+                chart_kind = "column",
+            ),
+        ],
+        "detail": build_view(
+            kind = "table",
+            source = explain_ref("detail"),
+        ),
+    },
+)
+world(resources = [])
+frame(
+    layout = grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "main"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+)
+frame.add_panel(
+    id = "filter",
+    area = "filter",
+    slot = panel_slot(kind = "filter", source = "filter_schema"),
+    blocks = [],
+)
+frame.add_panel(
+    id = "main",
+    area = "main",
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["chart"], ["detail"]],
+        gap = "12px",
+    ),
+    slot = panel_slot(kind = "container"),
+    blocks = [
+        panel(
+            id = "chart",
+            area = "chart",
+            slot = panel_slot(kind = "slots", accepts = ["chart"], max = 3),
+            blocks = [],
+        ),
+        panel(
+            id = "detail",
+            area = "detail",
+            slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+            blocks = [],
+        ),
+    ],
+)
+"#,
+    );
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile scene-first analytics board");
+    let contract = compiled.scene_contract.expect("contract");
+    let popup = contract.panels[0].props.get("popup").expect("popup");
+    assert_eq!(
+        popup.get("filter_schema")
+            .and_then(|value| value.get("rowset_dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some("sales_metrics")
+    );
+    let slots = popup
+        .get("projection_slots")
+        .and_then(|value| value.as_array())
+        .expect("projection slots");
+    assert!(
+        slots.iter().any(|slot| {
+            slot.get("layout_zone")
+                .and_then(|value| value.as_str())
+                == Some("chart")
+        }),
+        "expected chart zone slot, got {:?}",
+        slots
+    );
+    assert!(
+        slots.iter().any(|slot| {
+            slot.get("layout_zone")
+                .and_then(|value| value.as_str())
+                == Some("detail")
+        }),
+        "expected detail zone slot, got {:?}",
+        slots
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_scene_first_list_preview_board_from_target_bindings() {
+    let root = temp_root("scene-first-list-preview-board");
+    let app_root = root.join("scene-first-list-preview-board");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(id = "scene-first-list-preview-board", scene = scene_ref(scene_file = "home.mei", scene_id = "home"))
+app_add_scene(scene = scene_ref(scene_file = "board.mei", scene_id = "list_preview_board"))
+"#,
+    );
+    write_file(
+        &app_root.join("home.mei"),
+        r#"
+scene(id = "home", profile = "page")
+world(resources = [])
+world.add_metric(
+    ds.scalar_map(
+        id = "issue_total",
+        label = "问题总数",
+        values = {"value": 1},
+        schema = [
+            ds.column("status", "string"),
+            ds.column("value", "number"),
+        ],
+        explain = [
+            ds.detail(id = "detail", label = "问题明细", fields = ["status", "value"]),
+        ],
+    ),
+)
+frame()
+frame.add_panel(
+    id = "launch",
+    area = "auto",
+    props = {
+        "popup": link(
+            type = "popup",
+            projection = "overlay",
+            scene = scene_ref(scene_file = "board.mei", scene_id = "list_preview_board"),
+            params = {
+                "metric": metric_ref("issue_total"),
+                "rowset_dataset_id": "warning_list",
+            },
+        ),
+    },
+    blocks = [],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("board.mei"),
+        r#"
+scene(
+    id = "list_preview_board",
+    profile = "cockpit",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+    },
+    bindings = {
+        "filter_schema": {
+            "rowset_dataset_id": param_ref("rowset_dataset_id"),
+            "fields": [filter_field(key = "status", label = "状态", column = "status")],
+        },
+        "list": build_view(
+            kind = "table",
+            source = explain_ref("detail"),
+        ),
+        "preview": build_view(
+            kind = "summary",
+            source = explain_ref("detail"),
+        ),
+    },
+)
+world(resources = [])
+frame(
+    layout = grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 2.2fr)", "minmax(220px, 1.1fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "list", "preview"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+)
+frame.add_panel(
+    id = "filter",
+    area = "filter",
+    slot = panel_slot(kind = "filter", source = "filter_schema"),
+    blocks = [],
+)
+frame.add_panel(
+    id = "list",
+    area = "list",
+    slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+    blocks = [],
+)
+frame.add_panel(
+    id = "preview",
+    area = "preview",
+    slot = panel_slot(kind = "row_preview", accepts = ["summary"], selection_from = "list"),
+    blocks = [],
+)
+"#,
+    );
+    let compiled =
+        compile_app_from_root(&root, &app_root).expect("compile scene-first list preview board");
+    let contract = compiled.scene_contract.expect("contract");
+    let popup = contract.panels[0].props.get("popup").expect("popup");
+    assert_eq!(
+        popup.get("filter_schema")
+            .and_then(|value| value.get("rowset_dataset_id"))
+            .and_then(|value| value.as_str()),
+        Some("warning_list")
+    );
+    let slots = popup
+        .get("projection_slots")
+        .and_then(|value| value.as_array())
+        .expect("projection slots");
+    assert!(
+        slots.iter().any(|slot| {
+            slot.get("layout_zone")
+                .and_then(|value| value.as_str())
+                == Some("list")
+        }),
+        "expected list zone slot, got {:?}",
+        slots
+    );
+    assert!(
+        slots.iter().any(|slot| {
+            slot.get("layout_zone")
+                .and_then(|value| value.as_str())
+                == Some("preview")
+        }),
+        "expected preview zone slot, got {:?}",
+        slots
+    );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 #[ignore = "existing incomplete assertion; tracked separately"]
 fn compile_panel_base_rejects_wrong_ref_kind() {
     let root = temp_root("panel-base-wrong-kind");

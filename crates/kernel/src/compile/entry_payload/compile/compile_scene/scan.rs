@@ -14,7 +14,9 @@ use crate::compile::scene_binding::decode_scene_decl;
 use crate::model::{Diagnostic, FlowDecl, FrameDecl, Severity, ThemeDecl};
 use crate::typed_refs::SceneRegistry;
 
-use super::super::scene_binding::{normalize_scene_bindings, normalize_scene_examples};
+use super::super::scene_binding::{
+    normalize_scene_bindings, normalize_scene_examples, normalize_scene_params,
+};
 use super::super::scene_contract::normalize_shared_context;
 use super::state::CompileSceneCtx;
 
@@ -103,6 +105,12 @@ pub(super) fn scan_declarations(
                     normalize_shared_context(
                         &mut scene_decl.shared,
                         "scene.shared",
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
+                    normalize_scene_params(
+                        &mut scene_decl.params,
+                        &format!("scene `{}`.params", scene_decl.id),
                         target_file,
                         &mut ctx.diagnostics,
                     );

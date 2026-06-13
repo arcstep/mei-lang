@@ -318,3 +318,25 @@ export function emitTableRowDrilldown(host, detail) {
     }),
   );
 }
+
+export const TABLE_ROW_SELECT_EVENT_NAME = "mei:table-row-select";
+
+export function tableRowSelectionMode(props) {
+  const raw = String(
+    props?.row_selection_mode ?? props?.rowSelectionMode ?? "",
+  ).trim();
+  return raw === "single" ? "single" : "";
+}
+
+export function emitTableRowSelect(host, detail) {
+  if (!host || !detail) {
+    return;
+  }
+  host.dispatchEvent(
+    new CustomEvent(TABLE_ROW_SELECT_EVENT_NAME, {
+      bubbles: true,
+      composed: true,
+      detail,
+    }),
+  );
+}

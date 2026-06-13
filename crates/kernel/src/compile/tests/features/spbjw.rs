@@ -1137,8 +1137,8 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
     let encoded = serde_json::to_string(contract).expect("encode scene contract");
     assert!(
-        encoded.contains("analytics-drilldown-board.mei"),
-        "warnings card should reference analytics drilldown shell, got: {encoded}"
+        encoded.contains("warnings_analytics_board"),
+        "warnings card should reference local scene-first analytics board, got: {encoded}"
     );
     assert!(
         encoded.contains("layout_zone"),
@@ -1161,6 +1161,11 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         "analytics link should include filter_schema, got: {encoded}"
     );
     assert!(
+        encoded.contains("\"layout_zone\":\"chart\"")
+            && encoded.contains("\"layout_zone\":\"detail\""),
+        "analytics board assembly should lower chart/detail layout_zone aligned with scene panels, got: {encoded}"
+    );
+    assert!(
         encoded.contains("supervisionDomain") && encoded.contains("month_multi_select"),
         "warnings analytics board should include explicit filter fields, got: {encoded}"
     );
@@ -1171,7 +1176,7 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
 }
 
 #[test]
-fn compile_spbjw_issue_handling_analytics_projection_slots() {
+fn compile_spbjw_issue_handling_list_preview_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -1202,44 +1207,161 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         );
     }
     assert!(
-        encoded.contains("analytics-drilldown-board.mei"),
-        "issue handling cards should reference analytics drilldown shell, got: {encoded}"
+        encoded.contains("issue_status_list_preview_board"),
+        "issue handling cards should reference local scene-first list preview board, got: {encoded}"
     );
     assert!(
         encoded.contains("layout_zone"),
-        "issue handling analytics projection slots should include layout_zone, got: {encoded}"
+        "issue handling list preview projection slots should include layout_zone, got: {encoded}"
     );
     assert!(
-        encoded.contains("composition_by_category"),
-        "pending/in-progress/completed boards should reference composition_by_category, got: {encoded}"
+        encoded.contains("\"layout_zone\":\"list\"") || encoded.contains("\"layout_zone\": \"list\""),
+        "issue handling boards should include list layout_zone, got: {encoded}"
     );
     assert!(
-        encoded.contains("composition_by_verified"),
-        "verification rate board should reference composition_by_verified, got: {encoded}"
-    );
-    assert!(
-        encoded.contains("composition_by_dept"),
-        "verification rate board should reference composition_by_dept, got: {encoded}"
-    );
-    assert!(
-        encoded.contains("chart_kind") && encoded.contains("rose"),
-        "issue handling analytics charts should lower rose chart_kind, got: {encoded}"
-    );
-    assert!(
-        encoded.contains("\"top_n\":6"),
-        "issue handling analytics chart slots should carry top_n=6, got: {encoded}"
+        encoded.contains("\"layout_zone\":\"preview\"") || encoded.contains("\"layout_zone\": \"preview\""),
+        "issue handling boards should include preview layout_zone, got: {encoded}"
     );
     assert!(
         encoded.contains("filter_schema"),
-        "issue handling analytics links should include filter_schema, got: {encoded}"
+        "issue handling list preview links should include filter_schema, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"layout_zone\":\"preview\""),
+        "issue handling list preview should lower preview layout_zone aligned with scene panels, got: {encoded}"
     );
     assert!(
         encoded.contains("supervisionDomain") && encoded.contains("month_multi_select"),
-        "issue handling analytics boards should include warning_list filter fields, got: {encoded}"
+        "issue handling list preview boards should include warning_list filter fields, got: {encoded}"
     );
     assert!(
-        encoded.contains("layout_mode") && encoded.contains("analytics"),
-        "issue handling board assembly should lower to analytics layout_mode, got: {encoded}"
+        encoded.contains("layout_mode") && encoded.contains("list_preview"),
+        "issue handling board assembly should lower to list_preview layout_mode, got: {encoded}"
+    );
+}
+
+#[test]
+fn compile_board_assembly_rejects_missing_data_table_zone() {
+    let source_root = temp_root("reject-scene-shell-zone");
+    let app_root = source_root.join("demo");
+    write_file(
+        &app_root.join("main.mei"),
+        r#"
+app(
+    id = "demo",
+    default_scene = "home",
+)
+
+scene(id = "home", profile = "page")
+
+scene.set_world(
+    resources = [
+        resource(
+            id = "warning_list",
+            kind = "dataset",
+            source = ds.csv(path = "data/warning_list.csv"),
+        ),
+    ],
+)
+
+rows = ds.data_ref("warning_list")
+
+world.add_dataset_view(
+    id = "warning_metrics",
+    rowset = rows,
+    schema = [
+        ds.column("分类", "string"),
+        ds.column("数量", "number"),
+    ],
+    metrics = [
+        ds.dataframe(
+            id = "detail",
+            schema = [
+                ds.column("分类", "string"),
+                ds.column("数量", "number"),
+            ],
+            value = rows,
+        ),
+    ],
+)
+
+BROKEN_BOARD = build_board_assembly(
+    scene = scene_ref(scene_id = "broken_board", scene_file = "shell.mei"),
+    context = metric_ref("detail"),
+    detail = build_view(kind = "table", source = metric_ref("detail")),
+    shell_contract = {
+        "layout_mode": "custom",
+        "zones": [
+            {"id": "filter", "role": "filter", "source": "filter_schema"},
+        ],
+    },
+)
+
+frame()
+
+frame.add_panel(
+    id = "card",
+    title = "Bad",
+    blocks = [
+        component(
+            "mei-card",
+            area = "auto",
+            props = {
+                "title": "Bad",
+                "value": 1,
+                "popup": link(type = "popup", projection = "overlay", board = BROKEN_BOARD),
+            },
+        ),
+    ],
+)
+"#,
+    );
+    write_file(
+        &app_root.join("data/warning_list.csv"),
+        "分类,数量\nA,1\nB,2\n",
+    );
+    write_file(
+        &app_root.join("shell.mei"),
+        r#"
+scene(
+    id = "broken_board",
+    profile = "cockpit",
+    local_nav = {
+        "kind": "broken_board",
+        "scene_id": "broken_board",
+        "overlay_size": "large",
+    },
+)
+world(resources = [])
+frame(
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["1fr"],
+        areas = [["filter"]],
+    ),
+)
+frame.add_panel(
+    id = "filter",
+    area = "filter",
+    props = {
+        "projection_role": "filter",
+        "projection_source": "filter_schema",
+    },
+    blocks = [],
+)
+"#,
+    );
+    let compiled = compile_app_from_root(&source_root, &app_root)
+        .expect("compile broken shell app should finish with diagnostics");
+    let zone_errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| d.code == "scene_shell_zone_missing")
+        .collect();
+    assert!(
+        !zone_errors.is_empty(),
+        "missing data_table zone should produce scene_shell_zone_missing, got: {:?}",
+        compiled.diagnostics
     );
 }
 

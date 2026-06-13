@@ -81,6 +81,23 @@ pub(super) fn finish_compiled_app(
         ..
     } = catalog;
 
+    let target_scene_contracts = build_target_scene_contracts(&official_results, &active_payload);
+    let target_scene_ids_by_file = route_registry
+        .routes
+        .iter()
+        .map(|route| (route.target_file.clone(), route.scene_id.clone()))
+        .collect::<BTreeMap<_, _>>();
+    if let Some(contract) = active_payload.scene_contract.as_mut() {
+        crate::compile::projection_assembly::lower_scene_first_board_links_in_panels(
+            &mut contract.panels,
+            &active_payload.resources,
+            &active_target_file,
+            &target_scene_contracts,
+            &target_scene_ids_by_file,
+            diagnostics,
+        );
+    }
+
     let world_finalize_started = Instant::now();
     let scene_projection_started = Instant::now();
     let (
@@ -154,6 +171,22 @@ pub(super) fn finish_compiled_app(
         component_assets: std::mem::take(&mut active_payload.component_assets),
         diagnostics: std::mem::take(diagnostics),
     })
+}
+
+fn build_target_scene_contracts(
+    official_results: &BTreeMap<String, CompiledScenePayload>,
+    active_payload: &CompiledScenePayload,
+) -> BTreeMap<String, crate::model::SceneContract> {
+    let mut out = BTreeMap::new();
+    for (scene_id, payload) in official_results {
+        if let Some(contract) = payload.scene_contract.as_ref() {
+            out.insert(scene_id.clone(), contract.clone());
+        }
+    }
+    if let Some(contract) = active_payload.scene_contract.as_ref() {
+        out.insert(contract.scene.id.clone(), contract.clone());
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -367,6 +400,21 @@ fn build_scene_projection_maps(
                 .insert(route.target_file.clone(), contract.scene.local_nav.clone());
             assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
         }
+        if !contract.scene.params.is_null() {
+            assembly.insert("params".to_string(), contract.scene.params.clone());
+        }
+        if let Some(frame) = contract.frame.as_ref() {
+            assembly.insert(
+                "frame".to_string(),
+                serde_json::to_value(frame).unwrap_or(Value::Null),
+            );
+        }
+        if !contract.panels.is_empty() {
+            assembly.insert(
+                "panels".to_string(),
+                serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
+            );
+        }
         scene_projection_assembly_by_id.insert(route.scene_id.clone(), Value::Object(assembly));
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
@@ -398,6 +446,21 @@ fn build_scene_projection_maps(
                 }
                 if !contract.scene.local_nav.is_null() {
                     assembly_map.insert("local_nav".to_string(), contract.scene.local_nav.clone());
+                }
+                if !contract.scene.params.is_null() {
+                    assembly_map.insert("params".to_string(), contract.scene.params.clone());
+                }
+                if let Some(frame) = contract.frame.as_ref() {
+                    assembly_map.insert(
+                        "frame".to_string(),
+                        serde_json::to_value(frame).unwrap_or(Value::Null),
+                    );
+                }
+                if !contract.panels.is_empty() {
+                    assembly_map.insert(
+                        "panels".to_string(),
+                        serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
+                    );
                 }
             }
             if !contract.scene.bindings.is_null() {

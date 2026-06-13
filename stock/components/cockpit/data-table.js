@@ -55,6 +55,8 @@ import {
   buildTableRowDrilldownDetail,
   emitTableRowDrilldown,
   tableDrilldownMeta,
+  tableRowSelectionMode,
+  emitTableRowSelect,
 } from "./drilldown-meta.js";
 
 function resolveTableSpec(props) {
@@ -487,6 +489,10 @@ export class MeiCockpitDataTable extends HTMLElement {
       this._rowDrilldownBound = true;
       this.addEventListener("click", (event) => this.onRowDrilldownClick(event));
     }
+    if (!this._rowSelectBound) {
+      this._rowSelectBound = true;
+      this.addEventListener("click", (event) => this.onRowSelectClick(event));
+    }
     this.bindCarouselHover();
     this.render();
     this.refresh();
@@ -770,6 +776,33 @@ export class MeiCockpitDataTable extends HTMLElement {
     emitTableRowDrilldown(this, detail);
   }
 
+  onRowSelectClick(event) {
+    const selectionMode = tableRowSelectionMode(this._props || {});
+    if (selectionMode !== "single") {
+      return;
+    }
+    const rowEl = event?.target?.closest?.(".tr.selectable-row");
+    if (!(rowEl instanceof HTMLElement)) {
+      return;
+    }
+    if (event?.target?.closest?.(".pager, .carousel-timer, .cell-preview-trigger")) {
+      return;
+    }
+    const index = Number(rowEl.dataset.rowIndex);
+    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    const row = Number.isFinite(index) && index >= 0 ? rows[index] : null;
+    if (!row) {
+      return;
+    }
+    this._selectedRowIndex = index;
+    this.render();
+    emitTableRowSelect(this, {
+      row,
+      rowIndex: index,
+      query_state_id: String(this._queryStateId || "").trim(),
+    });
+  }
+
   bindCellPreviewEvents() {
     if (typeof this._cellPreviewCleanup === "function") {
       this._cellPreviewCleanup();
@@ -862,6 +895,8 @@ export class MeiCockpitDataTable extends HTMLElement {
       .join("");
     const layoutKey = String(p.layoutPreset ?? "");
     const drilldownEnabled = Boolean(tableDrilldownMeta(p));
+    const selectionMode = tableRowSelectionMode(p);
+    const selectableRows = selectionMode === "single";
     const body = rows
       .map((row, ri) => {
         const cells = layoutDescriptors
@@ -893,10 +928,12 @@ export class MeiCockpitDataTable extends HTMLElement {
           "tr",
           ri % 2 === 1 ? "zebra" : "",
           drilldownEnabled ? "drilldown-row" : "",
+          selectableRows ? "selectable-row" : "",
+          selectableRows && ri === this._selectedRowIndex ? "is-selected" : "",
         ]
           .filter(Boolean)
           .join(" ");
-        return `<div class="${rowClass}" data-row-index="${ri}" role="${drilldownEnabled ? "button" : "row"}" tabindex="${drilldownEnabled ? "0" : "-1"}">${cells}</div>`;
+        return `<div class="${rowClass}" data-row-index="${ri}" role="${drilldownEnabled || selectableRows ? "button" : "row"}" tabindex="${drilldownEnabled || selectableRows ? "0" : "-1"}">${cells}</div>`;
       })
       .join("");
     const emptyHint =
@@ -1032,7 +1069,12 @@ export class MeiCockpitDataTable extends HTMLElement {
           transition: background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
         }
         .tr.zebra { background: rgba(8, 24, 48, 0.25); }
-        .tr.drilldown-row { cursor: pointer; }
+        .tr.drilldown-row,
+        .tr.selectable-row { cursor: pointer; }
+        .tr.is-selected {
+          background: rgba(14, 116, 144, 0.34);
+          box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.55);
+        }
         .tr:hover {
           background: rgba(14, 58, 94, 0.42);
           box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.2);

@@ -285,6 +285,9 @@ pub fn decode_binding_value(value: &Value) -> Option<BindingValue> {
         }
         return Some(BindingValue::Inline(Value::String(trimmed.to_string())));
     }
+    if value.is_array() {
+        return Some(BindingValue::Inline(value.clone()));
+    }
     if value.is_object() {
         return Some(BindingValue::Inline(value.clone()));
     }

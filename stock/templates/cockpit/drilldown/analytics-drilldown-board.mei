@@ -5,6 +5,11 @@ scene(
     profile = "cockpit",
     theme = "cockpit",
     summary = "分析型二级看板：左过滤 + 右上图表 + 下明细",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+        "entry": param(type = "string"),
+    },
     local_nav = {
         "kind": "analytics_drilldown_board",
         "scene_id": "analytics_drilldown_board",
@@ -15,12 +20,45 @@ scene(
 
 world(resources = [])
 
-frame()
+frame(
+    layout = grid(
+        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
+        rows = ["minmax(0, 1fr)"],
+        areas = [["filter", "main"]],
+        gap = "12px",
+        padding = "12px",
+    ),
+)
 
 frame.add_panel(
-    id = "analytics_drilldown_shell",
-    variant = "container",
-    title = "指标分析",
-    props = {},
+    id = "filter",
+    area = "filter",
+    slot = panel_slot(kind = "filter", source = "filter_schema"),
     blocks = [],
+)
+
+frame.add_panel(
+    id = "main",
+    area = "main",
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["chart"], ["detail"]],
+        gap = "12px",
+    ),
+    slot = panel_slot(kind = "container"),
+    blocks = [
+        panel(
+            id = "chart",
+            area = "chart",
+            slot = panel_slot(kind = "slots", accepts = ["chart"], max = 3),
+            blocks = [],
+        ),
+        panel(
+            id = "detail",
+            area = "detail",
+            slot = panel_slot(kind = "slots", accepts = ["data_table"], required = True),
+            blocks = [],
+        ),
+    ],
 )

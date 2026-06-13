@@ -1,11 +1,15 @@
 # 指标解释二级看板 scene 壳（scene-first 真身）。
-# board_shell contract（tabs / default_entry）由宿主 BOARD_SCENE_CONTRACT 与本文 scene id 对齐消费。
+# tabs / default_entry 仍由 scene.local_nav 提供；壳结构本体由 frame/panel/layout 定义。
 
 scene(
     id = "metric_explain_board",
     profile = "cockpit",
     theme = "cockpit",
     summary = "指标解释二级看板：tabs 归属本 scene，入口 link 仅决定 overlay/route projection",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "entry": param(type = "string"),
+    },
     local_nav = {
         "kind": "metric_explain_board",
         "scene_id": "metric_explain_board",

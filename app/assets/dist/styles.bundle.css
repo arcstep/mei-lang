@@ -1352,57 +1352,47 @@ a.status-chip-link:focus-visible {
 .access-drilldown-overlay-panel--board .access-drilldown-overlay-head-meta[hidden] {
   display: none !important;
 }
-.access-drilldown-overlay-panel--analytics {
-  grid-template-rows: auto minmax(0, 1fr);
-}
-.access-drilldown-overlay-panel--analytics.access-drilldown-overlay-panel--size-comfortable {
-  width: min(1180px, calc(100vw - 48px));
-  height: min(760px, calc(100vh - 48px));
-}
-.access-drilldown-overlay-body--analytics {
+.access-drilldown-overlay-body--structured {
   min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
 }
-.access-drilldown-analytics-shell {
+.access-drilldown-structured-shell {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
-.access-drilldown-analytics-shell[hidden] {
+.access-drilldown-structured-shell[hidden] {
   display: none !important;
 }
-.access-drilldown-analytics-layout {
+.access-drilldown-structured-layout {
   flex: 1;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(0, 5fr);
-  gap: 12px;
-  padding: 12px;
+  min-width: 0;
 }
-.access-drilldown-analytics-filters {
+.access-drilldown-shell-zone {
   min-height: 0;
+  min-width: 0;
+}
+.access-drilldown-shell-zone--container {
+  display: grid;
+}
+.access-drilldown-shell-host {
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
   overflow: auto;
 }
-.access-drilldown-analytics-main {
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  align-content: start;
+.access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-host,
+.access-drilldown-shell-zone[data-shell-zone-role="filter"] {
+  overflow: auto;
 }
-.access-drilldown-analytics-charts {
-  min-height: 0;
-  display: grid;
-  gap: 10px;
-  align-items: stretch;
-}
-.access-drilldown-analytics-charts[hidden] {
-  display: none !important;
-}
-.access-drilldown-analytics-chart-slot {
+.access-drilldown-shell-surface {
+  width: 100%;
+  height: 100%;
   min-height: 0;
   min-width: 0;
   border-radius: 12px;
@@ -1410,18 +1400,50 @@ a.status-chip-link:focus-visible {
   background: rgba(11, 18, 29, 0.72);
   overflow: hidden;
 }
-.access-drilldown-analytics-table-shell {
+.access-drilldown-shell-slot {
   min-height: 0;
-  overflow: hidden;
-  border-radius: 12px;
-  border: 1px solid rgba(71, 85, 105, 0.28);
-  background: rgba(11, 18, 29, 0.72);
 }
-.access-drilldown-analytics-table-host {
-  width: 100%;
-  height: 100%;
+.access-drilldown-shell-slot--chart {
   min-height: 0;
-  overflow: auto;
+}
+.access-drilldown-list-preview-empty {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  padding: 24px 16px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+.access-drilldown-list-preview-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.access-drilldown-list-preview-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+.access-drilldown-list-preview-fields {
+  display: grid;
+  grid-template-columns: minmax(88px, auto) 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+.access-drilldown-list-preview-fields dt {
+  margin: 0;
+  color: #7dd3fc;
+  font-size: 12px;
+  font-weight: 600;
+}
+.access-drilldown-list-preview-fields dd {
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
 }
 .access-drilldown-panel-hero {
   display: grid;
