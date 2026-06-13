@@ -6,6 +6,7 @@ use super::nodes::node_area;
 
 fn panel_with_title(title: &str) -> PanelDecl {
     PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: Some(title.to_string()),
@@ -43,6 +44,7 @@ fn metric_card_panel(id: &str) -> UiNodeDecl {
 
 fn metric_card_panel_with_height(id: &str, height: Option<&str>) -> UiNodeDecl {
     UiNodeDecl::Panel(PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: id.to_string(),
         title: None,
@@ -78,6 +80,7 @@ fn metric_card_panel_with_extra_props(
         }
     }
     UiNodeDecl::Panel(PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: id.to_string(),
         title: None,
@@ -128,6 +131,7 @@ fn normalize_injects_head_block_from_title_and_default_layout() {
 #[test]
 fn normalize_uses_head_height_track_in_default_layout() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: Some("标题".to_string()),
@@ -170,6 +174,7 @@ fn normalize_uses_head_height_track_in_default_layout() {
 #[test]
 fn normalize_hoists_props_heading_to_head_props() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: None,
@@ -204,6 +209,7 @@ fn normalize_hoists_props_heading_to_head_props() {
 #[test]
 fn normalize_title_head_block_inherits_head_props_typography() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "titled".to_string(),
         title: Some("执法要素".to_string()),
@@ -252,6 +258,7 @@ fn normalize_title_head_block_inherits_head_props_typography() {
 #[test]
 fn normalize_no_head_without_title() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "p".to_string(),
         title: None,
@@ -274,6 +281,7 @@ fn normalize_no_head_without_title() {
 #[test]
 fn normalize_injects_metrics_strip_layout_for_metric_children() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics".to_string(),
         title: None,
@@ -335,6 +343,7 @@ fn normalize_injects_metrics_strip_layout_for_metric_children() {
 #[test]
 fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_2_1".to_string(),
         title: None,
@@ -380,6 +389,7 @@ fn normalize_injects_metrics_2_1_layout_when_policy_matches() {
 #[test]
 fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_2x2".to_string(),
         title: None,
@@ -429,6 +439,7 @@ fn normalize_injects_metrics_2x2_layout_when_policy_matches() {
 #[test]
 fn normalize_injects_metrics_auto_layout_for_six_cards() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto".to_string(),
         title: None,
@@ -481,6 +492,7 @@ fn normalize_injects_metrics_auto_layout_for_six_cards() {
 #[test]
 fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "invalid".to_string(),
         title: None,
@@ -510,6 +522,7 @@ fn normalize_warns_when_metrics_2_1_policy_shape_is_invalid() {
 #[test]
 fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "invalid_2x2".to_string(),
         title: None,
@@ -539,6 +552,7 @@ fn normalize_warns_when_metrics_2x2_policy_shape_is_invalid() {
 #[test]
 fn normalize_warns_when_metrics_auto_policy_shape_is_invalid() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "invalid_auto".to_string(),
         title: None,
@@ -564,6 +578,7 @@ fn normalize_warns_when_metrics_auto_policy_shape_is_invalid() {
 #[test]
 fn normalize_injects_metrics_auto_layout_for_full_span_footer() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto_full".to_string(),
         title: None,
@@ -628,6 +643,7 @@ fn normalize_injects_metrics_auto_layout_for_full_span_footer() {
 #[test]
 fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto_fixed".to_string(),
         title: None,
@@ -690,6 +706,7 @@ fn normalize_uses_fixed_metric_widths_and_centers_singleton_tail() {
 #[test]
 fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics_auto_compound".to_string(),
         title: None,
@@ -700,6 +717,7 @@ fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
             metric_card_panel("a"),
             metric_card_panel("b"),
             UiNodeDecl::Panel(PanelDecl {
+        slot: None,
                 kind: "panel".to_string(),
                 id: "compound".to_string(),
                 title: None,
@@ -748,6 +766,7 @@ fn normalize_injects_metrics_auto_layout_for_compound_wide_card() {
 #[test]
 fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_aligned() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics".to_string(),
         title: None,
@@ -765,6 +784,7 @@ fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_align
             justify: Some("center".to_string()),
         }),
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -817,6 +837,7 @@ fn normalize_emits_metric_inline_baseline_risk_when_row_card_is_not_bottom_align
 #[test]
 fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "compound".to_string(),
         title: None,
@@ -850,7 +871,7 @@ fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
     );
     assert_eq!(
         layout.rows.as_ref(),
-        Some(&vec!["68px".to_string(), "54px".to_string()])
+        Some(&vec!["112fr".to_string(), "144fr".to_string()])
     );
     assert_eq!(layout.gap.as_deref(), Some("2px"));
 }
@@ -858,6 +879,7 @@ fn normalize_injects_metric_compound_2_1_layout_when_policy_matches() {
 #[test]
 fn normalize_injects_metric_compound_2_1_with_variable_bottom_count() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "compound_two_bottom".to_string(),
         title: None,
@@ -902,6 +924,7 @@ fn normalize_injects_metric_compound_2_1_with_variable_bottom_count() {
 #[test]
 fn normalize_metric_compound_respects_top_band_ratio_props() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "compound_ratio".to_string(),
         title: None,
@@ -940,6 +963,7 @@ fn normalize_metric_compound_respects_top_band_ratio_props() {
 #[test]
 fn normalize_warns_when_metric_compound_2_1_policy_shape_is_invalid() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "compound_invalid".to_string(),
         title: None,
@@ -965,6 +989,7 @@ fn normalize_warns_when_metric_compound_2_1_policy_shape_is_invalid() {
 #[test]
 fn normalize_emits_layout_eval_for_unknown_block_area() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "audit".to_string(),
         title: None,
@@ -1014,6 +1039,7 @@ fn normalize_emits_layout_eval_for_unknown_block_area() {
 #[test]
 fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "outer".to_string(),
         title: Some("标题".to_string()),
@@ -1021,6 +1047,7 @@ fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        slot: None,
             kind: "panel".to_string(),
             id: "body".to_string(),
             title: None,
@@ -1061,6 +1088,7 @@ fn normalize_emits_body_clip_risk_for_head_body_metrics_conflict() {
 #[test]
 fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "strip".to_string(),
         title: None,
@@ -1093,6 +1121,7 @@ fn normalize_clamps_metrics_strip_spacing_into_cockpit_budget() {
 #[test]
 fn normalize_clamps_metrics_auto_spacing_into_cockpit_budget() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "auto".to_string(),
         title: None,
@@ -1125,6 +1154,7 @@ fn normalize_clamps_metrics_auto_spacing_into_cockpit_budget() {
 #[test]
 fn normalize_audits_metric_group_off_center_rows() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "off_center".to_string(),
         title: None,
@@ -1182,6 +1212,7 @@ fn normalize_audits_metric_group_off_center_rows() {
 #[test]
 fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "metrics".to_string(),
         title: None,
@@ -1199,6 +1230,7 @@ fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
             justify: Some("stretch".to_string()),
         }),
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1232,6 +1264,7 @@ fn normalize_emits_stack_desc_overlap_risk_for_short_metric_card() {
 #[test]
 fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "wrap".to_string(),
         title: None,
@@ -1239,6 +1272,7 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1299,6 +1333,7 @@ fn normalize_metric_card_stack_applies_fractional_vertical_bands() {
 #[test]
 fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
     let mut panels = vec![PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "wrap".to_string(),
         title: None,
@@ -1306,6 +1341,7 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
         area: Some("auto".to_string()),
         layout: None,
         blocks: vec![UiNodeDecl::Panel(PanelDecl {
+        slot: None,
             kind: "panel".to_string(),
             id: "m0".to_string(),
             title: None,
@@ -1364,6 +1400,7 @@ fn normalize_applies_metric_slot_vertical_align_from_shell_props() {
 #[test]
 fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
     let base = PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "card_plain".to_string(),
         title: None,
@@ -1398,6 +1435,7 @@ fn seed_metric_block_vertical_align_prefers_shell_over_base_template() {
         import_scope: None,
     };
     let mut merged = PanelDecl {
+        slot: None,
         kind: "panel".to_string(),
         id: "live".to_string(),
         title: None,

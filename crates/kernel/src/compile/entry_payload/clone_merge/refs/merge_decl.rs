@@ -32,6 +32,9 @@ pub(crate) fn merge_panel_decl(base: PanelDecl, overlay_value: &Value) -> Result
             merged.blocks = overlay.blocks;
         }
     }
+    if value_has_key(overlay_value, "slot") {
+        merged.slot = overlay.slot;
+    }
     if value_has_key(overlay_value, "props") {
         merged.props = deep_merge_json(&merged.props, &overlay.props);
     }
@@ -162,6 +165,9 @@ pub(crate) fn merge_scene_decl(base: SceneDecl, overlay_value: &Value) -> Result
     }
     if value_has_key(overlay_value, "local_nav") {
         merged.local_nav = deep_merge_json(&merged.local_nav, &overlay.local_nav);
+    }
+    if value_has_key(overlay_value, "params") {
+        merged.params = deep_merge_json(&merged.params, &overlay.params);
     }
     if value_has_key(overlay_value, "bindings") {
         merged.bindings = deep_merge_json(&merged.bindings, &overlay.bindings);

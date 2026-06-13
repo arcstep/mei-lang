@@ -4,6 +4,25 @@ use serde_json::Value;
 use super::layout::LayoutDecl;
 use super::ui::UiNodeDecl;
 
+/// Scene shell / projection zone declared on `panel(slot = panel_slot(...))`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PanelSlotDecl {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepts: Option<Vec<Value>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, rename = "selection_from", skip_serializing_if = "Option::is_none")]
+    pub selection_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PanelDecl {
     pub kind: String,
@@ -19,6 +38,9 @@ pub struct PanelDecl {
     pub layout: Option<LayoutDecl>,
     #[serde(default)]
     pub blocks: Vec<UiNodeDecl>,
+    /// Projection shell zone (`panel_slot`); primary source for compile/runtime shell inference.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot: Option<PanelSlotDecl>,
     #[serde(default)]
     pub props: Value,
     /// head 子容器视觉 props（与 `head` 标题槽内容区分）。

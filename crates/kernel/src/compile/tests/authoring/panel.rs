@@ -1363,30 +1363,30 @@ frame.add_panel(
     let contract = compiled.scene_contract.expect("contract");
     assert_eq!(
         contract.panels[0]
-            .props
-            .get("projection_role")
-            .and_then(|value| value.as_str()),
+            .slot
+            .as_ref()
+            .and_then(|slot| slot.kind.as_deref()),
         Some("filter")
     );
     assert_eq!(
         contract.panels[0]
-            .props
-            .get("projection_source")
-            .and_then(|value| value.as_str()),
+            .slot
+            .as_ref()
+            .and_then(|slot| slot.source.as_deref()),
         Some("filter_schema")
     );
     assert_eq!(
         contract.panels[1]
-            .props
-            .get("projection_role")
-            .and_then(|value| value.as_str()),
+            .slot
+            .as_ref()
+            .and_then(|slot| slot.kind.as_deref()),
         Some("row_preview")
     );
     assert_eq!(
         contract.panels[1]
-            .props
-            .get("selection_source")
-            .and_then(|value| value.as_str()),
+            .slot
+            .as_ref()
+            .and_then(|slot| slot.selection_from.as_deref()),
         Some("list")
     );
     let _ = fs::remove_dir_all(&root);
@@ -1497,9 +1497,34 @@ frame.add_panel(
 scene(
     id = "generic_drilldown_board",
     profile = "cockpit",
+    params = {
+        "metric": param(type = "metric", required = True),
+        "rowset_dataset_id": param(type = "string"),
+    },
+    local_nav = {
+        "include_hero": True,
+    },
 )
 world(resources = [])
-frame()
+frame(
+    layout = grid(
+        columns = ["1fr"],
+        rows = ["auto", "minmax(0, 1fr)"],
+        areas = [["tabs"], ["content"]],
+    ),
+)
+frame.add_panel(
+    id = "tabs",
+    area = "tabs",
+    slot = panel_slot(kind = "tab_bar"),
+    blocks = [],
+)
+frame.add_panel(
+    id = "content",
+    area = "content",
+    slot = panel_slot(kind = "tab_content"),
+    blocks = [],
+)
 "#,
     );
     let compiled = compile_app_from_root(&root, &app_root).expect("compile generic drilldown rowset");

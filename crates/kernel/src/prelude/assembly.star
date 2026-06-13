@@ -217,31 +217,17 @@ def build_from_metric(metric, as_component = None, label = None):
     return slot(metric = metric, as_component = as_component, label = label)
 
 def build_from_explain(metric):
-    """Slot list from metric explain scope; lowered at compile time."""
-    return _without_empty({
-        "__kind": "projection_slot_list",
-        "source": metric,
-        "include_hero": False,
-    })
+    """Slot list from metric explain scope; lowered at compile time via scene.bindings."""
+    fail("build_from_explain(...) removed; declare scene.bindings and use link(scene=..., params=...)")
 
 def build_drilldown_tabs(metric, include_hero = True, default_slot = None, rowset_dataset_id = None):
-    """Hero + explain slots; default_tab index is 0-based. Legacy generic drilldown."""
-    payload = {
-        "__kind": "projection_slot_list",
-        "source": metric,
-        "include_hero": include_hero,
-    }
-    if default_slot != None:
-        payload["default_slot"] = default_slot
-    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
-        payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
-    return _without_empty(payload)
+    fail("build_drilldown_tabs(...) removed; use scene.params + scene.bindings + link(scene=..., params=...)")
 
 def generic_drilldown_link(scene, metric, include_hero = True, default_slot = None, rowset_dataset_id = None, title = None):
-    """Scene-first generic drilldown popup: explicit scene + metric + optional rowset dataset."""
+    """Scene-first generic drilldown popup."""
     if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
         fail("generic_drilldown_link requires scene=scene_ref(...)")
-    params = {}
+    params = {"metric": metric}
     if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
         params["rowset_dataset_id"] = str(rowset_dataset_id).strip()
     return link(
@@ -250,40 +236,14 @@ def generic_drilldown_link(scene, metric, include_hero = True, default_slot = No
         scene = scene,
         title = title,
         params = params,
-        tabs = build_drilldown_tabs(
-            metric,
-            include_hero = include_hero,
-            default_slot = default_slot,
-            rowset_dataset_id = rowset_dataset_id,
-        ),
+        default_slot = default_slot,
     )
 
 def build_analytics_drilldown(metric, charts, detail = None, include_hero = False, rowset_dataset_id = None):
-    """Legacy analytics assembly via link.tabs. Prefer build_board_assembly + link(board=...)."""
-    if charts == None or type(charts) != "list":
-        fail("build_analytics_drilldown requires charts=[...]")
-    payload = {
-        "__kind": "analytics_projection_slot_list",
-        "source": metric,
-        "charts": charts,
-        "include_hero": include_hero,
-    }
-    if detail != None:
-        payload["detail"] = detail
-    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
-        payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
-    return _without_empty(payload)
+    fail("build_analytics_drilldown(...) removed; declare scene.bindings and use link(scene=..., params=...)")
 
 def build_analytics_drilldown_tabs(metric, include_hero = False, rowset_dataset_id = None):
-    """Legacy sugar: infer all explain blocks into analytics layout."""
-    payload = {
-        "__kind": "analytics_projection_slot_list",
-        "source": metric,
-        "include_hero": include_hero,
-    }
-    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
-        payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
-    return _without_empty(payload)
+    fail("build_analytics_drilldown_tabs(...) removed; declare scene.bindings and use link(scene=..., params=...)")
 
 def warning_list_filter_fields():
     """Shared filter_field list for alert_tracking / warning_list analytics boards."""

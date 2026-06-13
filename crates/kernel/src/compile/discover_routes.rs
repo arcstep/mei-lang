@@ -222,7 +222,27 @@ pub(super) fn build_world_metric_ledger(
             },
         );
     }
+    prune_flat_imported_world_metric_aliases(&mut ledger);
     Ok(ledger)
+}
+
+fn prune_flat_imported_world_metric_aliases(
+    ledger: &mut BTreeMap<String, WorldMetricLedgerEntry>,
+) {
+    let flat_ids = ledger
+        .keys()
+        .filter(|id| !id.contains("::"))
+        .cloned()
+        .collect::<Vec<_>>();
+    for flat_id in flat_ids {
+        let suffix = format!("::{flat_id}");
+        let superseded = ledger.keys().any(|namespaced| {
+            namespaced.contains(".mei::") && namespaced.ends_with(&suffix)
+        });
+        if superseded {
+            ledger.remove(&flat_id);
+        }
+    }
 }
 
 pub(super) fn inject_discovered_entry_scene_routes(

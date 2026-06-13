@@ -131,7 +131,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/dataset/manifest.json"),
+        &root.join(".stock/components/dataset/manifest.json"),
         r#"
 {
   "components": {
@@ -141,7 +141,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/chart/echarts/manifest.json"),
+        &root.join(".stock/components/chart/echarts/manifest.json"),
         r#"
 {
   "components": {
@@ -151,11 +151,11 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/dataset/table.js"),
+        &root.join(".stock/components/dataset/table.js"),
         "customElements.define('mei-dataset-table', class extends HTMLElement {});\n",
     );
     write_file(
-        &root.join("_components/chart/echarts/donut.js"),
+        &root.join(".stock/components/chart/echarts/donut.js"),
         "customElements.define('mei-chart-donut', class extends HTMLElement {});\n",
     );
 
@@ -227,7 +227,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/manifest.json"),
+        &root.join(".stock/components/manifest.json"),
         r#"
 {
   "components": {
@@ -313,7 +313,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/manifest.json"),
+        &root.join(".stock/components/manifest.json"),
         r#"
 {
   "components": {

@@ -25,7 +25,10 @@ fn collect_panel_import_scopes(panels: &[PanelDecl], out: &mut BTreeSet<String>)
     }
 }
 
-use super::super::materialize::{build_analysis_artifacts, imported_world_metrics_resource_id};
+use super::super::materialize::{
+    build_analysis_artifacts, imported_capsule_path_from_world_metrics_resource_id,
+    imported_world_metrics_resource_id,
+};
 use super::helpers::load_resources_from_capsule_file;
 
 fn namespaced_metric_key(capsule_path: &str, local_key: &str) -> String {
@@ -114,11 +117,16 @@ pub(crate) fn load_namespaced_capsule_resources(
     for mut resource in raw {
         if resource.id.contains("::metrics") {
             if let Some(dataset) = resource.dataset.as_mut() {
-                let already_namespaced = dataset.runtime_metric_defs.keys().any(|key| {
-                    key.contains(".mei::") || key.starts_with(&format!("{capsule_path}::"))
-                });
-                if !already_namespaced {
-                    rename_dataset_metric_keys(dataset, capsule_path);
+                let scope_path = imported_capsule_path_from_world_metrics_resource_id(&resource.id)
+                    .unwrap_or_else(|| capsule_path.to_string());
+                let prefix = format!("{scope_path}::");
+                let needs_rename = dataset
+                    .metrics
+                    .keys()
+                    .chain(dataset.runtime_metric_defs.keys())
+                    .any(|key| !key.starts_with(&prefix));
+                if needs_rename {
+                    rename_dataset_metric_keys(dataset, &scope_path);
                 }
             }
             out.push(resource);

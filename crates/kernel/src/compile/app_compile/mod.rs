@@ -181,7 +181,7 @@ pub fn compile_app_from_root_with_options_and_revision(
         preview_affected_targets.clone(),
         &options,
     );
-    hydrate_scene_first_board_links(
+    hydrate_scene_links(
         app_root,
         &app_decls,
         &asset_map,
@@ -243,7 +243,7 @@ pub fn compile_app_from_root_with_options_and_revision(
     })
 }
 
-fn hydrate_scene_first_board_links(
+fn hydrate_scene_links(
     app_root: &Path,
     app_decls: &Value,
     asset_map: &BTreeMap<String, crate::model::ComponentAsset>,
@@ -290,7 +290,7 @@ fn hydrate_scene_first_board_links(
         active_payload.diagnostics.extend(payload.diagnostics);
     }
     if let Some(contract) = active_payload.scene_contract.as_mut() {
-        crate::compile::projection_assembly::lower_scene_first_board_links_in_panels(
+        crate::compile::projection_assembly::lower_scene_links_in_panels(
             &mut contract.panels,
             &active_payload.resources,
             active_target_file,

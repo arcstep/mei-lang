@@ -2,44 +2,14 @@ use std::collections::BTreeMap;
 
 use serde_json::{json, Map, Value};
 
-use crate::model::{Diagnostic, LayoutDecl, PanelDecl, SceneContract, Severity, UiNodeDecl};
+use crate::model::{Diagnostic, LayoutDecl, PanelDecl, PanelSlotDecl, SceneContract, Severity, UiNodeDecl};
 use crate::typed_refs::{decode_ref_value, RefKind};
 
 use super::metric::{
-    build_generic_rowset_filter_schema, expand_analytics_drilldown_tabs, expand_board_assembly,
-    expand_drilldown_tabs, lower_projection_slot,
+    build_generic_rowset_filter_schema, expand_board_assembly, expand_drilldown_tabs,
 };
 
-pub(crate) fn lower_projection_assembly_in_panels(
-    panels: &mut [PanelDecl],
-    resources: &[crate::model::LoadedResource],
-    target_file: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for panel in panels.iter_mut() {
-        let import_scope = panel
-            .import_scope
-            .as_deref()
-            .map(str::trim)
-            .filter(|scope| !scope.is_empty());
-        walk_value_mut(
-            &mut panel.props,
-            resources,
-            target_file,
-            import_scope,
-            diagnostics,
-        );
-        walk_ui_nodes_mut(
-            &mut panel.blocks,
-            resources,
-            target_file,
-            import_scope,
-            diagnostics,
-        );
-    }
-}
-
-pub(crate) fn lower_scene_first_board_links_in_panels(
+pub(crate) fn lower_scene_links_in_panels(
     panels: &mut [PanelDecl],
     resources: &[crate::model::LoadedResource],
     target_file: &str,
@@ -53,7 +23,7 @@ pub(crate) fn lower_scene_first_board_links_in_panels(
             .as_deref()
             .map(str::trim)
             .filter(|scope| !scope.is_empty());
-        walk_scene_first_value_mut(
+        walk_scene_value_mut(
             &mut panel.props,
             resources,
             target_file,
@@ -62,7 +32,7 @@ pub(crate) fn lower_scene_first_board_links_in_panels(
             target_scene_ids_by_file,
             diagnostics,
         );
-        walk_scene_first_ui_nodes_mut(
+        walk_scene_ui_nodes_mut(
             &mut panel.blocks,
             resources,
             target_file,
@@ -74,7 +44,7 @@ pub(crate) fn lower_scene_first_board_links_in_panels(
     }
 }
 
-fn walk_scene_first_ui_nodes_mut(
+fn walk_scene_ui_nodes_mut(
     nodes: &mut [UiNodeDecl],
     resources: &[crate::model::LoadedResource],
     target_file: &str,
@@ -92,7 +62,7 @@ fn walk_scene_first_ui_nodes_mut(
                     .map(str::trim)
                     .filter(|scope| !scope.is_empty())
                     .or(import_scope);
-                walk_scene_first_value_mut(
+                walk_scene_value_mut(
                     &mut panel.props,
                     resources,
                     target_file,
@@ -101,7 +71,7 @@ fn walk_scene_first_ui_nodes_mut(
                     target_scene_ids_by_file,
                     diagnostics,
                 );
-                walk_scene_first_ui_nodes_mut(
+                walk_scene_ui_nodes_mut(
                     &mut panel.blocks,
                     resources,
                     target_file,
@@ -112,7 +82,7 @@ fn walk_scene_first_ui_nodes_mut(
                 );
             }
             UiNodeDecl::Block(block) => {
-                walk_scene_first_value_mut(
+                walk_scene_value_mut(
                     &mut block.props,
                     resources,
                     target_file,
@@ -122,7 +92,7 @@ fn walk_scene_first_ui_nodes_mut(
                     diagnostics,
                 );
                 if let Some(component) = block.component.as_mut() {
-                    walk_scene_first_value_mut(
+                    walk_scene_value_mut(
                         component,
                         resources,
                         target_file,
@@ -133,7 +103,7 @@ fn walk_scene_first_ui_nodes_mut(
                     );
                 }
                 for child in block.blocks.iter_mut() {
-                    walk_scene_first_value_mut(
+                    walk_scene_value_mut(
                         child,
                         resources,
                         target_file,
@@ -149,7 +119,7 @@ fn walk_scene_first_ui_nodes_mut(
     }
 }
 
-fn walk_scene_first_value_mut(
+fn walk_scene_value_mut(
     value: &mut Value,
     resources: &[crate::model::LoadedResource],
     target_file: &str,
@@ -163,7 +133,7 @@ fn walk_scene_first_value_mut(
             if map.get("__kind").and_then(Value::as_str) == Some("board_link")
                 || map.get("mode").and_then(Value::as_str) == Some("board_link")
             {
-                lower_scene_first_board_link(
+                lower_scene_link(
                     map,
                     resources,
                     target_file,
@@ -174,7 +144,7 @@ fn walk_scene_first_value_mut(
                 );
             }
             for child in map.values_mut() {
-                walk_scene_first_value_mut(
+                walk_scene_value_mut(
                     child,
                     resources,
                     target_file,
@@ -187,7 +157,7 @@ fn walk_scene_first_value_mut(
         }
         Value::Array(items) => {
             for child in items.iter_mut() {
-                walk_scene_first_value_mut(
+                walk_scene_value_mut(
                     child,
                     resources,
                     target_file,
@@ -200,195 +170,6 @@ fn walk_scene_first_value_mut(
         }
         _ => {}
     }
-}
-
-fn walk_ui_nodes_mut(
-    nodes: &mut [UiNodeDecl],
-    resources: &[crate::model::LoadedResource],
-    target_file: &str,
-    import_scope: Option<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for node in nodes.iter_mut() {
-        match node {
-            UiNodeDecl::Panel(panel) => {
-                let scope = panel
-                    .import_scope
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|scope| !scope.is_empty())
-                    .or(import_scope);
-                walk_ui_nodes_mut(
-                    &mut panel.blocks,
-                    resources,
-                    target_file,
-                    scope,
-                    diagnostics,
-                );
-            }
-            UiNodeDecl::Block(block) => {
-                walk_value_mut(
-                    &mut block.props,
-                    resources,
-                    target_file,
-                    import_scope,
-                    diagnostics,
-                );
-                if let Some(component) = block.component.as_mut() {
-                    walk_value_mut(component, resources, target_file, import_scope, diagnostics);
-                }
-                for child in block.blocks.iter_mut() {
-                    walk_value_mut(child, resources, target_file, import_scope, diagnostics);
-                }
-            }
-            UiNodeDecl::PanelRefEmbed(_) => {}
-        }
-    }
-}
-
-fn walk_value_mut(
-    value: &mut Value,
-    resources: &[crate::model::LoadedResource],
-    target_file: &str,
-    import_scope: Option<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    match value {
-        Value::Object(map) => {
-            if map.get("__kind").and_then(Value::as_str) == Some("board_link")
-                || map.get("mode").and_then(Value::as_str) == Some("board_link")
-            {
-                lower_board_link(map, resources, target_file, import_scope, diagnostics);
-            }
-            for child in map.values_mut() {
-                walk_value_mut(child, resources, target_file, import_scope, diagnostics);
-            }
-        }
-        Value::Array(items) => {
-            for child in items.iter_mut() {
-                walk_value_mut(child, resources, target_file, import_scope, diagnostics);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn lower_board_link(
-    link: &mut Map<String, Value>,
-    resources: &[crate::model::LoadedResource],
-    target_file: &str,
-    import_scope: Option<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let board_value = link.get("board").cloned();
-    let tabs_value = link.get("tabs").cloned();
-    if board_value.is_none() && tabs_value.is_none() {
-        return;
-    }
-
-    let world_hint = resolve_world_hint(link.get("world"), import_scope, target_file);
-    let default_slot = link
-        .get("default_slot")
-        .and_then(Value::as_u64)
-        .map(|v| v as usize);
-    let title = link
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
-
-    let analytics_layout;
-    let mut board_layout_mode: Option<String> = None;
-    let mut analytics_filter_schema = None;
-    let tabs_default_slot = tabs_value
-        .as_ref()
-        .and_then(Value::as_object)
-        .and_then(|map| map.get("default_slot"))
-        .and_then(Value::as_u64)
-        .map(|v| v as usize);
-
-    let slots = if let Some(board) = board_value.as_ref() {
-        let Some(board_map) = board.as_object() else {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                code: "board_assembly_invalid".to_string(),
-                message: "link board must be build_board_assembly(...)".to_string(),
-                source_path: Some(target_file.to_string()),
-            });
-            return;
-        };
-        if board_map.get("__kind").and_then(Value::as_str) != Some("board_assembly") {
-            diagnostics.push(Diagnostic {
-                severity: Severity::Error,
-                code: "board_assembly_invalid".to_string(),
-                message: "link board must use __kind=board_assembly".to_string(),
-                source_path: Some(target_file.to_string()),
-            });
-            return;
-        }
-        if let Some(scene) = board_map.get("scene") {
-            link.insert("scene".to_string(), scene.clone());
-        }
-        let Some(expanded) = expand_board_assembly(
-            board_map,
-            resources,
-            world_hint.as_ref(),
-            diagnostics,
-            target_file,
-        ) else {
-            return;
-        };
-        analytics_layout = expanded
-            .2
-            .as_deref()
-            .is_some_and(|mode| mode == "analytics");
-        board_layout_mode = expanded.2;
-        analytics_filter_schema = expanded.1;
-        expanded.0
-    } else {
-        let Some(tabs_value) = tabs_value else {
-            return;
-        };
-        analytics_layout = tabs_value
-            .as_object()
-            .and_then(|map| map.get("__kind"))
-            .and_then(Value::as_str)
-            == Some("analytics_projection_slot_list");
-        match expand_tabs_value(
-            &tabs_value,
-            resources,
-            world_hint.as_ref(),
-            diagnostics,
-            target_file,
-            &mut analytics_filter_schema,
-        ) {
-            Some(slots) if !slots.is_empty() => slots,
-            Some(_) => {
-                diagnostics.push(Diagnostic {
-                    severity: Severity::Error,
-                    code: "empty_projection_slots".to_string(),
-                    message: "link tabs expanded to an empty projection_slots list".to_string(),
-                    source_path: Some(target_file.to_string()),
-                });
-                return;
-            }
-            None => return,
-        }
-    };
-
-    apply_lowered_slots(
-        link,
-        slots,
-        board_layout_mode,
-        analytics_layout,
-        analytics_filter_schema,
-        default_slot,
-        tabs_default_slot,
-        title,
-        target_file,
-        diagnostics,
-    );
 }
 
 fn resolve_world_hint(
@@ -408,82 +189,6 @@ fn resolve_world_hint(
     let target = target_file.trim();
     if target.ends_with(".mei") && !target.is_empty() {
         return Some(json!({ "scene_file": target }));
-    }
-    None
-}
-
-fn expand_tabs_value(
-    tabs: &Value,
-    resources: &[crate::model::LoadedResource],
-    world_hint: Option<&Value>,
-    diagnostics: &mut Vec<Diagnostic>,
-    target_file: &str,
-    analytics_filter_schema: &mut Option<Value>,
-) -> Option<Vec<Map<String, Value>>> {
-    if let Some(map) = tabs.as_object() {
-        if map.get("__kind").and_then(Value::as_str) == Some("analytics_projection_slot_list") {
-            let expanded = expand_analytics_drilldown_tabs(
-                map,
-                resources,
-                world_hint,
-                diagnostics,
-                target_file,
-            )?;
-            *analytics_filter_schema = Some(expanded.1);
-            return Some(expanded.0);
-        }
-        if map.get("__kind").and_then(Value::as_str) == Some("projection_slot_list") {
-            let metric = map.get("source")?;
-            let include_hero = map
-                .get("include_hero")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let default_slot = map
-                .get("default_slot")
-                .and_then(Value::as_u64)
-                .map(|v| v as usize);
-            let rowset_dataset_id = map
-                .get("rowset_dataset_id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
-            let slots = expand_drilldown_tabs(
-                metric,
-                include_hero,
-                default_slot,
-                resources,
-                world_hint,
-                diagnostics,
-                target_file,
-            )?;
-            if let Some(dataset_id) = rowset_dataset_id {
-                *analytics_filter_schema = Some(build_generic_rowset_filter_schema(
-                    slots.as_slice(),
-                    dataset_id,
-                ));
-            }
-            return Some(slots);
-        }
-        if map.get("__kind").and_then(Value::as_str) == Some("projection_slot") {
-            return lower_projection_slot(map, resources, world_hint, diagnostics, target_file)
-                .map(|slot| vec![slot]);
-        }
-    }
-    if let Some(items) = tabs.as_array() {
-        let mut out = Vec::new();
-        for item in items {
-            if let Some(mut slots) = expand_tabs_value(
-                item,
-                resources,
-                world_hint,
-                diagnostics,
-                target_file,
-                analytics_filter_schema,
-            ) {
-                out.append(&mut slots);
-            }
-        }
-        return Some(out);
     }
     None
 }
@@ -546,7 +251,7 @@ fn apply_lowered_slots(
     link.remove("tabs");
 }
 
-fn lower_scene_first_board_link(
+fn lower_scene_link(
     link: &mut Map<String, Value>,
     resources: &[crate::model::LoadedResource],
     target_file: &str,
@@ -555,10 +260,25 @@ fn lower_scene_first_board_link(
     target_scene_ids_by_file: &BTreeMap<String, String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    if link.get("board").is_some()
-        || link.get("tabs").is_some()
-        || link.get("projection_slots").is_some()
-    {
+    if link.get("board").is_some() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "scene_link_board_removed".to_string(),
+            message: "link(board=...) 已移除；请改用 link(scene=..., params=..., projection=...)".to_string(),
+            source_path: Some(target_file.to_string()),
+        });
+        return;
+    }
+    if link.get("tabs").is_some() {
+        diagnostics.push(Diagnostic {
+            severity: Severity::Error,
+            code: "scene_link_tabs_removed".to_string(),
+            message: "link(tabs=...) 已移除；请改用 scene.params + scene.bindings + link(scene=..., params=...)".to_string(),
+            source_path: Some(target_file.to_string()),
+        });
+        return;
+    }
+    if link.get("projection_slots").is_some() {
         return;
     }
     let Some(scene_ref) = link.get("scene").and_then(Value::as_object) else {
@@ -1206,30 +926,13 @@ fn collect_scene_shell_zones(
 }
 
 fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Value>> {
-    let props = panel.props.as_object()?;
-    let slot = props.get("__mei_panel_slot").and_then(Value::as_object);
-    let role = props
-        .get("__mei_panel_slot")
-        .and_then(Value::as_object)
-        .and_then(|slot| slot.get("kind").or_else(|| slot.get("role")))
+    let slot_map = panel_slot_as_map(panel)?;
+    let role = slot_map
+        .get("kind")
+        .or_else(|| slot_map.get("role"))
         .and_then(Value::as_str)
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            props.get("__mei_panel_slot")
-                .and_then(Value::as_object)
-                .and_then(|slot| slot.get("role"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .or_else(|| {
-            props.get("projection_role")
-                .or_else(|| props.get("zone_role"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })?;
+        .filter(|value| !value.is_empty())?;
     let mut zone = Map::new();
     zone.insert("id".to_string(), Value::String(panel.id.clone()));
     zone.insert("role".to_string(), Value::String(role.to_string()));
@@ -1239,62 +942,93 @@ fn panel_zone_to_value(panel: &PanelDecl, parent: &str) -> Option<Map<String, Va
     if !parent.trim().is_empty() {
         zone.insert("parent".to_string(), Value::String(parent.trim().to_string()));
     }
-    if let Some(source) = slot
-        .and_then(|slot| slot.get("source"))
+    if let Some(source) = slot_map
+        .get("source")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            props.get("projection_source")
-                .or_else(|| props.get("source"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
     {
         zone.insert("source".to_string(), Value::String(source.to_string()));
     }
-    if let Some(selection_source) = slot
-        .and_then(|slot| slot.get("selection_from").or_else(|| slot.get("selectionFrom")))
+    if let Some(selection_source) = slot_map
+        .get("selection_from")
+        .or_else(|| slot_map.get("selectionFrom"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .or_else(|| {
-            props.get("selection_source")
-                .or_else(|| props.get("selectionSource"))
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
     {
         zone.insert(
             "selection_source".to_string(),
             Value::String(selection_source.to_string()),
         );
     }
-    if let Some(required) = slot
-        .and_then(|slot| slot.get("required"))
-        .or_else(|| props.get("projection_required"))
-    {
+    if let Some(required) = slot_map.get("required") {
         zone.insert("required".to_string(), required.clone());
     }
-    if let Some(max) = slot
-        .and_then(|slot| slot.get("max"))
-        .or_else(|| props.get("projection_max"))
-    {
+    if let Some(max) = slot_map.get("max") {
         zone.insert("max".to_string(), max.clone());
     }
-    if let Some(accepts) = slot
-        .and_then(|slot| slot.get("accepts"))
-        .and_then(Value::as_array)
-        .or_else(|| props.get("projection_accepts").and_then(Value::as_array))
-    {
+    if let Some(accepts) = slot_map.get("accepts").and_then(Value::as_array) {
         zone.insert("accepts".to_string(), Value::Array(accepts.clone()));
     }
     if let Some(layout) = panel.layout.as_ref() {
         zone.insert("layout".to_string(), layout_decl_to_value(layout));
     }
     Some(zone)
+}
+
+fn panel_slot_as_map(panel: &PanelDecl) -> Option<Map<String, Value>> {
+    if let Some(slot) = panel.slot.as_ref().filter(|slot| panel_slot_decl_is_meaningful(slot)) {
+        return Some(panel_slot_decl_to_map(slot));
+    }
+    let props = panel.props.as_object()?;
+    if let Some(slot) = props.get("__mei_panel_slot").and_then(Value::as_object) {
+        return Some(slot.clone());
+    }
+    let role = props
+        .get("projection_role")
+        .or_else(|| props.get("zone_role"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mut migrated = Map::new();
+    migrated.insert("kind".to_string(), Value::String(role.to_string()));
+    if let Some(source) = props
+        .get("projection_source")
+        .or_else(|| props.get("source"))
+        .filter(|value| !value.is_null())
+    {
+        migrated.insert("source".to_string(), source.clone());
+    }
+    if let Some(selection) = props
+        .get("selection_source")
+        .or_else(|| props.get("selectionSource"))
+        .filter(|value| !value.is_null())
+    {
+        migrated.insert("selection_from".to_string(), selection.clone());
+    }
+    if let Some(required) = props.get("projection_required") {
+        migrated.insert("required".to_string(), required.clone());
+    }
+    if let Some(max) = props.get("projection_max") {
+        migrated.insert("max".to_string(), max.clone());
+    }
+    if let Some(accepts) = props.get("projection_accepts").and_then(Value::as_array) {
+        migrated.insert("accepts".to_string(), Value::Array(accepts.clone()));
+    }
+    Some(migrated)
+}
+
+fn panel_slot_decl_is_meaningful(slot: &PanelSlotDecl) -> bool {
+    slot.kind
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
+
+fn panel_slot_decl_to_map(slot: &PanelSlotDecl) -> Map<String, Value> {
+    let value = serde_json::to_value(slot).unwrap_or(Value::Null);
+    value.as_object().cloned().unwrap_or_default()
 }
 
 fn layout_decl_to_value(layout: &LayoutDecl) -> Value {

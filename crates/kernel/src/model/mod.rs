@@ -19,7 +19,7 @@ pub use dataset::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use layout::{AppDecl, FrameDecl, LayoutDecl};
-pub use panel::PanelDecl;
+pub use panel::{PanelDecl, PanelSlotDecl};
 pub use resource::{LoadedResource, ResourceDecl, SourceDecl};
 pub use ui::{deserialize_ui_node_value, BlockDecl, PanelRefEmbedDecl, ThemeDecl, UiNodeDecl};
 pub use workspace::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};

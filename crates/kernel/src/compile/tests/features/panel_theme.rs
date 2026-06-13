@@ -7,7 +7,7 @@ fn compile_supports_nested_panels() {
     let root = temp_root("nested-panels");
     let app_root = root.join("nested");
     write_file(
-        &root.join("_components/manifest.json"),
+        &root.join(".stock/components/manifest.json"),
         r#"
 {
   "components": {
@@ -154,7 +154,7 @@ frame.add_panel(
 "##,
     );
     write_file(
-        &root.join("_components/manifest.json"),
+        &root.join(".stock/components/manifest.json"),
         r#"
 {
   "components": {
@@ -241,7 +241,7 @@ frame.add_panel(
 "##,
     );
     write_file(
-        &root.join("_components/manifest.json"),
+        &root.join(".stock/components/manifest.json"),
         r#"
 {
   "components": {
@@ -357,7 +357,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/mei/manifest.json"),
+        &root.join(".stock/components/mei/manifest.json"),
         r#"
 {
   "components": {
@@ -366,7 +366,7 @@ frame.add_panel(
 }
 "#,
     );
-    write_file(&root.join("_components/mei/text.js"), "// stub");
+    write_file(&root.join(".stock/components/mei/text.js"), "// stub");
 
     let compiled = compile_app_from_root(&root, &app_root).expect("compile panel head");
     let contract = compiled.scene_contract.expect("scene contract");

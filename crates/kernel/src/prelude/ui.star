@@ -256,24 +256,7 @@ def _panel_node(id = None, title = None, subtitle = None, area = None, layout = 
         panel_head_props["height"] = title_height
     if title_align != None:
         panel_head_props["align"] = title_align
-    if _is_dict(slot):
-        if panel_props.get("__mei_panel_slot") == None:
-            panel_props["__mei_panel_slot"] = slot
-        slot_kind = slot.get("kind")
-        if slot_kind != None and str(slot_kind).strip() != "" and panel_props.get("projection_role") == None:
-            panel_props["projection_role"] = str(slot_kind).strip()
-        if slot.get("accepts") != None and panel_props.get("projection_accepts") == None:
-            panel_props["projection_accepts"] = slot.get("accepts")
-        if slot.get("required") != None and panel_props.get("projection_required") == None:
-            panel_props["projection_required"] = slot.get("required")
-        if slot.get("max") != None and panel_props.get("projection_max") == None:
-            panel_props["projection_max"] = slot.get("max")
-        source_value = slot.get("source")
-        if type(source_value) == "string" and str(source_value).strip() != "" and panel_props.get("projection_source") == None:
-            panel_props["projection_source"] = str(source_value).strip()
-        selection_value = slot.get("selection_from")
-        if type(selection_value) == "string" and str(selection_value).strip() != "" and panel_props.get("selection_source") == None:
-            panel_props["selection_source"] = str(selection_value).strip()
+    # slot is a first-class panel field; do not mirror into props.projection_*.
     variant_key = variant
     if type(variant_key) == "string":
         variant_norm = variant_key.strip().lower()

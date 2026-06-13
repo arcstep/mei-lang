@@ -88,7 +88,7 @@ pub(super) fn finish_compiled_app(
         .map(|route| (route.target_file.clone(), route.scene_id.clone()))
         .collect::<BTreeMap<_, _>>();
     if let Some(contract) = active_payload.scene_contract.as_mut() {
-        crate::compile::projection_assembly::lower_scene_first_board_links_in_panels(
+        crate::compile::projection_assembly::lower_scene_links_in_panels(
             &mut contract.panels,
             &active_payload.resources,
             &active_target_file,

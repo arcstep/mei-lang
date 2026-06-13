@@ -181,12 +181,6 @@ pub(super) fn finalize_payload(
     if let Some(ref mut contract) = scene_contract {
         let resolver = crate::config_refs::ConfigRefResolver::new(&ctx.config);
         resolve_scene_contract_config_refs(contract, &resolver, target_file, &mut ctx.diagnostics);
-        crate::compile::projection_assembly::lower_projection_assembly_in_panels(
-            &mut contract.panels,
-            &resources,
-            target_file,
-            &mut ctx.diagnostics,
-        );
     }
     if let Some(ref contract) = scene_contract {
         validate_scene_ui_data_bindings(

@@ -82,7 +82,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/mei/manifest.json"),
+        &root.join(".stock/components/mei/manifest.json"),
         r#"
 {
   "components": {
@@ -92,7 +92,7 @@ frame.add_panel(
 "#,
     );
     write_file(
-        &root.join("_components/mei/text.js"),
+        &root.join(".stock/components/mei/text.js"),
         "// stub for compile asset resolution",
     );
 
