@@ -369,6 +369,14 @@ fn route_kind_and_app_id(method: &Method, uri: &Uri) -> (&'static str, String) {
     ("http_request", String::new())
 }
 
+fn is_expected_auth_client_error(uri: &Uri, status: StatusCode) -> bool {
+    if status != StatusCode::UNAUTHORIZED && status != StatusCode::FORBIDDEN {
+        return false;
+    }
+    let path = uri.path();
+    path.starts_with("/api/agent/") || path == "/api/auth/session"
+}
+
 async fn log_request(request: Request<Body>, next: Next) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
@@ -392,7 +400,7 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
             .insert(HeaderName::from_static("x-mei-request-id"), value);
     }
 
-    if status.is_server_error() || status.is_client_error() {
+    if status.is_server_error() {
         tracing::error!(
             request_id = %request_id,
             route_kind = route_kind,
@@ -403,6 +411,30 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
             uri = %uri,
             "request finished with error status"
         );
+    } else if status.is_client_error() {
+        if is_expected_auth_client_error(&uri, status) {
+            tracing::debug!(
+                request_id = %request_id,
+                route_kind = route_kind,
+                app_id = %app_id,
+                status = %status,
+                latency_ms,
+                method = %method,
+                uri = %uri,
+                "request finished with expected auth client error"
+            );
+        } else {
+            tracing::warn!(
+                request_id = %request_id,
+                route_kind = route_kind,
+                app_id = %app_id,
+                status = %status,
+                latency_ms,
+                method = %method,
+                uri = %uri,
+                "request finished with client error status"
+            );
+        }
     } else if !is_noisy_success_request(&method, &uri) {
         tracing::info!(
             request_id = %request_id,

@@ -835,14 +835,21 @@
   }
 
   async function refreshAll() {
+    if ($U.areAgentRequestsBlocked()) {
+      return false;
+    }
     let refreshFailed = false;
     const previousTargetKey = String(state.sessionTargetKey || "");
     state.loading = true;
     CHR.setButtonState(true);
     CHR.renderStatus();
     try {
-      const [config, runtime, skillStatus] = await Promise.all([
-        $U.fetchJson("/api/agent/config"),
+      const config = await $U.fetchJson("/api/agent/config");
+      if ($U.areAgentRequestsBlocked()) {
+        refreshFailed = true;
+        throw new Error("agent auth blocked");
+      }
+      const [runtime, skillStatus] = await Promise.all([
         $U.fetchJson("/api/agent/runtime"),
         $U.fetchJson("/api/agent/skill"),
       ]);
@@ -881,7 +888,15 @@
       state.health = null;
       state.sessions = [];
       state.skillStatus = null;
-      CHR.setInlineNote("读取助手状态失败：" + String(error.message || error));
+      if (error && error.agentBlocked) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage());
+      } else if (Number(error && error.status) === 403) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage("capability"));
+      } else if (Number(error && error.status) === 401) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage("session_expired"));
+      } else {
+        CHR.setInlineNote("读取助手状态失败：" + String(error.message || error));
+      }
     } finally {
       state.loading = false;
       CHR.setButtonState(false);
@@ -889,8 +904,11 @@
       CHR.renderConfig();
       CHR.renderRuntime();
       CHR.renderSkillStatus();
-      await CTX.refreshModelProbe(true).catch(function () {});
-      await CTX.refreshContextPreview().catch(function () {});
+      const skipAgentFollowups = refreshFailed || $U.areAgentRequestsBlocked();
+      if (!skipAgentFollowups) {
+        await CTX.refreshModelProbe(true).catch(function () {});
+        await CTX.refreshContextPreview().catch(function () {});
+      }
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
@@ -923,7 +941,7 @@
       renderSessions();
       SRC.syncSourceDiffEntry();
       api.restoreDeltaDebugLog(state.sessionId);
-      if (state.health && state.health.healthy && state.sessionId) {
+      if (!skipAgentFollowups && state.health && state.health.healthy && state.sessionId) {
         try {
           await refreshMessages({ forcePendingPermissions: true });
         } catch (_) {

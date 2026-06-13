@@ -11,6 +11,15 @@
   const PROBE_RED_AFTER_MS = 20000;
   const PROBE_COLD_START_RED_AFTER_STREAK = 5;
 
+  function agentUtils() {
+    return window.MeiAgentPanelUtils || null;
+  }
+
+  function isAgentBlocked() {
+    const U = agentUtils();
+    return !!(U && typeof U.areAgentRequestsBlocked === "function" && U.areAgentRequestsBlocked());
+  }
+
   function readMeta(name) {
     const node = document.querySelector('meta[name="' + name + '"]');
     return node ? String(node.getAttribute("content") || "").trim() : "";
@@ -131,25 +140,45 @@
     };
   }
 
+  function blockFromHttpStatus(status) {
+    const U = agentUtils();
+    if (!U || typeof U.blockAgentRequests !== "function") return;
+    if (status === 401) {
+      U.blockAgentRequests("session_expired");
+      return;
+    }
+    if (status === 403) {
+      U.blockAgentRequests("capability");
+    }
+  }
+
   async function refresh() {
     if (!hasTargets()) return;
+    if (isAgentBlocked()) {
+      stop();
+      return;
+    }
     const nodes = els();
     if (!probeHasResult) {
       setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
     }
     try {
-      const probe = await fetchJson("/api/agent/model/probe");
+      const probe = await fetchJson("/api/agent/model/probe", { credentials: "same-origin" });
       const summary = modelServiceSummary(probe, "");
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     } catch (error) {
       const status = Number(error && error.httpStatus) || 0;
-      if (status === 403) {
-        setChip(
-          nodes.modelService,
-          "模型服务 无权限",
-          "danger",
-          "HTTP 403：当前角色无法访问 /api/agent/model/probe（通常为 guest）。请向管理员反馈 HTTP 403。",
-        );
+      if (status === 401 || status === 403) {
+        blockFromHttpStatus(status);
+        const U = agentUtils();
+        const message =
+          U && typeof U.agentRequestsBlockMessage === "function"
+            ? U.agentRequestsBlockMessage(status === 403 ? "capability" : "session_expired")
+            : status === 403
+              ? "当前账号无权限访问模型探测"
+              : "登录已失效";
+        setChip(nodes.modelService, "模型服务 已暂停", "danger", message);
+        stop();
         return;
       }
       const summary = modelServiceSummary(null, String(error && error.message ? error.message : error || ""));
@@ -157,17 +186,51 @@
     }
   }
 
-  function start() {
-    applyComplianceChip();
-    applyHostVersionChip();
-    refresh();
+  function startInterval() {
     if (refreshTimer) {
       clearInterval(refreshTimer);
     }
     refreshTimer = window.setInterval(function () {
       if (document.visibilityState === "hidden") return;
+      if (isAgentBlocked()) {
+        stop();
+        return;
+      }
       refresh();
     }, 60000);
+  }
+
+  async function start() {
+    applyComplianceChip();
+    applyHostVersionChip();
+    if (!hasTargets()) return;
+
+    const U = agentUtils();
+    if (U && typeof U.resolveAgentAuthGate === "function") {
+      try {
+        const gate = await U.resolveAgentAuthGate();
+        if (!gate.allowed) {
+          if (typeof U.blockAgentRequests === "function") {
+            U.blockAgentRequests(gate.reason);
+          }
+          const message =
+            typeof U.agentRequestsBlockMessage === "function"
+              ? U.agentRequestsBlockMessage(gate.reason)
+              : "助手鉴权未通过，模型探测已暂停";
+          setChip(els().modelService, "模型服务 已暂停", "neutral", message);
+          return;
+        }
+      } catch (_) {
+        if (typeof U.blockAgentRequests === "function") {
+          U.blockAgentRequests("session_check_error");
+        }
+        setChip(els().modelService, "模型服务 已暂停", "neutral", "无法确认登录状态");
+        return;
+      }
+    }
+
+    refresh();
+    startInterval();
   }
 
   function stop() {
@@ -178,6 +241,23 @@
     boot.statusBarMounted = false;
   }
 
-  boot.disposeStatusBar = stop;
+  function onAgentAuthBlocked() {
+    stop();
+    const nodes = els();
+    if (!nodes.modelService) return;
+    const U = agentUtils();
+    const reason =
+      U && typeof U.agentRequestsBlockMessage === "function"
+        ? U.agentRequestsBlockMessage()
+        : "助手请求已暂停";
+    setChip(nodes.modelService, "模型服务 已暂停", "neutral", reason);
+  }
+
+  document.addEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+
+  boot.disposeStatusBar = function () {
+    document.removeEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+    stop();
+  };
   start();
 })();

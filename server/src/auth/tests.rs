@@ -135,6 +135,7 @@ fn guest_empty_allowlist_allows_workspace_apps_except_denylist() {
         app_allowlist: BTreeSet::new(),
         app_denylist: ["blocked".to_string()].into_iter().collect(),
         scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
     };
     assert!(principal.can_access_app("demo"));
     assert!(!principal.can_access_app("blocked"));
@@ -149,6 +150,7 @@ fn guest_non_empty_allowlist_restricts_apps() {
         app_allowlist: ["demo".to_string()].into_iter().collect(),
         app_denylist: BTreeSet::new(),
         scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
     };
     assert!(principal.can_access_app("demo"));
     assert!(!principal.can_access_app("blocked"));
@@ -162,6 +164,7 @@ fn principal_for_role(role: AuthRole) -> AuthPrincipal {
         app_allowlist: BTreeSet::new(),
         app_denylist: BTreeSet::new(),
         scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
     }
 }
 
@@ -230,6 +233,7 @@ fn route_mode_matrix_matches_role_defaults() {
         app_allowlist: BTreeSet::new(),
         app_denylist: BTreeSet::new(),
         scene_allowlist: BTreeMap::new(),
+        session_exp: 0,
     };
     let admin = AuthPrincipal {
         role: AuthRole::Admin,

@@ -44,8 +44,165 @@
     progressChipPending: "border-amber-400/45 bg-amber-900/25 text-amber-100",
   };
 
+  let agentRequestsBlocked = false;
+  let agentRequestsBlockReason = "";
+  let agentExpiryTimerId = 0;
+
+  function readHostCapabilities() {
+    const raw =
+      document.body?.dataset?.meiAuthCapabilities ||
+      document.querySelector('meta[name="mei-auth-capabilities"]')?.content ||
+      "{}";
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function isAuthDisabledProfile(caps) {
+    return Boolean(
+      caps &&
+        caps.access_view &&
+        caps.config_upload &&
+        caps.build_view &&
+        caps.access_agent &&
+        caps.agent_control &&
+        caps.authoring_agent,
+    );
+  }
+
+  function hasAccessAgentCapability(caps) {
+    return Boolean(caps && caps.access_agent !== false);
+  }
+
+  function blockReasonForAgentHttpStatus(status) {
+    if (status === 401) return "session_expired";
+    if (status === 403) return "capability";
+    return "";
+  }
+
+  function clearAgentExpiryTimer() {
+    if (agentExpiryTimerId) {
+      clearTimeout(agentExpiryTimerId);
+      agentExpiryTimerId = 0;
+    }
+  }
+
+  function scheduleAgentExpiryStop(expiresAtSeconds) {
+    clearAgentExpiryTimer();
+    const exp = Number(expiresAtSeconds || 0);
+    if (!Number.isFinite(exp) || exp <= 0) return;
+    const delayMs = exp * 1000 - Date.now() + 500;
+    if (delayMs <= 0) {
+      blockAgentRequests("session_expired");
+      return;
+    }
+    agentExpiryTimerId = setTimeout(function () {
+      agentExpiryTimerId = 0;
+      blockAgentRequests("session_expired");
+    }, delayMs);
+  }
+
+  function applySessionTimingFromPayload(payload) {
+    if (payload && payload.authenticated && payload.expiresAt) {
+      scheduleAgentExpiryStop(payload.expiresAt);
+    } else {
+      clearAgentExpiryTimer();
+    }
+  }
+
+  function blockAgentRequests(reason) {
+    if (agentRequestsBlocked && agentRequestsBlockReason === String(reason || "")) {
+      return;
+    }
+    agentRequestsBlocked = true;
+    agentRequestsBlockReason = String(reason || "");
+    clearAgentExpiryTimer();
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:agent-auth-blocked", {
+          detail: { reason: agentRequestsBlockReason },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function unblockAgentRequests() {
+    agentRequestsBlocked = false;
+    agentRequestsBlockReason = "";
+    clearAgentExpiryTimer();
+  }
+
+  function areAgentRequestsBlocked() {
+    return agentRequestsBlocked;
+  }
+
+  function agentRequestsBlockMessage(reason) {
+    const key = String(reason || agentRequestsBlockReason || "");
+    if (key === "capability") return "当前账号未开通助手访问权限。";
+    if (key === "unauthenticated" || key === "session_expired") {
+      return "登录已失效，请刷新页面后重新登录再使用助手。";
+    }
+    if (key === "session_check_failed" || key === "session_check_error") {
+      return "无法确认登录状态，助手已暂停请求。";
+    }
+    return "助手请求已暂停，请刷新页面后重试。";
+  }
+
+  async function resolveAgentAuthGate() {
+    const caps = readHostCapabilities();
+    if (!hasAccessAgentCapability(caps)) {
+      return { allowed: false, reason: "capability" };
+    }
+    if (isAuthDisabledProfile(caps)) {
+      return { allowed: true, reason: "auth_disabled" };
+    }
+    const loggedIn = String(document.body?.dataset?.meiAuthLoggedIn || "").trim();
+    if (loggedIn !== "1") {
+      return { allowed: false, reason: "unauthenticated" };
+    }
+    try {
+      const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+      if (!response.ok) {
+        return { allowed: false, reason: "session_check_failed" };
+      }
+      const payload = await response.json();
+      applySessionTimingFromPayload(payload);
+      if (!(payload && payload.authenticated)) {
+        return { allowed: false, reason: "unauthenticated" };
+      }
+      const probe = await fetch("/api/agent/config", { credentials: "same-origin" });
+      if (probe.status === 401) {
+        return { allowed: false, reason: "session_expired" };
+      }
+      if (probe.status === 403) {
+        return { allowed: false, reason: "capability" };
+      }
+      if (!probe.ok) {
+        return { allowed: false, reason: "session_check_failed" };
+      }
+      return { allowed: true, reason: "authenticated" };
+    } catch (_) {
+      return { allowed: false, reason: "session_check_error" };
+    }
+  }
+
+  function shouldBlockAgentUrl(url) {
+    const value = String(url || "");
+    return value.startsWith("/api/agent/");
+  }
+
   window.MeiAgentPanelUtils = {
     CHAT_CLASS,
+    readHostCapabilities,
+    resolveAgentAuthGate,
+    blockAgentRequests,
+    unblockAgentRequests,
+    areAgentRequestsBlocked,
+    agentRequestsBlockMessage,
+    applySessionTimingFromPayload,
     escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
@@ -54,13 +211,28 @@
         .replaceAll('"', "&quot;");
     },
     async fetchJson(url, init) {
-      const response = await fetch(url, init);
+      if (areAgentRequestsBlocked() && shouldBlockAgentUrl(url)) {
+        const error = new Error(agentRequestsBlockMessage());
+        error.status = 401;
+        error.agentBlocked = true;
+        throw error;
+      }
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        ...(init || {}),
+      });
       if (!response.ok) {
         let detail = "";
         try {
           detail = (await response.text()).trim();
         } catch (_) {}
-        throw new Error(detail || url + " -> " + response.status);
+        const error = new Error(detail || url + " -> " + response.status);
+        error.status = response.status;
+        const blockReason = blockReasonForAgentHttpStatus(response.status);
+        if (blockReason && shouldBlockAgentUrl(url)) {
+          blockAgentRequests(blockReason);
+        }
+        throw error;
       }
       return response.json();
     },

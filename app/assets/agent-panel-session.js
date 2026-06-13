@@ -149,13 +149,21 @@
       return !!(workspaceRoot && workspaceRoot.dataset.rightCollapsed === "true");
     }
 
+    function isAgentPollingStopped() {
+      return typeof api.areAgentRequestsBlocked === "function" && api.areAgentRequestsBlocked();
+    }
+
     function shouldPausePolling() {
+      if (isAgentPollingStopped()) return true;
       if (document.visibilityState === "hidden") return true;
       if (rightSidebarCollapsed()) return true;
       return false;
     }
 
     function scheduleRefreshPoll(delayMs) {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       if (refreshTimerId) {
         global.clearTimeout(refreshTimerId);
       }
@@ -166,6 +174,9 @@
     }
 
     async function runRefreshPoll() {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       if (refreshPollInFlight) {
         scheduleRefreshPoll(nextRefreshPollDelayMs());
         return;
@@ -196,11 +207,16 @@
         }
       } finally {
         refreshPollInFlight = false;
-        scheduleRefreshPoll(nextRefreshPollDelayMs());
+        if (!isAgentPollingStopped()) {
+          scheduleRefreshPoll(nextRefreshPollDelayMs());
+        }
       }
     }
 
     function startPolling() {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       scheduleRefreshPoll(currentBasePollDelayMs());
     }
 
@@ -212,12 +228,28 @@
       closeEventStream();
     }
 
+    function onAgentAuthBlocked() {
+      refreshPollFailureCount = 0;
+      refreshPollInFlight = false;
+      if (refreshTimerId) {
+        global.clearTimeout(refreshTimerId);
+        refreshTimerId = 0;
+      }
+      closeEventStream();
+      api.renderStatus();
+    }
+
+    document.addEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+
     return {
       closeEventStream: closeEventStream,
       connectEvents: connectEvents,
       applyHostEvent: applyHostEvent,
       startPolling: startPolling,
-      dispose: dispose,
+      dispose: function () {
+        document.removeEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+        dispose();
+      },
     };
   };
 })(window);

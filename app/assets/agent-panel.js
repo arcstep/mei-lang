@@ -318,6 +318,9 @@
           rememberBlockedPermissionNotice: MSG.rememberBlockedPermissionNotice,
           setInlineNote: CHR.setInlineNote,
           refreshAll: MSG.refreshAll,
+          areAgentRequestsBlocked: function () {
+            return $U.areAgentRequestsBlocked();
+          },
         })
       : null;
   if (!SES || typeof SES.closeEventStream !== "function") {
@@ -333,9 +336,19 @@
 
   if (els.reconnect) {
     els.reconnect.addEventListener("click", function () {
-      MSG.refreshAll().catch(function (error) {
-        CHR.setInlineNote("重连失败：" + String(error.message || error));
-      });
+      $U.resolveAgentAuthGate()
+        .then(function (gate) {
+          if (!gate.allowed) {
+            $U.blockAgentRequests(gate.reason);
+            CHR.setInlineNote($U.agentRequestsBlockMessage(gate.reason));
+            return;
+          }
+          $U.unblockAgentRequests();
+          return MSG.refreshAll();
+        })
+        .catch(function (error) {
+          CHR.setInlineNote("重连失败：" + String(error.message || error));
+        });
     });
   }
 
@@ -577,6 +590,13 @@
     CHR.restoreAgentMode();
     MSG.restoreSession();
     restoreDeltaDebugLog(state.sessionId);
+    if ($U.areAgentRequestsBlocked()) {
+      renderDeltaDebugLog();
+      window.setTimeout(function () {
+        root.classList.remove("is-soft-refresh");
+      }, 80);
+      return;
+    }
     MSG.refreshAll().catch(function (error) {
       CHR.setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
     }).finally(function () {
@@ -589,6 +609,7 @@
   document.addEventListener("mei:manage-context-change", onManageContextChange);
 
   const onBrowserQueryStateChange = function () {
+    if ($U.areAgentRequestsBlocked()) return;
     state.contextPreviewScopeKey = "";
     state.contextPreviewFetchedAtMs = 0;
     state.contextPreviewBackoffUntilMs = 0;
@@ -607,25 +628,46 @@
   CHR.renderProgressStrip();
   CTX.renderContextPreview();
   SRC.syncSourceDiffEntry();
-  MSG.refreshAll()
-    .then(function () {
-      if (initialTab !== "diff") return;
-      if (!state.latestDiffMessageId) {
-        return;
-      }
-      SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-        CHR.setInlineNote("读取差异失败：" + String(error.message || error));
+  function startAgentTransport() {
+    MSG.refreshAll()
+      .then(function (ok) {
+        if ($U.areAgentRequestsBlocked() || ok === false) {
+          return;
+        }
+        SES.startPolling();
+        if (initialTab !== "diff") return;
+        if (!state.latestDiffMessageId) {
+          return;
+        }
+        SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+          CHR.setInlineNote("读取差异失败：" + String(error.message || error));
+        });
+      })
+      .catch(function () {})
+      .finally(function () {
+        renderDeltaDebugLog();
       });
-    })
-    .catch(function () {})
-    .finally(function () {
-      renderDeltaDebugLog();
-    });
+  }
+  if (!$U.areAgentRequestsBlocked()) {
+    $U.resolveAgentAuthGate()
+      .then(function (gate) {
+        if (!gate.allowed) {
+          $U.blockAgentRequests(gate.reason);
+          CHR.setInlineNote($U.agentRequestsBlockMessage(gate.reason));
+          return;
+        }
+        startAgentTransport();
+      })
+      .catch(function () {
+        $U.blockAgentRequests("session_check_error");
+        CHR.setInlineNote($U.agentRequestsBlockMessage("session_check_error"));
+      });
+  }
+
   const beforeUnloadHandler = function () {
     SES.closeEventStream();
   };
   window.addEventListener("beforeunload", beforeUnloadHandler);
-  SES.startPolling();
   boot.disposeAgentPanel = function () {
     SES.dispose();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);

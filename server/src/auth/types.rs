@@ -64,6 +64,8 @@ pub struct AuthPrincipal {
     pub app_allowlist: BTreeSet<String>,
     pub app_denylist: BTreeSet<String>,
     pub scene_allowlist: BTreeMap<String, BTreeSet<String>>,
+    /// JWT `exp` claim (unix seconds); 0 when unknown.
+    pub session_exp: usize,
 }
 
 impl AuthPrincipal {
@@ -103,6 +105,7 @@ impl AuthPrincipal {
             app_allowlist,
             app_denylist,
             scene_allowlist,
+            session_exp: claims.exp,
         }
     }
 

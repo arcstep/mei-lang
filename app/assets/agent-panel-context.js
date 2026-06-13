@@ -432,6 +432,9 @@
     }
 
     async function refreshContextPreview(force) {
+      if (api.$U.areAgentRequestsBlocked && api.$U.areAgentRequestsBlocked()) {
+        return;
+      }
       const forceRefresh = Boolean(force);
       if (!forceRefresh && api.state.contextPreviewBackoffUntilMs > Date.now()) {
         return;
@@ -514,6 +517,9 @@
     }
 
     async function refreshModelProbe(force) {
+      if (api.$U.areAgentRequestsBlocked && api.$U.areAgentRequestsBlocked()) {
+        return;
+      }
       if (!api.els.statusModelService) return;
       const forceRefresh = Boolean(force);
       const nowMs = Date.now();

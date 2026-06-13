@@ -83,6 +83,10 @@ struct SessionPayload {
     enabled: bool,
     authenticated: bool,
     user: Option<SessionUserPayload>,
+    #[serde(rename = "expiresAt", skip_serializing_if = "Option::is_none")]
+    expires_at: Option<usize>,
+    #[serde(rename = "jwtTtlSeconds", skip_serializing_if = "Option::is_none")]
+    jwt_ttl_seconds: Option<u64>,
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
@@ -191,11 +195,31 @@ pub async fn auth_session(
     if let Some(response) = reject_if_auth_disabled(&state) {
         return response;
     }
-    let enabled = load_auth_runtime(state.source_root.as_path())
-        .map(|runtime| runtime.enabled)
-        .unwrap_or(false);
+    let runtime = match load_auth_runtime(state.source_root.as_path()) {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::OK,
+                Json(SessionPayload {
+                    enabled: false,
+                    authenticated: false,
+                    user: None,
+                    expires_at: None,
+                    jwt_ttl_seconds: None,
+                }),
+            )
+                .into_response()
+        }
+    };
+    let enabled = runtime.enabled;
+    let jwt_ttl_seconds = Some(runtime.jwt_ttl_seconds);
     let payload = if let Some(Extension(principal)) = principal {
         let role = principal.role_slug().to_string();
+        let expires_at = if principal.session_exp > 0 {
+            Some(principal.session_exp)
+        } else {
+            None
+        };
         SessionPayload {
             enabled,
             authenticated: true,
@@ -204,12 +228,16 @@ pub async fn auth_session(
                 profile: principal.profile,
                 role,
             }),
+            expires_at,
+            jwt_ttl_seconds,
         }
     } else {
         SessionPayload {
             enabled,
             authenticated: false,
             user: None,
+            expires_at: None,
+            jwt_ttl_seconds,
         }
     };
     (StatusCode::OK, Json(payload)).into_response()

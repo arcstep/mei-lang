@@ -126,6 +126,7 @@ mod tests {
             app_allowlist: BTreeSet::new(),
             app_denylist: BTreeSet::new(),
             scene_allowlist: BTreeMap::new(),
+            session_exp: 0,
         };
         assert_eq!(
             index_landing_location(root, &app, None, false),
@@ -146,6 +147,7 @@ mod tests {
             app_allowlist: ["b".to_string()].into_iter().collect(),
             app_denylist: BTreeSet::new(),
             scene_allowlist: BTreeMap::new(),
+            session_exp: 0,
         };
         let filtered = filter_apps_for_principal(&apps, Some(&guest));
         assert_eq!(filtered.len(), 1);

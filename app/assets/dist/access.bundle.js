@@ -2447,6 +2447,15 @@
   const PROBE_RED_AFTER_MS = 20000;
   const PROBE_COLD_START_RED_AFTER_STREAK = 5;
 
+  function agentUtils() {
+    return window.MeiAgentPanelUtils || null;
+  }
+
+  function isAgentBlocked() {
+    const U = agentUtils();
+    return !!(U && typeof U.areAgentRequestsBlocked === "function" && U.areAgentRequestsBlocked());
+  }
+
   function readMeta(name) {
     const node = document.querySelector('meta[name="' + name + '"]');
     return node ? String(node.getAttribute("content") || "").trim() : "";
@@ -2567,25 +2576,45 @@
     };
   }
 
+  function blockFromHttpStatus(status) {
+    const U = agentUtils();
+    if (!U || typeof U.blockAgentRequests !== "function") return;
+    if (status === 401) {
+      U.blockAgentRequests("session_expired");
+      return;
+    }
+    if (status === 403) {
+      U.blockAgentRequests("capability");
+    }
+  }
+
   async function refresh() {
     if (!hasTargets()) return;
+    if (isAgentBlocked()) {
+      stop();
+      return;
+    }
     const nodes = els();
     if (!probeHasResult) {
       setChip(nodes.modelService, "模型服务 探测中", "info", "正在探测当前默认模型服务连接");
     }
     try {
-      const probe = await fetchJson("/api/agent/model/probe");
+      const probe = await fetchJson("/api/agent/model/probe", { credentials: "same-origin" });
       const summary = modelServiceSummary(probe, "");
       setChip(nodes.modelService, summary.text, summary.tone, summary.title);
     } catch (error) {
       const status = Number(error && error.httpStatus) || 0;
-      if (status === 403) {
-        setChip(
-          nodes.modelService,
-          "模型服务 无权限",
-          "danger",
-          "HTTP 403：当前角色无法访问 /api/agent/model/probe（通常为 guest）。请向管理员反馈 HTTP 403。",
-        );
+      if (status === 401 || status === 403) {
+        blockFromHttpStatus(status);
+        const U = agentUtils();
+        const message =
+          U && typeof U.agentRequestsBlockMessage === "function"
+            ? U.agentRequestsBlockMessage(status === 403 ? "capability" : "session_expired")
+            : status === 403
+              ? "当前账号无权限访问模型探测"
+              : "登录已失效";
+        setChip(nodes.modelService, "模型服务 已暂停", "danger", message);
+        stop();
         return;
       }
       const summary = modelServiceSummary(null, String(error && error.message ? error.message : error || ""));
@@ -2593,17 +2622,51 @@
     }
   }
 
-  function start() {
-    applyComplianceChip();
-    applyHostVersionChip();
-    refresh();
+  function startInterval() {
     if (refreshTimer) {
       clearInterval(refreshTimer);
     }
     refreshTimer = window.setInterval(function () {
       if (document.visibilityState === "hidden") return;
+      if (isAgentBlocked()) {
+        stop();
+        return;
+      }
       refresh();
     }, 60000);
+  }
+
+  async function start() {
+    applyComplianceChip();
+    applyHostVersionChip();
+    if (!hasTargets()) return;
+
+    const U = agentUtils();
+    if (U && typeof U.resolveAgentAuthGate === "function") {
+      try {
+        const gate = await U.resolveAgentAuthGate();
+        if (!gate.allowed) {
+          if (typeof U.blockAgentRequests === "function") {
+            U.blockAgentRequests(gate.reason);
+          }
+          const message =
+            typeof U.agentRequestsBlockMessage === "function"
+              ? U.agentRequestsBlockMessage(gate.reason)
+              : "助手鉴权未通过，模型探测已暂停";
+          setChip(els().modelService, "模型服务 已暂停", "neutral", message);
+          return;
+        }
+      } catch (_) {
+        if (typeof U.blockAgentRequests === "function") {
+          U.blockAgentRequests("session_check_error");
+        }
+        setChip(els().modelService, "模型服务 已暂停", "neutral", "无法确认登录状态");
+        return;
+      }
+    }
+
+    refresh();
+    startInterval();
   }
 
   function stop() {
@@ -2614,7 +2677,24 @@
     boot.statusBarMounted = false;
   }
 
-  boot.disposeStatusBar = stop;
+  function onAgentAuthBlocked() {
+    stop();
+    const nodes = els();
+    if (!nodes.modelService) return;
+    const U = agentUtils();
+    const reason =
+      U && typeof U.agentRequestsBlockMessage === "function"
+        ? U.agentRequestsBlockMessage()
+        : "助手请求已暂停";
+    setChip(nodes.modelService, "模型服务 已暂停", "neutral", reason);
+  }
+
+  document.addEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+
+  boot.disposeStatusBar = function () {
+    document.removeEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+    stop();
+  };
   start();
 })();
 
@@ -2667,8 +2747,165 @@
     progressChipPending: "border-amber-400/45 bg-amber-900/25 text-amber-100",
   };
 
+  let agentRequestsBlocked = false;
+  let agentRequestsBlockReason = "";
+  let agentExpiryTimerId = 0;
+
+  function readHostCapabilities() {
+    const raw =
+      document.body?.dataset?.meiAuthCapabilities ||
+      document.querySelector('meta[name="mei-auth-capabilities"]')?.content ||
+      "{}";
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function isAuthDisabledProfile(caps) {
+    return Boolean(
+      caps &&
+        caps.access_view &&
+        caps.config_upload &&
+        caps.build_view &&
+        caps.access_agent &&
+        caps.agent_control &&
+        caps.authoring_agent,
+    );
+  }
+
+  function hasAccessAgentCapability(caps) {
+    return Boolean(caps && caps.access_agent !== false);
+  }
+
+  function blockReasonForAgentHttpStatus(status) {
+    if (status === 401) return "session_expired";
+    if (status === 403) return "capability";
+    return "";
+  }
+
+  function clearAgentExpiryTimer() {
+    if (agentExpiryTimerId) {
+      clearTimeout(agentExpiryTimerId);
+      agentExpiryTimerId = 0;
+    }
+  }
+
+  function scheduleAgentExpiryStop(expiresAtSeconds) {
+    clearAgentExpiryTimer();
+    const exp = Number(expiresAtSeconds || 0);
+    if (!Number.isFinite(exp) || exp <= 0) return;
+    const delayMs = exp * 1000 - Date.now() + 500;
+    if (delayMs <= 0) {
+      blockAgentRequests("session_expired");
+      return;
+    }
+    agentExpiryTimerId = setTimeout(function () {
+      agentExpiryTimerId = 0;
+      blockAgentRequests("session_expired");
+    }, delayMs);
+  }
+
+  function applySessionTimingFromPayload(payload) {
+    if (payload && payload.authenticated && payload.expiresAt) {
+      scheduleAgentExpiryStop(payload.expiresAt);
+    } else {
+      clearAgentExpiryTimer();
+    }
+  }
+
+  function blockAgentRequests(reason) {
+    if (agentRequestsBlocked && agentRequestsBlockReason === String(reason || "")) {
+      return;
+    }
+    agentRequestsBlocked = true;
+    agentRequestsBlockReason = String(reason || "");
+    clearAgentExpiryTimer();
+    try {
+      document.dispatchEvent(
+        new CustomEvent("mei:agent-auth-blocked", {
+          detail: { reason: agentRequestsBlockReason },
+        }),
+      );
+    } catch (_) {}
+  }
+
+  function unblockAgentRequests() {
+    agentRequestsBlocked = false;
+    agentRequestsBlockReason = "";
+    clearAgentExpiryTimer();
+  }
+
+  function areAgentRequestsBlocked() {
+    return agentRequestsBlocked;
+  }
+
+  function agentRequestsBlockMessage(reason) {
+    const key = String(reason || agentRequestsBlockReason || "");
+    if (key === "capability") return "当前账号未开通助手访问权限。";
+    if (key === "unauthenticated" || key === "session_expired") {
+      return "登录已失效，请刷新页面后重新登录再使用助手。";
+    }
+    if (key === "session_check_failed" || key === "session_check_error") {
+      return "无法确认登录状态，助手已暂停请求。";
+    }
+    return "助手请求已暂停，请刷新页面后重试。";
+  }
+
+  async function resolveAgentAuthGate() {
+    const caps = readHostCapabilities();
+    if (!hasAccessAgentCapability(caps)) {
+      return { allowed: false, reason: "capability" };
+    }
+    if (isAuthDisabledProfile(caps)) {
+      return { allowed: true, reason: "auth_disabled" };
+    }
+    const loggedIn = String(document.body?.dataset?.meiAuthLoggedIn || "").trim();
+    if (loggedIn !== "1") {
+      return { allowed: false, reason: "unauthenticated" };
+    }
+    try {
+      const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+      if (!response.ok) {
+        return { allowed: false, reason: "session_check_failed" };
+      }
+      const payload = await response.json();
+      applySessionTimingFromPayload(payload);
+      if (!(payload && payload.authenticated)) {
+        return { allowed: false, reason: "unauthenticated" };
+      }
+      const probe = await fetch("/api/agent/config", { credentials: "same-origin" });
+      if (probe.status === 401) {
+        return { allowed: false, reason: "session_expired" };
+      }
+      if (probe.status === 403) {
+        return { allowed: false, reason: "capability" };
+      }
+      if (!probe.ok) {
+        return { allowed: false, reason: "session_check_failed" };
+      }
+      return { allowed: true, reason: "authenticated" };
+    } catch (_) {
+      return { allowed: false, reason: "session_check_error" };
+    }
+  }
+
+  function shouldBlockAgentUrl(url) {
+    const value = String(url || "");
+    return value.startsWith("/api/agent/");
+  }
+
   window.MeiAgentPanelUtils = {
     CHAT_CLASS,
+    readHostCapabilities,
+    resolveAgentAuthGate,
+    blockAgentRequests,
+    unblockAgentRequests,
+    areAgentRequestsBlocked,
+    agentRequestsBlockMessage,
+    applySessionTimingFromPayload,
     escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
@@ -2677,13 +2914,28 @@
         .replaceAll('"', "&quot;");
     },
     async fetchJson(url, init) {
-      const response = await fetch(url, init);
+      if (areAgentRequestsBlocked() && shouldBlockAgentUrl(url)) {
+        const error = new Error(agentRequestsBlockMessage());
+        error.status = 401;
+        error.agentBlocked = true;
+        throw error;
+      }
+      const response = await fetch(url, {
+        credentials: "same-origin",
+        ...(init || {}),
+      });
       if (!response.ok) {
         let detail = "";
         try {
           detail = (await response.text()).trim();
         } catch (_) {}
-        throw new Error(detail || url + " -> " + response.status);
+        const error = new Error(detail || url + " -> " + response.status);
+        error.status = response.status;
+        const blockReason = blockReasonForAgentHttpStatus(response.status);
+        if (blockReason && shouldBlockAgentUrl(url)) {
+          blockAgentRequests(blockReason);
+        }
+        throw error;
       }
       return response.json();
     },
@@ -3917,13 +4169,21 @@
       return !!(workspaceRoot && workspaceRoot.dataset.rightCollapsed === "true");
     }
 
+    function isAgentPollingStopped() {
+      return typeof api.areAgentRequestsBlocked === "function" && api.areAgentRequestsBlocked();
+    }
+
     function shouldPausePolling() {
+      if (isAgentPollingStopped()) return true;
       if (document.visibilityState === "hidden") return true;
       if (rightSidebarCollapsed()) return true;
       return false;
     }
 
     function scheduleRefreshPoll(delayMs) {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       if (refreshTimerId) {
         global.clearTimeout(refreshTimerId);
       }
@@ -3934,6 +4194,9 @@
     }
 
     async function runRefreshPoll() {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       if (refreshPollInFlight) {
         scheduleRefreshPoll(nextRefreshPollDelayMs());
         return;
@@ -3964,11 +4227,16 @@
         }
       } finally {
         refreshPollInFlight = false;
-        scheduleRefreshPoll(nextRefreshPollDelayMs());
+        if (!isAgentPollingStopped()) {
+          scheduleRefreshPoll(nextRefreshPollDelayMs());
+        }
       }
     }
 
     function startPolling() {
+      if (isAgentPollingStopped()) {
+        return;
+      }
       scheduleRefreshPoll(currentBasePollDelayMs());
     }
 
@@ -3980,12 +4248,28 @@
       closeEventStream();
     }
 
+    function onAgentAuthBlocked() {
+      refreshPollFailureCount = 0;
+      refreshPollInFlight = false;
+      if (refreshTimerId) {
+        global.clearTimeout(refreshTimerId);
+        refreshTimerId = 0;
+      }
+      closeEventStream();
+      api.renderStatus();
+    }
+
+    document.addEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+
     return {
       closeEventStream: closeEventStream,
       connectEvents: connectEvents,
       applyHostEvent: applyHostEvent,
       startPolling: startPolling,
-      dispose: dispose,
+      dispose: function () {
+        document.removeEventListener("mei:agent-auth-blocked", onAgentAuthBlocked);
+        dispose();
+      },
     };
   };
 })(window);
@@ -4427,6 +4711,9 @@
     }
 
     async function refreshContextPreview(force) {
+      if (api.$U.areAgentRequestsBlocked && api.$U.areAgentRequestsBlocked()) {
+        return;
+      }
       const forceRefresh = Boolean(force);
       if (!forceRefresh && api.state.contextPreviewBackoffUntilMs > Date.now()) {
         return;
@@ -4509,6 +4796,9 @@
     }
 
     async function refreshModelProbe(force) {
+      if (api.$U.areAgentRequestsBlocked && api.$U.areAgentRequestsBlocked()) {
+        return;
+      }
       if (!api.els.statusModelService) return;
       const forceRefresh = Boolean(force);
       const nowMs = Date.now();
@@ -6348,14 +6638,21 @@
   }
 
   async function refreshAll() {
+    if ($U.areAgentRequestsBlocked()) {
+      return false;
+    }
     let refreshFailed = false;
     const previousTargetKey = String(state.sessionTargetKey || "");
     state.loading = true;
     CHR.setButtonState(true);
     CHR.renderStatus();
     try {
-      const [config, runtime, skillStatus] = await Promise.all([
-        $U.fetchJson("/api/agent/config"),
+      const config = await $U.fetchJson("/api/agent/config");
+      if ($U.areAgentRequestsBlocked()) {
+        refreshFailed = true;
+        throw new Error("agent auth blocked");
+      }
+      const [runtime, skillStatus] = await Promise.all([
         $U.fetchJson("/api/agent/runtime"),
         $U.fetchJson("/api/agent/skill"),
       ]);
@@ -6394,7 +6691,15 @@
       state.health = null;
       state.sessions = [];
       state.skillStatus = null;
-      CHR.setInlineNote("读取助手状态失败：" + String(error.message || error));
+      if (error && error.agentBlocked) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage());
+      } else if (Number(error && error.status) === 403) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage("capability"));
+      } else if (Number(error && error.status) === 401) {
+        CHR.setInlineNote($U.agentRequestsBlockMessage("session_expired"));
+      } else {
+        CHR.setInlineNote("读取助手状态失败：" + String(error.message || error));
+      }
     } finally {
       state.loading = false;
       CHR.setButtonState(false);
@@ -6402,8 +6707,11 @@
       CHR.renderConfig();
       CHR.renderRuntime();
       CHR.renderSkillStatus();
-      await CTX.refreshModelProbe(true).catch(function () {});
-      await CTX.refreshContextPreview().catch(function () {});
+      const skipAgentFollowups = refreshFailed || $U.areAgentRequestsBlocked();
+      if (!skipAgentFollowups) {
+        await CTX.refreshModelProbe(true).catch(function () {});
+        await CTX.refreshContextPreview().catch(function () {});
+      }
       const boundSessions = listBoundSessionsForTarget(state.sessions, state.sessionTargetKey);
       if (state.sessionId && !sessionIdInList(state.sessions, state.sessionId)) {
         state.sessionId = "";
@@ -6436,7 +6744,7 @@
       renderSessions();
       SRC.syncSourceDiffEntry();
       api.restoreDeltaDebugLog(state.sessionId);
-      if (state.health && state.health.healthy && state.sessionId) {
+      if (!skipAgentFollowups && state.health && state.health.healthy && state.sessionId) {
         try {
           await refreshMessages({ forcePendingPermissions: true });
         } catch (_) {
@@ -7902,6 +8210,9 @@
           rememberBlockedPermissionNotice: MSG.rememberBlockedPermissionNotice,
           setInlineNote: CHR.setInlineNote,
           refreshAll: MSG.refreshAll,
+          areAgentRequestsBlocked: function () {
+            return $U.areAgentRequestsBlocked();
+          },
         })
       : null;
   if (!SES || typeof SES.closeEventStream !== "function") {
@@ -7917,9 +8228,19 @@
 
   if (els.reconnect) {
     els.reconnect.addEventListener("click", function () {
-      MSG.refreshAll().catch(function (error) {
-        CHR.setInlineNote("重连失败：" + String(error.message || error));
-      });
+      $U.resolveAgentAuthGate()
+        .then(function (gate) {
+          if (!gate.allowed) {
+            $U.blockAgentRequests(gate.reason);
+            CHR.setInlineNote($U.agentRequestsBlockMessage(gate.reason));
+            return;
+          }
+          $U.unblockAgentRequests();
+          return MSG.refreshAll();
+        })
+        .catch(function (error) {
+          CHR.setInlineNote("重连失败：" + String(error.message || error));
+        });
     });
   }
 
@@ -8161,6 +8482,13 @@
     CHR.restoreAgentMode();
     MSG.restoreSession();
     restoreDeltaDebugLog(state.sessionId);
+    if ($U.areAgentRequestsBlocked()) {
+      renderDeltaDebugLog();
+      window.setTimeout(function () {
+        root.classList.remove("is-soft-refresh");
+      }, 80);
+      return;
+    }
     MSG.refreshAll().catch(function (error) {
       CHR.setInlineNote("刷新作者助手面板失败：" + String(error.message || error));
     }).finally(function () {
@@ -8173,6 +8501,7 @@
   document.addEventListener("mei:manage-context-change", onManageContextChange);
 
   const onBrowserQueryStateChange = function () {
+    if ($U.areAgentRequestsBlocked()) return;
     state.contextPreviewScopeKey = "";
     state.contextPreviewFetchedAtMs = 0;
     state.contextPreviewBackoffUntilMs = 0;
@@ -8191,25 +8520,46 @@
   CHR.renderProgressStrip();
   CTX.renderContextPreview();
   SRC.syncSourceDiffEntry();
-  MSG.refreshAll()
-    .then(function () {
-      if (initialTab !== "diff") return;
-      if (!state.latestDiffMessageId) {
-        return;
-      }
-      SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
-        CHR.setInlineNote("读取差异失败：" + String(error.message || error));
+  function startAgentTransport() {
+    MSG.refreshAll()
+      .then(function (ok) {
+        if ($U.areAgentRequestsBlocked() || ok === false) {
+          return;
+        }
+        SES.startPolling();
+        if (initialTab !== "diff") return;
+        if (!state.latestDiffMessageId) {
+          return;
+        }
+        SRC.inspectDiffForMessage(state.latestDiffMessageId).catch(function (error) {
+          CHR.setInlineNote("读取差异失败：" + String(error.message || error));
+        });
+      })
+      .catch(function () {})
+      .finally(function () {
+        renderDeltaDebugLog();
       });
-    })
-    .catch(function () {})
-    .finally(function () {
-      renderDeltaDebugLog();
-    });
+  }
+  if (!$U.areAgentRequestsBlocked()) {
+    $U.resolveAgentAuthGate()
+      .then(function (gate) {
+        if (!gate.allowed) {
+          $U.blockAgentRequests(gate.reason);
+          CHR.setInlineNote($U.agentRequestsBlockMessage(gate.reason));
+          return;
+        }
+        startAgentTransport();
+      })
+      .catch(function () {
+        $U.blockAgentRequests("session_check_error");
+        CHR.setInlineNote($U.agentRequestsBlockMessage("session_check_error"));
+      });
+  }
+
   const beforeUnloadHandler = function () {
     SES.closeEventStream();
   };
   window.addEventListener("beforeunload", beforeUnloadHandler);
-  SES.startPolling();
   boot.disposeAgentPanel = function () {
     SES.dispose();
     document.removeEventListener("mei:manage-tab-change", onManageTabChange);
