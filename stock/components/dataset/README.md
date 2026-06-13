@@ -120,7 +120,7 @@
 - 轮播 / client paging 体验
 - 业务 tone/tag 皮肤
 
-popup / drilldown 则通过宿主侧 [`mei-lang/app/assets/spa-navigation.js`](../../mei-lang/app/assets/spa-navigation.js) 桥接到同一套 query contract；它不是 `dataset` 包中的第三个 renderer。
+popup / drilldown 则通过宿主侧 [`mei-lang/app/assets/spa-navigation/`](../../mei-lang/app/assets/spa-navigation/) 桥接到同一套 query contract；它不是 `dataset` 包中的第三个 renderer。
 
 ## 当前边界
 

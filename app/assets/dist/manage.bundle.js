@@ -3348,12 +3348,16 @@
 
 ;
 
-/* ===== spa-navigation.js ===== */
+/* ===== spa-navigation/preamble.js ===== */
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
   if (boot.spaNavigationMounted) return;
   boot.spaNavigationMounted = true;
 
+
+;
+
+/* ===== spa-navigation/constants.js ===== */
   const RELOAD_APP_SCRIPTS = new Set([
     "/app-assets/frame-stage.js",
     "/app-assets/statusbar.js",
@@ -3392,6 +3396,10 @@
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 
+
+;
+
+/* ===== spa-navigation/events.js ===== */
   function dispatchPreviewUpdated(scope = "page", detail = {}) {
     window.dispatchEvent(
       new CustomEvent("meilang:preview-updated", {
@@ -3416,6 +3424,10 @@
       dispatchPanelMetricPrefetch();
     });
   }
+
+;
+
+/* ===== spa-navigation/constants-maps.js ===== */
   const DRILLDOWN_SCENE_BY_FILE = {
     "templates/cockpit/drilldown/metric-explain-board.mei": "metric_explain_board",
     "templates/cockpit/drilldown/generic-drilldown-board.mei": "generic_drilldown_board",
@@ -3441,6 +3453,10 @@
   const SCENE_KIND_ORDER_FALLBACK = ["definition", "composition", "trend", "numerator_denominator", "detail"];
   const SCENE_PROJECTION_CONTEXT_KEY = "mei.scene_projection_context";
 
+
+;
+
+/* ===== spa-navigation/drilldown/column-infer.js ===== */
   function sceneParamRowsetDatasetId(params) {
     if (!params || typeof params !== "object" || Array.isArray(params)) return "";
     return nonEmptyString(params.rowset_dataset_id, params.rowsetDatasetId);
@@ -3485,12 +3501,20 @@
       }),
     };
   }
+
+;
+
+/* ===== spa-navigation/nav-state.js ===== */
   let currentNavigationId = 0;
   let spaNavigationInFlight = 0;
   let loadingTimer = null;
   let loadingVisibleAt = 0;
   let drilldownContextRetryTimer = null;
 
+
+;
+
+/* ===== spa-navigation/route-predicates.js ===== */
   // Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
   const ACCESS_LIKE_ROUTE_SLUGS = new Set([
     "app",
@@ -3557,6 +3581,10 @@
     return popup.mode === "popup_panel" || popup.__kind === "popup_panel";
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/scene-shell-normalize.js ===== */
   function normalizeProjection(value) {
     const raw = String(value || "overlay")
       .trim()
@@ -3803,6 +3831,10 @@
       .filter((tab) => tab && tab !== "hero");
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/board-link.js ===== */
   function normalizeSceneParams(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     const normalized = {};
@@ -3893,6 +3925,10 @@
     return path.replace(/^\.?\/*/, "");
   }
 
+
+;
+
+/* ===== spa-navigation/primitives.js ===== */
   function nonEmptyString(...values) {
     for (const value of values) {
       const text = String(value || "").trim();
@@ -3969,6 +4005,10 @@
     return undefined;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/tab-model-runtime.js ===== */
   function runtimeDrilldownConfig(detail) {
     const value =
       detail?.analysis_contract &&
@@ -4298,6 +4338,10 @@
     return mergedTabs;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/tab-model-overrides.js ===== */
   function normalizeTabMetricOverrides(...values) {
     const raw = values.find(
       (value) =>
@@ -4483,6 +4527,10 @@
     return normalized;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/tab-model-config.js ===== */
   function sceneProjectionAssembly(sceneId, assemblyById) {
     const normalizedSceneId = nonEmptyString(sceneId);
     if (!normalizedSceneId) return null;
@@ -4848,6 +4896,10 @@
     }
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/config-slots.js ===== */
   function resolveAccessAppBasePath(pathname = window.location.pathname) {
     const slug = appRouteSlugFromPathname(pathname);
     if (!ACCESS_LIKE_ROUTE_SLUGS.has(slug)) return "";
@@ -5187,7 +5239,12 @@
     };
   }
 
-  function resolveDrilldownConfig(detail) {
+  /** @deprecated Internal legacy adapter; callers must use resolveSceneOpenRequest. */
+
+;
+
+/* ===== spa-navigation/drilldown/config-legacy.js ===== */
+  function resolveLegacySceneProjectionConfig(detail) {
     const metricId = String(detail?.metric_id || "").trim();
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
@@ -5483,8 +5540,51 @@
     };
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/config-open.js ===== */
+  function buildSceneOpenRequest(config, detail = {}) {
+    const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    return {
+      sceneId: nonEmptyString(config.boardSceneId, config.sceneId, popup?.scene_id, popup?.sceneId),
+      sceneFile: nonEmptyString(config.boardSceneFile, popup?.scene_file, popup?.sceneFile),
+      params: config.params || normalizeSceneParams(popup?.params),
+      entry: nonEmptyString(popup?.entry, popup?.focus, popup?.entry_tab, popup?.entryTab),
+      sceneAssembly: config.sceneShell || null,
+      bindings: config.tabMetrics || {},
+      hostContext: {
+        hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),
+        hostSceneFile: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+        queryStateId: nonEmptyString(config.queryStateId, detail?.query_state_id, detail?.queryStateId),
+        metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+      },
+      projectionSlots: normalizeProjectionSlots(config.projectionSlots || popup?.projection_slots || popup?.projectionSlots),
+      filterSchema: config.filterSchema || normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema),
+      layoutMode: nonEmptyString(config.sceneShell?.layoutMode, config.layoutMode, popup?.layout_mode),
+    };
+  }
+
+  function buildProjectionMount(config, detail = {}) {
+    const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    return {
+      mode: normalizeProjection(nonEmptyString(config.projection, popup?.projection, detail?.projection, "overlay")),
+      title: nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
+      overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
+      restoreContext: {
+        hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),
+        hostSceneFile: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+      },
+    };
+  }
+
   function resolveSceneOpenRequest(detail) {
-    return resolveDrilldownConfig(detail);
+    const config = resolveLegacySceneProjectionConfig(detail);
+    return {
+      ...config,
+      request: buildSceneOpenRequest(config, detail),
+      mount: buildProjectionMount(config, detail),
+    };
   }
 
   function resolveAppPathByPrefixes(pathname, prefixes) {
@@ -5514,6 +5614,10 @@
     return resolveAppPathByPrefixes(pathname, ["/apps/upload/", "/apps/config/"]);
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/debug.js ===== */
   function resolvePopupDebugHost() {
     try {
       if (window.parent && window.parent !== window) {
@@ -5575,6 +5679,10 @@
     );
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/data-fetch.js ===== */
   async function fetchPopupDatasetRows(detail, config, datasetId) {
     const appPath = resolvePreviewAppId();
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
@@ -5763,6 +5871,10 @@
     return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/row-aggregation.js ===== */
   function monthBucketLabel(value) {
     const raw = String(value || "").trim();
     if (!raw) return "";
@@ -5870,6 +5982,10 @@
     };
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/props-builders.js ===== */
   function isAnalyticsChartPresentation(config) {
     return (
       Boolean(config?.hasChartZone) ||
@@ -6047,6 +6163,10 @@
     };
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/widget-mount.js ===== */
   function drilldownChartTag(chartKind, tabId) {
     const explicit = String(chartKind || "").trim().toLowerCase();
     const fallback = normalizeTabId(tabId) === "trend" ? "line" : "bar";
@@ -6306,6 +6426,10 @@
     root.__meiAnalyticsQueryStateCleanup = null;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/render-analytics.js ===== */
   async function mountAnalyticsChartSlots(root, detail, config, chartSlots, chartsHost) {
     const chartMounts = chartSlots.map(async (slot, index) => {
       const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
@@ -6465,6 +6589,10 @@
     }
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/render-list-preview.js ===== */
   const LIST_PREVIEW_ROW_SELECT_EVENT = "mei:table-row-select";
 
   function resolveListPreviewFields(config) {
@@ -6625,6 +6753,10 @@
     }
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/render-structured.js ===== */
   function cleanupStructuredDrilldownWatcher(root) {
     if (!(root instanceof HTMLElement)) return;
     cleanupAnalyticsDrilldownWatcher(root);
@@ -6857,6 +6989,10 @@
     }
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/render-derived.js ===== */
   async function mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride = null) {
     const host =
       hostOverride instanceof HTMLElement
@@ -6967,6 +7103,10 @@
     return false;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/render-generic.js ===== */
   function renderDrilldownContent(root, detail, config, tabId, hostOverride = null) {
     const activeConfig = resolveDrilldownTabConfig(config, tabId);
     applyDrilldownOverlayMeta(root, activeConfig);
@@ -7180,6 +7320,10 @@
     return activeTab;
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/overlay-chrome.js ===== */
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (root) {
@@ -7257,6 +7401,10 @@
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/storage.js ===== */
   function stashSceneProjectionContext(detail, config) {
     try {
       sessionStorage.setItem(
@@ -7325,32 +7473,14 @@
     stashSceneProjectionContext(detail, sceneRequest);
     const targetUrl = resolveBoardRouteUrl(sceneRequest);
     if (!targetUrl) {
-      openDrilldownOverlay(detail, sceneRequest);
+      openProjectionOverlay(detail, sceneRequest);
       return;
     }
     void navigateInternal(targetUrl, false);
   }
 
-  function openSceneProjection(detail, preResolvedRequest = null) {
-    const sceneRequest = preResolvedRequest || resolveSceneOpenRequest(detail);
-    if (!sceneRequest.enabled || !(sceneRequest.boardSceneId || sceneRequest.sceneId)) {
-      if (sceneRequest.errorMessage) {
-        recordPopupDebugIssue({
-          phase: sceneRequest.errorCode || "scene_projection",
-          message: sceneRequest.errorMessage,
-          detail,
-          config: sceneRequest,
-          datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
-          metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
-        });
-      }
-      return;
-    }
-    if (sceneRequest.projection === "route") {
-      openBoardRouteProjection(detail, sceneRequest);
-      return;
-    }
-    openDrilldownOverlay(detail, sceneRequest);
+  function openScene(detail, sceneOpen = null) {
+    openSceneProjection(detail, sceneOpen);
   }
 
   function applySceneProjectionContextFromStorage() {
@@ -7371,11 +7501,49 @@
         entry_tab: entry,
       };
     }
-    openDrilldownOverlay(detail);
+    openSceneProjection(detail, stored.config || null);
   }
 
-  function openDrilldownOverlay(detail, preResolvedRequest = null) {
-    const config = preResolvedRequest || resolveSceneOpenRequest(detail);
+
+;
+
+/* ===== spa-navigation/drilldown/projection-host.js ===== */
+  function openSceneProjection(detail, preResolvedRequest = null) {
+    const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
+    const request = resolved.request || buildSceneOpenRequest(resolved, detail);
+    const mount = resolved.mount || buildProjectionMount(resolved, detail);
+    if (!resolved.enabled || !(request.sceneId || resolved.boardSceneId || resolved.sceneId)) {
+      if (resolved.errorMessage) {
+        recordPopupDebugIssue({
+          phase: resolved.errorCode || "scene_projection",
+          message: resolved.errorMessage,
+          detail,
+          config: resolved,
+          datasetId: nonEmptyString(detail?.dataset_id, detail?.__mei_runtime_ref?.dataset_id),
+          metricId: nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id),
+        });
+      }
+      return;
+    }
+    const renderConfig = {
+      ...resolved,
+      projection: mount.mode,
+      title: mount.title,
+      overlaySize: mount.overlaySize,
+      params: request.params,
+      boardSceneId: request.sceneId,
+      boardSceneFile: request.sceneFile,
+    };
+    if (mount.mode === "route") {
+      openBoardRouteProjection(detail, renderConfig);
+      return;
+    }
+    openProjectionOverlay(detail, renderConfig);
+  }
+
+  function openProjectionOverlay(detail, preResolvedRequest = null) {
+    const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
+    const config = resolved;
     if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
       if (config.errorMessage) {
         recordPopupDebugIssue({
@@ -7445,6 +7613,10 @@
     });
   }
 
+
+;
+
+/* ===== spa-navigation/drilldown/context-banner.js ===== */
   function patchDrilldownTableByMetric(tableMetricId) {
     const metricId = String(tableMetricId || "").trim();
     if (!metricId) return true;
@@ -7535,6 +7707,10 @@
     retry();
   }
 
+
+;
+
+/* ===== spa-navigation/spa/loading-ui.js ===== */
   function currentMainPane() {
     return document.querySelector("#workspace-root main.main");
   }
@@ -7691,6 +7867,10 @@
     clearManageWorkspaceLoadingState();
   }
 
+
+;
+
+/* ===== spa-navigation/spa/url-policy.js ===== */
   function isManageSamePathNavigation(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
@@ -7830,6 +8010,10 @@
     }
   }
 
+
+;
+
+/* ===== spa-navigation/spa/script-sync.js ===== */
   const SCENE_BUNDLE_PATH_PREFIX = "/workspace-components/bundles/";
 
   function isSceneBundlePath(path) {
@@ -7971,6 +8155,10 @@
     });
   }
 
+
+;
+
+/* ===== spa-navigation/spa/script-loader.js ===== */
   function loadScript(rawSrc, options) {
     const opts = options || {};
     const absolute = new URL(rawSrc, window.location.href).toString();
@@ -8027,6 +8215,10 @@
     });
   }
 
+
+;
+
+/* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
     const opts = options || {};
     dispatchManageContextChange(detail);
@@ -8052,6 +8244,10 @@
     pulseManagePreview(extractManagePanelContext(panelRoot), options);
   }
 
+
+;
+
+/* ===== spa-navigation/spa/dom-swap.js ===== */
   function replaceShellFromDoc(doc, url, replaceHistory) {
     const currentShell = document.querySelector(".shell");
     const nextShell = doc.querySelector(".shell");
@@ -8421,6 +8617,10 @@
     return true;
   }
 
+
+;
+
+/* ===== spa-navigation/spa/post-navigation.js ===== */
   function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
     void (async () => {
       try {
@@ -8463,6 +8663,10 @@
     return shouldPreserveManageWorkspace(currentUrl, nextUrl);
   }
 
+
+;
+
+/* ===== spa-navigation/spa/navigation.js ===== */
   async function loadAndSwap(url, replaceHistory, navigationId) {
     const fetchController = new AbortController();
     const fetchTimer = setTimeout(() => fetchController.abort(), SPA_FETCH_TIMEOUT_MS);
@@ -8596,6 +8800,10 @@
     return navigateInternal(url, !!replaceHistory);
   };
 
+
+;
+
+/* ===== spa-navigation/epilogue.js ===== */
   tagExistingBodyScripts();
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();
@@ -8635,5 +8843,6 @@
     }
   });
 })();
+
 
 ;
