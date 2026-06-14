@@ -152,6 +152,12 @@ fn mei_file_kind(root: &Path, relative: &str, file_name: &str) -> Option<String>
     if !file_name.ends_with(".mei") {
         return None;
     }
+    if file_name.ends_with(".board.mei") {
+        return Some("board".into());
+    }
+    if file_name.ends_with(".world.mei") {
+        return Some("world".into());
+    }
     let entry_main = resolve_app_entry_main(root);
     if relative == entry_main || file_name.eq_ignore_ascii_case("main.mei") {
         return Some("main".into());
@@ -176,6 +182,51 @@ fn should_include_source_tree_file(relative: &str) -> bool {
     !relative
         .split('/')
         .any(|seg| !seg.is_empty() && seg.starts_with('.'))
+}
+
+/// 同一 stem 的 Mei 胶囊变体排序：scene `.mei` → `.board.mei` → `.world.mei`。
+fn mei_capsule_variant_rank(file_name: &str) -> u8 {
+    if file_name.ends_with(".world.mei") {
+        2
+    } else if file_name.ends_with(".board.mei") {
+        1
+    } else if file_name.ends_with(".mei") {
+        0
+    } else {
+        3
+    }
+}
+
+fn mei_sort_stem(file_name: &str) -> &str {
+    if let Some(stem) = file_name.strip_suffix(".world.mei") {
+        return stem;
+    }
+    if let Some(stem) = file_name.strip_suffix(".board.mei") {
+        return stem;
+    }
+    if let Some(stem) = file_name.strip_suffix(".mei") {
+        return stem;
+    }
+    file_name
+}
+
+fn source_tree_node_cmp(left: &WorkspaceNode, right: &WorkspaceNode) -> std::cmp::Ordering {
+    match (left.kind.as_str(), right.kind.as_str()) {
+        ("dir", "file") => std::cmp::Ordering::Less,
+        ("file", "dir") => std::cmp::Ordering::Greater,
+        _ => {
+            let stem_cmp = mei_sort_stem(left.name.as_str()).cmp(mei_sort_stem(right.name.as_str()));
+            if stem_cmp != std::cmp::Ordering::Equal {
+                return stem_cmp;
+            }
+            let rank_cmp = mei_capsule_variant_rank(left.name.as_str())
+                .cmp(&mei_capsule_variant_rank(right.name.as_str()));
+            if rank_cmp != std::cmp::Ordering::Equal {
+                return rank_cmp;
+            }
+            left.name.cmp(&right.name)
+        }
+    }
 }
 
 pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
@@ -238,13 +289,7 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
         by_parent: &mut BTreeMap<String, Vec<WorkspaceNode>>,
     ) -> Vec<WorkspaceNode> {
         let mut nodes = by_parent.remove(path).unwrap_or_default();
-        nodes.sort_by(
-            |left, right| match (left.kind.as_str(), right.kind.as_str()) {
-                ("dir", "file") => std::cmp::Ordering::Less,
-                ("file", "dir") => std::cmp::Ordering::Greater,
-                _ => left.name.cmp(&right.name),
-            },
-        );
+        nodes.sort_by(source_tree_node_cmp);
         for node in &mut nodes {
             if node.kind == "dir" {
                 node.children = build(&node.path, by_parent);
@@ -401,6 +446,52 @@ scene(id="home", target="home.mei")
         assert!(paths.contains(&".mei-config.json".to_string()));
         assert!(!paths.iter().any(|p| p.contains("sub/.mei-config")));
         assert!(paths.contains(&"visible.txt".to_string()));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn source_tree_orders_scene_board_world_variants_by_stem() {
+        let root = temp_test_root("source_tree_capsule_sort");
+        fs::create_dir_all(root.join("scenes")).expect("mkdir scenes");
+        for name in [
+            "01-执法要素.board.mei",
+            "01-执法要素.mei",
+            "01-执法要素.world.mei",
+            "02-其他.mei",
+        ] {
+            fs::write(root.join("scenes").join(name), "// stub").expect("write mei");
+        }
+
+        let nodes = source_tree(&root).expect("tree");
+        let scenes = nodes
+            .iter()
+            .find(|node| node.path == "scenes")
+            .map(|node| node.children.as_slice())
+            .unwrap_or_else(|| panic!("missing scenes dir: {:?}", nodes));
+        let names: Vec<_> = scenes
+            .iter()
+            .filter(|node| node.kind == "file")
+            .map(|node| node.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "01-执法要素.mei",
+                "01-执法要素.board.mei",
+                "01-执法要素.world.mei",
+                "02-其他.mei",
+            ]
+        );
+        let board = scenes
+            .iter()
+            .find(|node| node.name == "01-执法要素.board.mei")
+            .expect("board capsule");
+        let world = scenes
+            .iter()
+            .find(|node| node.name == "01-执法要素.world.mei")
+            .expect("world capsule");
+        assert_eq!(board.mei_kind.as_deref(), Some("board"));
+        assert_eq!(world.mei_kind.as_deref(), Some("world"));
         let _ = fs::remove_dir_all(&root);
     }
 

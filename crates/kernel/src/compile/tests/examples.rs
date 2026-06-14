@@ -206,12 +206,14 @@ fn compile_scene_export_preview_enriches_file_tree_children() {
         .find(|node| node.path == "exports.mei" && node.kind == "file")
         .unwrap_or_else(|| panic!("exports.mei missing from file_tree: {:?}", compiled.file_tree));
     assert_eq!(exports_node.children.len(), 2);
-    assert!(
-        exports_node
-            .children
-            .iter()
-            .any(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("overview"))
-    );
+    let overview = exports_node
+        .children
+        .iter()
+        .find(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("overview"))
+        .unwrap_or_else(|| panic!("overview scene_export missing"));
+    assert_eq!(overview.name, "scene_export 概览场景");
+    assert_eq!(overview.semantic_label.as_deref(), Some("overview"));
+    assert_eq!(overview.mei_kind.as_deref(), Some("scene"));
     assert!(
         exports_node
             .children

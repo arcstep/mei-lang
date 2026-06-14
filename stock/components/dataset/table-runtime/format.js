@@ -765,24 +765,65 @@ export function buildExplicitColumnTemplate(descriptors) {
   return tracks.join(" ");
 }
 
-export function columnLayoutWeights(descriptors, fallbackMin = 120) {
-  const floor = Math.max(60, Number(fallbackMin) || 120);
-  const weights = (Array.isArray(descriptors) ? descriptors : []).map((descriptor) => {
-    const key = String(descriptor?.key || "");
-    const fixed = Number(descriptor?.layoutFixedWidth);
-    if (Number.isFinite(fixed) && fixed > 0) return fixed;
-    const min = Number(descriptor?.layoutMinWidth ?? descriptor?.minWidth);
-    if (Number.isFinite(min) && min > 0) return min;
-    const max = Number(descriptor?.layoutMaxWidth ?? descriptor?.maxWidth);
-    if (Number.isFinite(max) && max > 0) return max;
-    if (isDepartmentLikeColumnKey(key)) return Math.max(floor, 200);
-    if (/描述|事项|表现|问题分类|问题描述|存在的问题/.test(key)) return Math.max(floor, 150);
-    if (/主责单位|单位/.test(key)) return Math.max(floor, 130);
-    if (/等级|类型|序号|ID|模型/.test(key)) return Math.max(72, Math.min(floor, 100));
-    return floor;
-  });
+export function columnLayoutWeights(descriptors, fallbackMin = 96) {
+  const weights = (Array.isArray(descriptors) ? descriptors : []).map((descriptor) =>
+    columnMinWidthPx(descriptor, fallbackMin)
+  );
   const total = weights.reduce((sum, value) => sum + value, 0) || 1;
   return weights.map((value) => (value / total) * 100);
+}
+
+/** 单列最小轨宽（px）；供 `<table>` 横向滚动与 `<col>` 定宽使用。 */
+export function columnMinWidthPx(descriptor, fallbackMin = 96) {
+  const floor = Math.max(48, Number(fallbackMin) || 96);
+  const key = String(descriptor?.key || "");
+  const fixed = Number(descriptor?.layoutFixedWidth);
+  if (Number.isFinite(fixed) && fixed > 0) {
+    return Math.round(fixed);
+  }
+  const min = Number(descriptor?.layoutMinWidth ?? descriptor?.minWidth);
+  if (Number.isFinite(min) && min > 0) {
+    return Math.round(min);
+  }
+  const max = Number(descriptor?.layoutMaxWidth ?? descriptor?.maxWidth);
+  if (Number.isFinite(max) && max > 0) {
+    return Math.round(Math.min(max, floor * 2));
+  }
+  if (isCompactWidthKey(key)) {
+    return Math.max(columnWidthFloorForKey(key), 48);
+  }
+  const label = String(descriptor?.label || key).trim();
+  const labelFloor = Math.min(180, Math.max(floor, label.length * 14 + 28));
+  if (isDepartmentLikeColumnKey(key)) {
+    return Math.max(labelFloor, 180);
+  }
+  if (/描述|事项|表现|问题分类|问题描述|存在的问题/.test(key)) {
+    return Math.max(labelFloor, 140);
+  }
+  if (/主责单位|单位/.test(key)) {
+    return Math.max(labelFloor, 120);
+  }
+  return labelFloor;
+}
+
+export function sumDescriptorColumnWidths(descriptors, fallbackMin = 96) {
+  return (Array.isArray(descriptors) ? descriptors : []).reduce(
+    (acc, descriptor) => acc + columnMinWidthPx(descriptor, fallbackMin),
+    0
+  );
+}
+
+export function resolveDatasetTableColumnMinWidth(props) {
+  const raw = Number(props?.columnMinWidth ?? props?.column_min_width);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.floor(raw);
+  }
+  return 96;
+}
+
+export function inlineStyleForColPixelWidth(descriptor, fallbackMin = 96) {
+  const px = columnMinWidthPx(descriptor, fallbackMin);
+  return `box-sizing:border-box;min-width:${px}px;width:${px}px`;
 }
 
 export function inlineStyleForColWidth(descriptor, widthPercent) {
@@ -801,8 +842,15 @@ export function inlineStyleForColWidth(descriptor, widthPercent) {
   return parts.join(";");
 }
 
-export function inlineStyleForColumn(descriptor, target = "cell") {
-  const parts = ["box-sizing:border-box", "min-width:0"];
+export function inlineStyleForColumn(descriptor, target = "cell", options = {}) {
+  const parts = ["box-sizing:border-box"];
+  const respectColWidth = options?.respectColWidth === true;
+  if (respectColWidth) {
+    const px = columnMinWidthPx(descriptor, options?.fallbackMin ?? 96);
+    parts.push(`min-width:${px}px`, `width:${px}px`, `max-width:${px}px`);
+  } else {
+    parts.push("min-width:0");
+  }
   const align = target === "header" ? descriptor?.headerAlign : descriptor?.align;
   const valign = target === "header" ? descriptor?.headerValign : descriptor?.valign;
   const wrap = target === "header" ? descriptor?.headerWrap : descriptor?.wrap;

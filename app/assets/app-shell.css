@@ -2892,12 +2892,57 @@ a.status-chip-link:focus-visible {
   color: #94a3b8;
 }
 .tree-node details { padding-left: 4px; }
+.tree-file-entry {
+  padding-left: 4px;
+}
 .tree-folder-summary {
+  display: flex;
+  align-items: center;
   list-style: none;
+}
+.tree-file-row {
+  display: grid;
+  grid-template-columns: 0.75rem 1rem minmax(0, 1fr);
+  column-gap: 0.375rem;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  padding: 0.125rem 0.25rem 0.125rem 0.5rem;
+  box-shadow: inset 2px 0 0 transparent;
+}
+.tree-file-row--active {
+  box-shadow: inset 2px 0 0 rgb(56 189 248);
+  background: rgba(14, 165, 233, 0.15);
+}
+.tree-file-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-chevron-spacer {
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
 }
 .tree-folder-summary::-webkit-details-marker { display: none; }
 /* 收起：向右 V 形折线；展开：向下 V 形折线（两套图，不靠旋转，避免难辨认） */
-.tree-folder-summary::before {
+.tree-file-row.tree-folder-summary::before {
+  content: "";
+  display: block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 3.25 2.25 L 8.75 6 L 3.25 9.75' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+.tree-li-branch > details[open] > .tree-file-row.tree-folder-summary::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 4 L 6 8.75 L 9.75 4' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+/* 纯文件夹 summary（无 tree-file-row）仍用旧折线布局 */
+.tree-folder-summary:not(.tree-file-row)::before {
   content: "";
   display: inline-block;
   width: 0.75rem;
@@ -2910,7 +2955,7 @@ a.status-chip-link:focus-visible {
   background-position: center;
   background-size: contain;
 }
-.tree-li-branch > details[open] > .tree-folder-summary::before {
+.tree-li-branch > details[open] > .tree-folder-summary:not(.tree-file-row)::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 4 L 6 8.75 L 9.75 4' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .tree-folder-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2924,12 +2969,14 @@ a.status-chip-link:focus-visible {
 }
 
 /* 资源树文件行图标：固定尺寸（不依赖 tailwind 是否扫描到 h-4/w-4） */
+.tree-file-icon,
 .tree-link > span[aria-hidden="true"] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 0;
 }
+.tree-file-icon svg,
 .tree-link > span[aria-hidden="true"] svg,
 .mei-tree-icon svg {
   width: 1rem;
@@ -2945,6 +2992,11 @@ a.tree-link {
 
 .tree-li-scene-exports .tree-scene-export-file-summary {
   list-style: none;
+}
+
+.tree-world-capsule-file-summary a.tree-file-label {
+  color: inherit;
+  text-decoration: none;
 }
 
 .tree-link--scene-export {
@@ -4591,6 +4643,16 @@ a.tree-link {
 
 .world-capsule-preview.world-capsule-dataset-table {
   min-height: 12rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.world-capsule-preview.world-capsule-dataset-table mei-dataset-table {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .world-capsule-scalar-form__grid {

@@ -28,7 +28,16 @@ fn string_field(value: &Value, keys: &[&str]) -> Option<String> {
 }
 
 fn explain_block_id(block: &Value, kind: &str, index: usize) -> String {
-    string_field(block, &["id"]).unwrap_or_else(|| format!("{kind}_{index}"))
+    string_field(
+        block,
+        &[
+            "id",
+            "key",
+            "analysis_scoped_id",
+            "analysis_node_id",
+        ],
+    )
+    .unwrap_or_else(|| format!("{kind}_{index}"))
 }
 
 fn extract_explain_blocks(metric: &Value) -> Vec<WorldSemanticExplainBlock> {
@@ -99,7 +108,10 @@ fn dataset_from_resource(resource: &ResourceDecl) -> Option<WorldSemanticDataset
         .unwrap_or(0);
     Some(WorldSemanticDataset {
         id: id.to_string(),
-        title: resource.title.clone(),
+        title: resource
+            .title
+            .clone()
+            .filter(|text| !text.trim().is_empty()),
         schema_columns: schema_columns_from_resource(resource),
         source_kind: resource
             .source
@@ -108,6 +120,72 @@ fn dataset_from_resource(resource: &ResourceDecl) -> Option<WorldSemanticDataset
             .filter(|kind| !kind.trim().is_empty()),
         filter_field_count,
     })
+}
+
+fn collect_dataset_refs(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for key in ["dataset", "data_ref", "rowset_dataset_id"] {
+                if let Some(raw) = map.get(key).and_then(Value::as_str) {
+                    let token = raw
+                        .trim()
+                        .strip_prefix("dataset.")
+                        .unwrap_or(raw.trim());
+                    if !token.is_empty() {
+                        out.push(token.to_string());
+                    }
+                }
+            }
+            for child in map.values() {
+                collect_dataset_refs(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_dataset_refs(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn enrich_dataset_titles(datasets: &mut [WorldSemanticDataset], metrics: &[Value]) {
+    let mut label_by_dataset: BTreeMap<String, String> = BTreeMap::new();
+    for metric in metrics {
+        let Some(metric_id) = string_field(metric, &["id", "key"]) else {
+            continue;
+        };
+        let Some(label) = string_field(metric, &["label", "title"]) else {
+            continue;
+        };
+        let mut dataset_ids = Vec::new();
+        collect_dataset_refs(metric, &mut dataset_ids);
+        if dataset_ids.is_empty() {
+            if let Some(stem) = metric_id.strip_suffix("_count") {
+                dataset_ids.push(stem.to_string());
+            }
+            if let Some(stem) = metric_id.strip_suffix("_rows") {
+                dataset_ids.push(stem.to_string());
+            }
+        }
+        for dataset_id in dataset_ids {
+            label_by_dataset
+                .entry(dataset_id)
+                .or_insert_with(|| label.clone());
+        }
+    }
+    for dataset in datasets.iter_mut() {
+        if dataset
+            .title
+            .as_ref()
+            .is_some_and(|text| !text.trim().is_empty())
+        {
+            continue;
+        }
+        if let Some(label) = label_by_dataset.get(&dataset.id) {
+            dataset.title = Some(label.clone());
+        }
+    }
 }
 
 fn metric_from_value(metric: &Value) -> Option<WorldSemanticMetric> {
@@ -134,6 +212,7 @@ pub(crate) fn build_world_semantic_index(
         .iter()
         .filter_map(dataset_from_resource)
         .collect::<Vec<_>>();
+    enrich_dataset_titles(&mut datasets, &world.metrics);
     datasets.sort_by(|left, right| left.id.cmp(&right.id));
     let mut metrics = world
         .metrics
@@ -197,7 +276,7 @@ fn build_world_capsule_children(file_path: &str, index: &WorldSemanticFileIndex)
             .collect();
         children.push(workspace_child_node(
             file_path,
-            "datasets".to_string(),
+            "数据集".to_string(),
             "world_group",
             None,
             None,
@@ -253,7 +332,7 @@ fn build_world_capsule_children(file_path: &str, index: &WorldSemanticFileIndex)
             .collect();
         children.push(workspace_child_node(
             file_path,
-            "metrics".to_string(),
+            "指标".to_string(),
             "world_group",
             None,
             None,

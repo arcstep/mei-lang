@@ -1,9 +1,10 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
     resolve_dataset_resource_id, resolve_runtime_metric_def_key, CompiledApp, DatasetView,
-    MetricContract, MetricShape, WorldSemanticMetric,
+    MetricContract, MetricShape, WorldSemanticExplainBlock, WorldSemanticMetric,
 };
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 use super::nodes::component_html;
 use super::resolve::{
@@ -24,13 +25,8 @@ fn component_tag(compiled: &CompiledApp, use_key: &str) -> String {
         })
 }
 
-fn prepare_dataset_table_data(
-    dataset: &DatasetView,
-    resolved_id: &str,
-    file_path: &str,
-    compiled: &CompiledApp,
-) -> Value {
-    let anchor = RuntimeSceneAnchor {
+fn runtime_scene_anchor(compiled: &CompiledApp, file_path: &str) -> RuntimeSceneAnchor {
+    RuntimeSceneAnchor {
         scene_id: compiled
             .active_scene
             .as_deref()
@@ -39,83 +35,15 @@ fn prepare_dataset_table_data(
             .map(str::to_string)
             .unwrap_or_else(|| "default".to_string()),
         scene_path: Some(file_path.to_string()),
-    };
-    let data = serde_json::to_value(dataset).unwrap_or(Value::Null);
-    if dataset.rows.is_empty() {
-        return with_runtime_ref(
-            data,
-            anchor.runtime_ref_extra("data", resolved_id, None, None),
-        );
     }
-    let mut inline = data;
-    if let Some(map) = inline.as_object_mut() {
-        map.insert(
-            "source".to_string(),
-            json!({
-                "kind": "derived",
-                "path": format!("dataset_view:{}", dataset.id),
-            }),
-        );
-    }
-    inline
 }
 
-fn find_world_metrics_dataset<'a>(
-    compiled: &'a CompiledApp,
-    file_path: &str,
-) -> Option<&'a DatasetView> {
-    let namespaced = format!("__world_metrics__::{file_path}::metrics");
-    compiled
-        .resources
-        .iter()
-        .find(|resource| resource.id == "__world_metrics__" || resource.id == namespaced)
-        .and_then(|resource| resource.dataset.as_ref())
-}
-
-fn lookup_metric_contract<'a>(
-    compiled: &'a CompiledApp,
-    dataset: &'a DatasetView,
-    resource_id: &str,
-    metric_id: &str,
-) -> Option<&'a MetricContract> {
-    if let Some(entry) = compiled.world_metrics.get(metric_id) {
-        return Some(&entry.metric);
-    }
-    let canonical = resolve_runtime_metric_def_key(resource_id, metric_id, &dataset.runtime_metric_defs)
-        .unwrap_or_else(|| metric_id.to_string());
-    dataset.metrics.get(&canonical).or_else(|| {
-        dataset
-            .metrics
-            .iter()
-            .find(|(key, _)| key.ends_with(metric_id) || key.contains(&format!("::{metric_id}")))
-            .map(|(_, metric)| metric)
-    })
-}
-
-fn metric_scalar_display(metric: &MetricContract) -> String {
-    if let Some(value) = metric.value.get("value") {
-        return value.to_string().trim_matches('"').to_string();
-    }
-    if metric.value.is_number() || metric.value.is_string() {
-        return metric.value.to_string().trim_matches('"').to_string();
-    }
-    String::new()
-}
-
-fn dataset_table_host_html(
+fn table_host_html(
     compiled: &CompiledApp,
     app_path: &str,
     file_path: &str,
-    dataset: &DatasetView,
-    resolved_id: &str,
-    title: Option<&str>,
+    data: Value,
 ) -> String {
-    let mut data = prepare_dataset_table_data(dataset, resolved_id, file_path, compiled);
-    if let Some(title) = title.filter(|text| !text.trim().is_empty()) {
-        if let Some(map) = data.as_object_mut() {
-            map.insert("title".to_string(), Value::String(title.to_string()));
-        }
-    }
     let props = attach_host_meta(
         json!({
             "data": data,
@@ -130,6 +58,203 @@ fn dataset_table_host_html(
     );
     let tag = component_tag(compiled, "dataset.table");
     component_html(tag.as_str(), &props)
+}
+
+fn prepare_dataset_table_data(
+    dataset: &DatasetView,
+    resolved_id: &str,
+    anchor: &RuntimeSceneAnchor,
+) -> Value {
+    let data = serde_json::to_value(dataset).unwrap_or(Value::Null);
+    with_runtime_ref(
+        data,
+        anchor.runtime_ref_extra("data", resolved_id, None, None),
+    )
+}
+
+fn find_world_metrics_dataset<'a>(
+    compiled: &'a CompiledApp,
+    file_path: &str,
+) -> Option<&'a DatasetView> {
+    let namespaced = format!("__world_metrics__::{file_path}::metrics");
+    compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == "__world_metrics__" || resource.id == namespaced)
+        .and_then(|resource| resource.dataset.as_ref())
+}
+
+const SCALAR_ROWSET_SUFFIX: &str = "__scalar_rowset__";
+
+fn canonical_parent_metric_key(
+    dataset: &DatasetView,
+    resource_id: &str,
+    parent_metric_id: &str,
+) -> String {
+    resolve_runtime_metric_def_key(resource_id, parent_metric_id, &dataset.runtime_metric_defs)
+        .unwrap_or_else(|| parent_metric_id.to_string())
+}
+
+fn tabular_node_id_from_analysis_contract(
+    dataset: &DatasetView,
+    resource_id: &str,
+    parent_metric_id: &str,
+    explain_block_id: &str,
+) -> Option<String> {
+    let parent_key = canonical_parent_metric_key(dataset, resource_id, parent_metric_id);
+    let contract = dataset.runtime_analysis_contracts.get(&parent_key)?;
+    let blocks = contract.get("blocks")?.as_array()?;
+    for block in blocks {
+        let Some(block_obj) = block.as_object() else {
+            continue;
+        };
+        if block_obj
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            != Some(explain_block_id)
+        {
+            continue;
+        }
+        return block_obj
+            .get("node_id")
+            .or_else(|| block_obj.get("metric_id"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    }
+    None
+}
+
+fn tabular_metric_lookup_candidates(
+    parent_metric_id: &str,
+    explain_block_id: Option<&str>,
+    explain_block: Option<&WorldSemanticExplainBlock>,
+    dataset: Option<&DatasetView>,
+    resource_id: &str,
+) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if let Some(block_id) = explain_block_id.map(str::trim).filter(|value| !value.is_empty()) {
+        if let Some(dataset) = dataset {
+            if let Some(node_id) =
+                tabular_node_id_from_analysis_contract(dataset, resource_id, parent_metric_id, block_id)
+            {
+                candidates.push(node_id);
+            }
+        }
+        candidates.push(format!("{parent_metric_id}::{block_id}"));
+        let role = explain_block
+            .and_then(|block| block.support_role.as_deref())
+            .unwrap_or_else(|| explain_block.map(|block| block.kind.as_str()).unwrap_or(""));
+        if role == "detail" {
+            candidates.push(format!("{parent_metric_id}::{SCALAR_ROWSET_SUFFIX}"));
+        }
+        candidates.push(block_id.to_string());
+    } else {
+        candidates.push(parent_metric_id.to_string());
+    }
+    let mut seen = BTreeMap::<String, ()>::new();
+    candidates
+        .into_iter()
+        .filter(|candidate| {
+            if candidate.is_empty() || seen.contains_key(candidate) {
+                false
+            } else {
+                seen.insert(candidate.clone(), ());
+                true
+            }
+        })
+        .collect()
+}
+
+fn resolve_explain_block_id<'a>(
+    metric_meta: &'a WorldSemanticMetric,
+    explain_block_id: Option<&'a str>,
+) -> Option<&'a str> {
+    let raw = explain_block_id?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if metric_meta
+        .explain
+        .iter()
+        .any(|block| block.id == raw)
+    {
+        return Some(raw);
+    }
+    if let Some(suffix) = raw.strip_prefix("data_product_") {
+        if let Ok(index) = suffix.parse::<usize>() {
+            return metric_meta.explain.get(index).map(|block| block.id.as_str());
+        }
+    }
+    Some(raw)
+}
+
+fn lookup_metric_contract<'a>(
+    compiled: &'a CompiledApp,
+    dataset: &'a DatasetView,
+    resource_id: &str,
+    lookup_candidates: &[String],
+    parent_metric_id: Option<&str>,
+) -> Option<&'a MetricContract> {
+    for candidate in lookup_candidates {
+        if let Some(entry) = compiled.world_metrics.get(candidate.as_str()) {
+            if metric_contract_is_tabular(&entry.metric) {
+                return Some(&entry.metric);
+            }
+        }
+    }
+    for candidate in lookup_candidates {
+        if let Some(canonical) =
+            resolve_runtime_metric_def_key(resource_id, candidate.as_str(), &dataset.runtime_metric_defs)
+        {
+            if let Some(metric) = dataset.metrics.get(&canonical) {
+                return Some(metric);
+            }
+        }
+        if let Some(metric) = dataset.metrics.get(candidate.as_str()) {
+            return Some(metric);
+        }
+    }
+    let parent = parent_metric_id.map(str::trim).filter(|value| !value.is_empty())?;
+    for candidate in lookup_candidates {
+        let metric_id = candidate.as_str();
+        if metric_id == parent {
+            continue;
+        }
+        if let Some(metric) = dataset.metrics.iter().find_map(|(key, metric)| {
+            if key == metric_id
+                || key.ends_with(&format!("::{metric_id}"))
+                || (metric_id.contains("::") && key == metric_id)
+            {
+                Some(metric)
+            } else {
+                None
+            }
+        }) {
+            return Some(metric);
+        }
+    }
+    None
+}
+
+fn metric_scalar_display(metric: &MetricContract) -> String {
+    if let Some(value) = metric.value.get("value") {
+        return value.to_string().trim_matches('"').to_string();
+    }
+    if metric.value.is_number() || metric.value.is_string() {
+        return metric.value.to_string().trim_matches('"').to_string();
+    }
+    String::new()
+}
+
+fn metric_contract_is_tabular(contract: &MetricContract) -> bool {
+    matches!(
+        contract.shape,
+        MetricShape::Table | MetricShape::Dataframe | MetricShape::Series
+    ) || contract.value.is_array()
 }
 
 fn dataset_table_preview(
@@ -172,14 +297,14 @@ fn dataset_table_preview(
         }
         .into_any();
     };
-    let html = dataset_table_host_html(
-        compiled,
-        app_path,
-        file_path,
-        dataset,
-        resolved_id.as_str(),
-        title,
-    );
+    let anchor = runtime_scene_anchor(compiled, file_path);
+    let mut data = prepare_dataset_table_data(dataset, resolved_id.as_str(), &anchor);
+    if let Some(title) = title.filter(|text| !text.trim().is_empty()) {
+        if let Some(map) = data.as_object_mut() {
+            map.insert("title".to_string(), Value::String(title.to_string()));
+        }
+    }
+    let html = table_host_html(compiled, app_path, file_path, data);
     view! {
         <section class="world-capsule-preview world-capsule-dataset-table preview-surface min-h-0 p-3">
             <div class="component-host" inner_html=html></div>
@@ -304,20 +429,12 @@ fn metric_table_preview(
     compiled: &CompiledApp,
     app_path: &str,
     file_path: &str,
-    metric_id: &str,
+    lookup_metric_id: &str,
     contract: &MetricContract,
     resource_id: &str,
 ) -> AnyView {
-    let anchor = RuntimeSceneAnchor {
-        scene_id: compiled
-            .active_scene
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "default".to_string()),
-        scene_path: Some(file_path.to_string()),
-    };
+    let anchor = runtime_scene_anchor(compiled, file_path);
+    let metric_id = contract.id.as_str();
     let mut data = with_runtime_ref(
         serde_json::to_value(contract).unwrap_or(Value::Null),
         anchor.runtime_ref_extra("metric", resource_id, Some(metric_id), None),
@@ -326,24 +443,11 @@ fn metric_table_preview(
         .label
         .clone()
         .filter(|text| !text.trim().is_empty())
-        .unwrap_or_else(|| metric_id.to_string());
+        .unwrap_or_else(|| lookup_metric_id.to_string());
     if let Some(map) = data.as_object_mut() {
         map.insert("title".to_string(), Value::String(title));
     }
-    let props = attach_host_meta(
-        json!({
-            "data": data,
-            "paging": { "defaultPageSize": 20 },
-            "toolbar": { "search": true },
-        }),
-        compiled,
-        app_path,
-        &json!({}),
-        Some(file_path),
-        HostMetaOptions::default(),
-    );
-    let tag = component_tag(compiled, "dataset.table");
-    let html = component_html(tag.as_str(), &props);
+    let html = table_host_html(compiled, app_path, file_path, data);
     view! {
         <section class="world-capsule-preview world-capsule-dataset-table preview-surface min-h-0 p-3">
             <div class="component-host" inner_html=html></div>
@@ -384,25 +488,204 @@ pub(crate) fn world_capsule_semantic_preview(
         ));
     }
 
-    let metric_id = semantic.world_metric.map(str::trim).filter(|value| !value.is_empty())?;
-    let metric_meta = index.metrics.iter().find(|metric| metric.id == metric_id)?;
+    let parent_metric_id = semantic.world_metric.map(str::trim).filter(|value| !value.is_empty())?;
+    let metric_meta = index
+        .metrics
+        .iter()
+        .find(|metric| metric.id == parent_metric_id)?;
     let resource_id = index.resource_id.as_str();
     let dataset = find_world_metrics_dataset(compiled, file_path);
-    let contract = dataset
-        .and_then(|dataset| lookup_metric_contract(compiled, dataset, resource_id, metric_id));
-    let preview = match contract.map(|entry| entry.shape) {
-        Some(MetricShape::Scalar) => scalar_metric_form_preview(metric_meta, contract),
-        Some(MetricShape::Table | MetricShape::Dataframe | MetricShape::Series) => {
-            metric_table_preview(
-                compiled,
-                app_path,
-                file_path,
-                metric_id,
-                contract?,
-                resource_id,
-            )
+    let explain_block_id = resolve_explain_block_id(metric_meta, semantic.explain);
+    let explain_block = explain_block_id.and_then(|block_id| {
+        metric_meta
+            .explain
+            .iter()
+            .find(|block| block.id == block_id)
+    });
+    let lookup_candidates = tabular_metric_lookup_candidates(
+        parent_metric_id,
+        explain_block_id,
+        explain_block,
+        dataset,
+        resource_id,
+    );
+    let lookup_metric_id = lookup_candidates
+        .first()
+        .map(String::as_str)
+        .unwrap_or(parent_metric_id);
+    let contract = dataset.and_then(|dataset| {
+        lookup_metric_contract(
+            compiled,
+            dataset,
+            resource_id,
+            &lookup_candidates,
+            Some(parent_metric_id),
+        )
+    });
+    let preview = if contract.is_some_and(metric_contract_is_tabular) {
+        metric_table_preview(
+            compiled,
+            app_path,
+            file_path,
+            lookup_metric_id,
+            contract?,
+            resource_id,
+        )
+    } else if explain_block_id.is_some() {
+        if contract.is_some_and(|entry| entry.shape == MetricShape::Scalar) {
+            scalar_metric_form_preview(metric_meta, contract)
+        } else {
+            view! {
+                <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+                    <p class="m-0">
+                        "未找到 explain 块 `"
+                        {lookup_metric_id.to_string()}
+                        "` 的可表格化物化结果。"
+                    </p>
+                </section>
+            }
+            .into_any()
         }
-        _ => scalar_metric_form_preview(metric_meta, contract),
+    } else if contract.is_some_and(|entry| entry.shape == MetricShape::Scalar) {
+        scalar_metric_form_preview(metric_meta, contract)
+    } else {
+        scalar_metric_form_preview(metric_meta, contract)
     };
     Some(preview)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tabular_metric_lookup_candidates_resolve_detail_scalar_rowset() {
+        let detail = WorldSemanticExplainBlock {
+            id: "detail".to_string(),
+            kind: "detail".to_string(),
+            label: Some("单位明细".to_string()),
+            by: None,
+            support_role: Some("detail".to_string()),
+        };
+        let candidates = tabular_metric_lookup_candidates(
+            "enforcement_units_count",
+            Some("detail"),
+            Some(&detail),
+            None,
+            "__world_metrics__",
+        );
+        assert!(
+            candidates.iter().any(|key| key == "enforcement_units_count::__scalar_rowset__"),
+            "detail explain should fall back to scalar rowset: {candidates:?}"
+        );
+    }
+
+    #[test]
+    fn tabular_metric_lookup_candidates_prefers_analysis_contract_node_id() {
+        use mei_lang_kernel::DatasetView;
+        use serde_json::json;
+        use std::collections::BTreeMap;
+
+        let mut runtime_analysis_contracts = BTreeMap::new();
+        runtime_analysis_contracts.insert(
+            "enforcement_objects_count".to_string(),
+            json!({
+                "blocks": [{
+                    "id": "enforcement_agency_objects_table",
+                    "node_id": "enforcement_objects_count::enforcement_agency_objects_table",
+                }]
+            }),
+        );
+        let dataset = DatasetView {
+            id: "__world_metrics__".to_string(),
+            title: None,
+            purpose: None,
+            schema: Vec::new(),
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: mei_lang_kernel::SourceDecl {
+                kind: "world_metrics".to_string(),
+                path: String::new(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts,
+        };
+        let block = WorldSemanticExplainBlock {
+            id: "enforcement_agency_objects_table".to_string(),
+            kind: "data_product".to_string(),
+            label: None,
+            by: None,
+            support_role: None,
+        };
+        let candidates = tabular_metric_lookup_candidates(
+            "enforcement_objects_count",
+            Some("enforcement_agency_objects_table"),
+            Some(&block),
+            Some(&dataset),
+            "__world_metrics__",
+        );
+        assert_eq!(
+            candidates.first().map(String::as_str),
+            Some("enforcement_objects_count::enforcement_agency_objects_table")
+        );
+    }
+
+    #[test]
+    fn tabular_metric_lookup_candidates_use_parent_for_top_level_metric() {
+        let candidates = tabular_metric_lookup_candidates(
+            "enterprise_map_rows_2025",
+            None,
+            None,
+            None,
+            "__world_metrics__",
+        );
+        assert_eq!(candidates, vec!["enterprise_map_rows_2025".to_string()]);
+    }
+
+    #[test]
+    fn resolve_explain_block_id_maps_legacy_data_product_index() {
+        let metric = WorldSemanticMetric {
+            id: "enforcement_objects_count".to_string(),
+            label: None,
+            unit: None,
+            note: None,
+            explain: vec![
+                mei_lang_kernel::WorldSemanticExplainBlock {
+                    id: "enforcement_venues_table".to_string(),
+                    kind: "data_product".to_string(),
+                    label: Some("场所".to_string()),
+                    by: None,
+                    support_role: None,
+                },
+                mei_lang_kernel::WorldSemanticExplainBlock {
+                    id: "enforcement_agency_objects_table".to_string(),
+                    kind: "data_product".to_string(),
+                    label: Some("机构对象".to_string()),
+                    by: None,
+                    support_role: None,
+                },
+            ],
+        };
+        assert_eq!(
+            resolve_explain_block_id(&metric, Some("data_product_0")),
+            Some("enforcement_venues_table")
+        );
+        assert_eq!(
+            resolve_explain_block_id(&metric, Some("enforcement_agency_objects_table")),
+            Some("enforcement_agency_objects_table")
+        );
+    }
 }

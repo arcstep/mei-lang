@@ -43,11 +43,12 @@ import {
 } from "./table-runtime/state.js";
 import { applyTableQueryResult } from "./table-runtime/query.js";
 import {
-  columnLayoutWeights,
-  inlineStyleForColWidth,
+  inlineStyleForColPixelWidth,
   inlineStyleForColumn,
   resolveColumnDescriptors,
+  resolveDatasetTableColumnMinWidth,
   resolveToneToken,
+  sumDescriptorColumnWidths,
 } from "./table-runtime/format.js";
 import { formatTableRowCountLabel } from "./table-runtime/footer.js";
 
@@ -246,8 +247,20 @@ class MeiDatasetTable extends HTMLElement {
     const sortSummary = activeSort.length > 0 ? `${activeSort[0].field} ${activeSort[0].direction}` : "none";
     this._cellTextMap = new Map();
     const popoverVariant = resolveCellPopoverVariant(this._props);
-    const colWidthPercents = columnLayoutWeights(descriptors, 120);
-    const bodyHtml = renderTableBody(rows, descriptors, this._props, this._cellTextMap, state.loading);
+    const columnMinWidth = resolveDatasetTableColumnMinWidth(this._props);
+    const tableMinPx = Math.max(
+      sumDescriptorColumnWidths(descriptors, columnMinWidth),
+      descriptors.length * 48
+    );
+    const tableStyle = `min-width:max(100%,${tableMinPx}px);width:${tableMinPx}px;`;
+    const bodyHtml = renderTableBody(
+      rows,
+      descriptors,
+      this._props,
+      this._cellTextMap,
+      state.loading,
+      columnMinWidth
+    );
     const columnChooserHtml = buildColumnChooserHtml(state.columns, this.activeColumnState());
     this.shadowRoot.innerHTML = `
       <style>
@@ -271,10 +284,9 @@ class MeiDatasetTable extends HTMLElement {
         .column-actions { display: flex; justify-content: flex-end; }
         .status { color: #94a3b8; font-size: 11px; min-height: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
         .error { color: #fca5a5; }
-        .table-wrap { overflow: auto; border-radius: 12px; border: 1px solid rgba(148,163,184,.16); min-height: 80px; max-width: 100%; min-width: 0; }
-        table { width: 100%; min-width: 100%; border-collapse: collapse; table-layout: fixed; }
-        col { min-width: 0; }
-        th, td { border-bottom: 1px solid rgba(148,163,184,.12); font-size: 12px; min-width: 0; }
+        .table-wrap { overflow-x: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; border: 1px solid rgba(148,163,184,.16); min-height: 80px; max-width: 100%; min-width: 0; }
+        table { border-collapse: collapse; table-layout: fixed; }
+        th, td { border-bottom: 1px solid rgba(148,163,184,.12); font-size: 12px; }
         th { background: rgba(30,41,59,.92); color: #f8fafc; position: sticky; top: 0; z-index: 1; }
         td { color: #cbd5e1; overflow: hidden; }
         ${cellTableChromeStyleBlock()}
@@ -325,11 +337,11 @@ class MeiDatasetTable extends HTMLElement {
           <span>sort: ${escapeHtml(sortSummary)}</span>
         </div>
         <div class="table-wrap">
-          <table>
+          <table style="${escapeHtmlAttr(tableStyle)}">
             <colgroup>${descriptors
               .map(
-                (descriptor, index) =>
-                  `<col style="${escapeHtmlAttr(inlineStyleForColWidth(descriptor, colWidthPercents[index]))}" />`
+                (descriptor) =>
+                  `<col style="${escapeHtmlAttr(inlineStyleForColPixelWidth(descriptor, columnMinWidth))}" />`
               )
               .join("")}</colgroup>
             <thead>
@@ -340,7 +352,7 @@ class MeiDatasetTable extends HTMLElement {
                     return `<th
                       draggable="true"
                       data-column-key="${escapeHtmlAttr(descriptor.key)}"
-                      style="${escapeHtmlAttr(inlineStyleForColumn(descriptor, "header"))}"
+                      style="${escapeHtmlAttr(columnCellStyle(descriptor, "header", columnMinWidth))}"
                       title="${escapeHtmlAttr(descriptor.label)}"
                     >
                       <div class="th-shell">
@@ -566,7 +578,14 @@ function buildColumnChooserHtml(columns, columnState) {
   `;
 }
 
-function renderTableBody(rows, descriptors, props, textMap, loading) {
+function columnCellStyle(descriptor, target, columnMinWidth) {
+  return inlineStyleForColumn(descriptor, target, {
+    respectColWidth: true,
+    fallbackMin: columnMinWidth,
+  });
+}
+
+function renderTableBody(rows, descriptors, props, textMap, loading, columnMinWidth = 96) {
   if (loading) {
     return `<tr><td colspan="${Math.max(descriptors.length, 1)}">loading...</td></tr>`;
   }
@@ -588,7 +607,7 @@ function renderTableBody(rows, descriptors, props, textMap, loading) {
             const content = descriptor.tag
               ? `<span class="cell-tag${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`
               : `<span class="cell-inner${toneClass}${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
-            return `<td style="${escapeHtmlAttr(inlineStyleForColumn(descriptor, "cell"))}">${content}</td>`;
+            return `<td style="${escapeHtmlAttr(columnCellStyle(descriptor, "cell", columnMinWidth))}">${content}</td>`;
           })
           .join("")}</tr>`
     )

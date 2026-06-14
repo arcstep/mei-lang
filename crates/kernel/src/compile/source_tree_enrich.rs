@@ -1,8 +1,38 @@
 use std::path::Path;
 
-use crate::model::WorkspaceNode;
+use serde_json::Value;
+
+use crate::model::{SceneDecl, WorkspaceNode};
 
 use super::load_external::load_scene_decls_from_file;
+
+fn scene_display_label(scene: &SceneDecl) -> String {
+    if let Some(title) = scene_example_title(&scene.examples) {
+        return title;
+    }
+    if let Some(summary) = scene
+        .summary
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        return summary.to_string();
+    }
+    scene.id.clone()
+}
+
+fn scene_example_title(examples: &Value) -> Option<String> {
+    let items = examples.as_array()?;
+    for item in items {
+        let title = item
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|text| !text.is_empty())?;
+        return Some(title.to_string());
+    }
+    None
+}
 
 pub(super) fn enrich_source_tree_with_scene_exports(
     app_root: &Path,
@@ -22,18 +52,23 @@ pub(super) fn enrich_source_tree_with_scene_exports(
         if scenes.len() <= 1 {
             continue;
         }
+        let is_board_capsule = node.path.ends_with(".board.mei");
         node.children = scenes
             .into_iter()
             .map(|scene| WorkspaceNode {
-                name: scene.id.clone(),
+                name: scene_display_label(&scene),
                 path: node.path.clone(),
                 kind: "scene_export".to_string(),
-                mei_kind: Some("scene".to_string()),
-                scene_export_id: Some(scene.id),
+                mei_kind: Some(if is_board_capsule {
+                    "board".to_string()
+                } else {
+                    "scene".to_string()
+                }),
+                scene_export_id: Some(scene.id.clone()),
                 world_dataset_id: None,
                 world_metric_id: None,
                 explain_block_id: None,
-                semantic_label: None,
+                semantic_label: Some(scene.id.clone()),
                 children: Vec::new(),
             })
             .collect();

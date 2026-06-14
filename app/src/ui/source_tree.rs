@@ -18,6 +18,53 @@ fn tree_icons_href(fragment: &str) -> String {
 }
 
 /// 非 .mei 树图标：彩色定义在 `TREE_ICONS_SPRITE_SVG` 的 symbol 内；此处仅 `<use href="#…"/>`。
+fn tree_chevron_spacer() -> AnyView {
+    view! {
+        <span class="tree-chevron-slot tree-chevron-spacer shrink-0" aria-hidden="true"></span>
+    }
+    .into_any()
+}
+
+fn world_semantic_icon(kind: &str) -> AnyView {
+    let span_class = "inline-flex h-4 w-4 items-center justify-center";
+    match kind {
+        "world_dataset" => tree_sprite_icon("i-world-dataset", "数据集", span_class),
+        "world_metric" => tree_sprite_icon("i-world-metric", "指标", span_class),
+        "explain_block" => tree_sprite_icon("i-world-explain", "分析块", span_class),
+        _ => tree_chevron_spacer(),
+    }
+}
+
+fn scene_export_icon(node: &WorkspaceNode) -> AnyView {
+    let span_class = "inline-flex h-4 w-4 items-center justify-center";
+    if node.path.ends_with(".board.mei") || node.mei_kind.as_deref() == Some("board") {
+        return tree_sprite_icon("i-mei-board", "board export（看板入口）", span_class);
+    }
+    mei_coin_file_icon(Some("scene"))
+}
+
+fn tree_file_link_class(active: bool, text_muted: bool) -> &'static str {
+    match (active, text_muted) {
+        (true, _) => {
+            "tree-link tree-file-row tree-file-row--active font-medium text-sky-100 transition-colors"
+        }
+        (false, true) => {
+            "tree-link tree-file-row text-slate-400 transition-colors hover:text-slate-100"
+        }
+        (false, false) => {
+            "tree-link tree-file-row text-slate-300 transition-colors hover:text-slate-100"
+        }
+    }
+}
+
+fn tree_file_summary_class(active: bool) -> &'static str {
+    if active {
+        "tree-folder-summary tree-file-row tree-file-row--active cursor-pointer select-none font-medium text-sky-100 transition-colors"
+    } else {
+        "tree-folder-summary tree-file-row cursor-pointer select-none text-slate-300 transition-colors hover:text-slate-100"
+    }
+}
+
 fn tree_sprite_icon(
     fragment: &'static str,
     title: &'static str,
@@ -163,11 +210,7 @@ pub(crate) fn source_tree_view(
                     active_tab,
                     WorldSemanticQuery::default(),
                 );
-                let class = if node.path == selected_target {
-                    "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[13px] font-medium text-sky-100 transition-colors"
-                } else {
-                    "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[13px] text-slate-300 transition-colors hover:text-slate-100"
-                };
+                let class = tree_file_link_class(node.path == selected_target, false);
                 let preserve_manage_tab = if is_mei_script_path(node.path.as_str()) {
                     "1"
                 } else {
@@ -178,16 +221,19 @@ pub(crate) fn source_tree_view(
                 let manage_config_link = false;
                 view! {
                     <li class="tree-node">
-                        <a
-                            class=class
-                            href=href
-                            data-preserve-manage-tab=preserve_manage_tab
-                            data-manage-config-link=manage_config_link.then_some("1")
-                            title=file_path.clone()
-                        >
-                            <span class="shrink-0" aria-hidden="true">{icon}</span>
-                            <span class="min-w-0 flex-1 truncate">{node.name.clone()}</span>
-                        </a>
+                        <div class="tree-file-entry">
+                            <a
+                                class=class
+                                href=href
+                                data-preserve-manage-tab=preserve_manage_tab
+                                data-manage-config-link=manage_config_link.then_some("1")
+                                title=file_path.clone()
+                            >
+                                {tree_chevron_spacer()}
+                                <span class="tree-file-icon shrink-0" aria-hidden="true">{icon}</span>
+                                <span class="tree-file-label min-w-0 flex-1 truncate">{node.name.clone()}</span>
+                            </a>
+                        </div>
                     </li>
                 }
                 .into_any()
@@ -262,11 +308,7 @@ fn world_capsule_file_branch(
         WorldSemanticQuery::default(),
     );
     let file_active = selected_target == node.path.as_str() && !semantic.has_selection();
-    let file_class = if file_active {
-        "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[13px] font-medium text-sky-100 transition-colors"
-    } else {
-        "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[13px] text-slate-300 transition-colors hover:text-slate-100"
-    };
+    let summary_class = tree_file_summary_class(file_active);
     let world_children = node
         .children
         .iter()
@@ -275,16 +317,15 @@ fn world_capsule_file_branch(
     let world_children = world_children.into_iter().collect_view();
     view! {
         <li class="tree-node tree-li-branch tree-li-world-capsule">
-            <details class="pl-1" open=open>
-                <summary class="tree-folder-summary flex min-w-0 list-none items-center gap-0 py-0">
+            <details class="tree-file-entry" open=open>
+                <summary class=format!("{summary_class} tree-world-capsule-file-summary text-[13px]") title=node.path.clone()>
+                    <span class="tree-file-icon shrink-0" aria-hidden="true">{icon}</span>
                     <a
-                        class=file_class
+                        class="tree-file-label min-w-0 flex-1 truncate"
                         href=file_href
                         data-preserve-manage-tab="1"
-                        title=node.path.clone()
                     >
-                        <span class="shrink-0" aria-hidden="true">{icon}</span>
-                        <span class="min-w-0 flex-1 truncate">{node.name.clone()}</span>
+                        {node.name.clone()}
                     </a>
                 </summary>
                 <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">
@@ -346,17 +387,24 @@ fn world_tree_node(
     let href = world_semantic_href(app_path, file_path, node_semantic);
     let active = world_semantic_is_active(file_path, selected_target, semantic, node);
     let class = if active {
-        "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[12px] font-medium text-sky-100 transition-colors"
+        "tree-link tree-file-row tree-file-row--active font-medium text-sky-100 transition-colors"
     } else {
-        "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] text-slate-400 transition-colors hover:text-slate-100"
+        "tree-link tree-file-row text-slate-400 transition-colors hover:text-slate-100"
     };
     let prefix = match node.kind.as_str() {
-        "explain_block" => "↳ ",
+        "explain_block" => "",
         _ => "",
     };
+    let icon = world_semantic_icon(node.kind.as_str());
     view! {
         <li class="tree-node">
             <a class=class href=href data-preserve-manage-tab="1" title=node.name.clone()>
+                {if node.kind == "explain_block" {
+                    view! { <span class="tree-chevron-slot shrink-0 pl-3" aria-hidden="true"></span> }.into_any()
+                } else {
+                    tree_chevron_spacer()
+                }}
+                <span class="tree-file-icon shrink-0" aria-hidden="true">{icon}</span>
                 <span class="min-w-0 flex-1 truncate">
                     {prefix}
                     {node.name.clone()}
@@ -429,13 +477,13 @@ fn multi_scene_export_file_branch(
     let export_children = export_children.into_iter().collect_view();
     view! {
         <li class="tree-node tree-li-branch tree-li-scene-exports">
-            <details class="pl-1" open=open>
+            <details class="tree-file-entry" open=open>
                 <summary
-                    class="tree-folder-summary tree-scene-export-file-summary flex min-w-0 cursor-pointer select-none items-center gap-1.5 py-0.5 pl-2 pr-1 text-[13px] text-slate-300"
+                    class=format!("{} tree-scene-export-file-summary text-[13px]", tree_file_summary_class(false))
                     title=node.path.clone()
                 >
-                    <span class="shrink-0" aria-hidden="true">{icon}</span>
-                    <span class="tree-folder-label min-w-0 truncate">{node.name.clone()}</span>
+                    <span class="tree-file-icon shrink-0" aria-hidden="true">{icon}</span>
+                    <span class="tree-file-label min-w-0 truncate">{node.name.clone()}</span>
                 </summary>
                 <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">
                     {export_children}
@@ -480,7 +528,7 @@ fn scene_export_tree_row(
     } else {
         "tree-link tree-link--scene-export flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] text-slate-400 transition-colors hover:text-slate-100"
     };
-    let icon = mei_coin_file_icon(Some("scene"));
+    let icon = scene_export_icon(node);
     let title = format!(
         "scene_export `{}` · {}",
         export_id.unwrap_or("-"),
@@ -495,7 +543,7 @@ fn scene_export_tree_row(
                 title=title
             >
                 <span class="shrink-0" aria-hidden="true">{icon}</span>
-                <span class="min-w-0 flex-1 truncate font-mono text-[11px]">{node.name.clone()}</span>
+                <span class="min-w-0 flex-1 truncate text-[12px]">{node.name.clone()}</span>
             </a>
         </li>
     }
@@ -544,7 +592,11 @@ pub(crate) fn tree_icon_for_upload_entry(path: &str, is_dir: bool) -> AnyView {
 fn file_row_icon(node: &WorkspaceNode) -> AnyView {
     let path = node.path.as_str();
     if path.ends_with(".mei") {
-        return mei_coin_file_icon(node.mei_kind.as_deref());
+        let icon_kind = node
+            .mei_kind
+            .as_deref()
+            .filter(|kind| *kind != "board" && *kind != "world");
+        return mei_coin_file_icon(icon_kind);
     }
     tree_file_icon_for_path(path)
 }
