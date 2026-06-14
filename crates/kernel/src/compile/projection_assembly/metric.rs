@@ -669,6 +669,12 @@ fn slot_from_board_view(
     if let Some(columns) = map.get("columns") {
         slot.insert("fields".to_string(), columns.clone());
     }
+    if let Some(column_state) = map.get("column_state") {
+        slot.insert("column_state".to_string(), column_state.clone());
+    }
+    if let Some(page_size) = map.get("page_size").or_else(|| map.get("pageSize")) {
+        slot.insert("page_size".to_string(), page_size.clone());
+    }
     Some(slot)
 }
 

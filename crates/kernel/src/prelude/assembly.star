@@ -125,7 +125,7 @@ def _builtin_scene_shell_contract(scene):
         return _GENERIC_DRILLDOWN_SCENE_SHELL
     return None
 
-def build_view(kind, source, chart_kind = None, mapping = None, label = None, columns = None, fields = None, top_n = None, topN = None):
+def build_view(kind, source, chart_kind = None, mapping = None, label = None, columns = None, fields = None, top_n = None, topN = None, column_state = None, page_size = None, pageSize = None):
     """Explicit view descriptor: data source + how to render (not inferred from explain alone)."""
     if kind == None or str(kind).strip() == "":
         fail("build_view requires kind=chart|table|metric_card|summary")
@@ -151,6 +151,11 @@ def build_view(kind, source, chart_kind = None, mapping = None, label = None, co
     resolved_top_n = top_n if top_n != None else topN
     if resolved_top_n != None:
         payload["top_n"] = resolved_top_n
+    if column_state != None:
+        payload["column_state"] = column_state
+    resolved_page_size = page_size if page_size != None else pageSize
+    if resolved_page_size != None:
+        payload["page_size"] = resolved_page_size
     return _without_empty(payload)
 
 def filter_field(key, label = None, column = None, control = "multi_select"):

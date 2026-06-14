@@ -183,6 +183,20 @@
         : cloneArray(explainMetric?.headers).length
           ? cloneArray(explainMetric.headers)
           : cloneArray(config.headers),
+      column_state:
+        override?.column_state && typeof override.column_state === "object"
+          ? override.column_state
+          : override?.columnState && typeof override.columnState === "object"
+            ? override.columnState
+            : config?.column_state && typeof config.column_state === "object"
+              ? config.column_state
+              : config?.columnState && typeof config.columnState === "object"
+                ? config.columnState
+                : null,
+      pageSize:
+        positiveInt(override?.page_size, override?.pageSize) ||
+        positiveInt(config?.page_size, config?.pageSize) ||
+        config.pageSize,
       compositionBy: (() => {
         const fromExplain = compositionFieldForTab(config, tabId, override);
         if (fromExplain) return [fromExplain];

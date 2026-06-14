@@ -111,6 +111,13 @@
               : null,
           explainBlockId: nonEmptyString(entry.explain_block_id, entry.explainBlockId),
           layoutZone: nonEmptyString(entry.layout_zone, entry.layoutZone),
+          columnState:
+            entry.column_state && typeof entry.column_state === "object"
+              ? entry.column_state
+              : entry.columnState && typeof entry.columnState === "object"
+                ? entry.columnState
+                : null,
+          pageSize: positiveInt(entry.page_size, entry.pageSize),
         };
       })
       .filter((slot) => slot.metricId || slot.datasetId);
@@ -329,6 +336,8 @@
             fields: slot.fields,
             compositionBy: slot.by,
             supportRole: slot.supportRole,
+            column_state: slot.columnState || slot.column_state || undefined,
+            pageSize: positiveInt(slot.pageSize, slot.page_size) || undefined,
             runtimeRef: {
               kind: "metric",
               metricId: slot.metricId,

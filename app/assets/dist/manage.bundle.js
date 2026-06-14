@@ -3487,6 +3487,10 @@
         formats[name] = { truncate: true, maxChars: 14 };
         return;
       }
+      if (/办公地址|住所地址|注册地址/.test(name)) {
+        formats[name] = { truncate: false, wrap: true };
+        return;
+      }
       if (/部门|单位|主责/.test(name)) {
         formats[name] = { truncate: true, maxChars: 18 };
         return;
@@ -3505,6 +3509,18 @@
         if (!name) return { key: name, order };
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
+        }
+        if (/序号/.test(name)) {
+          return { key: name, order, width: 64, width_mode: "fixed", align: "center" };
+        }
+        if (/类别/.test(name)) {
+          return { key: name, order, width: 96, width_mode: "fixed" };
+        }
+        if (/^执法单位$/.test(name)) {
+          return { key: name, order, width: 140, width_mode: "fixed" };
+        }
+        if (/办公地址|住所地址|注册地址/.test(name)) {
+          return { key: name, order, width_mode: "content", wrap: true };
         }
         if (/承办部门|主责单位/.test(name)) {
           return { key: name, order, align: "left" };
@@ -4761,6 +4777,20 @@
         : cloneArray(explainMetric?.headers).length
           ? cloneArray(explainMetric.headers)
           : cloneArray(config.headers),
+      column_state:
+        override?.column_state && typeof override.column_state === "object"
+          ? override.column_state
+          : override?.columnState && typeof override.columnState === "object"
+            ? override.columnState
+            : config?.column_state && typeof config.column_state === "object"
+              ? config.column_state
+              : config?.columnState && typeof config.columnState === "object"
+                ? config.columnState
+                : null,
+      pageSize:
+        positiveInt(override?.page_size, override?.pageSize) ||
+        positiveInt(config?.page_size, config?.pageSize) ||
+        config.pageSize,
       compositionBy: (() => {
         const fromExplain = compositionFieldForTab(config, tabId, override);
         if (fromExplain) return [fromExplain];
@@ -5093,6 +5123,13 @@
               : null,
           explainBlockId: nonEmptyString(entry.explain_block_id, entry.explainBlockId),
           layoutZone: nonEmptyString(entry.layout_zone, entry.layoutZone),
+          columnState:
+            entry.column_state && typeof entry.column_state === "object"
+              ? entry.column_state
+              : entry.columnState && typeof entry.columnState === "object"
+                ? entry.columnState
+                : null,
+          pageSize: positiveInt(entry.page_size, entry.pageSize),
         };
       })
       .filter((slot) => slot.metricId || slot.datasetId);
@@ -5311,6 +5348,8 @@
             fields: slot.fields,
             compositionBy: slot.by,
             supportRole: slot.supportRole,
+            column_state: slot.columnState || slot.column_state || undefined,
+            pageSize: positiveInt(slot.pageSize, slot.page_size) || undefined,
             runtimeRef: {
               kind: "metric",
               metricId: slot.metricId,
@@ -6235,7 +6274,7 @@
       fitColumnsFromSample: true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
-      pageSize: Number(config?.pageSize) > 0 ? Number(config.pageSize) : 8,
+      pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
       cellPreviewMaxChars:
         Number(config?.cellPreviewMaxChars) > 0
           ? Number(config.cellPreviewMaxChars)

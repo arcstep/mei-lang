@@ -16,6 +16,10 @@
         formats[name] = { truncate: true, maxChars: 14 };
         return;
       }
+      if (/办公地址|住所地址|注册地址/.test(name)) {
+        formats[name] = { truncate: false, wrap: true };
+        return;
+      }
       if (/部门|单位|主责/.test(name)) {
         formats[name] = { truncate: true, maxChars: 18 };
         return;
@@ -34,6 +38,18 @@
         if (!name) return { key: name, order };
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
+        }
+        if (/序号/.test(name)) {
+          return { key: name, order, width: 64, width_mode: "fixed", align: "center" };
+        }
+        if (/类别/.test(name)) {
+          return { key: name, order, width: 96, width_mode: "fixed" };
+        }
+        if (/^执法单位$/.test(name)) {
+          return { key: name, order, width: 140, width_mode: "fixed" };
+        }
+        if (/办公地址|住所地址|注册地址/.test(name)) {
+          return { key: name, order, width_mode: "content", wrap: true };
         }
         if (/承办部门|主责单位/.test(name)) {
           return { key: name, order, align: "left" };

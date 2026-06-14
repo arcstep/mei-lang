@@ -632,6 +632,7 @@ function columnWidthCapForKey(key, descriptor = null) {
   if (/等级/.test(name)) return tagLike ? 132 : 108;
   if (/类型|类别/.test(name)) return tagLike ? 240 : 220;
   if (/领域/.test(name)) return 140;
+  if (/办公地址|住所地址|注册地址|地址$/.test(name)) return 640;
   if (/监督模型|模型ID/.test(name)) return 132;
   if (/政策文件|模型依据|监督规则|监督数据|预警类型|描述|事项|表现|情况|规则|依据|文件|数据/.test(name)) {
     return 280;
@@ -686,6 +687,11 @@ function columnHasManualWidth(descriptor) {
   return Number.isFinite(Number(descriptor?.width)) && Number(descriptor.width) > 0;
 }
 
+function isAddressLikeColumnKey(key) {
+  const name = String(key || "").trim();
+  return /办公地址|住所地址|注册地址|地址$/.test(name);
+}
+
 /**
  * 用前 N 行样本推断列宽（表头+单元格），写入 layoutFixedWidth；手工 column_state.width 优先。
  */
@@ -711,6 +717,22 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
       });
     }
     const key = String(descriptor?.key || "");
+    if (
+      isAddressLikeColumnKey(key) &&
+      !columnHasManualWidth(descriptor) &&
+      String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
+        .trim()
+        .toLowerCase() !== "fixed"
+    ) {
+      return finalizeColumnLayout({
+        ...descriptor,
+        widthMode: "content",
+        layoutFixedWidth: null,
+        layoutMinWidth: Math.max(120, columnWidthFloorForKey(key)),
+        layoutMaxWidth: null,
+        layoutClamp: false,
+      });
+    }
     let maxWidthPx = measureDisplayTextPx(descriptor?.label || key, { font: labelFont, charPx });
     let maxContentChars = 0;
     for (const row of sample) {

@@ -134,7 +134,7 @@
       fitColumnsFromSample: true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
-      pageSize: Number(config?.pageSize) > 0 ? Number(config.pageSize) : 8,
+      pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
       cellPreviewMaxChars:
         Number(config?.cellPreviewMaxChars) > 0
           ? Number(config.cellPreviewMaxChars)
