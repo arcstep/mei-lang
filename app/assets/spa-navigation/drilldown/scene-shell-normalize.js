@@ -86,6 +86,28 @@
     };
   }
 
+  function retainZonesMatchingLayout(layout, zones) {
+    if (!layout || !Array.isArray(layout.areas) || !layout.areas.length) {
+      return zones;
+    }
+    const allowed = new Set();
+    layout.areas.forEach((row) => {
+      (Array.isArray(row) ? row : []).forEach((area) => {
+        const name = String(area || "").trim();
+        if (name && name !== ".") {
+          allowed.add(name);
+        }
+      });
+    });
+    if (!allowed.size) {
+      return zones;
+    }
+    return zones.filter((zone) => {
+      const area = nonEmptyString(zone?.area);
+      return area && allowed.has(area);
+    });
+  }
+
   function normalizeSceneShellContract(rawFrame, rawPanels, rawContract = null) {
     const frame =
       rawFrame && typeof rawFrame === "object" && !Array.isArray(rawFrame) ? rawFrame : null;
@@ -119,14 +141,15 @@
     }
     const layout =
       normalizeShellLayout(explicitContract?.layout) || normalizeShellLayout(frame?.layout);
+    const filteredZones = retainZonesMatchingLayout(layout, zones);
     const layoutMode =
       nonEmptyString(explicitContract?.layout_mode, explicitContract?.layoutMode) ||
-      inferSceneShellLayoutMode(zones);
-    if (!layoutMode && !zones.length && !layout) return null;
+      inferSceneShellLayoutMode(filteredZones);
+    if (!layoutMode && !filteredZones.length && !layout) return null;
     return {
       layoutMode,
       layout,
-      zones,
+      zones: filteredZones,
       overlaySize: nonEmptyString(
         explicitContract?.overlay_size,
         explicitContract?.overlaySize,

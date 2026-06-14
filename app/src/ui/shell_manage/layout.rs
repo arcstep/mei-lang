@@ -9,6 +9,7 @@ use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, 
 use super::super::preview;
 use super::super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::super::route::UiRouteMode;
+use super::super::scene_drilldown_context::scene_drilldown_context_json as build_scene_drilldown_context_json;
 use super::super::source_tree;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
@@ -16,7 +17,6 @@ use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
 use super::world_semantic_inspector::{
     should_show_world_semantic_inspector, world_semantic_inspector_view,
 };
-use serde_json::json;
 
 fn asset_codemirror_stack(
     app_path: &str,
@@ -263,15 +263,7 @@ pub(crate) fn manage_shell(
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
     let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
     let scene_drilldown_context_json = if script_target {
-        Some(
-            serde_json::to_string(&json!({
-                "scene_local_nav_by_target": compiled.scene_local_nav_by_target,
-                "scene_bindings_by_id": compiled.scene_bindings_by_id,
-                "scene_examples_by_id": compiled.scene_examples_by_id,
-                "scene_projection_assembly_by_id": compiled.scene_projection_assembly_by_id,
-            }))
-            .unwrap_or_else(|_| "{}".to_string()),
-        )
+        Some(build_scene_drilldown_context_json(compiled))
     } else {
         None
     };

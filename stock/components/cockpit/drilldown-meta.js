@@ -4,6 +4,14 @@ export const DRILLDOWN_EVENT_NAME = "mei:metric-drilldown";
 export const ANALYSIS_OPEN_EVENT_NAME = "mei:analysis-open";
 export const POPUP_OPEN_EVENT_NAME = "mei:popup-open";
 
+function nonEmptyString(...values) {
+  for (const value of values) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 function globalSceneDrilldownContext() {
   if (typeof window === "undefined") {
     return null;

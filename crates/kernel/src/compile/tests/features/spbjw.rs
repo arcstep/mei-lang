@@ -1031,6 +1031,73 @@ fn compile_spbjw_enforcement_elements_analytics_projection_slots() {
 }
 
 #[test]
+fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "scenes/01-执法要素.mei";
+    let board_id = "enforcement_units_analytics_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get(board_id)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "expected assembly for `{board_id}`, keys: {:?}",
+                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+            )
+        });
+    let shell = assembly
+        .get("shell_contract")
+        .and_then(Value::as_object)
+        .expect("enforcement units assembly should include shell_contract");
+    let zone_ids: Vec<String> = shell
+        .get("zones")
+        .and_then(Value::as_array)
+        .map(|zones| {
+            zones
+                .iter()
+                .filter_map(|zone| zone.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    assert!(
+        !zone_ids.iter().any(|id| id == "chart"),
+        "filter_detail board shell_contract should not include chart zone, got {zone_ids:?}"
+    );
+    assert!(
+        zone_ids.iter().any(|id| id == "filter") && zone_ids.iter().any(|id| id == "detail"),
+        "filter_detail board shell_contract should include filter and detail zones, got {zone_ids:?}"
+    );
+    let areas = shell
+        .get("layout")
+        .and_then(|layout| layout.get("areas"))
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.first())
+        .and_then(Value::as_array)
+        .map(|row| {
+            row.iter()
+                .filter_map(|cell| cell.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assert_eq!(
+        areas,
+        vec!["filter".to_string(), "detail".to_string()],
+        "filter_detail board layout areas should be filter+detail only, got {areas:?}"
+    );
+}
+
+#[test]
 fn compile_spbjw_drilldown_kit_template_is_previewable() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Map, Value};
 
@@ -862,6 +862,9 @@ pub(crate) fn scene_shell_contract_from_scene_contract(
     if zones.is_empty() && layout.is_none() {
         return None;
     }
+    if let Some(ref layout) = layout {
+        retain_shell_zones_matching_layout(layout, &mut zones);
+    }
     let layout_mode = infer_scene_shell_layout_mode(&zones);
     let mut payload = Map::new();
     payload.insert(
@@ -890,6 +893,37 @@ pub(crate) fn scene_shell_contract_from_scene_contract(
         );
     }
     Some(payload)
+}
+
+fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
+    let Some(areas) = layout.get("areas").and_then(Value::as_array) else {
+        return;
+    };
+    let mut allowed = BTreeSet::new();
+    for row in areas {
+        let Some(cells) = row.as_array() else {
+            continue;
+        };
+        for cell in cells {
+            let Some(area) = cell.as_str().map(str::trim).filter(|value| !value.is_empty()) else {
+                continue;
+            };
+            if area != "." {
+                allowed.insert(area.to_string());
+            }
+        }
+    }
+    if allowed.is_empty() {
+        return;
+    }
+    zones.retain(|zone| {
+        zone.as_object()
+            .and_then(|map| map.get("area"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some_and(|area| allowed.contains(area))
+    });
 }
 
 fn infer_scene_shell_layout_mode(zones: &[Value]) -> String {
