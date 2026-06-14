@@ -156,6 +156,14 @@ fn build_query_suffix(query: &AppQuery) -> String {
     {
         parts.push(format!("file={}", percent_encode_query_component(file)));
     }
+    if let Some(scene) = query
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("scene={}", percent_encode_query_component(scene)));
+    }
     if let Some(tab) = query
         .tab
         .as_deref()

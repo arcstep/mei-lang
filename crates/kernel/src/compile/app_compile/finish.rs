@@ -8,7 +8,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::compile::entry_payload::CompiledScenePayload;
-use crate::model::{CompiledApp, Diagnostic, LoadedResource, Severity};
+use crate::model::{CompiledApp, Diagnostic, LoadedResource, SceneContract, Severity};
 use crate::workspace::source_tree;
 
 use super::super::catalog::DatasetCatalogFilter;
@@ -68,6 +68,7 @@ pub(super) fn finish_compiled_app(
         active_target_file,
         mut active_payload,
         active_payload_pick_or_compile_ms,
+        hydrated_link_targets,
     } = active;
     let CatalogCompileResult {
         resources,
@@ -117,10 +118,12 @@ pub(super) fn finish_compiled_app(
         active_scene.as_deref(),
         &active_target_file,
         &active_payload,
+        &hydrated_link_targets,
     );
     let scene_projection_assembly_ms = elapsed_ms(scene_projection_started);
     let source_tree_started = Instant::now();
-    let file_tree = source_tree(app_root)?;
+    let mut file_tree = source_tree(app_root)?;
+    super::super::source_tree_enrich::enrich_source_tree_with_scene_exports(app_root, &mut file_tree);
     let source_tree_ms = elapsed_ms(source_tree_started);
     let world_finalize_ms = elapsed_ms(world_finalize_started);
 
@@ -352,12 +355,131 @@ fn push_route_and_graph_diagnostics(
     });
 }
 
+fn insert_scene_projection_assembly_entry(
+    scene_projection_assembly_by_id: &mut BTreeMap<String, Value>,
+    scene_bindings_by_id: &mut BTreeMap<String, Value>,
+    scene_examples_by_id: &mut BTreeMap<String, Value>,
+    scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+    scene_id: &str,
+    target_file: &str,
+    kind: Option<&str>,
+    title: Option<&str>,
+    contract: &SceneContract,
+    resources: &[LoadedResource],
+) {
+    let mut assembly = serde_json::Map::new();
+    assembly.insert(
+        "scene_id".to_string(),
+        Value::String(scene_id.to_string()),
+    );
+    assembly.insert(
+        "target_file".to_string(),
+        Value::String(target_file.to_string()),
+    );
+    if let Some(kind) = kind.map(str::trim).filter(|value| !value.is_empty()) {
+        assembly.insert("kind".to_string(), Value::String(kind.to_string()));
+    }
+    if let Some(title) = title.map(str::trim).filter(|value| !value.is_empty()) {
+        assembly.insert("title".to_string(), Value::String(title.to_string()));
+    }
+    if !contract.scene.bindings.is_null() {
+        scene_bindings_by_id.insert(scene_id.to_string(), contract.scene.bindings.clone());
+        assembly.insert("bindings".to_string(), contract.scene.bindings.clone());
+    }
+    if !contract.scene.examples.is_null() {
+        scene_examples_by_id.insert(scene_id.to_string(), contract.scene.examples.clone());
+        assembly.insert("examples".to_string(), contract.scene.examples.clone());
+    }
+    if !contract.scene.local_nav.is_null() {
+        scene_local_nav_by_target.insert(target_file.to_string(), contract.scene.local_nav.clone());
+        assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
+    }
+    if !contract.scene.params.is_null() {
+        assembly.insert("params".to_string(), contract.scene.params.clone());
+    }
+    if let Some(frame) = contract.frame.as_ref() {
+        assembly.insert(
+            "frame".to_string(),
+            serde_json::to_value(frame).unwrap_or(Value::Null),
+        );
+    }
+    if !contract.panels.is_empty() {
+        assembly.insert(
+            "panels".to_string(),
+            serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
+        );
+    }
+    if let Some(shell_contract) =
+        crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract)
+    {
+        assembly.insert("shell_contract".to_string(), Value::Object(shell_contract));
+    }
+    crate::compile::projection_assembly::enrich_scene_projection_assembly_preview(
+        &mut assembly,
+        contract,
+        resources,
+        target_file,
+    );
+    scene_projection_assembly_by_id.insert(scene_id.to_string(), Value::Object(assembly));
+}
+
+/// Popup drilldown only needs shell + preview slots, not full frame/panels in HTML context.
+fn insert_hydrated_link_projection_assembly_entry(
+    scene_projection_assembly_by_id: &mut BTreeMap<String, Value>,
+    scene_bindings_by_id: &mut BTreeMap<String, Value>,
+    scene_examples_by_id: &mut BTreeMap<String, Value>,
+    scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+    scene_id: &str,
+    target_file: &str,
+    contract: &SceneContract,
+    resources: &[LoadedResource],
+) {
+    if !contract.scene.bindings.is_null() {
+        scene_bindings_by_id.insert(scene_id.to_string(), contract.scene.bindings.clone());
+    }
+    if !contract.scene.examples.is_null() {
+        scene_examples_by_id.insert(scene_id.to_string(), contract.scene.examples.clone());
+    }
+    if !contract.scene.local_nav.is_null() {
+        scene_local_nav_by_target.insert(target_file.to_string(), contract.scene.local_nav.clone());
+    }
+    let mut assembly = serde_json::Map::new();
+    assembly.insert(
+        "scene_id".to_string(),
+        Value::String(scene_id.to_string()),
+    );
+    assembly.insert(
+        "target_file".to_string(),
+        Value::String(target_file.to_string()),
+    );
+    assembly.insert(
+        "kind".to_string(),
+        Value::String("scene_first_board".to_string()),
+    );
+    if !contract.scene.local_nav.is_null() {
+        assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
+    }
+    if let Some(shell_contract) =
+        crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract)
+    {
+        assembly.insert("shell_contract".to_string(), Value::Object(shell_contract));
+    }
+    crate::compile::projection_assembly::enrich_scene_projection_assembly_preview(
+        &mut assembly,
+        contract,
+        resources,
+        target_file,
+    );
+    scene_projection_assembly_by_id.insert(scene_id.to_string(), Value::Object(assembly));
+}
+
 fn build_scene_projection_maps(
     route_registry: &SceneRouteRegistry,
     official_results: &BTreeMap<String, CompiledScenePayload>,
     active_scene: Option<&str>,
     active_target_file: &str,
     active_payload: &CompiledScenePayload,
+    hydrated_link_targets: &BTreeMap<String, (String, CompiledScenePayload)>,
 ) -> (
     BTreeMap<String, Value>,
     BTreeMap<String, Value>,
@@ -375,58 +497,36 @@ fn build_scene_projection_maps(
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;
         };
-        let mut assembly = serde_json::Map::new();
-        assembly.insert(
-            "scene_id".to_string(),
-            Value::String(route.scene_id.clone()),
+        insert_scene_projection_assembly_entry(
+            &mut scene_projection_assembly_by_id,
+            &mut scene_bindings_by_id,
+            &mut scene_examples_by_id,
+            &mut scene_local_nav_by_target,
+            &route.scene_id,
+            &route.target_file,
+            Some(route.kind.as_str()),
+            route.title.as_deref(),
+            contract,
+            &payload.resources,
         );
-        assembly.insert(
-            "target_file".to_string(),
-            Value::String(route.target_file.clone()),
+    }
+    for (scene_id, (target_file, payload)) in hydrated_link_targets {
+        if scene_projection_assembly_by_id.contains_key(scene_id.as_str()) {
+            continue;
+        }
+        let Some(contract) = payload.scene_contract.as_ref() else {
+            continue;
+        };
+        insert_hydrated_link_projection_assembly_entry(
+            &mut scene_projection_assembly_by_id,
+            &mut scene_bindings_by_id,
+            &mut scene_examples_by_id,
+            &mut scene_local_nav_by_target,
+            scene_id,
+            target_file,
+            contract,
+            &payload.resources,
         );
-        assembly.insert("kind".to_string(), Value::String(route.kind.clone()));
-        if let Some(title) = route
-            .title
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            assembly.insert("title".to_string(), Value::String(title.to_string()));
-        }
-        if !contract.scene.bindings.is_null() {
-            scene_bindings_by_id.insert(route.scene_id.clone(), contract.scene.bindings.clone());
-            assembly.insert("bindings".to_string(), contract.scene.bindings.clone());
-        }
-        if !contract.scene.examples.is_null() {
-            scene_examples_by_id.insert(route.scene_id.clone(), contract.scene.examples.clone());
-            assembly.insert("examples".to_string(), contract.scene.examples.clone());
-        }
-        if !contract.scene.local_nav.is_null() {
-            scene_local_nav_by_target
-                .insert(route.target_file.clone(), contract.scene.local_nav.clone());
-            assembly.insert("local_nav".to_string(), contract.scene.local_nav.clone());
-        }
-        if !contract.scene.params.is_null() {
-            assembly.insert("params".to_string(), contract.scene.params.clone());
-        }
-        if let Some(frame) = contract.frame.as_ref() {
-            assembly.insert(
-                "frame".to_string(),
-                serde_json::to_value(frame).unwrap_or(Value::Null),
-            );
-        }
-        if !contract.panels.is_empty() {
-            assembly.insert(
-                "panels".to_string(),
-                serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
-            );
-        }
-        if let Some(shell_contract) =
-            crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract)
-        {
-            assembly.insert("shell_contract".to_string(), Value::Object(shell_contract));
-        }
-        scene_projection_assembly_by_id.insert(route.scene_id.clone(), Value::Object(assembly));
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
         if let Some(active_scene_id) = active_scene {
@@ -476,6 +576,12 @@ fn build_scene_projection_maps(
                 if let Some(shell_contract) = crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract) {
                     assembly_map.insert("shell_contract".to_string(), Value::Object(shell_contract));
                 }
+                crate::compile::projection_assembly::enrich_scene_projection_assembly_preview(
+                    assembly_map,
+                    contract,
+                    &active_payload.resources,
+                    active_target_file,
+                );
             }
             if !contract.scene.bindings.is_null() {
                 scene_bindings_by_id

@@ -181,7 +181,7 @@ pub fn compile_app_from_root_with_options_and_revision(
         preview_affected_targets.clone(),
         &options,
     );
-    hydrate_scene_links(
+    active.hydrated_link_targets = hydrate_scene_links(
         app_root,
         &app_decls,
         &asset_map,
@@ -250,13 +250,14 @@ fn hydrate_scene_links(
     scene_registry: &SceneRegistry,
     active_payload: &mut super::entry_payload::CompiledScenePayload,
     active_target_file: &str,
-) {
+) -> BTreeMap<String, (String, super::entry_payload::CompiledScenePayload)> {
+    let mut hydrated = BTreeMap::<String, (String, super::entry_payload::CompiledScenePayload)>::new();
     let Some(contract) = active_payload.scene_contract.as_ref() else {
-        return;
+        return hydrated;
     };
     let scene_refs = collect_scene_first_target_refs(&contract.panels);
     if scene_refs.is_empty() {
-        return;
+        return hydrated;
     }
     let mut target_scene_contracts = BTreeMap::<String, SceneContract>::new();
     let mut target_scene_ids_by_file = BTreeMap::<String, Vec<String>>::new();
@@ -275,7 +276,7 @@ fn hydrate_scene_links(
             is_default: false,
             access_export: true,
         };
-        let payload = compile_scene_payload_for_target_uncached(
+        let mut payload = compile_scene_payload_for_target_uncached(
             app_root,
             app_decls,
             asset_map,
@@ -283,15 +284,16 @@ fn hydrate_scene_links(
             Some(&route_meta),
             scene_registry,
         );
-        if let Some(contract) = payload.scene_contract {
-            let scene_ids = target_scene_ids_by_file.entry(target_file).or_default();
+        if let Some(contract) = payload.scene_contract.as_ref() {
+            let scene_ids = target_scene_ids_by_file.entry(target_file.clone()).or_default();
             if !scene_ids.iter().any(|existing| existing == &scene_id) {
                 scene_ids.push(scene_id.clone());
                 scene_ids.sort();
             }
-            target_scene_contracts.insert(scene_id, contract);
+            target_scene_contracts.insert(scene_id.clone(), contract.clone());
         }
-        active_payload.diagnostics.extend(payload.diagnostics);
+        active_payload.diagnostics.append(&mut payload.diagnostics);
+        hydrated.insert(scene_id, (target_file, payload));
     }
     if let Some(contract) = active_payload.scene_contract.as_mut() {
         crate::compile::projection_assembly::lower_scene_links_in_panels(
@@ -303,6 +305,7 @@ fn hydrate_scene_links(
             &mut active_payload.diagnostics,
         );
     }
+    hydrated
 }
 
 fn collect_scene_first_target_refs(

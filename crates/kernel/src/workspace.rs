@@ -209,6 +209,7 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
                 path: relative,
                 kind: "dir".to_string(),
                 mei_kind: None,
+                scene_export_id: None,
                 children: Vec::new(),
             });
         } else {
@@ -218,6 +219,7 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
                 path: relative,
                 kind: "file".to_string(),
                 mei_kind,
+                scene_export_id: None,
                 children: Vec::new(),
             });
         }

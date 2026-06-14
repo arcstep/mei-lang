@@ -63,7 +63,8 @@ pub(super) fn render_compiled_success(
     } else if route_mode.uses_scene_route() {
         access_path_scene.map(str::to_string)
     } else {
-        canonical_scene_for_target(compiled, manage_file)
+        manage_scene_for_render(compiled, query.scene.as_deref())
+            .or_else(|| canonical_scene_for_target(compiled, manage_file))
             .or_else(|| compiled.active_scene.clone())
             .or_else(|| {
                 compiled.scene_contract.as_ref().and_then(|c| {
@@ -75,7 +76,6 @@ pub(super) fn render_compiled_success(
                     }
                 })
             })
-            .or_else(|| manage_scene_for_render(compiled, query.scene.as_deref()))
     };
     let scene_for_default = manage_scene_resolved
         .as_deref()

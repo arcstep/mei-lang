@@ -42,6 +42,10 @@ pub(super) fn expand_board_assembly(
         return None;
     };
     let layout_mode = scene_shell_layout_mode(&shell);
+    let slots_dataset_id = match (layout_mode.as_deref(), rowset_dataset_id.as_deref()) {
+        (Some("analytics") | Some("list_preview"), Some(rowset)) => rowset,
+        _ => dataset_id.as_str(),
+    };
 
     let slots = match layout_mode.as_deref() {
         Some("generic_tabs") => {
@@ -57,7 +61,7 @@ pub(super) fn expand_board_assembly(
         }
         Some("analytics") => expand_board_analytics_slots(
             metric_id,
-            &dataset_id,
+            slots_dataset_id,
             contract.as_ref(),
             &shell,
             payload.get("charts"),
@@ -70,7 +74,7 @@ pub(super) fn expand_board_assembly(
         )?,
         Some("list_preview") => expand_board_list_preview_slots(
             metric_id,
-            &dataset_id,
+            slots_dataset_id,
             contract.as_ref(),
             &shell,
             payload.get("detail"),
@@ -839,6 +843,12 @@ fn find_explain_block<'a>(
     None
 }
 
+fn is_world_metrics_owner_dataset_id(dataset_id: &str) -> bool {
+    let dataset_id = dataset_id.trim();
+    dataset_id == imported_world_metrics_resource_id("")
+        || dataset_id.starts_with("__world_metrics__::")
+}
+
 fn slot_from_explain_block(
     block_map: &Map<String, Value>,
     metric_id: &str,
@@ -861,7 +871,7 @@ fn slot_from_explain_block(
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| metric_id.to_string());
-    let slot_dataset_id = block_map
+    let block_dataset_id = block_map
         .get("dataset_id")
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
@@ -874,8 +884,18 @@ fn slot_from_explain_block(
                 .and_then(Value::as_str)
                 .filter(|s| !s.is_empty())
                 .map(str::to_string)
-        })
-        .unwrap_or_else(|| dataset_id.to_string());
+        });
+    let slot_dataset_id = match block_dataset_id.as_deref() {
+        Some(block_ds)
+            if is_world_metrics_owner_dataset_id(block_ds)
+                && !dataset_id.is_empty()
+                && !is_world_metrics_owner_dataset_id(dataset_id) =>
+        {
+            dataset_id.to_string()
+        }
+        Some(block_ds) => block_ds.to_string(),
+        None => dataset_id.to_string(),
+    };
     let slot_id = block_map
         .get("id")
         .and_then(Value::as_str)

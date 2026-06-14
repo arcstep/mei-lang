@@ -187,6 +187,47 @@ fn compile_refs_examples_baselines() {
 }
 
 #[test]
+fn compile_scene_export_preview_enriches_file_tree_children() {
+    let source_root = dev_examples_root().join("core");
+    let app_root = source_root.join("08-scene-export-resource");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("detail".to_string()),
+            preview_target: Some("exports.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile scene export preview failed: {error}"));
+    let mut nodes = Vec::new();
+    walk_file_tree(&compiled.file_tree, &mut nodes);
+    let exports_node = nodes
+        .into_iter()
+        .find(|node| node.path == "exports.mei" && node.kind == "file")
+        .unwrap_or_else(|| panic!("exports.mei missing from file_tree: {:?}", compiled.file_tree));
+    assert_eq!(exports_node.children.len(), 2);
+    assert!(
+        exports_node
+            .children
+            .iter()
+            .any(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("overview"))
+    );
+    assert!(
+        exports_node
+            .children
+            .iter()
+            .any(|child| child.kind == "scene_export" && child.scene_export_id.as_deref() == Some("detail"))
+    );
+}
+
+fn walk_file_tree<'a>(nodes: &'a [crate::WorkspaceNode], out: &mut Vec<&'a crate::WorkspaceNode>) {
+    for node in nodes {
+        out.push(node);
+        walk_file_tree(&node.children, out);
+    }
+}
+
+#[test]
 fn compile_scene_export_preview_target_selects_requested_export() {
     let source_root = dev_examples_root().join("core");
     let app_root = source_root.join("08-scene-export-resource");

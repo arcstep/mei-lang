@@ -22,6 +22,9 @@ pub struct WorkspaceNode {
     /// `.mei` 语义：`main` / `scene` / `mei`（普通脚本）；非 mei 文件为 `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mei_kind: Option<String>,
+    /// build 资源树：`scene_export` 子节点对应的 export id（文件路径见 `path`）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_export_id: Option<String>,
     #[serde(default)]
     pub children: Vec<WorkspaceNode>,
 }

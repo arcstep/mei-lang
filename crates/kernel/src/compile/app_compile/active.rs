@@ -21,6 +21,8 @@ pub(super) struct ActiveCompileResult {
     pub active_target_file: String,
     pub active_payload: CompiledScenePayload,
     pub active_payload_pick_or_compile_ms: u64,
+    /// Board / scene-first targets compiled while hydrating popup links on the active scene.
+    pub hydrated_link_targets: BTreeMap<String, (String, CompiledScenePayload)>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -279,5 +281,6 @@ pub(super) fn precompile_and_pick_active(
         active_target_file,
         active_payload,
         active_payload_pick_or_compile_ms,
+        hydrated_link_targets: BTreeMap::new(),
     }
 }
