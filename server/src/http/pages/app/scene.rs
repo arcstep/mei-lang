@@ -38,9 +38,14 @@ pub(super) fn canonical_scene_for_target(
     if target_file.is_empty() {
         return None;
     }
-    compiled
+    let matches = compiled
         .scene_routes
         .iter()
-        .find(|r| r.target_file == target_file)
+        .filter(|r| r.target_file == target_file)
         .map(|r| r.scene_id.clone())
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [scene_id] => Some(scene_id.clone()),
+        _ => None,
+    }
 }

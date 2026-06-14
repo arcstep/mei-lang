@@ -3673,11 +3673,21 @@
     };
   }
 
-  function normalizeSceneShellContract(rawFrame, rawPanels) {
+  function normalizeSceneShellContract(rawFrame, rawPanels, rawContract = null) {
     const frame =
       rawFrame && typeof rawFrame === "object" && !Array.isArray(rawFrame) ? rawFrame : null;
     const panels = Array.isArray(rawPanels) ? rawPanels : [];
+    const explicitContract =
+      rawContract && typeof rawContract === "object" && !Array.isArray(rawContract) ? rawContract : null;
     const zones = [];
+    if (Array.isArray(explicitContract?.zones)) {
+      explicitContract.zones.forEach((zone) => {
+        const normalized = normalizeSceneShellZone(zone, nonEmptyString(zone?.parent));
+        if (normalized) {
+          zones.push(normalized);
+        }
+      });
+    }
     const collectZones = (items, parent = "") => {
       (Array.isArray(items) ? items : []).forEach((item) => {
         if (!item || typeof item !== "object" || Array.isArray(item) || item.kind !== "panel") return;
@@ -3691,14 +3701,23 @@
         collectZones(childPanels, nonEmptyString(item.id));
       });
     };
-    collectZones(panels);
-    const layout = normalizeShellLayout(frame?.layout);
-    const layoutMode = inferSceneShellLayoutMode(zones);
+    if (!zones.length) {
+      collectZones(panels);
+    }
+    const layout =
+      normalizeShellLayout(explicitContract?.layout) || normalizeShellLayout(frame?.layout);
+    const layoutMode =
+      nonEmptyString(explicitContract?.layout_mode, explicitContract?.layoutMode) ||
+      inferSceneShellLayoutMode(zones);
     if (!layoutMode && !zones.length && !layout) return null;
     return {
       layoutMode,
       layout,
       zones,
+      overlaySize: nonEmptyString(
+        explicitContract?.overlay_size,
+        explicitContract?.overlaySize,
+      ),
     };
   }
 
@@ -5027,7 +5046,11 @@
   }
 
   function resolveSceneShell(sceneAssembly) {
-    return normalizeSceneShellContract(sceneAssembly?.frame, sceneAssembly?.panels);
+    return normalizeSceneShellContract(
+      sceneAssembly?.frame,
+      sceneAssembly?.panels,
+      sceneAssembly?.shell_contract,
+    );
   }
 
   function sceneShellZoneById(sceneShell, zoneId) {

@@ -122,7 +122,7 @@ def flex(direction, wrap = None, gap = None, padding = None, align = None, justi
         "justify": justify,
     })
 
-def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None, base = None):
+def _frame_node(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None, base = None):
     payload = {
         "kind": "frame",
         "id": id,
@@ -137,7 +137,38 @@ def frame(id = None, title = None, layout = None, blocks = None, profile = None,
         payload["blocks"] = blocks
     if panels != None:
         payload["panels"] = panels
-    return _declare(_clean(payload))
+    return _clean(payload)
+
+def frame(id = None, title = None, layout = None, blocks = None, profile = None, props = None, panels = None, base = None):
+    return _declare(_frame_node(
+        id = id,
+        title = title,
+        layout = layout,
+        blocks = blocks,
+        profile = profile,
+        props = props,
+        panels = panels,
+        base = base,
+    ))
+
+def frame_export(id, title = None, layout = None, blocks = None, profile = None, props = None, panels = None, base = None):
+    export_id = str(id).strip() if id != None else ""
+    if export_id == "":
+        fail("frame_export(...) requires `id`")
+    return _declare({
+        "kind": "frame_export",
+        "id": export_id,
+        "frame": _frame_node(
+            id = export_id,
+            title = title,
+            layout = layout,
+            blocks = blocks,
+            profile = profile,
+            props = props,
+            panels = panels,
+            base = base,
+        ),
+    })
 
 def frame_set_layout(layout):
     return _declare({
@@ -345,6 +376,44 @@ def panel_decl(id = None, title = None, subtitle = None, area = None, layout = N
         scale = scale,
     ))
 
+def panel_export(id, title = None, subtitle = None, area = None, layout = None, blocks = None, data = None, props = None, slot = None, head_props = None, body_props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, base = None, scale = None):
+    export_id = str(id).strip() if id != None else ""
+    if export_id == "":
+        fail("panel_export(...) requires `id`")
+    return _declare({
+        "kind": "panel_export",
+        "id": export_id,
+        "panel": _panel_node(
+            id = export_id,
+            title = title,
+            subtitle = subtitle,
+            area = area,
+            layout = layout,
+            blocks = blocks,
+            data = data,
+            props = props,
+            slot = slot,
+            head_props = head_props,
+            body_props = body_props,
+            data_plan = data_plan,
+            variant = variant,
+            chrome = chrome,
+            show_heading = show_heading,
+            heading = heading,
+            heading_variant = heading_variant,
+            title_background = title_background,
+            title_decor = title_decor,
+            title_height = title_height,
+            title_align = title_align,
+            layout_policy = layout_policy,
+            layout_gap = layout_gap,
+            layout_padding = layout_padding,
+            layout_columns = layout_columns,
+            base = base,
+            scale = scale,
+        ),
+    })
+
 def box(id = None, title = None, area = None, layout = None, blocks = [], data = None, props = None, data_plan = None, variant = None, chrome = None, show_heading = None, heading = None, heading_variant = None, title_background = None, title_decor = None, title_height = None, title_align = None, layout_policy = None, layout_gap = None, layout_padding = None, layout_columns = None, scale = None):
     return panel(
         id = id,
@@ -437,6 +506,33 @@ def component(use = None, id = None, title = None, area = None, pack = "cockpit-
     if base != None:
         payload["base"] = base
     return _clean(payload)
+
+def component_export(id, use = None, title = None, area = None, pack = "cockpit-default", data = None, props = None, mapping = None, layout = None, blocks = None, interactions = [], placement = None, lifecycle = None, constraints = None, data_plan = None, base = None):
+    export_id = str(id).strip() if id != None else ""
+    if export_id == "":
+        fail("component_export(...) requires `id`")
+    return _declare({
+        "kind": "component_export",
+        "id": export_id,
+        "block": component(
+            use = use,
+            id = export_id,
+            title = title,
+            area = area,
+            pack = pack,
+            data = data,
+            props = props,
+            mapping = mapping,
+            layout = layout,
+            blocks = blocks,
+            interactions = interactions,
+            placement = placement,
+            lifecycle = lifecycle,
+            constraints = constraints,
+            data_plan = data_plan,
+            base = base,
+        ),
+    })
 
 def component_ref(use = None, id = None, pack = "cockpit-default", scene_file = None, scene_id = None, data = None, props = None, mapping = None):
     _ = (data, props, mapping, pack)

@@ -117,7 +117,11 @@
   }
 
   function resolveSceneShell(sceneAssembly) {
-    return normalizeSceneShellContract(sceneAssembly?.frame, sceneAssembly?.panels);
+    return normalizeSceneShellContract(
+      sceneAssembly?.frame,
+      sceneAssembly?.panels,
+      sceneAssembly?.shell_contract,
+    );
   }
 
   function sceneShellZoneById(sceneShell, zoneId) {

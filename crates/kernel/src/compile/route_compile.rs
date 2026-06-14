@@ -115,6 +115,7 @@ pub(super) fn precompile_route_payloads(
                 app_root,
                 source_root,
                 route.target_file.as_str(),
+                Some(route.scene_id.as_str()),
                 dependency_fingerprint.as_deref(),
             );
             let payload = compile_scene_payload_for_target(
@@ -162,6 +163,7 @@ pub(super) fn precompile_route_payloads(
                     app_root,
                     source_root,
                     route.target_file.as_str(),
+                    Some(route.scene_id.as_str()),
                     dependency_fingerprint.as_deref(),
                 );
                 let payload = compile_scene_payload_for_target(

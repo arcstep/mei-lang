@@ -14,7 +14,7 @@ pub(crate) fn lower_scene_links_in_panels(
     resources: &[crate::model::LoadedResource],
     target_file: &str,
     target_scene_contracts: &BTreeMap<String, SceneContract>,
-    target_scene_ids_by_file: &BTreeMap<String, String>,
+    target_scene_ids_by_file: &BTreeMap<String, Vec<String>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for panel in panels.iter_mut() {
@@ -50,7 +50,7 @@ fn walk_scene_ui_nodes_mut(
     target_file: &str,
     import_scope: Option<&str>,
     target_scene_contracts: &BTreeMap<String, SceneContract>,
-    target_scene_ids_by_file: &BTreeMap<String, String>,
+    target_scene_ids_by_file: &BTreeMap<String, Vec<String>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     for node in nodes.iter_mut() {
@@ -125,7 +125,7 @@ fn walk_scene_value_mut(
     target_file: &str,
     import_scope: Option<&str>,
     target_scene_contracts: &BTreeMap<String, SceneContract>,
-    target_scene_ids_by_file: &BTreeMap<String, String>,
+    target_scene_ids_by_file: &BTreeMap<String, Vec<String>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     match value {
@@ -257,7 +257,7 @@ fn lower_scene_link(
     target_file: &str,
     import_scope: Option<&str>,
     target_scene_contracts: &BTreeMap<String, SceneContract>,
-    target_scene_ids_by_file: &BTreeMap<String, String>,
+    target_scene_ids_by_file: &BTreeMap<String, Vec<String>>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     if link.get("board").is_some() {
@@ -557,7 +557,7 @@ fn scene_param_value_matches_type(value: &Value, param_type: &str) -> bool {
 
 fn resolve_target_scene_id(
     scene_ref: &Map<String, Value>,
-    target_scene_ids_by_file: &BTreeMap<String, String>,
+    target_scene_ids_by_file: &BTreeMap<String, Vec<String>>,
 ) -> Option<String> {
     if let Some(scene_id) = scene_ref
         .get("scene_id")
@@ -574,7 +574,11 @@ fn resolve_target_scene_id(
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .and_then(|path| target_scene_ids_by_file.get(path).cloned())
+        .and_then(|path| target_scene_ids_by_file.get(path))
+        .and_then(|scene_ids| match scene_ids.as_slice() {
+            [scene_id] => Some(scene_id.clone()),
+            _ => None,
+        })
 }
 
 fn synthesize_scene_first_board_payload(
@@ -824,7 +828,7 @@ fn binding_value_for_zone(
         .find_map(|key| bindings.get(&key).cloned().filter(|value| !value.is_null()))
 }
 
-fn scene_shell_contract_from_scene_contract(
+pub(crate) fn scene_shell_contract_from_scene_contract(
     contract: &SceneContract,
 ) -> Option<Map<String, Value>> {
     let mut zones = Vec::new();

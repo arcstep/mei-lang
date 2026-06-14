@@ -111,6 +111,11 @@ pub(super) fn precompile_and_pick_active(
         .map(str::trim)
         .filter(|target| !target.is_empty())
         .map(|value| value.to_string());
+    let selected_scene_hint = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
     let active_payload_pick_started = Instant::now();
     let (active_scene, active_target_file, active_payload) = if let Some(target_file) =
         selected_target
@@ -118,7 +123,23 @@ pub(super) fn precompile_and_pick_active(
         if let Some(scene_route) = route_registry
             .routes
             .iter()
-            .find(|route| route.target_file == target_file)
+            .find(|route| {
+                route.target_file == target_file
+                    && selected_scene_hint
+                        .map(|scene_id| route.scene_id == scene_id)
+                        .unwrap_or(true)
+            })
+            .or_else(|| {
+                active_route_meta
+                    .as_ref()
+                    .filter(|route| route.target_file == target_file)
+            })
+            .or_else(|| {
+                route_registry
+                    .routes
+                    .iter()
+                    .find(|route| route.target_file == target_file)
+            })
             .cloned()
         {
             let payload = official_results

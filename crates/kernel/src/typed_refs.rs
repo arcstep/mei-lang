@@ -337,7 +337,7 @@ fn ref_kind_tag(kind: RefKind) -> &'static str {
 #[derive(Debug, Default)]
 pub struct SceneRegistry {
     by_id: BTreeMap<String, String>,
-    by_file: BTreeMap<String, String>,
+    by_file: BTreeMap<String, Vec<String>>,
 }
 
 impl SceneRegistry {
@@ -348,7 +348,18 @@ impl SceneRegistry {
     pub fn register(&mut self, scene_id: String, scene_file: String) {
         let scene_file = normalize_rel_path(&scene_file);
         self.by_id.insert(scene_id.clone(), scene_file.clone());
-        self.by_file.insert(scene_file, scene_id);
+        let file_entries = self.by_file.entry(scene_file).or_default();
+        if !file_entries.iter().any(|entry| entry == &scene_id) {
+            file_entries.push(scene_id);
+            file_entries.sort();
+        }
+    }
+
+    pub fn scene_ids_for_file(&self, scene_file: &str) -> Vec<String> {
+        self.by_file
+            .get(&normalize_rel_path(scene_file))
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn resolve_target(&self, locator: &SceneLocator) -> Result<(String, String), String> {
@@ -370,8 +381,15 @@ impl SceneRegistry {
             .filter(|path| !path.is_empty())
         {
             let normalized = normalize_rel_path(scene_file);
-            if let Some(scene_id) = self.by_file.get(&normalized) {
-                return Ok((scene_id.clone(), normalized));
+            if let Some(scene_ids) = self.by_file.get(&normalized) {
+                return match scene_ids.as_slice() {
+                    [] => Err(format!("unknown scene_file `{scene_file}`")),
+                    [scene_id] => Ok((scene_id.clone(), normalized)),
+                    _ => Err(format!(
+                        "scene_file `{scene_file}` exports multiple scenes [{}]; provide scene_id",
+                        scene_ids.join(", ")
+                    )),
+                };
             }
             return Err(format!("unknown scene_file `{scene_file}`"));
         }
@@ -433,5 +451,18 @@ mod tests {
             .expect("resolve");
         assert_eq!(scene_id, "home");
         assert_eq!(file, "scenes/home.mei");
+    }
+
+    #[test]
+    fn scene_registry_requires_scene_id_for_multi_scene_file() {
+        let mut registry = SceneRegistry::new();
+        registry.register("alpha".to_string(), "scenes/exported.mei".to_string());
+        registry.register("beta".to_string(), "scenes/exported.mei".to_string());
+        let error = registry
+            .resolve_target(&SceneLocator::with_file("scenes/exported.mei"))
+            .expect_err("multi scene file should require scene id");
+        assert!(error.contains("exports multiple scenes"));
+        assert!(error.contains("alpha"));
+        assert!(error.contains("beta"));
     }
 }

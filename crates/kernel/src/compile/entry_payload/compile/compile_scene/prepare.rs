@@ -58,6 +58,18 @@ pub(super) fn prepare_scene_selection(
     let requires_scene_contract =
         (route_meta.is_some() || target_file != ctx.app_entry_main) && !ctx.dataset_library_only;
     if requires_scene_contract && ctx.selected_scene.is_none() {
+        if ctx.scenes.len() > 1 {
+            ctx.diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                code: "missing_scene_export_selector".to_string(),
+                message: format!(
+                    "scene resource file declares multiple exported scenes [{}]; select one via scene_id/route before compile",
+                    ctx.scenes.keys().cloned().collect::<Vec<_>>().join(", ")
+                ),
+                source_path: Some(target_file.to_string()),
+            });
+            return;
+        }
         let is_legacy_fragment = ctx.frame_decl_count > 0
             || !ctx.panels.is_empty()
             || ctx.world_decl_count > 0

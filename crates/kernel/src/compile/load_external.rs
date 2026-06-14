@@ -3,7 +3,10 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 use serde_json::Value;
 
-use crate::model::{EntityDecl, FlowDecl, FrameDecl, PanelDecl, ResourceDecl, SceneDecl};
+use crate::model::{
+    ComponentExportDecl, EntityDecl, FlowDecl, FrameDecl, FrameExportDecl, PanelDecl,
+    PanelExportDecl, ResourceDecl, SceneDecl, SceneExportDecl,
+};
 
 use super::decl_file_cache::evaluate_mei_file_cached;
 use super::decls::{
@@ -11,7 +14,93 @@ use super::decls::{
     WorldSetTopologyDecl,
 };
 use super::mutations::apply_world_mutations_to_decl;
-use super::scene_binding::{parse_world_binding, SceneBinding};
+use super::scene_binding::{decode_scene_decl, parse_world_binding, SceneBinding};
+
+fn set_missing_id(value: &mut Value, id: &str) {
+    let should_fill = value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .map(|value| value.is_empty())
+        .unwrap_or(true);
+    if should_fill {
+        value["id"] = Value::String(id.to_string());
+    }
+}
+
+fn load_scene_decl_values(
+    app_root: &Path,
+    relative_path: &str,
+    decls: &Value,
+) -> Result<Vec<SceneDecl>> {
+    let mut scenes = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            match value.get("kind").and_then(Value::as_str) {
+                Some("scene") => scenes.push(decode_scene_decl(app_root, value, relative_path, None)?),
+                Some("scene_export") => {
+                    let export = serde_json::from_value::<SceneExportDecl>(value.clone())?;
+                    let mut scene_value = export.scene;
+                    set_missing_id(&mut scene_value, export.id.as_str());
+                    scenes.push(decode_scene_decl(
+                        app_root,
+                        &scene_value,
+                        relative_path,
+                        None,
+                    )?);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(scenes)
+}
+
+fn load_frame_decl_values(decls: &Value) -> Result<Vec<FrameDecl>> {
+    let mut frames = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            match value.get("kind").and_then(Value::as_str) {
+                Some("frame") => {
+                    frames.push(serde_json::from_value::<FrameDecl>(value.clone())?);
+                }
+                Some("frame_export") => {
+                    let export = serde_json::from_value::<FrameExportDecl>(value.clone())?;
+                    let mut frame_value = export.frame;
+                    set_missing_id(&mut frame_value, export.id.as_str());
+                    frames.push(serde_json::from_value::<FrameDecl>(frame_value)?);
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(frames)
+}
+
+fn load_panel_decl_values(decls: &Value) -> Result<Vec<PanelDecl>> {
+    let mut panels = Vec::new();
+    if let Some(values) = decls.as_array() {
+        for value in values {
+            match value.get("kind").and_then(Value::as_str) {
+                Some("panel") | Some("panel_decl") => {
+                    if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
+                        panels.push(panel);
+                    }
+                }
+                Some("panel_export") => {
+                    let export = serde_json::from_value::<PanelExportDecl>(value.clone())?;
+                    let mut panel_value = export.panel;
+                    set_missing_id(&mut panel_value, export.id.as_str());
+                    if let Ok(panel) = serde_json::from_value::<PanelDecl>(panel_value) {
+                        panels.push(panel);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(panels)
+}
 
 pub(super) fn load_world_from_file(
     app_root: &Path,
@@ -169,15 +258,12 @@ pub(super) fn load_frame_from_file(
 ) -> Result<FrameDecl> {
     let source_path = app_root.join(relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
-    let mut frames = Vec::new();
+    let mut frames = load_frame_decl_values(&decls)?;
     let mut pending_layout: Option<crate::model::LayoutDecl> = None;
     let mut frame_layout_set_count = 0usize;
     if let Some(values) = decls.as_array() {
         for value in values {
             match value.get("kind").and_then(Value::as_str) {
-                Some("frame") => {
-                    frames.push(serde_json::from_value::<FrameDecl>(value.clone())?);
-                }
                 Some("frame_set_layout") => {
                     let decl = serde_json::from_value::<FrameSetLayoutDecl>(value.clone())?;
                     frame_layout_set_count += 1;
@@ -281,23 +367,19 @@ pub(super) fn load_panel_from_scene_file(
 ) -> Result<PanelDecl> {
     let source_path = app_root.join(relative_path);
     let decls = evaluate_mei_file_cached(&source_path)?;
-    let mut panels = Vec::new();
-    if let Some(values) = decls.as_array() {
-        for value in values {
-            if matches!(
-                value.get("kind").and_then(Value::as_str),
-                Some("panel") | Some("panel_decl")
-            ) {
-                if let Ok(panel) = serde_json::from_value::<PanelDecl>(value.clone()) {
-                    panels.push(panel);
-                }
-            }
-        }
-    }
-    panels
+    load_panel_decl_values(&decls)?
         .into_iter()
         .find(|panel| panel.id == panel_id)
         .ok_or_else(|| anyhow!("panel_ref `{relative_path}` did not contain panel id `{panel_id}`"))
+}
+
+pub(super) fn load_scene_decls_from_file(
+    app_root: &Path,
+    relative_path: &str,
+) -> Result<Vec<SceneDecl>> {
+    let source_path = app_root.join(relative_path);
+    let decls = evaluate_mei_file_cached(&source_path)?;
+    load_scene_decl_values(app_root, relative_path, &decls)
 }
 
 pub(super) fn load_scene_from_file(
@@ -305,16 +387,7 @@ pub(super) fn load_scene_from_file(
     relative_path: &str,
     scene_id: Option<&str>,
 ) -> Result<SceneDecl> {
-    let source_path = app_root.join(relative_path);
-    let decls = evaluate_mei_file_cached(&source_path)?;
-    let mut scenes = Vec::new();
-    if let Some(values) = decls.as_array() {
-        for value in values {
-            if value.get("kind").and_then(Value::as_str) == Some("scene") {
-                scenes.push(serde_json::from_value::<SceneDecl>(value.clone())?);
-            }
-        }
-    }
+    let scenes = load_scene_decls_from_file(app_root, relative_path)?;
     if let Some(expected_id) = scene_id {
         return scenes
             .into_iter()
@@ -439,6 +512,20 @@ pub(super) fn load_block_from_scene_file(
 }
 
 fn collect_block_candidates(value: &Value, out: &mut Vec<Value>) {
+    if value.get("kind").and_then(Value::as_str) == Some("component_export") {
+        if let Ok(export) = serde_json::from_value::<ComponentExportDecl>(value.clone()) {
+            let mut block = export.block;
+            set_missing_id(&mut block, export.id.as_str());
+            collect_block_candidates(&block, out);
+        }
+    }
+    if value.get("kind").and_then(Value::as_str) == Some("panel_export") {
+        if let Ok(export) = serde_json::from_value::<PanelExportDecl>(value.clone()) {
+            let mut panel = export.panel;
+            set_missing_id(&mut panel, export.id.as_str());
+            collect_block_candidates(&panel, out);
+        }
+    }
     if value.get("kind").and_then(Value::as_str) == Some("block") || value.get("use_key").is_some()
     {
         out.push(value.clone());

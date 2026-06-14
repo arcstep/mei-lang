@@ -259,7 +259,7 @@ fn hydrate_scene_links(
         return;
     }
     let mut target_scene_contracts = BTreeMap::<String, SceneContract>::new();
-    let mut target_scene_ids_by_file = BTreeMap::<String, String>::new();
+    let mut target_scene_ids_by_file = BTreeMap::<String, Vec<String>>::new();
     for (scene_id, scene_file) in scene_refs {
         let target_file = if scene_file.trim().is_empty() {
             active_target_file.to_string()
@@ -284,7 +284,11 @@ fn hydrate_scene_links(
             scene_registry,
         );
         if let Some(contract) = payload.scene_contract {
-            target_scene_ids_by_file.insert(target_file, scene_id.clone());
+            let scene_ids = target_scene_ids_by_file.entry(target_file).or_default();
+            if !scene_ids.iter().any(|existing| existing == &scene_id) {
+                scene_ids.push(scene_id.clone());
+                scene_ids.sort();
+            }
             target_scene_contracts.insert(scene_id, contract);
         }
         active_payload.diagnostics.extend(payload.diagnostics);

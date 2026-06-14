@@ -11,7 +11,9 @@ use crate::compile::entry_payload::clone_merge::{
     resolve_entity_slot, resolve_panel_slot, resolve_resource_slot,
 };
 use crate::compile::scene_binding::decode_scene_decl;
-use crate::model::{Diagnostic, FlowDecl, FrameDecl, Severity, ThemeDecl};
+use crate::model::{
+    Diagnostic, FlowDecl, FrameDecl, FrameExportDecl, SceneExportDecl, Severity, ThemeDecl,
+};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::scene_binding::{
@@ -95,6 +97,42 @@ pub(super) fn scan_declarations(
                         }
                     }
                 }
+                "frame_export" => {
+                    let export = serde_json::from_value::<FrameExportDecl>(value.clone())?;
+                    let mut frame_value = export.frame;
+                    if frame_value
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .map(|id| id.is_empty())
+                        .unwrap_or(true)
+                    {
+                        frame_value["id"] = Value::String(export.id.clone());
+                    }
+                    let mut frame_decl =
+                        serde_json::from_value::<FrameDecl>(frame_value.clone())?;
+                    if frame_decl.base.is_some() || frame_value.get("base").is_some() {
+                        match normalize_frame_decl(
+                            app_root,
+                            frame_decl,
+                            &frame_value,
+                            scene_registry,
+                            &mut ctx.diagnostics,
+                            target_file,
+                        ) {
+                            Some(normalized) => frame_decl = normalized,
+                            None => continue,
+                        }
+                    }
+                    if let Some(id) = frame_decl
+                        .id
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        ctx.frames.insert(id.to_string(), frame_decl);
+                    }
+                }
                 "scene" => {
                     if ctx.first_scene_decl_index.is_none() {
                         ctx.first_scene_decl_index = Some(decl_index);
@@ -126,7 +164,75 @@ pub(super) fn scan_declarations(
                         target_file,
                         &mut ctx.diagnostics,
                     );
-                    ctx.scenes.insert(scene_decl.id.clone(), scene_decl);
+                    if ctx
+                        .scenes
+                        .insert(scene_decl.id.clone(), scene_decl.clone())
+                        .is_some()
+                    {
+                        ctx.diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "duplicate_scene_resource_id".to_string(),
+                            message: format!(
+                                "scene resource id `{}` was declared more than once in `{target_file}`",
+                                scene_decl.id
+                            ),
+                            source_path: Some(target_file.to_string()),
+                        });
+                    }
+                }
+                "scene_export" => {
+                    let export = serde_json::from_value::<SceneExportDecl>(value.clone())?;
+                    let mut scene_value = export.scene;
+                    if scene_value
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .map(|id| id.is_empty())
+                        .unwrap_or(true)
+                    {
+                        scene_value["id"] = Value::String(export.id.clone());
+                    }
+                    let mut scene_decl =
+                        decode_scene_decl(app_root, &scene_value, target_file, Some(scene_registry))?;
+                    normalize_shared_context(
+                        &mut scene_decl.shared,
+                        "scene_export.shared",
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
+                    normalize_scene_params(
+                        &mut scene_decl.params,
+                        &format!("scene export `{}`.params", scene_decl.id),
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
+                    normalize_scene_bindings(
+                        &mut scene_decl.bindings,
+                        &format!("scene export `{}`.bindings", scene_decl.id),
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
+                    normalize_scene_examples(
+                        &mut scene_decl.examples,
+                        &format!("scene export `{}`.examples", scene_decl.id),
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
+                    if ctx
+                        .scenes
+                        .insert(scene_decl.id.clone(), scene_decl.clone())
+                        .is_some()
+                    {
+                        ctx.diagnostics.push(Diagnostic {
+                            severity: Severity::Error,
+                            code: "duplicate_scene_resource_id".to_string(),
+                            message: format!(
+                                "scene resource id `{}` was declared more than once in `{target_file}`",
+                                scene_decl.id
+                            ),
+                            source_path: Some(target_file.to_string()),
+                        });
+                    }
                 }
                 "world" => {
                     if ctx.first_world_decl_index.is_none() {

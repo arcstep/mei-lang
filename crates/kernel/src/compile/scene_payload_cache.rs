@@ -173,6 +173,7 @@ pub(crate) fn scene_payload_cache_key(
     app_root: &Path,
     source_root: &Path,
     target_file: &str,
+    scene_selector: Option<&str>,
     dependency_fingerprint: Option<&str>,
 ) -> Option<String> {
     let target_file = normalize_target_file(target_file);
@@ -185,8 +186,9 @@ pub(crate) fn scene_payload_cache_key(
     }
     let main_path = app_root.join("main.mei");
     Some(format!(
-        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|{}|{}|{}|{}",
+        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}",
         app_root.display(),
+        scene_selector.unwrap_or("-"),
         file_mtime_ms(&target_path),
         file_mtime_ms(&main_path),
         app_revision(app_root).max(components_revision(source_root)),
@@ -214,10 +216,17 @@ pub(super) fn scene_payload_cache_has_entry(
     app_root: &Path,
     source_root: &Path,
     target_file: &str,
+    scene_selector: Option<&str>,
     dependency_fingerprint: Option<&str>,
 ) -> bool {
     let Some(key) =
-        scene_payload_cache_key(app_root, source_root, target_file, dependency_fingerprint)
+        scene_payload_cache_key(
+            app_root,
+            source_root,
+            target_file,
+            scene_selector,
+            dependency_fingerprint,
+        )
     else {
         return false;
     };
@@ -238,8 +247,15 @@ pub(super) fn compile_scene_payload_for_target(
     scene_registry: &SceneRegistry,
     dependency_fingerprint: Option<&str>,
 ) -> CompiledScenePayload {
+    let scene_selector = route_meta.map(|route| route.scene_id.as_str());
     if let Some(key) =
-        scene_payload_cache_key(app_root, source_root, target_file, dependency_fingerprint)
+        scene_payload_cache_key(
+            app_root,
+            source_root,
+            target_file,
+            scene_selector,
+            dependency_fingerprint,
+        )
     {
         if let Some(payload) = take_scene_payload_cache(&key) {
             SCENE_PAYLOAD_CACHE_HITS.fetch_add(1, Ordering::Relaxed);

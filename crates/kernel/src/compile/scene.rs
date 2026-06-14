@@ -2,7 +2,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::model::{AppDecl, CompiledSceneRoute, Diagnostic, Severity};
+use crate::model::{AppDecl, CompiledSceneRoute, Diagnostic, SceneExportDecl, Severity};
 use crate::typed_refs::{decode_ref_value, normalize_rel_path, RefKind};
 
 use super::decls::SceneFileRefDecl;
@@ -219,36 +219,67 @@ fn collect_inline_scene_routes(
         return;
     };
     for value in values {
-        if value.get("kind").and_then(Value::as_str) != Some("scene") {
-            continue;
-        }
-        let scene_id = value
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| scene_name_from_path("main.mei"));
-        upsert_route(
-            routes,
-            CompiledSceneRoute {
-                scene_id: scene_id.clone(),
-                frame_id: None,
-                target_file: "main.mei".to_string(),
-                kind: "inline".to_string(),
-                title: value
+        match value.get("kind").and_then(Value::as_str) {
+            Some("scene") => {
+                let scene_id = value
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| scene_name_from_path("main.mei"));
+                upsert_route(
+                    routes,
+                    CompiledSceneRoute {
+                        scene_id: scene_id.clone(),
+                        frame_id: None,
+                        target_file: "main.mei".to_string(),
+                        kind: "inline".to_string(),
+                        title: value
+                            .get("summary")
+                            .and_then(Value::as_str)
+                            .map(|value| value.to_string()),
+                        is_default: false,
+                        access_export: value
+                            .get("access_export")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true),
+                    },
+                    diagnostics,
+                    Some(app_main.to_string_lossy().to_string()),
+                );
+            }
+            Some("scene_export") => {
+                let Ok(export) = serde_json::from_value::<SceneExportDecl>(value.clone()) else {
+                    continue;
+                };
+                let title = export
+                    .scene
                     .get("summary")
                     .and_then(Value::as_str)
-                    .map(|value| value.to_string()),
-                is_default: false,
-                access_export: value
+                    .map(|value| value.to_string());
+                let access_export = export
+                    .scene
                     .get("access_export")
                     .and_then(Value::as_bool)
-                    .unwrap_or(true),
-            },
-            diagnostics,
-            Some(app_main.to_string_lossy().to_string()),
-        );
+                    .unwrap_or(true);
+                upsert_route(
+                    routes,
+                    CompiledSceneRoute {
+                        scene_id: export.id.clone(),
+                        frame_id: None,
+                        target_file: "main.mei".to_string(),
+                        kind: "inline_export".to_string(),
+                        title,
+                        is_default: false,
+                        access_export,
+                    },
+                    diagnostics,
+                    Some(app_main.to_string_lossy().to_string()),
+                );
+            }
+            _ => {}
+        }
     }
 }
 

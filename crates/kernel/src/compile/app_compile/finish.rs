@@ -85,8 +85,14 @@ pub(super) fn finish_compiled_app(
     let target_scene_ids_by_file = route_registry
         .routes
         .iter()
-        .map(|route| (route.target_file.clone(), route.scene_id.clone()))
-        .collect::<BTreeMap<_, _>>();
+        .fold(BTreeMap::<String, Vec<String>>::new(), |mut acc, route| {
+            let scene_ids = acc.entry(route.target_file.clone()).or_default();
+            if !scene_ids.iter().any(|scene_id| scene_id == &route.scene_id) {
+                scene_ids.push(route.scene_id.clone());
+                scene_ids.sort();
+            }
+            acc
+        });
     if let Some(contract) = active_payload.scene_contract.as_mut() {
         crate::compile::projection_assembly::lower_scene_links_in_panels(
             &mut contract.panels,
@@ -415,6 +421,11 @@ fn build_scene_projection_maps(
                 serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
             );
         }
+        if let Some(shell_contract) =
+            crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract)
+        {
+            assembly.insert("shell_contract".to_string(), Value::Object(shell_contract));
+        }
         scene_projection_assembly_by_id.insert(route.scene_id.clone(), Value::Object(assembly));
     }
     if let Some(contract) = active_payload.scene_contract.as_ref() {
@@ -461,6 +472,9 @@ fn build_scene_projection_maps(
                         "panels".to_string(),
                         serde_json::to_value(&contract.panels).unwrap_or(Value::Null),
                     );
+                }
+                if let Some(shell_contract) = crate::compile::projection_assembly::scene_shell_contract_from_scene_contract(contract) {
+                    assembly_map.insert("shell_contract".to_string(), Value::Object(shell_contract));
                 }
             }
             if !contract.scene.bindings.is_null() {

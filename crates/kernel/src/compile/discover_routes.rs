@@ -18,6 +18,7 @@ use crate::model::{
 use crate::typed_refs::SceneRegistry;
 
 use super::materialize::materialize_world_metrics;
+use super::load_external::load_scene_decls_from_file;
 use super::scene::find_scene_route;
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
@@ -52,10 +53,10 @@ pub(super) fn try_push_discovered_entry_route(
     if scene_id.is_empty() || target_file.is_empty() {
         return;
     }
-    if routes.iter().any(|r| r.target_file == target_file) {
-        return;
-    }
-    if routes.iter().any(|r| r.scene_id == scene_id) {
+    if routes
+        .iter()
+        .any(|r| r.scene_id == scene_id || (r.target_file == target_file && r.scene_id == scene_id))
+    {
         return;
     }
     routes.push(CompiledSceneRoute {
@@ -257,26 +258,40 @@ pub(super) fn inject_discovered_entry_scene_routes(
     preview_only: bool,
 ) {
     if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
-        if preview.ends_with(".mei") && !routes.iter().any(|r| r.target_file == preview) {
-            let payload = compile_scene_payload_for_target(
-                app_root,
-                source_root,
-                app_decls,
-                asset_map,
-                preview,
-                None,
-                scene_registry,
-                None,
-            );
-            if let Some(contract) = payload.scene_contract.as_ref() {
-                let sid = contract.scene.id.trim().to_string();
-                if !sid.is_empty() {
-                    try_push_discovered_entry_route(
-                        routes,
-                        sid,
-                        preview.to_string(),
-                        contract.scene.access_export,
-                    );
+        if preview.ends_with(".mei") {
+            if let Ok(scenes) = load_scene_decls_from_file(app_root, preview) {
+                for scene in scenes {
+                    let sid = scene.id.trim().to_string();
+                    if !sid.is_empty() {
+                        try_push_discovered_entry_route(
+                            routes,
+                            sid,
+                            preview.to_string(),
+                            scene.access_export,
+                        );
+                    }
+                }
+            } else {
+                let payload = compile_scene_payload_for_target(
+                    app_root,
+                    source_root,
+                    app_decls,
+                    asset_map,
+                    preview,
+                    None,
+                    scene_registry,
+                    None,
+                );
+                if let Some(contract) = payload.scene_contract.as_ref() {
+                    let sid = contract.scene.id.trim().to_string();
+                    if !sid.is_empty() {
+                        try_push_discovered_entry_route(
+                            routes,
+                            sid,
+                            preview.to_string(),
+                            contract.scene.access_export,
+                        );
+                    }
                 }
             }
         }
@@ -325,9 +340,6 @@ pub(super) fn inject_discovered_entry_scene_routes(
             continue;
         };
         let rel_str = rel.to_string_lossy().replace('\\', "/");
-        if routes.iter().any(|r| r.target_file == rel_str) {
-            continue;
-        }
         let full: PathBuf = app_root.join(rel);
         mei_files.push((rel_str, file_modified_ms(&full)));
     }
@@ -339,6 +351,25 @@ pub(super) fn inject_discovered_entry_scene_routes(
             break;
         }
         probed += 1;
+        if let Ok(scenes) = load_scene_decls_from_file(app_root, rel_str.as_str()) {
+            let mut matched = false;
+            for scene in scenes {
+                if scene.id.trim() != requested {
+                    continue;
+                }
+                try_push_discovered_entry_route(
+                    routes,
+                    scene.id.trim().to_string(),
+                    rel_str.clone(),
+                    scene.access_export,
+                );
+                matched = true;
+            }
+            if matched {
+                break;
+            }
+            continue;
+        }
         let payload = compile_scene_payload_for_target(
             app_root,
             source_root,

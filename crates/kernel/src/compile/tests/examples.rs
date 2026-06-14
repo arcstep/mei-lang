@@ -46,6 +46,7 @@ fn compile_core_examples_baselines() {
         "01-single-file-doc",
         "02-external-scene-file",
         "03-multi-panel-baseline",
+        "08-scene-export-resource",
     ] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)
@@ -165,6 +166,7 @@ fn compile_refs_examples_baselines() {
         "08-component-base-clone",
         "09-nine-grid-panel-clone",
         "10-metric-card-template-clone",
+        "11-exported-templates",
     ] {
         let app_root = source_root.join(app_id);
         let compiled = compile_app_from_root(&source_root, &app_root)
@@ -182,6 +184,37 @@ fn compile_refs_examples_baselines() {
             "refs example {app_id} should produce a scene contract"
         );
     }
+}
+
+#[test]
+fn compile_scene_export_preview_target_selects_requested_export() {
+    let source_root = dev_examples_root().join("core");
+    let app_root = source_root.join("08-scene-export-resource");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some("detail".to_string()),
+            preview_target: Some("exports.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile scene export preview failed: {error}"));
+    assert!(
+        compiled
+            .diagnostics
+            .iter()
+            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+        "scene export preview should not produce error diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert_eq!(compiled.active_scene.as_deref(), Some("detail"));
+    assert_eq!(
+        compiled
+            .scene_contract
+            .as_ref()
+            .map(|contract| contract.scene.id.as_str()),
+        Some("detail")
+    );
 }
 
 #[test]

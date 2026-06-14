@@ -235,6 +235,7 @@ fn l2_cache_key_changes_when_dependency_fingerprint_changes() {
         &root,
         &root,
         "scenes/layouts/left.mei",
+        None,
         Some("dep-a@1|dep-b@2"),
     )
     .expect("cache key a");
@@ -242,6 +243,7 @@ fn l2_cache_key_changes_when_dependency_fingerprint_changes() {
         &root,
         &root,
         "scenes/layouts/left.mei",
+        None,
         Some("dep-a@1|dep-b@3"),
     )
     .expect("cache key b");
@@ -249,6 +251,31 @@ fn l2_cache_key_changes_when_dependency_fingerprint_changes() {
         key_a, key_b,
         "dependency fingerprint should affect L2 cache key"
     );
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn l2_cache_key_changes_when_scene_selector_changes() {
+    let root = std::env::temp_dir().join(format!("mei-l2-scene-key-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_spbjw_like_app(&root);
+    let key_a = scene_payload_cache_key(
+        &root,
+        &root,
+        "scenes/layouts/left.mei",
+        Some("overview"),
+        Some("dep-a@1"),
+    )
+    .expect("cache key a");
+    let key_b = scene_payload_cache_key(
+        &root,
+        &root,
+        "scenes/layouts/left.mei",
+        Some("detail"),
+        Some("dep-a@1"),
+    )
+    .expect("cache key b");
+    assert_ne!(key_a, key_b, "scene selector should affect L2 cache key");
     let _ = fs::remove_dir_all(&root);
 }
 

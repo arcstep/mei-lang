@@ -209,6 +209,38 @@ fn default_access_export() -> bool {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneExportDecl {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub scene: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FrameExportDecl {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub frame: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PanelExportDecl {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub panel: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentExportDecl {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub block: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeDecl {
     pub kind: String,
     pub id: String,
