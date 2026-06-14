@@ -72,6 +72,7 @@ mod tests {
                 sample_dataset_resource("home"),
             ],
             world_metrics: std::collections::BTreeMap::new(),
+            world_semantic_by_file: std::collections::BTreeMap::new(),
             scene_routes: vec![CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,

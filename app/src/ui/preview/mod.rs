@@ -7,12 +7,14 @@ use mei_lang_kernel::{
 };
 
 use super::route::UiRouteMode;
+use crate::ui::manage_routing::WorldSemanticQuery;
 
 mod nodes;
 mod resolve;
 mod style;
 mod theme;
 mod viewport;
+mod world_capsule_preview;
 
 pub(crate) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
     let Some(scene_contract) = &compiled.scene_contract else {
@@ -43,8 +45,15 @@ pub(crate) fn preview_view(
     app_path: &str,
     selected_target: &str,
     route_mode: UiRouteMode,
+    world_semantic: WorldSemanticQuery<'_>,
 ) -> AnyView {
-    view::preview_view(compiled, app_path, selected_target, route_mode)
+    view::preview_view(
+        compiled,
+        app_path,
+        selected_target,
+        route_mode,
+        world_semantic,
+    )
 }
 
 #[cfg(test)]

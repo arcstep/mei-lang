@@ -4,6 +4,7 @@ mod panel_theme;
 mod refs_builtin;
 mod spbjw;
 mod spbjw_issue_handling_metrics;
+mod world_capsule_tree;
 
 pub(super) use std::collections::BTreeMap;
 

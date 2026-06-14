@@ -5,7 +5,7 @@ use super::super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
     is_mei_script_target, visible_diagnostics_count, AssetShellKind, DiagnosticsFilterMode,
 };
-use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
+use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab, WorldSemanticQuery};
 use super::super::preview;
 use super::super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::super::route::UiRouteMode;
@@ -13,6 +13,9 @@ use super::super::source_tree;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
+use super::world_semantic_inspector::{
+    should_show_world_semantic_inspector, world_semantic_inspector_view,
+};
 use serde_json::json;
 
 fn asset_codemirror_stack(
@@ -59,11 +62,20 @@ pub(crate) fn manage_shell(
     preview_target: Option<&str>,
     active_tab: Option<&str>,
     diag_filter: Option<&str>,
+    world_metric: Option<&str>,
+    world_dataset: Option<&str>,
+    explain: Option<&str>,
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
 ) -> AnyView {
     let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
+    let semantic = WorldSemanticQuery {
+        world_metric,
+        world_dataset,
+        explain,
+    };
+    let show_inspector = should_show_world_semantic_inspector(selected_target.as_str(), semantic);
     let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(
@@ -71,6 +83,7 @@ pub(crate) fn manage_shell(
         app_path,
         selected_target.as_str(),
         UiRouteMode::Build,
+        semantic,
     );
     let active_scene = compiled.active_scene.as_deref();
     let scene_for_links = selected_scene.or(active_scene);
@@ -88,6 +101,7 @@ pub(crate) fn manage_shell(
         scene_target_pairs.as_slice(),
         compiled.active_target_file.as_str(),
         active_tab,
+        semantic,
     );
     let diagnostics = diagnostics_view(
         compiled,
@@ -105,6 +119,7 @@ pub(crate) fn manage_shell(
         compiled_has_error_diagnostics(compiled, selected_target.as_str()),
         diagnostics_total,
         selected_target.as_str(),
+        semantic,
     );
     let topbar = topbar_view(
         apps,
@@ -135,6 +150,16 @@ pub(crate) fn manage_shell(
         true,
         scene_for_links,
     );
+    let workspace_class = if show_inspector {
+        "workspace manage-workspace manage-workspace--with-inspector chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+    } else {
+        "workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+    };
+    let inspector = if show_inspector {
+        world_semantic_inspector_view(compiled, app_path, selected_target.as_str(), semantic)
+    } else {
+        view! { <></> }.into_any()
+    };
     let shell_class = if stage_enabled {
         "shell shell-surface frame-stage-enabled text-slate-200"
     } else {
@@ -186,6 +211,7 @@ pub(crate) fn manage_shell(
                     None
                 },
                 scene_for_links,
+                semantic,
             );
             let class = if tab == active_manage_tab {
                 "manage-view-tab is-active"
@@ -354,7 +380,7 @@ pub(crate) fn manage_shell(
             ></div>
             {topbar}
             <div
-                class="workspace manage-workspace chrome-inset min-h-0 h-full overflow-hidden px-0 py-0 grid gap-0"
+                class=workspace_class
                 id="workspace-root"
             >
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
@@ -446,6 +472,46 @@ pub(crate) fn manage_shell(
                         }}
                     </section>
                 </main>
+                {if show_inspector {
+                    view! {
+                        <>
+                            <div
+                                class="splitter splitter-right"
+                                data-workspace-splitter="right"
+                                role="separator"
+                                aria-orientation="vertical"
+                                aria-label="调整右侧语义检视栏宽度"
+                            >
+                                <button
+                                    class="splitter-toggle"
+                                    type="button"
+                                    data-workspace-toggle="right"
+                                    aria-label="折叠右侧语义检视栏"
+                                    title="折叠右侧语义检视栏"
+                                >
+                                    <span class="splitter-toggle-icon" aria-hidden="true">
+                                        <svg
+                                            viewBox="0 0 20 20"
+                                            width="12"
+                                            height="12"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.8"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <path d="M7.5 4.5L12.5 10l-5 5.5"></path>
+                                        </svg>
+                                    </span>
+                                </button>
+                            </div>
+                            {inspector}
+                        </>
+                    }
+                        .into_any()
+                } else {
+                    view! { <></> }.into_any()
+                }}
             </div>
             {statusbar}
         </div>

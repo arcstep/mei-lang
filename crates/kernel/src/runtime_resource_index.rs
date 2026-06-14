@@ -353,6 +353,7 @@ mod tests {
                 sample_dataset_resource("home"),
             ],
             world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
             scene_routes: vec![crate::model::CompiledSceneRoute {
                 scene_id: "home".to_string(),
                 frame_id: None,

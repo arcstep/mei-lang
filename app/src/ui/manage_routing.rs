@@ -3,6 +3,26 @@ use super::UiRouteMode;
 
 pub const OPS_CONFIG_TARGET: &str = ".mei-config.json";
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct WorldSemanticQuery<'a> {
+    pub world_metric: Option<&'a str>,
+    pub world_dataset: Option<&'a str>,
+    pub explain: Option<&'a str>,
+}
+
+impl WorldSemanticQuery<'_> {
+    pub(crate) fn has_selection(self) -> bool {
+        self.world_metric
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_some()
+            || self.world_dataset
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .is_some()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManageViewTab {
     Preview,
@@ -56,6 +76,7 @@ pub(crate) fn manage_view_tab_from_query(
     prefer_diagnostics: bool,
     diagnostics_count: usize,
     selected_target: &str,
+    semantic: WorldSemanticQuery<'_>,
 ) -> ManageViewTab {
     if is_ops_config_target(selected_target) {
         return ManageViewTab::Preview;
@@ -64,7 +85,11 @@ pub(crate) fn manage_view_tab_from_query(
     let asset_dual = asset_dual_preview_source(selected_target);
     let next = manage_tab_from_slug(active_tab).unwrap_or_else(|| {
         if script_target && is_world_capsule_target(selected_target) {
-            ManageViewTab::Source
+            if semantic.has_selection() {
+                ManageViewTab::Preview
+            } else {
+                ManageViewTab::Source
+            }
         } else if prefer_diagnostics && has_diagnostics_tab {
             ManageViewTab::Diagnostics
         } else {
@@ -94,6 +119,7 @@ pub(crate) fn manage_tab_href(
     tab: ManageViewTab,
     diag_filter: Option<&str>,
     selected_scene: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> String {
     let asset_dual = asset_dual_preview_source(selected_target);
     let route_tab = if is_ops_config_target(selected_target) {
@@ -119,18 +145,20 @@ pub(crate) fn manage_tab_href(
         selected_scene,
         Some(route_tab.slug()),
         diag,
+        semantic,
     )
 }
 
-/// 构建视图预览链接：`file` + 可选 `scene`（多 `scene_export` 选择）+ `tab`。
+/// 构建视图预览链接：`file` + 可选 `scene`（多 `scene_export` 选择）+ `tab` + world 语义参数。
 pub(crate) fn build_preview_href(
     app_path: &str,
     file: Option<&str>,
     scene: Option<&str>,
     tab: Option<&str>,
     diag_filter: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> String {
-    let query = build_preview_query_parts(file, scene, tab, diag_filter);
+    let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic);
     if query.is_empty() {
         format!("/apps/build/{app_path}")
     } else {
@@ -143,6 +171,7 @@ pub(crate) fn build_preview_query_parts(
     scene: Option<&str>,
     tab: Option<&str>,
     diag_filter: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> Vec<String> {
     let mut query = Vec::new();
     if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
@@ -150,6 +179,23 @@ pub(crate) fn build_preview_query_parts(
     }
     if let Some(sc) = scene.map(str::trim).filter(|s| !s.is_empty()) {
         query.push(format!("scene={}", encode_query_value(sc)));
+    }
+    if let Some(metric) = semantic
+        .world_metric
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        query.push(format!("world_metric={}", encode_query_value(metric)));
+    }
+    if let Some(dataset) = semantic
+        .world_dataset
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        query.push(format!("world_dataset={}", encode_query_value(dataset)));
+    }
+    if let Some(explain) = semantic.explain.map(str::trim).filter(|s| !s.is_empty()) {
+        query.push(format!("explain={}", encode_query_value(explain)));
     }
     if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
         query.push(format!("tab={}", encode_query_value(t)));

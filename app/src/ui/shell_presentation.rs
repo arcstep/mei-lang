@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, WorkspaceAppMeta};
 
+use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::view_routing::{app_scene_href, presentation_scene_href};
 use super::{HostAccountView, TopbarMenuContext};
@@ -138,7 +139,13 @@ pub(crate) fn presentation_shell(
         presentation_scene_href(app_path, Some(route.scene_id.as_str()))
     });
     let exit_href = app_scene_href(app_path, Some(current_scene_id), None, None);
-    let preview = preview::preview_view(compiled, app_path, current_target, super::route::UiRouteMode::Presentation);
+    let preview = preview::preview_view(
+        compiled,
+        app_path,
+        current_target,
+        super::route::UiRouteMode::Presentation,
+        WorldSemanticQuery::default(),
+    );
 
     view! {
         <div

@@ -3,6 +3,7 @@ use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 
 use super::agent_panel;
 use super::compile_status::is_static_workspace_asset_target;
+use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
@@ -31,7 +32,7 @@ pub(crate) fn access_shell(
     let preview = if static_asset {
         asset_preview_body(app_path, current_target, source.unwrap_or(""))
     } else {
-        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App)
+        preview::preview_view(compiled, app_path, current_target, UiRouteMode::App, WorldSemanticQuery::default())
     };
     let topbar_preview_target = if static_asset { None } else { file_target };
     let panel_tab = active_tab.unwrap_or("preview");

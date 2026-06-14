@@ -25,6 +25,7 @@ mod scene;
 mod scene_binding;
 mod scene_payload_cache;
 mod source_tree_enrich;
+mod source_tree_world;
 mod shards;
 mod ui_data_policy;
 

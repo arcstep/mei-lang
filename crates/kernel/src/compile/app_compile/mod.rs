@@ -234,6 +234,7 @@ pub fn compile_app_from_root_with_options_and_revision(
         preview_affected_targets,
         cache_before,
         &app_main,
+        &asset_map,
         &mut diagnostics,
     )?;
 

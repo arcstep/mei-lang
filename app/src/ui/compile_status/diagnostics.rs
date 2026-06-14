@@ -307,6 +307,7 @@ mod tests {
             scene_projection_assembly_by_id: std::collections::BTreeMap::new(),
             resources: Vec::new(),
             world_metrics: std::collections::BTreeMap::new(),
+            world_semantic_by_file: std::collections::BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: diags,
         }

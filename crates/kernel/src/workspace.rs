@@ -210,6 +210,10 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
                 kind: "dir".to_string(),
                 mei_kind: None,
                 scene_export_id: None,
+                world_dataset_id: None,
+                world_metric_id: None,
+                explain_block_id: None,
+                semantic_label: None,
                 children: Vec::new(),
             });
         } else {
@@ -220,6 +224,10 @@ pub fn source_tree(root: &Path) -> Result<Vec<WorkspaceNode>> {
                 kind: "file".to_string(),
                 mei_kind,
                 scene_export_id: None,
+                world_dataset_id: None,
+                world_metric_id: None,
+                explain_block_id: None,
+                semantic_label: None,
                 children: Vec::new(),
             });
         }

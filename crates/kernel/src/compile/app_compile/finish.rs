@@ -8,7 +8,10 @@ use anyhow::Result;
 use serde_json::Value;
 
 use crate::compile::entry_payload::CompiledScenePayload;
-use crate::model::{CompiledApp, Diagnostic, LoadedResource, SceneContract, Severity};
+use crate::model::{
+    CompiledApp, ComponentAsset, Diagnostic, LoadedResource, SceneContract, Severity,
+    WorldSemanticFileIndex,
+};
 use crate::workspace::source_tree;
 
 use super::super::catalog::DatasetCatalogFilter;
@@ -56,6 +59,7 @@ pub(super) fn finish_compiled_app(
     preview_affected_targets: Option<BTreeSet<String>>,
     cache_before: CompileCacheBefore,
     app_main: &Path,
+    asset_map: &BTreeMap<String, ComponentAsset>,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Result<CompiledApp> {
     let app_main_source = app_main.to_string_lossy().to_string();
@@ -124,6 +128,32 @@ pub(super) fn finish_compiled_app(
     let source_tree_started = Instant::now();
     let mut file_tree = source_tree(app_root)?;
     super::super::source_tree_enrich::enrich_source_tree_with_scene_exports(app_root, &mut file_tree);
+    let mut world_semantic_by_file = BTreeMap::new();
+    super::super::source_tree_world::enrich_source_tree_with_world_capsules(
+        app_root,
+        &mut file_tree,
+        &mut world_semantic_by_file,
+    );
+    if active_target_file.ends_with(".world.mei") {
+        world_semantic_by_file
+            .entry(active_target_file.clone())
+            .or_insert_with(|| {
+                super::super::source_tree_world::build_world_semantic_index(
+                    app_root,
+                    active_target_file.as_str(),
+                )
+                .unwrap_or(WorldSemanticFileIndex {
+                    world_id: None,
+                    datasets: Vec::new(),
+                    metrics: Vec::new(),
+                    resource_id: "__world_metrics__".to_string(),
+                })
+            });
+        ensure_world_capsule_preview_components(
+            &mut active_payload.component_assets,
+            asset_map,
+        );
+    }
     let source_tree_ms = elapsed_ms(source_tree_started);
     let world_finalize_ms = elapsed_ms(world_finalize_started);
 
@@ -177,9 +207,26 @@ pub(super) fn finish_compiled_app(
         scene_projection_assembly_by_id,
         resources,
         world_metrics,
+        world_semantic_by_file,
         component_assets: std::mem::take(&mut active_payload.component_assets),
         diagnostics: std::mem::take(diagnostics),
     })
+}
+
+const WORLD_CAPSULE_PREVIEW_COMPONENT_KEYS: &[&str] = &["dataset.table"];
+
+fn ensure_world_capsule_preview_components(
+    component_assets: &mut Vec<ComponentAsset>,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+) {
+    for key in WORLD_CAPSULE_PREVIEW_COMPONENT_KEYS {
+        if component_assets.iter().any(|asset| asset.key == *key) {
+            continue;
+        }
+        if let Some(asset) = asset_map.get(*key) {
+            component_assets.push(asset.clone());
+        }
+    }
 }
 
 fn build_target_scene_contracts(

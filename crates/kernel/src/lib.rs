@@ -86,7 +86,8 @@ pub use model::{
     RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl, RuleStartDecl,
     RuleSubjectTimerDecl, RuleTimerDecl, SceneContract, SceneDecl, SemanticEdgeKind,
     SemanticNodeKind, Severity, SourceDecl, ThemeDecl, UiNodeDecl, WorkspaceAppMeta, WorkspaceNode,
-    WorldCellDecl, WorldMetricLedgerEntry,
+    WorldCellDecl, WorldMetricLedgerEntry, WorldSemanticDataset, WorldSemanticExplainBlock,
+    WorldSemanticFileIndex, WorldSemanticMetric,
 };
 pub use ops_journal::{apply_ops_patch_with_journal, journal_path, OpsJournal, OpsJournalEntry};
 pub use runtime::{

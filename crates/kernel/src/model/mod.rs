@@ -8,6 +8,7 @@ mod resource;
 mod ui;
 mod workspace;
 mod world;
+mod world_semantic;
 
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
@@ -26,6 +27,9 @@ pub use ui::{
     PanelExportDecl, PanelRefEmbedDecl, SceneExportDecl, ThemeDecl, UiNodeDecl,
 };
 pub use workspace::{ComponentAsset, WorkspaceAppMeta, WorkspaceNode};
+pub use world_semantic::{
+    WorldSemanticDataset, WorldSemanticExplainBlock, WorldSemanticFileIndex, WorldSemanticMetric,
+};
 pub use world::{
     EntityDecl, FlowDecl, RuleClickDecl, RuleEffectDecl, RuleOutcomeDecl, RuleRequireDecl,
     RuleStartDecl, RuleSubjectTimerDecl, RuleTimerDecl, WorldCellDecl, WorldDecl, WorldGridDecl,

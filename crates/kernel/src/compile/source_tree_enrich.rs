@@ -30,6 +30,10 @@ pub(super) fn enrich_source_tree_with_scene_exports(
                 kind: "scene_export".to_string(),
                 mei_kind: Some("scene".to_string()),
                 scene_export_id: Some(scene.id),
+                world_dataset_id: None,
+                world_metric_id: None,
+                explain_block_id: None,
+                semantic_label: None,
                 children: Vec::new(),
             })
             .collect();

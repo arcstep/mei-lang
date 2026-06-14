@@ -122,6 +122,9 @@ pub fn render_page(
     preview_target: Option<&str>,
     active_tab: Option<&str>,
     diag_filter: Option<&str>,
+    world_metric: Option<&str>,
+    world_dataset: Option<&str>,
+    explain: Option<&str>,
     chrome_hidden: bool,
     upload_enabled: bool,
     upload_root_label: Option<&str>,
@@ -170,6 +173,9 @@ pub fn render_page(
             preview_target,
             active_tab,
             diag_filter,
+            world_metric,
+            world_dataset,
+            explain,
             upload_enabled,
             auth_enabled,
             auth_account,
@@ -338,6 +344,7 @@ mod tests {
     use super::manage_routing::{
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
         manage_view_tab_from_query, route_query, ManageViewTab, OPS_CONFIG_TARGET,
+        WorldSemanticQuery,
     };
     use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
@@ -345,7 +352,7 @@ mod tests {
     #[test]
     fn manage_defaults_to_diagnostics_when_errors_exist() {
         assert!(matches!(
-            manage_view_tab_from_query(None, true, true, 1, "main.mei"),
+            manage_view_tab_from_query(None, true, true, 1, "main.mei", WorldSemanticQuery::default()),
             ManageViewTab::Diagnostics
         ));
     }
@@ -370,6 +377,7 @@ mod tests {
                 ManageViewTab::Diagnostics,
                 Some("all"),
                 None,
+                WorldSemanticQuery::default(),
             ),
             "/apps/build/zhifa?file=.mei-config.json&tab=preview"
         );
@@ -413,6 +421,7 @@ mod tests {
                 Some("warnings_analytics_board"),
                 Some("preview"),
                 None,
+                WorldSemanticQuery::default(),
             ),
             "/apps/build/zhifa?file=scenes%2F05-%E7%9B%91%E7%9D%A3%E9%A2%84%E8%AD%A6.board.mei&scene=warnings_analytics_board&tab=preview"
         );
@@ -429,8 +438,28 @@ mod tests {
                 ManageViewTab::Source,
                 None,
                 None,
+                WorldSemanticQuery::default(),
             ),
             "/apps/build/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
+        );
+    }
+
+    #[test]
+    fn build_preview_href_includes_world_semantic_query() {
+        assert_eq!(
+            build_preview_href(
+                "zhifa",
+                Some("scenes/07-问题办理.world.mei"),
+                None,
+                Some("preview"),
+                None,
+                WorldSemanticQuery {
+                    world_metric: Some("warnings_pending_count"),
+                    world_dataset: None,
+                    explain: Some("composition_by_category"),
+                },
+            ),
+            "/apps/build/zhifa?file=scenes%2F07-%E9%97%AE%E9%A2%98%E5%8A%9E%E7%90%86.world.mei&world_metric=warnings_pending_count&explain=composition_by_category&tab=preview"
         );
     }
 }

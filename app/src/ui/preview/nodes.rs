@@ -421,7 +421,7 @@ fn block_view(
     .into_any()
 }
 
-fn component_html(tag: &str, props: &Value) -> String {
+pub(crate) fn component_html(tag: &str, props: &Value) -> String {
     let props_json = props.to_string();
     format!("<{tag} data-props='{props_json}'></{tag}>")
 }

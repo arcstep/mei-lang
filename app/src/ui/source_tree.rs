@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::WorkspaceNode;
 
-use super::manage_routing::{access_scene_route_suffix, encode_query_value};
+use super::manage_routing::{access_scene_route_suffix, encode_query_value, WorldSemanticQuery};
 use super::UiRouteMode;
 
 /// 与 `app/assets/favicon.svg` 相同的梅花铜钱外轮廓（viewBox 32×32）。
@@ -67,6 +67,7 @@ pub(crate) fn source_tree_view(
     scene_target_pairs: &[(String, String)],
     omit_file_query_when_path: &str,
     active_tab: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> AnyView {
     let items = nodes
         .iter()
@@ -82,6 +83,7 @@ pub(crate) fn source_tree_view(
                     scene_target_pairs,
                     omit_file_query_when_path,
                     active_tab,
+                    semantic,
                 );
                 let folder_path = node.path.clone();
                 view! {
@@ -106,6 +108,22 @@ pub(crate) fn source_tree_view(
                     selected_target,
                     selected_scene,
                     active_tab,
+                    semantic,
+                )
+            } else if route_mode == UiRouteMode::Build
+                && node.path.ends_with(".world.mei")
+                && node
+                    .children
+                    .iter()
+                    .any(|child| child.kind == "world_group")
+            {
+                world_capsule_file_branch(
+                    route_mode,
+                    app_path,
+                    node,
+                    selected_target,
+                    active_tab,
+                    semantic,
                 )
             } else if route_mode == UiRouteMode::Build
                 && node
@@ -120,6 +138,7 @@ pub(crate) fn source_tree_view(
                     selected_target,
                     selected_scene,
                     active_tab,
+                    semantic,
                 )
             } else {
                 let scene_for_link = if route_mode.uses_scene_route() {
@@ -142,6 +161,7 @@ pub(crate) fn source_tree_view(
                     scene_for_link,
                     file_for_link,
                     active_tab,
+                    WorldSemanticQuery::default(),
                 );
                 let class = if node.path == selected_target {
                     "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[13px] font-medium text-sky-100 transition-colors"
@@ -178,6 +198,189 @@ pub(crate) fn source_tree_view(
     view! { <ul class="tree m-0 grid list-none gap-0.5 p-0">{items}</ul> }.into_any()
 }
 
+fn world_semantic_is_active(
+    file_path: &str,
+    selected_target: &str,
+    semantic: WorldSemanticQuery<'_>,
+    node: &WorkspaceNode,
+) -> bool {
+    if file_path != selected_target {
+        return false;
+    }
+    match node.kind.as_str() {
+        "world_dataset" => {
+            semantic.world_metric.is_none()
+                && semantic.explain.is_none()
+                && semantic.world_dataset == node.world_dataset_id.as_deref()
+        }
+        "world_metric" => {
+            semantic.explain.is_none()
+                && semantic.world_dataset.is_none()
+                && semantic.world_metric == node.world_metric_id.as_deref()
+        }
+        "explain_block" => {
+            semantic.world_dataset.is_none()
+                && semantic.world_metric == node.world_metric_id.as_deref()
+                && semantic.explain == node.explain_block_id.as_deref()
+        }
+        _ => false,
+    }
+}
+
+fn world_semantic_href(
+    app_path: &str,
+    file_path: &str,
+    semantic: WorldSemanticQuery<'_>,
+) -> String {
+    let parts = super::manage_routing::build_preview_query_parts(
+        Some(file_path),
+        None,
+        Some("preview"),
+        None,
+        semantic,
+    );
+    format!("/apps/build/{app_path}?{}", parts.join("&"))
+}
+
+fn world_capsule_file_branch(
+    route_mode: UiRouteMode,
+    app_path: &str,
+    node: &WorkspaceNode,
+    selected_target: &str,
+    active_tab: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
+) -> AnyView {
+    let open = selected_target == node.path.as_str();
+    let icon = file_row_icon(node);
+    let file_href = source_href(
+        route_mode,
+        app_path,
+        node.path.as_str(),
+        None,
+        Some(node.path.as_str()),
+        active_tab,
+        WorldSemanticQuery::default(),
+    );
+    let file_active = selected_target == node.path.as_str() && !semantic.has_selection();
+    let file_class = if file_active {
+        "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[13px] font-medium text-sky-100 transition-colors"
+    } else {
+        "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[13px] text-slate-300 transition-colors hover:text-slate-100"
+    };
+    let world_children = node
+        .children
+        .iter()
+        .map(|child| world_tree_node(app_path, node.path.as_str(), child, selected_target, semantic))
+        .collect::<Vec<_>>();
+    let world_children = world_children.into_iter().collect_view();
+    view! {
+        <li class="tree-node tree-li-branch tree-li-world-capsule">
+            <details class="pl-1" open=open>
+                <summary class="tree-folder-summary flex min-w-0 list-none items-center gap-0 py-0">
+                    <a
+                        class=file_class
+                        href=file_href
+                        data-preserve-manage-tab="1"
+                        title=node.path.clone()
+                    >
+                        <span class="shrink-0" aria-hidden="true">{icon}</span>
+                        <span class="min-w-0 flex-1 truncate">{node.name.clone()}</span>
+                    </a>
+                </summary>
+                <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">
+                    {world_children}
+                </ul>
+            </details>
+        </li>
+    }
+    .into_any()
+}
+
+fn world_tree_node(
+    app_path: &str,
+    file_path: &str,
+    node: &WorkspaceNode,
+    selected_target: &str,
+    semantic: WorldSemanticQuery<'_>,
+) -> AnyView {
+    if node.kind == "world_group" {
+        let children = node
+            .children
+            .iter()
+            .map(|child| world_tree_node(app_path, file_path, child, selected_target, semantic))
+            .collect::<Vec<_>>();
+        let children = children.into_iter().collect_view();
+        return view! {
+            <li class="tree-node tree-li-branch">
+                <details class="pl-1" open=true>
+                    <summary
+                        class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium text-slate-400"
+                        title=node.name.clone()
+                    >
+                        <span class="tree-folder-label min-w-0 truncate">{node.name.clone()}</span>
+                    </summary>
+                    <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">{children}</ul>
+                </details>
+            </li>
+        }
+        .into_any();
+    }
+    let node_semantic = match node.kind.as_str() {
+        "world_dataset" => WorldSemanticQuery {
+            world_metric: None,
+            world_dataset: node.world_dataset_id.as_deref(),
+            explain: None,
+        },
+        "world_metric" => WorldSemanticQuery {
+            world_metric: node.world_metric_id.as_deref(),
+            world_dataset: None,
+            explain: None,
+        },
+        "explain_block" => WorldSemanticQuery {
+            world_metric: node.world_metric_id.as_deref(),
+            world_dataset: None,
+            explain: node.explain_block_id.as_deref(),
+        },
+        _ => WorldSemanticQuery::default(),
+    };
+    let href = world_semantic_href(app_path, file_path, node_semantic);
+    let active = world_semantic_is_active(file_path, selected_target, semantic, node);
+    let class = if active {
+        "tree-link tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[12px] font-medium text-sky-100 transition-colors"
+    } else {
+        "tree-link flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] text-slate-400 transition-colors hover:text-slate-100"
+    };
+    let prefix = match node.kind.as_str() {
+        "explain_block" => "↳ ",
+        _ => "",
+    };
+    view! {
+        <li class="tree-node">
+            <a class=class href=href data-preserve-manage-tab="1" title=node.name.clone()>
+                <span class="min-w-0 flex-1 truncate">
+                    {prefix}
+                    {node.name.clone()}
+                </span>
+            </a>
+            {if node.kind == "world_metric" && !node.children.is_empty() {
+                let explain_children = node
+                    .children
+                    .iter()
+                    .map(|child| world_tree_node(app_path, file_path, child, selected_target, semantic))
+                    .collect::<Vec<_>>();
+                let explain_children = explain_children.into_iter().collect_view();
+                view! {
+                    <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">{explain_children}</ul>
+                }
+                    .into_any()
+            } else {
+                view! { <></> }.into_any()
+            }}
+        </li>
+    }
+    .into_any()
+}
+
 fn scene_export_is_active(
     file_path: &str,
     export_id: Option<&str>,
@@ -203,6 +406,7 @@ fn multi_scene_export_file_branch(
     selected_target: &str,
     selected_scene: Option<&str>,
     active_tab: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> AnyView {
     let open = selected_target == node.path.as_str();
     let icon = file_row_icon(node);
@@ -218,6 +422,7 @@ fn multi_scene_export_file_branch(
                 selected_target,
                 selected_scene,
                 active_tab,
+                semantic,
             )
         })
         .collect::<Vec<_>>();
@@ -248,6 +453,7 @@ fn scene_export_tree_row(
     selected_target: &str,
     selected_scene: Option<&str>,
     active_tab: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> AnyView {
     let export_id = node.scene_export_id.as_deref();
     let href = source_href(
@@ -261,6 +467,7 @@ fn scene_export_tree_row(
             None
         },
         active_tab,
+        semantic,
     );
     let active = scene_export_is_active(
         node.path.as_str(),
@@ -367,6 +574,7 @@ fn source_href(
     selected_scene: Option<&str>,
     file_for_link: Option<&str>,
     active_tab: Option<&str>,
+    semantic: WorldSemanticQuery<'_>,
 ) -> String {
     match route_mode {
         UiRouteMode::App => {
@@ -391,6 +599,7 @@ fn source_href(
                 selected_scene,
                 active_tab,
                 None,
+                semantic,
             );
             if parts.is_empty() {
                 format!("/apps/build/{app_path}")

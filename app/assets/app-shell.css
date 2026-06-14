@@ -1189,6 +1189,9 @@ a.status-chip-link:focus-visible {
 #workspace-root.manage-workspace {
   grid-template-columns: var(--workspace-left-aside) 8px minmax(0, 1fr);
 }
+#workspace-root.manage-workspace.manage-workspace--with-inspector {
+  grid-template-columns: var(--workspace-left-aside) 8px minmax(0, 1fr) 8px var(--workspace-right-aside);
+}
 /* 访问侧：悬浮按钮 + 悬浮对话框模式，不依赖主布局宽度。 */
 .access-chat-floating-root {
   position: fixed;
@@ -4586,7 +4589,42 @@ a.tree-link {
   pointer-events: none;
 }
 
-.mei-host-http-banner {
+.world-capsule-preview.world-capsule-dataset-table {
+  min-height: 12rem;
+}
+
+.world-capsule-scalar-form__grid {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.world-capsule-scalar-field {
+  display: grid;
+  grid-template-columns: minmax(88px, 120px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(51, 65, 85, 0.55);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.world-capsule-scalar-field__label {
+  font-size: 11px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+}
+
+.world-capsule-scalar-field__value {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e2e8f0;
+  word-break: break-word;
+}
+
   pointer-events: auto;
   display: grid;
   grid-template-columns: auto 1fr auto;

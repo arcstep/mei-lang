@@ -7,3 +7,4 @@ mod explain_normalize;
 mod refs;
 
 pub(crate) use context::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor};
+pub(crate) use refs::with_runtime_ref;

@@ -13,6 +13,9 @@ pub struct AppQuery {
     pub tab: Option<String>,
     /// 构建视图调试页：编译诊断范围。`all` = 全部诊断；缺省或其它 = 当前文件。
     pub diag_filter: Option<String>,
+    pub world_metric: Option<String>,
+    pub world_dataset: Option<String>,
+    pub explain: Option<String>,
     pub chrome: Option<String>,
 }
 
@@ -182,6 +185,18 @@ fn build_query_suffix(query: &AppQuery) -> String {
             "diag_filter={}",
             percent_encode_query_component(filter)
         ));
+    }
+    for (key, value) in [
+        ("world_metric", query.world_metric.as_deref()),
+        ("world_dataset", query.world_dataset.as_deref()),
+        ("explain", query.explain.as_deref()),
+    ] {
+        if let Some(value) = value.map(str::trim).filter(|s| !s.is_empty()) {
+            parts.push(format!(
+                "{key}={}",
+                percent_encode_query_component(value)
+            ));
+        }
     }
     if parts.is_empty() {
         String::new()

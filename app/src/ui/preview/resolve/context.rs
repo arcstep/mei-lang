@@ -76,7 +76,7 @@ impl RuntimeSceneAnchor {
         }
     }
 
-    fn runtime_ref_extra(
+    pub(crate) fn runtime_ref_extra(
         &self,
         kind: &str,
         dataset_id: &str,

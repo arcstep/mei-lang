@@ -6,7 +6,7 @@ use super::super::compile_status::{
     is_world_capsule_target, normalize_diagnostic_source, severity_counts,
     world_capsule_companion_scene, DiagnosticsFilterMode,
 };
-use super::super::manage_routing::{manage_tab_href, ManageViewTab};
+use super::super::manage_routing::{manage_tab_href, ManageViewTab, WorldSemanticQuery};
 use super::html_escape::escape_html_attr;
 
 fn compile_diag_card(diag: &mei_lang_kernel::Diagnostic, compiled: &CompiledApp) -> AnyView {
@@ -317,6 +317,7 @@ pub(crate) fn diagnostics_view(
             ManageViewTab::Diagnostics,
             Some("all"),
             selected_scene,
+            WorldSemanticQuery::default(),
         );
         view! {
             <p class="m-0 text-xs text-slate-400">
@@ -336,6 +337,7 @@ pub(crate) fn diagnostics_view(
         ManageViewTab::Diagnostics,
         None,
         selected_scene,
+        WorldSemanticQuery::default(),
     );
     let href_all = manage_tab_href(
         app_path,
@@ -345,6 +347,7 @@ pub(crate) fn diagnostics_view(
         ManageViewTab::Diagnostics,
         Some("all"),
         selected_scene,
+        WorldSemanticQuery::default(),
     );
     let filter_current_class = if filter_mode == DiagnosticsFilterMode::CurrentFile {
         "manage-diag-filter is-active"

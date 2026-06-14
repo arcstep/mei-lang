@@ -322,6 +322,7 @@ mod tests {
                 },
             ],
             world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
         }

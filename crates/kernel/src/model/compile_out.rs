@@ -7,6 +7,7 @@ use super::contract::SceneContract;
 use super::dataset::WorldMetricLedgerEntry;
 use super::diagnostic::Diagnostic;
 use super::resource::LoadedResource;
+use super::world_semantic::WorldSemanticFileIndex;
 use super::workspace::{ComponentAsset, WorkspaceNode};
 
 fn default_access_export() -> bool {
@@ -53,6 +54,8 @@ pub struct CompiledApp {
     pub resources: Vec<LoadedResource>,
     #[serde(default)]
     pub world_metrics: BTreeMap<String, WorldMetricLedgerEntry>,
+    #[serde(default)]
+    pub world_semantic_by_file: BTreeMap<String, WorldSemanticFileIndex>,
     #[serde(default)]
     pub component_assets: Vec<ComponentAsset>,
     #[serde(default)]

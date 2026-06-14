@@ -5,7 +5,7 @@ use super::compile_status::{
     compile_status_counts_for_display, compile_status_counts_for_target, compile_status_summary,
     compile_status_title, compile_status_tone,
 };
-use super::manage_routing::{is_ops_config_target, manage_tab_href, ManageViewTab};
+use super::manage_routing::{is_ops_config_target, manage_tab_href, ManageViewTab, WorldSemanticQuery};
 use super::SourcePanelMeta;
 pub(crate) fn statusbar_view(
     app_path: &str,
@@ -78,6 +78,7 @@ pub(crate) fn statusbar_view(
                 ManageViewTab::Diagnostics,
                 None,
                 selected_scene,
+                WorldSemanticQuery::default(),
             ))
         } else {
             None

@@ -4,7 +4,7 @@ use mei_lang_kernel::{WorkspaceAppMeta, WorkspaceNode};
 use super::super::compile_status::{
     classify_asset_shell, codemirror_dataset_lang, is_mei_script_target, AssetShellKind,
 };
-use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab};
+use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab, WorldSemanticQuery};
 use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
 use super::super::source_tree;
@@ -73,6 +73,7 @@ pub(crate) fn manage_source_shell(
         &[],
         selected_target.as_str(),
         active_tab,
+        WorldSemanticQuery::default(),
     );
     let active_manage_tab = manage_view_tab_from_query(
         active_tab,
@@ -80,6 +81,7 @@ pub(crate) fn manage_source_shell(
         false,
         0,
         selected_target.as_str(),
+        WorldSemanticQuery::default(),
     );
     let topbar = topbar_view(
         apps,
@@ -121,6 +123,7 @@ pub(crate) fn manage_source_shell(
                 tab,
                 None,
                 selected_scene,
+                WorldSemanticQuery::default(),
             );
             let class = if tab == active_manage_tab {
                 "manage-view-tab is-active"
