@@ -168,6 +168,7 @@
       setDrilldownOverlayStatus(root, "error");
       return false;
     }
+    root.__meiStructuredZoneHosts = zoneHosts;
     try {
       await prefetchStructuredDrilldownWidgets(config);
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
@@ -191,30 +192,8 @@
         }
       }
       mountStructuredRowPreviewZone(root, zoneHosts, config);
-      const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-      if (queryStateId) {
-        const onQueryStateChange = (event) => {
-          if (event?.detail?.id !== queryStateId) return;
-          if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
-          renderStructuredDrilldownContent(root, detail, config)
-            .then((ok) => {
-              if (ok) dispatchPreviewUpdated("drilldown");
-            })
-            .catch((error) => {
-              recordPopupDebugIssue({
-                level: "error",
-                message: String(error?.message || error || "通用下钻壳刷新失败"),
-                phase: "structured_shell_refresh_error",
-                detail,
-                config,
-              });
-            });
-        };
-        window.addEventListener("mei:query-state-change", onQueryStateChange);
-        root.__meiStructuredQueryStateCleanup = () => {
-          window.removeEventListener("mei:query-state-change", onQueryStateChange);
-        };
-      }
+      bindAnalyticsChartsQueryStateRefresh(root, detail, config, (zoneId) => zoneHosts?.[zoneId]);
+      root.__meiStructuredQueryStateCleanup = root.__meiAnalyticsQueryStateCleanup;
       setDrilldownOverlayStatus(root, "ready");
       dispatchPreviewUpdated("drilldown");
       return true;

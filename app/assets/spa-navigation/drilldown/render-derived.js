@@ -17,7 +17,17 @@
       });
       return false;
     }
-    const dataset = await fetchPopupDrilldownRows(detail, { ...config, datasetId });
+    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const fetchConfig = { ...config, datasetId };
+    if (
+      cardMetricId &&
+      (explainMetricKind(config, tabId) === "composition" ||
+        nonEmptyString(config?.supportRole) === "composition")
+    ) {
+      // 构成图需基于卡片指标 rowset 在前端聚合；勿直接拉 composition 子指标（会忽略 filter query_state）。
+      fetchConfig.tableMetricId = cardMetricId;
+    }
+    const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
     if (!rows.length) {
       recordPopupDebugIssue({

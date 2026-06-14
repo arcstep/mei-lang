@@ -124,7 +124,15 @@
   }
 
   async function fetchPopupDrilldownRows(detail, config) {
-    const tableMetricId = resolveCompositionMetricId(config, detail);
+    const rowsetDatasetId = nonEmptyString(
+      config?.rowsetDatasetId,
+      config?.filterSchema?.rowsetDatasetId,
+    );
+    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const tableMetricId =
+      config?.structuredBoard && cardMetricId
+        ? cardMetricId
+        : resolveCompositionMetricId(config, detail);
     const scopedConfig = tableMetricId ? { ...config, tableMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const runtimeQuery = window.__meiDatasetRuntime;
@@ -174,6 +182,9 @@
     const datasetId = resolveDrilldownDatasetId(detail, scopedConfig);
     if (datasetId) {
       return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    }
+    if (rowsetDatasetId) {
+      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId: rowsetDatasetId }, rowsetDatasetId);
     }
     return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
   }

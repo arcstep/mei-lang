@@ -221,6 +221,10 @@
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);
 
+    bindAnalyticsChartsQueryStateRefresh(surface, detail, resolved, (zoneId) =>
+      resolveManagePreviewPanelHost(surface, zoneId),
+    );
+
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");
     dispatchPreviewUpdated("manage-board-preview");

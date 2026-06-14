@@ -5919,7 +5919,15 @@
   }
 
   async function fetchPopupDrilldownRows(detail, config) {
-    const tableMetricId = resolveCompositionMetricId(config, detail);
+    const rowsetDatasetId = nonEmptyString(
+      config?.rowsetDatasetId,
+      config?.filterSchema?.rowsetDatasetId,
+    );
+    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const tableMetricId =
+      config?.structuredBoard && cardMetricId
+        ? cardMetricId
+        : resolveCompositionMetricId(config, detail);
     const scopedConfig = tableMetricId ? { ...config, tableMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const runtimeQuery = window.__meiDatasetRuntime;
@@ -5969,6 +5977,9 @@
     const datasetId = resolveDrilldownDatasetId(detail, scopedConfig);
     if (datasetId) {
       return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    }
+    if (rowsetDatasetId) {
+      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId: rowsetDatasetId }, rowsetDatasetId);
     }
     return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
   }
@@ -6574,6 +6585,58 @@
     root.__meiAnalyticsQueryStateCleanup = null;
   }
 
+  async function remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost) {
+    const slotZones = sceneShellZonesByRole(config?.sceneShell, "slots");
+    let ok = true;
+    for (const zone of slotZones) {
+      const zoneSlots = Array.isArray(config?.slotsByZone?.[zone.id]) ? config.slotsByZone[zone.id] : [];
+      if (!zoneSlots.length || !zoneSlots.every((slot) => slot.component === "chart")) {
+        continue;
+      }
+      const host =
+        typeof resolveZoneHost === "function"
+          ? resolveZoneHost(zone.id)
+          : root.__meiStructuredZoneHosts?.[zone.id];
+      if (!(host instanceof HTMLElement)) {
+        ok = false;
+        continue;
+      }
+      const zoneOk = await mountAnalyticsChartSlots(root, detail, config, zoneSlots, host);
+      ok = ok && zoneOk;
+    }
+    return ok;
+  }
+
+  function bindAnalyticsChartsQueryStateRefresh(root, detail, config, resolveZoneHost) {
+    cleanupAnalyticsDrilldownWatcher(root);
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) return;
+    let refreshSeq = 0;
+    const onQueryStateChange = (event) => {
+      if (event?.detail?.id !== queryStateId) return;
+      if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
+      const currentSeq = ++refreshSeq;
+      remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost)
+        .then((ok) => {
+          if (!ok || currentSeq !== refreshSeq) return;
+          dispatchPreviewUpdated("drilldown");
+        })
+        .catch((error) => {
+          recordPopupDebugIssue({
+            level: "error",
+            message: String(error?.message || error || "分析型看板图表刷新失败"),
+            phase: "analytics_chart_refresh_error",
+            detail,
+            config,
+          });
+        });
+    };
+    window.addEventListener("mei:query-state-change", onQueryStateChange);
+    root.__meiAnalyticsQueryStateCleanup = () => {
+      window.removeEventListener("mei:query-state-change", onQueryStateChange);
+    };
+  }
+
 
 ;
 
@@ -7075,6 +7138,7 @@
       setDrilldownOverlayStatus(root, "error");
       return false;
     }
+    root.__meiStructuredZoneHosts = zoneHosts;
     try {
       await prefetchStructuredDrilldownWidgets(config);
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
@@ -7098,30 +7162,8 @@
         }
       }
       mountStructuredRowPreviewZone(root, zoneHosts, config);
-      const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-      if (queryStateId) {
-        const onQueryStateChange = (event) => {
-          if (event?.detail?.id !== queryStateId) return;
-          if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
-          renderStructuredDrilldownContent(root, detail, config)
-            .then((ok) => {
-              if (ok) dispatchPreviewUpdated("drilldown");
-            })
-            .catch((error) => {
-              recordPopupDebugIssue({
-                level: "error",
-                message: String(error?.message || error || "通用下钻壳刷新失败"),
-                phase: "structured_shell_refresh_error",
-                detail,
-                config,
-              });
-            });
-        };
-        window.addEventListener("mei:query-state-change", onQueryStateChange);
-        root.__meiStructuredQueryStateCleanup = () => {
-          window.removeEventListener("mei:query-state-change", onQueryStateChange);
-        };
-      }
+      bindAnalyticsChartsQueryStateRefresh(root, detail, config, (zoneId) => zoneHosts?.[zoneId]);
+      root.__meiStructuredQueryStateCleanup = root.__meiAnalyticsQueryStateCleanup;
       setDrilldownOverlayStatus(root, "ready");
       dispatchPreviewUpdated("drilldown");
       return true;
@@ -7161,7 +7203,17 @@
       });
       return false;
     }
-    const dataset = await fetchPopupDrilldownRows(detail, { ...config, datasetId });
+    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const fetchConfig = { ...config, datasetId };
+    if (
+      cardMetricId &&
+      (explainMetricKind(config, tabId) === "composition" ||
+        nonEmptyString(config?.supportRole) === "composition")
+    ) {
+      // 构成图需基于卡片指标 rowset 在前端聚合；勿直接拉 composition 子指标（会忽略 filter query_state）。
+      fetchConfig.tableMetricId = cardMetricId;
+    }
+    const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
     if (!rows.length) {
       recordPopupDebugIssue({
@@ -8730,6 +8782,10 @@
 
     repairManagePreviewBoardGrid(surface, resolved.sceneShell);
     refreshManagePreviewBoardCharts(surface);
+
+    bindAnalyticsChartsQueryStateRefresh(surface, detail, resolved, (zoneId) =>
+      resolveManagePreviewPanelHost(surface, zoneId),
+    );
 
     surface.dataset.meiPreviewBoardMounted = mountKey;
     surface.classList.add("preview-board-mounted");

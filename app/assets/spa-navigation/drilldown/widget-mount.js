@@ -303,3 +303,55 @@
     root.__meiAnalyticsQueryStateCleanup = null;
   }
 
+  async function remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost) {
+    const slotZones = sceneShellZonesByRole(config?.sceneShell, "slots");
+    let ok = true;
+    for (const zone of slotZones) {
+      const zoneSlots = Array.isArray(config?.slotsByZone?.[zone.id]) ? config.slotsByZone[zone.id] : [];
+      if (!zoneSlots.length || !zoneSlots.every((slot) => slot.component === "chart")) {
+        continue;
+      }
+      const host =
+        typeof resolveZoneHost === "function"
+          ? resolveZoneHost(zone.id)
+          : root.__meiStructuredZoneHosts?.[zone.id];
+      if (!(host instanceof HTMLElement)) {
+        ok = false;
+        continue;
+      }
+      const zoneOk = await mountAnalyticsChartSlots(root, detail, config, zoneSlots, host);
+      ok = ok && zoneOk;
+    }
+    return ok;
+  }
+
+  function bindAnalyticsChartsQueryStateRefresh(root, detail, config, resolveZoneHost) {
+    cleanupAnalyticsDrilldownWatcher(root);
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!queryStateId) return;
+    let refreshSeq = 0;
+    const onQueryStateChange = (event) => {
+      if (event?.detail?.id !== queryStateId) return;
+      if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
+      const currentSeq = ++refreshSeq;
+      remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost)
+        .then((ok) => {
+          if (!ok || currentSeq !== refreshSeq) return;
+          dispatchPreviewUpdated("drilldown");
+        })
+        .catch((error) => {
+          recordPopupDebugIssue({
+            level: "error",
+            message: String(error?.message || error || "分析型看板图表刷新失败"),
+            phase: "analytics_chart_refresh_error",
+            detail,
+            config,
+          });
+        });
+    };
+    window.addEventListener("mei:query-state-change", onQueryStateChange);
+    root.__meiAnalyticsQueryStateCleanup = () => {
+      window.removeEventListener("mei:query-state-change", onQueryStateChange);
+    };
+  }
+
