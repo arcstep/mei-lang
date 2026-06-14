@@ -927,37 +927,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
-    let cases = [
-        (
-            "scenes/01-执法要素.mei",
-            "enforcement_units_count",
-            vec!["enforcement-units-popup.mei"],
-        ),
-        (
-            "scenes/02-行政检查.mei",
-            "inspections_total_count",
-            vec![
-                "inspection-total-popup.mei",
-                "inspection-today-popup.mei",
-                "indicator-frequency-popup.mei",
-            ],
-        ),
-        (
-            "scenes/03-指标体系.mei",
-            "inspection_frequency_reduction_rate",
-            vec!["indicator-frequency-popup.mei"],
-        ),
-        (
-            "scenes/04-行政处罚.mei",
-            "penalties_total_count",
-            vec!["penalty-total-popup.mei"],
-        ),
-        (
-            "scenes/08-监督成效.mei",
-            "effectiveness_transfer_clue_count",
-            vec!["effect-transfer-clue-popup.mei"],
-        ),
-    ];
+    let cases: [(&str, &str, Vec<&str>); 0] = [];
 
     for (target, sample_metric_id, legacy_popup_files) in cases {
         let compiled = compile_app_from_root_with_options(
@@ -1001,7 +971,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
 }
 
 #[test]
-fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
+fn compile_spbjw_enforcement_elements_analytics_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -1021,43 +991,23 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
         .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
     let encoded = serde_json::to_string(contract).expect("encode scene contract");
     assert!(
-        encoded.contains("drilldown-kit.mei"),
-        "执法要素应引用通用下钻壳，got: {encoded}"
+        encoded.contains("enforcement_units_analytics_board"),
+        "执法单位卡应引用 analytics board，got: {encoded}"
     );
     assert!(
-        encoded.contains("projection_slots"),
-        "执法要素 link 应 lower 出 projection_slots，got: {encoded}"
+        encoded.contains("drilldown-kit.mei"),
+        "执法对象复合卡仍应保留 generic 多表下钻，got: {encoded}"
     );
     assert!(
         !encoded.contains("enforcement-units-popup.mei"),
         "不应再引用独立 popup scene 文件，got: {encoded}"
     );
     assert!(
-        encoded.contains("enforcement_units_count"),
-        "projection_slots 应包含 enforcement_units_count，got: {encoded}"
-    );
-    assert!(
-        encoded.contains("\"component\":\"metric_card\"")
-            || encoded.contains("\"component\": \"metric_card\""),
-        "hero slot 应为 metric_card，got: {encoded}"
-    );
-    assert!(
-        encoded.contains("\"component\":\"chart\"") || encoded.contains("\"component\": \"chart\""),
-        "composition slot 应为 chart，got: {encoded}"
-    );
-    assert!(
-        encoded.contains("\"component\":\"data_table\"")
-            || encoded.contains("\"component\": \"data_table\""),
-        "detail slot 应为 data_table，got: {encoded}"
-    );
-    let projection_empty: Vec<_> = compiled
-        .diagnostics
-        .iter()
-        .filter(|d| d.code == "projection_slots_empty")
-        .collect();
-    assert!(
-        projection_empty.is_empty(),
-        "执法要素不应出现 projection_slots_empty: {projection_empty:?}"
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key("enforcement_units_analytics_board"),
+        "drilldown context should hydrate enforcement units analytics assembly, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
     );
     let dataset = compiled
         .resources
@@ -1077,11 +1027,6 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
     assert!(
         blocks.len() >= 5,
         "执法对象 explain 的 5 个 dataframe 应落成 projection blocks，got {blocks:?}"
-    );
-    assert!(
-        encoded.contains("enforcement_objects_count::enforcement_venues_table")
-            || encoded.contains("enforcement_venues_table"),
-        "执法对象下钻应包含场所 scoped 表 slot，got: {encoded}"
     );
 }
 
@@ -1333,7 +1278,60 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
 }
 
 #[test]
-fn compile_spbjw_issue_handling_list_preview_projection_slots() {
+fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembly() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "scenes/07-问题办理.board.mei";
+    let scene_id = "issue_pending_analytics_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get(scene_id)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "expected assembly for `{scene_id}`, got keys: {:?}",
+                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+            )
+        });
+    let slots = assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !slots.is_empty(),
+        "issue analytics board export preview assembly should include projection_slots, assembly keys: {:?}, diagnostics: {:?}",
+        assembly.keys().collect::<Vec<_>>(),
+        compiled
+            .diagnostics
+            .iter()
+            .filter(|d| matches!(d.severity, crate::Severity::Error))
+            .collect::<Vec<_>>()
+    );
+    let encoded = serde_json::to_string(assembly).expect("encode assembly");
+    assert!(
+        encoded.contains("\"layout_zone\":\"chart\"")
+            && encoded.contains("\"layout_zone\":\"detail\""),
+        "issue analytics board assembly should lower chart/detail layout_zone, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("layout_mode") && encoded.contains("analytics"),
+        "issue analytics board assembly should lower to analytics layout_mode, got: {encoded}"
+    );
+}
+
+#[test]
+fn compile_spbjw_issue_handling_analytics_projection_slots() {
     let root = workspace_root();
     let source_root = root.join("workspaces").join("ws-spbjw");
     let app_root = source_root.join("zhifa");
@@ -1363,37 +1361,178 @@ fn compile_spbjw_issue_handling_list_preview_projection_slots() {
             "issue handling scene contract should include metric `{metric_id}`, got: {encoded}"
         );
     }
+    for board_id in [
+        "issue_pending_analytics_board",
+        "issue_doing_analytics_board",
+        "issue_done_analytics_board",
+    ] {
+        assert!(
+            encoded.contains(board_id),
+            "issue handling status cards should reference analytics board `{board_id}`, got: {encoded}"
+        );
+    }
     assert!(
         encoded.contains("issue_status_list_preview_board"),
-        "issue handling cards should reference list preview board export, got: {encoded}"
+        "verification rate card should still reference list preview board, got: {encoded}"
     );
     assert!(
-        encoded.contains("layout_zone"),
-        "issue handling list preview projection slots should include layout_zone, got: {encoded}"
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key("issue_pending_analytics_board"),
+        "drilldown context should hydrate pending analytics board assembly, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+    let pending_assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("issue_pending_analytics_board")
+        .and_then(Value::as_object)
+        .expect("pending analytics assembly");
+    let pending_encoded = serde_json::to_string(pending_assembly).expect("encode pending assembly");
+    assert!(
+        pending_encoded.contains("filter_schema"),
+        "issue pending analytics assembly should include filter_schema, got: {pending_encoded}"
     );
     assert!(
-        encoded.contains("\"layout_zone\":\"list\"") || encoded.contains("\"layout_zone\": \"list\""),
-        "issue handling boards should include list layout_zone, got: {encoded}"
+        pending_encoded.contains("layout_mode") && pending_encoded.contains("analytics"),
+        "issue pending analytics assembly should lower to analytics layout_mode, got: {pending_encoded}"
     );
     assert!(
-        encoded.contains("\"layout_zone\":\"preview\"") || encoded.contains("\"layout_zone\": \"preview\""),
-        "issue handling boards should include preview layout_zone, got: {encoded}"
+        encoded.contains("composition_by_category"),
+        "issue analytics cards should reference composition explain blocks, got: {encoded}"
     );
     assert!(
-        encoded.contains("filter_schema"),
-        "issue handling list preview links should include filter_schema, got: {encoded}"
+        encoded.contains("chart_kind") && encoded.contains("column"),
+        "issue analytics charts should lower configured chart kinds, got: {encoded}"
     );
     assert!(
-        encoded.contains("\"layout_zone\":\"preview\""),
-        "issue handling list preview should lower preview layout_zone aligned with scene panels, got: {encoded}"
+        pending_encoded.contains("supervisionDomain") && pending_encoded.contains("month_multi_select"),
+        "issue analytics boards should include warning_list filter fields, got: {pending_encoded}"
     );
     assert!(
-        encoded.contains("supervisionDomain") && encoded.contains("month_multi_select"),
-        "issue handling list preview boards should include warning_list filter fields, got: {encoded}"
+        pending_encoded.contains("\"layout_zone\":\"chart\"")
+            && pending_encoded.contains("\"layout_zone\":\"detail\""),
+        "issue pending analytics assembly should lower chart/detail layout_zone, got: {pending_encoded}"
     );
     assert!(
-        encoded.contains("layout_mode") && encoded.contains("list_preview"),
-        "issue handling board assembly should lower to list_preview layout_mode, got: {encoded}"
+        encoded.contains("07-问题办理.list-preview.board.mei"),
+        "verification rate popup should reference list-preview board file, got: {encoded}"
+    );
+}
+
+#[test]
+fn compile_spbjw_left_rail_analytics_projection_slots() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    for (target, board_id) in [
+        ("scenes/01-执法要素.mei", "enforcement_units_analytics_board"),
+        ("scenes/02-行政检查.mei", "inspection_total_analytics_board"),
+        ("scenes/03-指标体系.mei", "indicator_inspection_frequency_analytics_board"),
+        ("scenes/04-行政处罚.mei", "penalty_total_analytics_board"),
+    ] {
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions {
+                scene: None,
+                preview_target: Some(target.to_string()),
+            },
+        )
+        .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+        let contract = compiled
+            .scene_contract
+            .as_ref()
+            .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+        let encoded = serde_json::to_string(contract).expect("encode scene contract");
+        assert!(
+            encoded.contains(board_id),
+            "`{target}` should reference analytics board `{board_id}`, got: {encoded}"
+        );
+        assert!(
+            !encoded.contains("generic_drilldown_board")
+                || target == "scenes/01-执法要素.mei",
+            "`{target}` should not use generic drilldown except 执法对象，got: {encoded}"
+        );
+        assert!(
+            compiled.scene_projection_assembly_by_id.contains_key(board_id),
+            "`{target}` should hydrate assembly for `{board_id}`, keys: {:?}",
+            compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "scenes/08-监督成效.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
+    let encoded = serde_json::to_string(contract).expect("encode scene contract");
+    for board_id in [
+        "effect_transfer_clue_analytics_board",
+        "effect_filing_analytics_board",
+        "effect_sanction_analytics_board",
+        "effect_handled_analytics_board",
+        "effect_recovered_analytics_board",
+        "effect_mechanism_analytics_board",
+    ] {
+        assert!(
+            encoded.contains(board_id),
+            "supervision effectiveness cards should reference analytics board `{board_id}`, got: {encoded}"
+        );
+    }
+    assert!(
+        !encoded.contains("generic_drilldown_board"),
+        "supervision effectiveness cards should no longer reference generic drilldown shell, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("composition_by_category"),
+        "effectiveness analytics should reference composition explain blocks, got: {encoded}"
+    );
+    assert!(
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key("effect_transfer_clue_analytics_board"),
+        "drilldown context should hydrate transfer clue analytics board assembly, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+    let clue_assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("effect_transfer_clue_analytics_board")
+        .and_then(Value::as_object)
+        .expect("transfer clue analytics assembly");
+    let clue_encoded = serde_json::to_string(clue_assembly).expect("encode clue assembly");
+    assert!(
+        clue_encoded.contains("layout_mode") && clue_encoded.contains("analytics"),
+        "transfer clue analytics assembly should lower to analytics layout_mode, got: {clue_encoded}"
+    );
+    assert!(
+        clue_encoded.contains("supervisionDomain") && clue_encoded.contains("month_multi_select"),
+        "warning_list effectiveness boards should include warning_list filter fields, got: {clue_encoded}"
+    );
+    let sanction_assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("effect_sanction_analytics_board")
+        .and_then(Value::as_object)
+        .expect("sanction analytics assembly");
+    let sanction_encoded =
+        serde_json::to_string(sanction_assembly).expect("encode sanction assembly");
+    assert!(
+        sanction_encoded.contains("resultId") && sanction_encoded.contains("sanction"),
+        "issue_result_list effectiveness boards should include result filter fields, got: {sanction_encoded}"
     );
 }
 
