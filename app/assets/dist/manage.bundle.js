@@ -3487,10 +3487,6 @@
         formats[name] = { truncate: true, maxChars: 14 };
         return;
       }
-      if (/办公地址|住所地址|注册地址/.test(name)) {
-        formats[name] = { truncate: false, wrap: true };
-        return;
-      }
       if (/部门|单位|主责/.test(name)) {
         formats[name] = { truncate: true, maxChars: 18 };
         return;
@@ -3509,18 +3505,6 @@
         if (!name) return { key: name, order };
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
-        }
-        if (/序号/.test(name)) {
-          return { key: name, order, width: 64, width_mode: "fixed", align: "center" };
-        }
-        if (/类别/.test(name)) {
-          return { key: name, order, width: 96, width_mode: "fixed" };
-        }
-        if (/^执法单位$/.test(name)) {
-          return { key: name, order, width: 140, width_mode: "fixed" };
-        }
-        if (/办公地址|住所地址|注册地址/.test(name)) {
-          return { key: name, order, width_mode: "content", wrap: true };
         }
         if (/承办部门|主责单位/.test(name)) {
           return { key: name, order, align: "left" };
@@ -4791,6 +4775,22 @@
         positiveInt(override?.page_size, override?.pageSize) ||
         positiveInt(config?.page_size, config?.pageSize) ||
         config.pageSize,
+      column_template: nonEmptyString(
+        override?.column_template,
+        override?.columnTemplate,
+        config?.column_template,
+        config?.columnTemplate,
+      ),
+      column_formats:
+        override?.column_formats && typeof override.column_formats === "object"
+          ? override.column_formats
+          : override?.columnFormats && typeof override.columnFormats === "object"
+            ? override.columnFormats
+            : config?.column_formats && typeof config.column_formats === "object"
+              ? config.column_formats
+              : config?.columnFormats && typeof config.columnFormats === "object"
+                ? config.columnFormats
+                : null,
       compositionBy: (() => {
         const fromExplain = compositionFieldForTab(config, tabId, override);
         if (fromExplain) return [fromExplain];
@@ -5130,6 +5130,13 @@
                 ? entry.columnState
                 : null,
           pageSize: positiveInt(entry.page_size, entry.pageSize),
+          columnTemplate: nonEmptyString(entry.column_template, entry.columnTemplate),
+          columnFormats:
+            entry.column_formats && typeof entry.column_formats === "object"
+              ? entry.column_formats
+              : entry.columnFormats && typeof entry.columnFormats === "object"
+                ? entry.columnFormats
+                : null,
         };
       })
       .filter((slot) => slot.metricId || slot.datasetId);
@@ -5245,12 +5252,14 @@
       normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
       resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
       null;
-    const sceneShell = resolveSceneShell(sceneAssembly);
-    const popupLayoutMode = nonEmptyString(popup?.layout_mode, popup?.layoutMode);
-    const structuredBoard = Boolean(
-      (sceneShell?.layoutMode && sceneShell.layoutMode !== "generic_tabs") ||
-        (popupLayoutMode && popupLayoutMode !== "generic_tabs"),
-    );
+    const sceneShell =
+      resolveSceneShell(sceneAssembly) ||
+      normalizeSceneShellContract(
+        null,
+        null,
+        popup?.shell_contract || popup?.shellContract,
+      );
+    const structuredBoard = Boolean(sceneShell?.layoutMode) && sceneShell.layoutMode !== "generic_tabs";
     const overlaySize = resolveDrilldownOverlaySize({
       popup,
       boardFields,
@@ -5350,6 +5359,13 @@
             supportRole: slot.supportRole,
             column_state: slot.columnState || slot.column_state || undefined,
             pageSize: positiveInt(slot.pageSize, slot.page_size) || undefined,
+            column_template: nonEmptyString(slot.columnTemplate, slot.column_template) || undefined,
+            column_formats:
+              slot.columnFormats && typeof slot.columnFormats === "object"
+                ? slot.columnFormats
+                : slot.column_formats && typeof slot.column_formats === "object"
+                  ? slot.column_formats
+                  : undefined,
             runtimeRef: {
               kind: "metric",
               metricId: slot.metricId,
@@ -6239,16 +6255,25 @@
       columns.length >= 7;
     const inferredFormats = inferDrilldownColumnFormats(columns);
     const inferredColumnState = inferDrilldownColumnState(columns);
-    const columnFormats =
-      config?.columnFormats && typeof config.columnFormats === "object"
-        ? { ...inferredFormats, ...config.columnFormats }
-        : inferredFormats;
-    const columnState =
+    const explicitColumnState =
       config?.columnState && typeof config.columnState === "object"
         ? config.columnState
         : config?.column_state && typeof config.column_state === "object"
           ? config.column_state
-          : inferredColumnState;
+          : null;
+    const hasExplicitColumnState = Array.isArray(explicitColumnState?.columns) && explicitColumnState.columns.length > 0;
+    const explicitColumnFormats =
+      config?.columnFormats && typeof config.columnFormats === "object"
+        ? config.columnFormats
+        : config?.column_formats && typeof config.column_formats === "object"
+          ? config.column_formats
+          : null;
+    const columnFormats = explicitColumnFormats
+      ? { ...inferredFormats, ...explicitColumnFormats }
+      : inferredFormats;
+    const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
+    const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
+    const hasExplicitLayout = Boolean(columnTemplate) || hasExplicitColumnState;
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -6265,13 +6290,14 @@
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
+      column_template: columnTemplate || undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
       rowSelectionMode: nonEmptyString(config?.rowSelectionMode),
       tableScrollX,
-      autoFitColumns: true,
-      fitColumnsFromSample: true,
+      autoFitColumns: hasExplicitLayout ? false : true,
+      fitColumnsFromSample: hasExplicitLayout ? false : true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
@@ -7125,6 +7151,20 @@
       columns: cloneArray(primarySlot.fields).length
         ? cloneArray(primarySlot.fields)
         : cloneArray(baseConfig.columns),
+      column_state:
+        primarySlot.columnState && typeof primarySlot.columnState === "object"
+          ? primarySlot.columnState
+          : baseConfig.column_state,
+      pageSize: positiveInt(primarySlot.pageSize, primarySlot.page_size) || baseConfig.pageSize,
+      column_template: nonEmptyString(
+        primarySlot.columnTemplate,
+        primarySlot.column_template,
+        baseConfig.column_template,
+      ),
+      column_formats:
+        primarySlot.columnFormats && typeof primarySlot.columnFormats === "object"
+          ? primarySlot.columnFormats
+          : baseConfig.column_formats,
       rowSelectionMode:
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };

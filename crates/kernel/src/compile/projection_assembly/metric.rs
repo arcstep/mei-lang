@@ -675,6 +675,18 @@ fn slot_from_board_view(
     if let Some(page_size) = map.get("page_size").or_else(|| map.get("pageSize")) {
         slot.insert("page_size".to_string(), page_size.clone());
     }
+    if let Some(column_template) = map
+        .get("column_template")
+        .or_else(|| map.get("columnTemplate"))
+    {
+        slot.insert("column_template".to_string(), column_template.clone());
+    }
+    if let Some(column_formats) = map
+        .get("column_formats")
+        .or_else(|| map.get("columnFormats"))
+    {
+        slot.insert("column_formats".to_string(), column_formats.clone());
+    }
     Some(slot)
 }
 

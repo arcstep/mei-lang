@@ -225,7 +225,29 @@ function countTemplateTracks(template) {
   if (repeat) {
     return Number(repeat[1]) || 0;
   }
-  return raw.split(/\s+/).filter(Boolean).length;
+  let depth = 0;
+  let tracks = 0;
+  let hasToken = false;
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i];
+    if (ch === "(") {
+      depth += 1;
+      hasToken = true;
+    } else if (ch === ")") {
+      depth = Math.max(0, depth - 1);
+    } else if (/\s/.test(ch) && depth === 0) {
+      if (hasToken) {
+        tracks += 1;
+        hasToken = false;
+      }
+    } else if (depth === 0) {
+      hasToken = true;
+    }
+  }
+  if (hasToken) {
+    tracks += 1;
+  }
+  return tracks;
 }
 
 function resolveColumnMinWidth(props) {
@@ -319,16 +341,16 @@ function resolveColumnTemplate(props, keys, descriptors) {
   const explicit = String(props?.columnTemplate ?? props?.column_template ?? "").trim();
   const count = Array.isArray(keys) ? keys.length : 0;
   const minWidth = resolveColumnMinWidth(props);
+  if (explicit) {
+    const tracks = countTemplateTracks(explicit);
+    if (tracks === 0 || tracks === count) return explicit;
+  }
   const sampledTemplate = buildExplicitColumnTemplate(descriptors);
   if (sampledTemplate) {
     return sampledTemplate;
   }
   if (tableScrollXEnabled(props) && count > 0) {
     return `repeat(${count}, minmax(${minWidth}px, max-content))`;
-  }
-  if (explicit) {
-    const tracks = countTemplateTracks(explicit);
-    if (tracks === 0 || tracks === count) return explicit;
   }
   const preset = LAYOUT_PRESETS[String(props?.layoutPreset ?? "").trim()] || "";
   if (preset) {

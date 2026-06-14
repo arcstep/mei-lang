@@ -692,6 +692,19 @@ function isAddressLikeColumnKey(key) {
   return /办公地址|住所地址|注册地址|地址$/.test(name);
 }
 
+/** 需占满剩余宽度的弹性列（不可落入全 px 显式模板）。 */
+function columnPrefersFlexGrow(descriptor) {
+  if (!descriptor) return false;
+  if (Number(descriptor?.layoutFixedWidth) > 0 || columnHasManualWidth(descriptor)) return false;
+  const key = String(descriptor?.key || "");
+  if (isAddressLikeColumnKey(key)) return true;
+  const mode = String(descriptor?.widthMode || descriptor?.state?.width_mode || descriptor?.state?.widthMode || "")
+    .trim()
+    .toLowerCase();
+  if (mode === "content") return true;
+  return false;
+}
+
 /**
  * 用前 N 行样本推断列宽（表头+单元格），写入 layoutFixedWidth；手工 column_state.width 优先。
  */
@@ -728,7 +741,7 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
         ...descriptor,
         widthMode: "content",
         layoutFixedWidth: null,
-        layoutMinWidth: Math.max(120, columnWidthFloorForKey(key)),
+        layoutMinWidth: Math.max(280, columnWidthFloorForKey(key)),
         layoutMaxWidth: null,
         layoutClamp: false,
       });
@@ -777,6 +790,9 @@ export function buildExplicitColumnTemplate(descriptors) {
     if (Number.isFinite(fixed) && fixed > 0) {
       return `${Math.round(fixed)}px`;
     }
+    if (columnPrefersFlexGrow(descriptor)) {
+      return "";
+    }
     const min = Number(descriptor?.layoutMinWidth ?? descriptor?.minWidth);
     if (Number.isFinite(min) && min > 0) {
       return `${Math.round(min)}px`;
@@ -788,9 +804,13 @@ export function buildExplicitColumnTemplate(descriptors) {
 }
 
 export function columnLayoutWeights(descriptors, fallbackMin = 96) {
-  const weights = (Array.isArray(descriptors) ? descriptors : []).map((descriptor) =>
-    columnMinWidthPx(descriptor, fallbackMin)
-  );
+  const weights = (Array.isArray(descriptors) ? descriptors : []).map((descriptor) => {
+    const key = String(descriptor?.key || "");
+    if (isAddressLikeColumnKey(key)) {
+      return Math.max(columnMinWidthPx(descriptor, fallbackMin), 720);
+    }
+    return columnMinWidthPx(descriptor, fallbackMin);
+  });
   const total = weights.reduce((sum, value) => sum + value, 0) || 1;
   return weights.map((value) => (value / total) * 100);
 }
@@ -824,6 +844,9 @@ export function columnMinWidthPx(descriptor, fallbackMin = 96) {
   }
   if (/主责单位|单位/.test(key)) {
     return Math.max(labelFloor, 120);
+  }
+  if (isAddressLikeColumnKey(key)) {
+    return Math.max(labelFloor, 280);
   }
   return labelFloor;
 }

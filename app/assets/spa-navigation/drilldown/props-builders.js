@@ -99,16 +99,25 @@
       columns.length >= 7;
     const inferredFormats = inferDrilldownColumnFormats(columns);
     const inferredColumnState = inferDrilldownColumnState(columns);
-    const columnFormats =
-      config?.columnFormats && typeof config.columnFormats === "object"
-        ? { ...inferredFormats, ...config.columnFormats }
-        : inferredFormats;
-    const columnState =
+    const explicitColumnState =
       config?.columnState && typeof config.columnState === "object"
         ? config.columnState
         : config?.column_state && typeof config.column_state === "object"
           ? config.column_state
-          : inferredColumnState;
+          : null;
+    const hasExplicitColumnState = Array.isArray(explicitColumnState?.columns) && explicitColumnState.columns.length > 0;
+    const explicitColumnFormats =
+      config?.columnFormats && typeof config.columnFormats === "object"
+        ? config.columnFormats
+        : config?.column_formats && typeof config.column_formats === "object"
+          ? config.column_formats
+          : null;
+    const columnFormats = explicitColumnFormats
+      ? { ...inferredFormats, ...explicitColumnFormats }
+      : inferredFormats;
+    const columnState = hasExplicitColumnState ? explicitColumnState : inferredColumnState;
+    const columnTemplate = nonEmptyString(config?.column_template, config?.columnTemplate);
+    const hasExplicitLayout = Boolean(columnTemplate) || hasExplicitColumnState;
     const columnMinWidth =
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
@@ -125,13 +134,14 @@
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
       column_state: columnState,
+      column_template: columnTemplate || undefined,
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
       rowSelectionMode: nonEmptyString(config?.rowSelectionMode),
       tableScrollX,
-      autoFitColumns: true,
-      fitColumnsFromSample: true,
+      autoFitColumns: hasExplicitLayout ? false : true,
+      fitColumnsFromSample: hasExplicitLayout ? false : true,
       columnWidthSampleSize: 100,
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,

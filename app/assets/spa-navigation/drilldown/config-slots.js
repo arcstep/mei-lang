@@ -118,6 +118,13 @@
                 ? entry.columnState
                 : null,
           pageSize: positiveInt(entry.page_size, entry.pageSize),
+          columnTemplate: nonEmptyString(entry.column_template, entry.columnTemplate),
+          columnFormats:
+            entry.column_formats && typeof entry.column_formats === "object"
+              ? entry.column_formats
+              : entry.columnFormats && typeof entry.columnFormats === "object"
+                ? entry.columnFormats
+                : null,
         };
       })
       .filter((slot) => slot.metricId || slot.datasetId);
@@ -233,12 +240,14 @@
       normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
       resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
       null;
-    const sceneShell = resolveSceneShell(sceneAssembly);
-    const popupLayoutMode = nonEmptyString(popup?.layout_mode, popup?.layoutMode);
-    const structuredBoard = Boolean(
-      (sceneShell?.layoutMode && sceneShell.layoutMode !== "generic_tabs") ||
-        (popupLayoutMode && popupLayoutMode !== "generic_tabs"),
-    );
+    const sceneShell =
+      resolveSceneShell(sceneAssembly) ||
+      normalizeSceneShellContract(
+        null,
+        null,
+        popup?.shell_contract || popup?.shellContract,
+      );
+    const structuredBoard = Boolean(sceneShell?.layoutMode) && sceneShell.layoutMode !== "generic_tabs";
     const overlaySize = resolveDrilldownOverlaySize({
       popup,
       boardFields,
@@ -338,6 +347,13 @@
             supportRole: slot.supportRole,
             column_state: slot.columnState || slot.column_state || undefined,
             pageSize: positiveInt(slot.pageSize, slot.page_size) || undefined,
+            column_template: nonEmptyString(slot.columnTemplate, slot.column_template) || undefined,
+            column_formats:
+              slot.columnFormats && typeof slot.columnFormats === "object"
+                ? slot.columnFormats
+                : slot.column_formats && typeof slot.column_formats === "object"
+                  ? slot.column_formats
+                  : undefined,
             runtimeRef: {
               kind: "metric",
               metricId: slot.metricId,

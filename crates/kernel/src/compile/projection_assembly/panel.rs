@@ -202,6 +202,8 @@ fn apply_lowered_slots(
     default_slot: Option<usize>,
     tabs_default_slot: Option<usize>,
     title: Option<String>,
+    shell_contract: Option<Map<String, Value>>,
+    local_nav: Option<Value>,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -245,6 +247,21 @@ fn apply_lowered_slots(
     }
     if let Some(title) = title {
         link.insert("title".to_string(), Value::String(title));
+    }
+    if let Some(shell_contract) = shell_contract {
+        link.insert(
+            "shell_contract".to_string(),
+            Value::Object(shell_contract),
+        );
+    }
+    if let Some(local_nav) = local_nav.filter(|value| !value.is_null()) {
+        let include = match local_nav.as_object() {
+            Some(map) => !map.is_empty(),
+            None => true,
+        };
+        if include {
+            link.insert("local_nav".to_string(), local_nav);
+        }
     }
     link.remove("world");
     link.remove("board");
@@ -407,6 +424,8 @@ fn lower_scene_link(
             None,
             None,
             title,
+            Some(shell_contract.clone()),
+            Some(target_scene_contract.scene.local_nav.clone()),
             target_file,
             diagnostics,
         );
@@ -450,6 +469,8 @@ fn lower_scene_link(
         default_slot,
         None,
         title,
+        Some(shell_contract.clone()),
+        Some(target_scene_contract.scene.local_nav.clone()),
         target_file,
         diagnostics,
     );

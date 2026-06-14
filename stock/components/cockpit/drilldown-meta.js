@@ -29,7 +29,7 @@ function globalSceneDrilldownContext() {
   return null;
 }
 
-function sceneDrilldownContextValue(props, key) {
+export function sceneDrilldownContextValue(props, key) {
   const local = props?._mei?.[key];
   if (local && typeof local === "object" && !Array.isArray(local)) {
     return local;
@@ -60,6 +60,10 @@ export function boardLinkPassthroughFields(raw) {
   const queryStateId = String(raw.query_state_id ?? raw.queryStateId ?? "").trim();
   if (queryStateId) {
     out.query_state_id = queryStateId;
+  }
+  const shellContract = raw.shell_contract ?? raw.shellContract;
+  if (shellContract && typeof shellContract === "object" && !Array.isArray(shellContract)) {
+    out.shell_contract = shellContract;
   }
   return out;
 }

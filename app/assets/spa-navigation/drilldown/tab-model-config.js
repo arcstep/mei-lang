@@ -197,6 +197,22 @@
         positiveInt(override?.page_size, override?.pageSize) ||
         positiveInt(config?.page_size, config?.pageSize) ||
         config.pageSize,
+      column_template: nonEmptyString(
+        override?.column_template,
+        override?.columnTemplate,
+        config?.column_template,
+        config?.columnTemplate,
+      ),
+      column_formats:
+        override?.column_formats && typeof override.column_formats === "object"
+          ? override.column_formats
+          : override?.columnFormats && typeof override.columnFormats === "object"
+            ? override.columnFormats
+            : config?.column_formats && typeof config.column_formats === "object"
+              ? config.column_formats
+              : config?.columnFormats && typeof config.columnFormats === "object"
+                ? config.columnFormats
+                : null,
       compositionBy: (() => {
         const fromExplain = compositionFieldForTab(config, tabId, override);
         if (fromExplain) return [fromExplain];

@@ -116,6 +116,20 @@
       columns: cloneArray(primarySlot.fields).length
         ? cloneArray(primarySlot.fields)
         : cloneArray(baseConfig.columns),
+      column_state:
+        primarySlot.columnState && typeof primarySlot.columnState === "object"
+          ? primarySlot.columnState
+          : baseConfig.column_state,
+      pageSize: positiveInt(primarySlot.pageSize, primarySlot.page_size) || baseConfig.pageSize,
+      column_template: nonEmptyString(
+        primarySlot.columnTemplate,
+        primarySlot.column_template,
+        baseConfig.column_template,
+      ),
+      column_formats:
+        primarySlot.columnFormats && typeof primarySlot.columnFormats === "object"
+          ? primarySlot.columnFormats
+          : baseConfig.column_formats,
       rowSelectionMode:
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };
