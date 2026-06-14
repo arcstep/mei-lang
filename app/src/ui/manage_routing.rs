@@ -93,13 +93,8 @@ pub(crate) fn manage_tab_href(
     script_target: bool,
     tab: ManageViewTab,
     diag_filter: Option<&str>,
+    selected_scene: Option<&str>,
 ) -> String {
-    let mut query = Vec::new();
-    if let Some(f) = file_param {
-        if !f.is_empty() {
-            query.push(format!("file={}", encode_query_value(f)));
-        }
-    }
     let asset_dual = asset_dual_preview_source(selected_target);
     let route_tab = if is_ops_config_target(selected_target) {
         ManageViewTab::Preview
@@ -113,15 +108,58 @@ pub(crate) fn manage_tab_href(
     } else {
         ManageViewTab::Preview
     };
-    query.push(format!("tab={}", route_tab.slug()));
-    if matches!(route_tab, ManageViewTab::Diagnostics) {
-        if let Some(filter) = diag_filter.map(str::trim).filter(|s| !s.is_empty()) {
-            if filter.eq_ignore_ascii_case("all") {
-                query.push("diag_filter=all".to_string());
-            }
+    let diag = if matches!(route_tab, ManageViewTab::Diagnostics) {
+        diag_filter
+    } else {
+        None
+    };
+    build_preview_href(
+        app_path,
+        file_param,
+        selected_scene,
+        Some(route_tab.slug()),
+        diag,
+    )
+}
+
+/// 构建视图预览链接：`file` + 可选 `scene`（多 `scene_export` 选择）+ `tab`。
+pub(crate) fn build_preview_href(
+    app_path: &str,
+    file: Option<&str>,
+    scene: Option<&str>,
+    tab: Option<&str>,
+    diag_filter: Option<&str>,
+) -> String {
+    let query = build_preview_query_parts(file, scene, tab, diag_filter);
+    if query.is_empty() {
+        format!("/apps/build/{app_path}")
+    } else {
+        format!("/apps/build/{app_path}?{}", query.join("&"))
+    }
+}
+
+pub(crate) fn build_preview_query_parts(
+    file: Option<&str>,
+    scene: Option<&str>,
+    tab: Option<&str>,
+    diag_filter: Option<&str>,
+) -> Vec<String> {
+    let mut query = Vec::new();
+    if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
+        query.push(format!("file={}", encode_query_value(f)));
+    }
+    if let Some(sc) = scene.map(str::trim).filter(|s| !s.is_empty()) {
+        query.push(format!("scene={}", encode_query_value(sc)));
+    }
+    if let Some(t) = tab.map(str::trim).filter(|s| !s.is_empty()) {
+        query.push(format!("tab={}", encode_query_value(t)));
+    }
+    if let Some(filter) = diag_filter.map(str::trim).filter(|s| !s.is_empty()) {
+        if filter.eq_ignore_ascii_case("all") {
+            query.push("diag_filter=all".to_string());
         }
     }
-    format!("/apps/build/{app_path}?{}", query.join("&"))
+    query
 }
 
 /// 访问态 canonical 路径后缀：`/scene/<id>?tab=…&chrome=…`（`scene_id` 经 `encode_query_value` 编码）。

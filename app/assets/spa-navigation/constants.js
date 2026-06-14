@@ -34,5 +34,6 @@
   const POPUP_OPEN_EVENT = "mei:popup-open";
   const PREFETCH_PANEL_METRICS_EVENT = "meilang:prefetch-panel-metrics";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
+  const SCENE_BOARD_OVERLAY_ROOT_ID = "mei-access-scene-board-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 

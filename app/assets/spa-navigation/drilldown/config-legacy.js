@@ -101,9 +101,9 @@
     );
     const defaultSceneBindings = sceneBindingDefaults(
       boardSceneId,
-      detail?.scene_bindings_by_id,
-      detail?.scene_examples_by_id,
-      detail?.scene_projection_assembly_by_id,
+      sceneDrilldownContextMap(detail, "scene_bindings_by_id"),
+      sceneDrilldownContextMap(detail, "scene_examples_by_id"),
+      sceneDrilldownAssemblyById(detail),
     );
     const tabMetrics = normalizeTabMetricOverrides(
       defaultSceneBindings,
@@ -128,7 +128,10 @@
       popup?.scene_file,
       popup?.sceneFile,
     );
-    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
+    const sceneAssembly = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
     const sceneLocalNav =
       boardFields?.localNav ||
       normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||

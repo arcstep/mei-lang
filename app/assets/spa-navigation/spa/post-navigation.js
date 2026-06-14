@@ -25,6 +25,9 @@
         }
         publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         installSceneProjectionHost();
+        if (typeof boot.mountManagePreviewBoard === "function") {
+          void boot.mountManagePreviewBoard(doc);
+        }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
       } catch (err) {

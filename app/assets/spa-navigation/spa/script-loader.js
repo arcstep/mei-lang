@@ -1,3 +1,24 @@
+  function waitForPersistentScriptReady(scriptEl) {
+    if (!(scriptEl instanceof HTMLScriptElement)) {
+      return Promise.resolve();
+    }
+    if (scriptEl.getAttribute("data-mei-script-ready") === "true") {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const finish = (fn) => {
+        scriptEl.setAttribute("data-mei-script-ready", "true");
+        fn();
+      };
+      scriptEl.addEventListener("load", () => finish(resolve), { once: true });
+      scriptEl.addEventListener(
+        "error",
+        () => finish(() => reject(new Error("failed to load persistent script: " + scriptEl.src))),
+        { once: true },
+      );
+    });
+  }
+
   function loadScript(rawSrc, options) {
     const opts = options || {};
     const absolute = new URL(rawSrc, window.location.href).toString();
@@ -5,7 +26,7 @@
       const found = document.querySelector(
         'script[data-mei-persistent-script="' + opts.persistentKey + '"]',
       );
-      if (found) return Promise.resolve();
+      if (found) return waitForPersistentScriptReady(found);
     }
     if (opts.reloadKey) {
       document
@@ -41,7 +62,10 @@
       if (opts.reloadKey) {
         script.setAttribute("data-mei-reload-script", opts.reloadKey);
       }
-      script.onload = () => finish(resolve);
+      script.onload = () => {
+        script.setAttribute("data-mei-script-ready", "true");
+        finish(resolve);
+      };
       script.onerror = () => {
         if (opts.softFail) {
           console.warn("[spa-navigation] script load skipped", rawSrc);

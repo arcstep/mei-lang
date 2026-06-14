@@ -49,6 +49,7 @@ pub(crate) fn config_shell(
         None,
         false,
         false,
+        None,
     );
     view! {
         <div class="shell shell-surface config-view-shell text-slate-200">

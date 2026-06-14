@@ -98,6 +98,29 @@ pub(crate) fn source_tree_view(
                     </li>
                 }
                 .into_any()
+            } else if node.kind == "scene_export" {
+                scene_export_tree_row(
+                    route_mode,
+                    app_path,
+                    node,
+                    selected_target,
+                    selected_scene,
+                    active_tab,
+                )
+            } else if route_mode == UiRouteMode::Build
+                && node
+                    .children
+                    .iter()
+                    .any(|child| child.kind == "scene_export")
+            {
+                multi_scene_export_file_branch(
+                    route_mode,
+                    app_path,
+                    node,
+                    selected_target,
+                    selected_scene,
+                    active_tab,
+                )
             } else {
                 let scene_for_link = if route_mode.uses_scene_route() {
                     scene_target_pairs
@@ -153,6 +176,123 @@ pub(crate) fn source_tree_view(
         .collect::<Vec<_>>();
     let items = items.into_iter().collect_view();
     view! { <ul class="tree m-0 grid list-none gap-0.5 p-0">{items}</ul> }.into_any()
+}
+
+fn scene_export_is_active(
+    file_path: &str,
+    export_id: Option<&str>,
+    selected_target: &str,
+    selected_scene: Option<&str>,
+) -> bool {
+    if file_path != selected_target {
+        return false;
+    }
+    let Some(export_id) = export_id.map(str::trim).filter(|id| !id.is_empty()) else {
+        return false;
+    };
+    selected_scene
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .is_some_and(|wanted| wanted == export_id)
+}
+
+fn multi_scene_export_file_branch(
+    route_mode: UiRouteMode,
+    app_path: &str,
+    node: &WorkspaceNode,
+    selected_target: &str,
+    selected_scene: Option<&str>,
+    active_tab: Option<&str>,
+) -> AnyView {
+    let open = selected_target == node.path.as_str();
+    let icon = file_row_icon(node);
+    let export_children = node
+        .children
+        .iter()
+        .filter(|child| child.kind == "scene_export")
+        .map(|child| {
+            scene_export_tree_row(
+                route_mode,
+                app_path,
+                child,
+                selected_target,
+                selected_scene,
+                active_tab,
+            )
+        })
+        .collect::<Vec<_>>();
+    let export_children = export_children.into_iter().collect_view();
+    view! {
+        <li class="tree-node tree-li-branch tree-li-scene-exports">
+            <details class="pl-1" open=open>
+                <summary
+                    class="tree-folder-summary tree-scene-export-file-summary flex min-w-0 cursor-pointer select-none items-center gap-1.5 py-0.5 pl-2 pr-1 text-[13px] text-slate-300"
+                    title=node.path.clone()
+                >
+                    <span class="shrink-0" aria-hidden="true">{icon}</span>
+                    <span class="tree-folder-label min-w-0 truncate">{node.name.clone()}</span>
+                </summary>
+                <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-3">
+                    {export_children}
+                </ul>
+            </details>
+        </li>
+    }
+    .into_any()
+}
+
+fn scene_export_tree_row(
+    route_mode: UiRouteMode,
+    app_path: &str,
+    node: &WorkspaceNode,
+    selected_target: &str,
+    selected_scene: Option<&str>,
+    active_tab: Option<&str>,
+) -> AnyView {
+    let export_id = node.scene_export_id.as_deref();
+    let href = source_href(
+        route_mode,
+        app_path,
+        node.path.as_str(),
+        export_id,
+        if route_mode == UiRouteMode::Build {
+            Some(node.path.as_str())
+        } else {
+            None
+        },
+        active_tab,
+    );
+    let active = scene_export_is_active(
+        node.path.as_str(),
+        export_id,
+        selected_target,
+        selected_scene,
+    );
+    let class = if active {
+        "tree-link tree-link--scene-export tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[12px] font-medium text-sky-100 transition-colors"
+    } else {
+        "tree-link tree-link--scene-export flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] text-slate-400 transition-colors hover:text-slate-100"
+    };
+    let icon = mei_coin_file_icon(Some("scene"));
+    let title = format!(
+        "scene_export `{}` · {}",
+        export_id.unwrap_or("-"),
+        node.path
+    );
+    view! {
+        <li class="tree-node">
+            <a
+                class=class
+                href=href
+                data-preserve-manage-tab="1"
+                title=title
+            >
+                <span class="shrink-0" aria-hidden="true">{icon}</span>
+                <span class="min-w-0 flex-1 truncate font-mono text-[11px]">{node.name.clone()}</span>
+            </a>
+        </li>
+    }
+    .into_any()
 }
 
 pub(crate) fn tree_file_icon_for_path(path: &str) -> AnyView {
@@ -246,16 +386,12 @@ fn source_href(
             }
         }
         UiRouteMode::Build => {
-            let mut parts = Vec::new();
-            if let Some(f) = file_for_link {
-                let t = f.trim();
-                if !t.is_empty() {
-                    parts.push(format!("file={}", encode_query_value(t)));
-                    if let Some(tab) = active_tab.map(str::trim).filter(|s| !s.is_empty()) {
-                        parts.push(format!("tab={}", encode_query_value(tab)));
-                    }
-                }
-            }
+            let parts = super::manage_routing::build_preview_query_parts(
+                file_for_link,
+                selected_scene,
+                active_tab,
+                None,
+            );
             if parts.is_empty() {
                 format!("/apps/build/{app_path}")
             } else {

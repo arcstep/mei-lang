@@ -1,4 +1,20 @@
-  function openSceneProjection(detail, preResolvedRequest = null) {
+  function useSceneBoardOverlay(config) {
+    const hostMode = nonEmptyString(
+      config?.sceneLocalNav?.hostMode,
+      config?.popup?.scene_host_mode,
+      config?.popup?.sceneHostMode,
+    );
+    if (config?.structuredBoard && hostMode === "scene_board") {
+      return true;
+    }
+    return Boolean(
+      config?.structuredBoard &&
+        config?.sceneShell?.layoutMode === "analytics" &&
+        nonEmptyString(config?.boardSceneFile) === "scenes/05-监督预警.board.mei",
+    );
+  }
+
+  async function openSceneProjection(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
     const mount = resolved.mount || buildProjectionMount(resolved, detail);
@@ -28,10 +44,10 @@
       openBoardRouteProjection(detail, renderConfig);
       return;
     }
-    openProjectionOverlay(detail, renderConfig);
+    await openProjectionOverlay(detail, renderConfig);
   }
 
-  function openProjectionOverlay(detail, preResolvedRequest = null) {
+  async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
     if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
@@ -47,25 +63,30 @@
       }
       return;
     }
-    const root = ensureDrilldownOverlayRoot();
-    applyDrilldownOverlayMeta(root, config);
-    if (config.structuredBoard) {
-      renderStructuredDrilldownContent(root, detail, config);
+    if (useSceneBoardOverlay(config)) {
+      closeDrilldownOverlay();
+      const root = ensureSceneBoardOverlayRoot();
+      applyDrilldownOverlayMeta(root, config);
       root.removeAttribute("hidden");
       root.classList.add("is-open");
-      document.body.classList.add("access-drilldown-open");
+      document.body.classList.add("access-scene-board-open");
+      await renderStructuredDrilldownContent(root, detail, config);
+      return;
+    }
+    closeSceneBoardOverlay();
+    const root = ensureDrilldownOverlayRoot();
+    applyDrilldownOverlayMeta(root, config);
+    root.removeAttribute("hidden");
+    root.classList.add("is-open");
+    document.body.classList.add("access-drilldown-open");
+    if (config.structuredBoard) {
+      await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
     const activeTab = renderDrilldownTabs(root, detail, config);
     if (!renderDrilldownContent(root, detail, config, activeTab)) {
-      root.removeAttribute("hidden");
-      root.classList.add("is-open");
-      document.body.classList.add("access-drilldown-open");
       return;
     }
-    root.removeAttribute("hidden");
-    root.classList.add("is-open");
-    document.body.classList.add("access-drilldown-open");
   }
 
   function installSceneProjectionHost() {
@@ -74,7 +95,7 @@
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
     boot.sceneProjectionHostMounted = true;
-    const openByEvent = (event) => {
+    const openByEvent = async (event) => {
       if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
       const config = resolveSceneOpenRequest(detail);
@@ -91,7 +112,7 @@
         }
         return;
       }
-      openSceneProjection(detail, config);
+      await openSceneProjection(detail, config);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
@@ -99,6 +120,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeDrilldownOverlay();
+        closeSceneBoardOverlay();
       }
     });
   }

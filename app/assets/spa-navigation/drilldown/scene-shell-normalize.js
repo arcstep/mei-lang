@@ -52,13 +52,21 @@
     const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? raw.props : {};
     const slot = raw.slot && typeof raw.slot === "object" && !Array.isArray(raw.slot) ? raw.slot : {};
     const id = nonEmptyString(raw.id, props.projection_id, props.zone_id);
-    const role = nonEmptyString(slot.kind, slot.role, props.projection_role, props.zone_role);
+    const role = nonEmptyString(
+      raw.role,
+      slot.kind,
+      slot.role,
+      props.projection_role,
+      props.zone_role,
+    );
     if (!id || !role) return null;
-    const accepts = Array.isArray(slot.accepts)
-      ? slot.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
-      : Array.isArray(props.projection_accepts)
-        ? props.projection_accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
-      : [];
+    const accepts = Array.isArray(raw.accepts)
+      ? raw.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+      : Array.isArray(slot.accepts)
+        ? slot.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+        : Array.isArray(props.projection_accepts)
+          ? props.projection_accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+          : [];
     return {
       id,
       role,
@@ -71,7 +79,7 @@
         props.selection_source,
         props.selectionSource,
       ),
-      required: boolValue(slot.required, props.projection_required, false),
+      required: boolValue(raw.required, slot.required, props.projection_required, false),
       max: positiveInt(slot.max, props.projection_max, props.max),
       accepts,
       layout: normalizeShellLayout(raw.layout),
@@ -164,6 +172,7 @@
     return {
       kind,
       sceneId,
+      hostMode: nonEmptyString(raw.host_mode, raw.hostMode),
       defaultEntry: normalizeTabId(nonEmptyString(raw.default_entry, raw.defaultEntry, raw.defaultEntryTab)),
       includeHero: boolValue(raw.include_hero, raw.includeHero, true),
       overlaySize,

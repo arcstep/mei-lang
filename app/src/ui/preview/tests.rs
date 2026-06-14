@@ -390,6 +390,7 @@ fn resolve_panel_card_props_strips_heading_from_card() {
         body_props: json!({}),
         base: None,
         import_scope: None,
+        slot: None,
     };
     let card = resolve_panel_card_props(&theme, &panel);
     assert!(card.get("heading").is_none());
@@ -443,6 +444,7 @@ fn resolve_panel_head_props_merges_theme_and_panel() {
         body_props: json!({}),
         base: None,
         import_scope: None,
+        slot: None,
     };
     let head = resolve_panel_head_props(&theme, &panel);
     assert_eq!(head.get("variant").and_then(Value::as_str), Some("plain"));

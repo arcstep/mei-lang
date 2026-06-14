@@ -37,6 +37,27 @@
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
+
+  async function waitForCustomElementTag(tagName) {
+    const tag = String(tagName || "").trim().toLowerCase();
+    if (!tag) return false;
+    if (customElements.get(tag)) return true;
+    try {
+      await Promise.race([
+        customElements.whenDefined(tag),
+        new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error("custom element define timeout: " + tag)),
+            DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS,
+          );
+        }),
+      ]);
+    } catch (_) {
+      /* fall through */
+    }
+    return Boolean(customElements.get(tag));
+  }
 
   async function ensureDrilldownChartRegistered(tagName) {
     const tag = String(tagName || "").trim().toLowerCase();
@@ -49,7 +70,7 @@
       persistentKey: scriptPath,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
   }
 
   async function ensureDrilldownTableRegistered() {
@@ -60,7 +81,7 @@
       persistentKey: DRILLDOWN_TABLE_SCRIPT,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
   }
 
   async function ensureDrilldownFilterBarRegistered() {
@@ -71,7 +92,32 @@
       persistentKey: DRILLDOWN_FILTER_BAR_SCRIPT,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
+  }
+
+  async function prefetchStructuredDrilldownWidgets(config) {
+    const tasks = [ensureDrilldownTableRegistered(), ensureDrilldownFilterBarRegistered()];
+    const chartTags = new Set();
+    const slotsByZone =
+      config?.slotsByZone && typeof config.slotsByZone === "object" && !Array.isArray(config.slotsByZone)
+        ? config.slotsByZone
+        : {};
+    Object.values(slotsByZone).forEach((zoneSlots) => {
+      if (!Array.isArray(zoneSlots)) return;
+      zoneSlots.forEach((slot) => {
+        if (slot?.component !== "chart") return;
+        const tag = drilldownChartTag(slot.chartKind, slot.id);
+        if (tag) chartTags.add(tag);
+      });
+    });
+    if (!chartTags.size && Array.isArray(config?.chartSlots)) {
+      config.chartSlots.forEach((slot) => {
+        const tag = drilldownChartTag(slot?.chartKind, slot?.id);
+        if (tag) chartTags.add(tag);
+      });
+    }
+    chartTags.forEach((tag) => tasks.push(ensureDrilldownChartRegistered(tag)));
+    await Promise.all(tasks);
   }
 
   function buildDrilldownChartProps(detail, config, tabId) {

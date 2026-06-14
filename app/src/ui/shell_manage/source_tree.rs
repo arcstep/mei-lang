@@ -103,6 +103,7 @@ pub(crate) fn manage_source_shell(
         None,
         false,
         false,
+        selected_scene,
     );
     let tab_specs: Vec<ManageViewTab> = if script_target || asset_shell == AssetShellKind::Dual {
         vec![ManageViewTab::Preview, ManageViewTab::Source]
@@ -119,6 +120,7 @@ pub(crate) fn manage_source_shell(
                 script_target,
                 tab,
                 None,
+                selected_scene,
             );
             let class = if tab == active_manage_tab {
                 "manage-view-tab is-active"

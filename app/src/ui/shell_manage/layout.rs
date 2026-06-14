@@ -73,6 +73,7 @@ pub(crate) fn manage_shell(
         UiRouteMode::Build,
     );
     let active_scene = compiled.active_scene.as_deref();
+    let scene_for_links = selected_scene.or(active_scene);
     let scene_target_pairs = compiled
         .scene_routes
         .iter()
@@ -83,7 +84,7 @@ pub(crate) fn manage_shell(
         UiRouteMode::Build,
         app_path,
         selected_target.as_str(),
-        selected_scene.or(active_scene),
+        scene_for_links,
         scene_target_pairs.as_slice(),
         compiled.active_target_file.as_str(),
         active_tab,
@@ -92,6 +93,7 @@ pub(crate) fn manage_shell(
         compiled,
         app_path,
         selected_target.as_str(),
+        scene_for_links,
         diag_filter_mode,
     );
     let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
@@ -131,6 +133,7 @@ pub(crate) fn manage_shell(
         Some(compiled),
         true,
         true,
+        scene_for_links,
     );
     let shell_class = if stage_enabled {
         "shell shell-surface frame-stage-enabled text-slate-200"
@@ -182,6 +185,7 @@ pub(crate) fn manage_shell(
                 } else {
                     None
                 },
+                scene_for_links,
             );
             let class = if tab == active_manage_tab {
                 "manage-view-tab is-active"

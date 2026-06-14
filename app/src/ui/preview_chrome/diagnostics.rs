@@ -254,6 +254,7 @@ pub(crate) fn diagnostics_view(
     compiled: &CompiledApp,
     app_path: &str,
     selected_target: &str,
+    selected_scene: Option<&str>,
     filter_mode: DiagnosticsFilterMode,
 ) -> AnyView {
     if compiled.diagnostics.is_empty() {
@@ -315,6 +316,7 @@ pub(crate) fn diagnostics_view(
             true,
             ManageViewTab::Diagnostics,
             Some("all"),
+            selected_scene,
         );
         view! {
             <p class="m-0 text-xs text-slate-400">
@@ -333,6 +335,7 @@ pub(crate) fn diagnostics_view(
         true,
         ManageViewTab::Diagnostics,
         None,
+        selected_scene,
     );
     let href_all = manage_tab_href(
         app_path,
@@ -341,6 +344,7 @@ pub(crate) fn diagnostics_view(
         true,
         ManageViewTab::Diagnostics,
         Some("all"),
+        selected_scene,
     );
     let filter_current_class = if filter_mode == DiagnosticsFilterMode::CurrentFile {
         "manage-diag-filter is-active"

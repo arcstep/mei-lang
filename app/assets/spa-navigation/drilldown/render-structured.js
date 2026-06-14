@@ -169,6 +169,7 @@
       return false;
     }
     try {
+      await prefetchStructuredDrilldownWidgets(config);
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
         const ok = renderStructuredTabZones(root, detail, config, zoneHosts);
         if (!ok) {

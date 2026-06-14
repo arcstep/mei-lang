@@ -263,8 +263,37 @@ export function tableDrilldownMeta(props) {
     return null;
   }
   const popupOut = hasProjectionSlots ? { ...popup, projection_slots: projectionSlots } : popup;
+  const boardSceneId = String(
+    popupOut.scene_id ||
+      popupOut.sceneId ||
+      popupOut.scene?.scene_id ||
+      popupOut.scene?.sceneId ||
+      "",
+  ).trim();
+  const assemblyById = sceneDrilldownContextValue(props, "scene_projection_assembly_by_id");
+  const assemblyEntry =
+    boardSceneId && assemblyById && typeof assemblyById === "object" && !Array.isArray(assemblyById)
+      ? assemblyById[boardSceneId]
+      : null;
+  const enrichedPopup = {
+    ...popupOut,
+    scene_id: boardSceneId || popupOut.scene_id,
+    scene_file: nonEmptyString(
+      popupOut.scene_file,
+      popupOut.sceneFile,
+      popupOut.scene?.scene_file,
+      popupOut.scene?.sceneFile,
+      assemblyEntry?.target_file,
+    ),
+    local_nav:
+      popupOut.local_nav ||
+      popupOut.localNav ||
+      assemblyEntry?.local_nav ||
+      assemblyEntry?.localNav ||
+      null,
+  };
   return {
-    popup: popupOut,
+    popup: enrichedPopup,
     analysis_contract: contract,
     metric_id: metricId,
     dataset_id: datasetId,
@@ -273,8 +302,8 @@ export function tableDrilldownMeta(props) {
     scene_id: String(ref.scene_id || props?._mei?.active_scene_id || "").trim(),
     scene_path: String(ref.scene_path || props?._mei?.active_target_file || "").trim(),
     query_state_id: queryStateId,
-    board_scene_file: String(popup.scene_file || "").trim(),
-    board_scene_id: String(popup.scene_id || "").trim(),
+    board_scene_file: nonEmptyString(enrichedPopup.scene_file, popupOut.scene_file || ""),
+    board_scene_id: boardSceneId,
     projection: String(popup.projection || "overlay").trim() || "overlay",
     scene_local_nav_by_target: sceneDrilldownContextValue(props, "scene_local_nav_by_target"),
     scene_bindings_by_id: sceneDrilldownContextValue(props, "scene_bindings_by_id"),

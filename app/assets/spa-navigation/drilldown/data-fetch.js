@@ -150,11 +150,11 @@
             },
           },
         );
-        if (result) {
+        if (result && Array.isArray(result.rows) && result.rows.length > 0) {
           return {
-            rows: Array.isArray(result?.rows) ? result.rows : [],
-            columns: Array.isArray(result?.columns) ? result.columns : [],
-            column_meta: Array.isArray(result?.column_meta) ? result.column_meta : [],
+            rows: Array.isArray(result.rows) ? result.rows : [],
+            columns: Array.isArray(result.columns) ? result.columns : [],
+            column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
             summary: result?.summary || null,
             query_state_echo: result?.query_state_echo || null,
           };
@@ -171,18 +171,10 @@
         throw error;
       }
     }
-    if (config?.hasChartZone && tableMetricId) {
-      recordPopupDebugIssue({
-        level: "error",
-        message: "分析型构成图需要 metric 行集，但未能通过 metric 查询拿到明细行",
-        phase: "derived_metric_rowset_required",
-        detail,
-        config: scopedConfig,
-        metricId: tableMetricId,
-      });
-      return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
-    }
     const datasetId = resolveDrilldownDatasetId(detail, scopedConfig);
-    return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    if (datasetId) {
+      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    }
+    return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
   }
 

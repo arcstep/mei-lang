@@ -209,16 +209,41 @@
       metricId,
       "指标下钻",
     );
-    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
+    const sceneAssembly = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
+    const boardSceneFile = nonEmptyString(
+      detail?.board_scene_file,
+      boardFields?.sceneFile,
+      popup?.scene_file,
+      popup?.sceneFile,
+      sceneAssembly?.target_file,
+      sceneAssembly?.targetFile,
+    );
+    const sceneLocalNav =
+      normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
+      normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
+      resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
+      null;
     const sceneShell = resolveSceneShell(sceneAssembly);
-    const structuredBoard = Boolean(sceneShell?.layoutMode);
+    const popupLayoutMode = nonEmptyString(popup?.layout_mode, popup?.layoutMode);
+    const structuredBoard = Boolean(
+      (sceneShell?.layoutMode && sceneShell.layoutMode !== "generic_tabs") ||
+        (popupLayoutMode && popupLayoutMode !== "generic_tabs"),
+    );
     const overlaySize = resolveDrilldownOverlaySize({
       popup,
       boardFields,
       structuredBoard,
       sceneShell,
     });
-    const filterSchema = normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema);
+    const filterSchema = normalizeAnalyticsFilterSchema(
+      popup?.filter_schema ||
+        popup?.filterSchema ||
+        sceneAssembly?.filter_schema ||
+        sceneAssembly?.filterSchema,
+    );
     const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
     const queryStateId = structuredBoard
       ? nonEmptyString(
@@ -244,6 +269,7 @@
       enabled: Boolean(boardSceneId),
       genericDrilldown: !structuredBoard || genericSceneShell,
       structuredBoard,
+      sceneLocalNav,
       sceneShell,
       overlaySize,
       filterSchema,
@@ -262,10 +288,7 @@
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
       boardSceneId,
       boardSceneFile: nonEmptyString(
-        detail?.board_scene_file,
-        boardFields?.sceneFile,
-        popup?.scene_file,
-        popup?.sceneFile,
+        boardSceneFile,
         "templates/cockpit/drilldown/generic-drilldown-board.mei",
       ),
       projection,

@@ -141,6 +141,11 @@
 
   function compositionFieldsFromOverride(override) {
     if (!override || typeof override !== "object") return [];
+    if (Array.isArray(override.by) && override.by.length) {
+      return cloneArray(override.by);
+    }
+    const byText = nonEmptyString(override.by);
+    if (byText) return [byText];
     return cloneArray(override.compositionBy).length
       ? cloneArray(override.compositionBy)
       : cloneArray(override.composition_by);

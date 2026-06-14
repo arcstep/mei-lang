@@ -19,6 +19,9 @@
           if (resetCache) {
             dispatchPanelMetricPrefetch();
           }
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(document);
+          }
         });
       });
     });

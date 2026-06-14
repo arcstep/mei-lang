@@ -1,0 +1,250 @@
+  const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
+
+  function readSceneDrilldownContext(doc = document) {
+    const el = doc.getElementById("mei-scene-drilldown-context");
+    if (!el) return null;
+    try {
+      const parsed = JSON.parse(el.textContent || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function metricRefId(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    if (value.__ref === "metric") return nonEmptyString(value.id);
+    return nonEmptyString(value.metric_id, value.metricId);
+  }
+
+  function pickExampleParams(assembly) {
+    const rawExamples = assembly?.examples;
+    const example = Array.isArray(rawExamples)
+      ? rawExamples.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+      : rawExamples && typeof rawExamples === "object"
+        ? rawExamples
+        : null;
+    return example && typeof example === "object" ? normalizeSceneParams(example.params) : {};
+  }
+
+  function resolveManagePreviewSceneId(doc = document) {
+    const url = new URL(window.location.href);
+    const fromQuery = nonEmptyString(url.searchParams.get("scene"));
+    if (fromQuery) return fromQuery;
+    const anchor = doc.querySelector("[data-scene-id]");
+    return nonEmptyString(anchor?.dataset?.sceneId);
+  }
+
+  function resolveManagePreviewSurface(doc = document) {
+    const viewport = doc.querySelector("[data-mei-frame-viewport][data-scene-id]");
+    const surface =
+      (viewport instanceof HTMLElement
+        ? viewport.querySelector(".preview-surface.preview-stage, .preview-surface")
+        : null) ||
+      doc.querySelector(".preview-surface[data-scene-id]") ||
+      doc.querySelector(".preview-surface.preview-stage, .preview-surface");
+    return surface instanceof HTMLElement ? surface : null;
+  }
+
+  function resolveManagePreviewPanelHost(surface, panelId) {
+    if (!(surface instanceof HTMLElement) || !panelId) return null;
+    const panel = surface.querySelector(`[data-mei-panel-id="${panelId}"]`);
+    if (!(panel instanceof HTMLElement)) return null;
+    const body = panel.querySelector("[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell");
+    return body instanceof HTMLElement ? body : panel;
+  }
+
+  function shouldMountManagePreviewBoard(doc = document) {
+    if (!isBuildRoute()) return false;
+    const url = new URL(window.location.href);
+    if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
+    const target = nonEmptyString(url.searchParams.get("file"));
+    if (!target || !/\.board\.mei$/i.test(target)) return false;
+    return Boolean(resolveManagePreviewSceneId(doc) && resolveManagePreviewSurface(doc));
+  }
+
+  function buildManagePreviewDetail(context, sceneId) {
+    const assembly = context?.scene_projection_assembly_by_id?.[sceneId];
+    if (!assembly || typeof assembly !== "object" || Array.isArray(assembly)) return null;
+    const params = normalizeSceneParams(assembly.preview_params || pickExampleParams(assembly));
+    const metricId = metricRefId(params.metric);
+    if (!metricId) return null;
+    const projectionSlots = normalizeProjectionSlots(assembly.projection_slots);
+    if (!projectionSlots.length) return null;
+    const filterSchema =
+      assembly.filter_schema && typeof assembly.filter_schema === "object" && !Array.isArray(assembly.filter_schema)
+        ? assembly.filter_schema
+        : null;
+    const hostSceneFile = nonEmptyString(assembly.target_file);
+    return {
+      board_scene_id: sceneId,
+      board_scene_file: hostSceneFile,
+      scene_id: sceneId,
+      host_scene_id: sceneId,
+      host_scene_file: hostSceneFile,
+      metric_id: metricId,
+      scene_projection_assembly_by_id: context.scene_projection_assembly_by_id,
+      scene_bindings_by_id: context.scene_bindings_by_id,
+      scene_examples_by_id: context.scene_examples_by_id,
+      popup: {
+        mode: "board_link",
+        scene_id: sceneId,
+        scene_file: nonEmptyString(assembly.target_file),
+        projection_slots: projectionSlots,
+        filter_schema: filterSchema,
+        params,
+        local_nav: assembly.local_nav || assembly.localNav,
+      },
+    };
+  }
+
+  function repairManagePreviewBoardGrid(surface, sceneShell) {
+    if (!(surface instanceof HTMLElement)) return;
+    const layout = sceneShell?.layout;
+    const rawRows = Array.isArray(layout?.rows) ? layout.rows : [];
+    const rows =
+      rawRows.length >= 2
+        ? rawRows.map((row, index) => {
+            const normalized = String(row || "").trim().toLowerCase();
+            if (index === 0 && (normalized === "auto" || normalized === "max-content")) {
+              return "minmax(240px, auto)";
+            }
+            return String(row || "auto");
+          })
+        : ["minmax(240px, auto)", "minmax(0, 1fr)"];
+    surface.style.gridTemplateRows = rows.join(" ");
+    const chartPanel = surface.querySelector('[data-mei-panel-id="chart"]');
+    if (chartPanel instanceof HTMLElement) {
+      const body = chartPanel.querySelector(
+        "[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell",
+      );
+      if (body instanceof HTMLElement) {
+        body.style.display = "grid";
+        body.style.minHeight = "220px";
+        body.style.height = "100%";
+      }
+    }
+  }
+
+  function refreshManagePreviewBoardCharts(surface) {
+    if (!(surface instanceof HTMLElement)) return;
+    surface.querySelectorAll("mei-chart-column, mei-chart-rose, mei-chart-bar, mei-chart-pie").forEach((node) => {
+      if (node && typeof node.refresh === "function") {
+        node.refresh();
+      }
+    });
+  }
+
+  async function mountManagePreviewBoard(doc = document) {
+    if (!shouldMountManagePreviewBoard(doc)) return false;
+    const sceneId = resolveManagePreviewSceneId(doc);
+    const context = readSceneDrilldownContext(doc);
+    const detail = context ? buildManagePreviewDetail(context, sceneId) : null;
+    if (!detail) return false;
+
+    const resolved = resolveSceneOpenRequest(detail);
+    if (!resolved.enabled || !resolved.structuredBoard || !resolved.sceneShell) {
+      return false;
+    }
+    if (!nonEmptyString(resolved.queryStateId)) {
+      resolved.queryStateId = `manage-preview::${sceneId}`;
+    }
+    if (!nonEmptyString(resolved.hostSceneId, resolved.sceneId)) {
+      resolved.hostSceneId = sceneId;
+      resolved.sceneId = sceneId;
+    }
+    if (!nonEmptyString(resolved.hostSceneFile)) {
+      resolved.hostSceneFile = nonEmptyString(detail.host_scene_file, detail.board_scene_file);
+    }
+
+    const surface = resolveManagePreviewSurface(doc);
+    if (!surface) return false;
+    const mountKey = `${sceneId}::${nonEmptyString(surface.dataset.targetFile, surface.dataset.sourcePath)}`;
+    if (surface.dataset.meiPreviewBoardMounted === mountKey) {
+      return true;
+    }
+
+    const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
+    const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
+    const hostsReady =
+      (!filterZone || resolveManagePreviewPanelHost(surface, filterZone.id)) &&
+      slotZones.every((zone) => resolveManagePreviewPanelHost(surface, zone.id));
+    if (!hostsReady) {
+      return false;
+    }
+
+    if (filterZone) {
+      const host = resolveManagePreviewPanelHost(surface, filterZone.id);
+      if (host instanceof HTMLElement) {
+        host.replaceChildren();
+        await mountAnalyticsFilterBar(surface, detail, resolved, host);
+      }
+    }
+
+    let mountOk = true;
+    for (const zone of slotZones) {
+      const host = resolveManagePreviewPanelHost(surface, zone.id);
+      if (!(host instanceof HTMLElement)) continue;
+      host.replaceChildren();
+      const zoneSlots = Array.isArray(resolved?.slotsByZone?.[zone.id]) ? resolved.slotsByZone[zone.id] : [];
+      if (!zoneSlots.length) continue;
+      if (zoneSlots.every((slot) => slot.component === "chart")) {
+        zoneSlots.forEach((slot, index) => {
+          const slotEl = document.createElement("div");
+          slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
+          slotEl.dataset.chartSlotIndex = String(index);
+          slotEl.style.height = "100%";
+          slotEl.style.minHeight = "180px";
+          host.appendChild(slotEl);
+        });
+        host.style.display = "grid";
+        host.style.gridTemplateColumns =
+          zoneSlots.length > 1 ? `repeat(${zoneSlots.length}, minmax(0, 1fr))` : "1fr";
+        host.style.gridTemplateRows = "1fr";
+        host.style.height = "100%";
+        host.style.minHeight = "220px";
+        const chartsOk = await mountAnalyticsChartSlots(surface, detail, resolved, zoneSlots, host);
+        mountOk = mountOk && chartsOk;
+        continue;
+      }
+      host.style.minHeight = "240px";
+      const zoneOk = await mountStructuredSlotZone(surface, detail, resolved, zone, host);
+      mountOk = mountOk && zoneOk;
+    }
+
+    if (!mountOk) {
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+      return false;
+    }
+
+    repairManagePreviewBoardGrid(surface, resolved.sceneShell);
+    refreshManagePreviewBoardCharts(surface);
+
+    surface.dataset.meiPreviewBoardMounted = mountKey;
+    surface.classList.add("preview-board-mounted");
+    dispatchPreviewUpdated("manage-board-preview");
+    return true;
+  }
+
+  function scheduleManagePreviewBoardMount(doc = document) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void mountManagePreviewBoard(doc);
+      });
+    });
+  }
+
+  function installManagePreviewBoard() {
+    if (boot.managePreviewBoardInstalled) return;
+    boot.managePreviewBoardInstalled = true;
+    boot.mountManagePreviewBoard = mountManagePreviewBoard;
+    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, () => {
+      scheduleManagePreviewBoardMount(document);
+    });
+    if (isBuildRoute()) {
+      scheduleManagePreviewBoardMount(document);
+    }
+  }
+
+  installManagePreviewBoard();

@@ -205,6 +205,7 @@ pub(crate) fn upload_shell(
         None,
         false,
         false,
+        None,
     );
     let file_tree = upload_tree_view(files, "", selected, app_path);
     view! {

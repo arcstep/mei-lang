@@ -336,8 +336,8 @@ pub fn render_build_source_page(
 #[cfg(test)]
 mod tests {
     use super::manage_routing::{
-        access_scene_query, encode_query_value, manage_tab_href, manage_view_tab_from_query,
-        route_query, ManageViewTab, OPS_CONFIG_TARGET,
+        access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
+        manage_view_tab_from_query, route_query, ManageViewTab, OPS_CONFIG_TARGET,
     };
     use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
@@ -368,7 +368,8 @@ mod tests {
                 OPS_CONFIG_TARGET,
                 false,
                 ManageViewTab::Diagnostics,
-                Some("all")
+                Some("all"),
+                None,
             ),
             "/apps/build/zhifa?file=.mei-config.json&tab=preview"
         );
@@ -404,6 +405,20 @@ mod tests {
     }
 
     #[test]
+    fn build_preview_href_includes_scene_export_selector() {
+        assert_eq!(
+            build_preview_href(
+                "zhifa",
+                Some("scenes/05-监督预警.board.mei"),
+                Some("warnings_analytics_board"),
+                Some("preview"),
+                None,
+            ),
+            "/apps/build/zhifa?file=scenes%2F05-%E7%9B%91%E7%9D%A3%E9%A2%84%E8%AD%A6.board.mei&scene=warnings_analytics_board&tab=preview"
+        );
+    }
+
+    #[test]
     fn manage_tab_href_encodes_file_value() {
         assert_eq!(
             manage_tab_href(
@@ -412,6 +427,7 @@ mod tests {
                 "docs/README #1.md",
                 false,
                 ManageViewTab::Source,
+                None,
                 None,
             ),
             "/apps/build/examples/demo?file=docs%2FREADME%20%231.md&tab=source"

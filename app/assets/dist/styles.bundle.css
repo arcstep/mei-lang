@@ -1292,6 +1292,9 @@ a.status-chip-link:focus-visible {
 .access-drilldown-overlay[hidden] {
   display: none !important;
 }
+.access-scene-board-overlay {
+  z-index: 1620;
+}
 .access-drilldown-overlay-backdrop {
   position: absolute;
   inset: 0;
@@ -1311,6 +1314,28 @@ a.status-chip-link:focus-visible {
   overflow: hidden;
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
+}
+.access-scene-board-overlay-panel {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.access-scene-board-overlay-head {
+  padding: 10px 12px;
+}
+.access-scene-board-overlay-body {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.access-scene-board-structured-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.access-scene-board-structured-layout {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
 }
 .access-drilldown-overlay--size-comfortable {
   padding: clamp(18px, 3vw, 32px);
@@ -2004,6 +2029,49 @@ a.status-chip-link:focus-visible {
   position: relative;
   z-index: 1;
   background: transparent;
+}
+.preview-stage.preview-stage-has-backdrop > .preview-card.preview-board-mounted,
+.preview-stage.preview-stage-has-backdrop .preview-card[data-mei-panel-id] mei-dataset-filter-bar,
+.preview-stage.preview-stage-has-backdrop .preview-card[data-mei-panel-id] mei-dataset-table {
+  min-height: 0;
+}
+.preview-surface.preview-board-mounted.preview-stage,
+.preview-stage.preview-board-mounted.preview-surface {
+  grid-template-rows: minmax(240px, auto) minmax(280px, 1fr) !important;
+}
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] .panel-body-cell,
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] [data-mei-panel-body="true"],
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] .panel-body-cell,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] [data-mei-panel-body="true"] {
+  display: grid;
+  min-height: 220px;
+  height: 100%;
+}
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] .access-drilldown-shell-slot--chart,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] .access-drilldown-shell-slot--chart {
+  min-height: 180px;
+  height: 100%;
+}
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-column,
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-rose,
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-bar,
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-pie,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-column,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-rose,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-bar,
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] mei-chart-pie {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+}
+.preview-surface.preview-board-mounted [data-mei-panel-id="chart"],
+.preview-stage.preview-board-mounted [data-mei-panel-id="chart"] {
+  min-height: 220px;
+}
+.preview-surface.preview-board-mounted [data-mei-panel-id="detail"],
+.preview-stage.preview-board-mounted [data-mei-panel-id="detail"] {
+  min-height: 280px;
 }
 .preview-card {
   display: grid;
@@ -2873,6 +2941,15 @@ a.status-chip-link:focus-visible {
 a.tree-link {
   text-decoration: none;
   border-radius: 0;
+}
+
+.tree-li-scene-exports .tree-scene-export-file-summary {
+  list-style: none;
+}
+
+.tree-link--scene-export {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 }
 
 .splitter {

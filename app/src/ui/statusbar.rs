@@ -16,6 +16,7 @@ pub(crate) fn statusbar_view(
     compiled: Option<&CompiledApp>,
     runtime_enabled: bool,
     show_compile_center: bool,
+    selected_scene: Option<&str>,
 ) -> AnyView {
     let app_summary = format!("应用 {app_title}");
     let app_summary_title = format!("应用：{app_path}");
@@ -76,6 +77,7 @@ pub(crate) fn statusbar_view(
                 current_target.ends_with(".mei"),
                 ManageViewTab::Diagnostics,
                 None,
+                selected_scene,
             ))
         } else {
             None

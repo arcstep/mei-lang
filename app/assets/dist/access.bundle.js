@@ -696,6 +696,9 @@
         const parts = rows.split(/\s+/).filter((row) => row && row !== "none");
         stage.style.gridTemplateRows = parts
           .map((row, index) => {
+            if (/^\d+(\.\d+)?px$/.test(row) && parseFloat(row) < 48) {
+              return "minmax(240px, auto)";
+            }
             if (index === 0) return row;
             if (/minmax|fr/i.test(row)) return "auto";
             return row;
@@ -9140,6 +9143,7 @@
   const POPUP_OPEN_EVENT = "mei:popup-open";
   const PREFETCH_PANEL_METRICS_EVENT = "meilang:prefetch-panel-metrics";
   const DRILLDOWN_OVERLAY_ROOT_ID = "mei-access-drilldown-overlay";
+  const SCENE_BOARD_OVERLAY_ROOT_ID = "mei-access-scene-board-overlay";
   const DRILLDOWN_CONTEXT_BANNER_ID = "mei-drilldown-context-banner";
 
 
@@ -9394,13 +9398,21 @@
     const props = raw.props && typeof raw.props === "object" && !Array.isArray(raw.props) ? raw.props : {};
     const slot = raw.slot && typeof raw.slot === "object" && !Array.isArray(raw.slot) ? raw.slot : {};
     const id = nonEmptyString(raw.id, props.projection_id, props.zone_id);
-    const role = nonEmptyString(slot.kind, slot.role, props.projection_role, props.zone_role);
+    const role = nonEmptyString(
+      raw.role,
+      slot.kind,
+      slot.role,
+      props.projection_role,
+      props.zone_role,
+    );
     if (!id || !role) return null;
-    const accepts = Array.isArray(slot.accepts)
-      ? slot.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
-      : Array.isArray(props.projection_accepts)
-        ? props.projection_accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
-      : [];
+    const accepts = Array.isArray(raw.accepts)
+      ? raw.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+      : Array.isArray(slot.accepts)
+        ? slot.accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+        : Array.isArray(props.projection_accepts)
+          ? props.projection_accepts.map((entry) => nonEmptyString(entry)).filter(Boolean)
+          : [];
     return {
       id,
       role,
@@ -9413,7 +9425,7 @@
         props.selection_source,
         props.selectionSource,
       ),
-      required: boolValue(slot.required, props.projection_required, false),
+      required: boolValue(raw.required, slot.required, props.projection_required, false),
       max: positiveInt(slot.max, props.projection_max, props.max),
       accepts,
       layout: normalizeShellLayout(raw.layout),
@@ -9506,6 +9518,7 @@
     return {
       kind,
       sceneId,
+      hostMode: nonEmptyString(raw.host_mode, raw.hostMode),
       defaultEntry: normalizeTabId(nonEmptyString(raw.default_entry, raw.defaultEntry, raw.defaultEntryTab)),
       includeHero: boolValue(raw.include_hero, raw.includeHero, true),
       overlaySize,
@@ -9926,6 +9939,11 @@
 
   function compositionFieldsFromOverride(override) {
     if (!override || typeof override !== "object") return [];
+    if (Array.isArray(override.by) && override.by.length) {
+      return cloneArray(override.by);
+    }
+    const byText = nonEmptyString(override.by);
+    if (byText) return [byText];
     return cloneArray(override.compositionBy).length
       ? cloneArray(override.compositionBy)
       : cloneArray(override.composition_by);
@@ -10305,6 +10323,41 @@
 ;
 
 /* ===== spa-navigation/drilldown/tab-model-config.js ===== */
+  function readGlobalSceneDrilldownContext() {
+    if (typeof window === "undefined") return null;
+    const cached = window.__meiSceneDrilldownContext;
+    if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+      return cached;
+    }
+    const script = document.getElementById("mei-scene-drilldown-context");
+    const raw = String(script?.textContent || "").trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        window.__meiSceneDrilldownContext = parsed;
+        return parsed;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  function sceneDrilldownContextMap(detail, key) {
+    const local = detail?.[key];
+    if (local && typeof local === "object" && !Array.isArray(local)) {
+      return local;
+    }
+    const global = readGlobalSceneDrilldownContext();
+    const value = global?.[key];
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+
+  function sceneDrilldownAssemblyById(detail) {
+    return sceneDrilldownContextMap(detail, "scene_projection_assembly_by_id");
+  }
+
   function sceneProjectionAssembly(sceneId, assemblyById) {
     const normalizedSceneId = nonEmptyString(sceneId);
     if (!normalizedSceneId) return null;
@@ -10885,16 +10938,41 @@
       metricId,
       "指标下钻",
     );
-    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
+    const sceneAssembly = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
+    const boardSceneFile = nonEmptyString(
+      detail?.board_scene_file,
+      boardFields?.sceneFile,
+      popup?.scene_file,
+      popup?.sceneFile,
+      sceneAssembly?.target_file,
+      sceneAssembly?.targetFile,
+    );
+    const sceneLocalNav =
+      normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
+      normalizeSceneLocalNav(sceneAssembly?.local_nav || sceneAssembly?.localNav) ||
+      resolveSceneLocalNav(boardSceneFile, detail?.scene_local_nav_by_target) ||
+      null;
     const sceneShell = resolveSceneShell(sceneAssembly);
-    const structuredBoard = Boolean(sceneShell?.layoutMode);
+    const popupLayoutMode = nonEmptyString(popup?.layout_mode, popup?.layoutMode);
+    const structuredBoard = Boolean(
+      (sceneShell?.layoutMode && sceneShell.layoutMode !== "generic_tabs") ||
+        (popupLayoutMode && popupLayoutMode !== "generic_tabs"),
+    );
     const overlaySize = resolveDrilldownOverlaySize({
       popup,
       boardFields,
       structuredBoard,
       sceneShell,
     });
-    const filterSchema = normalizeAnalyticsFilterSchema(popup?.filter_schema || popup?.filterSchema);
+    const filterSchema = normalizeAnalyticsFilterSchema(
+      popup?.filter_schema ||
+        popup?.filterSchema ||
+        sceneAssembly?.filter_schema ||
+        sceneAssembly?.filterSchema,
+    );
     const paramRowsetDatasetId = sceneParamRowsetDatasetId(boardFields?.params || popup?.params);
     const queryStateId = structuredBoard
       ? nonEmptyString(
@@ -10920,6 +10998,7 @@
       enabled: Boolean(boardSceneId),
       genericDrilldown: !structuredBoard || genericSceneShell,
       structuredBoard,
+      sceneLocalNav,
       sceneShell,
       overlaySize,
       filterSchema,
@@ -10938,10 +11017,7 @@
       hostSceneFile: nonEmptyString(ownerScenePath, detail?.host_scene_file),
       boardSceneId,
       boardSceneFile: nonEmptyString(
-        detail?.board_scene_file,
-        boardFields?.sceneFile,
-        popup?.scene_file,
-        popup?.sceneFile,
+        boardSceneFile,
         "templates/cockpit/drilldown/generic-drilldown-board.mei",
       ),
       projection,
@@ -11125,9 +11201,9 @@
     );
     const defaultSceneBindings = sceneBindingDefaults(
       boardSceneId,
-      detail?.scene_bindings_by_id,
-      detail?.scene_examples_by_id,
-      detail?.scene_projection_assembly_by_id,
+      sceneDrilldownContextMap(detail, "scene_bindings_by_id"),
+      sceneDrilldownContextMap(detail, "scene_examples_by_id"),
+      sceneDrilldownAssemblyById(detail),
     );
     const tabMetrics = normalizeTabMetricOverrides(
       defaultSceneBindings,
@@ -11152,7 +11228,10 @@
       popup?.scene_file,
       popup?.sceneFile,
     );
-    const sceneAssembly = sceneProjectionAssembly(boardSceneId, detail?.scene_projection_assembly_by_id);
+    const sceneAssembly = sceneProjectionAssembly(
+      boardSceneId,
+      sceneDrilldownAssemblyById(detail),
+    );
     const sceneLocalNav =
       boardFields?.localNav ||
       normalizeSceneLocalNav(popup?.local_nav || popup?.localNav) ||
@@ -11613,11 +11692,11 @@
             },
           },
         );
-        if (result) {
+        if (result && Array.isArray(result.rows) && result.rows.length > 0) {
           return {
-            rows: Array.isArray(result?.rows) ? result.rows : [],
-            columns: Array.isArray(result?.columns) ? result.columns : [],
-            column_meta: Array.isArray(result?.column_meta) ? result.column_meta : [],
+            rows: Array.isArray(result.rows) ? result.rows : [],
+            columns: Array.isArray(result.columns) ? result.columns : [],
+            column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
             summary: result?.summary || null,
             query_state_echo: result?.query_state_echo || null,
           };
@@ -11634,19 +11713,11 @@
         throw error;
       }
     }
-    if (config?.hasChartZone && tableMetricId) {
-      recordPopupDebugIssue({
-        level: "error",
-        message: "分析型构成图需要 metric 行集，但未能通过 metric 查询拿到明细行",
-        phase: "derived_metric_rowset_required",
-        detail,
-        config: scopedConfig,
-        metricId: tableMetricId,
-      });
-      return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
-    }
     const datasetId = resolveDrilldownDatasetId(detail, scopedConfig);
-    return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    if (datasetId) {
+      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+    }
+    return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
   }
 
 
@@ -11984,6 +12055,27 @@
 
   const DRILLDOWN_TABLE_SCRIPT = "/workspace-components/cockpit/data-table.js";
   const DRILLDOWN_FILTER_BAR_SCRIPT = "/workspace-components/dataset/filter-bar.js";
+  const DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS = 8000;
+
+  async function waitForCustomElementTag(tagName) {
+    const tag = String(tagName || "").trim().toLowerCase();
+    if (!tag) return false;
+    if (customElements.get(tag)) return true;
+    try {
+      await Promise.race([
+        customElements.whenDefined(tag),
+        new Promise((_, reject) => {
+          setTimeout(
+            () => reject(new Error("custom element define timeout: " + tag)),
+            DRILLDOWN_CUSTOM_ELEMENT_WAIT_MS,
+          );
+        }),
+      ]);
+    } catch (_) {
+      /* fall through */
+    }
+    return Boolean(customElements.get(tag));
+  }
 
   async function ensureDrilldownChartRegistered(tagName) {
     const tag = String(tagName || "").trim().toLowerCase();
@@ -11996,7 +12088,7 @@
       persistentKey: scriptPath,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
   }
 
   async function ensureDrilldownTableRegistered() {
@@ -12007,7 +12099,7 @@
       persistentKey: DRILLDOWN_TABLE_SCRIPT,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
   }
 
   async function ensureDrilldownFilterBarRegistered() {
@@ -12018,7 +12110,32 @@
       persistentKey: DRILLDOWN_FILTER_BAR_SCRIPT,
       softFail: false,
     });
-    return Boolean(customElements.get(tag));
+    return waitForCustomElementTag(tag);
+  }
+
+  async function prefetchStructuredDrilldownWidgets(config) {
+    const tasks = [ensureDrilldownTableRegistered(), ensureDrilldownFilterBarRegistered()];
+    const chartTags = new Set();
+    const slotsByZone =
+      config?.slotsByZone && typeof config.slotsByZone === "object" && !Array.isArray(config.slotsByZone)
+        ? config.slotsByZone
+        : {};
+    Object.values(slotsByZone).forEach((zoneSlots) => {
+      if (!Array.isArray(zoneSlots)) return;
+      zoneSlots.forEach((slot) => {
+        if (slot?.component !== "chart") return;
+        const tag = drilldownChartTag(slot.chartKind, slot.id);
+        if (tag) chartTags.add(tag);
+      });
+    });
+    if (!chartTags.size && Array.isArray(config?.chartSlots)) {
+      config.chartSlots.forEach((slot) => {
+        const tag = drilldownChartTag(slot?.chartKind, slot?.id);
+        if (tag) chartTags.add(tag);
+      });
+    }
+    chartTags.forEach((tag) => tasks.push(ensureDrilldownChartRegistered(tag)));
+    await Promise.all(tasks);
   }
 
   function buildDrilldownChartProps(detail, config, tabId) {
@@ -12706,6 +12823,7 @@
       return false;
     }
     try {
+      await prefetchStructuredDrilldownWidgets(config);
       if (config?.sceneShell?.layoutMode === "generic_tabs") {
         const ok = renderStructuredTabZones(root, detail, config, zoneHosts);
         if (!ok) {
@@ -13151,6 +13269,43 @@
     return root;
   }
 
+  function ensureSceneBoardOverlayRoot() {
+    let root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
+    if (root) {
+      return root;
+    }
+    root = document.createElement("div");
+    root.id = SCENE_BOARD_OVERLAY_ROOT_ID;
+    root.className = "access-scene-board-overlay access-drilldown-overlay";
+    root.setAttribute("hidden", "hidden");
+    root.innerHTML =
+      '<div class="access-scene-board-overlay-backdrop access-drilldown-overlay-backdrop" data-scene-board-close="mask"></div>' +
+      '<section class="access-scene-board-overlay-panel access-drilldown-overlay-panel" role="dialog" aria-modal="true" aria-label="看板明细">' +
+      '<header class="access-scene-board-overlay-head access-drilldown-overlay-head">' +
+      '<div class="access-scene-board-overlay-head-meta access-drilldown-overlay-head-meta">' +
+      '<div class="access-scene-board-overlay-title access-drilldown-overlay-title" data-drilldown-title="true"></div>' +
+      '<div class="access-scene-board-overlay-note access-drilldown-overlay-note" data-drilldown-note="true" hidden></div>' +
+      "</div>" +
+      '<button type="button" class="access-scene-board-overlay-close access-drilldown-overlay-close" data-scene-board-close="button" aria-label="关闭">×</button>' +
+      "</header>" +
+      '<div class="access-scene-board-overlay-body access-drilldown-overlay-body--structured">' +
+      '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
+      '<div class="access-scene-board-structured-shell access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
+      '<div class="access-scene-board-structured-layout access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
+      "</div>" +
+      "</div>" +
+      "</section>";
+    root.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (!target.dataset.sceneBoardClose) return;
+      closeSceneBoardOverlay();
+    });
+    document.body.appendChild(root);
+    return root;
+  }
+
   function setDrilldownOverlayStatus(root, status) {
     root
       .querySelectorAll("[data-drilldown-status]")
@@ -13177,6 +13332,22 @@
     }
     document.body.classList.remove("access-drilldown-open");
     // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
+  }
+
+  function closeSceneBoardOverlay() {
+    const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
+    if (!root) return;
+    cleanupStructuredDrilldownWatcher(root);
+    root.setAttribute("hidden", "hidden");
+    root.classList.remove("is-open");
+    for (const selector of ['[data-drilldown-structured-layout="true"]']) {
+      root.querySelectorAll(selector).forEach((host) => {
+        if (host instanceof HTMLElement) {
+          host.replaceChildren();
+        }
+      });
+    }
+    document.body.classList.remove("access-scene-board-open");
   }
 
 
@@ -13286,7 +13457,23 @@
 ;
 
 /* ===== spa-navigation/drilldown/projection-host.js ===== */
-  function openSceneProjection(detail, preResolvedRequest = null) {
+  function useSceneBoardOverlay(config) {
+    const hostMode = nonEmptyString(
+      config?.sceneLocalNav?.hostMode,
+      config?.popup?.scene_host_mode,
+      config?.popup?.sceneHostMode,
+    );
+    if (config?.structuredBoard && hostMode === "scene_board") {
+      return true;
+    }
+    return Boolean(
+      config?.structuredBoard &&
+        config?.sceneShell?.layoutMode === "analytics" &&
+        nonEmptyString(config?.boardSceneFile) === "scenes/05-监督预警.board.mei",
+    );
+  }
+
+  async function openSceneProjection(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const request = resolved.request || buildSceneOpenRequest(resolved, detail);
     const mount = resolved.mount || buildProjectionMount(resolved, detail);
@@ -13316,10 +13503,10 @@
       openBoardRouteProjection(detail, renderConfig);
       return;
     }
-    openProjectionOverlay(detail, renderConfig);
+    await openProjectionOverlay(detail, renderConfig);
   }
 
-  function openProjectionOverlay(detail, preResolvedRequest = null) {
+  async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
     if (!config.enabled || !(config.boardSceneId || config.sceneId)) {
@@ -13335,25 +13522,30 @@
       }
       return;
     }
-    const root = ensureDrilldownOverlayRoot();
-    applyDrilldownOverlayMeta(root, config);
-    if (config.structuredBoard) {
-      renderStructuredDrilldownContent(root, detail, config);
+    if (useSceneBoardOverlay(config)) {
+      closeDrilldownOverlay();
+      const root = ensureSceneBoardOverlayRoot();
+      applyDrilldownOverlayMeta(root, config);
       root.removeAttribute("hidden");
       root.classList.add("is-open");
-      document.body.classList.add("access-drilldown-open");
+      document.body.classList.add("access-scene-board-open");
+      await renderStructuredDrilldownContent(root, detail, config);
+      return;
+    }
+    closeSceneBoardOverlay();
+    const root = ensureDrilldownOverlayRoot();
+    applyDrilldownOverlayMeta(root, config);
+    root.removeAttribute("hidden");
+    root.classList.add("is-open");
+    document.body.classList.add("access-drilldown-open");
+    if (config.structuredBoard) {
+      await renderStructuredDrilldownContent(root, detail, config);
       return;
     }
     const activeTab = renderDrilldownTabs(root, detail, config);
     if (!renderDrilldownContent(root, detail, config, activeTab)) {
-      root.removeAttribute("hidden");
-      root.classList.add("is-open");
-      document.body.classList.add("access-drilldown-open");
       return;
     }
-    root.removeAttribute("hidden");
-    root.classList.add("is-open");
-    document.body.classList.add("access-drilldown-open");
   }
 
   function installSceneProjectionHost() {
@@ -13362,7 +13554,7 @@
     if (boot.metricDrilldownHostMounted) return;
     boot.metricDrilldownHostMounted = true;
     boot.sceneProjectionHostMounted = true;
-    const openByEvent = (event) => {
+    const openByEvent = async (event) => {
       if (!shouldMountDrilldownHost()) return;
       const detail = event?.detail || {};
       const config = resolveSceneOpenRequest(detail);
@@ -13379,7 +13571,7 @@
         }
         return;
       }
-      openSceneProjection(detail, config);
+      await openSceneProjection(detail, config);
     };
     document.addEventListener(METRIC_DRILLDOWN_EVENT, openByEvent);
     document.addEventListener(ANALYSIS_OPEN_EVENT, openByEvent);
@@ -13387,6 +13579,7 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
         closeDrilldownOverlay();
+        closeSceneBoardOverlay();
       }
     });
   }
@@ -13938,6 +14131,27 @@
 ;
 
 /* ===== spa-navigation/spa/script-loader.js ===== */
+  function waitForPersistentScriptReady(scriptEl) {
+    if (!(scriptEl instanceof HTMLScriptElement)) {
+      return Promise.resolve();
+    }
+    if (scriptEl.getAttribute("data-mei-script-ready") === "true") {
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const finish = (fn) => {
+        scriptEl.setAttribute("data-mei-script-ready", "true");
+        fn();
+      };
+      scriptEl.addEventListener("load", () => finish(resolve), { once: true });
+      scriptEl.addEventListener(
+        "error",
+        () => finish(() => reject(new Error("failed to load persistent script: " + scriptEl.src))),
+        { once: true },
+      );
+    });
+  }
+
   function loadScript(rawSrc, options) {
     const opts = options || {};
     const absolute = new URL(rawSrc, window.location.href).toString();
@@ -13945,7 +14159,7 @@
       const found = document.querySelector(
         'script[data-mei-persistent-script="' + opts.persistentKey + '"]',
       );
-      if (found) return Promise.resolve();
+      if (found) return waitForPersistentScriptReady(found);
     }
     if (opts.reloadKey) {
       document
@@ -13981,7 +14195,10 @@
       if (opts.reloadKey) {
         script.setAttribute("data-mei-reload-script", opts.reloadKey);
       }
-      script.onload = () => finish(resolve);
+      script.onload = () => {
+        script.setAttribute("data-mei-script-ready", "true");
+        finish(resolve);
+      };
       script.onerror = () => {
         if (opts.softFail) {
           console.warn("[spa-navigation] script load skipped", rawSrc);
@@ -14019,6 +14236,9 @@
           if (resetCache) {
             dispatchPanelMetricPrefetch();
           }
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(document);
+          }
         });
       });
     });
@@ -14031,6 +14251,260 @@
     pulseManagePreview(extractManagePanelContext(panelRoot), options);
   }
 
+
+;
+
+/* ===== spa-navigation/spa/manage-preview-board.js ===== */
+  const MANAGE_PREVIEW_UPDATED_EVENT = "meilang:preview-updated";
+
+  function readSceneDrilldownContext(doc = document) {
+    const el = doc.getElementById("mei-scene-drilldown-context");
+    if (!el) return null;
+    try {
+      const parsed = JSON.parse(el.textContent || "{}");
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function metricRefId(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    if (value.__ref === "metric") return nonEmptyString(value.id);
+    return nonEmptyString(value.metric_id, value.metricId);
+  }
+
+  function pickExampleParams(assembly) {
+    const rawExamples = assembly?.examples;
+    const example = Array.isArray(rawExamples)
+      ? rawExamples.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+      : rawExamples && typeof rawExamples === "object"
+        ? rawExamples
+        : null;
+    return example && typeof example === "object" ? normalizeSceneParams(example.params) : {};
+  }
+
+  function resolveManagePreviewSceneId(doc = document) {
+    const url = new URL(window.location.href);
+    const fromQuery = nonEmptyString(url.searchParams.get("scene"));
+    if (fromQuery) return fromQuery;
+    const anchor = doc.querySelector("[data-scene-id]");
+    return nonEmptyString(anchor?.dataset?.sceneId);
+  }
+
+  function resolveManagePreviewSurface(doc = document) {
+    const viewport = doc.querySelector("[data-mei-frame-viewport][data-scene-id]");
+    const surface =
+      (viewport instanceof HTMLElement
+        ? viewport.querySelector(".preview-surface.preview-stage, .preview-surface")
+        : null) ||
+      doc.querySelector(".preview-surface[data-scene-id]") ||
+      doc.querySelector(".preview-surface.preview-stage, .preview-surface");
+    return surface instanceof HTMLElement ? surface : null;
+  }
+
+  function resolveManagePreviewPanelHost(surface, panelId) {
+    if (!(surface instanceof HTMLElement) || !panelId) return null;
+    const panel = surface.querySelector(`[data-mei-panel-id="${panelId}"]`);
+    if (!(panel instanceof HTMLElement)) return null;
+    const body = panel.querySelector("[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell");
+    return body instanceof HTMLElement ? body : panel;
+  }
+
+  function shouldMountManagePreviewBoard(doc = document) {
+    if (!isBuildRoute()) return false;
+    const url = new URL(window.location.href);
+    if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
+    const target = nonEmptyString(url.searchParams.get("file"));
+    if (!target || !/\.board\.mei$/i.test(target)) return false;
+    return Boolean(resolveManagePreviewSceneId(doc) && resolveManagePreviewSurface(doc));
+  }
+
+  function buildManagePreviewDetail(context, sceneId) {
+    const assembly = context?.scene_projection_assembly_by_id?.[sceneId];
+    if (!assembly || typeof assembly !== "object" || Array.isArray(assembly)) return null;
+    const params = normalizeSceneParams(assembly.preview_params || pickExampleParams(assembly));
+    const metricId = metricRefId(params.metric);
+    if (!metricId) return null;
+    const projectionSlots = normalizeProjectionSlots(assembly.projection_slots);
+    if (!projectionSlots.length) return null;
+    const filterSchema =
+      assembly.filter_schema && typeof assembly.filter_schema === "object" && !Array.isArray(assembly.filter_schema)
+        ? assembly.filter_schema
+        : null;
+    const hostSceneFile = nonEmptyString(assembly.target_file);
+    return {
+      board_scene_id: sceneId,
+      board_scene_file: hostSceneFile,
+      scene_id: sceneId,
+      host_scene_id: sceneId,
+      host_scene_file: hostSceneFile,
+      metric_id: metricId,
+      scene_projection_assembly_by_id: context.scene_projection_assembly_by_id,
+      scene_bindings_by_id: context.scene_bindings_by_id,
+      scene_examples_by_id: context.scene_examples_by_id,
+      popup: {
+        mode: "board_link",
+        scene_id: sceneId,
+        scene_file: nonEmptyString(assembly.target_file),
+        projection_slots: projectionSlots,
+        filter_schema: filterSchema,
+        params,
+        local_nav: assembly.local_nav || assembly.localNav,
+      },
+    };
+  }
+
+  function repairManagePreviewBoardGrid(surface, sceneShell) {
+    if (!(surface instanceof HTMLElement)) return;
+    const layout = sceneShell?.layout;
+    const rawRows = Array.isArray(layout?.rows) ? layout.rows : [];
+    const rows =
+      rawRows.length >= 2
+        ? rawRows.map((row, index) => {
+            const normalized = String(row || "").trim().toLowerCase();
+            if (index === 0 && (normalized === "auto" || normalized === "max-content")) {
+              return "minmax(240px, auto)";
+            }
+            return String(row || "auto");
+          })
+        : ["minmax(240px, auto)", "minmax(0, 1fr)"];
+    surface.style.gridTemplateRows = rows.join(" ");
+    const chartPanel = surface.querySelector('[data-mei-panel-id="chart"]');
+    if (chartPanel instanceof HTMLElement) {
+      const body = chartPanel.querySelector(
+        "[data-mei-panel-body='true'], .preview-panel-body, .panel-body-cell",
+      );
+      if (body instanceof HTMLElement) {
+        body.style.display = "grid";
+        body.style.minHeight = "220px";
+        body.style.height = "100%";
+      }
+    }
+  }
+
+  function refreshManagePreviewBoardCharts(surface) {
+    if (!(surface instanceof HTMLElement)) return;
+    surface.querySelectorAll("mei-chart-column, mei-chart-rose, mei-chart-bar, mei-chart-pie").forEach((node) => {
+      if (node && typeof node.refresh === "function") {
+        node.refresh();
+      }
+    });
+  }
+
+  async function mountManagePreviewBoard(doc = document) {
+    if (!shouldMountManagePreviewBoard(doc)) return false;
+    const sceneId = resolveManagePreviewSceneId(doc);
+    const context = readSceneDrilldownContext(doc);
+    const detail = context ? buildManagePreviewDetail(context, sceneId) : null;
+    if (!detail) return false;
+
+    const resolved = resolveSceneOpenRequest(detail);
+    if (!resolved.enabled || !resolved.structuredBoard || !resolved.sceneShell) {
+      return false;
+    }
+    if (!nonEmptyString(resolved.queryStateId)) {
+      resolved.queryStateId = `manage-preview::${sceneId}`;
+    }
+    if (!nonEmptyString(resolved.hostSceneId, resolved.sceneId)) {
+      resolved.hostSceneId = sceneId;
+      resolved.sceneId = sceneId;
+    }
+    if (!nonEmptyString(resolved.hostSceneFile)) {
+      resolved.hostSceneFile = nonEmptyString(detail.host_scene_file, detail.board_scene_file);
+    }
+
+    const surface = resolveManagePreviewSurface(doc);
+    if (!surface) return false;
+    const mountKey = `${sceneId}::${nonEmptyString(surface.dataset.targetFile, surface.dataset.sourcePath)}`;
+    if (surface.dataset.meiPreviewBoardMounted === mountKey) {
+      return true;
+    }
+
+    const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
+    const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
+    const hostsReady =
+      (!filterZone || resolveManagePreviewPanelHost(surface, filterZone.id)) &&
+      slotZones.every((zone) => resolveManagePreviewPanelHost(surface, zone.id));
+    if (!hostsReady) {
+      return false;
+    }
+
+    if (filterZone) {
+      const host = resolveManagePreviewPanelHost(surface, filterZone.id);
+      if (host instanceof HTMLElement) {
+        host.replaceChildren();
+        await mountAnalyticsFilterBar(surface, detail, resolved, host);
+      }
+    }
+
+    let mountOk = true;
+    for (const zone of slotZones) {
+      const host = resolveManagePreviewPanelHost(surface, zone.id);
+      if (!(host instanceof HTMLElement)) continue;
+      host.replaceChildren();
+      const zoneSlots = Array.isArray(resolved?.slotsByZone?.[zone.id]) ? resolved.slotsByZone[zone.id] : [];
+      if (!zoneSlots.length) continue;
+      if (zoneSlots.every((slot) => slot.component === "chart")) {
+        zoneSlots.forEach((slot, index) => {
+          const slotEl = document.createElement("div");
+          slotEl.className = "access-drilldown-shell-slot access-drilldown-shell-slot--chart";
+          slotEl.dataset.chartSlotIndex = String(index);
+          slotEl.style.height = "100%";
+          slotEl.style.minHeight = "180px";
+          host.appendChild(slotEl);
+        });
+        host.style.display = "grid";
+        host.style.gridTemplateColumns =
+          zoneSlots.length > 1 ? `repeat(${zoneSlots.length}, minmax(0, 1fr))` : "1fr";
+        host.style.gridTemplateRows = "1fr";
+        host.style.height = "100%";
+        host.style.minHeight = "220px";
+        const chartsOk = await mountAnalyticsChartSlots(surface, detail, resolved, zoneSlots, host);
+        mountOk = mountOk && chartsOk;
+        continue;
+      }
+      host.style.minHeight = "240px";
+      const zoneOk = await mountStructuredSlotZone(surface, detail, resolved, zone, host);
+      mountOk = mountOk && zoneOk;
+    }
+
+    if (!mountOk) {
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+      return false;
+    }
+
+    repairManagePreviewBoardGrid(surface, resolved.sceneShell);
+    refreshManagePreviewBoardCharts(surface);
+
+    surface.dataset.meiPreviewBoardMounted = mountKey;
+    surface.classList.add("preview-board-mounted");
+    dispatchPreviewUpdated("manage-board-preview");
+    return true;
+  }
+
+  function scheduleManagePreviewBoardMount(doc = document) {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void mountManagePreviewBoard(doc);
+      });
+    });
+  }
+
+  function installManagePreviewBoard() {
+    if (boot.managePreviewBoardInstalled) return;
+    boot.managePreviewBoardInstalled = true;
+    boot.mountManagePreviewBoard = mountManagePreviewBoard;
+    window.addEventListener(MANAGE_PREVIEW_UPDATED_EVENT, () => {
+      scheduleManagePreviewBoardMount(document);
+    });
+    if (isBuildRoute()) {
+      scheduleManagePreviewBoardMount(document);
+    }
+  }
+
+  installManagePreviewBoard();
 
 ;
 
@@ -14435,6 +14909,9 @@
         }
         publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
         installSceneProjectionHost();
+        if (typeof boot.mountManagePreviewBoard === "function") {
+          void boot.mountManagePreviewBoard(doc);
+        }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
       } catch (err) {

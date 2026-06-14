@@ -241,6 +241,9 @@
         const parts = rows.split(/\s+/).filter((row) => row && row !== "none");
         stage.style.gridTemplateRows = parts
           .map((row, index) => {
+            if (/^\d+(\.\d+)?px$/.test(row) && parseFloat(row) < 48) {
+              return "minmax(240px, auto)";
+            }
             if (index === 0) return row;
             if (/minmax|fr/i.test(row)) return "auto";
             return row;

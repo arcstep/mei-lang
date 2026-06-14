@@ -64,6 +64,7 @@ pub(crate) fn access_shell(
         Some(compiled),
         true,
         false,
+        None,
     );
     let shell_class = if chrome_hidden {
         "shell shell-surface min-h-screen h-screen overflow-hidden max-[1200px]:h-auto max-[1200px]:overflow-visible"

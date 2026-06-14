@@ -1,3 +1,38 @@
+  function readGlobalSceneDrilldownContext() {
+    if (typeof window === "undefined") return null;
+    const cached = window.__meiSceneDrilldownContext;
+    if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+      return cached;
+    }
+    const script = document.getElementById("mei-scene-drilldown-context");
+    const raw = String(script?.textContent || "").trim();
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        window.__meiSceneDrilldownContext = parsed;
+        return parsed;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  function sceneDrilldownContextMap(detail, key) {
+    const local = detail?.[key];
+    if (local && typeof local === "object" && !Array.isArray(local)) {
+      return local;
+    }
+    const global = readGlobalSceneDrilldownContext();
+    const value = global?.[key];
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+
+  function sceneDrilldownAssemblyById(detail) {
+    return sceneDrilldownContextMap(detail, "scene_projection_assembly_by_id");
+  }
+
   function sceneProjectionAssembly(sceneId, assemblyById) {
     const normalizedSceneId = nonEmptyString(sceneId);
     if (!normalizedSceneId) return null;
