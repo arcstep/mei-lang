@@ -944,7 +944,7 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
         let encoded = serde_json::to_string(contract).expect("encode scene contract");
 
         assert!(
-            encoded.contains("generic-drilldown-board.mei"),
+            encoded.contains("drilldown-kit.mei"),
             "`{target}` should reference generic drilldown shell, got: {encoded}"
         );
         assert!(
@@ -989,7 +989,7 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
         .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
     let encoded = serde_json::to_string(contract).expect("encode scene contract");
     assert!(
-        encoded.contains("generic-drilldown-board.mei"),
+        encoded.contains("drilldown-kit.mei"),
         "执法要素应引用通用下钻壳，got: {encoded}"
     );
     assert!(
@@ -1051,6 +1051,38 @@ fn compile_spbjw_enforcement_elements_generic_drilldown_projection_slots() {
             || encoded.contains("enforcement_venues_table"),
         "执法对象下钻应包含场所 scoped 表 slot，got: {encoded}"
     );
+}
+
+#[test]
+fn compile_spbjw_drilldown_kit_template_is_previewable() {
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let target = "../.stock/templates/cockpit/drilldown/drilldown-kit.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile drilldown kit preview `{target}` failed: {error}"));
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "drilldown kit preview should have no error diagnostics: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("drilldown kit preview should yield scene contract");
+    assert_eq!(contract.scene.id, "generic_drilldown_board");
 }
 
 #[test]
@@ -1138,8 +1170,8 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
         .unwrap_or_else(|| panic!("`{target}` should yield scene contract"));
     let encoded = serde_json::to_string(contract).expect("encode scene contract");
     assert!(
-        encoded.contains("supervision_warning"),
-        "warnings card should reference unified supervision_warning scene, got: {encoded}"
+        encoded.contains("warnings_analytics_board"),
+        "warnings card popup should reference board export, got: {encoded}"
     );
     assert!(
         encoded.contains("layout_zone"),
@@ -1208,8 +1240,8 @@ fn compile_spbjw_issue_handling_list_preview_projection_slots() {
         );
     }
     assert!(
-        encoded.contains("issue_handling"),
-        "issue handling cards should reference unified issue_handling scene, got: {encoded}"
+        encoded.contains("issue_status_list_preview_board"),
+        "issue handling cards should reference list preview board export, got: {encoded}"
     );
     assert!(
         encoded.contains("layout_zone"),
