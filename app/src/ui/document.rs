@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 
 use crate::ui::capabilities::HostCapabilities;
+use crate::ui::preview_chrome::chrome_script_preload_markup;
 use crate::ui::preview_chrome::chrome_script_preloads_view;
 use crate::ui::preview_chrome::chrome_scripts_view;
 use crate::ui::route::UiRouteMode;
@@ -113,5 +114,30 @@ pub(crate) fn render_document(
             </body>
         </html>
     };
-    page.to_html()
+    inject_chrome_script_preloads(page.to_html(), route_mode)
+}
+
+fn inject_chrome_script_preloads(html: String, route_mode: UiRouteMode) -> String {
+    let preload = chrome_script_preload_markup(route_mode);
+    if preload.is_empty() {
+        return html;
+    }
+    const ANCHOR: &str = "<script defer src=\"/app-assets/host-http-feedback.js\"></script>";
+    html.replacen(ANCHOR, &format!("{preload}{ANCHOR}"), 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::route::UiRouteMode;
+
+    #[test]
+    fn inject_chrome_script_preloads_adds_valid_as_attribute() {
+        let html = inject_chrome_script_preloads(
+            "<script defer src=\"/app-assets/host-http-feedback.js\"></script>".to_string(),
+            UiRouteMode::App,
+        );
+        assert!(html.contains(r#"rel="preload" href="/app-bundles/access.js" as="script""#));
+        assert!(!html.contains(r#"rel="preload" href="/app-bundles/access.js"/>"#));
+    }
 }

@@ -3,6 +3,17 @@ use mei_lang_kernel::CompiledApp;
 
 use super::super::route::UiRouteMode;
 
+pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static str {
+    match route_mode {
+        UiRouteMode::Build => r#"<link rel="preload" href="/app-bundles/manage.js" as="script"/>"#,
+        UiRouteMode::App | UiRouteMode::Presentation => {
+            r#"<link rel="preload" href="/app-bundles/access.js" as="script"/>"#
+        }
+        UiRouteMode::Config => r#"<link rel="preload" href="/app-bundles/config.js" as="script"/>"#,
+        UiRouteMode::Upload => r#"<link rel="preload" href="/app-bundles/upload.js" as="script"/>"#,
+    }
+}
+
 pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     match route_mode {
         UiRouteMode::Build => view! {
@@ -32,33 +43,10 @@ pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {
     }
 }
 
-pub(crate) fn chrome_script_preloads_view(route_mode: UiRouteMode) -> AnyView {
-    match route_mode {
-        UiRouteMode::Build => view! {
-            <>
-                <link rel="preload" href="/app-bundles/manage.js"/>
-            </>
-        }
-        .into_any(),
-        UiRouteMode::App | UiRouteMode::Presentation => view! {
-            <>
-                <link rel="preload" href="/app-bundles/access.js"/>
-            </>
-        }
-        .into_any(),
-        UiRouteMode::Config => view! {
-            <>
-                <link rel="preload" href="/app-bundles/config.js"/>
-            </>
-        }
-        .into_any(),
-        UiRouteMode::Upload => view! {
-            <>
-                <link rel="preload" href="/app-bundles/upload.js"/>
-            </>
-        }
-        .into_any(),
-    }
+pub(crate) fn chrome_script_preloads_view(_route_mode: UiRouteMode) -> AnyView {
+    // `as` is a Rust keyword and Leptos SSR does not serialize `prop:as` on <link>.
+    // Preload tags are injected as raw HTML in document::render_document.
+    view! { <></> }.into_any()
 }
 
 pub(crate) fn component_scripts(

@@ -37,6 +37,10 @@ pub(crate) fn chrome_script_preloads_view(route_mode: UiRouteMode) -> AnyView {
     scripts::chrome_script_preloads_view(route_mode)
 }
 
+pub(crate) fn chrome_script_preload_markup(route_mode: UiRouteMode) -> &'static str {
+    scripts::chrome_script_preload_markup(route_mode)
+}
+
 pub(crate) fn component_scripts(
     compiled: &CompiledApp,
     scene_bundle_url: Option<&str>,
