@@ -161,7 +161,6 @@ export function columnPrefersContentWidth(descriptor) {
   if (descriptor.widthMode === "fixed" && descriptor.layoutFixedWidth) return false;
   if (descriptor.widthMode === "content") return true;
   if (descriptor.tag || isTagLikeColumnKey(descriptor?.key)) return true;
-  if (isIdentifierLikeColumnKey(descriptor?.key)) return true;
   if (/(部门|单位|主责)/.test(String(descriptor?.key || ""))) return true;
   return isCompactDisplayType(descriptor.type);
 }
@@ -355,17 +354,22 @@ function formatNumberValue(raw, format) {
 }
 
 function formatDateOnly(date) {
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    timeZone: "UTC",
-  }).format(date);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function valueLooksDateOnly(raw) {
   const text = toPlainText(raw).trim();
-  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(text);
+  if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(text)) return true;
+  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}[ T]\d{1,2}:\d{1,2}(?::\d{1,2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/.test(
+    text
+  );
+}
+
+function columnKeyLooksCalendarDate(key) {
+  return /时间$|日期$/.test(String(key || "").trim());
 }
 
 function formatDateLike(raw, descriptor) {
@@ -436,8 +440,23 @@ export function formatCellDisplay(raw, descriptor) {
   if (descriptor?.type === "percent") {
     return formatPercentValue(raw, format);
   }
-  if (descriptor?.type === "date" || descriptor?.type === "datetime" || descriptor?.type === "relative_time") {
+  if (
+    descriptor?.type === "date" ||
+    descriptor?.type === "datetime" ||
+    descriptor?.type === "relative_time"
+  ) {
     return formatDateLike(raw, descriptor);
+  }
+  if (
+    columnKeyLooksCalendarDate(descriptor?.key) &&
+    (typeof raw === "string" || typeof raw === "number") &&
+    parseDateValue(raw)
+  ) {
+    return formatDateLike(raw, { ...descriptor, type: "date" });
+  }
+  if (typeof raw === "string" && valueLooksDateOnly(raw)) {
+    const date = parseDateValue(raw);
+    if (date) return formatDateOnly(date);
   }
   return toPlainText(raw);
 }
@@ -452,7 +471,15 @@ export function formatCellDetail(raw, descriptor) {
   }
   if (type === "date" || type === "datetime") {
     const date = parseDateValue(raw);
-    if (date) return formatAbsoluteDateTime(date, format);
+    if (!date) return toPlainText(raw);
+    if (
+      type === "date" ||
+      columnKeyLooksCalendarDate(descriptor?.key) ||
+      valueLooksDateOnly(raw)
+    ) {
+      return formatDateOnly(date);
+    }
+    return formatAbsoluteDateTime(date, format);
   }
   if (type === "percent") return formatPercentValue(raw, format);
   if (type === "number") return formatNumberValue(raw, format);
@@ -647,7 +674,7 @@ function columnWidthCapForKey(key, descriptor = null) {
   const name = String(key || "").trim();
   const tagLike = descriptor?.tag || isTagLikeColumnKey(name);
   if (!name) return 320;
-  if (isIdentifierLikeColumnKey(name)) return 148;
+  if (isIdentifierLikeColumnKey(name)) return 176;
   if (/序号|^id$/i.test(name)) return 88;
   if (/是否/.test(name)) return tagLike ? 136 : 108;
   if (/等级/.test(name)) return tagLike ? 132 : 108;
@@ -663,7 +690,7 @@ function columnWidthCapForKey(key, descriptor = null) {
 
 function columnWidthFloorForKey(key) {
   const name = String(key || "").trim();
-  if (isIdentifierLikeColumnKey(name)) return 108;
+  if (isIdentifierLikeColumnKey(name)) return 112;
   if (/序号|^id$/i.test(name)) return 52;
   if (/等级|类型|类别/.test(name)) return 64;
   return 56;
@@ -730,6 +757,48 @@ function columnPrefersFlexGrow(descriptor) {
 /**
  * 用前 N 行样本推断列宽（表头+单元格），写入 layoutFixedWidth；手工 column_state.width 优先。
  */
+function inferIdentifierColumnLayout(descriptor, sample, options = {}) {
+  const key = String(descriptor?.key || "");
+  const charPx = Number(options.charPx) > 0 ? Number(options.charPx) : 7;
+  const defaultPadPx = resolveHorizontalPaddingPx(DEFAULT_CELL_PADDING, 24);
+  const padPx = Number(options.cellPaddingPx) > 0 ? Number(options.cellPaddingPx) : defaultPadPx;
+  const bodyFont = String(options.font || "").trim();
+  const labelFont = String(options.labelFont || bodyFont).trim();
+  const label = String(descriptor?.label || key).trim();
+  let maxWidthPx = Math.max(
+    measureDisplayTextPx(label, { font: labelFont, charPx }),
+    displayCharCount(label) * charPx
+  );
+  for (const row of sample) {
+    const preview = previewTextForWidth(rowFieldValue(row, key), descriptor);
+    const text = String(preview ?? "");
+    maxWidthPx = Math.max(
+      maxWidthPx,
+      measureDisplayTextPx(text, { font: bodyFont, charPx }),
+      displayCharCount(text) * charPx
+    );
+  }
+  const floor = Math.max(
+    columnWidthFloorForKey(key),
+    Math.ceil(measureDisplayTextPx(label, { font: labelFont, charPx }) + 16)
+  );
+  const cap = columnWidthCapForKey(key, descriptor);
+  const slackPx = columnMeasureSlackPx(descriptor, charPx);
+  const width = Math.ceil(
+    Math.min(cap, Math.max(floor, maxWidthPx + padPx + slackPx))
+  );
+  return finalizeColumnLayout({
+    ...descriptor,
+    width: null,
+    widthMode: "fixed",
+    layoutFixedWidth: width,
+    layoutMinWidth: width,
+    layoutMaxWidth: width,
+    layoutClamp: false,
+    format: { ...(descriptor.format || {}), truncate: false },
+  });
+}
+
 export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
   const sampleLimit = Math.max(1, Number(options.sampleLimit) || 100);
   const charPx = Number(options.charPx) > 0 ? Number(options.charPx) : 7;
@@ -741,6 +810,10 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
   const sample = (Array.isArray(rows) ? rows : []).slice(0, sampleLimit);
 
   return (Array.isArray(descriptors) ? descriptors : []).map((descriptor) => {
+    const key = String(descriptor?.key || "");
+    if (isIdentifierLikeColumnKey(key)) {
+      return inferIdentifierColumnLayout(descriptor, sample, options);
+    }
     if (columnHasManualWidth(descriptor)) {
       const width = Math.round(Number(descriptor.width));
       return finalizeColumnLayout({
@@ -751,7 +824,6 @@ export function inferColumnWidthsFromSample(rows, descriptors, options = {}) {
         layoutMaxWidth: width,
       });
     }
-    const key = String(descriptor?.key || "");
     if (
       isAddressLikeColumnKey(key) &&
       !columnHasManualWidth(descriptor) &&
@@ -856,7 +928,7 @@ export function columnMinWidthPx(descriptor, fallbackMin = 96) {
   const label = String(descriptor?.label || key).trim();
   const labelFloor = Math.min(180, Math.max(floor, label.length * 14 + 28));
   if (isIdentifierLikeColumnKey(key)) {
-    return Math.max(labelFloor, 108);
+    return Math.max(labelFloor, 112);
   }
   if (isCompactWidthKey(key)) {
     return Math.max(columnWidthFloorForKey(key), 48);
@@ -926,8 +998,8 @@ export function inlineStyleForColumn(descriptor, target = "cell", options = {}) 
   const wrap = target === "header" ? descriptor?.headerWrap : descriptor?.wrap;
   const fixed = descriptor?.layoutFixedWidth;
   const max = descriptor?.layoutMaxWidth ?? descriptor?.maxWidth;
-  if (fixed && !columnPrefersContentWidth(descriptor)) {
-    parts.push(`width:${fixed}px`, `max-width:${fixed}px`);
+  if (fixed) {
+    parts.push(`min-width:${fixed}px`, `width:${fixed}px`, `max-width:${fixed}px`);
   } else if (max && descriptor?.layoutClamp) {
     parts.push(`max-width:${max}px`);
   }
@@ -950,6 +1022,9 @@ function columnGridTrack(descriptor, floor, { shrinkFit = false, weightFr = 1 } 
   const fr = Math.max(0.2, Number(weightFr) || 1);
 
   if (Number.isFinite(fixed) && fixed > 0) {
+    if (isIdentifierLikeColumnKey(descriptor?.key) || descriptor?.widthMode === "fixed") {
+      return `minmax(${fixed}px, ${fixed}px)`;
+    }
     return shrinkFit ? `minmax(0, ${fixed}px)` : `minmax(${fixed}px, ${fixed}px)`;
   }
   if (Number.isFinite(max) && max > 0 && descriptor?.layoutClamp) {

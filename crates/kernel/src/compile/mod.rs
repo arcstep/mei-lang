@@ -30,7 +30,10 @@ mod source_tree_world;
 mod shards;
 mod ui_data_policy;
 
-pub use analysis::dates::{coerce_row_to_schema, coerce_rows_to_schema};
+pub use analysis::dates::{
+    coerce_calendar_columns_in_rows, coerce_row_to_schema, coerce_rows_to_schema,
+    format_calendar_date_value,
+};
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
 pub use app_compile::{

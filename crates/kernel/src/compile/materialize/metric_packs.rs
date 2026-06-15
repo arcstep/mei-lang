@@ -10,12 +10,36 @@ use crate::model::{
 
 use super::super::{
     analysis::{
+        dates::{coerce_calendar_columns_in_rows, coerce_rows_to_schema},
         eval_context::{EvalContext, RequestDagMetrics, RuntimeMetricEvalScope},
         rowset::eval_rowset_with_ctx,
         scalar::eval_scalar_value_with_ctx,
     },
     decls::LegacyMetricPackDecl,
 };
+
+fn normalize_dataframe_metric_value(value: &Value, schema: &[ColumnSchema]) -> Value {
+    let Value::Array(rows) = value else {
+        return value.clone();
+    };
+    if rows.is_empty() {
+        return value.clone();
+    }
+    let columns = if !schema.is_empty() {
+        schema.iter().map(|column| column.name.clone()).collect::<Vec<_>>()
+    } else {
+        rows.first()
+            .and_then(Value::as_object)
+            .map(|row| row.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+    let coerced = if !schema.is_empty() {
+        coerce_rows_to_schema(rows.clone(), schema)
+    } else {
+        coerce_calendar_columns_in_rows(rows.clone(), &columns, &[])
+    };
+    Value::Array(coerced)
+}
 
 pub(crate) fn materialize_metric_packs(
     resources: &[LoadedResource],
@@ -147,6 +171,11 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
             }
         } else {
             Value::Null
+        };
+        let value = if shape == MetricShape::Dataframe {
+            normalize_dataframe_metric_value(&value, &schema)
+        } else {
+            value
         };
         metrics.insert(
             metric_id.clone(),

@@ -8,16 +8,20 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
-    evaluate_runtime_metric_defs_with_scope_and_dag, runtime_eval_node_cache_enabled, CompiledApp,
-    DatasetView, EvalPlanNodeKind, FilterIntent, MetricShape, QueryState,
+    coerce_calendar_columns_in_rows, evaluate_runtime_metric_defs_with_scope_and_dag,
+    runtime_eval_node_cache_enabled, CompiledApp, DatasetView, EvalPlanNodeKind, FilterIntent,
+    MetricShape, QueryState,
 };
 use serde_json::Value;
 
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 use super::metric_locate::locate_runtime_metric_resource;
-use super::paginate::paginate_rows;
+use super::paginate::{infer_columns, paginate_rows};
 use super::query::query_dataset_rows;
+use super::table_contract::{
+    column_meta_for_row_schema, format_rows_with_dataset_schema,
+};
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 use super::{
@@ -317,12 +321,16 @@ pub fn query_metric_dataframe(
         ));
     }
 
-    let columns = metric
+    let mut columns = metric
         .schema
         .iter()
         .map(|column| column.name.clone())
         .collect::<Vec<_>>();
     let rows = extract_dataframe_rows(&metric.value);
+    if columns.is_empty() && !rows.is_empty() {
+        columns = infer_columns(&rows);
+    }
+    let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &datasets);
 
     let meta = parse_source_meta(dataset.source.content.as_deref());
     let default_page_size = meta
@@ -358,6 +366,14 @@ pub fn query_metric_dataframe(
     };
 
     let mut result = paginate_rows(rows, &columns, &meta.normalize, &normalized_options, true);
+    result.rows = coerce_calendar_columns_in_rows(
+        std::mem::take(&mut result.rows),
+        &result.columns,
+        &row_schema,
+    );
+    if !row_schema.is_empty() {
+        result.column_meta = column_meta_for_row_schema(&row_schema, &result.columns);
+    }
     result.perf.extend(filtered_rows.perf);
     result.perf.insert("response_cache_hit".to_string(), 0);
     result.perf.insert(

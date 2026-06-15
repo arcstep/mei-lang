@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
-use mei_lang_kernel::DatasetView;
+use mei_lang_kernel::{coerce_rows_to_schema, DatasetView};
 
 use super::csv_dataset;
 use super::db_dataset;
@@ -59,8 +59,13 @@ pub fn query_dataset_rows(
     // 仅无外部可解析源时对物化 rows 分页；外部文件/DB 一律走查询管线。
     let use_external_query_path = file_backed;
     if !use_external_query_path {
+        let rows = if dataset.schema.is_empty() {
+            dataset.rows.clone()
+        } else {
+            coerce_rows_to_schema(dataset.rows.clone(), &dataset.schema)
+        };
         let mut result = paginate_rows(
-            dataset.rows.clone(),
+            rows,
             &dataset.columns,
             &meta.normalize,
             &normalized_options,

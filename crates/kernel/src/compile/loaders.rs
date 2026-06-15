@@ -32,14 +32,18 @@ fn json_number_f64(number: f64) -> Value {
 }
 
 fn xlsx_cell(value: &Data) -> Value {
+    use crate::compile::analysis::dates::format_calendar_date_value;
+
     match value {
         Data::Empty => Value::Null,
         Data::String(text) => Value::String(text.clone()),
         Data::Float(number) => json_number_f64(*number),
         Data::Int(integer) => json!(*integer),
         Data::Bool(flag) => Value::Bool(*flag),
-        Data::DateTime(date) => Value::String(date.to_string()),
-        Data::DateTimeIso(text) | Data::DurationIso(text) => Value::String(text.clone()),
+        Data::DateTime(date) => format_calendar_date_value(&Value::String(date.to_string())),
+        Data::DateTimeIso(text) | Data::DurationIso(text) => {
+            format_calendar_date_value(&Value::String(text.clone()))
+        }
         Data::Error(error) => Value::String(error.to_string()),
     }
 }

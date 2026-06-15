@@ -2931,3 +2931,179 @@ fn eval_spbjw_park_relocation_summary_and_charts_nonempty() {
         "bucket_date should collapse day-level rows, got {month_rows}"
     );
 }
+
+fn assert_calendar_field_is_date_only(row: &Value, field: &str) {
+    let Some(value) = row.get(field) else {
+        return;
+    };
+    if value.is_null() {
+        return;
+    }
+    let text = value
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string());
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed == "？" || trimmed == "?" || trimmed == "——" || trimmed == "--" {
+        return;
+    }
+    assert!(
+        !trimmed.contains(':'),
+        "field `{field}` should be calendar date without time, got `{trimmed}`"
+    );
+    assert!(
+        trimmed.len() >= 10
+            && trimmed.as_bytes().get(4) == Some(&b'-')
+            && trimmed.as_bytes().get(7) == Some(&b'-'),
+        "field `{field}` should look like yyyy-mm-dd, got `{trimmed}`"
+    );
+}
+
+#[test]
+fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
+    use mei_lang_datasets::{query_dataset_rows, query_metric_dataframe, DatasetQueryOptions};
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let board_target = "scenes/05-监督预警.board.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(board_target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{board_target}` failed: {error}"));
+
+    let warning_metric = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "warning_list",
+        "warnings_count::__scalar_rowset__",
+        Some("warnings_analytics_board"),
+        Some(board_target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 50,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("warning_list metric dataframe query");
+    assert!(
+        !warning_metric.rows.is_empty(),
+        "warnings_count detail should return rows"
+    );
+    for row in &warning_metric.rows {
+        for field in ["预警时间", "分办时间", "办结时间"] {
+            assert_calendar_field_is_date_only(row, field);
+        }
+    }
+
+    let issue_board = "scenes/08-监督成效.board.mei";
+    let issue_compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(issue_board.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{issue_board}` failed: {error}"));
+    let issue_metric = query_metric_dataframe(
+        &issue_compiled,
+        app_root.as_path(),
+        "issue_result_list",
+        "effectiveness_mechanism_item_count::__scalar_rowset__",
+        Some("effect_mechanism_analytics_board"),
+        Some(issue_board),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 50,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("issue_result_list metric dataframe query");
+    assert!(
+        !issue_metric.rows.is_empty(),
+        "mechanism detail should return rows"
+    );
+    for row in &issue_metric.rows {
+        for field in ["预警时间", "分办时间", "办结时间"] {
+            assert_calendar_field_is_date_only(row, field);
+        }
+    }
+
+    let warning_list = issue_compiled
+        .resources
+        .iter()
+        .find_map(|resource| {
+            resource
+                .dataset
+                .as_ref()
+                .filter(|dataset| dataset.id == "warning_list")
+                .cloned()
+        })
+        .expect("warning_list dataset view");
+    let warning_rows = query_dataset_rows(
+        app_root.as_path(),
+        &warning_list,
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 20,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+    )
+    .expect("warning_list direct query");
+    assert!(!warning_rows.rows.is_empty(), "warning_list rows query");
+    for row in warning_rows.rows.iter().take(20) {
+        for field in ["预警时间", "分办时间", "办结时间"] {
+            assert_calendar_field_is_date_only(row, field);
+        }
+    }
+
+    let realtime_target = "scenes/06-实时预警.mei";
+    let realtime_compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(realtime_target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{realtime_target}` failed: {error}"));
+    let realtime_metric = query_metric_dataframe(
+        &realtime_compiled,
+        app_root.as_path(),
+        "__world_metrics__",
+        "warnings_realtime_cockpit_table",
+        Some("realtime_warnings"),
+        Some(realtime_target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 10,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("warnings_realtime_cockpit_table metric dataframe query");
+    assert!(
+        !realtime_metric.rows.is_empty(),
+        "realtime cockpit table should return rows"
+    );
+    for row in &realtime_metric.rows {
+        assert_calendar_field_is_date_only(row, "预警时间");
+    }
+}

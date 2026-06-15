@@ -101,6 +101,51 @@ pub(super) fn format_iso_date((year, month, day): (i32, u32, u32)) -> String {
     format!("{year:04}-{month:02}-{day:02}")
 }
 
+/// 将可解析的日历日（含 `YYYY-MM-DD HH:MM:SS`、Excel 序列日）规范为 `YYYY-MM-DD` 字符串；无法解析则原样返回。
+pub fn format_calendar_date_value(value: &Value) -> Value {
+    parse_date_value(value)
+        .map(|ymd| Value::String(format_iso_date(ymd)))
+        .unwrap_or_else(|| value.clone())
+}
+
+/// 按列名（`*时间` / `*日期`）与可选 schema 把行内日历列规范为 `YYYY-MM-DD`。
+pub fn coerce_calendar_columns_in_rows(
+    rows: Vec<Value>,
+    columns: &[String],
+    schema: &[ColumnSchema],
+) -> Vec<Value> {
+    let mut effective_schema: Vec<ColumnSchema> = schema
+        .iter()
+        .filter(|column| {
+            let type_name = column.type_name.as_str();
+            type_name == "date" || type_name == "datetime"
+        })
+        .cloned()
+        .collect();
+    let known: std::collections::BTreeSet<String> = effective_schema
+        .iter()
+        .map(|column| column.name.clone())
+        .collect();
+    for name in columns {
+        if known.contains(name) {
+            continue;
+        }
+        if name.ends_with("时间") || name.ends_with("日期") {
+            effective_schema.push(ColumnSchema {
+                name: name.clone(),
+                type_name: "date".to_string(),
+                source: None,
+                optional: true,
+                unit: None,
+            });
+        }
+    }
+    if effective_schema.is_empty() {
+        return rows;
+    }
+    coerce_rows_to_schema(rows, &effective_schema)
+}
+
 /// 按 dataset schema 的 `date` / `datetime` 列把 Excel 序列日等值规范为 `YYYY-MM-DD` 字符串。
 pub fn coerce_row_to_schema(row: &Value, schema: &[ColumnSchema]) -> Value {
     if schema.is_empty() {
@@ -356,6 +401,32 @@ mod tests {
         assert_eq!(
             parse_date_value(&json!("2025-06-06T08:30:00")),
             Some((2025, 6, 6))
+        );
+    }
+
+    #[test]
+    fn coerce_calendar_columns_in_rows_uses_time_suffix_columns() {
+        use super::{coerce_calendar_columns_in_rows, format_iso_date};
+
+        let rows = vec![json!({
+            "预警ID": "YJ1",
+            "预警时间": "2025-10-01 00:00:00",
+            "分办时间": 46023
+        })];
+        let columns = vec![
+            "预警ID".to_string(),
+            "预警时间".to_string(),
+            "分办时间".to_string(),
+        ];
+        let out = coerce_calendar_columns_in_rows(rows, &columns, &[]);
+        assert_eq!(
+            out[0].get("预警时间").and_then(|v| v.as_str()),
+            Some("2025-10-01")
+        );
+        let parsed = parse_date_value(&json!(46023)).expect("excel serial");
+        assert_eq!(
+            out[0].get("分办时间").and_then(|v| v.as_str()),
+            Some(format_iso_date(parsed).as_str())
         );
     }
 

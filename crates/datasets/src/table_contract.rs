@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use mei_lang_kernel::{ColumnSchema, DatasetView, QueryTimeRange};
+use mei_lang_kernel::{
+    coerce_calendar_columns_in_rows, coerce_rows_to_schema, ColumnSchema, DatasetView,
+    QueryTimeRange, SourceDecl,
+};
 use serde::{Deserialize, Serialize};
 
 use super::types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
@@ -105,12 +108,106 @@ pub fn column_meta_from_dataset(dataset: &DatasetView, columns: &[String]) -> Ve
         .collect()
 }
 
+/// 在多个 dataset schema 中，为结果列挑选匹配列数最多的 schema 子集（用于 metric dataframe 明细）。
+pub fn resolve_row_schema_for_columns(
+    columns: &[String],
+    datasets: &BTreeMap<String, DatasetView>,
+) -> Vec<ColumnSchema> {
+    if columns.is_empty() {
+        return Vec::new();
+    }
+    let mut best_schema: Option<&[ColumnSchema]> = None;
+    let mut best_matched = 0usize;
+    for view in datasets.values() {
+        if view.schema.is_empty() {
+            continue;
+        }
+        let name_set: BTreeMap<&str, &ColumnSchema> = view
+            .schema
+            .iter()
+            .map(|col| (col.name.as_str(), col))
+            .collect();
+        let matched = columns
+            .iter()
+            .filter(|name| name_set.contains_key(name.as_str()))
+            .count();
+        if matched > best_matched {
+            best_matched = matched;
+            best_schema = Some(view.schema.as_slice());
+        }
+    }
+    let Some(schema) = best_schema else {
+        return Vec::new();
+    };
+    let name_map: BTreeMap<&str, &ColumnSchema> = schema
+        .iter()
+        .map(|col| (col.name.as_str(), col))
+        .collect();
+    columns
+        .iter()
+        .filter_map(|name| name_map.get(name.as_str()).map(|col| (*col).clone()))
+        .collect()
+}
+
+pub fn format_rows_with_dataset_schema(
+    columns: &[String],
+    rows: Vec<serde_json::Value>,
+    datasets: &BTreeMap<String, DatasetView>,
+) -> (Vec<ColumnSchema>, Vec<serde_json::Value>) {
+    let schema = resolve_row_schema_for_columns(columns, datasets);
+    if schema.is_empty() {
+        return (schema, rows);
+    }
+    (schema.clone(), coerce_rows_to_schema(rows, &schema))
+}
+
+pub fn column_meta_for_row_schema(
+    schema: &[ColumnSchema],
+    columns: &[String],
+) -> Vec<TableColumnMeta> {
+    let view = DatasetView {
+        id: String::new(),
+        title: None,
+        purpose: None,
+        schema: schema.to_vec(),
+        stage_schema: Vec::new(),
+        columns: columns.to_vec(),
+        rows: Vec::new(),
+        source: SourceDecl {
+            kind: String::new(),
+            path: String::new(),
+            sheet: None,
+            header_row: None,
+            preview_rows: None,
+            page_size: None,
+            max_page_size: None,
+            table: None,
+            query: None,
+            connection: None,
+            content: None,
+        },
+        sources: Vec::new(),
+        metrics: BTreeMap::new(),
+        runtime_metric_defs: BTreeMap::new(),
+        runtime_analysis_graph: Default::default(),
+        runtime_analysis_contracts: Default::default(),
+    };
+    column_meta_from_dataset(&view, columns)
+}
+
 pub fn enrich_table_result(
     dataset: &DatasetView,
     options: &DatasetQueryOptions,
     mut result: DatasetQueryResult,
 ) -> DatasetQueryResult {
-    result.column_meta = column_meta_from_dataset(dataset, &result.columns);
+    if result.column_meta.is_empty() {
+        result.column_meta = column_meta_from_dataset(dataset, &result.columns);
+    }
+    result.rows = coerce_calendar_columns_in_rows(
+        std::mem::take(&mut result.rows),
+        &result.columns,
+        &dataset.schema,
+    );
     if options.summary {
         result.summary = Some(TableSummary {
             total: result.total,
@@ -146,4 +243,136 @@ pub fn apply_table_request_fields(
         .collect();
     options.column_state = column_state;
     options.summary = summary;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mei_lang_kernel::{ColumnSchema, DatasetView, SourceDecl};
+    use serde_json::json;
+
+    fn sample_dataset(id: &str, schema: Vec<ColumnSchema>) -> DatasetView {
+        DatasetView {
+            id: id.to_string(),
+            title: None,
+            purpose: None,
+            schema,
+            stage_schema: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            source: SourceDecl {
+                kind: "xlsx".to_string(),
+                path: "demo.xlsx".to_string(),
+                sheet: None,
+                header_row: None,
+                preview_rows: None,
+                page_size: None,
+                max_page_size: None,
+                table: None,
+                query: None,
+                connection: None,
+                content: None,
+            },
+            sources: Vec::new(),
+            metrics: BTreeMap::new(),
+            runtime_metric_defs: BTreeMap::new(),
+            runtime_analysis_graph: Default::default(),
+            runtime_analysis_contracts: Default::default(),
+        }
+    }
+
+    #[test]
+    fn resolve_row_schema_picks_best_matching_dataset() {
+        let warning_schema = vec![
+            ColumnSchema {
+                name: "预警时间".to_string(),
+                type_name: "date".to_string(),
+                source: None,
+                optional: false,
+                unit: None,
+            },
+            ColumnSchema {
+                name: "分办时间".to_string(),
+                type_name: "date".to_string(),
+                source: None,
+                optional: false,
+                unit: None,
+            },
+        ];
+        let datasets = BTreeMap::from([
+            (
+                "warning_list".to_string(),
+                sample_dataset("warning_list", warning_schema),
+            ),
+            (
+                "metrics".to_string(),
+                sample_dataset("metrics", vec![ColumnSchema {
+                    name: "value".to_string(),
+                    type_name: "number".to_string(),
+                    source: None,
+                    optional: false,
+                    unit: None,
+                }]),
+            ),
+        ]);
+        let columns = vec![
+            "预警ID".to_string(),
+            "预警时间".to_string(),
+            "分办时间".to_string(),
+        ];
+        let schema = resolve_row_schema_for_columns(&columns, &datasets);
+        assert_eq!(schema.len(), 2);
+        assert_eq!(schema[0].name, "预警时间");
+        assert_eq!(schema[0].type_name, "date");
+    }
+
+    #[test]
+    fn format_rows_with_dataset_schema_coerces_calendar_dates() {
+        let schema = vec![ColumnSchema {
+            name: "办结时间".to_string(),
+            type_name: "date".to_string(),
+            source: None,
+            optional: false,
+            unit: None,
+        }];
+        let datasets = BTreeMap::from([(
+            "warning_list".to_string(),
+            sample_dataset("warning_list", schema),
+        )]);
+        let columns = vec!["办结时间".to_string()];
+        let rows = vec![json!({"办结时间": "2025-10-01 00:00:00"})];
+        let (row_schema, out) = format_rows_with_dataset_schema(&columns, rows, &datasets);
+        assert_eq!(row_schema.len(), 1);
+        assert_eq!(out[0]["办结时间"], "2025-10-01");
+    }
+
+    #[test]
+    fn enrich_table_result_preserves_existing_column_meta() {
+        use super::super::types::DatasetQueryResult;
+
+        let dataset = sample_dataset("owner", Vec::new());
+        let result = enrich_table_result(
+            &dataset,
+            &DatasetQueryOptions::default(),
+            DatasetQueryResult {
+                page: 1,
+                page_size: 20,
+                total: 0,
+                has_more: false,
+                columns: vec!["预警时间".to_string()],
+                rows: Vec::new(),
+                lazy: false,
+                perf: BTreeMap::new(),
+                column_meta: vec![TableColumnMeta {
+                    name: "预警时间".to_string(),
+                    type_name: "date".to_string(),
+                    sortable: true,
+                    filterable: true,
+                }],
+                summary: None,
+                query_state_echo: None,
+            },
+        );
+        assert_eq!(result.column_meta[0].type_name, "date");
+    }
 }

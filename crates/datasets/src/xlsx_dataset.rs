@@ -2,7 +2,8 @@ use std::{path::Path, time::Instant};
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    cached_load_xlsx_table_snapshot, coerce_row_to_schema, ColumnSchema, SourceDecl,
+    cached_load_xlsx_table_snapshot, coerce_calendar_columns_in_rows, coerce_row_to_schema,
+    ColumnSchema, SourceDecl,
 };
 
 use super::file_cache::ExternalFileCacheSettings;
@@ -26,13 +27,26 @@ pub(crate) fn query_xlsx_rows(
     let snapshot_ms = elapsed_ms(snapshot_started);
     if can_return_snapshot_directly(meta, options, schema) {
         let row_count = snapshot.rows.len();
+        let rows = if schema.is_empty() {
+            coerce_calendar_columns_in_rows(
+                snapshot.rows.clone(),
+                &snapshot.columns,
+                &[],
+            )
+        } else {
+            snapshot
+                .rows
+                .iter()
+                .map(|row| coerce_row_to_schema(row, schema))
+                .collect()
+        };
         let mut result = DatasetQueryResult {
             page: 1,
             page_size: row_count,
             total: row_count,
             has_more: false,
             columns: snapshot.columns.clone(),
-            rows: snapshot.rows.clone(),
+            rows,
             lazy: true,
             perf: Default::default(),
             column_meta: Vec::new(),

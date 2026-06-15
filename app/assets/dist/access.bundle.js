@@ -9257,7 +9257,7 @@
         const name = String(key || "").trim();
         if (!name) return { key: name, order };
         if (isIdentifierColumn(name)) {
-          return { key: name, order, width: 108, width_mode: "fixed", align: "left" };
+          return { key: name, order, width_mode: "fixed", align: "left" };
         }
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
