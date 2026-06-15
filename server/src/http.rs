@@ -7,6 +7,7 @@ pub(crate) mod host_error_page;
 pub(crate) mod observation;
 pub mod ops_api;
 pub mod pages;
+mod runtime_cache;
 pub mod projection_api;
 pub mod scene_api;
 pub(crate) mod scene_bundle;

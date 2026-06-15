@@ -142,6 +142,45 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         .and_then(|v| v.as_f64())
         .or_else(|| rate.value.as_f64())
         .expect("effectiveness_issue_verification_rate should materialize value");
+
+    let detail_key = "scenes/07-问题办理.mei::effectiveness_issue_verification_rate::warning_detail_rows";
+    let detail_metrics = evaluate_runtime_metric_defs(
+        &owner_dataset.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[detail_key.to_string()]),
+    )
+    .unwrap_or_else(|e| panic!("evaluate warning_detail_rows failed: {e}"));
+    let detail_rows = detail_metrics
+        .get(detail_key)
+        .and_then(|metric| metric.value.as_array())
+        .unwrap_or_else(|| panic!("missing dataframe rows for `{detail_key}`"));
+    let warning_detail = datasets
+        .get("warning_detail")
+        .or_else(|| datasets.get(&format!("{capsule}::warning_detail")))
+        .unwrap_or_else(|| panic!("warning_detail dataset should be materialized"));
+    assert_eq!(
+        detail_rows.len(),
+        warning_detail.rows.len(),
+        "warning_detail_rows should match warning_detail dataset row count"
+    );
+    assert_eq!(
+        detail_rows.len(),
+        11,
+        "current alert_tracking sample should have 11 verified rows (是/否), got {}",
+        detail_rows.len()
+    );
+    for row in detail_rows {
+        let verified = row
+            .get("是否查实")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .trim();
+        assert!(
+            verified == "是" || verified == "否",
+            "warning_detail_rows should only include 是/否, got {verified:?} row={row:?}"
+        );
+    }
 }
 
 #[test]

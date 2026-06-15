@@ -1432,6 +1432,7 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         "issue_pending_analytics_board",
         "issue_doing_analytics_board",
         "issue_done_analytics_board",
+        "issue_rate_analytics_board",
     ] {
         assert!(
             encoded.contains(board_id),
@@ -1439,14 +1440,14 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         );
     }
     assert!(
-        encoded.contains("issue_status_list_preview_board"),
-        "verification rate card should still reference list preview board, got: {encoded}"
+        encoded.contains("composition_by_verified"),
+        "verification rate card should reference verified status composition explain, got: {encoded}"
     );
     assert!(
         compiled
             .scene_projection_assembly_by_id
-            .contains_key("issue_pending_analytics_board"),
-        "drilldown context should hydrate pending analytics board assembly, keys: {:?}",
+            .contains_key("issue_rate_analytics_board"),
+        "drilldown context should hydrate rate analytics board assembly, keys: {:?}",
         compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
     );
     let pending_assembly = compiled
@@ -1481,8 +1482,34 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
         "issue pending analytics assembly should lower chart/detail layout_zone, got: {pending_encoded}"
     );
     assert!(
-        encoded.contains("07-问题办理.list-preview.board.mei"),
-        "verification rate popup should reference list-preview board file, got: {encoded}"
+        encoded.contains("issue_rate_analytics_board")
+            && encoded.contains("warning_detail")
+            && encoded.contains("预警ID"),
+        "verification rate popup should use analytics board with warning_detail detail fields, got: {encoded}"
+    );
+    let rate_assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("issue_rate_analytics_board")
+        .and_then(Value::as_object)
+        .expect("rate analytics assembly");
+    let rate_slots = rate_assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let detail_slot = rate_slots.iter().find(|slot| {
+        slot.as_object()
+            .and_then(|map| map.get("layout_zone"))
+            .and_then(Value::as_str)
+            == Some("detail")
+    });
+    assert!(
+        detail_slot
+            .and_then(Value::as_object)
+            .and_then(|slot| slot.get("explain_block_id"))
+            .and_then(Value::as_str)
+            == Some("warning_detail_rows"),
+        "rate analytics detail slot should bind verified warning detail rows, slots: {rate_slots:?}"
     );
 }
 

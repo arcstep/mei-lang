@@ -837,6 +837,7 @@ fn find_explain_block<'a>(
     block_ref: &str,
 ) -> Option<&'a Map<String, Value>> {
     let blocks = contract?.get("blocks").and_then(Value::as_array)?;
+    let mut role_match: Option<&'a Map<String, Value>> = None;
     for block in blocks {
         let block_map = block.as_object()?;
         let support_role = block_map
@@ -854,11 +855,11 @@ fn find_explain_block<'a>(
         {
             return Some(block_map);
         }
-        if support_role == block_ref {
-            return Some(block_map);
+        if role_match.is_none() && support_role == block_ref {
+            role_match = Some(block_map);
         }
     }
-    None
+    role_match
 }
 
 fn is_world_metrics_owner_dataset_id(dataset_id: &str) -> bool {

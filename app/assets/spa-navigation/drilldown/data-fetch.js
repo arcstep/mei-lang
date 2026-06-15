@@ -129,10 +129,15 @@
       config?.filterSchema?.rowsetDatasetId,
     );
     const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
+    const detailSlotMetricId = nonEmptyString(
+      config?.detailSlot?.metricId,
+      config?.tableMetricId,
+    );
     const tableMetricId =
-      config?.structuredBoard && cardMetricId
+      detailSlotMetricId ||
+      (config?.structuredBoard && cardMetricId
         ? cardMetricId
-        : resolveCompositionMetricId(config, detail);
+        : resolveCompositionMetricId(config, detail));
     const scopedConfig = tableMetricId ? { ...config, tableMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
     const runtimeQuery = window.__meiDatasetRuntime;

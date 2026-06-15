@@ -15,7 +15,7 @@ use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
 pub use singleflight::env_flag_enabled;
 
-use revision::{coarse_compile_revision, compile_revision, components_revision, normalize_path};
+use revision::{compile_revision, components_revision, normalize_path};
 use singleflight::{
     compile_singleflight_enabled, finish_compile_inflight, register_compile_inflight,
     wait_for_compile_inflight,
@@ -23,7 +23,6 @@ use singleflight::{
 
 #[derive(Clone)]
 pub(super) struct CachedCompiledApp {
-    coarse_revision: u128,
     compile_revision: String,
     watched_files: Vec<CompileWatchedFile>,
     components_revision: u128,
@@ -266,9 +265,8 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     }
     let alias_options = options.clone();
     let compile_started = Instant::now();
-    let (compiled, revision_stamp, coarse_revision) = if had_cache_entry {
+    let (compiled, revision_stamp) = if had_cache_entry {
         let revision_stamp = compile_revision(source_root, app_id, &options, components_root);
-        let coarse_revision = coarse_compile_revision(source_root, app_id, components_root);
         let compiled = match compile_app_with_options(source_root, app_id, options) {
             Ok(compiled) => compiled,
             Err(error) => {
@@ -282,26 +280,18 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
                 });
             }
         };
-        (compiled, revision_stamp, coarse_revision)
+        (compiled, revision_stamp)
     } else {
         match compile_app_with_options_and_revision(source_root, app_id, options) {
-            Ok(artifacts) => {
-                let coarse_revision = if artifacts.revision_plan.watched_files.is_empty() {
-                    coarse_compile_revision(source_root, app_id, components_root)
-                } else {
-                    0
-                };
-                (
-                    artifacts.compiled,
-                    revision::CompileRevisionStamp {
-                        token: artifacts.revision_plan.token,
-                        scope: "focused_graph",
-                        watched_files: artifacts.revision_plan.watched_files,
-                        components_revision: artifacts.revision_plan.components_revision,
-                    },
-                    coarse_revision,
-                )
-            }
+            Ok(artifacts) => (
+                artifacts.compiled,
+                revision::CompileRevisionStamp {
+                    token: artifacts.revision_plan.token,
+                    scope: "focused_graph",
+                    watched_files: artifacts.revision_plan.watched_files,
+                    components_revision: artifacts.revision_plan.components_revision,
+                },
+            ),
             Err(error) => {
                 return Err(CompileWithCacheFailure {
                     error,
@@ -323,7 +313,6 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
             evict_compile_cache_entries_for_write(&mut cache, source_root, app_id);
         }
         let cache_entry = CachedCompiledApp {
-            coarse_revision,
             compile_revision: revision_stamp.token.clone(),
             watched_files: revision_stamp.watched_files,
             components_revision: revision_stamp.components_revision,
@@ -415,14 +404,6 @@ fn validate_cached_entry(
             compile_revision: entry.compile_revision.clone(),
             revision_scope: "watch_set".to_string(),
             cache_validation: "watch_set".to_string(),
-        });
-    }
-    if entry.coarse_revision == coarse_compile_revision(source_root, app_id, components_root) {
-        return Some(PeekCompileCacheHitShared {
-            compiled: entry.compiled.clone(),
-            compile_revision: entry.compile_revision.clone(),
-            revision_scope: "coarse_fast_path".to_string(),
-            cache_validation: "coarse_fast_path".to_string(),
         });
     }
     let revision_stamp = compile_revision(source_root, app_id, options, components_root);

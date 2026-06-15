@@ -69,23 +69,6 @@ fn compile_revision_fallback(app_root: &Path, components_root: &Path) -> Compile
     }
 }
 
-pub(super) fn coarse_compile_revision(
-    source_root: &Path,
-    app_id: &str,
-    components_root: &Path,
-) -> u128 {
-    let app_root = resolve_app_root(source_root, app_id);
-    if compile_revision_mode() == RevisionMode::Full {
-        let app_mtime = directory_latest_full_modified_ms(&app_root).unwrap_or(0);
-        let components_mtime = directory_latest_full_modified_ms(components_root).unwrap_or(0);
-        return app_mtime.max(components_mtime);
-    }
-    let app_mtime = directory_latest_modified_ms(&app_root, RevisionScope::App).unwrap_or(0);
-    let components_mtime =
-        directory_latest_modified_ms(components_root, RevisionScope::Components).unwrap_or(0);
-    app_mtime.max(components_mtime)
-}
-
 pub(super) fn components_revision(components_root: &Path) -> u128 {
     if compile_revision_mode() == RevisionMode::Full {
         return directory_latest_full_modified_ms(components_root).unwrap_or(0);

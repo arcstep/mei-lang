@@ -8,7 +8,8 @@ use anyhow::{anyhow, Result};
 use crate::{
     eval::evaluate_mei_file,
     mei_config::{
-        app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MEI_CONFIG_FILENAME,
+        app_mei_config_path, resolve_app_entry_main, resolve_app_main_path, MeiConfig,
+        MEI_CONFIG_FILENAME,
     },
     model::CompiledSceneRoute,
     typed_refs::SceneRegistry,
@@ -201,6 +202,7 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
             "mei-config".to_string(),
             format!("{modified_ms}:{size_bytes}"),
         );
+        append_ops_source_revision_tokens(app_root, &mut token_parts, &mut watched_paths);
     }
 
     let components_revision = crate::compile::scene_payload_cache::components_revision(source_root);
@@ -221,6 +223,32 @@ pub(crate) fn build_compile_revision_plan_from_inputs(
         token: token_parts.into_values().collect::<Vec<_>>().join("||"),
         watched_files,
         components_revision,
+    }
+}
+
+fn append_ops_source_revision_tokens(
+    app_root: &Path,
+    token_parts: &mut BTreeMap<String, String>,
+    watched_paths: &mut BTreeSet<String>,
+) {
+    let config_path = app_mei_config_path(app_root);
+    let Ok(config) = MeiConfig::load_from_path(&config_path) else {
+        return;
+    };
+    for (source_id, entry) in &config.ops.sources {
+        let rel = entry.path.trim().replace('\\', "/");
+        if rel.is_empty() {
+            continue;
+        }
+        watched_paths.insert(rel.clone());
+        let absolute = app_root.join(&rel);
+        let metadata = std::fs::metadata(&absolute).ok();
+        let modified_ms = crate::compile::scene_payload_cache::file_mtime_ms(&absolute);
+        let size_bytes = metadata.map(|meta| meta.len()).unwrap_or(0);
+        token_parts.insert(
+            format!("source:{source_id}"),
+            format!("{modified_ms}:{size_bytes}"),
+        );
     }
 }
 

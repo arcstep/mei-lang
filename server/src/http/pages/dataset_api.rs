@@ -5,25 +5,22 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use mei_lang_kernel::{clear_runtime_compile_caches, resolve_app_root, FilterIntent, QueryState};
+use mei_lang_kernel::{resolve_app_root, FilterIntent, QueryState};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::{AppError, AppState};
 use crate::http::observation::CompileObservation;
 
-use super::app::clear_page_render_cache;
-use super::super::compile_cache::clear_compile_cache_for_app;
 use super::super::compile_cache::compile_app_with_cache_shared;
-use super::super::datasets::clear_metric_response_cache;
 use super::super::datasets::{
-    clear_external_file_cache_for_app, clear_metric_dataframe_result_cache, query_dataset_rows,
-    query_metric_dataframe, query_state_from_request,
+    query_dataset_rows, query_metric_dataframe, query_state_from_request,
     table_contract::{
         apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec,
     },
     DatasetQueryOptions,
 };
+use super::super::runtime_cache::{invalidate_app_runtime_caches, invalidate_report_perf};
 use super::components::resolve_components_root;
 use super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
@@ -365,29 +362,9 @@ pub async fn dataset_recompute_api(
         ));
     }
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
-    let clear_started = Instant::now();
-    let compile_cache_cleared = clear_compile_cache_for_app(&state, &app_id);
-    let page_render_cache_cleared = clear_page_render_cache();
-    let file_cache_cleared = clear_external_file_cache_for_app(app_root.as_path());
-    let metric_response_cache_cleared = clear_metric_response_cache();
-    let metric_dataframe_cache_cleared = clear_metric_dataframe_result_cache();
-    clear_runtime_compile_caches();
-    let clear_ms = elapsed_ms(clear_started);
     let warmed = mode == "clear_and_warm";
-    let mut perf = BTreeMap::new();
-    perf.insert("clear_ms".to_string(), clear_ms);
-    perf.insert(
-        "page_render_cache_cleared".to_string(),
-        page_render_cache_cleared as u64,
-    );
-    perf.insert(
-        "metric_response_cache_cleared".to_string(),
-        metric_response_cache_cleared as u64,
-    );
-    perf.insert(
-        "metric_dataframe_cache_cleared".to_string(),
-        metric_dataframe_cache_cleared as u64,
-    );
+    let invalidate_report = invalidate_app_runtime_caches(&state, &app_id);
+    let mut perf = invalidate_report_perf(&invalidate_report);
     let metric_id = request
         .metric_id
         .as_deref()
@@ -492,8 +469,8 @@ pub async fn dataset_recompute_api(
         dataset_id: request.dataset_id.trim().to_string(),
         metric_id,
         mode,
-        compile_cache_cleared,
-        file_cache_cleared,
+        compile_cache_cleared: invalidate_report.compile_cache_cleared,
+        file_cache_cleared: invalidate_report.file_cache_cleared,
         kernel_caches_cleared: true,
         warmed,
         perf,
