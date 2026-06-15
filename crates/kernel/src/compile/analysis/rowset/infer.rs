@@ -331,7 +331,7 @@ pub(super) fn eval_analysis_rowset(
                         .collect::<Vec<_>>()
                 })
                 .filter(|items| !items.is_empty())
-                .unwrap_or_else(|| vec![2024, 2025]);
+                .ok_or_else(|| anyhow!("trend_year_compare expression missing years"))?;
             Ok(trend_year_compare_rows(
                 &rows,
                 date_field,
@@ -374,7 +374,7 @@ pub(super) fn eval_analysis_rowset(
                         .collect::<Vec<_>>()
                 })
                 .filter(|items| !items.is_empty())
-                .unwrap_or_else(|| vec![2024, 2025]);
+                .ok_or_else(|| anyhow!("party_year_aggregate expression missing years"))?;
             Ok(party_year_aggregate_rows(
                 &rows,
                 party_field,

@@ -229,6 +229,23 @@
         config.trendField,
       ),
       trendGrain: nonEmptyString(explainMetric?.grain, override?.trendGrain, config.trendGrain),
+      valueField: nonEmptyString(
+        override?.valueField,
+        override?.value_field,
+        explainMetric?.valueField,
+        explainMetric?.value_field,
+        config?.valueField,
+        config?.value_field,
+      ),
+      compositionAgg: nonEmptyString(
+        override?.compositionAgg,
+        override?.composition_agg,
+        override?.agg,
+        explainMetric?.compositionAgg,
+        explainMetric?.agg,
+        config?.compositionAgg,
+        config?.agg,
+      ),
     };
     return merged;
   }

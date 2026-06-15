@@ -246,6 +246,7 @@ fn initialize_standalone_workspace(
             paths: mei_lang_kernel::WorkspacePathsConfig {
                 components: Some(mei_lang_kernel::DEFAULT_STOCK_COMPONENTS_REL.to_string()),
                 templates: Some(mei_lang_kernel::DEFAULT_STOCK_TEMPLATES_REL.to_string()),
+                authoring: Some(mei_lang_kernel::DEFAULT_STOCK_AUTHORING_REL.to_string()),
             },
             ..mei_lang_kernel::WorkspaceConfig::default()
         };

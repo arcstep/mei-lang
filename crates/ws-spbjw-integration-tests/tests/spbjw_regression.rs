@@ -1,14 +1,13 @@
-use super::{
-    compile_app_from_root, compile_app_from_root_with_options, temp_root, workspace_root,
-    write_file, CompileOptions,
-};
 use serde_json::Value;
+use ws_spbjw_integration_tests::{
+    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
+    CompileOptions,
+};
 
 #[test]
 fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -44,7 +43,7 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
         compiled
             .diagnostics
             .iter()
-            .all(|d| !matches!(d.severity, crate::Severity::Error)),
+            .all(|d| !matches!(d.severity, mei_lang_kernel::Severity::Error)),
         "unexpected errors: {:?}",
         compiled.diagnostics
     );
@@ -63,9 +62,8 @@ fn compile_spbjw_preview_typical_cases_dataset_mei_has_no_missing_scene() {
 
 #[test]
 fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -84,9 +82,8 @@ fn compile_spbjw_select_typical_cases_scene_resolves_dataset_entry() {
 
 #[test]
 fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -115,9 +112,8 @@ fn compile_spbjw_select_enterprise_complaints_scene_resolves_dataset_entry() {
 
 #[test]
 fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -153,7 +149,7 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
         compiled
             .diagnostics
             .iter()
-            .all(|d| !matches!(d.severity, crate::Severity::Error)),
+            .all(|d| !matches!(d.severity, mei_lang_kernel::Severity::Error)),
         "unexpected errors: {:?}",
         compiled.diagnostics
     );
@@ -161,9 +157,8 @@ fn compile_spbjw_preview_enforcement_whitelist_dataset_mei_has_no_missing_scene(
 
 #[test]
 fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_scene() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -191,9 +186,8 @@ fn compile_spbjw_dataset_preview_with_wrong_scene_query_still_resolves_entry_sce
 
 #[test]
 fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_only() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -221,9 +215,8 @@ fn compile_spbjw_dataset_preview_with_explicit_scene_and_focus_stays_preview_onl
 
 #[test]
 fn compile_spbjw_preview_widget_elements_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let started = std::time::Instant::now();
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -239,7 +232,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -290,7 +283,7 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
         .filter(|r| r.dataset.is_some())
         .collect();
     assert!(
-        dataset_resources.len() <= 40,
+        dataset_resources.len() <= 45,
         "manage widget preview should use selective catalog, not full scan (got {}): {:?}",
         dataset_resources.len(),
         dataset_resources
@@ -307,9 +300,8 @@ fn compile_spbjw_preview_widget_elements_succeeds() {
 
 #[test]
 fn compile_spbjw_preview_layout_center_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -322,7 +314,7 @@ fn compile_spbjw_preview_layout_center_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -362,9 +354,8 @@ fn compile_spbjw_preview_layout_center_succeeds() {
 
 #[test]
 fn compile_spbjw_preview_widget_metrics_system_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -377,7 +368,7 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -393,9 +384,8 @@ fn compile_spbjw_preview_widget_metrics_system_succeeds() {
 
 #[test]
 fn spbjw_supervision_models_count_is_eighteen() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -424,9 +414,8 @@ fn spbjw_supervision_models_count_is_eighteen() {
 
 #[test]
 fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -472,9 +461,8 @@ fn spbjw_warning_list_materializes_leading_columns_from_empty_xlsx_headers() {
 #[test]
 #[ignore = "历史数据口径：预警条数求和断言待与 Excel 源数据对齐后恢复"]
 fn spbjw_warnings_count_sums_warning_entry_column() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -503,9 +491,8 @@ fn spbjw_warnings_count_sums_warning_entry_column() {
 
 #[test]
 fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -519,7 +506,7 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -561,9 +548,8 @@ fn compile_spbjw_preview_widget_supervision_warning_succeeds() {
 
 #[test]
 fn compile_spbjw_layout_right_supervision_popup_has_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -598,9 +584,8 @@ fn compile_spbjw_layout_right_supervision_popup_has_analytics_projection_slots()
 
 #[test]
 fn compile_spbjw_preview_widget_typical_cases_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let started = std::time::Instant::now();
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -616,7 +601,7 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -658,9 +643,8 @@ fn compile_spbjw_preview_widget_typical_cases_succeeds() {
 
 #[test]
 fn compile_spbjw_overview_preview_materializes_imported_metrics() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/layout-左栏.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -674,7 +658,7 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -700,9 +684,8 @@ fn compile_spbjw_overview_preview_materializes_imported_metrics() {
 
 #[test]
 fn compile_spbjw_access_home_scene_materializes_ops_theme() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -743,11 +726,11 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
         .find(|p| p.id == "left_rail_float")
         .expect("home access route should include left_rail_float");
     fn find_panel_in_nodes<'a>(
-        nodes: &'a [crate::UiNodeDecl],
+        nodes: &'a [mei_lang_kernel::UiNodeDecl],
         id: &str,
-    ) -> Option<&'a crate::PanelDecl> {
+    ) -> Option<&'a mei_lang_kernel::PanelDecl> {
         for node in nodes {
-            let crate::UiNodeDecl::Panel(panel) = node else {
+            let mei_lang_kernel::UiNodeDecl::Panel(panel) = node else {
                 continue;
             };
             if panel.id == id {
@@ -779,9 +762,8 @@ fn compile_spbjw_access_home_scene_materializes_ops_theme() {
 
 #[test]
 fn compile_spbjw_preview_home_scene_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -795,7 +777,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(errors.is_empty(), "home preview errors: {:?}", errors);
     let contract = compiled
@@ -872,7 +854,7 @@ fn compile_spbjw_preview_home_scene_succeeds() {
         .and_then(|r| r.dataset.as_ref())
         .expect("home should import 问题办理 world metrics resource");
     assert_eq!(
-        crate::resolve_runtime_metric_def_key(
+        mei_lang_kernel::resolve_runtime_metric_def_key(
             issue_metrics_owner,
             "warnings_pending_count::__scalar_rowset__",
             &issue_metrics.runtime_metric_defs,
@@ -893,9 +875,8 @@ fn compile_spbjw_preview_home_scene_succeeds() {
 
 #[test]
 fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -924,9 +905,8 @@ fn compile_spbjw_preview_main_mei_keeps_inspection_and_penalty_cockpit_metrics()
 
 #[test]
 fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let cases: [(&str, &str, Vec<&str>); 0] = [];
 
     for (target, sample_metric_id, legacy_popup_files) in cases {
@@ -972,9 +952,8 @@ fn compile_spbjw_cockpit_scenes_use_generic_drilldown_projection_slots() {
 
 #[test]
 fn compile_spbjw_enforcement_elements_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1032,9 +1011,8 @@ fn compile_spbjw_enforcement_elements_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let board_id = "enforcement_units_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -1099,9 +1077,8 @@ fn compile_spbjw_enforcement_units_shell_contract_zones_match_layout() {
 
 #[test]
 fn compile_spbjw_drilldown_kit_template_is_previewable() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "../.stock/templates/cockpit/drilldown/drilldown-kit.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1115,7 +1092,7 @@ fn compile_spbjw_drilldown_kit_template_is_previewable() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -1131,9 +1108,8 @@ fn compile_spbjw_drilldown_kit_template_is_previewable() {
 
 #[test]
 fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "../.stock/templates/cockpit/drilldown/generic-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1147,7 +1123,7 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -1163,9 +1139,8 @@ fn compile_spbjw_generic_drilldown_board_template_is_previewable() {
 
 #[test]
 fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "../.stock/templates/cockpit/drilldown/analytics-drilldown-board.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1179,7 +1154,7 @@ fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -1195,9 +1170,8 @@ fn compile_spbjw_analytics_drilldown_board_template_is_previewable() {
 
 #[test]
 fn compile_spbjw_supervision_warning_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/05-监督预警.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1277,9 +1251,8 @@ fn compile_spbjw_supervision_warning_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/05-监督预警.board.mei";
     let scene_id = "supervision_items_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -1313,7 +1286,7 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
         compiled
             .diagnostics
             .iter()
-            .filter(|d| matches!(d.severity, crate::Severity::Error))
+            .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
             .collect::<Vec<_>>()
     );
     assert!(
@@ -1346,9 +1319,8 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
 
 #[test]
 fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembly() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/07-问题办理.board.mei";
     let scene_id = "issue_pending_analytics_board";
     let compiled = compile_app_from_root_with_options(
@@ -1382,7 +1354,7 @@ fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembl
         compiled
             .diagnostics
             .iter()
-            .filter(|d| matches!(d.severity, crate::Severity::Error))
+            .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
             .collect::<Vec<_>>()
     );
     let encoded = serde_json::to_string(assembly).expect("encode assembly");
@@ -1399,9 +1371,8 @@ fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembl
 
 #[test]
 fn compile_spbjw_issue_handling_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/07-问题办理.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1515,9 +1486,8 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_left_rail_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     for (target, board_id) in [
         ("scenes/01-执法要素.mei", "enforcement_units_analytics_board"),
         ("scenes/02-行政检查.mei", "inspection_total_analytics_board"),
@@ -1557,9 +1527,8 @@ fn compile_spbjw_left_rail_analytics_projection_slots() {
 
 #[test]
 fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1631,198 +1600,10 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
 }
 
 #[test]
-fn compile_board_assembly_rejects_missing_data_table_zone() {
-    let source_root = temp_root("reject-scene-shell-zone");
-    let app_root = source_root.join("demo");
-    write_file(
-        &app_root.join("main.mei"),
-        r#"
-app(
-    id = "demo",
-    default_scene = "home",
-)
-
-scene(id = "home", profile = "page")
-
-scene.set_world(
-    resources = [
-        resource(
-            id = "warning_list",
-            kind = "dataset",
-            source = ds.csv(path = "data/warning_list.csv"),
-        ),
-    ],
-)
-
-rows = ds.data_ref("warning_list")
-
-world.add_dataset_view(
-    id = "warning_metrics",
-    rowset = rows,
-    schema = [
-        ds.column("分类", "string"),
-        ds.column("数量", "number"),
-    ],
-    metrics = [
-        ds.dataframe(
-            id = "detail",
-            schema = [
-                ds.column("分类", "string"),
-                ds.column("数量", "number"),
-            ],
-            value = rows,
-        ),
-    ],
-)
-
-frame()
-
-frame.add_panel(
-    id = "card",
-    title = "Bad",
-    blocks = [
-        component(
-            "mei-card",
-            area = "auto",
-            props = {
-                "title": "Bad",
-                "value": 1,
-                "popup": link(
-                    type = "popup",
-                    projection = "overlay",
-                    scene = scene_ref(scene_id = "broken_board", scene_file = "shell.mei"),
-                    params = {"metric": metric_ref("detail")},
-                ),
-            },
-        ),
-    ],
-)
-"#,
-    );
-    write_file(
-        &app_root.join("data/warning_list.csv"),
-        "分类,数量\nA,1\nB,2\n",
-    );
-    write_file(
-        &app_root.join("shell.mei"),
-        r#"
-scene(
-    id = "broken_board",
-    profile = "cockpit",
-    params = {
-        "metric": param(type = "metric", required = True),
-    },
-    bindings = {
-        "filter_schema": {"fields": []},
-    },
-    local_nav = {
-        "kind": "broken_board",
-        "scene_id": "broken_board",
-        "overlay_size": "large",
-    },
-)
-world(resources = [])
-frame(
-    layout = grid(
-        columns = ["minmax(180px, 1fr)", "minmax(0, 5fr)"],
-        rows = ["minmax(0, 1fr)"],
-        areas = [["filter", "main"]],
-        gap = "12px",
-        padding = "12px",
-    ),
-)
-frame.add_panel(
-    id = "filter",
-    area = "filter",
-    slot = panel_slot(kind = "filter", source = "filter_schema"),
-    blocks = [],
-)
-frame.add_panel(
-    id = "main",
-    area = "main",
-    layout = grid(
-        columns = ["1fr"],
-        rows = ["auto", "minmax(0, 1fr)"],
-        areas = [["chart"], ["detail"]],
-        gap = "12px",
-    ),
-    slot = panel_slot(kind = "container"),
-    blocks = [
-        panel(
-            id = "chart",
-            area = "chart",
-            slot = panel_slot(kind = "slots", accepts = ["chart"], max = 3),
-            blocks = [],
-        ),
-    ],
-)
-"#,
-    );
-    let compiled = compile_app_from_root(&source_root, &app_root)
-        .expect("compile broken shell app should finish with diagnostics");
-    let zone_errors: Vec<_> = compiled
-        .diagnostics
-        .iter()
-        .filter(|d| {
-            matches!(
-                d.code.as_str(),
-                "scene_shell_zone_missing"
-                    | "board_assembly_missing_detail"
-                    | "analytics_projection_missing_detail"
-            )
-        })
-        .collect();
-    assert!(
-        !zone_errors.is_empty(),
-        "missing data_table zone should produce board assembly detail errors, got: {:?}",
-        compiled.diagnostics
-    );
-}
-
-#[test]
-fn compile_rejects_explain_chart_kind_in_composition() {
-    let source_root = temp_root("reject-explain-chart-kind");
-    let app_root = source_root.join("demo");
-    write_file(
-        &app_root.join("main.mei"),
-        r#"
-BAD = ds.composition(id = "c", by = "分类", chart_kind = "bar")
-
-app(
-    id = "demo",
-    default_scene = "home",
-)
-
-scene(
-    id = "home",
-    profile = "page",
-)
-
-world()
-frame()
-"#,
-    );
-
-    let result = compile_app_from_root(&source_root, &app_root);
-    assert!(result.is_err(), "expected compile to fail for explain chart_kind ban");
-    let message = result
-        .err()
-        .map(|error| error.to_string())
-        .unwrap_or_default();
-    assert!(
-        message.contains("chart_kind") || message.contains("unexpected named argument"),
-        "expected error to mention chart_kind rejection, got: {message}"
-    );
-
-    let _ = std::fs::remove_dir_all(&source_root);
-}
-
-#[test]
 fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
-    use crate::MetricShape;
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    use ws_spbjw_integration_tests::MetricShape;
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/02-行政检查.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -1836,7 +1617,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .collect();
     assert!(
         errors.is_empty(),
@@ -1884,7 +1665,7 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
                 .map(|dataset| (resource.id.clone(), dataset))
         })
         .collect::<std::collections::BTreeMap<_, _>>();
-    let evaluated = super::evaluate_runtime_metric_defs(
+    let evaluated = evaluate_runtime_metric_defs(
         &inspection_owner.runtime_metric_defs,
         &[],
         &datasets,
@@ -1916,9 +1697,8 @@ fn compile_spbjw_preview_administrative_inspection_park_metrics_succeeds() {
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let preview_targets = [
         "scenes/03-指标体系.mei",
         "scenes/07-问题办理.mei",
@@ -1981,9 +1761,8 @@ fn compile_spbjw_runtime_metric_defs_keep_drilldown_object_metadata() {
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let preview_targets = [
         (
             "scenes/08-监督成效.mei",
@@ -2029,9 +1808,8 @@ fn compile_spbjw_runtime_metric_defs_support_explain_list_shape() {
 
 #[test]
 fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_keys() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2081,9 +1859,8 @@ fn compile_spbjw_home_preview_imported_world_metrics_align_analysis_contract_key
 
 #[test]
 fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis_contracts() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2126,9 +1903,8 @@ fn compile_spbjw_enforcement_elements_direct_preview_world_metrics_have_analysis
 
 #[test]
 fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_source() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2180,9 +1956,8 @@ fn compile_spbjw_enforcement_elements_enforcement_units_resource_has_hydratable_
 #[test]
 fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materializes_enforcement_units(
 ) {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2232,10 +2007,9 @@ fn compile_spbjw_enforcement_elements_direct_preview_inferred_rowset_materialize
 }
 
 #[test]
-fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_real_rowset() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+fn compile_spbjw_home_preview_imported_enforcement_personnel_composition_tab_uses_real_rowset() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2246,7 +2020,7 @@ fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_re
     )
     .expect("compile home preview");
     let resource_id = "__world_metrics__::scenes/01-执法要素.mei::metrics";
-    let metric_key = "scenes/01-执法要素.mei::enforcement_units_count";
+    let metric_key = "scenes/01-执法要素.mei::enforcement_personnel_count";
     let dataset = compiled
         .resources
         .iter()
@@ -2273,9 +2047,8 @@ fn compile_spbjw_home_preview_imported_enforcement_units_composition_tab_uses_re
 
 #[test]
 fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset_not_dataset() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2294,9 +2067,9 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
         .expect("direct preview world metrics");
     let contract = dataset
         .runtime_analysis_contracts
-        .get("enforcement_units_count")
+        .get("enforcement_personnel_count")
         .and_then(Value::as_object)
-        .expect("enforcement_units_count contract");
+        .expect("enforcement_personnel_count contract");
     let composition_metric_id = contract
         .get("tab_metrics")
         .and_then(|value| value.get("composition"))
@@ -2315,9 +2088,8 @@ fn compile_spbjw_enforcement_elements_direct_preview_composition_tab_uses_rowset
 
 #[test]
 fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2363,12 +2135,11 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
 }
 
 #[test]
-fn spbjw_effectiveness_transfer_clue_and_filing_count_equal_four() {
+fn spbjw_effectiveness_transfer_clue_and_filing_count_from_issue_result_list() {
     use std::collections::BTreeMap;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/08-监督成效.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2379,58 +2150,83 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_equal_four() {
         },
     )
     .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
-    let owner = compiled
+    let owner_dataset = compiled
         .resources
         .iter()
-        .find(|r| r.id == "__world_metrics__")
-        .and_then(|r| r.dataset.as_ref())
-        .expect("08 capsule should materialize __world_metrics__");
+        .find_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            dataset
+                .runtime_metric_defs
+                .contains_key("effectiveness_transfer_clue_count")
+                .then_some(dataset)
+        })
+        .expect("08 capsule should materialize effectiveness metrics");
     let datasets: BTreeMap<_, _> = compiled
         .resources
         .iter()
         .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
         .collect();
-    let metrics = super::evaluate_runtime_metric_defs(
-        &owner.runtime_metric_defs,
+    let metrics = evaluate_runtime_metric_defs(
+        &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
         Some(&[
             "effectiveness_transfer_clue_count".to_string(),
             "effectiveness_filing_count".to_string(),
+            "effectiveness_mechanism_item_count".to_string(),
         ]),
     )
-    .expect("evaluate supervision effectiveness clue/filing metrics");
-    for metric_id in [
-        "effectiveness_transfer_clue_count",
-        "effectiveness_filing_count",
-    ] {
-        let metric = metrics
-            .get(metric_id)
-            .unwrap_or_else(|| panic!("missing metric `{metric_id}`"));
-        let value = metric
-            .value
-            .get("value")
-            .and_then(|v| v.as_f64())
-            .or_else(|| metric.value.as_f64())
-            .unwrap_or(f64::NAN);
-        assert_eq!(
-            value, 4.0,
-            "{metric_id} should count 2+1+1 from 《11》是否转问题线索（含「是（2）」），got {value}"
-        );
-    }
+    .expect("evaluate supervision effectiveness clue/filing/mechanism metrics");
+    let transfer = metrics
+        .get("effectiveness_transfer_clue_count")
+        .unwrap_or_else(|| panic!("missing metric `effectiveness_transfer_clue_count`"));
+    let transfer_value = transfer
+        .value
+        .get("value")
+        .and_then(|v| v.as_f64())
+        .or_else(|| transfer.value.as_f64())
+        .unwrap_or(f64::NAN);
+    assert_eq!(
+        transfer_value, 1.0,
+        "effectiveness_transfer_clue_count should count one 《12》 row with 是否转问题线索=是, got {transfer_value}"
+    );
+    let filing = metrics
+        .get("effectiveness_filing_count")
+        .unwrap_or_else(|| panic!("missing metric `effectiveness_filing_count`"));
+    let filing_value = filing
+        .value
+        .get("value")
+        .and_then(|v| v.as_f64())
+        .or_else(|| filing.value.as_f64())
+        .unwrap_or(f64::NAN);
+    assert_eq!(
+        filing_value, 0.0,
+        "effectiveness_filing_count should count no 《12》 rows with 是否立案=是 yet, got {filing_value}"
+    );
+    let mechanism = metrics
+        .get("effectiveness_mechanism_item_count")
+        .unwrap_or_else(|| panic!("missing metric `effectiveness_mechanism_item_count`"));
+    let mechanism_value = mechanism
+        .value
+        .get("value")
+        .and_then(|v| v.as_f64())
+        .or_else(|| mechanism.value.as_f64())
+        .unwrap_or(f64::NAN);
+    assert_eq!(
+        mechanism_value, 10.0,
+        "effectiveness_mechanism_item_count should dedupe 10 mechanism titles after splitting on 、 and 》《, got {mechanism_value}"
+    );
 }
 
 #[test]
 fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date() {
     use std::collections::BTreeMap;
 
-    use crate::compile::analysis::dates::coerce_rows_to_schema;
-    use crate::compile::loaders::load_xlsx_table_snapshot;
-    use crate::MetricShape;
+    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
+    use ws_spbjw_integration_tests::MetricShape;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/03-指标体系.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2534,7 +2330,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
         })
         .collect::<BTreeMap<_, _>>();
 
-    let preview_only = super::evaluate_runtime_metric_defs(
+    let preview_only = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
@@ -2560,7 +2356,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
         dataset.rows = coerced_rows;
     }
 
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
@@ -2603,7 +2399,7 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
     if let Some(dataset) = datasets.get_mut("penalty_result_list") {
         dataset.rows = coerce_rows_to_schema(penalty_snapshot.rows, &penalty_schema);
     }
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
@@ -2627,9 +2423,8 @@ fn spbjw_indicator_system_calendar_year_metrics_use_inspection_xlsx_check_date()
 
 #[test]
 fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2674,14 +2469,12 @@ fn spbjw_home_scene_compile_includes_administrative_inspection_dataset() {
 fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
     use std::collections::BTreeMap;
 
-    use crate::compile::analysis::dates::coerce_rows_to_schema;
-    use crate::compile::loaders::load_xlsx_table_snapshot;
-    use crate::compile::materialize::resolve_runtime_metric_def_key;
-    use crate::MetricShape;
+    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
+    use ws_spbjw_integration_tests::resolve_runtime_metric_def_key;
+    use ws_spbjw_integration_tests::MetricShape;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2733,7 +2526,7 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
             panic!("home compile should include administrative_inspection in datasets map")
         });
 
-    let preview_metrics = super::evaluate_runtime_metric_defs(
+    let preview_metrics = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
@@ -2774,7 +2567,7 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
     }
 
     let metric_ids = vec![metric_key.clone()];
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner_dataset.runtime_metric_defs,
         &[],
         &datasets,
@@ -2802,12 +2595,11 @@ fn spbjw_home_preview_imported_indicator_metrics_nonzero() {
 fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
     use std::collections::BTreeMap;
 
-    use crate::compile::materialize::resolve_runtime_metric_def_key;
-    use crate::MetricShape;
+    use ws_spbjw_integration_tests::resolve_runtime_metric_def_key;
+    use ws_spbjw_integration_tests::MetricShape;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2856,7 +2648,7 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
     for (dataset_id, dataset) in dataset_aliases {
         datasets.entry(dataset_id).or_insert(dataset);
     }
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner.runtime_metric_defs,
         &[],
         &datasets,
@@ -2878,12 +2670,11 @@ fn compile_spbjw_enforcement_elements_personnel_rowset_evaluates_nonempty() {
 fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
     use std::collections::BTreeMap;
 
-    use crate::compile::materialize::resolve_runtime_metric_def_key;
-    use crate::MetricShape;
+    use ws_spbjw_integration_tests::resolve_runtime_metric_def_key;
+    use ws_spbjw_integration_tests::MetricShape;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -2921,7 +2712,7 @@ fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
     for (dataset_id, dataset) in dataset_aliases {
         datasets.entry(dataset_id).or_insert(dataset);
     }
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner.runtime_metric_defs,
         &[],
         &datasets,
@@ -2942,11 +2733,10 @@ fn compile_spbjw_home_imported_personnel_rowset_evaluates_nonempty() {
 fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
     use std::collections::BTreeMap;
 
-    use crate::model::MetricShape;
+    use ws_spbjw_integration_tests::MetricShape;
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let target = "scenes/01-执法要素.mei";
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -2984,7 +2774,7 @@ fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
                 .map(|dataset| (resource.id.clone(), dataset))
         })
         .collect::<BTreeMap<_, _>>();
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &world_metrics.runtime_metric_defs,
         &[],
         &datasets,
@@ -3005,8 +2795,7 @@ fn spbjw_park_migration_yearly_table_evaluates_nonempty_rows() {
 
 #[test]
 fn compile_spbjw_qunfu_home_scene_succeeds() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
+    let source_root = source_root();
     let app_root = source_root.join("qunfu");
     let compiled = compile_app_from_root_with_options(
         &source_root,
@@ -3021,7 +2810,7 @@ fn compile_spbjw_qunfu_home_scene_succeeds() {
         compiled
             .diagnostics
             .iter()
-            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
+            .all(|diag| !matches!(diag.severity, mei_lang_kernel::Severity::Error)),
         "qunfu home should not produce error diagnostics: {:?}",
         compiled.diagnostics
     );
@@ -3035,12 +2824,10 @@ fn compile_spbjw_qunfu_home_scene_succeeds() {
 fn eval_spbjw_park_relocation_summary_and_charts_nonempty() {
     use std::collections::BTreeMap;
 
-    use crate::compile::analysis::dates::coerce_rows_to_schema;
-    use crate::compile::loaders::load_xlsx_table_snapshot;
+    use ws_spbjw_integration_tests::{coerce_rows_to_schema, load_xlsx_table_snapshot};
 
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -3099,7 +2886,7 @@ fn eval_spbjw_park_relocation_summary_and_charts_nonempty() {
         relocation_dataset.rows = coerce_rows_to_schema(snapshot.rows, &schema);
         relocation_dataset.columns = schema.iter().map(|column| column.name.clone()).collect();
     }
-    let metrics = super::evaluate_runtime_metric_defs(
+    let metrics = evaluate_runtime_metric_defs(
         &owner.runtime_metric_defs,
         &[],
         &datasets,

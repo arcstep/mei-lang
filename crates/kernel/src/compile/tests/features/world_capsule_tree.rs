@@ -81,15 +81,15 @@ fn enrich_source_tree_world_capsule_children() {
         .iter()
         .find(|child| child.kind == "world_group" && child.name == "数据集")
         .expect("datasets group");
-    assert_eq!(datasets_group.children.len(), 1);
+    let warning_list_node = datasets_group
+        .children
+        .iter()
+        .find(|child| child.world_dataset_id.as_deref() == Some("warning_list"))
+        .expect("warning_list dataset node");
     assert_eq!(
-        datasets_group.children[0].name,
+        warning_list_node.name,
         "待办",
         "warning_list dataset should inherit label from metric referencing data_ref"
-    );
-    assert_eq!(
-        datasets_group.children[0].world_dataset_id.as_deref(),
-        Some("warning_list")
     );
     let metrics_group = file_node
         .children
@@ -130,9 +130,21 @@ fn build_world_semantic_index_explain_blocks() {
     let target = "scenes/07-问题办理.world.mei";
     let index = build_world_semantic_index(app_root.as_path(), target)
         .unwrap_or_else(|| panic!("index for `{target}`"));
-    assert_eq!(index.datasets.len(), 1);
-    assert_eq!(index.datasets[0].id, "warning_list");
-    assert!(index.datasets[0].filter_field_count >= 10);
+    assert!(
+        index.datasets.iter().any(|dataset| dataset.id == "warning_list"),
+        "expected warning_list dataset, got: {:?}",
+        index
+            .datasets
+            .iter()
+            .map(|dataset| dataset.id.as_str())
+            .collect::<Vec<_>>()
+    );
+    let warning_list = index
+        .datasets
+        .iter()
+        .find(|dataset| dataset.id == "warning_list")
+        .expect("warning_list");
+    assert!(warning_list.filter_field_count >= 10);
     let pending = index
         .metrics
         .iter()

@@ -99,7 +99,7 @@ function metaType(meta) {
 }
 
 export function isDepartmentLikeColumnKey(key) {
-  return /(承办部门|主责单位|部门|单位|主责)/i.test(String(key || ""));
+  return /(部门|单位|机构|组织)/i.test(String(key || ""));
 }
 
 export function isTagLikeColumnKey(key) {
@@ -627,14 +627,14 @@ function columnWidthCapForKey(key, descriptor = null) {
   const name = String(key || "").trim();
   const tagLike = descriptor?.tag || isTagLikeColumnKey(name);
   if (!name) return 320;
-  if (/序号|^id$|模型id|预警id/i.test(name)) return 88;
+  if (/序号|^id$|编号|编码/i.test(name)) return 88;
   if (/是否/.test(name)) return tagLike ? 136 : 108;
   if (/等级/.test(name)) return tagLike ? 132 : 108;
   if (/类型|类别/.test(name)) return tagLike ? 240 : 220;
   if (/领域/.test(name)) return 140;
   if (/办公地址|住所地址|注册地址|地址$/.test(name)) return 640;
-  if (/监督模型|模型ID/.test(name)) return 132;
-  if (/政策文件|模型依据|监督规则|监督数据|预警类型|描述|事项|表现|情况|规则|依据|文件|数据/.test(name)) {
+  if (/模型|模板/.test(name)) return 132;
+  if (/政策文件|模型依据|规则|依据|文件|描述|事项|表现|情况|数据/.test(name)) {
     return 280;
   }
   return 220;
@@ -842,7 +842,7 @@ export function columnMinWidthPx(descriptor, fallbackMin = 96) {
   if (/描述|事项|表现|问题分类|问题描述|存在的问题/.test(key)) {
     return Math.max(labelFloor, 140);
   }
-  if (/主责单位|单位/.test(key)) {
+  if (/单位|机构/.test(key)) {
     return Math.max(labelFloor, 120);
   }
   if (isAddressLikeColumnKey(key)) {

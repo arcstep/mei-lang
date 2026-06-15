@@ -21,7 +21,7 @@ pub fn workspace_config_path(segment_root: &Path) -> PathBuf {
 /// 保留给 CLI 启动路径；workspace stock 不再回退到 package tree。
 pub fn set_mei_package_root(_path: PathBuf) {}
 
-fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
+pub(crate) fn resolve_workspace_path(source_root: &Path, rel: &str) -> PathBuf {
     let trimmed = rel.trim();
     if trimmed.is_empty() {
         return source_root.to_path_buf();
@@ -78,6 +78,11 @@ pub fn stock_components_source(package_root: &Path) -> PathBuf {
 
 pub fn stock_templates_source(package_root: &Path) -> PathBuf {
     package_root.join("stock/templates")
+}
+
+/// 解析 authoring helper 根：`paths.authoring` → workspace-local `.stock/authoring`。
+pub fn resolve_authoring_root(source_root: &Path) -> PathBuf {
+    super::authoring_helpers::resolve_authoring_root(source_root)
 }
 
 /// 将 CLI/URL 中的 `app_id` 解析为应用目录（支持 `discover.appAliases`）。

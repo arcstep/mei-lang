@@ -485,7 +485,7 @@ export function readHostGisTilesDefaults() {
   if (typeof document === "undefined") {
     return {
       tilesUrl: "/gis",
-      tilesJsonPath: "/shapingba-z10-16",
+      tilesJsonPath: "/demo-tiles",
     };
   }
   const base =
@@ -496,7 +496,7 @@ export function readHostGisTilesDefaults() {
     "";
   return {
     tilesUrl: resolveTilesBaseUrl(base) || "/gis",
-    tilesJsonPath: path || "/shapingba-z10-16",
+    tilesJsonPath: path || "/demo-tiles",
   };
 }
 
@@ -509,7 +509,7 @@ export function normalizeMapSpec(props) {
       tilesJsonPath: hostDefaults.tilesJsonPath,
       minZoom: 10,
       maxZoom: 18,
-      center: [106.38224, 29.62396],
+      center: [105.0, 35.0],
       defaultZoom: 11,
     },
     mapSpec.basemap || {},
@@ -630,7 +630,7 @@ function basemapValue(basemap, camelKey, snakeKey, fallback) {
   return value != null && value !== "" ? value : fallback;
 }
 
-/** OpenMapTiles 矢量层上的路网/水系/地名/POI 标注（需 Martin + shapingba MBTiles） */
+/** OpenMapTiles 矢量层上的路网/水系/地名/POI 标注（需 Martin + 对应 MBTiles） */
 export function basemapLabelLayers(basemap = {}) {
   const textField = textFieldForBasemap(basemap);
   const roadClasses = resolveBasemapRoadClasses(basemap);

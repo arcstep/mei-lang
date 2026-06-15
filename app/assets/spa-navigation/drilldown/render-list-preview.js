@@ -8,6 +8,30 @@
     return cloneArray(config?.columns);
   }
 
+  function resolveListPreviewRowTitle(row, config) {
+    if (!row || typeof row !== "object") return "条目详情";
+    for (const key of ["label", "title", "name", "名称", "标题"]) {
+      const value = row[key];
+      if (value != null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+    for (const field of resolveListPreviewFields(config)) {
+      const key = String(field?.column || field?.key || field || "").trim();
+      if (!key) continue;
+      const value = row[key];
+      if (value != null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+    for (const value of Object.values(row)) {
+      if (value != null && String(value).trim() && typeof value !== "object") {
+        return String(value).trim();
+      }
+    }
+    return "条目详情";
+  }
+
   function renderListPreviewItemPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
     host.replaceChildren();
@@ -22,14 +46,7 @@
     panel.className = "access-drilldown-list-preview-panel";
     const title = document.createElement("div");
     title.className = "access-drilldown-list-preview-title";
-    title.textContent = String(
-      row?.label ??
-        row?.案例名称 ??
-        row?.预警ID ??
-        row?.问题跟踪ID ??
-        row?.标题 ??
-        "条目详情",
-    );
+    title.textContent = resolveListPreviewRowTitle(row, config);
     panel.appendChild(title);
     const fields = resolveListPreviewFields(config);
     const entries =

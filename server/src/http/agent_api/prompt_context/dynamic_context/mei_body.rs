@@ -333,7 +333,7 @@ pub(super) fn build_dynamic_mei_context(
             lines.push(
                 concat!(
                     "`.mei` source is not inlined above. `read_file` paths are relative to the workspace root (parent of each app folder). ",
-                    "For app-owned files use `<app_id>/...` (e.g. `spbjw/scenes/行政检查/datasets/...`); a bare `scenes/...` or `data/...` without app id resolves next to the workspace root and is usually wrong."
+                    "For app-owned files use `<app_id>/...` (e.g. `examples/ds/01-dataset-baseline/scenes/...`); a bare `scenes/...` or `data/...` without app id resolves next to the workspace root and is usually wrong."
                 )
                 .to_string(),
             );

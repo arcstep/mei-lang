@@ -1,47 +1,17 @@
 const baseUrl = String(process.env.MEI_SERVER_URL || "http://127.0.0.1:9527").replace(/\/+$/, "");
-const appId = String(process.env.MEI_APP_ID || "spbjw").trim() || "spbjw";
+const appId = String(process.env.MEI_APP_ID || "examples/ds/01-dataset-baseline").trim();
 
 const cases = [
   {
-    name: "issue-board-home-import",
+    name: "dataset-baseline-metrics",
     coords: {
       scene_id: "home",
-      target: "scenes/home.mei",
-      dataset_id: "__world_metrics__::scenes/5_问题办理/问题办理.mei::metrics",
+      target: "main.mei",
+      dataset_id: "__world_metrics__",
     },
-    shortMetricIds: [
-      "warnings_pending_count",
-      "effectiveness_in_progress_count",
-      "effectiveness_completed_count",
-    ],
-    drilldownTables: {
-      warnings_pending_count: "warnings_pending_table",
-      effectiveness_in_progress_count: "warnings_in_progress_table",
-      effectiveness_completed_count: "warnings_completed_table",
-    },
-    namespacedPrefix: "scenes/5_问题办理/问题办理.mei::",
-  },
-  {
-    name: "effect-board-home-import",
-    coords: {
-      scene_id: "home",
-      target: "scenes/home.mei",
-      dataset_id: "__world_metrics__::scenes/5_问题办理/监督成效.mei::metrics",
-    },
-    shortMetricIds: [
-      "effectiveness_transfer_clue_count",
-      "effectiveness_filing_count",
-      "effectiveness_party_gov_sanction_count",
-      "effectiveness_handled_person_times",
-    ],
-    drilldownTables: {
-      effectiveness_transfer_clue_count: "effectiveness_transfer_clue_count::transfer_clue_table",
-      effectiveness_filing_count: "effectiveness_filing_count::filing_table",
-      effectiveness_party_gov_sanction_count:
-        "effectiveness_party_gov_sanction_count::party_gov_sanction_table",
-      effectiveness_handled_person_times: "effectiveness_handled_person_times::handled_table",
-    },
-    namespacedPrefix: "scenes/5_问题办理/监督成效.mei::",
+    shortMetricIds: ["pack_total_value", "pack_focus_rate"],
+    drilldownTables: {},
+    namespacedPrefix: "",
   },
 ];
 

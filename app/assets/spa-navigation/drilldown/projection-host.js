@@ -4,13 +4,10 @@
       config?.popup?.scene_host_mode,
       config?.popup?.sceneHostMode,
     );
-    if (config?.structuredBoard && hostMode === "scene_board") {
-      return true;
-    }
+    const navKind = nonEmptyString(config?.sceneLocalNav?.kind);
     return Boolean(
       config?.structuredBoard &&
-        config?.sceneShell?.layoutMode === "analytics" &&
-        nonEmptyString(config?.boardSceneFile) === "scenes/05-监督预警.board.mei",
+        (hostMode === "scene_board" || navKind === "analytics_drilldown_board"),
     );
   }
 

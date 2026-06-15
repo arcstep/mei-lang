@@ -1235,53 +1235,6 @@ async fn dataset_metric_api_echoes_scene_id() {
     assert_eq!(v["dataset_id"], "orders");
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn spbjw_home_indicator_metrics_use_inspection_check_date_xlsx() {
-    use axum::{
-        body::Body,
-        http::{Request, StatusCode},
-    };
-    use tower::ServiceExt;
-
-    let state = crate::test_support::test_app_state().expect("app state");
-    let app = crate::http::router().with_state(state);
-    let payload = serde_json::json!({
-        "scene_id": "home",
-        "target": "scenes/home.mei",
-        "dataset_id": "__world_metrics__::scenes/03-指标体系.mei::metrics",
-        "metric_ids": [
-            "scenes/03-指标体系.mei::inspection_frequency_reduction_rate",
-            "scenes/03-指标体系.mei::penalty_revenue_growth_rate"
-        ]
-    });
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/datasets/metrics/spbjw")
-        .header("content-type", "application/json")
-        .body(Body::from(payload.to_string()))
-        .unwrap();
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let metrics = v["metrics"].as_array().expect("metrics array");
-    assert!(
-        metrics.len() >= 2,
-        "expected indicator metrics in response: {metrics:?}"
-    );
-    for metric in metrics {
-        let id = metric["id"].as_str().unwrap_or_default();
-        let value = metric["value"]["value"]
-            .as_f64()
-            .or_else(|| metric["value"].as_f64())
-            .unwrap_or(0.0);
-        assert!(
-            value.is_finite() && value.abs() > f64::EPSILON,
-            "metric `{id}` should be non-zero when backed by upload/5.行政检查结果清单.xlsx 检查日期, got {value}"
-        );
-    }
-}
-
 #[tokio::test]
 async fn http_dataset_query_aligns_with_toolchain_access_query() {
     use axum::{

@@ -104,8 +104,10 @@
           fields,
           by,
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
-          topN: positiveInt(entry.top_n, entry.topN),
-          mapping:
+        topN: positiveInt(entry.top_n, entry.topN),
+        valueField: nonEmptyString(entry.value_field, entry.valueField),
+        compositionAgg: nonEmptyString(entry.agg, entry.composition_agg, entry.compositionAgg),
+        mapping:
             entry.mapping && typeof entry.mapping === "object" && !Array.isArray(entry.mapping)
               ? entry.mapping
               : null,
@@ -341,6 +343,8 @@
             datasetId: slot.datasetId,
             chartKind: slot.chartKind,
             topN: slot.topN,
+            valueField: slot.valueField,
+            compositionAgg: slot.compositionAgg,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",

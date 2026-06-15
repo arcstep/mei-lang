@@ -133,7 +133,10 @@ test.describe("examples 管理页", () => {
   });
 });
 
+const runSpbjwE2e = process.env.MEI_RUN_SPBJW_E2E === "1";
+
 test.describe("spbjw 完整壳", () => {
+  test.skip(!runSpbjwE2e, "set MEI_RUN_SPBJW_E2E=1 for customer workspace e2e");
   test.beforeEach(async ({ page }) => {
     await openManage(page, SPBJW_MANAGE);
   });
@@ -212,6 +215,7 @@ test.describe("spbjw 完整壳", () => {
 });
 
 test.describe("spbjw explain 弹层", () => {
+  test.skip(!runSpbjwE2e, "set MEI_RUN_SPBJW_E2E=1 for customer workspace e2e");
   test("处理人数指标可打开 overlay 并展示 detail 明细", async ({ page }) => {
     await openManage(page, SPBJW_EFFECTIVENESS_MANAGE);
     const metricButton = page.getByRole("button", {

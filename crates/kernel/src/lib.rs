@@ -25,7 +25,8 @@ pub use compile::{
     compile_revision_token_from_root_with_options, dataset_materialize_cache_epoch,
     evaluate_runtime_metric_defs, evaluate_runtime_metric_defs_with_scope,
     evaluate_runtime_metric_defs_with_scope_and_dag,
-    imported_capsule_path_from_world_metrics_resource_id, local_dataset_id_from_namespaced_token,
+    imported_capsule_path_from_world_metrics_resource_id, load_xlsx_table_snapshot,
+    local_dataset_id_from_namespaced_token,
     materialize_xlsx_column_headers, panel_resolved_has_head, resolve_default_scene_from_root,
     resolve_runtime_metric_def_key, runtime_analysis_closure_metric_ids,
     runtime_eval_node_cache_enabled, scene_payload_cache_epoch, try_get_cached_xlsx_table_snapshot,
@@ -44,7 +45,10 @@ pub use config_refs::{
     walk_value_for_config_refs, ConfigRefExpr, ConfigRefKind, ConfigRefResolver,
     CONFIG_REF_SOURCE_KIND, THEME_REF_PREFIX,
 };
-pub use eval::{describe_dsl, evaluate_mei_file, evaluate_mei_source};
+pub use eval::{
+    describe_dsl, describe_dsl_with_helpers, evaluate_mei_file, evaluate_mei_source,
+    push_authoring_helpers, AuthoringEvalGuard,
+};
 pub use geojson::{parse_geojson_rows, rows_from_geojson_value};
 pub use host_contract::{
     host_extension_registry, host_extension_registry_descriptor, host_protocol_descriptor,
@@ -56,12 +60,13 @@ pub use host_contract::{
 pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, merge_ops_section, resolve_app_entry_main, resolve_app_main_path,
-    resolve_app_root, resolve_components_root, resolve_mei_config_path, resolve_templates_root,
+    resolve_app_root, resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
+    resolve_mei_config_path, resolve_templates_root,
     set_mei_package_root, stock_components_source, stock_templates_source,
     workspace_auth_config_path, workspace_auth_host_id, workspace_auth_state_dir,
     workspace_config_path, write_mei_config, write_workspace_auth_bundle,
     write_workspace_config, AppEntryConfig, AppFeaturesConfig, AppPathsConfig,
-    AuthKeyPairConfig, AuthUserConfig, DiscoverConfig, FileCacheConfig, FileCacheSettings,
+    AuthKeyPairConfig, AuthUserConfig, AuthoringHelpers, DiscoverConfig, FileCacheConfig, FileCacheSettings,
     MeiConfig, OpsBasemapEntry, OpsConfig, OpsConfigPatch, OpsSourceEntry, RuntimeConfig,
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, WorkspaceAuthBundle,
     WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceHostState,
@@ -70,7 +75,8 @@ pub use mei_config::{
     LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,
     LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, PRE_LOCAL_AUTH_JOURNAL_REL_PATH,
     WORKSPACE_AGENT_DB_REL, WORKSPACE_AGENT_LOCAL_DIR_REL, WORKSPACE_AUTH_DIR_REL,
-    DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_COMPONENTS_REL,
+    DEFAULT_APP_ENTRY_MAIN, DEFAULT_HOST_STATE_ID, DEFAULT_STOCK_AUTHORING_REL,
+    DEFAULT_STOCK_COMPONENTS_REL,
     DEFAULT_STOCK_TEMPLATES_REL, LEGACY_AUTH_JOURNAL_REL_PATH, MEI_CONFIG_FILENAME,
     MEI_WORKSPACE_CONFIG_FILENAME, OPS_JOURNAL_REL_PATH, OPS_OBJECT_KINDS,
     WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_LOCAL_DIR_REL,

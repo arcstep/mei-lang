@@ -9230,11 +9230,7 @@
         formats[name] = { tag: true };
         return;
       }
-      if (/承办部门|主责单位/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 14 };
-        return;
-      }
-      if (/部门|单位|主责/.test(name)) {
+      if (/部门|单位|机构|主责/.test(name)) {
         formats[name] = { truncate: true, maxChars: 18 };
         return;
       }
@@ -9253,7 +9249,7 @@
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
         }
-        if (/承办部门|主责单位/.test(name)) {
+        if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };
         }
         return { key: name, order };
@@ -9918,6 +9914,8 @@
         tableMetricId: nonEmptyString(entry.table_metric_id, entry.tableMetricId, entry.metric_id, entry.metricId),
         datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
         topN: positiveInt(entry.top_n, entry.topN),
+        valueField: nonEmptyString(entry.value_field, entry.valueField),
+        compositionAgg: nonEmptyString(entry.agg, entry.composition_agg, entry.compositionAgg),
         numerator: nonEmptyString(entry.numerator),
         denominator: nonEmptyString(entry.denominator),
         formula: nonEmptyString(entry.formula),
@@ -10577,6 +10575,23 @@
         config.trendField,
       ),
       trendGrain: nonEmptyString(explainMetric?.grain, override?.trendGrain, config.trendGrain),
+      valueField: nonEmptyString(
+        override?.valueField,
+        override?.value_field,
+        explainMetric?.valueField,
+        explainMetric?.value_field,
+        config?.valueField,
+        config?.value_field,
+      ),
+      compositionAgg: nonEmptyString(
+        override?.compositionAgg,
+        override?.composition_agg,
+        override?.agg,
+        explainMetric?.compositionAgg,
+        explainMetric?.agg,
+        config?.compositionAgg,
+        config?.agg,
+      ),
     };
     return merged;
   }
@@ -10889,8 +10904,10 @@
           fields,
           by,
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
-          topN: positiveInt(entry.top_n, entry.topN),
-          mapping:
+        topN: positiveInt(entry.top_n, entry.topN),
+        valueField: nonEmptyString(entry.value_field, entry.valueField),
+        compositionAgg: nonEmptyString(entry.agg, entry.composition_agg, entry.compositionAgg),
+        mapping:
             entry.mapping && typeof entry.mapping === "object" && !Array.isArray(entry.mapping)
               ? entry.mapping
               : null,
@@ -11126,6 +11143,8 @@
             datasetId: slot.datasetId,
             chartKind: slot.chartKind,
             topN: slot.topN,
+            valueField: slot.valueField,
+            compositionAgg: slot.compositionAgg,
             mapping:
               slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",
@@ -11838,12 +11857,41 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  function compositionWeightField(columns = [], rows = []) {
-    const names = Array.isArray(columns) ? columns : [];
-    if (names.includes("预警条数")) return "预警条数";
-    return rows.some((row) => row && typeof row === "object" && Object.prototype.hasOwnProperty.call(row, "预警条数"))
-      ? "预警条数"
-      : "";
+  function resolveCompositionValueField(config, detail = null) {
+    return nonEmptyString(
+      config?.valueField,
+      config?.value_field,
+      config?.compositionValueField,
+      config?.composition_value_field,
+      config?.weightField,
+      config?.weight_field,
+      detail?.value_field,
+      detail?.valueField,
+    );
+  }
+
+  function resolveCompositionAgg(config, detail = null) {
+    return nonEmptyString(
+      config?.compositionAgg,
+      config?.composition_agg,
+      config?.agg,
+      detail?.agg,
+    ).toLowerCase();
+  }
+
+  function compositionUsesWeightedSum(config, detail = null, columns = [], rows = []) {
+    const valueField = resolveCompositionValueField(config, detail);
+    if (!valueField) return false;
+    const agg = resolveCompositionAgg(config, detail);
+    if (agg === "count") return false;
+    if (agg === "sum" || agg === "weighted_sum" || agg === "weighted") return true;
+    if (agg) return agg !== "count";
+    const hasNumericWeight = rows.some((row) => {
+      if (!row || typeof row !== "object") return false;
+      const raw = rowFieldValue(row, valueField, columns);
+      return parseCompositionNumber(raw) > 0;
+    });
+    return hasNumericWeight;
   }
 
   function groupRowsByCount(rows, field, columns = []) {
@@ -11895,13 +11943,10 @@
     );
   }
 
-  function compositionUsesWarningCountSum(config, detail = null) {
-    return normalizeMetricLocalId(resolveCompositionMetricId(config, detail)) === "warnings_count";
-  }
-
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {
-    if (compositionUsesWarningCountSum(config, detail) && compositionWeightField(columns, rows)) {
-      return groupRowsByWeightedSum(rows, field, "预警条数", columns);
+    const valueField = resolveCompositionValueField(config, detail);
+    if (compositionUsesWeightedSum(config, detail, columns, rows) && valueField) {
+      return groupRowsByWeightedSum(rows, field, valueField, columns);
     }
     return groupRowsByCount(rows, field, columns);
   }
@@ -11936,7 +11981,6 @@
       },
     };
   }
-
 
 ;
 
@@ -12723,6 +12767,30 @@
     return cloneArray(config?.columns);
   }
 
+  function resolveListPreviewRowTitle(row, config) {
+    if (!row || typeof row !== "object") return "条目详情";
+    for (const key of ["label", "title", "name", "名称", "标题"]) {
+      const value = row[key];
+      if (value != null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+    for (const field of resolveListPreviewFields(config)) {
+      const key = String(field?.column || field?.key || field || "").trim();
+      if (!key) continue;
+      const value = row[key];
+      if (value != null && String(value).trim()) {
+        return String(value).trim();
+      }
+    }
+    for (const value of Object.values(row)) {
+      if (value != null && String(value).trim() && typeof value !== "object") {
+        return String(value).trim();
+      }
+    }
+    return "条目详情";
+  }
+
   function renderListPreviewItemPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
     host.replaceChildren();
@@ -12737,14 +12805,7 @@
     panel.className = "access-drilldown-list-preview-panel";
     const title = document.createElement("div");
     title.className = "access-drilldown-list-preview-title";
-    title.textContent = String(
-      row?.label ??
-        row?.案例名称 ??
-        row?.预警ID ??
-        row?.问题跟踪ID ??
-        row?.标题 ??
-        "条目详情",
-    );
+    title.textContent = resolveListPreviewRowTitle(row, config);
     panel.appendChild(title);
     const fields = resolveListPreviewFields(config);
     const entries =
@@ -13566,7 +13627,7 @@
       });
     }
     document.body.classList.remove("access-drilldown-open");
-    // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
+    // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免关联表格整页重查。
   }
 
   function closeSceneBoardOverlay() {
@@ -13698,13 +13759,10 @@
       config?.popup?.scene_host_mode,
       config?.popup?.sceneHostMode,
     );
-    if (config?.structuredBoard && hostMode === "scene_board") {
-      return true;
-    }
+    const navKind = nonEmptyString(config?.sceneLocalNav?.kind);
     return Boolean(
       config?.structuredBoard &&
-        config?.sceneShell?.layoutMode === "analytics" &&
-        nonEmptyString(config?.boardSceneFile) === "scenes/05-监督预警.board.mei",
+        (hostMode === "scene_board" || navKind === "analytics_drilldown_board"),
     );
   }
 

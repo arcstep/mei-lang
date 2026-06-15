@@ -98,6 +98,7 @@ pub fn compile_app_from_root_with_options_and_revision(
     app_root: &Path,
     options: CompileOptions,
 ) -> Result<CompileAppArtifacts> {
+    let _authoring_guard = super::authoring_eval::install_authoring_eval_context(source_root)?;
     let cache_before = CompileCacheBefore {
         l2_hits: scene_payload_cache_metrics_snapshot().0,
         l2_misses: scene_payload_cache_metrics_snapshot().1,

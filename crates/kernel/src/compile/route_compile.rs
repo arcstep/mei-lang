@@ -8,6 +8,9 @@ use serde_json::Value;
 use crate::model::{CompiledSceneRoute, ComponentAsset};
 use crate::typed_refs::SceneRegistry;
 
+use super::authoring_eval::{
+    install_shared_authoring_guard, shared_authoring_helpers_for_compile,
+};
 use super::dependency_graph::DependencyGraph;
 use super::entry_payload::CompiledScenePayload;
 use super::scene::find_scene_route;
@@ -97,6 +100,7 @@ pub(super) fn precompile_route_payloads(
     if routes.is_empty() {
         return RoutePrecompileStats::default();
     }
+    let authoring_helpers = shared_authoring_helpers_for_compile(source_root);
     let parallelism = route_compile_parallelism(routes.len());
     if parallelism <= 1 || routes.len() <= 1 {
         let mut stats = RoutePrecompileStats {
@@ -146,7 +150,11 @@ pub(super) fn precompile_route_payloads(
         for _ in 0..parallelism {
             let queue = Arc::clone(&queue);
             let output = Arc::clone(&output);
-            scope.spawn(move || loop {
+            let authoring_helpers = Arc::clone(&authoring_helpers);
+            scope.spawn(move || {
+                let _authoring_guard =
+                    install_shared_authoring_guard(authoring_helpers.as_ref());
+                loop {
                 let route = match queue.lock() {
                     Ok(mut guard) => guard.pop_front(),
                     Err(_) => None,
@@ -178,6 +186,7 @@ pub(super) fn precompile_route_payloads(
                 );
                 if let Ok(mut guard) = output.lock() {
                     guard.push((route, payload, cache_hit));
+                }
                 }
             });
         }

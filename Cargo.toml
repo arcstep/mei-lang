@@ -5,6 +5,7 @@ members = [
   "crates/kernel",
   "crates/lsp",
   "crates/toolchain",
+  "crates/ws-spbjw-integration-tests",
   "server",
 ]
 resolver = "2"

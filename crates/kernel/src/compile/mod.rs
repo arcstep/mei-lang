@@ -6,6 +6,7 @@ use serde_json::Value;
 mod analysis;
 mod app_compile;
 mod app_decl;
+mod authoring_eval;
 mod catalog;
 mod decl_file_cache;
 mod decls;
@@ -30,7 +31,7 @@ mod shards;
 mod ui_data_policy;
 
 pub use analysis::dates::{coerce_row_to_schema, coerce_rows_to_schema};
-pub use loaders::materialize_xlsx_column_headers;
+pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 
 pub use app_compile::{
     compile_app, compile_app_from_root, compile_app_from_root_with_options,

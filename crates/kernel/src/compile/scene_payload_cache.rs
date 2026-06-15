@@ -12,13 +12,14 @@ use std::time::UNIX_EPOCH;
 use serde_json::Value;
 use walkdir::WalkDir;
 
+use crate::eval::active_authoring_fingerprint;
 use crate::model::{CompiledSceneRoute, ComponentAsset};
 use crate::typed_refs::SceneRegistry;
 
 use super::entry_payload::CompiledScenePayload;
 
 /// 物化/编译语义变更时递增，使旧缓存条目失效。
-pub const SCENE_PAYLOAD_CACHE_VERSION: u32 = 3;
+pub const SCENE_PAYLOAD_CACHE_VERSION: u32 = 4;
 
 pub fn scene_payload_cache_epoch() -> String {
     format!("l2v{SCENE_PAYLOAD_CACHE_VERSION}")
@@ -186,13 +187,14 @@ pub(crate) fn scene_payload_cache_key(
     }
     let main_path = app_root.join("main.mei");
     Some(format!(
-        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}",
+        "v{SCENE_PAYLOAD_CACHE_VERSION}|{}|{target_file}|scene={}|{}|{}|{}|{}|authoring={}",
         app_root.display(),
         scene_selector.unwrap_or("-"),
         file_mtime_ms(&target_path),
         file_mtime_ms(&main_path),
         app_revision(app_root).max(components_revision(source_root)),
         dependency_fingerprint.unwrap_or("-"),
+        active_authoring_fingerprint(),
     ))
 }
 

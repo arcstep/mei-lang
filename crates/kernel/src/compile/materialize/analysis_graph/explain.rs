@@ -102,6 +102,8 @@ pub(super) fn explain_block_value(
     copy_field(item_map, &mut block, "headers");
     copy_field(item_map, &mut block, "mapping");
     copy_field(item_map, &mut block, "top_n");
+    copy_field(item_map, &mut block, "value_field");
+    copy_field(item_map, &mut block, "agg");
     let scoped_dataframe_metric_id =
         infer_explain_scoped_dataframe(explain_items, item_index, support_role.as_str());
     let lineage_dataset_id =
@@ -358,6 +360,8 @@ pub(super) fn tab_metric_value(block: &Map<String, Value>) -> Option<Map<String,
         "date_field",
         "grain",
         "label",
+        "value_field",
+        "agg",
     ] {
         if let Some(value) = block.get(key).cloned() {
             out.insert(key.to_string(), value);

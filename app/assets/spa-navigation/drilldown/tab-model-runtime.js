@@ -97,6 +97,8 @@
         tableMetricId: nonEmptyString(entry.table_metric_id, entry.tableMetricId, entry.metric_id, entry.metricId),
         datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
         topN: positiveInt(entry.top_n, entry.topN),
+        valueField: nonEmptyString(entry.value_field, entry.valueField),
+        compositionAgg: nonEmptyString(entry.agg, entry.composition_agg, entry.compositionAgg),
         numerator: nonEmptyString(entry.numerator),
         denominator: nonEmptyString(entry.denominator),
         formula: nonEmptyString(entry.formula),

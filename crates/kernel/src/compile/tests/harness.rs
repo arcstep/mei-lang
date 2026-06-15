@@ -39,10 +39,6 @@ pub(super) fn dev_examples_root() -> PathBuf {
     dev_workspace_root().join("examples")
 }
 
-pub(super) fn spbjw_workspace_root() -> PathBuf {
-    workspaces_root().join("ws-spbjw")
-}
-
 pub(super) fn build_regression_workspace_root() -> PathBuf {
     let root = temp_root("regression-workspace");
     let suite = root.join("regression-suite");

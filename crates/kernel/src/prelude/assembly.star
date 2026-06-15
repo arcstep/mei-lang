@@ -185,7 +185,7 @@ def build_board_assembly(scene, context, charts = None, detail = None, filters =
     detail: build_view(kind=table, ...) or omitted when shell allows default.
     preview: build_view(kind=summary, ...) for list_preview shell right pane (optional).
     shell_contract: internal shell override; omitted uses built-in scene shell registry for known drilldown scenes.
-    filters: e.g. {"rowset_dataset_id": "warning_list", "fields": [filter_field(...), ...]}.
+    filters: e.g. {"rowset_dataset_id": "sales_metrics", "fields": [filter_field(...), ...]}.
     """
     if scene == None or type(scene) != "dict" or scene.get("__ref") != "scene":
         fail("build_board_assembly requires scene=scene_ref(...)")
@@ -253,47 +253,3 @@ def build_analytics_drilldown(metric, charts, detail = None, include_hero = Fals
 
 def build_analytics_drilldown_tabs(metric, include_hero = False, rowset_dataset_id = None):
     fail("build_analytics_drilldown_tabs(...) removed; declare scene.bindings and use link(scene=..., params=...)")
-
-def warning_list_filter_fields():
-    """Shared filter_field list for alert_tracking / warning_list analytics boards."""
-    return [
-        filter_field(key = "supervisionDomain", label = "监督领域", column = "监督领域", control = "multi_select"),
-        filter_field(key = "supervisionCategory", label = "监督类别", column = "监督类别", control = "multi_select"),
-        filter_field(key = "warningId", label = "预警ID", column = "预警ID", control = "text"),
-        filter_field(key = "agency", label = "主责单位", column = "主责单位", control = "multi_select"),
-        filter_field(key = "category", label = "问题分类名称", column = "问题分类名称", control = "multi_select"),
-        filter_field(key = "warningType", label = "预警类型", column = "预警类型", control = "multi_select"),
-        filter_field(key = "warningLevel", label = "预警等级", column = "预警等级", control = "multi_select"),
-        filter_field(key = "warningTime", label = "预警时间", column = "预警时间", control = "month_multi_select"),
-        filter_field(key = "trackingId", label = "问题跟踪ID", column = "问题跟踪ID", control = "text"),
-        filter_field(key = "handlingDept", label = "承办部门", column = "承办部门", control = "multi_select"),
-        filter_field(key = "assignTime", label = "分办时间", column = "分办时间", control = "month_multi_select"),
-        filter_field(key = "closeTime", label = "办结时间", column = "办结时间", control = "month_multi_select"),
-        filter_field(key = "verified", label = "是否查实", column = "是否查实", control = "multi_select"),
-        filter_field(key = "transferredToClue", label = "是否转问题线索", column = "是否转问题线索", control = "multi_select"),
-    ]
-
-def warning_list_detail_fields():
-    """Shared table column list for alert_tracking / warning_list analytics detail."""
-    return [
-        "序号",
-        "监督领域",
-        "监督类别",
-        "预警ID",
-        "预警条数",
-        "主责单位",
-        "问题分类名称",
-        "问题描述",
-        "预警类型",
-        "预警等级",
-        "预警时间",
-        "问题跟踪ID",
-        "承办部门",
-        "分办时间",
-        "办结时间",
-        "是否查实",
-        "查实条数",
-        "是否转问题线索",
-        "核查情况",
-        "处理结果",
-    ]

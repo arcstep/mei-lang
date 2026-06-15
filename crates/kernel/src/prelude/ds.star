@@ -208,6 +208,8 @@ def _explain_item(
     headers = None,
     mapping = None,
     top_n = None,
+    value_field = None,
+    agg = None,
 ):
     return _without_empty({
         "__kind": "explain_item",
@@ -230,6 +232,8 @@ def _explain_item(
         "headers": headers,
         "mapping": mapping,
         "top_n": top_n,
+        "value_field": value_field,
+        "agg": agg,
     })
 
 def text(content):
@@ -290,7 +294,7 @@ def detail(id = "detail", label = None, source = None, fields = None, headers = 
         headers = headers,
     )
 
-def composition(id = "composition", label = None, by = None, source = None, top_n = None):
+def composition(id = "composition", label = None, by = None, source = None, top_n = None, value_field = None, agg = None):
     return _explain_item(
         "composition",
         id = id,
@@ -298,6 +302,8 @@ def composition(id = "composition", label = None, by = None, source = None, top_
         by = by,
         source = source,
         top_n = top_n,
+        value_field = value_field,
+        agg = agg,
     )
 
 def analysis(kind, title = None, note = None, columns = None, headers = None, mapping = None, chart_kind = None):
@@ -607,18 +613,6 @@ def between(field, lower, upper):
 def in_values(field, values):
     return _analysis("in_values", field = field, values = values)
 
-def is_verified(field = "是否查实"):
-    """Spreadsheet variants that mean verified (yes) for 是否查实-style columns."""
-    return in_values(field, ["是", "查实", "已查实"])
-
-def is_yes(field):
-    """Spreadsheet yes cells: 是、是（2）等（与 Neverland yes_indicator 一致）。"""
-    return and_(not_empty(field), contains(field, "是"))
-
-def has_party_gov_sanction(field = "处理处分"):
-    """党纪政务处分：处理处分含「第二种」形态（一个处理结果ID对应一人）。"""
-    return contains(field, "第二种")
-
 def not_empty(field):
     return _analysis("not_empty", field = field)
 
@@ -631,10 +625,6 @@ def blank(field):
 
 def placeholder_only(field):
     return _analysis("placeholder_only", field = field)
-
-def not_placeholder_text(field):
-    """职务等字段：有内容且非 —— 等纯横线占位。"""
-    return and_(present(field), not_(placeholder_only(field)))
 
 def contains(field, value):
     return _analysis("contains", field = field, value = value)
@@ -752,7 +742,7 @@ def trend_year_compare(rowset, date_field, value = None, agg = "count", limit = 
         value = value,
         agg = agg,
         limit = limit,
-        years = years if years != None else [2024, 2025],
+        years = years,
         month_label_field = month_label_field,
         year_label_field = year_label_field,
     )
@@ -824,9 +814,6 @@ def dedupe_first_count_split_items(dedupe_field, field, delimiter, fallback = 0)
 
 def dedupe_first_percent_eq(dedupe_field, field, eq, fallback = 0):
     return percent(first_by(_analysis("current_rows"), dedupe_field), _analysis("eq", field = field, value = eq), fallback = fallback)
-
-def dedupe_first_sum_morph_people_in_text(dedupe_field, field, fallback = 0):
-    return sum(extract_number(first_by(_analysis("current_rows"), dedupe_field), field, pattern = "种形态[\\s\\S]{0,64}?(\\d+)\\s*人"), fallback = fallback)
 
 def metric(id = None, key = None, label = None, value = None, unit = None, where = None, drilldown = None, explain = None, analyses = None, binding = None):
     metric_id = id if id != None else key

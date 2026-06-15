@@ -109,7 +109,7 @@
       });
     }
     document.body.classList.remove("access-drilldown-open");
-    // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免实时预警/典型案例等表格整页重查。
+    // 主屏在 overlay 期间未变，关闭时不广播 page 级 preview-updated，避免关联表格整页重查。
   }
 
   function closeSceneBoardOverlay() {

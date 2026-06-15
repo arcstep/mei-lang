@@ -697,7 +697,7 @@ fn synthesize_scene_first_board_payload(
         }
     }
 
-    if let Some(filters) = filters.or_else(|| {
+    if let Some(mut filters) = filters.or_else(|| {
         params
             .get("rowset_dataset_id")
             .or_else(|| params.get("rowsetDatasetId"))
@@ -709,6 +709,7 @@ fn synthesize_scene_first_board_payload(
                 Value::Object(filters)
             })
     }) {
+        merge_rowset_dataset_id_from_params(&mut filters, params);
         payload.insert("filters".to_string(), filters);
     }
 
@@ -761,6 +762,32 @@ fn synthesize_scene_first_generic_tabs_slots(
         diagnostics,
         target_file,
     )
+}
+
+fn merge_rowset_dataset_id_from_params(filters: &mut Value, params: &Map<String, Value>) {
+    let Some(map) = filters.as_object_mut() else {
+        return;
+    };
+    if map
+        .get("rowset_dataset_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+    {
+        return;
+    }
+    if let Some(rowset) = params
+        .get("rowset_dataset_id")
+        .or_else(|| params.get("rowsetDatasetId"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        map.insert(
+            "rowset_dataset_id".to_string(),
+            Value::String(rowset.to_string()),
+        );
+    }
 }
 
 fn resolve_scene_bindings(
@@ -916,13 +943,56 @@ fn retain_shell_zones_matching_layout(layout: &Value, zones: &mut Vec<Value>) {
     if allowed.is_empty() {
         return;
     }
-    zones.retain(|zone| {
-        zone.as_object()
-            .and_then(|map| map.get("area"))
+    let mut kept_ids = BTreeSet::new();
+    for zone in zones.iter() {
+        let Some(map) = zone.as_object() else {
+            continue;
+        };
+        let Some(area) = map
+            .get("area")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .is_some_and(|area| allowed.contains(area))
+        else {
+            continue;
+        };
+        if allowed.contains(area) {
+            if let Some(id) = map.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+                kept_ids.insert(id.to_string());
+            }
+        }
+    }
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for zone in zones.iter() {
+            let Some(map) = zone.as_object() else {
+                continue;
+            };
+            let Some(id) = map.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()) else {
+                continue;
+            };
+            if kept_ids.contains(id) {
+                continue;
+            }
+            let Some(parent) = map
+                .get("parent")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            if kept_ids.contains(parent) && kept_ids.insert(id.to_string()) {
+                changed = true;
+            }
+        }
+    }
+    zones.retain(|zone| {
+        zone.as_object()
+            .and_then(|map| map.get("id"))
+            .and_then(Value::as_str)
+            .is_some_and(|id| kept_ids.contains(id))
     });
 }
 
@@ -932,6 +1002,7 @@ fn infer_scene_shell_layout_mode(zones: &[Value]) -> String {
     let mut has_row_preview = false;
     let mut has_filter = false;
     let mut has_slots = false;
+    let mut has_analytics_content = false;
     for zone in zones {
         let Some(role) = zone
             .as_object()
@@ -949,6 +1020,9 @@ fn infer_scene_shell_layout_mode(zones: &[Value]) -> String {
             "slots" => has_slots = true,
             _ => {}
         }
+        if zone_implies_analytics_content(zone) {
+            has_analytics_content = true;
+        }
     }
     if has_tab_bar && has_tab_content {
         return "generic_tabs".to_string();
@@ -956,10 +1030,42 @@ fn infer_scene_shell_layout_mode(zones: &[Value]) -> String {
     if has_row_preview {
         return "list_preview".to_string();
     }
-    if has_filter && has_slots {
+    if has_filter && (has_slots || has_analytics_content) {
         return "analytics".to_string();
     }
     String::new()
+}
+
+fn zone_implies_analytics_content(zone: &Value) -> bool {
+    let Some(map) = zone.as_object() else {
+        return false;
+    };
+    if map.get("role").and_then(Value::as_str) == Some("slots") {
+        return true;
+    }
+    if map
+        .get("accepts")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items.iter().any(|value| {
+                matches!(value.as_str(), Some("chart") | Some("data_table"))
+            })
+        })
+    {
+        return true;
+    }
+    map.get("layout")
+        .and_then(|layout| layout.get("areas"))
+        .and_then(Value::as_array)
+        .is_some_and(|rows| {
+            rows.iter().any(|row| {
+                row.as_array().is_some_and(|cells| {
+                    cells.iter().any(|cell| {
+                        matches!(cell.as_str(), Some("chart") | Some("detail"))
+                    })
+                })
+            })
+        })
 }
 
 fn collect_scene_shell_zones(

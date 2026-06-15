@@ -4,16 +4,15 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use super::{
-    compile_app_from_root_with_options, evaluate_runtime_metric_defs, workspace_root,
+use ws_spbjw_integration_tests::{
+    compile_app_from_root_with_options, evaluate_runtime_metric_defs, source_root, zhifa_app_root,
     CompileOptions,
 };
 
 #[test]
 fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let capsule = "scenes/07-问题办理.mei";
     let owner = format!("__world_metrics__::{capsule}::metrics");
     let compiled = compile_app_from_root_with_options(
@@ -28,7 +27,7 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
     let errors: Vec<_> = compiled
         .diagnostics
         .iter()
-        .filter(|d| matches!(d.severity, crate::Severity::Error))
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
         .map(|d| d.message.clone())
         .collect();
     assert!(
@@ -208,15 +207,14 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
             && detail_fields
                 .iter()
                 .any(|field| field.as_str() == Some("核查情况")),
-        "verification rate detail explain should use warning_list_detail_fields, got {detail_fields:?}"
+        "verification rate detail explain should expose warning_list columns, got {detail_fields:?}"
     );
 }
 
 #[test]
 fn eval_spbjw_realtime_warnings_cockpit_table_rows_and_status() {
-    let root = workspace_root();
-    let source_root = root.join("workspaces").join("ws-spbjw");
-    let app_root = source_root.join("zhifa");
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,

@@ -22,16 +22,16 @@ cargo run -p mei-lang-server --bin mei-host-web -- serve
 ```
 
 - 应用：**http://127.0.0.1:9527**（默认端口 9527，避开 macOS AirPlay 占用的 5000）
-- 浏览器瓦片默认：**同源 `/gis`**；宿主默认将 `/gis` 代理到 **http://127.0.0.1:8080**，TileJSON 路径 **`/shapingba-z10-16`**
+- 浏览器瓦片默认：**同源 `/gis`**；宿主默认将 `/gis` 代理到 **http://127.0.0.1:8080**，TileJSON 路径 **`/demo-tiles`**（可在 `.env` 覆盖）
 
 在 `mei-lang/.env` 中可改：
 
 ```bash
 MEI_GIS_PROXY_UPSTREAM=http://127.0.0.1:8080
-MEI_TILES_JSON_PATH=/shapingba-z10-16
+MEI_TILES_JSON_PATH=/demo-tiles
 ```
 
-未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会默认走 `/gis`；实际代理上游由上述环境变量决定。更完整的安装与排错见 monorepo **`gis/spb/docs/martin-setup.md`**。
+未在 `.mei` 里写 `mapSpec.basemap` 时，预览页会默认走 `/gis`；实际代理上游由上述环境变量决定。自备 Martin + MBTiles 即可，无需绑定特定行政区示例。
 
 停止 Martin：`./scripts/stop_martin_docker.sh`（在 mei-projects 根目录）。
 
@@ -72,7 +72,7 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web
 默认行为：
 
 - `mei-lang` 监听 **http://127.0.0.1:9527**（可用 `--port` 覆盖）
-- 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）；生产对照用 **`--workspace ws-spbjw`**
+- 工作区默认 **`--workspace ws-dev`**（等价 `--source-root ../workspaces/ws-dev`）
 - 组件/模板：`mei workspace materialize` 物化到 profile 的 `.stock/`（Git 跟踪）；`.mei/` 仅运行时；未物化时只读 `mei-lang/stock/`
 - **默认不要求登录**（顶栏无账户入口，认证 API 不可用）；传 **`--auth`** 后除登录页与静态资源外，访问页面/API 均需先登录（且须已配置用户与密钥，否则启动失败）
 - 密码规则（新建用户、改密、`bootstrap-users`）：**至少 8 位**，且须含大写/小写/数字/符号；明文密码只能从 **stdin** 或浏览器 **RSA-OAEP(SHA-256)** 加密后提交，禁止命令行参数与登录 API 明文 `password` 字段（HTTP 内网不依赖 SSL，登录页内置纯 JS 加密）
@@ -92,17 +92,17 @@ printf '%s' 'YourPwd1!complex' | cargo run -p mei-lang-server --bin mei-host-web
 ```bash
 cd mei-lang
 
-# 编译 / 诊断
-cargo run -p mei-lang-server --bin mei-toolchain -- check --app spbjw --json
+# 编译 / 诊断（示例应用见 workspaces/ws-dev/examples）
+cargo run -p mei-lang-server --bin mei-toolchain -- check --workspace ws-dev --app examples/core/01-single-file-doc --json
 
 # world / inventory
-cargo run -p mei-lang-server --bin mei-toolchain -- inspect world --app spbjw --json
-cargo run -p mei-lang-server --bin mei-toolchain -- inspect inventory --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect world --workspace ws-dev --app examples/core/01-single-file-doc --json
+cargo run -p mei-lang-server --bin mei-toolchain -- inspect inventory --workspace ws-dev --app examples/ds/01-dataset-baseline --json
 
 # 数据 / 指标 / runtime
-cargo run -p mei-lang-server --bin mei-toolchain -- query dataset --app spbjw --id enterprise_profiles --json
-cargo run -p mei-lang-server --bin mei-toolchain -- query metric --app spbjw --id enterprise_profiles --json
-cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --app spbjw --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query dataset --workspace ws-dev --app examples/ds/01-dataset-baseline --id sample_rows --json
+cargo run -p mei-lang-server --bin mei-toolchain -- query metric --workspace ws-dev --app examples/ds/01-dataset-baseline --id sample_count --json
+cargo run -p mei-lang-server --bin mei-toolchain -- runtime peek --workspace ws-dev --app examples/core/01-single-file-doc --json
 
 # 机器可读 MCP surface 描述
 cargo run -p mei-lang-server --bin mei-toolchain -- mcp describe --surface author --json

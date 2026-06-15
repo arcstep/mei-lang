@@ -13,6 +13,9 @@ use crate::model::{ComponentAsset, LoadedResource};
 use crate::typed_refs::SceneRegistry;
 
 use super::dependency_graph::DependencyGraph;
+use super::authoring_eval::{
+    install_shared_authoring_guard, shared_authoring_helpers_for_compile,
+};
 use super::scene_payload_cache::compile_scene_payload_for_target;
 
 use merge::upsert_catalog_dataset_resource;
@@ -80,6 +83,7 @@ pub(super) fn compile_dataset_catalog_resources_for_rels(
     if compile_rels.is_empty() {
         return Vec::new();
     }
+    let authoring_helpers = shared_authoring_helpers_for_compile(source_root);
     let parallelism = catalog_compile_parallelism(compile_rels.len());
 
     let mut compiled = Vec::<(String, Vec<LoadedResource>)>::new();
@@ -114,7 +118,11 @@ pub(super) fn compile_dataset_catalog_resources_for_rels(
             for _ in 0..parallelism {
                 let queue = Arc::clone(&queue);
                 let output = Arc::clone(&output);
-                scope.spawn(move || loop {
+                let authoring_helpers = Arc::clone(&authoring_helpers);
+                scope.spawn(move || {
+                    let _authoring_guard =
+                        install_shared_authoring_guard(authoring_helpers.as_ref());
+                    loop {
                     let rel = match queue.lock() {
                         Ok(mut guard) => guard.pop_front(),
                         Err(_) => None,
@@ -139,6 +147,7 @@ pub(super) fn compile_dataset_catalog_resources_for_rels(
                         .collect::<Vec<_>>();
                     if let Ok(mut guard) = output.lock() {
                         guard.push((rel, dataset_resources));
+                    }
                     }
                 });
             }

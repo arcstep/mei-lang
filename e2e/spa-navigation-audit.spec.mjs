@@ -15,6 +15,7 @@ const SPBJW_HOME =
 
 const SPA_HEADER = "x-mei-spa-nav";
 const IDLE_MS = 30000;
+const runSpbjwE2e = process.env.MEI_RUN_SPBJW_E2E === "1";
 
 async function openManage(page, path) {
   const res = await page.goto(path, {
@@ -175,6 +176,25 @@ test.describe("SPA 审计（对齐用户操作路径）", () => {
     expect(report.manageJsLoadsDuring).toBe(0);
   });
 
+  test("F. API：navigateSpa(home) 后遮罩必须清除", async ({ page }) => {
+    await openManage(page, EXAMPLES_MAIN);
+    const report = await auditScenario(page, async () => {
+      await page.evaluate(async () => {
+        const u = new URL("?file=home.mei&tab=preview", location.href).href;
+        await window.__meiLangBoot.navigateSpa(u, true);
+      });
+    });
+    console.log("[audit F]", JSON.stringify(report, null, 2));
+
+    expect(report.spaFetchCount).toBeGreaterThan(0);
+    expect(report.idle).toBe(true);
+    expect(report.ui.href).toMatch(/file=home\.mei/);
+  });
+});
+
+test.describe("customer workspace e2e (opt-in)", () => {
+  test.skip(!runSpbjwE2e, "set MEI_RUN_SPBJW_E2E=1 for customer workspace e2e");
+
   test("D. spbjw：顶栏 模板库 → 子应用链接", async ({ page }) => {
     await openManage(page, SPBJW_HOME);
     const report = await auditScenario(page, async () => {
@@ -211,20 +231,5 @@ test.describe("SPA 审计（对齐用户操作路径）", () => {
     expect(report.spaFetchCount).toBeGreaterThan(0);
     expect(report.idle).toBe(true);
     expect(report.ui.href).toMatch(/\/apps\/build\//);
-  });
-
-  test("F. API：navigateSpa(home) 后遮罩必须清除", async ({ page }) => {
-    await openManage(page, EXAMPLES_MAIN);
-    const report = await auditScenario(page, async () => {
-      await page.evaluate(async () => {
-        const u = new URL("?file=home.mei&tab=preview", location.href).href;
-        await window.__meiLangBoot.navigateSpa(u, true);
-      });
-    });
-    console.log("[audit F]", JSON.stringify(report, null, 2));
-
-    expect(report.spaFetchCount).toBeGreaterThan(0);
-    expect(report.idle).toBe(true);
-    expect(report.ui.href).toMatch(/file=home\.mei/);
   });
 });

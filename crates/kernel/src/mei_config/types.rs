@@ -29,6 +29,8 @@ pub const WORKSPACE_HOST_STATE_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_STOCK_COMPONENTS_REL: &str = ".stock/components";
 /// 可 Git 跟踪的物化模板库。
 pub const DEFAULT_STOCK_TEMPLATES_REL: &str = ".stock/templates";
+/// 可 Git 跟踪的 workspace-local authoring helper（`.star`）目录。
+pub const DEFAULT_STOCK_AUTHORING_REL: &str = ".stock/authoring";
 pub const DEFAULT_APP_ENTRY_MAIN: &str = "main.mei";
 
 /// 可运维对象白名单（宿主写操作仅允许触及这些分类）。
@@ -312,6 +314,9 @@ pub struct WorkspacePathsConfig {
     /// 模板库根；未设且未物化时回退 `mei-lang/stock/templates`。
     #[serde(default)]
     pub templates: Option<String>,
+    /// workspace-local authoring helper 根（相对 segment 根）；加载其中全部 `.star` 并注入求值 prelude。
+    #[serde(default)]
+    pub authoring: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

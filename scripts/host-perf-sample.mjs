@@ -10,13 +10,13 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const meiLangRoot = path.resolve(scriptDir, "..");
 const projectsRoot = path.resolve(meiLangRoot, "..");
 
-const defaultScenarioFile = path.join(scriptDir, "perf-scenarios", "zhifa.json");
+const defaultScenarioFile = path.join(scriptDir, "perf-scenarios", "template.app.json");
 const defaultLedgerPath = path.join(
   projectsRoot,
   "docs",
   "mei-lang",
   "benchmarks",
-  "zhifa-perf-ledger.jsonl"
+  "template-app-perf-ledger.jsonl"
 );
 
 const args = parseArgs(process.argv.slice(2));
@@ -64,7 +64,7 @@ let playwrightChromiumPromise = null;
 const workspaceId = String(
   scenarioPayload.workspace_id || process.env.MEI_WORKSPACE_ID || "unknown_workspace"
 ).trim();
-const appId = String(scenarioPayload.app_id || process.env.MEI_APP_ID || "zhifa").trim();
+const appId = String(scenarioPayload.app_id || process.env.MEI_APP_ID || "your-app").trim();
 const rawScenarios = Array.isArray(scenarioPayload.scenarios) ? scenarioPayload.scenarios : [];
 const scenarios = rawScenarios
   .map(normalizeScenario)

@@ -30,7 +30,7 @@ export function cellValue(row, column, index) {
   return JSON.stringify(value);
 }
 
-/** 逻辑列名与 Excel 源表头不一致时（如「预警等级」↔「预警等级\\n（红/黄/蓝）」）回退匹配。 */
+/** 逻辑列名与 Excel 源表头不一致时（如带换行/括号的表头变体）回退匹配。 */
 export function resolveRowFieldValue(row, column) {
   if (!row || typeof row !== "object") return "";
   const key = String(column || "").trim();

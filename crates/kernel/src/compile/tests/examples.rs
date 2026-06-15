@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use super::super::{compile_app_from_root, compile_app_from_root_with_options, CompileOptions};
 use super::harness::{
-    build_regression_workspace_root, dev_examples_root, dev_workspace_root, spbjw_workspace_root,
+    build_regression_workspace_root, dev_examples_root, dev_workspace_root,
 };
 use crate::evaluate_mei_file;
 
@@ -89,26 +89,6 @@ fn compile_sim_examples_baselines() {
             "example {app_id} should produce a scene contract"
         );
     }
-}
-
-#[test]
-fn compile_workspaces_spbjw_baseline() {
-    let source_root = spbjw_workspace_root();
-    let app_root = source_root.join("zhifa");
-    let compiled = compile_app_from_root(&source_root, &app_root)
-        .unwrap_or_else(|error| panic!("compile spbjw failed: {error}"));
-    assert!(
-        compiled
-            .diagnostics
-            .iter()
-            .all(|diag| !matches!(diag.severity, crate::Severity::Error)),
-        "spbjw should not produce error diagnostics: {:?}",
-        compiled.diagnostics
-    );
-    assert!(
-        compiled.scene_contract.is_some(),
-        "spbjw should produce scene contract"
-    );
 }
 
 #[test]

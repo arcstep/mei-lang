@@ -9,7 +9,8 @@ use std::{
 
 use anyhow::Result;
 use mei_lang_kernel::{
-    describe_dsl, load_component_assets, Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
+    describe_dsl_with_helpers, load_component_assets, resolve_authoring_helpers,
+    Diagnostic as MeiDiagnostic, Severity as MeiSeverity,
 };
 use mei_lang_toolchain::{
     compile_app_with_cache, platform_asset_catalog_descriptor_for_package_root,
@@ -395,7 +396,8 @@ impl LanguageServer for Backend {
                 }
             }
         } else {
-            let dsl = describe_dsl();
+            let helpers = resolve_authoring_helpers(&source_root).ok();
+            let dsl = describe_dsl_with_helpers(helpers.as_ref());
             if let Some(surface) = dsl.get("public_surface").and_then(|value| value.as_array()) {
                 for item in surface {
                     if let Some(label) = item.as_str() {

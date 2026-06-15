@@ -1,6 +1,7 @@
+use std::cell::RefCell;
 use std::{fs, path::Path};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::{json, Value as JsonValue};
 use starlark::{
     environment::{GlobalsBuilder, Module},
@@ -8,7 +9,7 @@ use starlark::{
     syntax::{AstModule, Dialect},
 };
 
-const FORBIDDEN_TOKENS: &[&str] = &["for", "while", "lambda", "load", "import", "open"];
+use crate::mei_config::{forbidden_authoring_tokens, validate_authoring_policy, AuthoringHelpers};
 const PRELUDE_SOURCE_FILES: &[&str] = &[
     "crates/kernel/src/prelude/core.star",
     "crates/kernel/src/prelude/ds.star",
@@ -37,8 +38,12 @@ const MEILANG_PRELUDE: &str = concat!(
     include_str!("prelude/assembly.star"),
 );
 
-fn public_prelude_functions() -> Vec<String> {
-    MEILANG_PRELUDE
+thread_local! {
+    static ACTIVE_AUTHORING_HELPERS: RefCell<Option<AuthoringHelpers>> = const { RefCell::new(None) };
+}
+
+fn public_functions_from_source(source: &str) -> Vec<String> {
+    source
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim_start();
@@ -53,67 +58,74 @@ fn public_prelude_functions() -> Vec<String> {
         .collect()
 }
 
+fn public_prelude_functions() -> Vec<String> {
+    public_functions_from_source(MEILANG_PRELUDE)
+}
+
+fn merged_public_surface(helpers: Option<&AuthoringHelpers>) -> Vec<String> {
+    let mut out = public_prelude_functions();
+    if let Some(helpers) = helpers {
+        out.extend(helpers.public_functions.iter().cloned());
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+pub fn active_authoring_helpers() -> Option<AuthoringHelpers> {
+    ACTIVE_AUTHORING_HELPERS.with(|slot| slot.borrow().clone())
+}
+
+pub fn active_authoring_fingerprint() -> String {
+    active_authoring_helpers()
+        .map(|helpers| helpers.fingerprint)
+        .unwrap_or_default()
+}
+
+/// Install workspace authoring helpers for the current thread until the guard drops.
+pub fn push_authoring_helpers(helpers: AuthoringHelpers) -> AuthoringEvalGuard {
+    ACTIVE_AUTHORING_HELPERS.with(|slot| {
+        *slot.borrow_mut() = Some(helpers);
+    });
+    AuthoringEvalGuard
+}
+
+pub struct AuthoringEvalGuard;
+
+impl Drop for AuthoringEvalGuard {
+    fn drop(&mut self) {
+        ACTIVE_AUTHORING_HELPERS.with(|slot| {
+            *slot.borrow_mut() = None;
+        });
+    }
+}
+
 pub fn describe_dsl() -> JsonValue {
+    describe_dsl_with_helpers(active_authoring_helpers().as_ref())
+}
+
+pub fn describe_dsl_with_helpers(helpers: Option<&AuthoringHelpers>) -> JsonValue {
+    let mut source = PRELUDE_SOURCE_FILES
+        .iter()
+        .map(|value| value.to_string())
+        .collect::<Vec<_>>();
+    if let Some(helpers) = helpers {
+        source.extend(helpers.source_files.iter().cloned());
+    }
     json!({
         "schema_version": "0.1.0",
-        "source": PRELUDE_SOURCE_FILES,
+        "source": source,
         "runtime": {
             "evaluator": "starlark",
             "dialect": "starlark::syntax::Dialect::Standard",
         },
-        "forbidden_tokens": FORBIDDEN_TOKENS,
-        "public_surface": public_prelude_functions(),
+        "forbidden_tokens": forbidden_authoring_tokens(),
+        "public_surface": merged_public_surface(helpers),
     })
 }
 
-fn sanitize_for_policy(source: &str) -> String {
-    let mut out = String::with_capacity(source.len());
-    let mut in_string: Option<char> = None;
-    let mut escaped = false;
-    for ch in source.chars() {
-        if let Some(quote) = in_string {
-            if ch == '\n' {
-                out.push('\n');
-                escaped = false;
-                continue;
-            }
-            out.push(' ');
-            if escaped {
-                escaped = false;
-                continue;
-            }
-            if ch == '\\' {
-                escaped = true;
-                continue;
-            }
-            if ch == quote {
-                in_string = None;
-            }
-            continue;
-        }
-        match ch {
-            '#' => out.push(' '),
-            '"' | '\'' => {
-                in_string = Some(ch);
-                out.push(' ');
-            }
-            _ => out.push(ch),
-        }
-    }
-    out
-}
-
 fn validate_policy(source: &str) -> Result<()> {
-    let sanitized = sanitize_for_policy(source);
-    for token in sanitized
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
-        .filter(|token| !token.is_empty())
-    {
-        if FORBIDDEN_TOKENS.contains(&token) {
-            bail!("authoring source contains forbidden token `{token}`");
-        }
-    }
-    Ok(())
+    validate_authoring_policy(source)
 }
 
 fn rewrite_namespaces(source: &str) -> String {
@@ -145,10 +157,30 @@ fn normalize_output(raw: &str) -> Result<JsonValue> {
     }
 }
 
+fn compose_prelude(helpers: Option<&AuthoringHelpers>) -> String {
+    let mut prelude = MEILANG_PRELUDE.to_string();
+    if let Some(helpers) = helpers {
+        if !helpers.prelude_suffix.trim().is_empty() {
+            prelude.push_str("\n\n");
+            prelude.push_str(helpers.prelude_suffix.trim());
+        }
+    }
+    prelude
+}
+
 pub fn evaluate_mei_source(filename: &str, source: &str) -> Result<JsonValue> {
+    evaluate_mei_source_with_helpers(filename, source, active_authoring_helpers().as_ref())
+}
+
+pub fn evaluate_mei_source_with_helpers(
+    filename: &str,
+    source: &str,
+    helpers: Option<&AuthoringHelpers>,
+) -> Result<JsonValue> {
     validate_policy(source)?;
     let source = rewrite_namespaces(source);
-    let source = format!("{MEILANG_PRELUDE}\n\n{source}");
+    let prelude = compose_prelude(helpers);
+    let source = format!("{prelude}\n\n{source}");
     let ast = AstModule::parse(filename, source, &Dialect::Standard)
         .map_err(|error| anyhow::anyhow!("failed to parse {filename}: {error}"))?;
     let globals = GlobalsBuilder::standard().build();
@@ -170,4 +202,15 @@ pub fn evaluate_mei_file(path: impl AsRef<Path>) -> Result<JsonValue> {
     let source =
         fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     evaluate_mei_source(&path.to_string_lossy(), &source)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_authoring_policy_rejects_import_token() {
+        let err = validate_authoring_policy("import foo").expect_err("import should be rejected");
+        assert!(err.to_string().contains("import"));
+    }
 }

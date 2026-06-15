@@ -12,11 +12,7 @@
         formats[name] = { tag: true };
         return;
       }
-      if (/承办部门|主责单位/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 14 };
-        return;
-      }
-      if (/部门|单位|主责/.test(name)) {
+      if (/部门|单位|机构|主责/.test(name)) {
         formats[name] = { truncate: true, maxChars: 18 };
         return;
       }
@@ -35,7 +31,7 @@
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
         }
-        if (/承办部门|主责单位/.test(name)) {
+        if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };
         }
         return { key: name, order };

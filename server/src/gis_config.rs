@@ -9,7 +9,7 @@ use mei_lang_kernel::{load_mei_config_for_app, OpsBasemapEntry};
 pub struct GisTilesConfig {
     /// 例如 `/gis`（推荐）或 `http://127.0.0.1:8080`（兼容直连）
     pub base_url: String,
-    /// Martin TileJSON 路径，例如 `/shapingba-z10-16`
+    /// Martin TileJSON 路径，例如 `/demo-tiles`
     pub json_path: String,
 }
 
@@ -25,14 +25,14 @@ impl GisTilesConfig {
             .map(|s| {
                 let t = s.trim().to_string();
                 if t.is_empty() {
-                    "/shapingba-z10-16".to_string()
+                    "/demo-tiles".to_string()
                 } else if t.starts_with('/') {
                     t
                 } else {
                     format!("/{t}")
                 }
             })
-            .unwrap_or_else(|| "/shapingba-z10-16".to_string());
+            .unwrap_or_else(|| "/demo-tiles".to_string());
         Self {
             base_url,
             json_path,

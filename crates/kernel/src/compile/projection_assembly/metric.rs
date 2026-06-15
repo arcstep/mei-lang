@@ -1239,15 +1239,6 @@ fn build_analytics_filter_schema(
 
     let mut fields = Vec::new();
     let mut seen = std::collections::BTreeSet::new();
-    for (column, key, label) in ANALYTICS_FILTER_COLUMNS {
-        if seen.insert((*key).to_string()) {
-            fields.push(serde_json::json!({
-                "key": key,
-                "label": label,
-                "column": column,
-            }));
-        }
-    }
     for slot in slots {
         let by = slot
             .get("by")
@@ -1388,19 +1379,7 @@ fn board_filters_explicit_fields(board_filters: Option<&Value>) -> Option<Vec<Va
     }
 }
 
-const ANALYTICS_FILTER_COLUMNS: &[(&str, &str, &str)] = &[
-    ("预警等级", "warningLevel", "预警等级"),
-    ("主责单位", "agency", "主责单位"),
-    ("问题分类名称", "category", "问题分类"),
-    ("预警类型", "warningType", "预警类型"),
-];
-
 fn analytics_filter_key_for_column(column: &str, label: Option<&str>) -> (String, String) {
-    for (known_column, key, known_label) in ANALYTICS_FILTER_COLUMNS {
-        if *known_column == column {
-            return (key.to_string(), known_label.to_string());
-        }
-    }
     let label = label
         .map(str::trim)
         .filter(|s| !s.is_empty())

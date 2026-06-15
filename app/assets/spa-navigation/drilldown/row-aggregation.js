@@ -13,12 +13,41 @@
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
-  function compositionWeightField(columns = [], rows = []) {
-    const names = Array.isArray(columns) ? columns : [];
-    if (names.includes("预警条数")) return "预警条数";
-    return rows.some((row) => row && typeof row === "object" && Object.prototype.hasOwnProperty.call(row, "预警条数"))
-      ? "预警条数"
-      : "";
+  function resolveCompositionValueField(config, detail = null) {
+    return nonEmptyString(
+      config?.valueField,
+      config?.value_field,
+      config?.compositionValueField,
+      config?.composition_value_field,
+      config?.weightField,
+      config?.weight_field,
+      detail?.value_field,
+      detail?.valueField,
+    );
+  }
+
+  function resolveCompositionAgg(config, detail = null) {
+    return nonEmptyString(
+      config?.compositionAgg,
+      config?.composition_agg,
+      config?.agg,
+      detail?.agg,
+    ).toLowerCase();
+  }
+
+  function compositionUsesWeightedSum(config, detail = null, columns = [], rows = []) {
+    const valueField = resolveCompositionValueField(config, detail);
+    if (!valueField) return false;
+    const agg = resolveCompositionAgg(config, detail);
+    if (agg === "count") return false;
+    if (agg === "sum" || agg === "weighted_sum" || agg === "weighted") return true;
+    if (agg) return agg !== "count";
+    const hasNumericWeight = rows.some((row) => {
+      if (!row || typeof row !== "object") return false;
+      const raw = rowFieldValue(row, valueField, columns);
+      return parseCompositionNumber(raw) > 0;
+    });
+    return hasNumericWeight;
   }
 
   function groupRowsByCount(rows, field, columns = []) {
@@ -70,13 +99,10 @@
     );
   }
 
-  function compositionUsesWarningCountSum(config, detail = null) {
-    return normalizeMetricLocalId(resolveCompositionMetricId(config, detail)) === "warnings_count";
-  }
-
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {
-    if (compositionUsesWarningCountSum(config, detail) && compositionWeightField(columns, rows)) {
-      return groupRowsByWeightedSum(rows, field, "预警条数", columns);
+    const valueField = resolveCompositionValueField(config, detail);
+    if (compositionUsesWeightedSum(config, detail, columns, rows) && valueField) {
+      return groupRowsByWeightedSum(rows, field, valueField, columns);
     }
     return groupRowsByCount(rows, field, columns);
   }
@@ -111,4 +137,3 @@
       },
     };
   }
-
