@@ -341,6 +341,8 @@
             datasetId: slot.datasetId,
             chartKind: slot.chartKind,
             topN: slot.topN,
+            mapping:
+              slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",
             fields: slot.fields,
             compositionBy: slot.by,

@@ -3,6 +3,12 @@
       const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
       const slotConfig = resolveDrilldownTabConfig(config, slot.id);
       const boardMetricId = nonEmptyString(config.tableMetricId);
+      const chartMapping =
+        slot.mapping && typeof slot.mapping === "object"
+          ? slot.mapping
+          : slotConfig.mapping && typeof slotConfig.mapping === "object"
+            ? slotConfig.mapping
+            : null;
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -12,6 +18,8 @@
         queryStateId: config.queryStateId,
         tableMetricId: nonEmptyString(slot.metricId, slotConfig.tableMetricId, boardMetricId),
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
+        topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
+        mapping: chartMapping,
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
         return true;
@@ -97,13 +105,23 @@
       );
       await mountAnalyticsFilterBar(root, detail, config, filterHost);
       const detailSlot = config?.detailSlot;
+      const detailTabConfig = detailSlot ? resolveDrilldownTabConfig(config, detailSlot.id) : config;
       const detailConfig = detailSlot
         ? {
-            ...resolveDrilldownTabConfig(config, detailSlot.id),
+            ...detailTabConfig,
             queryStateId: config.queryStateId,
+            pageSize: positiveInt(
+              detailSlot.pageSize,
+              detailSlot.page_size,
+              detailTabConfig.pageSize,
+              detailTabConfig.page_size,
+              10,
+            ),
+            pagination: true,
+            paginationMode: "server",
             columns: cloneArray(detailSlot.fields).length
               ? cloneArray(detailSlot.fields)
-              : cloneArray(resolveDrilldownTabConfig(config, detailSlot.id).columns),
+              : cloneArray(detailTabConfig.columns),
           }
         : config;
       const [chartsOk, tableOk] = await Promise.all([

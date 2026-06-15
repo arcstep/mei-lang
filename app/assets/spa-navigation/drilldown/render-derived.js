@@ -61,7 +61,10 @@
       const chartTag = drilldownChartTag(config?.chartKind, tabId) || "mei-chart-bar";
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
-      host.replaceChildren();
+      resetDrilldownChartSlotHost(
+        host,
+        resolveDrilldownChartSlotCaption(config) || `${dimension}构成`,
+      );
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -97,7 +100,7 @@
       if (!grouped.length) return false;
       const registered = await ensureDrilldownChartRegistered("mei-chart-line");
       if (!registered) return false;
-      host.replaceChildren();
+      resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config) || "趋势");
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(

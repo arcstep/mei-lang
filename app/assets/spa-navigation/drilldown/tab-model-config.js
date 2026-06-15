@@ -133,6 +133,9 @@
       mapping:
         override?.mapping && typeof override.mapping === "object"
           ? override.mapping
+          : config?.slotByTab?.[exactTab]?.mapping &&
+              typeof config.slotByTab[exactTab].mapping === "object"
+            ? config.slotByTab[exactTab].mapping
           : explainMetric?.mapping && typeof explainMetric.mapping === "object"
             ? explainMetric.mapping
           : config.mapping && typeof config.mapping === "object"

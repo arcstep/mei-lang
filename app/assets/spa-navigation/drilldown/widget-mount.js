@@ -1,3 +1,28 @@
+  function resolveDrilldownChartSlotCaption(config) {
+    const explicit = nonEmptyString(config?.title, config?.label);
+    if (explicit) return explicit;
+    const by = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+    );
+    return by ? `按${by}构成` : "";
+  }
+
+  function createDrilldownChartSlotCaption(title) {
+    const text = nonEmptyString(title);
+    if (!text) return null;
+    const el = document.createElement("div");
+    el.className = "access-drilldown-chart-slot-caption";
+    el.textContent = text;
+    return el;
+  }
+
+  function resetDrilldownChartSlotHost(host, title) {
+    host.replaceChildren();
+    const caption = createDrilldownChartSlotCaption(title);
+    if (caption) host.appendChild(caption);
+  }
+
   function drilldownChartTag(chartKind, tabId) {
     const explicit = String(chartKind || "").trim().toLowerCase();
     const fallback = normalizeTabId(tabId) === "trend" ? "line" : "bar";
@@ -150,7 +175,7 @@
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
         mapping,
-        ...buildAnalyticsChartPresentationProps(config),
+        ...buildAnalyticsChartPresentationProps(config, { mapping }),
       },
     };
   }
@@ -179,7 +204,7 @@
     if (!chart) return false;
     const registered = await ensureDrilldownChartRegistered(chart.chartTag);
     if (!registered) return false;
-    host.replaceChildren();
+    resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config));
     const node = document.createElement(chart.chartTag);
     node.dataset.props = JSON.stringify(chart.props);
     host.appendChild(node);

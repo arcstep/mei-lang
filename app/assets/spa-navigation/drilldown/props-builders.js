@@ -5,6 +5,13 @@
     );
   }
 
+  function chartMappingHasMultipleSeries(mapping) {
+    if (!mapping || typeof mapping !== "object") return false;
+    const y = mapping.y;
+    if (Array.isArray(y)) return y.length > 1;
+    return false;
+  }
+
   function buildAnalyticsChartPresentationProps(config = null, overrides = {}) {
     if (!isAnalyticsChartPresentation(config)) {
       return { ...overrides };
@@ -15,15 +22,22 @@
       config?.top_n,
       config?.topN,
     );
+    const mapping = overrides?.mapping && typeof overrides.mapping === "object"
+      ? overrides.mapping
+      : config?.mapping;
+    const multiSeries = chartMappingHasMultipleSeries(mapping);
     const props = {
       compact: true,
       gridContainLabel: true,
       label_max_chars: 6,
-      showLegend: false,
+      showLegend: multiSeries,
       chartHeight: 300,
       color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
       ...overrides,
     };
+    if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
+      props.showLegend = true;
+    }
     if (topN > 0) {
       props.top_n = topN;
     } else {
@@ -154,7 +168,7 @@
       columnMinWidth,
       columnFormats,
       pagination: true,
-      paginationMode: "client",
+      paginationMode: metricId ? "server" : "client",
       dataset: {
         shape: metricId ? "dataframe" : "table",
         __mei_runtime_ref: runtimeRef,

@@ -1428,6 +1428,27 @@ a.status-chip-link:focus-visible {
 .access-drilldown-shell-slot {
   min-height: 0;
 }
+.access-drilldown-analytics-chart-slot,
+.access-drilldown-shell-slot--chart {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+}
+.access-drilldown-analytics-chart-slot > :not(.access-drilldown-chart-slot-caption),
+.access-drilldown-shell-slot--chart > :not(.access-drilldown-chart-slot-caption) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.access-drilldown-chart-slot-caption {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  line-height: 1.3;
+  padding: 0 2px;
+  text-align: center;
+}
 .access-drilldown-shell-slot--chart {
   min-height: 0;
 }

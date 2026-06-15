@@ -376,6 +376,31 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           mode: metricRef ? "metric" : "dataset",
         });
         if (metricRef) {
+          const rowsResult = await fetchDatasetRows(props, {
+            queryStateId: this._queryStateId,
+            filters: this._sharedFilters,
+            full: true,
+            meta: runtimeCallerMeta(this, tagName),
+          });
+          if (Array.isArray(rowsResult?.rows)) {
+            const dataset = resolveDatasetSource(props);
+            this._runtimeProps = {
+              data: {
+                ...dataset,
+                columns: Array.isArray(rowsResult.columns) ? rowsResult.columns : dataset.columns || [],
+                rows: rowsResult.rows,
+              },
+            };
+            this._renderTrace?.mark("runtime_query_done", {
+              mode: "dataset_metric",
+              row_count: rowsResult.rows.length,
+              client_total_ms: rowsResult?.perf?.client_total_ms ?? "",
+              server_total_ms:
+                rowsResult?.perf?.server_handler_total_ms ?? rowsResult?.perf?.total_ms ?? "",
+            });
+            await this.renderChart();
+            return;
+          }
           const result = await fetchPanelRuntimeMetrics(this, props, {
             filters: this._sharedFilters,
             meta: runtimeCallerMeta(this, tagName),
@@ -567,22 +592,71 @@ function limitCartesianRowsByTopY(rows, mapping, topN) {
     return rows;
   }
   const xField = mapping.x[0]?.field;
-  const yField = mapping.y[0]?.field;
-  if (!xField || !yField) {
+  const yFields = mapping.y.map((item) => item?.field).filter(Boolean);
+  if (!xField || yFields.length === 0) {
     return rows;
   }
-  const grouped = new Map();
+  const ranked = new Map();
   rows.forEach((row) => {
     const label = String(row?.[xField] ?? "").trim();
     if (!label) return;
-    const value = toNumber(row?.[yField]);
-    if (!Number.isFinite(value)) return;
-    grouped.set(label, (grouped.get(label) || 0) + value);
+    const total = yFields.reduce((sum, field) => {
+      const value = toNumber(row?.[field]);
+      return Number.isFinite(value) ? sum + value : sum;
+    }, 0);
+    if (!Number.isFinite(total)) return;
+    ranked.set(label, (ranked.get(label) || 0) + total);
   });
-  return Array.from(grouped.entries())
+  const keep = new Set(
+    Array.from(ranked.entries())
+      .sort((left, right) => right[1] - left[1])
+      .slice(0, limit)
+      .map(([label]) => label),
+  );
+  const categoryOrder = Array.from(ranked.entries())
     .sort((left, right) => right[1] - left[1])
     .slice(0, limit)
-    .map(([label, value]) => ({ [xField]: label, [yField]: value }));
+    .map(([label]) => label);
+  const filtered = rows.filter((row) => keep.has(String(row?.[xField] ?? "").trim()));
+  return reorderRowsByCategoryOrder(filtered, xField, categoryOrder);
+}
+
+function orderCartesianCategories(rows, mapping, yFields) {
+  const xField = mapping.x[0]?.field;
+  if (!xField || !Array.isArray(rows) || rows.length === 0) return [];
+  const fields =
+    Array.isArray(yFields) && yFields.length > 0
+      ? yFields
+      : mapping.y.map((item) => item?.field).filter(Boolean);
+  if (fields.length === 0) return [];
+  const totals = new Map();
+  rows.forEach((row) => {
+    const label = String(row?.[xField] ?? "").trim();
+    if (!label) return;
+    const total = fields.reduce((sum, field) => {
+      const value = toNumber(row?.[field]);
+      return Number.isFinite(value) ? sum + value : sum;
+    }, 0);
+    totals.set(label, (totals.get(label) || 0) + total);
+  });
+  return Array.from(totals.entries())
+    .sort((left, right) => right[1] - left[1])
+    .map(([label]) => label);
+}
+
+function reorderRowsByCategoryOrder(rows, xField, categoryOrder) {
+  if (!xField || !Array.isArray(categoryOrder) || categoryOrder.length === 0) {
+    return rows;
+  }
+  const rank = new Map(categoryOrder.map((label, index) => [label, index]));
+  return [...rows].sort((left, right) => {
+    const leftRank = rank.get(String(left?.[xField] ?? "").trim());
+    const rightRank = rank.get(String(right?.[xField] ?? "").trim());
+    if (leftRank === undefined && rightRank === undefined) return 0;
+    if (leftRank === undefined) return 1;
+    if (rightRank === undefined) return -1;
+    return leftRank - rightRank;
+  });
 }
 
 function buildChartModel(kind, props, diagnostics) {
@@ -596,6 +670,9 @@ function buildChartModel(kind, props, diagnostics) {
     topN > 0 && normalized === "column"
       ? limitCartesianRowsByTopY(rows, mapping, topN)
       : rows;
+  if (topN > 0 && normalized === "column") {
+    legacy.sortCategoriesByYTotal = true;
+  }
   if (normalized === "ranking") {
     const layout = resolveRankingLayout(props);
     if (layout === "above") {
@@ -694,6 +771,14 @@ function resolveRows(props) {
     if (!source || typeof source !== "object") continue;
     if (Array.isArray(source.rows)) return source.rows;
     if (Array.isArray(source.value)) return source.value;
+    if (
+      source.shape === "dataframe" &&
+      source.value &&
+      typeof source.value === "object" &&
+      Array.isArray(source.value.rows)
+    ) {
+      return source.value.rows;
+    }
     if (source.shape === "scalar" && source.value && typeof source.value === "object") {
       return Object.entries(source.value).map(([label, value]) => ({
         label,
@@ -937,7 +1022,13 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   if (kind === "trend" && yFields.length !== 1) {
     diagnostics.push("chart.trend 需要且仅支持一个 y 通道");
   }
-  const categories = unique(rows.map((row) => String(row?.[xField] ?? ""))).filter(Boolean);
+  let categories = unique(rows.map((row) => String(row?.[xField] ?? ""))).filter(Boolean);
+  if (legacy.sortCategoriesByYTotal) {
+    const ranked = orderCartesianCategories(rows, mapping, yFields);
+    if (ranked.length > 0) {
+      categories = ranked.filter((label) => categories.includes(label));
+    }
+  }
   const grouped = mapping.group[0]?.field;
   const groups = grouped ? unique(rows.map((row) => String(row?.[grouped] ?? ""))).filter(Boolean) : [];
   const series = [];

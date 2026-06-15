@@ -4734,6 +4734,9 @@
       mapping:
         override?.mapping && typeof override.mapping === "object"
           ? override.mapping
+          : config?.slotByTab?.[exactTab]?.mapping &&
+              typeof config.slotByTab[exactTab].mapping === "object"
+            ? config.slotByTab[exactTab].mapping
           : explainMetric?.mapping && typeof explainMetric.mapping === "object"
             ? explainMetric.mapping
           : config.mapping && typeof config.mapping === "object"
@@ -5376,6 +5379,8 @@
             datasetId: slot.datasetId,
             chartKind: slot.chartKind,
             topN: slot.topN,
+            mapping:
+              slot.mapping && typeof slot.mapping === "object" ? slot.mapping : null,
             by: slot.by[0] || "",
             fields: slot.fields,
             compositionBy: slot.by,
@@ -6184,6 +6189,13 @@
     );
   }
 
+  function chartMappingHasMultipleSeries(mapping) {
+    if (!mapping || typeof mapping !== "object") return false;
+    const y = mapping.y;
+    if (Array.isArray(y)) return y.length > 1;
+    return false;
+  }
+
   function buildAnalyticsChartPresentationProps(config = null, overrides = {}) {
     if (!isAnalyticsChartPresentation(config)) {
       return { ...overrides };
@@ -6194,15 +6206,22 @@
       config?.top_n,
       config?.topN,
     );
+    const mapping = overrides?.mapping && typeof overrides.mapping === "object"
+      ? overrides.mapping
+      : config?.mapping;
+    const multiSeries = chartMappingHasMultipleSeries(mapping);
     const props = {
       compact: true,
       gridContainLabel: true,
       label_max_chars: 6,
-      showLegend: false,
+      showLegend: multiSeries,
       chartHeight: 300,
       color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
       ...overrides,
     };
+    if (multiSeries && overrides.showLegend === undefined && overrides.show_legend === undefined) {
+      props.showLegend = true;
+    }
     if (topN > 0) {
       props.top_n = topN;
     } else {
@@ -6333,7 +6352,7 @@
       columnMinWidth,
       columnFormats,
       pagination: true,
-      paginationMode: "client",
+      paginationMode: metricId ? "server" : "client",
       dataset: {
         shape: metricId ? "dataframe" : "table",
         __mei_runtime_ref: runtimeRef,
@@ -6368,6 +6387,31 @@
 ;
 
 /* ===== spa-navigation/drilldown/widget-mount.js ===== */
+  function resolveDrilldownChartSlotCaption(config) {
+    const explicit = nonEmptyString(config?.title, config?.label);
+    if (explicit) return explicit;
+    const by = nonEmptyString(
+      Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
+    );
+    return by ? `按${by}构成` : "";
+  }
+
+  function createDrilldownChartSlotCaption(title) {
+    const text = nonEmptyString(title);
+    if (!text) return null;
+    const el = document.createElement("div");
+    el.className = "access-drilldown-chart-slot-caption";
+    el.textContent = text;
+    return el;
+  }
+
+  function resetDrilldownChartSlotHost(host, title) {
+    host.replaceChildren();
+    const caption = createDrilldownChartSlotCaption(title);
+    if (caption) host.appendChild(caption);
+  }
+
   function drilldownChartTag(chartKind, tabId) {
     const explicit = String(chartKind || "").trim().toLowerCase();
     const fallback = normalizeTabId(tabId) === "trend" ? "line" : "bar";
@@ -6520,7 +6564,7 @@
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
         mapping,
-        ...buildAnalyticsChartPresentationProps(config),
+        ...buildAnalyticsChartPresentationProps(config, { mapping }),
       },
     };
   }
@@ -6549,7 +6593,7 @@
     if (!chart) return false;
     const registered = await ensureDrilldownChartRegistered(chart.chartTag);
     if (!registered) return false;
-    host.replaceChildren();
+    resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config));
     const node = document.createElement(chart.chartTag);
     node.dataset.props = JSON.stringify(chart.props);
     host.appendChild(node);
@@ -6734,6 +6778,12 @@
       const slotHost = chartsHost.querySelector(`[data-chart-slot-index="${index}"]`);
       const slotConfig = resolveDrilldownTabConfig(config, slot.id);
       const boardMetricId = nonEmptyString(config.tableMetricId);
+      const chartMapping =
+        slot.mapping && typeof slot.mapping === "object"
+          ? slot.mapping
+          : slotConfig.mapping && typeof slotConfig.mapping === "object"
+            ? slotConfig.mapping
+            : null;
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -6743,6 +6793,8 @@
         queryStateId: config.queryStateId,
         tableMetricId: nonEmptyString(slot.metricId, slotConfig.tableMetricId, boardMetricId),
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
+        topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
+        mapping: chartMapping,
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
         return true;
@@ -6828,13 +6880,23 @@
       );
       await mountAnalyticsFilterBar(root, detail, config, filterHost);
       const detailSlot = config?.detailSlot;
+      const detailTabConfig = detailSlot ? resolveDrilldownTabConfig(config, detailSlot.id) : config;
       const detailConfig = detailSlot
         ? {
-            ...resolveDrilldownTabConfig(config, detailSlot.id),
+            ...detailTabConfig,
             queryStateId: config.queryStateId,
+            pageSize: positiveInt(
+              detailSlot.pageSize,
+              detailSlot.page_size,
+              detailTabConfig.pageSize,
+              detailTabConfig.page_size,
+              10,
+            ),
+            pagination: true,
+            paginationMode: "server",
             columns: cloneArray(detailSlot.fields).length
               ? cloneArray(detailSlot.fields)
-              : cloneArray(resolveDrilldownTabConfig(config, detailSlot.id).columns),
+              : cloneArray(detailTabConfig.columns),
           }
         : config;
       const [chartsOk, tableOk] = await Promise.all([
@@ -7349,7 +7411,10 @@
       const chartTag = drilldownChartTag(config?.chartKind, tabId) || "mei-chart-bar";
       const registered = await ensureDrilldownChartRegistered(chartTag);
       if (!registered) return false;
-      host.replaceChildren();
+      resetDrilldownChartSlotHost(
+        host,
+        resolveDrilldownChartSlotCaption(config) || `${dimension}构成`,
+      );
       const node = document.createElement(chartTag);
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
@@ -7385,7 +7450,7 @@
       if (!grouped.length) return false;
       const registered = await ensureDrilldownChartRegistered("mei-chart-line");
       if (!registered) return false;
-      host.replaceChildren();
+      resetDrilldownChartSlotHost(host, resolveDrilldownChartSlotCaption(config) || "趋势");
       const node = document.createElement("mei-chart-line");
       node.dataset.props = JSON.stringify(
         buildStaticChartModel(
