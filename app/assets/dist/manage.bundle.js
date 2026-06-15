@@ -3474,11 +3474,21 @@
     return nonEmptyString(params.rowset_dataset_id, params.rowsetDatasetId);
   }
 
+  function isIdentifierColumn(name) {
+    const text = String(name || "").trim();
+    if (!text || /是否/.test(text)) return false;
+    return /ID$/i.test(text) || /编号$/.test(text) || /编码$/.test(text);
+  }
+
   function inferDrilldownColumnFormats(columns) {
     const formats = {};
     (Array.isArray(columns) ? columns : []).forEach((col) => {
       const name = String(col || "").trim();
       if (!name) return;
+      if (isIdentifierColumn(name)) {
+        formats[name] = { truncate: false };
+        return;
+      }
       if (/等级/.test(name)) {
         formats[name] = { tag: true };
         return;
@@ -3499,6 +3509,9 @@
       columns: (Array.isArray(columns) ? columns : []).map((key, order) => {
         const name = String(key || "").trim();
         if (!name) return { key: name, order };
+        if (isIdentifierColumn(name)) {
+          return { key: name, order, width: 108, width_mode: "fixed", align: "left" };
+        }
         if (/等级/.test(name)) {
           return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
         }

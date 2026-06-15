@@ -2135,7 +2135,7 @@ fn compile_spbjw_runtime_metric_defs_expand_explain_scope_metric_nodes() {
 }
 
 #[test]
-fn spbjw_effectiveness_transfer_clue_and_filing_count_from_issue_result_list() {
+fn spbjw_effectiveness_transfer_clue_and_filing_count_from_alert_tracking() {
     use std::collections::BTreeMap;
 
     let source_root = source_root();
@@ -2187,8 +2187,8 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_from_issue_result_list() {
         .or_else(|| transfer.value.as_f64())
         .unwrap_or(f64::NAN);
     assert_eq!(
-        transfer_value, 1.0,
-        "effectiveness_transfer_clue_count should count one 《12》 row with 是否转问题线索=是, got {transfer_value}"
+        transfer_value, 4.0,
+        "effectiveness_transfer_clue_count should count four 《11》 rows with 是否转问题线索=是, got {transfer_value}"
     );
     let filing = metrics
         .get("effectiveness_filing_count")
@@ -2200,8 +2200,8 @@ fn spbjw_effectiveness_transfer_clue_and_filing_count_from_issue_result_list() {
         .or_else(|| filing.value.as_f64())
         .unwrap_or(f64::NAN);
     assert_eq!(
-        filing_value, 0.0,
-        "effectiveness_filing_count should count no 《12》 rows with 是否立案=是 yet, got {filing_value}"
+        filing_value, 4.0,
+        "effectiveness_filing_count should match transfer clue count from 《11》, got {filing_value}"
     );
     let mechanism = metrics
         .get("effectiveness_mechanism_item_count")

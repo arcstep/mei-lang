@@ -106,6 +106,14 @@ export function isTagLikeColumnKey(key) {
   return /等级|类型|类别|状态|是否|面貌/.test(String(key || "").trim());
 }
 
+/** 业务主键/编号列（预警ID、问题跟踪ID 等）；排除「是否*」布尔列。 */
+export function isIdentifierLikeColumnKey(key) {
+  const name = String(key || "").trim();
+  if (!name || /是否/.test(name)) return false;
+  if (/^序号$/i.test(name) || /^id$/i.test(name)) return true;
+  return /ID$/i.test(name) || /编号$/.test(name) || /编码$/.test(name);
+}
+
 export function isLongTextColumnKey(key) {
   if (isDepartmentLikeColumnKey(key)) return false;
   return /(notes|note|remark|comment|desc|description|memo|summary|content|备注|说明|摘要|内容|描述|表现|问题|事项|原因|依据|措施|意见|详情)/i.test(
@@ -153,6 +161,7 @@ export function columnPrefersContentWidth(descriptor) {
   if (descriptor.widthMode === "fixed" && descriptor.layoutFixedWidth) return false;
   if (descriptor.widthMode === "content") return true;
   if (descriptor.tag || isTagLikeColumnKey(descriptor?.key)) return true;
+  if (isIdentifierLikeColumnKey(descriptor?.key)) return true;
   if (/(部门|单位|主责)/.test(String(descriptor?.key || ""))) return true;
   return isCompactDisplayType(descriptor.type);
 }
@@ -196,9 +205,11 @@ function guessTypeFromKey(key) {
   const text = String(key || "").trim().toLowerCase();
   if (!text) return "text";
   if (/(^|_)(date|day|日期)($|_)/.test(text)) return "date";
-  if (/(^|_)(time|datetime|timestamp|created_at|updated_at|occurred_at|时间)($|_)/.test(text)) {
+  if (/(^|_)(time|datetime|timestamp|created_at|updated_at|occurred_at|时刻)($|_)/.test(text)) {
     return "datetime";
   }
+  if (/(^|_)(date|day|日期)($|_)/.test(text)) return "date";
+  if (/时间$/.test(text)) return "date";
   if (/(completion|percent|ratio|rate|比例|进度|完成率)/.test(text)) {
     return "percent";
   }
@@ -343,6 +354,20 @@ function formatNumberValue(raw, format) {
   return formatter.format(numeric);
 }
 
+function formatDateOnly(date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function valueLooksDateOnly(raw) {
+  const text = toPlainText(raw).trim();
+  return /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(text);
+}
+
 function formatDateLike(raw, descriptor) {
   const date = parseDateValue(raw);
   if (!date) return toPlainText(raw);
@@ -351,13 +376,8 @@ function formatDateLike(raw, descriptor) {
   if (format.relative || type === "relative_time") {
     return formatRelativeTime(date);
   }
-  if (type === "date") {
-    return new Intl.DateTimeFormat("zh-CN", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      timeZone: "UTC",
-    }).format(date);
+  if (type === "date" || (type === "datetime" && valueLooksDateOnly(raw))) {
+    return formatDateOnly(date);
   }
   return new Intl.DateTimeFormat("zh-CN", {
     year: "numeric",
@@ -627,7 +647,8 @@ function columnWidthCapForKey(key, descriptor = null) {
   const name = String(key || "").trim();
   const tagLike = descriptor?.tag || isTagLikeColumnKey(name);
   if (!name) return 320;
-  if (/序号|^id$|编号|编码/i.test(name)) return 88;
+  if (isIdentifierLikeColumnKey(name)) return 148;
+  if (/序号|^id$/i.test(name)) return 88;
   if (/是否/.test(name)) return tagLike ? 136 : 108;
   if (/等级/.test(name)) return tagLike ? 132 : 108;
   if (/类型|类别/.test(name)) return tagLike ? 240 : 220;
@@ -642,6 +663,7 @@ function columnWidthCapForKey(key, descriptor = null) {
 
 function columnWidthFloorForKey(key) {
   const name = String(key || "").trim();
+  if (isIdentifierLikeColumnKey(name)) return 108;
   if (/序号|^id$/i.test(name)) return 52;
   if (/等级|类型|类别/.test(name)) return 64;
   return 56;
@@ -649,8 +671,8 @@ function columnWidthFloorForKey(key) {
 
 function isCompactWidthKey(key) {
   const name = String(key || "").trim();
-  if (!name) return false;
-  return /序号|编号|编码|^id$|ID$|等级|是否|日期|时间/i.test(name);
+  if (!name || isIdentifierLikeColumnKey(name)) return false;
+  return /等级|是否|日期|时间/i.test(name);
 }
 
 function inferMinVisibleWidthPx(descriptor, charPx, padPx, minChars = 10, font = "", slackPx = 0) {
@@ -831,11 +853,14 @@ export function columnMinWidthPx(descriptor, fallbackMin = 96) {
   if (Number.isFinite(max) && max > 0) {
     return Math.round(Math.min(max, floor * 2));
   }
+  const label = String(descriptor?.label || key).trim();
+  const labelFloor = Math.min(180, Math.max(floor, label.length * 14 + 28));
+  if (isIdentifierLikeColumnKey(key)) {
+    return Math.max(labelFloor, 108);
+  }
   if (isCompactWidthKey(key)) {
     return Math.max(columnWidthFloorForKey(key), 48);
   }
-  const label = String(descriptor?.label || key).trim();
-  const labelFloor = Math.min(180, Math.max(floor, label.length * 14 + 28));
   if (isDepartmentLikeColumnKey(key)) {
     return Math.max(labelFloor, 180);
   }
