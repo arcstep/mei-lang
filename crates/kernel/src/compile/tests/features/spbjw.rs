@@ -3003,3 +3003,117 @@ fn compile_spbjw_qunfu_home_scene_succeeds() {
         "qunfu home should produce scene contract"
     );
 }
+
+#[test]
+fn eval_spbjw_park_relocation_summary_and_charts_nonempty() {
+    use std::collections::BTreeMap;
+
+    use crate::compile::analysis::dates::coerce_rows_to_schema;
+    use crate::compile::loaders::load_xlsx_table_snapshot;
+
+    let root = workspace_root();
+    let source_root = root.join("workspaces").join("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/01-执法要素.board.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile enforcement board failed: {error}"));
+    let resource_id = "__world_metrics__::scenes/01-执法要素.world.mei::metrics";
+    let owner = compiled
+        .resources
+        .iter()
+        .find(|r| r.id == resource_id)
+        .and_then(|r| r.dataset.as_ref())
+        .or_else(|| {
+            compiled
+                .resources
+                .iter()
+                .find(|r| r.id.starts_with("__world_metrics__") && r.dataset.is_some())
+                .and_then(|r| r.dataset.as_ref())
+        })
+        .unwrap_or_else(|| {
+            let ids = compiled
+                .resources
+                .iter()
+                .filter(|r| r.id.contains("world_metrics"))
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>();
+            panic!("world metrics missing; candidates: {ids:?}");
+        });
+    let mut datasets: BTreeMap<_, _> = compiled
+        .resources
+        .iter()
+        .filter_map(|r| r.dataset.clone().map(|d| (r.id.clone(), d)))
+        .collect();
+    let relocation_key = if datasets.contains_key("enterprise_relocation") {
+        "enterprise_relocation".to_string()
+    } else {
+        "scenes/01-执法要素.mei::enterprise_relocation".to_string()
+    };
+    let xlsx_path = app_root.join("upload/迁入迁出企业.xlsx");
+    let snapshot = load_xlsx_table_snapshot(
+        &xlsx_path,
+        "upload/迁入迁出企业.xlsx",
+        Some("企业迁入迁出记录"),
+        1,
+        None,
+    )
+    .expect("load relocation xlsx");
+    {
+        let relocation_dataset = datasets
+            .get_mut(&relocation_key)
+            .expect("enterprise_relocation dataset");
+        let schema = relocation_dataset.schema.clone();
+        relocation_dataset.rows = coerce_rows_to_schema(snapshot.rows, &schema);
+        relocation_dataset.columns = schema.iter().map(|column| column.name.clone()).collect();
+    }
+    let metrics = super::evaluate_runtime_metric_defs(
+        &owner.runtime_metric_defs,
+        &[],
+        &datasets,
+        Some(&[
+            "park_count::relocation_summary".to_string(),
+            "park_count::relocation_by_month".to_string(),
+            "park_count::relocation_by_park".to_string(),
+        ]),
+    )
+    .expect("evaluate park relocation metrics");
+    let summary_rows = metrics
+        .get("park_count::relocation_summary")
+        .and_then(|metric| metric.value.as_array())
+        .map(|rows| rows.len())
+        .unwrap_or(0);
+    let month_rows = metrics
+        .get("park_count::relocation_by_month")
+        .and_then(|metric| metric.value.as_array())
+        .map(|rows| rows.len())
+        .unwrap_or(0);
+    assert!(
+        summary_rows > 0,
+        "relocation_summary should have rows, got {summary_rows}"
+    );
+    assert!(
+        month_rows > 0,
+        "relocation_by_month should have rows, got {month_rows}"
+    );
+    let month_sample = metrics
+        .get("park_count::relocation_by_month")
+        .and_then(|metric| metric.value.as_array())
+        .and_then(|rows| rows.first())
+        .and_then(|row| row.get("年月"))
+        .and_then(|value| value.as_str())
+        .unwrap_or("");
+    assert!(
+        month_sample.len() == 7 && month_sample.chars().nth(4) == Some('-'),
+        "年月 should be yyyy-mm, got {month_sample}"
+    );
+    assert!(
+        month_rows < 84,
+        "bucket_date should collapse day-level rows, got {month_rows}"
+    );
+}

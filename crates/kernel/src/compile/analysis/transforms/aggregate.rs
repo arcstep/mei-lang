@@ -77,7 +77,7 @@ pub fn aggregate_group_rows_pivot(
         }
     }
     let years_to_use: Vec<i32> = years.into_iter().collect();
-    if group_fields.len() >= 2 && years_to_use.is_empty() {
+    if year_field.is_some() && years_to_use.is_empty() {
         return Vec::new();
     }
 

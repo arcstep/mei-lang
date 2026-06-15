@@ -96,6 +96,33 @@ fn aggregate_group_rows_pivot_builds_migration_wide_table() {
 }
 
 #[test]
+fn aggregate_group_rows_pivot_supports_generic_two_field_groups() {
+    let rows = vec![
+        json!({"年月": "2025-03-01", "镇街/园区": "甲园", "类型": "迁入"}),
+        json!({"年月": "2025-03-01", "镇街/园区": "甲园", "类型": "迁入"}),
+        json!({"年月": "2025-03-01", "镇街/园区": "甲园", "类型": "迁出"}),
+        json!({"年月": "2025-06-01", "镇街/园区": "乙园", "类型": "迁入"}),
+    ];
+    let stats = aggregate_group_rows_pivot(
+        &rows,
+        &["年月".to_string(), "镇街/园区".to_string()],
+        "类型",
+        &["迁入".to_string(), "迁出".to_string()],
+        None,
+    );
+    assert_eq!(stats.len(), 2);
+    let a = stats
+        .iter()
+        .find(|row| {
+            row.get("年月").and_then(|v| v.as_str()) == Some("2025-03-01")
+                && row.get("镇街/园区").and_then(|v| v.as_str()) == Some("甲园")
+        })
+        .expect("甲园 2025-03");
+    assert_eq!(a.get("迁入").and_then(|v| v.as_i64()), Some(2));
+    assert_eq!(a.get("迁出").and_then(|v| v.as_i64()), Some(1));
+}
+
+#[test]
 fn party_year_aggregate_sums_by_execution_year_and_party() {
     let rows = vec![
         json!({"当事人": "甲公司", "执行日期": "2024-06-01", "罚款金额": 20000}),
