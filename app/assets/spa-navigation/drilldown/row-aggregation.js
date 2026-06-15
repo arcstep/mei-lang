@@ -54,6 +54,13 @@
     return parts.length >= 2 ? parts[parts.length - 2] : text;
   }
 
+  function resolveCardMetricRowsetId(metricId) {
+    const text = String(metricId || "").trim();
+    if (!text) return "";
+    if (text.endsWith("::__scalar_rowset__")) return text;
+    return `${text}::__scalar_rowset__`;
+  }
+
   function resolveCompositionMetricId(config, detail = null) {
     return nonEmptyString(
       config?.tableMetricId,

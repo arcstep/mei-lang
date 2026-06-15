@@ -149,8 +149,28 @@ pub(super) fn extract_rowset_from_scalar_expr(expr: &Value) -> Option<Value> {
             .and_then(|rowsets| rowsets.first())
             .cloned()
             .filter(|value| is_rowset_expression(value)),
+        "ratio" => extract_rowset_from_ratio_operands(map),
         _ => None,
     }
+}
+
+fn extract_rowset_from_ratio_operands(map: &Map<String, Value>) -> Option<Value> {
+    let numerator = map
+        .get("numerator")
+        .and_then(extract_rowset_from_scalar_expr);
+    let denominator = map
+        .get("denominator")
+        .and_then(extract_rowset_from_scalar_expr);
+    match (numerator, denominator) {
+        (Some(left), Some(right)) if rowset_exprs_equivalent(&left, &right) => Some(left),
+        (Some(left), None) => Some(left),
+        (None, Some(right)) => Some(right),
+        _ => None,
+    }
+}
+
+fn rowset_exprs_equivalent(left: &Value, right: &Value) -> bool {
+    left == right
 }
 
 pub(super) fn extract_rowset_from_numeric_source(expr: &Value) -> Option<Value> {

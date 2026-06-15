@@ -11879,6 +11879,13 @@
     return parts.length >= 2 ? parts[parts.length - 2] : text;
   }
 
+  function resolveCardMetricRowsetId(metricId) {
+    const text = String(metricId || "").trim();
+    if (!text) return "";
+    if (text.endsWith("::__scalar_rowset__")) return text;
+    return `${text}::__scalar_rowset__`;
+  }
+
   function resolveCompositionMetricId(config, detail = null) {
     return nonEmptyString(
       config?.tableMetricId,
@@ -13126,8 +13133,12 @@
       (explainMetricKind(config, tabId) === "composition" ||
         nonEmptyString(config?.supportRole) === "composition")
     ) {
-      // 构成图需基于卡片指标 rowset 在前端聚合；勿直接拉 composition 子指标（会忽略 filter query_state）。
-      fetchConfig.tableMetricId = cardMetricId;
+      // 构成图需基于卡片指标 rowset 在前端聚合；查询 inferred __scalar_rowset__ 而非标量根指标。
+      const slotMetricId = nonEmptyString(config?.tableMetricId);
+      fetchConfig.tableMetricId =
+        slotMetricId && slotMetricId.endsWith("::__scalar_rowset__")
+          ? slotMetricId
+          : resolveCardMetricRowsetId(cardMetricId);
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];

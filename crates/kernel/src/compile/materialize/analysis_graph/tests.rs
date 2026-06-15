@@ -1,4 +1,4 @@
-use super::{analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph};
+use super::{analysis_closure_metric_ids, build_analysis_contracts, build_analysis_graph, expand_runtime_metric_defs};
 use crate::model::{AnalysisEdge, AnalysisGraph, AnalysisNode, SemanticEdgeKind, SemanticNodeKind};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -428,6 +428,87 @@ fn build_analysis_contracts_infers_detail_from_scalar_rowset_without_explain_dat
     assert_eq!(
         detail.get("metric_id").and_then(Value::as_str),
         Some("transfer_clue_count::__scalar_rowset__")
+    );
+}
+
+#[test]
+fn expand_runtime_metric_defs_hoists_scalar_rowset_for_ratio() {
+    let shared_rowset = json!({
+        "__kind": "analysis_expr",
+        "type": "where",
+        "rowset": {"__ref": "data", "id": "warning_list"},
+        "predicate": {
+            "__kind": "analysis_expr",
+            "type": "in_values",
+            "field": "是否查实",
+            "values": ["是", "否"]
+        }
+    });
+    let defs = BTreeMap::from([(
+        "effectiveness_issue_verification_rate".to_string(),
+        json!({
+            "key": "effectiveness_issue_verification_rate",
+            "values": {
+                "value": {
+                    "__kind": "analysis_expr",
+                    "type": "ratio",
+                    "numerator": {
+                        "__kind": "analysis_expr",
+                        "type": "sum",
+                        "value": {
+                            "__kind": "analysis_expr",
+                            "type": "number",
+                            "rowset": shared_rowset.clone(),
+                            "field": "查实条数"
+                        }
+                    },
+                    "denominator": {
+                        "__kind": "analysis_expr",
+                        "type": "sum",
+                        "value": {
+                            "__kind": "analysis_expr",
+                            "type": "number",
+                            "rowset": shared_rowset,
+                            "field": "预警条数"
+                        }
+                    }
+                }
+            },
+            "explain": [
+                {
+                    "__kind": "explain_item",
+                    "id": "composition_by_verified",
+                    "kind": "composition",
+                    "by": "是否查实"
+                },
+                {
+                    "__kind": "explain_item",
+                    "id": "detail",
+                    "kind": "detail",
+                    "fields": ["预警ID"]
+                }
+            ]
+        }),
+    )]);
+    let expanded = expand_runtime_metric_defs(&defs);
+    assert!(
+        expanded.contains_key("effectiveness_issue_verification_rate::__scalar_rowset__"),
+        "ratio metrics with shared rowset operands should hoist inferred scalar rowset, keys: {:?}",
+        expanded.keys().collect::<Vec<_>>()
+    );
+    let contracts = build_analysis_contracts(&defs, "__world_metrics__");
+    let contract = contracts
+        .get("effectiveness_issue_verification_rate")
+        .expect("contract");
+    let detail = contract
+        .get("tab_metrics")
+        .and_then(Value::as_object)
+        .and_then(|tabs| tabs.get("detail"))
+        .and_then(Value::as_object)
+        .expect("detail tab");
+    assert_eq!(
+        detail.get("metric_id").and_then(Value::as_str),
+        Some("effectiveness_issue_verification_rate::__scalar_rowset__")
     );
 }
 

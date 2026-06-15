@@ -2,6 +2,8 @@
 
 use std::collections::BTreeMap;
 
+use serde_json::Value;
+
 use super::{
     compile_app_from_root_with_options, evaluate_runtime_metric_defs, workspace_root,
     CompileOptions,
@@ -134,6 +136,14 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
             > 0.0,
         "capsule preview warnings_pending_count should be > 0"
     );
+    let rate_rowset_key = "scenes/07-问题办理.mei::effectiveness_issue_verification_rate::__scalar_rowset__";
+    assert!(
+        owner_dataset
+            .runtime_metric_defs
+            .contains_key(rate_rowset_key),
+        "verification rate should hoist inferred scalar rowset for drilldown, keys: {:?}",
+        owner_dataset.runtime_metric_defs.keys().collect::<Vec<_>>()
+    );
     let rate = metrics
         .get(rate_key)
         .unwrap_or_else(|| panic!("missing metric `{rate_key}`"));
@@ -143,34 +153,17 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
         .or_else(|| rate.value.as_f64())
         .expect("effectiveness_issue_verification_rate should materialize value");
 
-    let detail_key = "scenes/07-问题办理.mei::effectiveness_issue_verification_rate::warning_detail_rows";
-    let detail_metrics = evaluate_runtime_metric_defs(
-        &owner_dataset.runtime_metric_defs,
-        &[],
-        &datasets,
-        Some(&[detail_key.to_string()]),
-    )
-    .unwrap_or_else(|e| panic!("evaluate warning_detail_rows failed: {e}"));
-    let detail_rows = detail_metrics
-        .get(detail_key)
-        .and_then(|metric| metric.value.as_array())
-        .unwrap_or_else(|| panic!("missing dataframe rows for `{detail_key}`"));
     let warning_detail = datasets
         .get("warning_detail")
         .or_else(|| datasets.get(&format!("{capsule}::warning_detail")))
         .unwrap_or_else(|| panic!("warning_detail dataset should be materialized"));
     assert_eq!(
-        detail_rows.len(),
         warning_detail.rows.len(),
-        "warning_detail_rows should match warning_detail dataset row count"
-    );
-    assert_eq!(
-        detail_rows.len(),
         11,
         "current alert_tracking sample should have 11 verified rows (是/否), got {}",
-        detail_rows.len()
+        warning_detail.rows.len()
     );
-    for row in detail_rows {
+    for row in &warning_detail.rows {
         let verified = row
             .get("是否查实")
             .and_then(|value| value.as_str())
@@ -178,9 +171,45 @@ fn compile_spbjw_issue_handling_world_metrics_materialize_from_resource_ref() {
             .trim();
         assert!(
             verified == "是" || verified == "否",
-            "warning_detail_rows should only include 是/否, got {verified:?} row={row:?}"
+            "warning_detail should only include 是/否, got {verified:?} row={row:?}"
         );
     }
+    assert!(
+        warning_detail
+            .schema
+            .iter()
+            .any(|column| column.name == "核查情况"),
+        "warning_detail schema should include full warning_list columns"
+    );
+    let rate_metric = owner_dataset
+        .runtime_metric_defs
+        .get(rate_key)
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| panic!("missing runtime metric def `{rate_key}`"));
+    let detail_fields = rate_metric
+        .get("explain")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|item| {
+            item.as_object().is_some_and(|map| {
+                map.get("id").and_then(Value::as_str) == Some("detail")
+                    || map.get("support_role").and_then(Value::as_str) == Some("detail")
+            })
+        })
+        .and_then(|item| item.get("fields"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        detail_fields
+            .iter()
+            .any(|field| field.as_str() == Some("序号"))
+            && detail_fields
+                .iter()
+                .any(|field| field.as_str() == Some("核查情况")),
+        "verification rate detail explain should use warning_list_detail_fields, got {detail_fields:?}"
+    );
 }
 
 #[test]

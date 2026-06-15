@@ -272,3 +272,28 @@ def warning_list_filter_fields():
         filter_field(key = "verified", label = "是否查实", column = "是否查实", control = "multi_select"),
         filter_field(key = "transferredToClue", label = "是否转问题线索", column = "是否转问题线索", control = "multi_select"),
     ]
+
+def warning_list_detail_fields():
+    """Shared table column list for alert_tracking / warning_list analytics detail."""
+    return [
+        "序号",
+        "监督领域",
+        "监督类别",
+        "预警ID",
+        "预警条数",
+        "主责单位",
+        "问题分类名称",
+        "问题描述",
+        "预警类型",
+        "预警等级",
+        "预警时间",
+        "问题跟踪ID",
+        "承办部门",
+        "分办时间",
+        "办结时间",
+        "是否查实",
+        "查实条数",
+        "是否转问题线索",
+        "核查情况",
+        "处理结果",
+    ]
