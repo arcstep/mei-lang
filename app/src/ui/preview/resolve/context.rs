@@ -176,7 +176,24 @@ pub(crate) fn attach_host_meta(
             }),
         );
         host_meta.insert("components".to_string(), theme_components.clone());
-        let _ = options.include_scene_drilldown_context;
+        if options.include_scene_drilldown_context {
+            host_meta.insert(
+                "scene_local_nav_by_target".to_string(),
+                json!(compiled.scene_local_nav_by_target),
+            );
+            host_meta.insert(
+                "scene_bindings_by_id".to_string(),
+                json!(compiled.scene_bindings_by_id),
+            );
+            host_meta.insert(
+                "scene_examples_by_id".to_string(),
+                json!(compiled.scene_examples_by_id),
+            );
+            host_meta.insert(
+                "scene_projection_assembly_by_id".to_string(),
+                json!(compiled.scene_projection_assembly_by_id),
+            );
+        }
         map.insert("_mei".to_string(), Value::Object(host_meta));
     }
     props

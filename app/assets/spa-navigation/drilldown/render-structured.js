@@ -143,6 +143,70 @@
     return false;
   }
 
+  async function mountPreviewOnlyCaseDetail(root, detail, config, zoneHosts) {
+    const mapping = resolveListPreviewMapping(config);
+    if (!isPreviewOnlyMapping(config) && !isSheetDetailCardPreview(config)) {
+      return false;
+    }
+    const previewZoneId = nonEmptyString(config?.rowPreviewZoneId);
+    const previewHost = zoneHosts?.[previewZoneId];
+    if (!(previewHost instanceof HTMLElement)) return false;
+    root.dataset.drilldownPreviewOnly = "true";
+    const layoutHost = root.querySelector('[data-drilldown-structured-layout="true"]');
+    if (layoutHost instanceof HTMLElement) {
+      layoutHost.style.gridTemplateColumns = "1fr";
+      layoutHost.style.gridTemplateAreas = '"preview"';
+    }
+    root.querySelectorAll(".access-drilldown-shell-zone").forEach((zone) => {
+      if (!(zone instanceof HTMLElement)) return;
+      const role = String(zone.dataset.shellZoneRole || "").trim();
+      if (role === "filter" || role === "slots") {
+        zone.hidden = true;
+      }
+      if (role === "row_preview") {
+        zone.style.gridArea = "preview";
+      }
+    });
+    renderSheetDetailCardPanel(previewHost, null, config, detail);
+    try {
+      const fetchConfig = {
+        ...config,
+        drilldownDetail: detail,
+        tableMetricId: nonEmptyString(
+          hasRowDrilldownFilters(detail) ? detail?.metric_id : "",
+          hasRowDrilldownFilters(detail) ? detail?.__mei_runtime_ref?.metric_id : "",
+          config?.rowPreviewSlot?.metricId,
+          config?.tableMetricId,
+          detail?.metric_id,
+          detail?.__mei_runtime_ref?.metric_id,
+        ),
+      };
+      const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
+      const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];
+      renderSheetDetailCardPanel(
+        previewHost,
+        enrichCaseDetailRow(rows[0] || null, detail),
+        config,
+        detail,
+      );
+      return true;
+    } catch (error) {
+      recordPopupDebugIssue({
+        level: "error",
+        message: String(error?.message || error || "典型案例详情卡加载失败"),
+        phase: "case_detail_card_fetch_error",
+        detail,
+        config,
+      });
+      renderSheetDetailCardPanel(previewHost, null, config, detail);
+      const empty = previewHost.querySelector(".access-drilldown-list-preview-empty");
+      if (empty instanceof HTMLElement) {
+        empty.textContent = "案例详情加载失败";
+      }
+      return false;
+    }
+  }
+
   function mountStructuredRowPreviewZone(root, zoneHosts, config) {
     const previewZoneId = nonEmptyString(config?.rowPreviewZoneId);
     const sourceZoneId = nonEmptyString(config?.rowPreviewSourceZoneId);
@@ -204,6 +268,11 @@
           setDrilldownOverlayStatus(root, "error");
           return false;
         }
+      }
+      if (await mountPreviewOnlyCaseDetail(root, detail, config, zoneHosts)) {
+        setDrilldownOverlayStatus(root, "ready");
+        dispatchPreviewUpdated("drilldown");
+        return true;
       }
       mountStructuredRowPreviewZone(root, zoneHosts, config);
       bindAnalyticsChartsQueryStateRefresh(root, detail, config, (zoneId) => zoneHosts?.[zoneId]);

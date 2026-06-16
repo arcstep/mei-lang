@@ -65,6 +65,85 @@
     };
   }
 
+  function isAnalyticsDetailTableConfig(config = null) {
+    return Boolean(
+      config?.hasChartZone ||
+        (Array.isArray(config?.chartSlots) && config.chartSlots.length > 0) ||
+        nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId),
+    );
+  }
+
+  const SPBJW_CASE_DETAIL_BOARD_FILE = "scenes/_shared/case-detail.board.mei";
+
+  function resolveAnalyticsTableRowDrilldown(config = null) {
+    if (!isAnalyticsDetailTableConfig(config)) {
+      return null;
+    }
+    const rowsetId = nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId);
+    const boardSceneId =
+      rowsetId === "issue_result_list"
+        ? "issue_result_detail_card_board"
+        : rowsetId === "warning_list"
+          ? "warning_detail_card_board"
+          : "";
+    if (!boardSceneId) {
+      return null;
+    }
+    const metricId = nonEmptyString(config?.tableMetricId);
+    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId);
+    const scenePath = nonEmptyString(
+      config?.detailSlot?.runtimeRef?.scenePath,
+      config?.detailSlot?.runtimeRef?.scene_path,
+      importedCapsuleScenePathFromMetricId(metricId),
+      resolveMetricOwnerScenePath(
+        config?.detailSlot ? [config.detailSlot] : [],
+        { metric_id: metricId, dataset_id: rowsetId, host_scene_file: config?.hostSceneFile },
+      ),
+      String(config?.hostSceneFile || "").replace(/\.board\.mei$/i, ".mei"),
+      config?.hostSceneFile,
+    );
+    if (!metricId || !sceneId || !scenePath) {
+      return null;
+    }
+    const runtimeRef = {
+      kind: "metric",
+      metric_id: metricId,
+      dataset_id: rowsetId,
+      scene_id: sceneId,
+      scene_path: scenePath,
+    };
+    return {
+      popup: {
+        mode: "popup",
+        type: "popup",
+        projection: "overlay",
+        overlay_size: "fullscreen",
+        scene_id: boardSceneId,
+        scene_file: SPBJW_CASE_DETAIL_BOARD_FILE,
+        params: {
+          metric: { __mei_runtime_ref: runtimeRef },
+          rowset_dataset_id: rowsetId,
+        },
+      },
+      drilldownMetric: { __mei_runtime_ref: runtimeRef },
+    };
+  }
+
+  function applyAnalyticsTableRowDrilldown(props, config) {
+    if (!props) {
+      return props;
+    }
+    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config);
+    if (!rowDrilldown) {
+      return props;
+    }
+    return {
+      ...props,
+      popup: rowDrilldown.popup,
+      drilldownMetric: rowDrilldown.drilldownMetric,
+    };
+  }
+
   function buildDrilldownTableProps(detail, config) {
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
@@ -79,19 +158,35 @@
     if (!sceneId) return null;
     const appPath = resolvePreviewAppId();
     if (!appPath) return null;
+    const datasetId = resolveDrilldownDatasetId(detail, config);
+    if (!datasetId) return null;
+    const metricId = nonEmptyString(
+      config?.tableMetricId,
+      runtimeRefConfig.metricId,
+      runtimeRefConfig.metric_id,
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+    );
+    const scenePathMetricId = nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      normalizeMetricLocalId(metricId),
+      metricId,
+    );
     const ownerScenePath = nonEmptyString(
       runtimeRefConfig.scenePath,
-      config?.hostSceneFile,
+      importedCapsuleScenePathFromMetricId(scenePathMetricId),
+      importedCapsuleScenePathFromWorldMetricsDatasetId(datasetId),
+      importedCapsuleScenePathFromMetricId(detail?.metric_id),
+      importedCapsuleScenePathFromWorldMetricsDatasetId(detail?.dataset_id),
       resolveMetricOwnerScenePath(
         config?.slotByTab ? Object.values(config.slotByTab) : [],
         detail,
       ),
       detail?.host_scene_file,
       detail?.scene_path,
+      config?.hostSceneFile,
     );
-    const datasetId = resolveDrilldownDatasetId(detail, config);
-    if (!datasetId) return null;
-    const metricId = nonEmptyString(runtimeRefConfig.metricId, config?.tableMetricId);
     const runtimeRef = metricId
       ? {
           kind: "metric",

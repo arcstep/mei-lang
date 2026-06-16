@@ -34,6 +34,14 @@
 
   function renderListPreviewItemPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
+    if (isTypicalCaseCardPreview(config)) {
+      renderTypicalCaseCardPanel(host, row, config, config?.drilldownDetail);
+      return;
+    }
+    if (isCaseDetailCardPreview(config)) {
+      renderCaseDetailCardPanel(host, row, config, config?.drilldownDetail);
+      return;
+    }
     if (isSwimlanePreview(config)) {
       renderSwimlanePreviewPanel(host, row, config);
       return;

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use super::nodes::component_html;
 use super::resolve::{attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor};
 use super::style::{
     block_style, container_visual_style, container_visual_style_without_background,
@@ -1163,15 +1164,15 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
     assert!(drilldown_props
         .get("_mei")
         .and_then(|value| value.get("scene_local_nav_by_target"))
-        .is_none());
+        .is_some());
     assert!(drilldown_props
         .get("_mei")
         .and_then(|value| value.get("scene_bindings_by_id"))
-        .is_none());
+        .is_some());
     assert!(drilldown_props
         .get("_mei")
         .and_then(|value| value.get("scene_projection_assembly_by_id"))
-        .is_none());
+        .is_some());
 }
 
 #[test]
@@ -2217,4 +2218,24 @@ fn resolve_value_keeps_legacy_drilldown_internal_to_preview() {
             "runtime ref should not re-expose legacy preview key: {legacy_key}"
         );
     }
+}
+
+#[test]
+fn component_html_escapes_quotes_in_data_props_attribute() {
+    let props = json!({
+        "label": "it's a typical case",
+        "popup": {"scene_id": "typical_cases_detail_board"},
+    });
+    let html = component_html("mei-cockpit-data-table", &props);
+    assert!(html.contains("data-props=\""));
+    assert!(!html.contains("data-props='"));
+    let start = html.find("data-props=\"").expect("data-props attr") + "data-props=\"".len();
+    let end = html[start..].find('"').expect("closing quote") + start;
+    let payload = &html[start..end];
+    let decoded = payload.replace("&quot;", "\"");
+    let parsed: Value = serde_json::from_str(&decoded).expect("valid json payload");
+    assert_eq!(
+        parsed.get("label").and_then(Value::as_str),
+        Some("it's a typical case")
+    );
 }

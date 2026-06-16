@@ -34,12 +34,21 @@
     const sharedFilters =
       runtimeQuery &&
       typeof runtimeQuery.sharedFiltersForQueryStateId === "function" &&
-      queryStateId
+      queryStateId &&
+      !config?.popupFetchFilters
         ? runtimeQuery.sharedFiltersForQueryStateId(queryStateId)
         : {};
     const mergedFilters = {};
     if (sharedFilters && typeof sharedFilters === "object" && !Array.isArray(sharedFilters)) {
       Object.entries(sharedFilters).forEach(([key, value]) => {
+        const normalizedKey = String(key || "").trim();
+        const normalizedValue = String(value ?? "").trim();
+        if (!normalizedKey || !normalizedValue) return;
+        mergedFilters[normalizedKey] = normalizedValue;
+      });
+    }
+    if (config?.popupFetchFilters && typeof config.popupFetchFilters === "object" && !Array.isArray(config.popupFetchFilters)) {
+      Object.entries(config.popupFetchFilters).forEach(([key, value]) => {
         const normalizedKey = String(key || "").trim();
         const normalizedValue = String(value ?? "").trim();
         if (!normalizedKey || !normalizedValue) return;
@@ -123,6 +132,51 @@
     throw new Error(message);
   }
 
+  function mergePopupFetchFilters(detail, config, tableProps) {
+    const merged = {};
+    const rowSpecific =
+      detail?.drilldown_filters &&
+      typeof detail.drilldown_filters === "object" &&
+      !Array.isArray(detail.drilldown_filters) &&
+      Object.keys(detail.drilldown_filters).length > 0;
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    if (!rowSpecific && queryStateId) {
+      const runtimeQuery = window.__meiDatasetRuntime;
+      const sharedFilters =
+        runtimeQuery &&
+        typeof runtimeQuery.sharedFiltersForQueryStateId === "function"
+          ? runtimeQuery.sharedFiltersForQueryStateId(queryStateId)
+          : {};
+      if (sharedFilters && typeof sharedFilters === "object" && !Array.isArray(sharedFilters)) {
+        Object.entries(sharedFilters).forEach(([key, value]) => {
+          const normalizedKey = String(key || "").trim();
+          const normalizedValue = String(value ?? "").trim();
+          if (!normalizedKey || !normalizedValue) return;
+          merged[normalizedKey] = normalizedValue;
+        });
+      }
+    }
+    [tableProps?.default_filters, detail?.default_filters, detail?.drilldown_filters].forEach((source) => {
+      if (!source || typeof source !== "object" || Array.isArray(source)) return;
+      Object.entries(source).forEach(([key, value]) => {
+        const normalizedKey = String(key || "").trim();
+        const normalizedValue = String(value ?? "").trim();
+        if (!normalizedKey || !normalizedValue) return;
+        merged[normalizedKey] = normalizedValue;
+      });
+    });
+    return merged;
+  }
+
+  function hasRowDrilldownFilters(detail) {
+    return Boolean(
+      detail?.drilldown_filters &&
+        typeof detail.drilldown_filters === "object" &&
+        !Array.isArray(detail.drilldown_filters) &&
+        Object.keys(detail.drilldown_filters).length > 0,
+    );
+  }
+
   async function fetchPopupDrilldownRows(detail, config) {
     const rowsetDatasetId = nonEmptyString(
       config?.rowsetDatasetId,
@@ -133,16 +187,28 @@
       config?.detailSlot?.metricId,
       config?.tableMetricId,
     );
-    const tableMetricId =
-      detailSlotMetricId ||
-      (config?.structuredBoard && cardMetricId
-        ? cardMetricId
-        : resolveCompositionMetricId(config, detail));
-    const scopedConfig = tableMetricId ? { ...config, tableMetricId } : config;
+    const tableMetricId = hasRowDrilldownFilters(detail)
+      ? nonEmptyString(
+          cardMetricId,
+          detail?.__mei_runtime_ref?.metric_id,
+          detailSlotMetricId,
+          resolveCompositionMetricId(config, detail),
+        )
+      : nonEmptyString(
+          detailSlotMetricId,
+          config?.structuredBoard && cardMetricId ? cardMetricId : "",
+          resolveCompositionMetricId(config, detail),
+        );
+    const detailRowsetMetricId =
+      tableMetricId && !String(tableMetricId).endsWith("::__scalar_rowset__")
+        ? resolveCardMetricRowsetId(tableMetricId)
+        : tableMetricId;
+    const scopedConfig = detailRowsetMetricId ? { ...config, tableMetricId: detailRowsetMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
+    const popupFetchFilters = mergePopupFetchFilters(detail, scopedConfig, tableProps);
     const runtimeQuery = window.__meiDatasetRuntime;
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
-    if (tableMetricId && tableProps && runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
+    if (detailRowsetMetricId && tableProps && runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
       try {
         const result = await runtimeQuery.fetchDatasetRows(
           {
@@ -152,7 +218,8 @@
           {
             page: 1,
             pageSize: 100000,
-            queryStateId,
+            queryStateId: Object.keys(popupFetchFilters).length ? undefined : queryStateId,
+            filters: popupFetchFilters,
             full: true,
             summary: true,
             meta: {
@@ -186,10 +253,18 @@
     }
     const datasetId = resolveDrilldownDatasetId(detail, scopedConfig);
     if (datasetId) {
-      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId }, datasetId);
+      return fetchPopupDatasetRows(
+        detail,
+        { ...scopedConfig, datasetId, popupFetchFilters },
+        datasetId,
+      );
     }
     if (rowsetDatasetId) {
-      return fetchPopupDatasetRows(detail, { ...scopedConfig, datasetId: rowsetDatasetId }, rowsetDatasetId);
+      return fetchPopupDatasetRows(
+        detail,
+        { ...scopedConfig, datasetId: rowsetDatasetId, popupFetchFilters },
+        rowsetDatasetId,
+      );
     }
     return { rows: [], columns: [], column_meta: [], summary: null, query_state_echo: null };
   }

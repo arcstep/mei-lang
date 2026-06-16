@@ -448,7 +448,13 @@ fn expand_board_zoned_slots(
 
     let detail_value = match detail {
         Some(value) => Some(value.clone()),
-        None => default_detail_view(contract, diagnostics, root_metric_id, target_file),
+        None => {
+            if first_slot_zone_for_component(shell, "data_table").is_none() {
+                None
+            } else {
+                default_detail_view(contract, diagnostics, root_metric_id, target_file)
+            }
+        }
     };
     if let Some(detail_value) = detail_value {
         let Some(detail_zone_id) = first_slot_zone_for_component(shell, "data_table") else {

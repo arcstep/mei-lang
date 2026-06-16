@@ -193,7 +193,8 @@ pub(crate) struct PageHtmlPayloadStats {
     pub scene_drilldown_context_bytes: usize,
 }
 
-const DATA_PROPS_ATTR: &str = "data-props='";
+const DATA_PROPS_ATTR: &str = "data-props=\"";
+const DATA_PROPS_ATTR_LEGACY: &str = "data-props='";
 const SCENE_DRILLDOWN_CONTEXT_ID: &str = "id=\"mei-scene-drilldown-context\"";
 
 pub(crate) fn measure_page_html_payload(html: &str) -> PageHtmlPayloadStats {
@@ -203,9 +204,22 @@ pub(crate) fn measure_page_html_payload(html: &str) -> PageHtmlPayloadStats {
     let mut data_props_max_bytes = 0usize;
 
     let mut search_from = 0usize;
-    while let Some(rel) = html[search_from..].find(DATA_PROPS_ATTR) {
-        let payload_start = search_from + rel + DATA_PROPS_ATTR.len();
-        if let Some(end_rel) = html[payload_start..].find('\'') {
+    while search_from < html.len() {
+        let tail = &html[search_from..];
+        let (attr, payload_start) = if let Some(rel) = tail.find(DATA_PROPS_ATTR) {
+            (DATA_PROPS_ATTR, search_from + rel + DATA_PROPS_ATTR.len())
+        } else if let Some(rel) = tail.find(DATA_PROPS_ATTR_LEGACY) {
+            (DATA_PROPS_ATTR_LEGACY, search_from + rel + DATA_PROPS_ATTR_LEGACY.len())
+        } else {
+            break;
+        };
+        let payload = &html[payload_start..];
+        let end_rel = if attr == DATA_PROPS_ATTR {
+            payload.find('"')
+        } else {
+            payload.find('\'')
+        };
+        if let Some(end_rel) = end_rel {
             data_props_count += 1;
             data_props_bytes += end_rel;
             data_props_max_bytes = data_props_max_bytes.max(end_rel);
@@ -330,7 +344,7 @@ mod tests {
     #[test]
     fn measure_page_html_payload_counts_data_props_and_scene_context() {
         let html = concat!(
-            "<mei-text data-props='{\"a\":1}'></mei-text>",
+            "<mei-text data-props=\"{&quot;a&quot;:1}\"></mei-text>",
             "<mei-text data-props='{\"b\":22}'></mei-text>",
             "<script id=\"mei-scene-drilldown-context\" type=\"application/json\">",
             "{\"scene_bindings_by_id\":{}}",

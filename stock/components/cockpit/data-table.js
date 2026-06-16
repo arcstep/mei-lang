@@ -383,6 +383,27 @@ function renderCellContentHtml(descriptor, raw, rowIndex, textMap, props, displa
   return `<span class="cell-inner${cell.tipClass}"${cell.titleAttr}${previewAttrs}>${cell.html}</span>`;
 }
 
+function eventComposedPath(event) {
+  return typeof event?.composedPath === "function" ? event.composedPath() : [];
+}
+
+function findTableRowInEventPath(event, rowClass) {
+  return (
+    eventComposedPath(event).find(
+      (node) =>
+        node instanceof HTMLElement &&
+        node.classList.contains("tr") &&
+        node.classList.contains(rowClass),
+    ) || null
+  );
+}
+
+function eventPathIntersectsSelector(event, selector) {
+  return eventComposedPath(event).some(
+    (node) => node instanceof HTMLElement && Boolean(node.closest?.(selector)),
+  );
+}
+
 /**
  * 驾驶舱表格（cockpit.data-table → mei-cockpit-data-table）。
  * 支持静态 rows 或 dataframe 指标运行时查询（props.dataset 带 __mei_runtime_ref）。
@@ -780,11 +801,11 @@ export class MeiCockpitDataTable extends HTMLElement {
   }
 
   onRowDrilldownClick(event) {
-    const rowEl = event?.target?.closest?.(".tr.drilldown-row");
+    const rowEl = findTableRowInEventPath(event, "drilldown-row");
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (event?.target?.closest?.(".pager, .carousel-timer, .cell-preview-trigger")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);
@@ -844,11 +865,11 @@ export class MeiCockpitDataTable extends HTMLElement {
     if (selectionMode !== "single") {
       return;
     }
-    const rowEl = event?.target?.closest?.(".tr.selectable-row");
+    const rowEl = findTableRowInEventPath(event, "selectable-row");
     if (!(rowEl instanceof HTMLElement)) {
       return;
     }
-    if (event?.target?.closest?.(".pager, .carousel-timer, .cell-preview-trigger")) {
+    if (eventPathIntersectsSelector(event, ".pager, .carousel-timer, .cell-preview-trigger")) {
       return;
     }
     const index = Number(rowEl.dataset.rowIndex);

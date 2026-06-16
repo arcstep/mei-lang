@@ -219,7 +219,7 @@
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const props = buildDrilldownTableProps(detail, config);
+    const props = applyAnalyticsTableRowDrilldown(buildDrilldownTableProps(detail, config), config);
     if (!props) {
       recordPopupDebugIssue({
         level: "error",

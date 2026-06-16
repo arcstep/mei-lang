@@ -174,8 +174,16 @@ export function popupConfigOf(props) {
         : sceneRef?.local_nav && typeof sceneRef.local_nav === "object" && !Array.isArray(sceneRef.local_nav)
           ? sceneRef.local_nav
           : null;
+  const assemblyById = sceneDrilldownContextValue(props, "scene_projection_assembly_by_id");
+  const assemblyEntry =
+    sceneId && assemblyById && typeof assemblyById === "object" && !Array.isArray(assemblyById)
+      ? assemblyById[sceneId]
+      : null;
   const projectionSlots = normalizeProjectionSlots(
-    raw.projection_slots ?? raw.projectionSlots,
+    raw.projection_slots ??
+      raw.projectionSlots ??
+      assemblyEntry?.projection_slots ??
+      assemblyEntry?.projectionSlots,
   );
   const worldRaw = raw.world && typeof raw.world === "object" && !Array.isArray(raw.world) ? raw.world : null;
   const worldSceneFile = String(
@@ -212,11 +220,11 @@ export function popupConfigOf(props) {
     focus,
     entry,
     entry_tab: entry,
-    scene_file: sceneFile,
+    scene_file: nonEmptyString(sceneFile, assemblyEntry?.target_file, assemblyEntry?.targetFile),
     scene_id: sceneId,
     scene: sceneRef,
     projection,
-    local_nav: localNav,
+    local_nav: localNav || assemblyEntry?.local_nav || assemblyEntry?.localNav || null,
     entry_overrides: entryOverrides,
     bindings: entryOverrides,
     slots: entryOverrides,
@@ -351,6 +359,54 @@ export function tableDrilldownMeta(props) {
   };
 }
 
+function buildRowDrilldownFilters(meta, row = {}) {
+  const datasetId = String(meta?.dataset_id || "").trim();
+  const filters = {};
+
+  if (datasetId === "typical_cases" || row?.value != null || row?.处理结果ID != null) {
+    const resultId = String(row?.value ?? row?.处理结果ID ?? "").trim();
+    if (resultId) {
+      filters["处理结果ID"] = resultId;
+    }
+    return filters;
+  }
+
+  const warningId = String(row?.预警ID ?? row?.warning_id ?? "").trim();
+  if (datasetId === "warning_list" || warningId) {
+    if (warningId) {
+      filters["预警ID"] = warningId;
+    }
+    return filters;
+  }
+
+  const resultId = String(row?.处理结果ID ?? row?.value ?? "").trim();
+  if (datasetId === "issue_result_list" || resultId) {
+    if (resultId) {
+      filters["处理结果ID"] = resultId;
+    }
+    return filters;
+  }
+
+  if (resultId) {
+    filters["处理结果ID"] = resultId;
+  }
+  return filters;
+}
+
+function buildRowDrilldownLabel(meta, row = {}, filters = {}) {
+  const datasetId = String(meta?.dataset_id || "").trim();
+  if (datasetId === "typical_cases") {
+    return String(row?.label ?? row?.案例名称 ?? "").trim();
+  }
+  if (datasetId === "warning_list" || filters["预警ID"]) {
+    return String(row?.问题描述 ?? row?.问题分类名称 ?? row?.model ?? filters["预警ID"] ?? "").trim();
+  }
+  if (datasetId === "issue_result_list" || filters["处理结果ID"]) {
+    return String(row?.["姓名/单位"] ?? row?.问题描述 ?? filters["处理结果ID"] ?? "").trim();
+  }
+  return String(row?.label ?? row?.案例名称 ?? row?.处理结果ID ?? "").trim();
+}
+
 export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
   if (!meta) {
     return null;
@@ -359,18 +415,24 @@ export function buildTableRowDrilldownDetail(meta, row = {}, props = {}) {
     props?._mei?.panel_id ||
     props?.panel_id ||
     "";
-  const resultId = String(row?.value ?? row?.处理结果ID ?? "").trim();
-  const label = String(row?.label ?? row?.案例名称 ?? "").trim();
+  const filters = buildRowDrilldownFilters(meta, row);
+  const label = buildRowDrilldownLabel(meta, row, filters);
+  const value = String(
+    filters["处理结果ID"] ||
+      filters["预警ID"] ||
+      row?.value ||
+      "",
+  ).trim();
   const detail = {
     ...meta,
     panel_id: String(panelId || "").trim(),
     label,
-    value: resultId,
+    value,
     desc: label,
   };
-  if (resultId) {
-    detail.drilldown_filters = { caseResultId: resultId };
-    detail.default_filters = { caseResultId: resultId };
+  if (Object.keys(filters).length) {
+    detail.drilldown_filters = filters;
+    detail.default_filters = filters;
   }
   return detail;
 }

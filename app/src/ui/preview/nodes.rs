@@ -372,19 +372,23 @@ fn block_view(
         scene_id: scene_contract.scene.id.clone(),
         scene_path: Some(preview_scene_path.to_string()),
     };
+    let resolved = resolve_value(
+        &block.props,
+        &theme.shared,
+        scene_contract,
+        &runtime_ctx.resources,
+        &scene_anchor,
+        &runtime_ctx.index,
+        compiled,
+    );
     let host_meta_options = HostMetaOptions {
-        include_scene_drilldown_context: block.use_key == "mei.text",
+        include_scene_drilldown_context: should_include_scene_drilldown_context(
+            block.use_key.as_str(),
+            &resolved,
+        ),
     };
     let props = attach_host_meta(
-        resolve_value(
-            &block.props,
-            &theme.shared,
-            scene_contract,
-            &runtime_ctx.resources,
-            &scene_anchor,
-            &runtime_ctx.index,
-            compiled,
-        ),
+        resolved,
         compiled,
         app_path,
         &theme.components,
@@ -421,7 +425,28 @@ fn block_view(
     .into_any()
 }
 
+fn should_include_scene_drilldown_context(use_key: &str, props: &Value) -> bool {
+    if use_key == "mei.text" {
+        return true;
+    }
+    if use_key == "cockpit.data-table" {
+        if let Some(map) = props.as_object() {
+            return map.contains_key("popup") || map.contains_key("analysis");
+        }
+    }
+    false
+}
+
+fn escape_html_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 pub(crate) fn component_html(tag: &str, props: &Value) -> String {
     let props_json = props.to_string();
-    format!("<{tag} data-props='{props_json}'></{tag}>")
+    let escaped = escape_html_attr(&props_json);
+    format!("<{tag} data-props=\"{escaped}\"></{tag}>")
 }
