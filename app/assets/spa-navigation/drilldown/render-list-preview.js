@@ -34,6 +34,10 @@
 
   function renderListPreviewItemPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
+    if (isSwimlanePreview(config)) {
+      renderSwimlanePreviewPanel(host, row, config);
+      return;
+    }
     host.replaceChildren();
     if (!row || typeof row !== "object") {
       const empty = document.createElement("div");

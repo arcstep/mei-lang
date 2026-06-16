@@ -583,6 +583,78 @@ fn compile_spbjw_layout_right_supervision_popup_has_analytics_projection_slots()
 }
 
 #[test]
+fn compile_spbjw_typical_cases_popup_lowers_list_preview_projection_slots() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/09-监督典型案例.mei".to_string()),
+        },
+    )
+    .expect("compile typical cases preview");
+    let errors: Vec<_> = compiled
+        .diagnostics
+        .iter()
+        .filter(|d| matches!(d.severity, mei_lang_kernel::Severity::Error))
+        .collect();
+    assert!(
+        errors.is_empty(),
+        "typical cases compile errors: {:?}",
+        errors
+    );
+    let contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("typical cases scene contract");
+    let encoded = serde_json::to_string(contract).expect("encode contract");
+    assert!(
+        encoded.contains("typical_cases_swimlane_board"),
+        "typical cases popup should target swimlane board export"
+    );
+    assert!(
+        encoded.contains("list_preview") || encoded.contains("\"layout_zone\":\"preview\""),
+        "expected list_preview slots in contract"
+    );
+    assert!(
+        encoded.contains("swimlane") && encoded.contains("preview_mode"),
+        "preview mapping should include swimlane config, snippet: {}",
+        &encoded[encoded.find("preview_mode").unwrap_or(0)..encoded.len().min(encoded.find("preview_mode").unwrap_or(0) + 200)]
+    );
+    assert!(
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key("typical_cases_swimlane_board"),
+        "typical_cases_swimlane_board assembly should be hydrated, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn compile_spbjw_layout_right_typical_cases_popup_lowers_list_preview() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/layout-右栏.mei".to_string()),
+        },
+    )
+    .expect("compile layout right preview");
+    let encoded = serde_json::to_string(compiled.scene_contract.as_ref().expect("contract"))
+        .expect("encode contract");
+    assert!(
+        encoded.contains("typical_cases") && encoded.contains("typical_cases_swimlane_board"),
+        "layout right should reference typical_cases swimlane board, assembly keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn compile_spbjw_preview_widget_typical_cases_succeeds() {
     let source_root = source_root();
     let app_root = zhifa_app_root();

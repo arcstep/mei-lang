@@ -21,6 +21,7 @@
   "spa-navigation/drilldown/props-builders.js",
   "spa-navigation/drilldown/widget-mount.js",
   "spa-navigation/drilldown/render-analytics.js",
+  "spa-navigation/drilldown/swimlane-preview.js",
   "spa-navigation/drilldown/render-list-preview.js",
   "spa-navigation/drilldown/render-structured.js",
   "spa-navigation/drilldown/render-derived.js",

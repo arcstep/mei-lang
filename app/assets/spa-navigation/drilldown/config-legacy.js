@@ -3,8 +3,23 @@
     const popup =
       detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup) ? detail.popup : {};
     const boardFields = resolveBoardLinkFields(popup, detail?.scene_local_nav_by_target);
+    const boardSceneIdHint = nonEmptyString(
+      detail?.board_scene_id,
+      boardFields?.sceneId,
+      popup?.scene_id,
+      popup?.sceneId,
+      popup?.scene?.scene_id,
+      popup?.scene?.sceneId,
+    );
+    const assemblyHint = sceneProjectionAssembly(
+      boardSceneIdHint,
+      sceneDrilldownAssemblyById(detail),
+    );
     const projectionSlots = normalizeProjectionSlots(
-      popup?.projection_slots || popup?.projectionSlots,
+      popup?.projection_slots ||
+        popup?.projectionSlots ||
+        assemblyHint?.projection_slots ||
+        assemblyHint?.projectionSlots,
     );
     if (projectionSlots.length) {
       return resolveProjectionSlotsDrilldownConfig(detail, popup, boardFields, projectionSlots);

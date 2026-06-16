@@ -1,7 +1,8 @@
   function isManageSamePathNavigation(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/")
+      (currentUrl.pathname.startsWith("/apps/manage/") ||
+        currentUrl.pathname.startsWith("/apps/build/"))
     );
   }
 

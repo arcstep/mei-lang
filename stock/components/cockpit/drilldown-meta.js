@@ -267,19 +267,11 @@ export function tableDrilldownMeta(props) {
     ref.analysis_contract && typeof ref.analysis_contract === "object" && !Array.isArray(ref.analysis_contract)
       ? ref.analysis_contract
       : null;
-  const projectionSlots = normalizeProjectionSlots(
-    popup.projection_slots ?? popup.projectionSlots,
-  );
-  const hasProjectionSlots = projectionSlots.length > 0;
-  if (!contract && !hasProjectionSlots) {
-    return null;
-  }
-  const popupOut = hasProjectionSlots ? { ...popup, projection_slots: projectionSlots } : popup;
   const boardSceneId = String(
-    popupOut.scene_id ||
-      popupOut.sceneId ||
-      popupOut.scene?.scene_id ||
-      popupOut.scene?.sceneId ||
+    popup.scene_id ||
+      popup.sceneId ||
+      popup.scene?.scene_id ||
+      popup.scene?.sceneId ||
       "",
   ).trim();
   const assemblyById = sceneDrilldownContextValue(props, "scene_projection_assembly_by_id");
@@ -287,6 +279,38 @@ export function tableDrilldownMeta(props) {
     boardSceneId && assemblyById && typeof assemblyById === "object" && !Array.isArray(assemblyById)
       ? assemblyById[boardSceneId]
       : null;
+  const projectionSlots = normalizeProjectionSlots(
+    popup.projection_slots ??
+      popup.projectionSlots ??
+      assemblyEntry?.projection_slots ??
+      assemblyEntry?.projectionSlots,
+  );
+  const hasProjectionSlots = projectionSlots.length > 0;
+  if (!contract && !hasProjectionSlots) {
+    return null;
+  }
+  const filterSchema =
+    popup.filter_schema ??
+    popup.filterSchema ??
+    assemblyEntry?.filter_schema ??
+    assemblyEntry?.filterSchema ??
+    null;
+  const shellContract =
+    popup.shell_contract ??
+    popup.shellContract ??
+    assemblyEntry?.shell_contract ??
+    assemblyEntry?.shellContract ??
+    null;
+  const popupOut = {
+    ...popup,
+    ...(hasProjectionSlots ? { projection_slots: projectionSlots } : {}),
+    ...(filterSchema && typeof filterSchema === "object" && !Array.isArray(filterSchema)
+      ? { filter_schema: filterSchema }
+      : {}),
+    ...(shellContract && typeof shellContract === "object" && !Array.isArray(shellContract)
+      ? { shell_contract: shellContract }
+      : {}),
+  };
   const enrichedPopup = {
     ...popupOut,
     scene_id: boardSceneId || popupOut.scene_id,

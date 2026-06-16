@@ -262,8 +262,19 @@
   function shouldPreserveManageWorkspace(currentUrl, nextUrl) {
     return (
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/")
+      (currentUrl.pathname.startsWith("/apps/manage/") ||
+        currentUrl.pathname.startsWith("/apps/build/"))
     );
+  }
+
+  function syncSceneDrilldownContextFromDoc(doc) {
+    const currentCtx = document.getElementById("mei-scene-drilldown-context");
+    const nextCtx = doc.getElementById("mei-scene-drilldown-context");
+    if (!currentCtx || !nextCtx) return;
+    currentCtx.textContent = nextCtx.textContent || "";
+    try {
+      delete window.__meiSceneDrilldownContext;
+    } catch (_) {}
   }
 
   /** 同路径 SPA 只替换 #workspace-root 时，顶栏仍在壳外，需从下一页文档同步 href（访问 / 演示 / 应用切换）。 */
@@ -358,6 +369,7 @@
     }
 
     syncManageTopbarFromDoc(doc);
+    syncSceneDrilldownContextFromDoc(doc);
 
     if (replaceHistory) {
       window.history.replaceState({}, "", url);

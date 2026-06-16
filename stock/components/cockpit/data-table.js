@@ -650,6 +650,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       }
       this.render();
       this.startCarousel();
+      this.maybeAutoSelectPreviewRow();
       return;
     }
     const datasetQueryCapability = resolveDatasetQueryCapability(this._props);
@@ -666,6 +667,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       }
       this.render();
       this.startCarousel();
+      this.maybeAutoSelectPreviewRow();
       return;
     }
     const queryFilters = activeTableFilters(this._props, this._queryStateId);
@@ -692,6 +694,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       }
       this.render();
       this.startCarousel();
+      this.maybeAutoSelectPreviewRow();
       return;
     }
     this._lastFetchSignature = fetchSignature;
@@ -756,6 +759,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       }
       this.render();
       this.startCarousel();
+      this.maybeAutoSelectPreviewRow();
     }
   }
 
@@ -796,6 +800,43 @@ export class MeiCockpitDataTable extends HTMLElement {
     }
     event.preventDefault();
     emitTableRowDrilldown(this, detail);
+  }
+
+  maybeAutoSelectPreviewRow() {
+    const selectionMode = tableRowSelectionMode(this._props || {});
+    if (selectionMode !== "single") {
+      return;
+    }
+    const autoSelect =
+      this._props?.autoSelectFirstRow === true ||
+      this._props?.auto_select_first_row === true ||
+      this._props?.autoSelectSingleRow === true ||
+      this._props?.auto_select_single_row === true;
+    if (!autoSelect) {
+      return;
+    }
+    if (this._state?.loading) {
+      return;
+    }
+    const rows = Array.isArray(this._state?.rows) ? this._state.rows : [];
+    if (rows.length !== 1) {
+      return;
+    }
+    const signature = JSON.stringify({
+      queryStateId: this._queryStateId || "",
+      row: rows[0],
+    });
+    if (this._autoSelectSignature === signature) {
+      return;
+    }
+    this._autoSelectSignature = signature;
+    this._selectedRowIndex = 0;
+    this.render();
+    emitTableRowSelect(this, {
+      row: rows[0],
+      rowIndex: 0,
+      query_state_id: String(this._queryStateId || "").trim(),
+    });
   }
 
   onRowSelectClick(event) {

@@ -144,6 +144,11 @@
         : detail?.default_filters && typeof detail.default_filters === "object" && !Array.isArray(detail.default_filters)
           ? detail.default_filters
           : null;
+    const autoSelectFirstRow = Boolean(
+      drilldownFilters &&
+        (config?.hasRowPreviewZone ||
+          nonEmptyString(config?.rowPreviewZoneId, config?.row_preview_zone_id)),
+    );
     return {
       columns,
       headers: Array.isArray(config?.headers) && config.headers.length > 0 ? config.headers : undefined,
@@ -152,7 +157,9 @@
       layoutPreset: tableScrollX ? "" : config?.layoutPreset || "default",
       default_filters: drilldownFilters || undefined,
       embedded: true,
-      rowSelectionMode: nonEmptyString(config?.rowSelectionMode),
+      autoSelectFirstRow: autoSelectFirstRow || undefined,
+      rowSelectionMode:
+        nonEmptyString(config?.rowSelectionMode) || (autoSelectFirstRow ? "single" : ""),
       tableScrollX,
       autoFitColumns: hasExplicitLayout ? false : true,
       fitColumnsFromSample: hasExplicitLayout ? false : true,
