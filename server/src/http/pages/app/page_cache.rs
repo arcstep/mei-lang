@@ -19,6 +19,8 @@ struct CachedPageRenderTemplate {
 
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 128;
+/// SSR `data-props` 策略变更时递增，使旧的大体积 HTML 渲染缓存自动失效。
+const HOST_SSR_PAYLOAD_REVISION: &str = "slim-build-v2";
 
 fn page_render_cache() -> &'static Mutex<BTreeMap<String, CachedPageRenderTemplate>> {
     static CACHE: OnceLock<Mutex<BTreeMap<String, CachedPageRenderTemplate>>> = OnceLock::new();
@@ -131,6 +133,7 @@ pub(super) fn page_render_cache_key(
         "auth_sig": auth_sig,
         "auth_enabled": auth_enabled,
         "scene_bundle_marker": scene_bundle_marker,
+        "host_ssr_payload_revision": HOST_SSR_PAYLOAD_REVISION,
         "gis_base_url": gis.base_url.as_str(),
         "gis_json_path": gis.json_path.as_str(),
     });

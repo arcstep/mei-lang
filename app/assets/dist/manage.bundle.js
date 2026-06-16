@@ -11206,8 +11206,11 @@
 ;
 
 /* ===== spa-navigation/spa/initial-load-progress.js ===== */
-  const INITIAL_LOAD_NAVIGATION_ID =
-    typeof boot.INITIAL_LOAD_NAVIGATION_ID === "number" ? boot.INITIAL_LOAD_NAVIGATION_ID : -1;
+  function initialLoadNavigationId() {
+    return typeof boot.INITIAL_LOAD_NAVIGATION_ID === "number"
+      ? boot.INITIAL_LOAD_NAVIGATION_ID
+      : -1;
+  }
 
   function readBodyPerf() {
     const body = document.body;
@@ -11263,7 +11266,7 @@
 
   async function finishInitialLoadProgress() {
     if (typeof boot.waitForLoadingProgressReady === "function") {
-      await boot.waitForLoadingProgressReady(INITIAL_LOAD_NAVIGATION_ID);
+      await boot.waitForLoadingProgressReady(initialLoadNavigationId());
     }
     if (
       window.MeiPageLoadProgress &&
@@ -11278,7 +11281,7 @@
       window.MeiPageLoadProgress.hide();
     }
     if (typeof boot.clearLoadingProgressSession === "function") {
-      boot.clearLoadingProgressSession(INITIAL_LOAD_NAVIGATION_ID);
+      boot.clearLoadingProgressSession(initialLoadNavigationId());
     }
   }
 
@@ -11304,19 +11307,19 @@
       showLoadingNow();
     }
     if (typeof boot.beginLoadingProgressSession !== "function") return;
-    boot.beginLoadingProgressSession(INITIAL_LOAD_NAVIGATION_ID, window.location.href);
+    boot.beginLoadingProgressSession(initialLoadNavigationId(), window.location.href);
     if (typeof boot.recordLoadingNavigationResponse === "function") {
       boot.recordLoadingNavigationResponse(
         buildPerfResponse(perf),
-        INITIAL_LOAD_NAVIGATION_ID,
+        initialLoadNavigationId(),
         0,
       );
     }
     if (typeof boot.markLoadingRenderSwapDone === "function") {
-      boot.markLoadingRenderSwapDone(INITIAL_LOAD_NAVIGATION_ID);
+      boot.markLoadingRenderSwapDone(initialLoadNavigationId());
     }
     if (typeof boot.markLoadingPostSpaDone === "function") {
-      boot.markLoadingPostSpaDone(INITIAL_LOAD_NAVIGATION_ID);
+      boot.markLoadingPostSpaDone(initialLoadNavigationId());
     }
     if (typeof boot.refreshLoadingProgressUi === "function") {
       boot.refreshLoadingProgressUi();

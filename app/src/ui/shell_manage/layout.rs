@@ -262,7 +262,7 @@ pub(crate) fn manage_shell(
     let source_tab_active = active_manage_tab == ManageViewTab::Source;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
     let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
-    let scene_drilldown_context_json = if script_target {
+    let scene_drilldown_context_json = if script_target || stage_enabled {
         Some(build_scene_drilldown_context_json(compiled))
     } else {
         None

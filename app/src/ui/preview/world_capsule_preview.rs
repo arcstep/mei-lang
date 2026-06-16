@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 
 use super::nodes::component_html;
 use super::resolve::{
-    attach_host_meta, with_runtime_ref, HostMetaOptions, RuntimeSceneAnchor,
+    attach_host_meta, dataset_for_host_ssr, metric_for_host_ssr, with_runtime_ref,
+    HostMetaOptions, RuntimeSceneAnchor,
 };
 use super::PreviewRuntimeContext;
 use crate::ui::manage_routing::WorldSemanticQuery;
@@ -64,8 +65,13 @@ fn prepare_dataset_table_data(
     dataset: &DatasetView,
     resolved_id: &str,
     anchor: &RuntimeSceneAnchor,
+    host_ssr_slim_payload: bool,
 ) -> Value {
-    let data = serde_json::to_value(dataset).unwrap_or(Value::Null);
+    let data = if host_ssr_slim_payload {
+        dataset_for_host_ssr(dataset)
+    } else {
+        serde_json::to_value(dataset).unwrap_or(Value::Null)
+    };
     with_runtime_ref(
         data,
         anchor.runtime_ref_extra("data", resolved_id, None, None),
@@ -298,7 +304,12 @@ fn dataset_table_preview(
         .into_any();
     };
     let anchor = runtime_scene_anchor(compiled, file_path);
-    let mut data = prepare_dataset_table_data(dataset, resolved_id.as_str(), &anchor);
+    let mut data = prepare_dataset_table_data(
+        dataset,
+        resolved_id.as_str(),
+        &anchor,
+        runtime_ctx.host_ssr_slim_payload,
+    );
     if let Some(title) = title.filter(|text| !text.trim().is_empty()) {
         if let Some(map) = data.as_object_mut() {
             map.insert("title".to_string(), Value::String(title.to_string()));
@@ -432,11 +443,17 @@ fn metric_table_preview(
     lookup_metric_id: &str,
     contract: &MetricContract,
     resource_id: &str,
+    host_ssr_slim_payload: bool,
 ) -> AnyView {
     let anchor = runtime_scene_anchor(compiled, file_path);
     let metric_id = contract.id.as_str();
+    let payload = if host_ssr_slim_payload {
+        metric_for_host_ssr(contract)
+    } else {
+        serde_json::to_value(contract).unwrap_or(Value::Null)
+    };
     let mut data = with_runtime_ref(
-        serde_json::to_value(contract).unwrap_or(Value::Null),
+        payload,
         anchor.runtime_ref_extra("metric", resource_id, Some(metric_id), None),
     );
     let title = contract
@@ -530,6 +547,7 @@ pub(crate) fn world_capsule_semantic_preview(
             lookup_metric_id,
             contract?,
             resource_id,
+            runtime_ctx.host_ssr_slim_payload,
         )
     } else if explain_block_id.is_some() {
         if contract.is_some_and(|entry| entry.shape == MetricShape::Scalar) {

@@ -326,5 +326,18 @@ pub(super) fn render_compiled_success(
         phase = "finish",
         "app page request finished"
     );
+    if payload_stats.data_props_bytes > 5 * 1024 * 1024 {
+        tracing::warn!(
+            app_id = %app_id,
+            route_mode = route_mode.slug(),
+            target = %target,
+            data_props_count = payload_stats.data_props_count,
+            data_props_bytes = payload_stats.data_props_bytes,
+            data_props_max_bytes = payload_stats.data_props_max_bytes,
+            html_bytes = payload_stats.html_bytes,
+            page_render_cache_hit,
+            "SSR data-props payload exceeds 5MB budget"
+        );
+    }
     res
 }

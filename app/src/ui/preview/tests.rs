@@ -1596,6 +1596,34 @@ fn resolve_value_host_ssr_slim_strips_dataset_rows() {
 }
 
 #[test]
+fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
+    use super::build_preview_runtime_context;
+
+    let compiled = CompiledApp {
+        app_id: "demo".to_string(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "scenes/home.mei".to_string(),
+        resources: Vec::new(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    assert!(build_preview_runtime_context(&compiled, UiRouteMode::Build).host_ssr_slim_payload);
+    assert!(build_preview_runtime_context(&compiled, UiRouteMode::App).host_ssr_slim_payload);
+    assert!(!build_preview_runtime_context(&compiled, UiRouteMode::Config).host_ssr_slim_payload);
+}
+
+#[test]
 fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
     use mei_lang_kernel::{CompiledSceneRoute, MetricContract, MetricShape, SceneDecl};
 
@@ -2380,5 +2408,196 @@ fn component_html_escapes_quotes_in_data_props_attribute() {
     assert_eq!(
         parsed.get("label").and_then(Value::as_str),
         Some("it's a typical case")
+    );
+}
+
+#[test]
+#[ignore = "slow: compiles ws-spbjw/zhifa home for SSR payload measurement"]
+fn zhifa_home_build_resolved_data_props_under_5mb() {
+    use std::path::Path;
+
+    use mei_lang_kernel::{
+        compile_app_from_root_with_options, BlockDecl, CompileOptions, UiNodeDecl,
+    };
+
+    use super::{
+        build_preview_runtime_context, nodes::component_html, resolve::{
+            attach_host_meta, resolve_value, HostMetaOptions, RuntimeSceneAnchor,
+        },
+        theme,
+    };
+    use crate::ui::route::UiRouteMode;
+
+    fn walk_blocks<'a>(nodes: &'a [UiNodeDecl], out: &mut Vec<&'a BlockDecl>) {
+        for node in nodes {
+            match node {
+                UiNodeDecl::Block(block) => out.push(block),
+                UiNodeDecl::Panel(panel) => walk_blocks(&panel.blocks, out),
+                UiNodeDecl::PanelRefEmbed(_) => {}
+            }
+        }
+    }
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../workspaces/ws-spbjw")
+        .canonicalize()
+        .expect("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
+    let scene_contract = compiled
+        .scene_contract
+        .as_ref()
+        .expect("home scene contract");
+    let runtime_ctx = build_preview_runtime_context(&compiled, UiRouteMode::Build);
+    assert!(
+        runtime_ctx.host_ssr_slim_payload,
+        "build mode must enable host SSR slim payload"
+    );
+    let resolved_theme = theme::resolve_theme(scene_contract);
+    let scene_anchor = RuntimeSceneAnchor {
+        scene_id: scene_contract.scene.id.clone(),
+        scene_path: Some("scenes/home.mei".to_string()),
+    };
+    let mut blocks = Vec::new();
+    for panel in &scene_contract.panels {
+        walk_blocks(&panel.blocks, &mut blocks);
+    }
+    let mut data_props_count = 0usize;
+    let mut data_props_bytes = 0usize;
+    let mut data_props_max_bytes = 0usize;
+    for block in blocks {
+        let resolved = resolve_value(
+            &block.props,
+            &resolved_theme.shared,
+            scene_contract,
+            &runtime_ctx.resources,
+            &scene_anchor,
+            &runtime_ctx.index,
+            &compiled,
+            runtime_ctx.host_ssr_slim_payload,
+        );
+        let props = attach_host_meta(
+            resolved,
+            &compiled,
+            "zhifa",
+            &resolved_theme.components,
+            Some("scenes/home.mei"),
+            HostMetaOptions::default(),
+        );
+        let tag = compiled
+            .component_assets
+            .iter()
+            .find(|asset| asset.key == block.use_key)
+            .map(|asset| asset.tag.as_str())
+            .unwrap_or("mei-missing-component");
+        let html = component_html(tag, &props);
+        let payload_len = html
+            .split_once("data-props=\"")
+            .and_then(|(_, tail): (&str, &str)| tail.split_once('"'))
+            .map(|(payload, _): (&str, &str)| payload.len())
+            .unwrap_or(0);
+        if payload_len > 0 {
+            data_props_count += 1;
+            data_props_bytes += payload_len;
+            data_props_max_bytes = data_props_max_bytes.max(payload_len);
+        }
+    }
+    eprintln!(
+        "zhifa home data_props_count={data_props_count} bytes={} max={}",
+        data_props_bytes, data_props_max_bytes
+    );
+    const FIVE_MB: usize = 5 * 1024 * 1024;
+    assert!(
+        data_props_bytes < FIVE_MB,
+        "resolved data-props total {data_props_bytes} bytes exceeds 5MB (count={data_props_count}, max={data_props_max_bytes})"
+    );
+}
+
+#[test]
+#[ignore = "slow: full render_page HTML payload measurement for zhifa home build"]
+fn zhifa_home_full_render_page_data_props_under_5mb() {
+    use std::path::Path;
+
+    use mei_lang_kernel::{compile_app_from_root_with_options, CompileOptions};
+
+    use crate::ui::render_page;
+    use crate::ui::route::UiRouteMode;
+
+    let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../workspaces/ws-spbjw")
+        .canonicalize()
+        .expect("ws-spbjw");
+    let app_root = source_root.join("zhifa");
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some("scenes/home.mei".to_string()),
+        },
+    )
+    .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
+    let html = render_page(
+        &[],
+        &compiled,
+        "zhifa",
+        None,
+        UiRouteMode::Build,
+        Some("scenes/home.mei"),
+        Some(""),
+        None,
+        Some("home"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        &[],
+        false,
+        None,
+        None,
+    );
+    let mut data_props_count = 0usize;
+    let mut data_props_bytes = 0usize;
+    let mut data_props_max_bytes = 0usize;
+    let mut search_from = 0usize;
+    const ATTR: &str = "data-props=\"";
+    while search_from < html.len() {
+        let tail = &html[search_from..];
+        let Some(rel) = tail.find(ATTR) else {
+            break;
+        };
+        let payload_start = search_from + rel + ATTR.len();
+        let payload = &html[payload_start..];
+        let Some(end_rel) = payload.find('"') else {
+            break;
+        };
+        data_props_count += 1;
+        data_props_bytes += end_rel;
+        data_props_max_bytes = data_props_max_bytes.max(end_rel);
+        search_from = payload_start + end_rel + 1;
+    }
+    eprintln!(
+        "zhifa full render_page html_bytes={} data_props_count={data_props_count} bytes={} max={}",
+        html.len(),
+        data_props_bytes,
+        data_props_max_bytes
+    );
+    const FIVE_MB: usize = 5 * 1024 * 1024;
+    assert!(
+        data_props_bytes < FIVE_MB,
+        "full render_page data-props {data_props_bytes} bytes exceeds 5MB"
     );
 }

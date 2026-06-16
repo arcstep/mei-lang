@@ -386,6 +386,7 @@ fn block_view(
         include_scene_drilldown_context: should_include_scene_drilldown_context(
             block.use_key.as_str(),
             &resolved,
+            runtime_ctx.host_ssr_slim_payload,
         ),
     };
     let props = attach_host_meta(
@@ -426,7 +427,15 @@ fn block_view(
     .into_any()
 }
 
-fn should_include_scene_drilldown_context(use_key: &str, props: &Value) -> bool {
+fn should_include_scene_drilldown_context(
+    use_key: &str,
+    props: &Value,
+    host_ssr_slim_payload: bool,
+) -> bool {
+    // Host 视图通过 `#mei-scene-drilldown-context` 全局注入，避免每个组件 data-props 重复膨胀。
+    if host_ssr_slim_payload {
+        return false;
+    }
     if use_key == "mei.text" {
         return true;
     }
