@@ -87,22 +87,27 @@ function resolveLayerBoundValue(props, layerSpec, keys = []) {
 }
 
 export function resolveLayerDataPayload(props, layerSpec = {}) {
-  const payload = Object.assign({}, props || {});
+  const payload = {};
   const layerValueByCode = resolveLayerBoundValue(props, layerSpec, ["valueByCode", "value_by_code"]);
   if (layerValueByCode && typeof layerValueByCode === "object" && !Array.isArray(layerValueByCode)) {
     payload.valueByCode = layerValueByCode;
   }
-  const layerData = resolveLayerBoundValue(props, layerSpec, ["value", "data", "dataset"]);
-  if (layerData != null) {
-    payload.value = layerData;
-    payload.data = layerData;
-    payload.dataset = layerData;
+  const specValueByCode = layerSpec.valueByCode || layerSpec.value_by_code;
+  if (specValueByCode && typeof specValueByCode === "object" && !Array.isArray(specValueByCode)) {
+    payload.valueByCode = { ...(payload.valueByCode || {}), ...specValueByCode };
   }
+  const layerData = resolveLayerBoundValue(props, layerSpec, ["value", "data", "dataset"]);
   const dataKey = String(layerSpec.dataKey || layerSpec.data_key || "").trim();
-  if (dataKey && props?.[dataKey] != null && layerData == null) {
-    payload.value = props[dataKey];
-    payload.data = props[dataKey];
-    payload.dataset = props[dataKey];
+  const metricPayload =
+    layerData != null
+      ? layerData
+      : dataKey && props?.[dataKey] != null
+        ? props[dataKey]
+        : null;
+  if (metricPayload != null) {
+    payload.value = metricPayload;
+    payload.data = metricPayload;
+    payload.dataset = metricPayload;
   }
   if (layerSpec.valueField || layerSpec.value_field) {
     payload.valueField = layerSpec.valueField || layerSpec.value_field;
@@ -207,8 +212,8 @@ export async function resolveLayerSource(layerSpec, props = {}) {
     return ensureFeatureCollection(inlineFeatureCollection);
   }
   const type = String(layerSpec?.type || "polygon").trim().toLowerCase();
-  const dataPayload = resolveLayerDataPayload(props, layerSpec);
-  const rows = resolveMetricRows(dataPayload);
+  // `addLayerSpec` 已先调用 `resolveLayerDataPayload`；此处直接消费 layer payload。
+  const rows = resolveMetricRows(props);
   const geometryMapping = layerSpec?.geometryMapping || layerSpec?.geometry_mapping || {};
   if (type === "point" && rows.length > 0) {
     return rowsToPointFeatureCollection(rows, geometryMapping, layerSpec);
@@ -280,6 +285,82 @@ export function resolveMetricRows(props) {
     return props.dataset.rows;
   }
   return [];
+}
+
+/** 从任意 prop 值解析 `metric_ref` 运行时引用（用于 map layer `dataKey`）。 */
+export function resolveRuntimeMetricRefFromValue(value) {
+  const ref = value?.__mei_runtime_ref;
+  if (ref && ref.kind === "metric" && ref.dataset_id && ref.metric_id) {
+    return ref;
+  }
+  return null;
+}
+
+/** 收集 `mapSpec.layers[]` 中通过 `dataKey` 绑定的 metric 引用。 */
+export function collectMapLayerMetricRefs(layers, props = {}) {
+  const refs = [];
+  const seen = new Set();
+  for (const layer of Array.isArray(layers) ? layers : []) {
+    const dataKey = String(layer?.dataKey || layer?.data_key || "").trim();
+    if (!dataKey) continue;
+    const ref = resolveRuntimeMetricRefFromValue(props?.[dataKey]);
+    if (!ref?.metric_id) continue;
+    const metricId = String(ref.metric_id).trim();
+    if (!metricId || seen.has(metricId)) continue;
+    seen.add(metricId);
+    refs.push({ dataKey, ref, metricId });
+  }
+  return refs;
+}
+
+export function mapLayersNeedRuntimeMetrics(layers, props = {}) {
+  return collectMapLayerMetricRefs(layers, props).length > 0;
+}
+
+/** 将 runtime metric 查询结果转为图层 `resolveMetricRows` 可消费的 payload。 */
+export function mapLayerMetricPayloadFromResult(metric) {
+  if (!metric || typeof metric !== "object") return null;
+  const rows = extractMetricResultRows(metric);
+  if (rows.length > 0) {
+    return { rows, value: rows, dataset: { rows } };
+  }
+  if (
+    metric.shape === "scalar_map" &&
+    metric.value &&
+    typeof metric.value === "object" &&
+    !Array.isArray(metric.value)
+  ) {
+    return { valueByCode: metric.value, value: metric.value };
+  }
+  return metric.value != null ? { value: metric.value } : null;
+}
+
+export function extractMetricResultRows(metric) {
+  if (!metric || typeof metric !== "object") return [];
+  if (metric.shape === "dataframe" && Array.isArray(metric.value)) {
+    return metric.value;
+  }
+  if (Array.isArray(metric.value)) {
+    return metric.value;
+  }
+  if (metric.value && typeof metric.value === "object" && Array.isArray(metric.value.rows)) {
+    return metric.value.rows;
+  }
+  return [];
+}
+
+/** 将批量 metric 查询结果写回 `dataKey` 字段，供 map 图层消费。 */
+export function buildMapLayerMetricPropsPatch(props, layers, metricResults, findMetricFn) {
+  const patch = {};
+  const metrics = Array.isArray(metricResults?.metrics) ? metricResults.metrics : [];
+  for (const { dataKey, ref } of collectMapLayerMetricRefs(layers, props)) {
+    const metric = typeof findMetricFn === "function" ? findMetricFn(metrics, ref) : null;
+    const payload = mapLayerMetricPayloadFromResult(metric);
+    if (payload) {
+      patch[dataKey] = payload;
+    }
+  }
+  return patch;
 }
 
 export function choroplethRange(valueMap, palette) {

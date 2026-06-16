@@ -1,23 +1,29 @@
 import {
   deferUntilDisplayed,
-  shouldReactToPreviewUpdated,
-  escapeHtml,
+  fetchRuntimeMetrics,
+  findRuntimeMetricInResults,
   parseProps,
   queryStateIdOf,
   recordRuntimeDatasetQueryError,
   runtimeCallerMeta,
   setQueryStateFilter,
+  shouldReactToPreviewUpdated,
+  subscribeQueryState,
+  escapeHtml,
 } from "../../dataset/runtime-query.js";
 import {
   MAP_DATA_LABEL_FONT,
   basemapLabelLayers,
   buildBasemapStyle,
+  buildMapLayerMetricPropsPatch,
   buildValueByCode,
   choroplethRange,
+  collectMapLayerMetricRefs,
   dispatchMapSelection,
   enrichFeatureWithLayerMetrics,
   enrichGeoJsonWithLayerMetrics,
   inferLayerMetricLabel,
+  mapLayersNeedRuntimeMetrics,
   normalizeJoinCode,
   normalizeMapSpec,
   resolveLayerDataLabels,
@@ -87,6 +93,10 @@ if (!customElements.get(TAG)) {
       } else {
         window.removeEventListener("meilang:preview-updated", this.refresh);
       }
+      if (typeof this._unsubscribeQueryState === "function") {
+        this._unsubscribeQueryState();
+        this._unsubscribeQueryState = null;
+      }
       document.removeEventListener("mei:manage-tab-change", this._onManageTabChange);
       window.removeEventListener("pageshow", this._onPageShow);
       if (typeof this._onDocumentPointerDown === "function") {
@@ -123,6 +133,12 @@ if (!customElements.get(TAG)) {
       this.errorEl = this.shadowRoot.querySelector(".error");
       this._layerRegistry = this._layerRegistry || {};
       this._layerVisibility = this._layerVisibility || {};
+      this._runtimeLayerProps = this._runtimeLayerProps || null;
+      this._sharedFilters = this._sharedFilters || {};
+      this._boundLayerEvents = this._boundLayerEvents || new Set();
+      this._mapStyleReady = false;
+      this._syncLayersTask = null;
+      this._layerMetricsTask = null;
       this._layerControlOpen = this._layerControlOpen === true;
       this.refresh = () => this.scheduleRefresh();
       this._onManageTabChange = () => this.scheduleRefresh();
@@ -156,7 +172,93 @@ if (!customElements.get(TAG)) {
       this._renderTrace.mark("bootstrap", {
         query_state_id: this._queryStateId || "",
       });
+      this._unsubscribeQueryState = subscribeQueryState(this._queryStateId, (state) => {
+        this._sharedFilters = state?.filters || {};
+        void this.refreshLayerMetrics();
+      });
       this.scheduleRefresh({ forceRender: !this.map });
+    }
+
+    effectiveProps() {
+      const base = parseProps(this);
+      if (!this._runtimeLayerProps) return base;
+      return { ...base, ...this._runtimeLayerProps };
+    }
+
+    async refreshLayerMetrics(options = {}) {
+      const sync = options.sync !== false;
+      const task = async () => {
+        if (!this.isConnected || !this.map || !this._mapStyleReady) {
+          return false;
+        }
+        const props = parseProps(this);
+        const { layers } = normalizeMapSpec(props);
+        if (!mapLayersNeedRuntimeMetrics(layers, props)) {
+          this._runtimeLayerProps = null;
+          return false;
+        }
+        const refs = collectMapLayerMetricRefs(layers, props);
+        if (!refs.length) return false;
+        const anchorProps = {
+          ...props,
+          value: { __mei_runtime_ref: refs[0].ref },
+        };
+        const metricIds = refs.map((item) => item.metricId);
+        this._renderTrace?.mark("runtime_query_start", {
+          metric_count: metricIds.length,
+        });
+        try {
+          const result = await fetchRuntimeMetrics(anchorProps, {
+            metricIds,
+            queryStateId: this._queryStateId,
+            filters: this._sharedFilters,
+            meta: runtimeCallerMeta(this, TAG),
+          });
+          if (!this.isConnected || !this.map) {
+            return false;
+          }
+          if (!result) {
+            this._renderTrace?.mark("runtime_query_skip", { reason: "capability_or_ref" });
+            return false;
+          }
+          this._runtimeLayerProps = buildMapLayerMetricPropsPatch(
+            props,
+            layers,
+            result,
+            findRuntimeMetricInResults,
+          );
+          this._renderTrace?.mark("runtime_query_done", {
+            metric_count: Array.isArray(result?.metrics) ? result.metrics.length : 0,
+            client_total_ms: result?.perf?.client_total_ms ?? "",
+            server_total_ms:
+              result?.perf?.server_handler_total_ms ?? result?.perf?.total_ms ?? "",
+          });
+          if (sync) {
+            const effectiveProps = this.effectiveProps();
+            const { layers: normalizedLayers } = normalizeMapSpec(effectiveProps);
+            await this.syncLayers(normalizedLayers, effectiveProps);
+          }
+          return true;
+        } catch (error) {
+          const message = String(error?.message || error);
+          this._renderTrace?.mark("runtime_query_error", { message });
+          const meta = runtimeCallerMeta(this, TAG);
+          recordRuntimeDatasetQueryError({
+            kind: "metric_query",
+            datasetId: refs[0]?.ref?.dataset_id || "",
+            message,
+            sceneId: meta.scene_id,
+            target: meta.target,
+            component: meta.component || TAG,
+            panelId: meta.panel_id,
+            metricId: metricIds.join(","),
+            phase: "map_layer_metrics",
+          });
+          return false;
+        }
+      };
+      this._layerMetricsTask = (this._layerMetricsTask || Promise.resolve()).then(task);
+      return this._layerMetricsTask;
     }
 
     scheduleRefresh(options = {}) {
@@ -180,13 +282,8 @@ if (!customElements.get(TAG)) {
       }
       this._refreshInFlight = true;
       try {
-        const props = parseProps(this);
-        const signature = stablePropsSignature(props);
-        const { basemap, layers } = normalizeMapSpec(props);
-        const layout = resolveMapLayout(props, basemap);
-        this._layout = layout;
-        this.applyViewportChrome(layout);
-        this.renderLayerControl(layers, props);
+        const domProps = parseProps(this);
+        const signature = stablePropsSignature(domProps);
         const needsFullRender =
           this._forceRenderPending ||
           !this.map ||
@@ -194,11 +291,27 @@ if (!customElements.get(TAG)) {
         this._forceRenderPending = false;
         if (needsFullRender) {
           this._propsSignature = signature;
-          await this.renderMap(props, basemap, layers, layout);
+          this._runtimeLayerProps = null;
+          this._syncLayersTask = null;
+          this._layerMetricsTask = null;
+          const { basemap, layers } = normalizeMapSpec(domProps);
+          const layout = resolveMapLayout(domProps, basemap);
+          this._layout = layout;
+          this.applyViewportChrome(layout);
+          this.renderLayerControl(layers, domProps);
+          await this.renderMap(domProps, basemap, layers, layout);
         } else {
+          const props = this.effectiveProps();
+          const { basemap, layers } = normalizeMapSpec(props);
+          const layout = resolveMapLayout(props, basemap);
+          this._layout = layout;
+          this.applyViewportChrome(layout);
+          this.renderLayerControl(layers, props);
           this.applyMapViewportPadding(layout);
           this.map?.resize();
-          this.renderLayerControl(layers, props);
+          if (mapLayersNeedRuntimeMetrics(layers, domProps)) {
+            void this.refreshLayerMetrics();
+          }
         }
         this.scheduleLayerControlLayout();
       } finally {
@@ -265,6 +378,8 @@ if (!customElements.get(TAG)) {
           this.map.remove();
           this.map = null;
         }
+        this._boundLayerEvents = new Set();
+        this._mapStyleReady = false;
         this.map = new maplibregl.Map({
           container: this.mapContainer,
           center: basemap.center,
@@ -282,6 +397,7 @@ if (!customElements.get(TAG)) {
             return;
           }
           try {
+            this._mapStyleReady = true;
             this._renderTrace?.mark("style_load", {
               layer_count: layers.length,
             });
@@ -289,9 +405,21 @@ if (!customElements.get(TAG)) {
             this._renderTrace?.mark("sync_layers_start", {
               layer_count: layers.length,
             });
-            await this.syncLayers(layers, props);
+            const domProps = parseProps(this);
+            let syncProps = domProps;
+            const metricLayers = normalizeMapSpec(domProps).layers;
+            try {
+              if (mapLayersNeedRuntimeMetrics(metricLayers, domProps)) {
+                await this.refreshLayerMetrics({ sync: false });
+                syncProps = this.effectiveProps();
+              }
+            } catch (_) {
+              syncProps = domProps;
+            }
+            const { layers: syncLayerList } = normalizeMapSpec(syncProps);
+            await this.syncLayers(syncLayerList, syncProps);
             this._renderTrace?.mark("sync_layers_done", {
-              layer_count: layers.length,
+              layer_count: syncLayerList.length,
             });
             this.ensureBasemapLabels(basemap);
             const labelsOn = basemap.showLabels !== false && basemap.show_labels !== false;
@@ -303,7 +431,7 @@ if (!customElements.get(TAG)) {
             this.mountLayerToggleInNav();
             this.scheduleLayerControlLayout();
             this._renderTrace?.mark("render_done", {
-              layer_count: layers.length,
+              layer_count: syncLayerList.length,
             });
           } catch (err) {
             const message = String(err?.message || err);
@@ -349,17 +477,25 @@ if (!customElements.get(TAG)) {
     }
 
     async syncLayers(layers, props) {
-      this._layerRegistry = {};
-      for (const layer of layers) {
-        const id = String(layer?.id || "").trim();
-        if (!id) continue;
-        if (this._layerVisibility[id] === undefined) {
-          this._layerVisibility[id] = layer.visible !== false;
+      const task = async () => {
+        if (!this.map) return;
+        const nextRegistry = {};
+        for (const layer of layers) {
+          if (!this.map) return;
+          const id = String(layer?.id || "").trim();
+          if (!id) continue;
+          if (this._layerVisibility[id] === undefined) {
+            this._layerVisibility[id] = layer.visible !== false;
+          }
+          await this.addLayerSpec(layer, props, nextRegistry);
+          this.setLayerVisible(id, this._layerVisibility[id] !== false, nextRegistry);
         }
-        await this.addLayerSpec(layer, props);
-        this.setLayerVisible(id, this._layerVisibility[id] !== false);
-      }
-      this.renderLayerControl(layers, props);
+        if (!this.map) return;
+        this._layerRegistry = nextRegistry;
+        this.renderLayerControl(layers, props);
+      };
+      this._syncLayersTask = (this._syncLayersTask || Promise.resolve()).then(task);
+      return this._syncLayersTask;
     }
 
     renderLayerControl(layers, props) {
@@ -580,8 +716,8 @@ if (!customElements.get(TAG)) {
       this.layerControlEl.style.maxHeight = `${spaceAbove}px`;
     }
 
-    setLayerVisible(layerId, visible) {
-      const entry = this._layerRegistry[layerId];
+    setLayerVisible(layerId, visible, registry = this._layerRegistry) {
+      const entry = registry?.[layerId];
       if (!entry || !this.map) return;
       const v = visible ? "visible" : "none";
       for (const mapLayerId of entry.mapLayerIds) {
@@ -591,7 +727,7 @@ if (!customElements.get(TAG)) {
       }
     }
 
-    async addLayerSpec(layerSpec, props) {
+    async addLayerSpec(layerSpec, props, registry = this._layerRegistry) {
       const layerId = String(layerSpec.id || "layer").trim();
       const joinKey = resolveLayerJoinKey(layerSpec);
       const layerProps = resolveLayerDataPayload(props, layerSpec);
@@ -660,7 +796,7 @@ if (!customElements.get(TAG)) {
         mapLayerIds.push(fillLayerId);
         this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style);
         this.bindLayerEvents(fillLayerId, layerId, joinKey, layerSpec);
-        this._layerRegistry[layerId] = { mapLayerIds, sourceId };
+        registry[layerId] = { mapLayerIds, sourceId };
         this._renderTrace?.mark("layer_ready", {
           layer_id: layerId,
           map_layer_count: mapLayerIds.length,
@@ -730,7 +866,7 @@ if (!customElements.get(TAG)) {
       }
       this.bindLayerEvents(lineId, layerId, joinKey, layerSpec);
       this.addDataLabelLayer(layerId, sourceId, dataLabels, mapLayerIds, style, { outlineOnly });
-      this._layerRegistry[layerId] = { mapLayerIds, sourceId };
+      registry[layerId] = { mapLayerIds, sourceId };
       this._renderTrace?.mark("layer_ready", {
         layer_id: layerId,
         map_layer_count: mapLayerIds.length,
@@ -779,6 +915,10 @@ if (!customElements.get(TAG)) {
     }
 
     bindLayerEvents(mapLayerId, logicalId, joinKey, layerSpec = {}) {
+      if (this._boundLayerEvents?.has(mapLayerId)) {
+        return;
+      }
+      this._boundLayerEvents.add(mapLayerId);
       this.map.on("click", mapLayerId, (event) => {
         const feature = event.features?.[0];
         if (!feature) return;
