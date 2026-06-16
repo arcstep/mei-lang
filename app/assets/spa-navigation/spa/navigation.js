@@ -13,6 +13,9 @@
     }
     if (!response.ok) throw new Error("navigation failed: " + response.status);
     const html = await response.text();
+    if (typeof boot.recordLoadingNavigationResponse === "function") {
+      boot.recordLoadingNavigationResponse(response, navigationId, html.length);
+    }
     if (navigationId !== currentNavigationId) return false;
     const doc = new DOMParser().parseFromString(html, "text/html");
     const nextShell = doc.querySelector(".shell");
@@ -57,6 +60,9 @@
       replaceShellFromDoc(doc, url, replaceHistory);
     }
     if (navigationId !== currentNavigationId) return false;
+    if (typeof boot.markLoadingRenderSwapDone === "function") {
+      boot.markLoadingRenderSwapDone(navigationId);
+    }
     runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl);
     return true;
   }
@@ -80,7 +86,10 @@
       showManageWorkspaceLoadingState(url);
     } else {
       showManageWorkspaceLoadingState(url);
-      showLoading();
+      showLoadingNow();
+    }
+    if (typeof boot.beginLoadingProgressSession === "function") {
+      boot.beginLoadingProgressSession(navigationId, url);
     }
     try {
       const completed = await loadAndSwap(url, replaceHistory, navigationId);
@@ -88,6 +97,9 @@
         console.warn("[spa-navigation] navigation superseded", url);
       }
     } catch (error) {
+      if (typeof boot.abortLoadingProgressSession === "function") {
+        boot.abortLoadingProgressSession(navigationId, "navigation_error");
+      }
       console.error("[spa-navigation] navigation failed", error);
       if (error && error.name === "AbortError") {
         console.warn("[spa-navigation] fetch timeout", url);
@@ -123,7 +135,7 @@
     } finally {
       spaNavigationInFlight = Math.max(0, spaNavigationInFlight - 1);
       boot._spaInFlight = spaNavigationInFlight;
-      finishNavigationUi(navigationId);
+      await finishNavigationUi(navigationId);
     }
   }
 

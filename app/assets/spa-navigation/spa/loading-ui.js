@@ -69,11 +69,24 @@
       detail.setAttribute("data-mei-manage-nav-target", "true");
       detail.style.cssText =
         "font-size:12px;line-height:1.5;color:#93c5fd;font-family:ui-monospace,SFMono-Regular,monospace;";
+      const barTrack = document.createElement("div");
+      barTrack.style.cssText =
+        "height:4px;border-radius:999px;background:rgba(148,163,184,.22);overflow:hidden;";
+      const barFill = document.createElement("div");
+      barFill.setAttribute("data-mei-manage-loading-bar-fill", "true");
+      barFill.style.cssText =
+        "height:100%;width:0;border-radius:inherit;background:linear-gradient(90deg,#38bdf8,#60a5fa);transition:width 160ms ease;";
+      barTrack.appendChild(barFill);
+      const progressDetail = document.createElement("div");
+      progressDetail.setAttribute("data-mei-manage-loading-detail", "true");
+      progressDetail.style.cssText = "display:grid;gap:4px;text-align:left;";
       const hint = document.createElement("span");
       hint.textContent = "旧画面将被替换，请稍候...";
       hint.style.cssText = "font-size:11px;line-height:1.5;color:#94a3b8;";
       card.appendChild(title);
       card.appendChild(detail);
+      card.appendChild(barTrack);
+      card.appendChild(progressDetail);
       card.appendChild(hint);
       overlay.appendChild(card);
       if (getComputedStyle(currentMain).position === "static") {
@@ -85,6 +98,38 @@
     if (detail) {
       detail.textContent = navigationTargetLabel(url);
     }
+    if (typeof boot.refreshLoadingProgressUi === "function") {
+      boot.refreshLoadingProgressUi();
+    }
+  }
+
+  function loadingOverlayMarkup() {
+    return (
+      '<div class="spa-loading-inner">' +
+      '<img class="spa-loading-icon" src="/app-assets/favicon.svg" alt="loading"/>' +
+      '<div class="spa-loading-body">' +
+      '<span class="spa-loading-text">加载中…</span>' +
+      '<div class="spa-loading-track">' +
+      '<div class="spa-loading-segments">' +
+      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="compile">' +
+      '<span class="spa-loading-seg-label">编译</span>' +
+      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
+      "</div>" +
+      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="render">' +
+      '<span class="spa-loading-seg-label">渲染</span>' +
+      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
+      "</div>" +
+      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="eval">' +
+      '<span class="spa-loading-seg-label">求值</span>' +
+      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
+      "</div>" +
+      "</div>" +
+      '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
+      "</div>" +
+      '<div class="spa-loading-detail"></div>' +
+      "</div>" +
+      "</div>"
+    );
   }
 
   function createLoadingOverlay() {
@@ -92,11 +137,7 @@
     const overlay = document.createElement("div");
     overlay.id = "mei-spa-loading";
     overlay.className = "spa-loading-overlay";
-    overlay.innerHTML =
-      '<div class="spa-loading-inner">' +
-      '<img class="spa-loading-icon" src="/app-assets/favicon.svg" alt="loading"/>' +
-      '<span class="spa-loading-text">加载中...</span>' +
-      "</div>";
+    overlay.innerHTML = loadingOverlayMarkup();
     document.body.appendChild(overlay);
   }
 
@@ -115,6 +156,9 @@
       if (!overlay) return;
       overlay.classList.add("is-visible");
       loadingVisibleAt = Date.now();
+      if (typeof boot.refreshLoadingProgressUi === "function") {
+        boot.refreshLoadingProgressUi();
+      }
       loadingTimer = null;
     }, LOADING_DELAY_MS);
   }
@@ -145,12 +189,32 @@
     }
   }
 
-  function finishNavigationUi(navigationId) {
-    clearManageWorkspaceLoadingState();
+  function showLoadingNow() {
+    clearLoadingTimer();
+    createLoadingOverlay();
+    const overlay = document.getElementById("mei-spa-loading");
+    if (!overlay) return;
+    overlay.classList.add("is-visible");
+    loadingVisibleAt = Date.now();
+    if (typeof boot.refreshLoadingProgressUi === "function") {
+      boot.refreshLoadingProgressUi();
+    }
+  }
+
+  async function finishNavigationUi(navigationId) {
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
     }
-    forceHideLoading();
+    if (typeof boot.waitForLoadingProgressReady === "function") {
+      await boot.waitForLoadingProgressReady(navigationId);
+    }
+    if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
+      return;
+    }
+    hideLoading();
     clearManageWorkspaceLoadingState();
+    if (typeof boot.clearLoadingProgressSession === "function") {
+      boot.clearLoadingProgressSession(navigationId);
+    }
   }
 

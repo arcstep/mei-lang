@@ -45,6 +45,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/drilldown/storage.js",
     "spa-navigation/drilldown/projection-host.js",
     "spa-navigation/drilldown/context-banner.js",
+    "spa-navigation/spa/loading-progress.js",
     "spa-navigation/spa/loading-ui.js",
     "spa-navigation/spa/url-policy.js",
     "spa-navigation/spa/script-sync.js",
@@ -54,6 +55,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/dom-swap.js",
     "spa-navigation/spa/post-navigation.js",
     "spa-navigation/spa/navigation.js",
+    "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
 ];
 
@@ -128,6 +130,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "spa-navigation/drilldown/storage.js",
     "spa-navigation/drilldown/projection-host.js",
     "spa-navigation/drilldown/context-banner.js",
+    "spa-navigation/spa/loading-progress.js",
     "spa-navigation/spa/loading-ui.js",
     "spa-navigation/spa/url-policy.js",
     "spa-navigation/spa/script-sync.js",
@@ -137,6 +140,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "spa-navigation/spa/dom-swap.js",
     "spa-navigation/spa/post-navigation.js",
     "spa-navigation/spa/navigation.js",
+    "spa-navigation/spa/initial-load-progress.js",
     "spa-navigation/epilogue.js",
 ];
 

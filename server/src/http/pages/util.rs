@@ -277,6 +277,26 @@ pub(crate) fn fill_manage_wall_clock_placeholders(
     html
 }
 
+/// 首屏加载进度条：将编译与 HTML 体积观测写入 body data-* 占位符。
+pub(crate) fn fill_page_load_observability_placeholders(
+    mut html: String,
+    compile_ms: u64,
+    compile_cache_hit: bool,
+    html_bytes: usize,
+    data_props_bytes: usize,
+    data_props_count: usize,
+) -> String {
+    html = html.replace("__MEI_COMPILE_MS__", &compile_ms.to_string());
+    html = html.replace(
+        "__MEI_COMPILE_CACHE_HIT__",
+        if compile_cache_hit { "1" } else { "0" },
+    );
+    html = html.replace("__MEI_HTML_BYTES__", &html_bytes.to_string());
+    html = html.replace("__MEI_DATA_PROPS_BYTES__", &data_props_bytes.to_string());
+    html = html.replace("__MEI_DATA_PROPS_COUNT__", &data_props_count.to_string());
+    html
+}
+
 /// 将 Martin 瓦片服务地址写入 HTML（`meta[name=mei-tiles-*]`），供 `map.maplibre` 读取。
 pub(crate) fn fill_gis_tiles_placeholders(
     mut html: String,

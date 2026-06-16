@@ -26,8 +26,9 @@ use crate::http::pages::app::scene::{
 };
 use crate::http::pages::app_render::source_panel_meta;
 use crate::http::pages::util::{
-    elapsed_ms, fill_manage_wall_clock_placeholders, fill_page_shell_placeholders,
-    fill_perf_placeholders, measure_page_html_payload, push_manage_page_pipeline_diag,
+    elapsed_ms, fill_manage_wall_clock_placeholders, fill_page_load_observability_placeholders,
+    fill_page_shell_placeholders, fill_perf_placeholders, measure_page_html_payload,
+    push_manage_page_pipeline_diag,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -187,7 +188,7 @@ pub(super) fn render_compiled_success(
         "disabled".to_string()
     };
     let mut scene_bundle_revision_header: Option<String> = None;
-    let (html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
+    let (mut html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
             let scene_bundle_probe = if scene_bundle_enabled {
@@ -249,6 +250,14 @@ pub(super) fn render_compiled_success(
         (h, cache_hit, ssr_emit_ms, handler_ms)
     };
     let payload_stats = measure_page_html_payload(&html);
+    html = fill_page_load_observability_placeholders(
+        html,
+        compile_ms,
+        compile_cache_hit,
+        payload_stats.html_bytes,
+        payload_stats.data_props_bytes,
+        payload_stats.data_props_count,
+    );
     let mut res = Html(html).into_response();
     if let Ok(v) = HeaderValue::from_str(&handler_html_ready_ms.to_string()) {
         res.headers_mut()

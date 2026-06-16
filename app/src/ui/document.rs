@@ -89,6 +89,10 @@ pub(crate) fn render_document(
                 <title>{format!("{app_title} - MeiLang")}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>
+                <script src="/app-assets/page-load-progress-shell.js"></script>
+                <script>
+                    {r#"(function(){try{if(window.MeiPageLoadProgress){window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}catch(e){}})();"#}
+                </script>
                 <script defer src="/app-assets/host-http-feedback.js"></script>
                 <script
                     type="module"
@@ -105,11 +109,19 @@ pub(crate) fn render_document(
                 data-mei-view=route_mode.slug()
                 data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
                 data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"
+                data-mei-compile-ms="__MEI_COMPILE_MS__"
+                data-mei-compile-cache-hit="__MEI_COMPILE_CACHE_HIT__"
+                data-mei-html-bytes="__MEI_HTML_BYTES__"
+                data-mei-data-props-bytes="__MEI_DATA_PROPS_BYTES__"
+                data-mei-data-props-count="__MEI_DATA_PROPS_COUNT__"
                 data-mei-auth-user=auth_user_meta
                 data-mei-auth-role=auth_role_meta
                 data-mei-auth-logged-in=auth_logged_in_meta
                 data-mei-auth-capabilities=auth_capabilities_meta
             >
+                <script>
+                    {r#"(function(){try{if(window.MeiPageLoadProgress){window.MeiPageLoadProgress.mountFromHandoff();}}catch(e){}})();"#}
+                </script>
                 {shell}
             </body>
         </html>

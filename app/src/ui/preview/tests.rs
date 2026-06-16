@@ -1008,6 +1008,7 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         &RuntimeSceneAnchor::from_compiled(&compiled),
         &index,
         &compiled,
+        false,
     );
     let popup = resolved.get("popup").expect("popup");
     let scene = popup.get("scene").expect("scene locator");
@@ -1237,6 +1238,7 @@ fn resolve_value_supports_shared_refs() {
         &scene_anchor,
         &build_runtime_resource_index(&compiled),
         &compiled,
+        false,
     );
     assert_eq!(resolved.get("width").and_then(Value::as_str), Some("520px"));
     assert_eq!(resolved.get("height").and_then(Value::as_i64), Some(74));
@@ -1390,6 +1392,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_eq!(
         resolved_data.get("id").and_then(|value| value.as_str()),
@@ -1412,6 +1415,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_eq!(
         resolved_metric.get("id").and_then(|value| value.as_str()),
@@ -1434,6 +1438,7 @@ fn resolve_value_supports_data_and_metric_refs() {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_eq!(
         resolved_dataset.get("id").and_then(|value| value.as_str()),
@@ -1454,6 +1459,140 @@ fn resolve_value_supports_data_and_metric_refs() {
             .and_then(|value| value.as_str()),
         Some("sales_metrics")
     );
+}
+
+#[test]
+fn resolve_value_host_ssr_slim_strips_dataset_rows() {
+    use mei_lang_kernel::{
+        build_runtime_resource_index, CompiledApp, DatasetView, LoadedResource,
+        MetricContract, MetricShape, SceneContract, SceneDecl, SourceDecl,
+    };
+
+    let scene_contract = SceneContract {
+        scene: SceneDecl {
+            kind: "scene".to_string(),
+            id: "home".to_string(),
+            world: None,
+            flow: None,
+            frame: None,
+            profile: None,
+            theme: None,
+            summary: None,
+            goal: None,
+            state: json!({}),
+            shared: json!({}),
+            local_nav: serde_json::json!({}),
+            params: serde_json::json!({}),
+            bindings: serde_json::json!({}),
+            examples: serde_json::json!([]),
+            access_export: true,
+        },
+        themes: vec![],
+        shared: json!({}),
+        world: None,
+        flow: None,
+        frame: None,
+        panels: vec![],
+    };
+    let mut resources = BTreeMap::new();
+    resources.insert(
+        "sales_metrics".to_string(),
+        LoadedResource {
+            id: "sales_metrics".to_string(),
+            kind: "dataset".to_string(),
+            title: Some("Sales".to_string()),
+            document: None,
+            dataset: Some(DatasetView {
+                id: "sales_metrics".to_string(),
+                title: Some("Sales".to_string()),
+                purpose: None,
+                schema: vec![],
+                stage_schema: Vec::new(),
+                columns: vec!["value".to_string()],
+                rows: vec![json!({"value": 1}), json!({"value": 2})],
+                source: SourceDecl {
+                    kind: "derived".to_string(),
+                    path: "dataset_view:sales_metrics".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::from([(
+                    "sales_total".to_string(),
+                    MetricContract {
+                        id: "sales_total".to_string(),
+                        label: Some("销售总额".to_string()),
+                        unit: None,
+                        value_format: None,
+                        purpose: None,
+                        shape: MetricShape::Dataframe,
+                        schema: vec![],
+                        dataset: None,
+                        transforms: vec![],
+                        value: json!([{"value": 999}]),
+                    },
+                )]),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: BTreeMap::new(),
+            }),
+        },
+    );
+    let compiled = CompiledApp {
+        app_id: "preview".to_string(),
+        active_scene: Some("home".to_string()),
+        active_target_file: "scenes/home.mei".to_string(),
+        resources: resources.values().cloned().collect(),
+        world_metrics: BTreeMap::new(),
+        world_semantic_by_file: BTreeMap::new(),
+        scene_routes: Vec::new(),
+        app_root: ".".to_string(),
+        title: "preview".to_string(),
+        file_tree: Vec::new(),
+        scene_contract: None,
+        scene_local_nav_by_target: BTreeMap::new(),
+        scene_bindings_by_id: BTreeMap::new(),
+        scene_examples_by_id: BTreeMap::new(),
+        scene_projection_assembly_by_id: BTreeMap::new(),
+        component_assets: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let resource_index = build_runtime_resource_index(&compiled);
+    let scene_anchor = RuntimeSceneAnchor {
+        scene_id: "home".to_string(),
+        scene_path: Some("scenes/home.mei".to_string()),
+    };
+    let data_ref = json!({"__ref":"data","id":"sales_metrics"});
+    let slim = resolve_value(
+        &data_ref,
+        &json!({}),
+        &scene_contract,
+        &resources,
+        &scene_anchor,
+        &resource_index,
+        &compiled,
+        true,
+    );
+    assert_eq!(slim.get("rows").and_then(Value::as_array).map(Vec::len), Some(0));
+    let metric_ref = json!({"__ref":"metric","id":"sales_total","from_dataset":"sales_metrics"});
+    let slim_metric = resolve_value(
+        &metric_ref,
+        &json!({}),
+        &scene_contract,
+        &resources,
+        &scene_anchor,
+        &resource_index,
+        &compiled,
+        true,
+    );
+    assert!(slim_metric.get("value").is_none() || slim_metric.get("value") == Some(&Value::Null));
 }
 
 #[test]
@@ -1595,6 +1734,7 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_eq!(
         resolved
@@ -1772,6 +1912,7 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_eq!(
         resolved
@@ -1881,6 +2022,7 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     );
     assert_ne!(resolved, Value::Null);
     assert_eq!(
@@ -2047,6 +2189,7 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
         &scene_anchor,
         &resource_index,
         &compiled,
+        false,
     )
 }
 

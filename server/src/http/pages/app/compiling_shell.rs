@@ -37,26 +37,11 @@ pub(crate) fn compile_bootstrap_route_supported(route_mode: UiRouteMode) -> bool
 }
 
 pub(crate) fn render_compiling_shell(
-    route_mode: UiRouteMode,
+    _route_mode: UiRouteMode,
     app_id: &str,
-    scene_hint: Option<&str>,
+    _scene_hint: Option<&str>,
 ) -> String {
     let app_esc = html_escape_min(app_id.trim_start_matches('/'));
-    let mode_label = match route_mode {
-        UiRouteMode::Build => "构建视图",
-        UiRouteMode::App => "访问视图",
-        UiRouteMode::Presentation => "演示视图",
-        UiRouteMode::Config => "配置视图",
-        UiRouteMode::Upload => "上传视图",
-    };
-    let scene_line = scene_hint
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|scene| {
-            let scene_esc = html_escape_min(scene);
-            format!("<p class=\"mei-compile-scene\">场景 <code>{scene_esc}</code></p>")
-        })
-        .unwrap_or_default();
     let probe_diag_filter = COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER;
     format!(
         r#"<!doctype html>
@@ -68,88 +53,14 @@ pub(crate) fn render_compiling_shell(
   <title>正在编译 · {app_esc}</title>
   <link rel="icon" href="/app-assets/favicon.svg"/>
   <link rel="stylesheet" href="/app-assets/dist/styles.bundle.css"/>
-  <style>
-    html, body {{
-      margin: 0;
-      min-height: 100%;
-      background: #020617;
-      color: #e2e8f0;
-      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    }}
-    .mei-compile-page {{
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }}
-    .mei-compile-card {{
-      max-width: 420px;
-      width: 100%;
-      padding: 20px 22px;
-      border: 1px solid rgba(148, 163, 184, 0.28);
-      border-radius: 14px;
-      background: rgba(15, 23, 42, 0.96);
-      box-shadow: 0 16px 40px rgba(2, 6, 23, 0.55);
-    }}
-    .mei-compile-head {{
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 12px;
-    }}
-    .mei-compile-head img {{
-      width: 22px;
-      height: 22px;
-      animation: mei-spin 900ms linear infinite;
-    }}
-    .mei-compile-title {{
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-    }}
-    .mei-compile-app {{
-      margin: 0 0 8px;
-      font-size: 13px;
-      color: #94a3b8;
-    }}
-    .mei-compile-app code {{
-      color: #cbd5e1;
-    }}
-    .mei-compile-scene {{
-      margin: 0 0 8px;
-      font-size: 13px;
-      color: #94a3b8;
-    }}
-    .mei-compile-hint {{
-      margin: 0;
-      font-size: 13px;
-      line-height: 1.55;
-      color: #cbd5e1;
-    }}
-    .mei-compile-mode {{
-      margin: 14px 0 0;
-      font-size: 12px;
-      color: #64748b;
-    }}
-  </style>
+  <script src="/app-assets/page-load-progress-shell.js"></script>
 </head>
-<body>
-  <div class="mei-compile-page">
-    <div class="mei-compile-card" role="status" aria-live="polite" data-mei-compile-shell="true">
-      <div class="mei-compile-head">
-        <img src="/app-assets/favicon.svg" alt=""/>
-        <h1 class="mei-compile-title">正在编译应用</h1>
-      </div>
-      <p class="mei-compile-app">应用 <code>{app_esc}</code> · {mode_label}</p>
-      {scene_line}
-      <p class="mei-compile-hint">首次打开或源码有更新时需要编译，请稍候。页面会在编译完成后自动刷新。</p>
-      <p class="mei-compile-mode">MeiLang 编译引导页</p>
-    </div>
-  </div>
+<body data-mei-compile-shell="true">
   <script>
     (function () {{
+      if (window.MeiPageLoadProgress) {{
+        window.MeiPageLoadProgress.mountBootstrap();
+      }}
       var baseHref = window.location.href;
       var nextDelayMs = 260;
       var maxDelayMs = 1200;
@@ -172,7 +83,12 @@ pub(crate) fn render_compiling_shell(
       function doneReload() {{
         if (stopped) return;
         stopped = true;
-        window.location.replace(baseHref);
+        if (window.MeiPageLoadProgress) {{
+          window.MeiPageLoadProgress.noteCompileReady();
+        }}
+        window.setTimeout(function () {{
+          window.location.replace(baseHref);
+        }}, 900);
       }}
       function tick() {{
         if (stopped) return;
@@ -190,6 +106,10 @@ pub(crate) fn render_compiling_shell(
           }}
         }})
           .then(function (response) {{
+            var reason = response.headers.get("x-mei-compile-bootstrap-reason") || "";
+            if (window.MeiPageLoadProgress) {{
+              window.MeiPageLoadProgress.noteProbe(reason);
+            }}
             if (probeReady(response)) {{
               doneReload();
               return;
@@ -210,6 +130,9 @@ pub(crate) fn render_compiling_shell(
             schedule();
           }})
           .catch(function () {{
+            if (window.MeiPageLoadProgress) {{
+              window.MeiPageLoadProgress.noteProbe("network_retry");
+            }}
             schedule();
           }});
       }}
@@ -246,6 +169,15 @@ mod tests {
     }
 
     #[test]
+    fn compiling_shell_includes_progress_shell_assets() {
+        let html = render_compiling_shell(UiRouteMode::Presentation, "zhifa", Some("home"));
+        assert!(html.contains("page-load-progress-shell.js"));
+        assert!(html.contains("MeiPageLoadProgress"));
+        assert!(html.contains("data-mei-compile-shell=\"true\""));
+        assert!(!html.contains("mei-compile-card"));
+    }
+
+    #[test]
     fn compile_bootstrap_route_support_matches_access_like_modes() {
         assert!(compile_bootstrap_route_supported(UiRouteMode::Build));
         assert!(compile_bootstrap_route_supported(UiRouteMode::App));
@@ -261,6 +193,9 @@ mod tests {
             scene: None,
             tab: None,
             diag_filter: Some(COMPILE_BOOTSTRAP_PROBE_DIAG_FILTER.to_string()),
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         };
         assert!(compile_bootstrap_probe_requested(&probe));
@@ -271,6 +206,9 @@ mod tests {
             scene: None,
             tab: None,
             diag_filter: Some(COMPILE_BOOTSTRAP_DISABLE_DIAG_FILTER.to_string()),
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         };
         assert!(compile_bootstrap_disabled_for_request(&disabled));

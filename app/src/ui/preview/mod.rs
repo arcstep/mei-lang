@@ -30,12 +30,21 @@ pub(crate) fn compiled_uses_frame_viewport(compiled: &CompiledApp) -> bool {
 pub(crate) struct PreviewRuntimeContext {
     pub resources: BTreeMap<String, LoadedResource>,
     pub index: RuntimeResourceIndex,
+    /// Host 视图 SSR 不内联 dataset 行集与大块指标值，改由运行时 API 拉取。
+    pub host_ssr_slim_payload: bool,
 }
 
-pub(crate) fn build_preview_runtime_context(compiled: &CompiledApp) -> PreviewRuntimeContext {
+pub(crate) fn build_preview_runtime_context(
+    compiled: &CompiledApp,
+    route_mode: UiRouteMode,
+) -> PreviewRuntimeContext {
     PreviewRuntimeContext {
         index: build_runtime_resource_index(compiled),
         resources: build_runtime_resource_map(compiled),
+        host_ssr_slim_payload: matches!(
+            route_mode,
+            UiRouteMode::App | UiRouteMode::Presentation | UiRouteMode::Build
+        ),
     }
 }
 mod view;

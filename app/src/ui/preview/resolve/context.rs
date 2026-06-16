@@ -11,6 +11,7 @@ use super::super::theme::resolve_shared_refs;
 
 use super::drilldown::resolve_metric_drilldown_meta;
 use super::drilldown::MetricDrilldownMeta;
+use super::host_ssr_payload::{dataset_for_host_ssr, metric_for_host_ssr};
 use super::refs::{resolve_data_ref, resolve_metric_ref, resolve_rows_expr, with_runtime_ref};
 
 /// Controls whether nested popup/board_link bindings stay as authored refs.
@@ -207,6 +208,7 @@ pub(crate) fn resolve_value(
     scene_anchor: &RuntimeSceneAnchor,
     resource_index: &RuntimeResourceIndex,
     compiled: &CompiledApp,
+    host_ssr_slim_payload: bool,
 ) -> Value {
     resolve_value_in_context(
         value,
@@ -217,6 +219,7 @@ pub(crate) fn resolve_value(
         resource_index,
         compiled,
         BindingResolveContext::Normal,
+        host_ssr_slim_payload,
     )
 }
 
@@ -229,6 +232,7 @@ fn resolve_value_in_context(
     resource_index: &RuntimeResourceIndex,
     compiled: &CompiledApp,
     binding_context: BindingResolveContext,
+    host_ssr_slim_payload: bool,
 ) -> Value {
     if binding_context == BindingResolveContext::PopupPayload && preserve_popup_binding(value) {
         return value.clone();
@@ -247,8 +251,13 @@ fn resolve_value_in_context(
                 {
                     if let Some(resource) = resources.get(&canonical_id) {
                         if let Some(dataset) = resource.dataset.as_ref() {
+                            let payload = if host_ssr_slim_payload {
+                                dataset_for_host_ssr(dataset)
+                            } else {
+                                serde_json::to_value(dataset).unwrap_or(Value::Null)
+                            };
                             return with_runtime_ref(
-                                serde_json::to_value(dataset).unwrap_or(Value::Null),
+                                payload,
                                 scene_anchor.runtime_ref_extra("data", &canonical_id, None, None),
                             );
                         }
@@ -266,8 +275,13 @@ fn resolve_value_in_context(
                 if let Some((dataset, dataset_id)) =
                     resolve_data_ref(map, resources, compiled, resource_index)
                 {
+                    let payload = if host_ssr_slim_payload {
+                        dataset_for_host_ssr(&dataset)
+                    } else {
+                        serde_json::to_value(&dataset).unwrap_or(Value::Null)
+                    };
                     return with_runtime_ref(
-                        serde_json::to_value(dataset).unwrap_or(Value::Null),
+                        payload,
                         scene_anchor.runtime_ref_extra("data", &dataset_id, None, None),
                     );
                 }
@@ -286,7 +300,11 @@ fn resolve_value_in_context(
                         resource_index,
                     );
                     return with_runtime_ref(
-                        serde_json::to_value(metric).unwrap_or(Value::Null),
+                        if host_ssr_slim_payload {
+                            metric_for_host_ssr(&metric)
+                        } else {
+                            serde_json::to_value(&metric).unwrap_or(Value::Null)
+                        },
                         scene_anchor.runtime_ref_extra(
                             "metric",
                             &dataset_id,
@@ -322,7 +340,11 @@ fn resolve_value_in_context(
                         resource_index,
                     );
                     return with_runtime_ref(
-                        serde_json::to_value(metric).unwrap_or(Value::Null),
+                        if host_ssr_slim_payload {
+                            metric_for_host_ssr(&metric)
+                        } else {
+                            serde_json::to_value(&metric).unwrap_or(Value::Null)
+                        },
                         scene_anchor.runtime_ref_extra(
                             "metric",
                             &dataset_id,
@@ -338,8 +360,13 @@ fn resolve_value_in_context(
                 if let Some((dataset, dataset_id)) =
                     resolve_rows_expr(map, resources, compiled, resource_index)
                 {
+                    let payload = if host_ssr_slim_payload {
+                        dataset_for_host_ssr(&dataset)
+                    } else {
+                        serde_json::to_value(&dataset).unwrap_or(Value::Null)
+                    };
                     return with_runtime_ref(
-                        serde_json::to_value(dataset).unwrap_or(Value::Null),
+                        payload,
                         scene_anchor.runtime_ref_extra("data", &dataset_id, None, None),
                     );
                 }
@@ -367,6 +394,7 @@ fn resolve_value_in_context(
                         resource_index,
                         compiled,
                         child_context,
+                        host_ssr_slim_payload,
                     ),
                 );
             }
@@ -385,6 +413,7 @@ fn resolve_value_in_context(
                         resource_index,
                         compiled,
                         binding_context,
+                        host_ssr_slim_payload,
                     )
                 })
                 .collect(),

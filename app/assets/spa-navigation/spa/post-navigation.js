@@ -30,6 +30,9 @@
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();
+        if (typeof boot.markLoadingPostSpaDone === "function") {
+          boot.markLoadingPostSpaDone(navigationId);
+        }
       } catch (err) {
         console.warn("[spa-navigation] post-spa work failed", err);
       }

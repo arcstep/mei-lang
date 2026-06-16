@@ -1,4 +1,5 @@
 // @ts-nocheck — closes IIFE opened in preamble.js; valid only after bundle concat.
+  bootstrapInitialLoadProgress();
   tagExistingBodyScripts();
   installSceneProjectionHost();
   applyDrilldownContextFromQuery();

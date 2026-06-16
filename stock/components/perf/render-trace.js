@@ -110,6 +110,9 @@ export function recordRenderTrace(component, phase, detail = {}, state = null) {
   if (store.length > TRACE_LIMIT) {
     store.length = TRACE_LIMIT;
   }
+  if (typeof window.__meiLoadingProgressMarkRender === "function") {
+    window.__meiLoadingProgressMarkRender(entry);
+  }
   renderTraceHost();
   return entry;
 }
