@@ -1,11 +1,12 @@
 import { escapeHtml, escapeHtmlAttr } from "../runtime-query.js";
 import {
   bindFloatingPopoverDrag,
-  buildTextPopoverBodyHtml,
+  buildTextPopoverShellHtml,
   copyTextToClipboard,
   ensureFloatingTextPopoverStyles,
   mountFloatingPopoverOnBody,
   positionFloatingPopoverNearAnchor,
+  scopeFloatingPopoverCss,
   textPopoverStyleBlock,
 } from "../../mei/floating-text-popover.js";
 import {
@@ -239,13 +240,16 @@ export function resolveCellPopoverVariant(props) {
 }
 
 let cellPopoverGlobalStylesReady = false;
+const CELL_POPOVER_GLOBAL_STYLE_VERSION = "right-chrome-v5";
 
 function ensureCellPopoverGlobalStyles() {
-  if (cellPopoverGlobalStylesReady || typeof document === "undefined") return;
+  if (typeof document === "undefined") return;
+  if (document.querySelector(`style[data-mei-cell-popover-global="${CELL_POPOVER_GLOBAL_STYLE_VERSION}"]`)) return;
+  document.querySelectorAll("style[data-mei-cell-popover-global]").forEach((node) => node.remove());
   cellPopoverGlobalStylesReady = true;
   const style = document.createElement("style");
-  style.dataset.meiCellPopoverGlobal = "true";
-  style.textContent = cellPopoverStyleBlock("large").replace(/\.cell-pop/g, "body > .cell-pop");
+  style.dataset.meiCellPopoverGlobal = CELL_POPOVER_GLOBAL_STYLE_VERSION;
+  style.textContent = scopeFloatingPopoverCss(cellPopoverStyleBlock("large"));
   document.head.appendChild(style);
 }
 
@@ -564,38 +568,23 @@ export function openCellPopover(
   pop.setAttribute("role", "dialog");
   pop.setAttribute("aria-modal", "true");
   pop.setAttribute("aria-label", title);
-  const subtitleHtml = subtitle
-    ? `<span class="cell-pop-subtitle">${escapeHtml(subtitle)}</span>`
-    : "";
-  pop.innerHTML = `
-      <div class="cell-pop-hd">
-        <div class="cell-pop-title">
-          <span>${escapeHtml(title)}</span>
-          ${subtitleHtml}
-        </div>
-        <div class="cell-pop-actions">
-          <button type="button" class="cell-pop-copy">复制</button>
-          <button type="button" class="cell-pop-done">关闭</button>
-          <button type="button" class="cell-pop-close" aria-label="关闭">×</button>
-        </div>
-      </div>
-      ${buildTextPopoverBodyHtml(fullText, escapeHtml)}
-    `;
+  pop.innerHTML = buildTextPopoverShellHtml({ title, subtitle, fullText }, escapeHtml);
 
-  const defaultWidth = large ? 560 : 480;
-  const defaultHeight = large ? 400 : 340;
+  const defaultWidth = large ? 480 : 420;
   if (useModal) {
     backdrop.appendChild(pop);
     owner._cellPopoverEl = pop;
   } else {
-    mountFloatingPopoverOnBody(pop, { width: defaultWidth, height: defaultHeight });
+    mountFloatingPopoverOnBody(pop, { width: defaultWidth });
     owner._cellPopoverEl = pop;
     positionFloatingPopoverNearAnchor(pop, anchor, {
       topOffset,
       defaultWidth,
-      defaultHeight,
     });
-    owner._cellPopoverDragCleanup = bindFloatingPopoverDrag(pop, pop.querySelector(".cell-pop-hd"));
+    owner._cellPopoverDragCleanup = bindFloatingPopoverDrag(
+      pop,
+      pop.querySelector(".cell-pop-drag-handle"),
+    );
   }
 
   const requestClose = () => closeCellPopover(owner, shadowRoot);

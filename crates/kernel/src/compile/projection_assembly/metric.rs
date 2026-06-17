@@ -968,6 +968,15 @@ fn slot_from_explain_block(
     if let Some(top_n) = block_map.get("top_n") {
         slot.insert("top_n".to_string(), top_n.clone());
     }
+    if let Some(value_field) = block_map
+        .get("value_field")
+        .or_else(|| block_map.get("valueField"))
+    {
+        slot.insert("value_field".to_string(), value_field.clone());
+    }
+    if let Some(agg) = block_map.get("agg") {
+        slot.insert("agg".to_string(), agg.clone());
+    }
     if let Some(block_id) = block_map.get("id").and_then(Value::as_str) {
         slot.insert(
             "explain_block_id".to_string(),

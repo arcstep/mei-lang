@@ -162,19 +162,39 @@ def build_view(kind, source, chart_kind = None, mapping = None, label = None, co
         payload["page_size"] = resolved_page_size
     return _without_empty(payload)
 
-def filter_field(key, label = None, column = None, control = "multi_select"):
+def filter_field(key, label = None, column = None, control = "multi_select", visible = True, operator = None):
     """Explicit analytics filter field (V1: rowset-backed options at runtime)."""
     if key == None or str(key).strip() == "":
         fail("filter_field requires key")
     resolved_column = column if column != None and str(column).strip() != "" else str(key).strip()
     resolved_label = label if label != None and str(label).strip() != "" else resolved_column
     resolved_control = control if control != None and str(control).strip() != "" else "multi_select"
-    return _without_empty({
+    payload = {
         "key": str(key).strip(),
         "label": str(resolved_label).strip(),
         "column": str(resolved_column).strip(),
         "control": str(resolved_control).strip(),
-    })
+    }
+    if visible == False:
+        payload["visible"] = False
+    if operator != None and str(operator).strip() != "":
+        payload["operator"] = str(operator).strip()
+    return _without_empty(payload)
+
+def filter_schema(rowset_dataset_id = None, fields = None, default_collapsed = False, allow_extra = False, title = None):
+    """Analytics drilldown filter panel schema (fields + panel chrome)."""
+    payload = {}
+    if rowset_dataset_id != None and str(rowset_dataset_id).strip() != "":
+        payload["rowset_dataset_id"] = str(rowset_dataset_id).strip()
+    if fields != None:
+        payload["fields"] = fields
+    if default_collapsed == True:
+        payload["default_collapsed"] = True
+    if allow_extra == True:
+        payload["allow_extra"] = True
+    if title != None and str(title).strip() != "":
+        payload["title"] = str(title).strip()
+    return _without_empty(payload)
 
 def build_board_assembly(scene, context, charts = None, detail = None, filters = None, include_hero = False, preview = None, shell_contract = None):
     """Build a board instance independent of link/route/popup.

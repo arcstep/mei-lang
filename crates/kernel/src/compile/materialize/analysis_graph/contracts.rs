@@ -52,6 +52,9 @@ pub(super) fn build_metric_contract(
     if let Some(label) = map.and_then(|value| first_non_empty_string(value, &["label", "title"])) {
         contract.insert("title".to_string(), Value::String(label));
     }
+    if let Some(unit) = map.and_then(|value| first_non_empty_string(value, &["unit"])) {
+        contract.insert("unit".to_string(), Value::String(unit));
+    }
     if let Some(map) = map {
         apply_metric_narrative(map, &mut contract);
     }

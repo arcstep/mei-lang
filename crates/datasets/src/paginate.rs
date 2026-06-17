@@ -257,21 +257,151 @@ fn sort_datetime(text: &str) -> Option<i64> {
     None
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FilterMatchMode {
-    Contains,
-    InValues,
-    Month,
+#[derive(Debug, Clone)]
+enum FilterSpec {
+    Contains(String),
+    InValues(Vec<String>),
+    Month(Vec<String>),
+    MonthRange { start: String, end: String },
+    NumCompare { op: NumCompareOp, value: f64 },
+    Not(Box<FilterSpec>),
 }
 
-fn parse_filter_expected(expected: &str) -> (FilterMatchMode, &str) {
-    if let Some(rest) = expected.strip_prefix("in:") {
-        return (FilterMatchMode::InValues, rest);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NumCompareOp {
+    Eq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+fn parse_filter_number(raw: &str) -> Option<f64> {
+    let text = raw.trim().replace(',', "");
+    if text.is_empty() {
+        return None;
     }
-    if let Some(rest) = expected.strip_prefix("m:") {
-        return (FilterMatchMode::Month, rest);
+    text.parse::<f64>().ok()
+}
+
+fn parse_filter_spec(expected: &str) -> FilterSpec {
+    let trimmed = expected.trim();
+    if trimmed.is_empty() {
+        return FilterSpec::Contains(String::new());
     }
-    (FilterMatchMode::Contains, expected)
+    if let Some(rest) = trimmed.strip_prefix("not:") {
+        return FilterSpec::Not(Box::new(parse_filter_spec(rest)));
+    }
+    if let Some(rest) = trimmed.strip_prefix("eq:") {
+        if let Some(value) = parse_filter_number(rest) {
+            return FilterSpec::NumCompare {
+                op: NumCompareOp::Eq,
+                value,
+            };
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("gte:") {
+        if let Some(value) = parse_filter_number(rest) {
+            return FilterSpec::NumCompare {
+                op: NumCompareOp::Gte,
+                value,
+            };
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("gt:") {
+        if let Some(value) = parse_filter_number(rest) {
+            return FilterSpec::NumCompare {
+                op: NumCompareOp::Gt,
+                value,
+            };
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("lte:") {
+        if let Some(value) = parse_filter_number(rest) {
+            return FilterSpec::NumCompare {
+                op: NumCompareOp::Lte,
+                value,
+            };
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("lt:") {
+        if let Some(value) = parse_filter_number(rest) {
+            return FilterSpec::NumCompare {
+                op: NumCompareOp::Lt,
+                value,
+            };
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("mrange:") {
+        if let Some((start, end)) = rest.split_once("..") {
+            let start = start.trim();
+            let end = end.trim();
+            if !start.is_empty() && !end.is_empty() {
+                return FilterSpec::MonthRange {
+                    start: start.to_string(),
+                    end: end.to_string(),
+                };
+            }
+        }
+    }
+    if let Some(rest) = trimmed.strip_prefix("in:") {
+        return FilterSpec::InValues(
+            split_filter_values(rest)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        );
+    }
+    if let Some(rest) = trimmed.strip_prefix("m:") {
+        return FilterSpec::Month(
+            split_filter_values(rest)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+        );
+    }
+    if let Some(rest) = trimmed.strip_prefix("contains:") {
+        return FilterSpec::Contains(rest.to_string());
+    }
+    FilterSpec::Contains(trimmed.to_string())
+}
+
+fn eval_num_compare(actual: f64, op: NumCompareOp, expected: f64) -> bool {
+    const EPS: f64 = 1e-9;
+    match op {
+        NumCompareOp::Eq => (actual - expected).abs() <= EPS,
+        NumCompareOp::Gt => actual > expected,
+        NumCompareOp::Gte => actual >= expected - EPS,
+        NumCompareOp::Lt => actual < expected,
+        NumCompareOp::Lte => actual <= expected + EPS,
+    }
+}
+
+fn eval_filter_spec(actual: &str, spec: &FilterSpec) -> bool {
+    match spec {
+        FilterSpec::Not(inner) => !eval_filter_spec(actual, inner),
+        FilterSpec::Contains(needle) => {
+            if needle.is_empty() {
+                return true;
+            }
+            actual.contains(needle.as_str())
+        }
+        FilterSpec::InValues(values) => values.iter().any(|part| actual == part.as_str()),
+        FilterSpec::Month(values) => {
+            let Some(actual_month) = extract_year_month(actual) else {
+                return false;
+            };
+            values.iter().any(|part| actual_month == *part)
+        }
+        FilterSpec::MonthRange { start, end } => {
+            let Some(actual_month) = extract_year_month(actual) else {
+                return false;
+            };
+            actual_month.as_str() >= start.as_str() && actual_month.as_str() <= end.as_str()
+        }
+        FilterSpec::NumCompare { op, value } => parse_filter_number(actual)
+            .is_some_and(|actual_value| eval_num_compare(actual_value, *op, *value)),
+    }
 }
 
 fn split_filter_values(raw: &str) -> Vec<&str> {
@@ -300,20 +430,40 @@ fn extract_year_month(text: &str) -> Option<String> {
 }
 
 fn row_matches_filter_value(actual: &str, expected: &str) -> bool {
-    let (mode, payload) = parse_filter_expected(expected);
-    match mode {
-        FilterMatchMode::Contains => actual.contains(payload),
-        FilterMatchMode::InValues => split_filter_values(payload)
-            .iter()
-            .any(|part| actual == *part),
-        FilterMatchMode::Month => {
-            let Some(actual_month) = extract_year_month(actual) else {
-                return false;
-            };
-            split_filter_values(payload)
-                .iter()
-                .any(|part| actual_month == *part)
+    eval_filter_spec(actual, &parse_filter_spec(expected))
+}
+
+#[cfg(test)]
+mod filter_spec_tests {
+    use super::{eval_filter_spec, parse_filter_spec, FilterSpec};
+
+    #[test]
+    fn parse_not_in_values() {
+        let spec = parse_filter_spec("not:in:红,黄");
+        match &spec {
+            FilterSpec::Not(inner) => match inner.as_ref() {
+                FilterSpec::InValues(values) => assert_eq!(values, &vec!["红", "黄"]),
+                _ => panic!("expected in values"),
+            },
+            _ => panic!("expected not"),
         }
+        assert!(!eval_filter_spec("红", &spec));
+        assert!(eval_filter_spec("蓝", &spec));
+    }
+
+    #[test]
+    fn parse_numeric_gte() {
+        let spec = parse_filter_spec("gte:10");
+        assert!(eval_filter_spec("12", &spec));
+        assert!(eval_filter_spec("10", &spec));
+        assert!(!eval_filter_spec("9", &spec));
+    }
+
+    #[test]
+    fn parse_month_range() {
+        let spec = parse_filter_spec("mrange:2024-01..2024-06");
+        assert!(eval_filter_spec("2024-03-15", &spec));
+        assert!(!eval_filter_spec("2023-12-01", &spec));
     }
 }
 

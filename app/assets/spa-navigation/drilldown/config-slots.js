@@ -180,7 +180,7 @@
 
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return { fields: [], rowsetDatasetId: "" };
+      return { fields: [], rowsetDatasetId: "", defaultCollapsed: false, allowExtra: false, title: "" };
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
@@ -190,12 +190,23 @@
             label: nonEmptyString(entry.label, entry.key),
             column: nonEmptyString(entry.column, entry.key),
             control: nonEmptyString(entry.control, entry.type, "text"),
+            operator: nonEmptyString(entry.operator, entry.default_operator, entry.defaultOperator),
+            visible: entry.visible !== false && entry.hidden !== true,
+            options_from: nonEmptyString(entry.options_from, entry.optionsFrom),
+            options_field: nonEmptyString(entry.options_field, entry.optionsField, entry.column, entry.key),
+            options: Array.isArray(entry.options) ? entry.options : undefined,
           }))
-          .filter((entry) => entry.key)
+          .filter((entry) => entry.key && entry.visible !== false)
       : [];
     return {
       fields,
       rowsetDatasetId: nonEmptyString(raw.rowset_dataset_id, raw.rowsetDatasetId),
+      defaultCollapsed:
+        raw.default_collapsed === true ||
+        raw.defaultCollapsed === true ||
+        raw.collapsed === true,
+      allowExtra: raw.allow_extra === true || raw.allowExtra === true,
+      title: nonEmptyString(raw.title),
     };
   }
 

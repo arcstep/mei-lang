@@ -77,7 +77,7 @@ const LAYOUT_PRESETS = {
   drilldown_warnings: "0.95fr 1.15fr 1.55fr 1.1fr 0.95fr",
   drilldown_issues: "1.05fr 1.2fr 1.6fr 1.1fr 0.9fr 0.9fr",
   drilldown_models: "1fr 1fr 1.5fr 0.95fr 0.8fr",
-  drilldown_matters: "1fr 1.4fr 0.75fr 1.45fr 1.2fr",
+  drilldown_matters: "1.2fr 1.4fr 1.1fr 1.45fr 1.2fr",
   cases: "1.35fr 0.65fr",
   default: "",
 };
@@ -163,8 +163,14 @@ function paginationEnabled(props) {
 
 function resolvePaginationMode(props) {
   const raw = String(props?.paginationMode ?? props?.pagination_mode ?? "").trim().toLowerCase();
-  if (raw === "server" || raw === "remote") return "server";
-  if (raw === "client" || raw === "local") {
+  const wantsClient = raw === "client" || raw === "local";
+  const wantsServer = raw === "server" || raw === "remote";
+  // 轮播需在本地分页上切页；显式 client 时不得因 embedded+metric 降为 server。
+  if (carouselEnabled(props) && wantsClient) {
+    return "client";
+  }
+  if (wantsServer) return "server";
+  if (wantsClient) {
     if (props?.embedded === true && resolveRuntimeMetricRef(props)) {
       return "server";
     }

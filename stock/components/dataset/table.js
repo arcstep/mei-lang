@@ -29,6 +29,7 @@ import {
   stopRelativeTimeTicker,
 } from "./table-runtime/cells.js";
 import {
+  activeTableFilters,
   activeTableColumnState,
   activeTableSort,
   cycleSingleColumnSort,
@@ -198,7 +199,11 @@ class MeiDatasetTable extends HTMLElement {
   }
 
   activeFilters() {
-    return mergeFilters(this._state.sharedFilters, buildFilters(this._state.filterField, this._state.filterValue));
+    return activeTableFilters(
+      this._props,
+      this._queryStateId,
+      buildFilters(this._state.filterField, this._state.filterValue),
+    );
   }
 
   activeColumnState() {
