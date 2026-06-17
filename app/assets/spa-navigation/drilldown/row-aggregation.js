@@ -181,6 +181,51 @@
     return rows.slice(0, topN);
   }
 
+  function resolveCompositionYDisplayName(config, detail = null, yField = "value") {
+    const mappingY = config?.mapping?.y;
+    if (Array.isArray(mappingY)) {
+      for (const item of mappingY) {
+        if (!item || typeof item !== "object") continue;
+        if (String(item.field || "").trim() !== yField) continue;
+        const mappedName = nonEmptyString(item.name);
+        if (mappedName && mappedName !== yField) return mappedName;
+      }
+    }
+    const valueField = resolveCompositionValueField(config, detail);
+    if (valueField && valueField !== yField) return valueField;
+    const contract =
+      detail?.analysis_contract && typeof detail.analysis_contract === "object"
+        ? detail.analysis_contract
+        : null;
+    const title = nonEmptyString(detail?.label, contract?.title, config?.title);
+    const unit = nonEmptyString(detail?.unit, contract?.unit, config?.unit, config?.metricUnit);
+    if (title && unit) return `${title}（${unit}）`;
+    if (unit) return unit;
+    return yField;
+  }
+
+  function buildDefaultCompositionMapping(config, detail = null, xField, yField = "value") {
+    const yDisplayName = resolveCompositionYDisplayName(config, detail, yField);
+    const defaults = {
+      x: [{ field: xField, name: xField }],
+      y: [{ field: yField, name: yDisplayName }],
+      label: [{ field: xField, name: xField }],
+    };
+    const override = config?.mapping;
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+      return defaults;
+    }
+    const merged = {
+      x: Array.isArray(override.x) && override.x.length ? override.x : defaults.x,
+      y: Array.isArray(override.y) && override.y.length ? override.y : defaults.y,
+      label: Array.isArray(override.label) && override.label.length ? override.label : defaults.label,
+    };
+    if (Array.isArray(override.group) && override.group.length) {
+      merged.group = override.group;
+    }
+    return merged;
+  }
+
   function groupRowsByMonth(rows, field, columns = []) {
     const grouped = new Map();
     rows.forEach((row) => {

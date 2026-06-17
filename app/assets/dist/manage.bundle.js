@@ -5296,7 +5296,7 @@
 
   function normalizeAnalyticsFilterSchema(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-      return { fields: [], rowsetDatasetId: "" };
+      return { fields: [], rowsetDatasetId: "", defaultCollapsed: false, allowExtra: false, title: "" };
     }
     const fields = Array.isArray(raw.fields)
       ? raw.fields
@@ -5306,12 +5306,23 @@
             label: nonEmptyString(entry.label, entry.key),
             column: nonEmptyString(entry.column, entry.key),
             control: nonEmptyString(entry.control, entry.type, "text"),
+            operator: nonEmptyString(entry.operator, entry.default_operator, entry.defaultOperator),
+            visible: entry.visible !== false && entry.hidden !== true,
+            options_from: nonEmptyString(entry.options_from, entry.optionsFrom),
+            options_field: nonEmptyString(entry.options_field, entry.optionsField, entry.column, entry.key),
+            options: Array.isArray(entry.options) ? entry.options : undefined,
           }))
-          .filter((entry) => entry.key)
+          .filter((entry) => entry.key && entry.visible !== false)
       : [];
     return {
       fields,
       rowsetDatasetId: nonEmptyString(raw.rowset_dataset_id, raw.rowsetDatasetId),
+      defaultCollapsed:
+        raw.default_collapsed === true ||
+        raw.defaultCollapsed === true ||
+        raw.collapsed === true,
+      allowExtra: raw.allow_extra === true || raw.allowExtra === true,
+      title: nonEmptyString(raw.title),
     };
   }
 
@@ -6495,6 +6506,51 @@
     return rows.slice(0, topN);
   }
 
+  function resolveCompositionYDisplayName(config, detail = null, yField = "value") {
+    const mappingY = config?.mapping?.y;
+    if (Array.isArray(mappingY)) {
+      for (const item of mappingY) {
+        if (!item || typeof item !== "object") continue;
+        if (String(item.field || "").trim() !== yField) continue;
+        const mappedName = nonEmptyString(item.name);
+        if (mappedName && mappedName !== yField) return mappedName;
+      }
+    }
+    const valueField = resolveCompositionValueField(config, detail);
+    if (valueField && valueField !== yField) return valueField;
+    const contract =
+      detail?.analysis_contract && typeof detail.analysis_contract === "object"
+        ? detail.analysis_contract
+        : null;
+    const title = nonEmptyString(detail?.label, contract?.title, config?.title);
+    const unit = nonEmptyString(detail?.unit, contract?.unit, config?.unit, config?.metricUnit);
+    if (title && unit) return `${title}（${unit}）`;
+    if (unit) return unit;
+    return yField;
+  }
+
+  function buildDefaultCompositionMapping(config, detail = null, xField, yField = "value") {
+    const yDisplayName = resolveCompositionYDisplayName(config, detail, yField);
+    const defaults = {
+      x: [{ field: xField, name: xField }],
+      y: [{ field: yField, name: yDisplayName }],
+      label: [{ field: xField, name: xField }],
+    };
+    const override = config?.mapping;
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+      return defaults;
+    }
+    const merged = {
+      x: Array.isArray(override.x) && override.x.length ? override.x : defaults.x,
+      y: Array.isArray(override.y) && override.y.length ? override.y : defaults.y,
+      label: Array.isArray(override.label) && override.label.length ? override.label : defaults.label,
+    };
+    if (Array.isArray(override.group) && override.group.length) {
+      merged.group = override.group;
+    }
+    return merged;
+  }
+
   function groupRowsByMonth(rows, field, columns = []) {
     const grouped = new Map();
     rows.forEach((row) => {
@@ -7050,14 +7106,7 @@
     const xField =
       normalizedKind === "trend" ? "month" : normalizedKind === "composition" ? compositionField : columns[0] || "label";
     const yField = "value";
-    const mapping =
-      config?.mapping && typeof config.mapping === "object"
-        ? config.mapping
-        : {
-            x: [{ field: xField, name: xField }],
-            y: [{ field: yField, name: yField }],
-            label: [{ field: xField, name: xField }],
-          };
+    const mapping = buildDefaultCompositionMapping(config, detail, xField, yField);
     return {
       chartTag,
       props: {
@@ -7091,8 +7140,15 @@
     const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
       supportRole: config?.supportRole ?? supportRole,
     });
+    const sharedQueryStateId = nonEmptyString(
+      config?.queryStateId,
+      detail?.query_state_id,
+      detail?.queryStateId,
+    );
     if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
-      if (dedicatedChartMetric) {
+      // 过滤条与图表共享 query_state 时，composition/trend 需基于明细 rowset 重聚合，
+      // 服务端已聚合的 explain dataframe 不含全部筛选维度。
+      if (!sharedQueryStateId && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
         }
@@ -7162,22 +7218,61 @@
     return true;
   }
 
+  function buildFilterColumnCatalog(config, tableProps) {
+    const schemaFields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
+    const detailFields = Array.isArray(config?.detailSlot?.fields) ? config.detailSlot.fields : [];
+    const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
+    const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
+    const byColumn = new Map();
+    for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
+      const column = String(raw || "").trim();
+      if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
+      byColumn.set(column, { key: column, label: column, column });
+    }
+    for (const field of schemaFields) {
+      const column = nonEmptyString(field.column, field.key);
+      if (!column) continue;
+      byColumn.set(column, {
+        key: nonEmptyString(field.key, column),
+        label: field.label || field.key || column,
+        column,
+        control: nonEmptyString(field.control, field.type) || undefined,
+        operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
+        options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
+        options_field: nonEmptyString(field.options_field, field.optionsField, column),
+        options: Array.isArray(field.options) ? field.options : undefined,
+      });
+    }
+    return Array.from(byColumn.values());
+  }
+
+  function isFilterableDetailColumn(column) {
+    const name = String(column || "").trim();
+    if (!name) return false;
+    if (/^序号$/.test(name)) return false;
+    if (/条数$|金额$|人数$|^value$/i.test(name)) return false;
+    if (/^\d{4}$/.test(name)) return false;
+    if (/^month$/i.test(name)) return false;
+    return true;
+  }
+
   function buildAnalyticsFilterBarProps(config, detail) {
-    const fields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
     const tableProps = buildDrilldownTableProps(detail, config) || {};
+    const columnCatalog = buildFilterColumnCatalog(config, tableProps);
+    const filterSchema = config?.filterSchema || {};
     const rowsetDatasetId = nonEmptyString(
+      filterSchema.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
       tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
       tableProps?.dataset?.id,
     );
-    const listPreview = Boolean(config?.hasRowPreviewZone);
     return {
-      title: "筛选条件",
-      description: listPreview
-        ? "调整条件后清单与预览将同步刷新。"
-        : "调整条件后图表与明细表将同步刷新。",
-      live: true,
+      mode: "additive",
+      live: false,
+      title: nonEmptyString(filterSchema.title) || "筛选条件",
+      default_collapsed: Boolean(filterSchema.defaultCollapsed),
       query_state: config?.queryStateId || undefined,
+      default_filters: tableProps?.default_filters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
       dataset: rowsetDatasetId
         ? {
@@ -7191,19 +7286,8 @@
         : tableProps.dataset,
       data: rowsetDatasetId ? { id: rowsetDatasetId } : tableProps.dataset,
       _mei: tableProps._mei,
-      fields: fields.map((field) => {
-        const column = nonEmptyString(field.column, field.key);
-        const control = nonEmptyString(field.control, "text");
-        const needsRowsetOptions = control === "multi_select" || control === "month_multi_select";
-        return {
-          key: column,
-          label: field.label || field.key || column,
-          column,
-          control,
-          options_from: needsRowsetOptions ? "rowset" : "",
-          options_field: column,
-        };
-      }),
+      column_catalog: columnCatalog,
+      fields: columnCatalog,
     };
   }
 
@@ -7214,7 +7298,11 @@
         : root.querySelector('[data-drilldown-filter-host="true"]');
     if (!(host instanceof HTMLElement)) return false;
     const filterProps = buildAnalyticsFilterBarProps(config, detail);
-    const fieldCount = Array.isArray(filterProps?.fields) ? filterProps.fields.length : 0;
+    const fieldCount = Array.isArray(filterProps?.column_catalog)
+      ? filterProps.column_catalog.length
+      : Array.isArray(filterProps?.fields)
+        ? filterProps.fields.length
+        : 0;
     host.toggleAttribute("hidden", fieldCount === 0);
     if (fieldCount === 0) {
       host.replaceChildren();
@@ -8861,13 +8949,22 @@
     }
     const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const fetchConfig = { ...config, datasetId };
+    const sharedQueryStateId = nonEmptyString(
+      config?.queryStateId,
+      detail?.query_state_id,
+      detail?.queryStateId,
+    );
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "composition";
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    if (cardMetricId && isCompositionTab) {
+    const useFilteredRowset = Boolean(sharedQueryStateId && cardMetricId && (isCompositionTab || isTrendTab));
+    if (useFilteredRowset) {
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.supportRole = "";
+    } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
       if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
@@ -8924,8 +9021,8 @@
           tabId,
           grouped,
           {
-            x: "label",
-            y: "value",
+            x: [{ field: "label", name: dimension || "label" }],
+            y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,
         ),

@@ -19,13 +19,22 @@
     }
     const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const fetchConfig = { ...config, datasetId };
+    const sharedQueryStateId = nonEmptyString(
+      config?.queryStateId,
+      detail?.query_state_id,
+      detail?.queryStateId,
+    );
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "composition";
     const isTrendTab =
       explainMetricKind(config, tabId) === "trend" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "trend";
-    if (cardMetricId && isCompositionTab) {
+    const useFilteredRowset = Boolean(sharedQueryStateId && cardMetricId && (isCompositionTab || isTrendTab));
+    if (useFilteredRowset) {
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
+      fetchConfig.supportRole = "";
+    } else if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
       if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
@@ -82,8 +91,8 @@
           tabId,
           grouped,
           {
-            x: "label",
-            y: "value",
+            x: [{ field: "label", name: dimension || "label" }],
+            y: [{ field: "value", name: resolveCompositionYDisplayName(config, detail, "value") }],
           },
           config,
         ),

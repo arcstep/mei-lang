@@ -201,14 +201,7 @@
     const xField =
       normalizedKind === "trend" ? "month" : normalizedKind === "composition" ? compositionField : columns[0] || "label";
     const yField = "value";
-    const mapping =
-      config?.mapping && typeof config.mapping === "object"
-        ? config.mapping
-        : {
-            x: [{ field: xField, name: xField }],
-            y: [{ field: yField, name: yField }],
-            label: [{ field: xField, name: xField }],
-          };
+    const mapping = buildDefaultCompositionMapping(config, detail, xField, yField);
     return {
       chartTag,
       props: {
@@ -242,8 +235,15 @@
     const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
       supportRole: config?.supportRole ?? supportRole,
     });
+    const sharedQueryStateId = nonEmptyString(
+      config?.queryStateId,
+      detail?.query_state_id,
+      detail?.queryStateId,
+    );
     if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
-      if (dedicatedChartMetric) {
+      // 过滤条与图表共享 query_state 时，composition/trend 需基于明细 rowset 重聚合，
+      // 服务端已聚合的 explain dataframe 不含全部筛选维度。
+      if (!sharedQueryStateId && dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
         }
@@ -313,22 +313,61 @@
     return true;
   }
 
+  function buildFilterColumnCatalog(config, tableProps) {
+    const schemaFields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
+    const detailFields = Array.isArray(config?.detailSlot?.fields) ? config.detailSlot.fields : [];
+    const tableColumns = Array.isArray(tableProps?.columns) ? tableProps.columns : [];
+    const fallbackColumns = Array.isArray(config?.columns) ? config.columns : [];
+    const byColumn = new Map();
+    for (const raw of [...detailFields, ...tableColumns, ...fallbackColumns]) {
+      const column = String(raw || "").trim();
+      if (!column || byColumn.has(column) || !isFilterableDetailColumn(column)) continue;
+      byColumn.set(column, { key: column, label: column, column });
+    }
+    for (const field of schemaFields) {
+      const column = nonEmptyString(field.column, field.key);
+      if (!column) continue;
+      byColumn.set(column, {
+        key: nonEmptyString(field.key, column),
+        label: field.label || field.key || column,
+        column,
+        control: nonEmptyString(field.control, field.type) || undefined,
+        operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
+        options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
+        options_field: nonEmptyString(field.options_field, field.optionsField, column),
+        options: Array.isArray(field.options) ? field.options : undefined,
+      });
+    }
+    return Array.from(byColumn.values());
+  }
+
+  function isFilterableDetailColumn(column) {
+    const name = String(column || "").trim();
+    if (!name) return false;
+    if (/^序号$/.test(name)) return false;
+    if (/条数$|金额$|人数$|^value$/i.test(name)) return false;
+    if (/^\d{4}$/.test(name)) return false;
+    if (/^month$/i.test(name)) return false;
+    return true;
+  }
+
   function buildAnalyticsFilterBarProps(config, detail) {
-    const fields = Array.isArray(config?.filterSchema?.fields) ? config.filterSchema.fields : [];
     const tableProps = buildDrilldownTableProps(detail, config) || {};
+    const columnCatalog = buildFilterColumnCatalog(config, tableProps);
+    const filterSchema = config?.filterSchema || {};
     const rowsetDatasetId = nonEmptyString(
+      filterSchema.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
       tableProps?.dataset?.__mei_runtime_ref?.dataset_id,
       tableProps?.dataset?.id,
     );
-    const listPreview = Boolean(config?.hasRowPreviewZone);
     return {
-      title: "筛选条件",
-      description: listPreview
-        ? "调整条件后清单与预览将同步刷新。"
-        : "调整条件后图表与明细表将同步刷新。",
-      live: true,
+      mode: "additive",
+      live: false,
+      title: nonEmptyString(filterSchema.title) || "筛选条件",
+      default_collapsed: Boolean(filterSchema.defaultCollapsed),
       query_state: config?.queryStateId || undefined,
+      default_filters: tableProps?.default_filters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,
       dataset: rowsetDatasetId
         ? {
@@ -342,19 +381,8 @@
         : tableProps.dataset,
       data: rowsetDatasetId ? { id: rowsetDatasetId } : tableProps.dataset,
       _mei: tableProps._mei,
-      fields: fields.map((field) => {
-        const column = nonEmptyString(field.column, field.key);
-        const control = nonEmptyString(field.control, "text");
-        const needsRowsetOptions = control === "multi_select" || control === "month_multi_select";
-        return {
-          key: column,
-          label: field.label || field.key || column,
-          column,
-          control,
-          options_from: needsRowsetOptions ? "rowset" : "",
-          options_field: column,
-        };
-      }),
+      column_catalog: columnCatalog,
+      fields: columnCatalog,
     };
   }
 
@@ -365,7 +393,11 @@
         : root.querySelector('[data-drilldown-filter-host="true"]');
     if (!(host instanceof HTMLElement)) return false;
     const filterProps = buildAnalyticsFilterBarProps(config, detail);
-    const fieldCount = Array.isArray(filterProps?.fields) ? filterProps.fields.length : 0;
+    const fieldCount = Array.isArray(filterProps?.column_catalog)
+      ? filterProps.column_catalog.length
+      : Array.isArray(filterProps?.fields)
+        ? filterProps.fields.length
+        : 0;
     host.toggleAttribute("hidden", fieldCount === 0);
     if (fieldCount === 0) {
       host.replaceChildren();

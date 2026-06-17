@@ -16,7 +16,7 @@ import { createComponentTracer } from "../../perf/render-trace.js";
 import { cockpitCssVars, COCKPIT_Z_INDEX, readThemeTypography } from "../../cockpit/tokens.js";
 import {
   bindFloatingPopoverDrag,
-  buildTextPopoverBodyHtml,
+  buildTextPopoverShellHtml,
   copyTextToClipboard,
   ensureFloatingTextPopoverStyles,
   mountFloatingPopoverOnBody,
@@ -291,28 +291,20 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
       pop.setAttribute("role", "dialog");
       pop.setAttribute("aria-modal", "true");
       pop.setAttribute("aria-label", "完整名称");
-      pop.innerHTML = `
-        <div class="cell-pop-hd">
-          <div class="cell-pop-title"><span>完整名称</span></div>
-          <div class="cell-pop-actions">
-            <button type="button" class="cell-pop-copy">复制</button>
-            <button type="button" class="cell-pop-done">关闭</button>
-            <button type="button" class="cell-pop-close" aria-label="关闭">×</button>
-          </div>
-        </div>
-        ${buildTextPopoverBodyHtml(fullText, escapeHtml)}
-      `;
-      mountFloatingPopoverOnBody(pop, { width: 480, height: 340 });
+      pop.innerHTML = buildTextPopoverShellHtml(
+        { title: "完整名称", subtitle: "", fullText },
+        escapeHtml,
+      );
+      mountFloatingPopoverOnBody(pop, { width: 420 });
       this._labelPopoverEl = pop;
       const anchor = anchorEvent?.target || anchorEvent;
       positionFloatingPopoverNearAnchor(pop, anchor, {
         topOffset: 8,
-        defaultWidth: 480,
-        defaultHeight: 340,
+        defaultWidth: 420,
       });
       this._labelPopoverDragCleanup = bindFloatingPopoverDrag(
         pop,
-        pop.querySelector(".cell-pop-hd"),
+        pop.querySelector(".cell-pop-drag-handle"),
       );
 
       const onDoc = (ev) => {
