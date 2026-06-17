@@ -341,6 +341,7 @@ pub(crate) fn evaluate_runtime_metric_defs_with_scope_and_dag(
         base_rows,
         datasets,
         scope,
+        Some(&expanded_defs),
     )?;
     Ok((
         metrics,

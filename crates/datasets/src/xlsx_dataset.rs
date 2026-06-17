@@ -3,22 +3,25 @@ use std::{path::Path, time::Instant};
 use anyhow::Result;
 use mei_lang_kernel::{
     cached_load_xlsx_table_snapshot, coerce_calendar_columns_in_rows, coerce_row_to_schema,
-    ColumnSchema, SourceDecl,
+    ColumnSchema, DatasetView,
 };
 
+use super::dataset_rows_cache::{
+    dataset_rows_scope_cache_key, paginate_rows_eager_materialize, store_materialized_dataset_rows,
+};
 use super::file_cache::ExternalFileCacheSettings;
-use super::paginate::paginate_rows_iter;
 use super::types::{DatasetQueryOptions, DatasetQueryResult, SourceMeta};
 use super::util::elapsed_ms;
 
 pub(crate) fn query_xlsx_rows(
     app_root: &Path,
-    source: &SourceDecl,
+    dataset: &DatasetView,
     meta: &SourceMeta,
     options: &DatasetQueryOptions,
     _cache_settings: &ExternalFileCacheSettings,
     schema: &[ColumnSchema],
 ) -> Result<DatasetQueryResult> {
+    let source = &dataset.source;
     let sheet = meta.sheet.as_deref();
     let header_row = meta.header_row.unwrap_or(1).max(1) as usize;
     let snapshot_started = Instant::now();
@@ -69,29 +72,42 @@ pub(crate) fn query_xlsx_rows(
         result
             .perf
             .insert("file_cache_direct_snapshot".to_string(), 1);
+        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options) {
+            store_materialized_dataset_rows(
+                scope_key,
+                result.columns.clone(),
+                result.rows.clone(),
+                true,
+            );
+        }
         return Ok(result);
     }
     let paginate_started = Instant::now();
-    let mut result = if schema.is_empty() {
-        paginate_rows_iter(
-            snapshot.rows.iter().cloned(),
+    let coerced_rows = if schema.is_empty() {
+        coerce_calendar_columns_in_rows(
+            snapshot.rows.clone(),
             &snapshot.columns,
-            &meta.normalize,
-            options,
-            true,
+            &[],
         )
     } else {
-        paginate_rows_iter(
-            snapshot
-                .rows
-                .iter()
-                .map(|row| coerce_row_to_schema(row, schema)),
-            &snapshot.columns,
-            &meta.normalize,
-            options,
-            true,
-        )
+        snapshot
+            .rows
+            .iter()
+            .map(|row| coerce_row_to_schema(row, schema))
+            .collect()
     };
+    let (mut result, materialized) = paginate_rows_eager_materialize(
+        coerced_rows,
+        &snapshot.columns,
+        &meta.normalize,
+        options,
+        true,
+    );
+    if let Some((columns, rows)) = materialized {
+        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options) {
+            store_materialized_dataset_rows(scope_key, columns, rows, true);
+        }
+    }
     result
         .perf
         .insert("file_cache_hit".to_string(), u64::from(cache_hit));

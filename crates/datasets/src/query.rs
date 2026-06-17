@@ -5,6 +5,10 @@ use anyhow::Result;
 use mei_lang_kernel::{coerce_rows_to_schema, DatasetView};
 
 use super::csv_dataset;
+use super::dataset_rows_cache::{
+    dataset_rows_scope_cache_key, paginate_materialized_dataset_rows,
+    store_materialized_dataset_rows, take_materialized_dataset_rows,
+};
 use super::db_dataset;
 use super::file_cache::resolve_external_file_cache_settings;
 use super::geojson_dataset;
@@ -58,6 +62,25 @@ pub fn query_dataset_rows(
     let file_backed = file_backed_for_lazy_query(dataset, &meta);
     // 仅无外部可解析源时对物化 rows 分页；外部文件/DB 一律走查询管线。
     let use_external_query_path = file_backed;
+    if use_external_query_path {
+        let cache_lookup_started = Instant::now();
+        if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, &meta, &normalized_options)
+        {
+            if let Some(materialized) = take_materialized_dataset_rows(&scope_key) {
+                let mut result = paginate_materialized_dataset_rows(
+                    &materialized,
+                    &meta.normalize,
+                    &normalized_options,
+                    cache_lookup_started,
+                );
+                result.perf.insert(
+                    "query_total_ms".to_string(),
+                    elapsed_ms(query_total_started),
+                );
+                return Ok(result);
+            }
+        }
+    }
     if !use_external_query_path {
         let rows = if dataset.schema.is_empty() {
             dataset.rows.clone()
@@ -103,7 +126,7 @@ pub fn query_dataset_rows(
         ),
         "xlsx" | "xls" => xlsx_dataset::query_xlsx_rows(
             app_root,
-            &dataset.source,
+            dataset,
             &meta,
             &normalized_options,
             &cache_settings,
@@ -118,6 +141,20 @@ pub fn query_dataset_rows(
             false,
         )),
     }?;
+    if use_external_query_path {
+        if let Some(scope_key) =
+            dataset_rows_scope_cache_key(app_root, dataset, &meta, &normalized_options)
+        {
+            if result.rows.len() >= 128 || normalized_options.collect_all {
+                store_materialized_dataset_rows(
+                    scope_key,
+                    result.columns.clone(),
+                    result.rows.clone(),
+                    result.lazy,
+                );
+            }
+        }
+    }
     result.perf.insert(
         "query_total_ms".to_string(),
         elapsed_ms(query_total_started),

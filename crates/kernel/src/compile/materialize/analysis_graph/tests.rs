@@ -383,6 +383,52 @@ fn build_analysis_contracts_detail_prefers_lineage_when_composition_present() {
 }
 
 #[test]
+fn build_analysis_contracts_hoists_composition_dataframe_without_prior_data_product() {
+    let defs = BTreeMap::from([(
+        "inspections_total_count".to_string(),
+        json!({
+            "key": "inspections_total_count",
+            "values": {
+                "value": {
+                    "__kind": "analysis_expr",
+                    "type": "count",
+                    "rowset": {"__ref": "data", "id": "inspection_rows"}
+                }
+            },
+            "explain": [
+                {
+                    "__kind": "explain_item",
+                    "id": "composition_by_agency",
+                    "kind": "composition",
+                    "by": "检查机构",
+                    "top_n": 6
+                },
+                {
+                    "__kind": "explain_item",
+                    "id": "detail",
+                    "kind": "detail",
+                    "fields": ["检查机构"]
+                }
+            ]
+        }),
+    )]);
+    let contracts = build_analysis_contracts(&defs, "administrative_inspection_dashboard_ds");
+    let contract = contracts.get("inspections_total_count").expect("contract");
+    let tab_metrics = contract
+        .get("tab_metrics")
+        .and_then(Value::as_object)
+        .expect("tab_metrics");
+    let composition = tab_metrics
+        .get("composition")
+        .and_then(Value::as_object)
+        .expect("composition tab");
+    assert_eq!(
+        composition.get("metric_id").and_then(Value::as_str),
+        Some("inspections_total_count::composition_by_agency")
+    );
+}
+
+#[test]
 fn build_analysis_contracts_infers_detail_from_scalar_rowset_without_explain_dataframe() {
     let defs = BTreeMap::from([(
         "transfer_clue_count".to_string(),

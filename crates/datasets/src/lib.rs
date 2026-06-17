@@ -1,4 +1,5 @@
 mod csv_dataset;
+mod dataset_rows_cache;
 mod db_dataset;
 mod file_cache;
 mod geojson_dataset;
@@ -62,6 +63,10 @@ pub fn clear_external_file_cache_for_app(app_root: &Path) -> usize {
 
 pub fn clear_metric_dataframe_result_cache() -> usize {
     metric_dataframe::clear_metric_dataframe_result_cache()
+}
+
+pub fn clear_dataset_rows_cache() -> usize {
+    dataset_rows_cache::clear_dataset_rows_cache()
 }
 
 pub fn query_metric_dataframe(

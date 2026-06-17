@@ -50,11 +50,14 @@ fn eval_rowset_uncached(
             if map.get("__ref").and_then(Value::as_str) == Some("data") {
                 return resolve_data_ref(map, datasets);
             }
+            if map.get("__ref").and_then(Value::as_str) == Some("metric") {
+                return resolve_metric_ref_rowset(map, datasets, ctx);
+            }
             if map.get("__kind").and_then(Value::as_str) == Some("analysis_expr") {
                 return eval_analysis_rowset(map, datasets, ctx);
             }
             Err(anyhow!(
-                "rowset expression must be data_ref or analysis expression"
+                "rowset expression must be data_ref, metric_ref, or analysis expression"
             ))
         }
         Value::Null => Ok(Vec::new()),
@@ -74,6 +77,41 @@ fn resolve_data_ref(
     let dataset = lookup_dataset_view(datasets, dataset_id)
         .ok_or_else(|| unknown_dataset_error(dataset_id, datasets))?;
     Ok(dataset.rows.clone())
+}
+
+fn resolve_metric_ref_rowset(
+    map: &serde_json::Map<String, Value>,
+    datasets: &BTreeMap<String, DatasetView>,
+    ctx: &mut EvalContext,
+) -> Result<Vec<Value>> {
+    let metric_id = map
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow!("metric_ref missing id"))?;
+    if let Some(rows) = ctx.resolved_metric_rowset(metric_id) {
+        return Ok(rows);
+    }
+    let node_key = format!("metric_ref:{metric_id}");
+    ctx.with_eval_node(&node_key, EvalNodeKind::Rowset, |ctx| {
+        let def = ctx
+            .metric_def(metric_id)
+            .ok_or_else(|| anyhow!("unknown metric_ref `{metric_id}`"))?
+            .clone();
+        let def_map = def
+            .as_object()
+            .ok_or_else(|| anyhow!("metric_ref `{metric_id}` is not an object"))?;
+        let rowset_expr = def_map
+            .get("series")
+            .or_else(|| def_map.get("list"))
+            .or_else(|| def_map.get("value"))
+            .cloned()
+            .ok_or_else(|| anyhow!("metric_ref `{metric_id}` has no rowset value"))?;
+        let rows = eval_rowset_with_ctx(&rowset_expr, datasets, ctx)?;
+        ctx.store_resolved_metric_rowset(metric_id, &rows);
+        Ok(rows)
+    })
 }
 
 pub(super) fn lookup_dataset_view<'a>(
@@ -263,4 +301,90 @@ pub(super) fn eval_lookup_value_rowset(
         out.push(Value::Object(object));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compile::analysis::eval_context::RuntimeMetricEvalScope;
+    use crate::compile::analysis::schema::row_number;
+    use crate::model::SourceDecl;
+    use serde_json::json;
+
+    #[test]
+    fn eval_rowset_resolves_metric_ref_to_grouped_dataframe() {
+        let scalar_rowset_id = "sales_total::__scalar_rowset__".to_string();
+        let composition_id = "sales_total::composition_by_agency".to_string();
+        let composition_expr = json!({
+            "__kind": "analysis_expr",
+            "type": "group_by",
+            "rowset": {"__ref": "metric", "id": scalar_rowset_id},
+            "by": "agency",
+            "agg": "count"
+        });
+        let mut metric_defs = BTreeMap::new();
+        metric_defs.insert(
+            scalar_rowset_id.clone(),
+            json!({
+                "shape": "dataframe",
+                "value": {
+                    "__kind": "analysis_expr",
+                    "type": "rows",
+                    "dataset": "sales"
+                }
+            }),
+        );
+        metric_defs.insert(
+            composition_id.clone(),
+            json!({
+                "shape": "dataframe",
+                "value": composition_expr
+            }),
+        );
+        let mut datasets = BTreeMap::new();
+        datasets.insert(
+            "sales".to_string(),
+            DatasetView {
+                id: "sales".to_string(),
+                title: None,
+                purpose: None,
+                schema: Vec::new(),
+                stage_schema: Vec::new(),
+                columns: Vec::new(),
+                rows: vec![
+                    json!({"agency": "A"}),
+                    json!({"agency": "A"}),
+                    json!({"agency": "B"}),
+                ],
+                source: SourceDecl {
+                    kind: "inline".to_string(),
+                    path: "test".to_string(),
+                    sheet: None,
+                    header_row: None,
+                    preview_rows: None,
+                    page_size: None,
+                    max_page_size: None,
+                    table: None,
+                    query: None,
+                    connection: None,
+                    content: None,
+                },
+                sources: Vec::new(),
+                metrics: BTreeMap::new(),
+                runtime_metric_defs: BTreeMap::new(),
+                runtime_analysis_graph: Default::default(),
+                runtime_analysis_contracts: BTreeMap::new(),
+            },
+        );
+        let mut ctx = EvalContext::with_scope_and_metric_defs(
+            RuntimeMetricEvalScope::default(),
+            metric_defs,
+        );
+        let rows = eval_rowset_with_ctx(&composition_expr, &datasets, &mut ctx).expect("group_by");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(row_string(&rows[0], "agency"), "A");
+        assert_eq!(row_number(&rows[0], "value"), Some(2.0));
+        assert_eq!(row_string(&rows[1], "agency"), "B");
+        assert_eq!(row_number(&rows[1], "value"), Some(1.0));
+    }
 }

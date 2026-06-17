@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     coerce_calendar_columns_in_rows, evaluate_runtime_metric_defs_with_scope_and_dag,
-    runtime_eval_node_cache_enabled, CompiledApp, DatasetView, EvalPlanNodeKind, FilterIntent,
-    MetricShape, QueryState,
+    runtime_eval_node_cache_enabled, ColumnSchema, CompiledApp, DatasetView, EvalPlanNodeKind,
+    FilterIntent, MetricShape, QueryState,
 };
 use serde_json::Value;
 
@@ -33,7 +33,12 @@ use super::{
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize = 1000;
 const METRIC_DATAFRAME_CACHE_TTL_MS: u64 = 1500;
+const METRIC_DATAFRAME_MATERIALIZED_CACHE_TTL_MS: u64 = 300_000;
 const METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS: u64 = 5_000;
+const MAX_METRIC_DATAFRAME_MATERIALIZED_ENTRIES: usize = 64;
+/// 空行集不写入物化缓存，避免 composition 等依赖 rowset 的 metric 在并行冷启动时
+/// 抢先缓存 0 行结果（TTL 5min），导致图表长期空白。
+const MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE: usize = 1;
 
 #[derive(Clone)]
 struct CachedMetricDataframeResult {
@@ -41,9 +46,25 @@ struct CachedMetricDataframeResult {
     result: DatasetQueryResult,
 }
 
+#[derive(Clone)]
+struct MaterializedMetricDataframe {
+    expires_at: Instant,
+    columns: Vec<String>,
+    rows: Vec<Value>,
+    row_schema: Vec<ColumnSchema>,
+    normalize: BTreeMap<String, String>,
+    base_perf: BTreeMap<String, u64>,
+}
+
 #[derive(Default)]
 struct MetricDataframeCacheState {
     entries: BTreeMap<String, CachedMetricDataframeResult>,
+    next_prune_at: Option<Instant>,
+}
+
+#[derive(Default)]
+struct MetricDataframeMaterializedCacheState {
+    entries: BTreeMap<String, MaterializedMetricDataframe>,
     next_prune_at: Option<Instant>,
 }
 
@@ -63,14 +84,53 @@ fn metric_dataframe_result_cache() -> &'static Mutex<MetricDataframeCacheState> 
     CACHE.get_or_init(|| Mutex::new(MetricDataframeCacheState::default()))
 }
 
+fn metric_dataframe_materialized_cache() -> &'static Mutex<MetricDataframeMaterializedCacheState> {
+    static CACHE: OnceLock<Mutex<MetricDataframeMaterializedCacheState>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(MetricDataframeMaterializedCacheState::default()))
+}
+
 fn metric_dataframe_cache_ttl() -> Duration {
     Duration::from_millis(METRIC_DATAFRAME_CACHE_TTL_MS)
+}
+
+fn metric_dataframe_materialized_cache_ttl() -> Duration {
+    Duration::from_millis(METRIC_DATAFRAME_MATERIALIZED_CACHE_TTL_MS)
 }
 
 fn hash_fingerprint(value: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     value.hash(&mut hasher);
     hasher.finish()
+}
+
+fn metric_dataframe_scope_cache_key(
+    app_root: &Path,
+    scene_id: Option<&str>,
+    target: Option<&str>,
+    dataset_id: &str,
+    metric_id: &str,
+    options: &DatasetQueryOptions,
+    compile_revision: &str,
+    dependency_revision_key: &str,
+    filter_intents: &[FilterIntent],
+) -> String {
+    let group = serialize_cache_value(&options.group);
+    let time_range = serialize_cache_value(&options.time_range);
+    format!(
+        "{}|compile={}|{}|scene={}|target={}|{}|{}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
+        app_root.display(),
+        compile_revision,
+        dependency_revision_key,
+        scene_id.unwrap_or("").trim(),
+        target.unwrap_or("").trim(),
+        dataset_id,
+        metric_id,
+        options.search.as_deref().unwrap_or(""),
+        serialize_cache_value(&options.filters),
+        group,
+        time_range,
+        serde_json::to_string(filter_intents).unwrap_or_else(|_| "[]".to_string()),
+    )
 }
 
 fn metric_dataframe_cache_key(
@@ -82,31 +142,64 @@ fn metric_dataframe_cache_key(
     options: &DatasetQueryOptions,
     compile_revision: &str,
     dependency_revision_key: &str,
+    filter_intents: &[FilterIntent],
 ) -> String {
     let sort = serialize_cache_value(&options.sort);
     let column_state = serialize_cache_value(&options.column_state);
-    let group = serialize_cache_value(&options.group);
-    let time_range = serialize_cache_value(&options.time_range);
     format!(
-        "{}|compile={}|{}|scene={}|target={}|{}|{}|page={}|page_size={}|full={}|search={}|filters={}|group={}|time_range={}|sort={}|column_state={}|summary={}",
-        app_root.display(),
-        compile_revision,
-        dependency_revision_key,
-        scene_id.unwrap_or("").trim(),
-        target.unwrap_or("").trim(),
-        dataset_id,
-        metric_id,
+        "{}|page={}|page_size={}|full={}|sort={}|column_state={}|summary={}",
+        metric_dataframe_scope_cache_key(
+            app_root,
+            scene_id,
+            target,
+            dataset_id,
+            metric_id,
+            options,
+            compile_revision,
+            dependency_revision_key,
+            filter_intents,
+        ),
         options.page,
         options.page_size,
         options.collect_all,
-        options.search.as_deref().unwrap_or(""),
-        serialize_cache_value(&options.filters),
-        group,
-        time_range,
         sort,
         column_state,
         options.summary
     )
+}
+
+impl MetricDataframeMaterializedCacheState {
+    fn prune_if_due(&mut self, now: Instant) {
+        if self.next_prune_at.is_some_and(|next| now < next) {
+            return;
+        }
+        self.entries.retain(|_, entry| entry.expires_at > now);
+        self.next_prune_at =
+            Some(now + Duration::from_millis(METRIC_DATAFRAME_CACHE_PRUNE_INTERVAL_MS));
+    }
+}
+
+fn take_cached_metric_dataframe_materialized(key: &str) -> Option<MaterializedMetricDataframe> {
+    let Ok(mut cache) = metric_dataframe_materialized_cache().lock() else {
+        return None;
+    };
+    let now = Instant::now();
+    cache.prune_if_due(now);
+    cache.entries.get(key).cloned()
+}
+
+fn store_cached_metric_dataframe_materialized(key: String, materialized: MaterializedMetricDataframe) {
+    if materialized.rows.len() < MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
+        return;
+    }
+    let Ok(mut cache) = metric_dataframe_materialized_cache().lock() else {
+        return;
+    };
+    cache.prune_if_due(Instant::now());
+    if cache.entries.len() >= MAX_METRIC_DATAFRAME_MATERIALIZED_ENTRIES {
+        cache.entries.clear();
+    }
+    cache.entries.insert(key, materialized);
 }
 
 fn take_cached_metric_dataframe_result(key: &str) -> Option<DatasetQueryResult> {
@@ -119,6 +212,9 @@ fn take_cached_metric_dataframe_result(key: &str) -> Option<DatasetQueryResult> 
 }
 
 fn store_cached_metric_dataframe_result(key: String, result: &DatasetQueryResult) {
+    if result.rows.is_empty() && result.total == 0 {
+        return;
+    }
     let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
         return;
     };
@@ -133,12 +229,21 @@ fn store_cached_metric_dataframe_result(key: String, result: &DatasetQueryResult
 }
 
 pub(crate) fn clear_metric_dataframe_result_cache() -> usize {
-    let Ok(mut cache) = metric_dataframe_result_cache().lock() else {
-        return 0;
-    };
-    let removed = cache.entries.len();
-    cache.entries.clear();
-    cache.next_prune_at = None;
+    let mut removed = metric_dataframe_result_cache()
+        .lock()
+        .ok()
+        .map(|mut cache| {
+            let count = cache.entries.len();
+            cache.entries.clear();
+            cache.next_prune_at = None;
+            count
+        })
+        .unwrap_or(0);
+    if let Ok(mut materialized) = metric_dataframe_materialized_cache().lock() {
+        removed = removed.saturating_add(materialized.entries.len());
+        materialized.entries.clear();
+        materialized.next_prune_at = None;
+    }
     removed
 }
 
@@ -199,25 +304,57 @@ pub fn query_metric_dataframe(
         &options,
         compile_revision,
         &dependency_revision_key,
+        &filter_intents,
+    );
+    let materialized_cache_key = metric_dataframe_scope_cache_key(
+        app_root,
+        scene_id,
+        target,
+        &resource.id,
+        &metric_scope_cache_key(&effective_metric_ids),
+        &options,
+        compile_revision,
+        &dependency_revision_key,
+        &filter_intents,
     );
     let response_cache_lookup_started = Instant::now();
     if let Some(mut cached) = take_cached_metric_dataframe_result(&response_cache_key) {
-        cached.perf = BTreeMap::from([
-            ("response_cache_hit".to_string(), 1),
-            (
-                "response_cache_key_hash".to_string(),
-                hash_fingerprint(&response_cache_key),
-            ),
-            ("request_dag_observed".to_string(), 0),
-            ("eval_memo_hits".to_string(), 0),
-            ("eval_memo_eval_node_cache_hits".to_string(), 0),
-            ("eval_memo_eval_node_cache_misses".to_string(), 0),
-            (
-                "response_cache_lookup_ms".to_string(),
-                elapsed_ms(response_cache_lookup_started),
-            ),
-        ]);
-        return Ok(cached);
+        if cached.rows.is_empty() && cached.total == 0 {
+            // 跳过竞态产生的空响应缓存，重新求值。
+        } else {
+            cached.perf = BTreeMap::from([
+                ("response_cache_hit".to_string(), 1),
+                (
+                    "response_cache_key_hash".to_string(),
+                    hash_fingerprint(&response_cache_key),
+                ),
+                ("request_dag_observed".to_string(), 0),
+                ("eval_memo_hits".to_string(), 0),
+                ("eval_memo_eval_node_cache_hits".to_string(), 0),
+                ("eval_memo_eval_node_cache_misses".to_string(), 0),
+                (
+                    "response_cache_lookup_ms".to_string(),
+                    elapsed_ms(response_cache_lookup_started),
+                ),
+            ]);
+            return Ok(cached);
+        }
+    }
+
+    let meta = parse_source_meta(dataset.source.content.as_deref());
+    if let Some(materialized) = take_cached_metric_dataframe_materialized(&materialized_cache_key) {
+        if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
+            let result = paginate_materialized_metric_dataframe(
+                &materialized,
+                &meta,
+                &options,
+                &response_cache_key,
+                response_cache_lookup_started,
+                true,
+            );
+            store_cached_metric_dataframe_result(response_cache_key, &result);
+            return Ok(result);
+        }
     }
 
     let primary_filters =
@@ -332,7 +469,133 @@ pub fn query_metric_dataframe(
     }
     let (row_schema, rows) = format_rows_with_dataset_schema(&columns, rows, &datasets);
 
-    let meta = parse_source_meta(dataset.source.content.as_deref());
+    let closure_set = effective_metric_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let closure_edges = dataset
+        .runtime_analysis_graph
+        .edges
+        .iter()
+        .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
+        .count() as u64;
+
+    let materialized = MaterializedMetricDataframe {
+        expires_at: Instant::now() + metric_dataframe_materialized_cache_ttl(),
+        columns,
+        rows,
+        row_schema,
+        normalize: meta.normalize.clone(),
+        base_perf: BTreeMap::from([
+            ("base_query_ms".to_string(), base_query_ms),
+            ("metric_eval_ms".to_string(), metric_eval_ms),
+            (
+                "eval_plan_targets".to_string(),
+                eval_plan.targets.len() as u64,
+            ),
+            (
+                "eval_plan_nodes".to_string(),
+                eval_plan.nodes.len() as u64,
+            ),
+            (
+                "eval_plan_edges".to_string(),
+                eval_plan.edges.len() as u64,
+            ),
+            (
+                "eval_plan_metric_nodes".to_string(),
+                eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
+            ),
+            (
+                "eval_plan_rowset_nodes".to_string(),
+                eval_plan.node_count_by_kind(EvalPlanNodeKind::Rowset) as u64,
+            ),
+            (
+                "eval_plan_scalar_nodes".to_string(),
+                eval_plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr) as u64,
+            ),
+            (
+                "eval_plan_hydrate_nodes".to_string(),
+                eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
+            ),
+            (
+                "eval_scope_key_hash".to_string(),
+                hash_fingerprint(&eval_scope_key),
+            ),
+            (
+                "eval_scope_group_key_hash".to_string(),
+                hash_fingerprint(&eval_scope.query_state.group_identity_key()),
+            ),
+            (
+                "eval_scope_time_range_key_hash".to_string(),
+                hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
+            ),
+            (
+                "eval_scope_group_dimensions".to_string(),
+                eval_scope.query_state.group.len() as u64,
+            ),
+            ("request_dag_nodes".to_string(), dag_metrics.nodes as u64),
+            ("request_dag_edges".to_string(), dag_metrics.edges as u64),
+            ("request_dag_hits".to_string(), dag_metrics.hits),
+            ("request_dag_misses".to_string(), dag_metrics.misses),
+            ("request_dag_observed".to_string(), 1),
+            (
+                "request_dag_request_cache_hits".to_string(),
+                dag_metrics.request_cache_hits,
+            ),
+            (
+                "request_dag_eval_node_cache_hits".to_string(),
+                dag_metrics.eval_node_cache_hits,
+            ),
+            (
+                "request_dag_eval_node_cache_misses".to_string(),
+                dag_metrics.eval_node_cache_misses,
+            ),
+            (
+                "eval_memo_hits".to_string(),
+                dag_metrics.request_cache_hits,
+            ),
+            (
+                "eval_memo_eval_node_cache_hits".to_string(),
+                dag_metrics.eval_node_cache_hits,
+            ),
+            (
+                "eval_memo_eval_node_cache_misses".to_string(),
+                dag_metrics.eval_node_cache_misses,
+            ),
+            (
+                "analysis_closure_nodes".to_string(),
+                effective_metric_ids.len() as u64,
+            ),
+            ("analysis_closure_edges".to_string(), closure_edges),
+            (
+                "eval_node_cache_enabled".to_string(),
+                u64::from(runtime_eval_node_cache_enabled()),
+            ),
+        ]),
+    };
+    store_cached_metric_dataframe_materialized(materialized_cache_key, materialized.clone());
+
+    let mut result = paginate_materialized_metric_dataframe(
+        &materialized,
+        &meta,
+        &options,
+        &response_cache_key,
+        response_cache_lookup_started,
+        false,
+    );
+    result.perf.extend(filtered_rows.perf);
+    store_cached_metric_dataframe_result(response_cache_key, &result);
+    Ok(result)
+}
+
+fn paginate_materialized_metric_dataframe(
+    materialized: &MaterializedMetricDataframe,
+    meta: &super::types::SourceMeta,
+    options: &DatasetQueryOptions,
+    response_cache_key: &str,
+    response_cache_lookup_started: Instant,
+    from_materialized_cache: bool,
+) -> DatasetQueryResult {
     let default_page_size = meta
         .lazy
         .default_page_size
@@ -355,142 +618,47 @@ pub fn query_metric_dataframe(
     let normalized_options = DatasetQueryOptions {
         page,
         page_size,
-        search: options.search,
-        filters: options.filters,
-        group: options.group,
-        time_range: options.time_range,
+        search: options.search.clone(),
+        filters: options.filters.clone(),
+        group: options.group.clone(),
+        time_range: options.time_range.clone(),
         collect_all,
         sort: options.sort.clone(),
         column_state: options.column_state.clone(),
         summary: options.summary,
     };
 
-    let mut result = paginate_rows(rows, &columns, &meta.normalize, &normalized_options, true);
+    let mut result = paginate_rows(
+        materialized.rows.clone(),
+        &materialized.columns,
+        &materialized.normalize,
+        &normalized_options,
+        true,
+    );
     result.rows = coerce_calendar_columns_in_rows(
         std::mem::take(&mut result.rows),
         &result.columns,
-        &row_schema,
+        &materialized.row_schema,
     );
-    if !row_schema.is_empty() {
-        result.column_meta = column_meta_for_row_schema(&row_schema, &result.columns);
+    if !materialized.row_schema.is_empty() {
+        result.column_meta =
+            column_meta_for_row_schema(&materialized.row_schema, &result.columns);
     }
-    result.perf.extend(filtered_rows.perf);
+    result.perf.extend(materialized.base_perf.clone());
     result.perf.insert("response_cache_hit".to_string(), 0);
     result.perf.insert(
+        "materialized_cache_hit".to_string(),
+        u64::from(from_materialized_cache),
+    );
+    result.perf.insert(
         "response_cache_key_hash".to_string(),
-        hash_fingerprint(&response_cache_key),
+        hash_fingerprint(response_cache_key),
     );
     result.perf.insert(
         "response_cache_lookup_ms".to_string(),
         elapsed_ms(response_cache_lookup_started),
     );
     result
-        .perf
-        .insert("base_query_ms".to_string(), base_query_ms);
-    result
-        .perf
-        .insert("metric_eval_ms".to_string(), metric_eval_ms);
-    result.perf.insert(
-        "eval_plan_targets".to_string(),
-        eval_plan.targets.len() as u64,
-    );
-    result
-        .perf
-        .insert("eval_plan_nodes".to_string(), eval_plan.nodes.len() as u64);
-    result
-        .perf
-        .insert("eval_plan_edges".to_string(), eval_plan.edges.len() as u64);
-    result.perf.insert(
-        "eval_plan_metric_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::MetricEval) as u64,
-    );
-    result.perf.insert(
-        "eval_plan_rowset_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::Rowset) as u64,
-    );
-    result.perf.insert(
-        "eval_plan_scalar_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::ScalarExpr) as u64,
-    );
-    result.perf.insert(
-        "eval_plan_hydrate_nodes".to_string(),
-        eval_plan.node_count_by_kind(EvalPlanNodeKind::Hydrate) as u64,
-    );
-    result.perf.insert(
-        "eval_scope_key_hash".to_string(),
-        hash_fingerprint(&eval_scope_key),
-    );
-    result.perf.insert(
-        "eval_scope_group_key_hash".to_string(),
-        hash_fingerprint(&eval_scope.query_state.group_identity_key()),
-    );
-    result.perf.insert(
-        "eval_scope_time_range_key_hash".to_string(),
-        hash_fingerprint(&eval_scope.query_state.time_range_identity_key()),
-    );
-    result.perf.insert(
-        "eval_scope_group_dimensions".to_string(),
-        eval_scope.query_state.group.len() as u64,
-    );
-    result
-        .perf
-        .insert("request_dag_nodes".to_string(), dag_metrics.nodes as u64);
-    result
-        .perf
-        .insert("request_dag_edges".to_string(), dag_metrics.edges as u64);
-    result
-        .perf
-        .insert("request_dag_hits".to_string(), dag_metrics.hits);
-    result
-        .perf
-        .insert("request_dag_misses".to_string(), dag_metrics.misses);
-    result.perf.insert("request_dag_observed".to_string(), 1);
-    result.perf.insert(
-        "request_dag_request_cache_hits".to_string(),
-        dag_metrics.request_cache_hits,
-    );
-    result.perf.insert(
-        "request_dag_eval_node_cache_hits".to_string(),
-        dag_metrics.eval_node_cache_hits,
-    );
-    result.perf.insert(
-        "request_dag_eval_node_cache_misses".to_string(),
-        dag_metrics.eval_node_cache_misses,
-    );
-    result
-        .perf
-        .insert("eval_memo_hits".to_string(), dag_metrics.request_cache_hits);
-    result.perf.insert(
-        "eval_memo_eval_node_cache_hits".to_string(),
-        dag_metrics.eval_node_cache_hits,
-    );
-    result.perf.insert(
-        "eval_memo_eval_node_cache_misses".to_string(),
-        dag_metrics.eval_node_cache_misses,
-    );
-    result.perf.insert(
-        "analysis_closure_nodes".to_string(),
-        effective_metric_ids.len() as u64,
-    );
-    let closure_set = effective_metric_ids
-        .iter()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    let closure_edges = dataset
-        .runtime_analysis_graph
-        .edges
-        .iter()
-        .filter(|edge| closure_set.contains(&edge.from) && closure_set.contains(&edge.to))
-        .count() as u64;
-    result
-        .perf
-        .insert("analysis_closure_edges".to_string(), closure_edges);
-    result.perf.insert(
-        "eval_node_cache_enabled".to_string(),
-        u64::from(runtime_eval_node_cache_enabled()),
-    );
-    store_cached_metric_dataframe_result(response_cache_key, &result);
-    Ok(result)
 }
 
 fn extract_dataframe_rows(value: &Value) -> Vec<Value> {

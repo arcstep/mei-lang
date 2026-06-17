@@ -250,6 +250,32 @@
       "run_kind": "cold"
     },
     {
+      "scenario_id": "zhifa.heavy.dataframe.inspection_total_detail.cold_clear",
+      "scenario_family": "heavy_bottleneck",
+      "route_mode": "access",
+      "scene_id": "inspection_total_analytics_board",
+      "target_file": "scenes/02-行政检查.board.mei",
+      "dataset_id": "administrative_inspection_dashboard_ds",
+      "sample_dataset_query": true,
+      "dataset_query_metric_id": "scenes/02-行政检查.mei::inspections_total_count::__scalar_rowset__",
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold",
+      "browser_window_ms": 0
+    },
+    {
+      "scenario_id": "zhifa.heavy.dataframe.inspection_total_detail.warm",
+      "scenario_family": "heavy_bottleneck",
+      "route_mode": "access",
+      "scene_id": "inspection_total_analytics_board",
+      "target_file": "scenes/02-行政检查.board.mei",
+      "dataset_id": "administrative_inspection_dashboard_ds",
+      "sample_dataset_query": true,
+      "dataset_query_metric_id": "scenes/02-行政检查.mei::inspections_total_count::__scalar_rowset__",
+      "run_kind": "warm",
+      "browser_window_ms": 0
+    },
+    {
       "scenario_id": "zhifa.heavy.access.penalty_dashboard.cold_clear",
       "scenario_family": "heavy_bottleneck",
       "route_mode": "access",

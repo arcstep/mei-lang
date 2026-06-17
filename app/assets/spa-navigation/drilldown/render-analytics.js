@@ -9,6 +9,17 @@
           : slotConfig.mapping && typeof slotConfig.mapping === "object"
             ? slotConfig.mapping
             : null;
+      const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id, boardMetricId);
+      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
+      const resolvedChartMetricId = nonEmptyString(
+        isDedicatedExplainMetricId(slot.metricId, { supportRole: slot.supportRole })
+          ? slot.metricId
+          : "",
+        compositionMetricId,
+        slot.metricId,
+        slotConfig.tableMetricId,
+        boardMetricId,
+      );
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -16,61 +27,43 @@
         hostSceneId: config.hostSceneId,
         hostSceneFile: config.hostSceneFile,
         queryStateId: config.queryStateId,
-        tableMetricId: nonEmptyString(slot.metricId, slotConfig.tableMetricId, boardMetricId),
+        supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
+        tableMetricId: resolvedChartMetricId,
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
+        compositionBy:
+          Array.isArray(slot.by) && slot.by.length > 0
+            ? slot.by
+            : Array.isArray(slotConfig.compositionBy)
+              ? slotConfig.compositionBy
+              : [],
+        runtimeRef: {
+          ...(slotConfig.runtimeRef && typeof slotConfig.runtimeRef === "object" ? slotConfig.runtimeRef : {}),
+          kind: "metric",
+          metricId: resolvedChartMetricId,
+          metric_id: resolvedChartMetricId,
+          datasetId: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.datasetId),
+          dataset_id: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.dataset_id),
+          sceneId: nonEmptyString(config.hostSceneId, config.sceneId),
+          scene_id: nonEmptyString(config.hostSceneId, config.sceneId),
+          scenePath: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+          scene_path: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+        },
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
         return true;
       }
-      const fallbackRuntimeRef = {
-        ...(mergedConfig.runtimeRef && typeof mergedConfig.runtimeRef === "object"
-          ? mergedConfig.runtimeRef
-          : {}),
-        kind: "metric",
-        metricId: nonEmptyString(slot.metricId, mergedConfig?.runtimeRef?.metricId, mergedConfig?.runtimeRef?.metric_id),
-        datasetId: nonEmptyString(slot.datasetId, mergedConfig?.runtimeRef?.datasetId, mergedConfig?.runtimeRef?.dataset_id),
-        sceneId: nonEmptyString(mergedConfig?.runtimeRef?.sceneId, config.hostSceneId, config.sceneId),
-        scenePath: nonEmptyString(
-          mergedConfig?.runtimeRef?.scenePath,
-          config.hostSceneFile,
-          detail?.host_scene_file,
-          detail?.scene_path
-        ),
-      };
-      const fallbackConfig = {
-        ...mergedConfig,
-        supportRole: nonEmptyString(slot.supportRole, mergedConfig.supportRole, "composition"),
-        tableMetricId: nonEmptyString(slot.metricId, mergedConfig.tableMetricId),
-        datasetId: nonEmptyString(slot.datasetId, mergedConfig.datasetId),
-        runtimeRef: fallbackRuntimeRef,
-        compositionBy:
-          Array.isArray(slot.by) && slot.by.length > 0
-            ? slot.by
-            : Array.isArray(mergedConfig.compositionBy)
-              ? mergedConfig.compositionBy
-              : [],
-      };
-      const fallbackMounted = await mountDerivedDrilldownContent(
-        root,
+      recordPopupDebugIssue({
+        level: "warn",
+        phase: "analytics_chart_mount_failed",
+        message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
         detail,
-        fallbackConfig,
-        slot.id,
-        slotHost
-      );
-      if (!fallbackMounted) {
-        recordPopupDebugIssue({
-          level: "warn",
-          phase: "analytics_chart_mount_fallback_failed",
-          message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
-          detail,
-          config: fallbackConfig,
-          datasetId: fallbackConfig.datasetId,
-          metricId: fallbackConfig.tableMetricId,
-        });
-      }
-      return fallbackMounted;
+        config: mergedConfig,
+        datasetId: mergedConfig.datasetId,
+        metricId: mergedConfig.tableMetricId,
+      });
+      return false;
     });
     const results = await Promise.all(chartMounts);
     return chartSlots.length === 0 || results.every(Boolean);

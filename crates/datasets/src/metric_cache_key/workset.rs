@@ -5,6 +5,8 @@ use mei_lang_kernel::{
 };
 use serde_json::Value;
 
+use crate::metric_hydrate::expand_metric_defs_for_hydrate;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RuntimeMetricWorkset {
     pub closure_metric_ids: Vec<String>,
@@ -20,24 +22,6 @@ pub(crate) fn resolve_runtime_metric_ids(
     requested_metric_ids
         .iter()
         .filter_map(|metric_id| resolve_runtime_metric_def_key(resource_id, metric_id, defs))
-        .collect()
-}
-
-pub(crate) fn select_metric_defs(
-    metric_defs: &BTreeMap<String, Value>,
-    resolved_metric_ids: &[String],
-) -> BTreeMap<String, Value> {
-    if resolved_metric_ids.is_empty() {
-        return metric_defs.clone();
-    }
-    resolved_metric_ids
-        .iter()
-        .filter_map(|metric_id| {
-            metric_defs
-                .get(metric_id)
-                .cloned()
-                .map(|value| (metric_id.clone(), value))
-        })
         .collect()
 }
 
@@ -67,7 +51,10 @@ pub(crate) fn runtime_metric_workset(
     };
     RuntimeMetricWorkset {
         closure_metric_ids,
-        defs_for_hydrate: select_metric_defs(&dataset.runtime_metric_defs, &eval_metric_ids),
+        defs_for_hydrate: expand_metric_defs_for_hydrate(
+            &dataset.runtime_metric_defs,
+            &eval_metric_ids,
+        ),
         eval_metric_ids: Some(eval_metric_ids),
     }
 }

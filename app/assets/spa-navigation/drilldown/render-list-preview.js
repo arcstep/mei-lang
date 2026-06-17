@@ -46,6 +46,10 @@
       renderSwimlanePreviewPanel(host, row, config);
       return;
     }
+    if (isDocumentPreview(config)) {
+      renderDocumentPreviewPanel(host, row, config);
+      return;
+    }
     host.replaceChildren();
     if (!row || typeof row !== "object") {
       const empty = document.createElement("div");

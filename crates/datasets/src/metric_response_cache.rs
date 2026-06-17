@@ -142,7 +142,7 @@ pub fn clear_metric_response_cache() -> usize {
 pub fn clear_all_metric_caches() -> (usize, usize) {
     (
         clear_metric_response_cache(),
-        super::clear_metric_dataframe_result_cache(),
+        super::clear_metric_dataframe_result_cache() + super::clear_dataset_rows_cache(),
     )
 }
 

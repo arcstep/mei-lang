@@ -58,6 +58,21 @@ pub(super) fn build_analysis_graph_from_expanded(
             let target_metric_id = metric_target_from_item(item_map).or_else(|| {
                 if role == "detail" && explain_has_support_role(items, "composition") {
                     infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)
+                } else if role == "composition" {
+                    if let Some(block_id) = item_map
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        let scoped = scoped_child_metric_id(metric_id, block_id);
+                        if graph.nodes.contains_key(&scoped) {
+                            return Some(scoped);
+                        }
+                    }
+                    infer_explain_scoped_dataframe(items, item_index, role.as_str()).or_else(|| {
+                        infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)
+                    })
                 } else {
                     infer_explain_scoped_dataframe(items, item_index, role.as_str()).or_else(|| {
                         infer_inferred_scalar_rowset_metric_id_from_defs(metric_id, expanded_defs)

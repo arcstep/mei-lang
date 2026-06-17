@@ -90,6 +90,35 @@
     return `${text}::__scalar_rowset__`;
   }
 
+  function isScalarRowsetMetricId(metricId) {
+    const text = String(metricId || "").trim();
+    return text.endsWith("::__scalar_rowset__");
+  }
+
+  /** explain 派生的 composition/trend dataframe（服务端已聚合），不是明细 rowset。 */
+  function isDedicatedExplainMetricId(metricId, { supportRole = "" } = {}) {
+    const text = String(metricId || "").trim();
+    if (!text || isScalarRowsetMetricId(text)) return false;
+    if (text.includes("::")) return true;
+    const role = String(supportRole || "").trim().toLowerCase();
+    return role === "composition" || role === "trend" || role === "attribution";
+  }
+
+  function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
+    if (clientAggregate) return 100000;
+    if (previewRow) return 1;
+    const dedicated = isDedicatedExplainMetricId(resolveCompositionMetricId(config), {
+      supportRole: config?.supportRole,
+    });
+    if (dedicated) {
+      const topN = positiveInt(config?.top_n, config?.topN, config?.topN);
+      return topN > 0 ? Math.max(topN, 16) : 64;
+    }
+    const tablePage = positiveInt(config?.pageSize, config?.page_size);
+    if (tablePage > 0) return tablePage;
+    return 20;
+  }
+
   function resolveCompositionMetricId(config, detail = null) {
     return nonEmptyString(
       config?.tableMetricId,
@@ -97,6 +126,19 @@
       config?.runtimeRef?.metric_id,
       detail?.table_metric_id,
     );
+  }
+
+  /** 从父 metric + explain block id 推导服务端 composition dataframe（如 inspections_total_count::composition_by_agency）。 */
+  function resolveCompositionScopedMetricId(parentMetricId, explainBlockId) {
+    const parent = String(parentMetricId || "").trim();
+    const blockId = String(explainBlockId || "").trim();
+    if (!parent || !blockId) return "";
+    if (blockId === "composition" || blockId === "metric" || blockId === "detail" || blockId === "trend") {
+      return "";
+    }
+    const scoped = `${parent}::${blockId}`;
+    if (isScalarRowsetMetricId(scoped)) return "";
+    return scoped;
   }
 
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {

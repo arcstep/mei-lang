@@ -257,8 +257,8 @@
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
         : tableScrollX
-          ? 88
-          : 56;
+          ? 96
+          : 64;
     const drilldownFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
@@ -288,11 +288,9 @@
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
       cellPreviewMaxChars:
-        Number(config?.cellPreviewMaxChars) > 0
+        Number.isFinite(Number(config?.cellPreviewMaxChars)) && Number(config?.cellPreviewMaxChars) >= 0
           ? Number(config.cellPreviewMaxChars)
-          : tableScrollX
-            ? 20
-            : 28,
+          : 0,
       columnMinWidth,
       columnFormats,
       pagination: true,

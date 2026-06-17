@@ -163,7 +163,16 @@ function paginationEnabled(props) {
 
 function resolvePaginationMode(props) {
   const raw = String(props?.paginationMode ?? props?.pagination_mode ?? "").trim().toLowerCase();
-  if (raw === "client" || raw === "local") return "client";
+  if (raw === "server" || raw === "remote") return "server";
+  if (raw === "client" || raw === "local") {
+    if (props?.embedded === true && resolveRuntimeMetricRef(props)) {
+      return "server";
+    }
+    return "client";
+  }
+  if (props?.embedded === true && resolveRuntimeMetricRef(props)) {
+    return "server";
+  }
   return "server";
 }
 
@@ -694,7 +703,7 @@ export class MeiCockpitDataTable extends HTMLElement {
     const queryFilters = activeTableFilters(this._props, this._queryStateId);
     const querySort = activeTableSort(this._props, this._queryStateId, this._state.sort);
     const queryColumnState = activeTableColumnState(this._props, this._queryStateId, this._state.columnState);
-    const wantsSummary = !!(metricRef || dataRef);
+    const wantsSummary = false;
     const fetchSignature = this.tableFetchSignature(
       queryFilters,
       querySort,

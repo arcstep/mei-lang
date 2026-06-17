@@ -111,6 +111,21 @@ pub(super) fn explain_block_value(
     let target_metric_id = metric_target_from_item(item_map).or_else(|| {
         if support_role == "detail" && explain_has_support_role(explain_items, "composition") {
             infer_inferred_scalar_rowset_metric_id(graph, metric_id)
+        } else if support_role == "composition" {
+            if let Some(block_id) = item_map
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            {
+                let scoped = scoped_child_metric_id(metric_id, block_id);
+                if graph.nodes.contains_key(&scoped) {
+                    return Some(scoped);
+                }
+            }
+            scoped_dataframe_metric_id
+                .clone()
+                .or_else(|| infer_inferred_scalar_rowset_metric_id(graph, metric_id))
         } else {
             scoped_dataframe_metric_id
                 .clone()

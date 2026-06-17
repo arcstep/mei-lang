@@ -152,6 +152,46 @@
     if (!chartTag) return null;
     const columns = Array.isArray(config?.columns) ? config.columns : [];
     const normalizedKind = explainMetricKind(config, tabId);
+    const cardMetricId = nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      config?.tableMetricId,
+    );
+    const chartMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolveCompositionScopedMetricId(cardMetricId, tabId),
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+    );
+    const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
+      supportRole: config?.supportRole,
+    });
+    const runtimeRefConfig =
+      config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const chartDataset =
+      dedicatedChartMetric && chartMetricId
+        ? {
+            __mei_runtime_ref: {
+              kind: "metric",
+              metric_id: chartMetricId,
+              dataset_id: nonEmptyString(
+                runtimeRefConfig.datasetId,
+                runtimeRefConfig.dataset_id,
+                tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+              ),
+              scene_id: nonEmptyString(
+                runtimeRefConfig.sceneId,
+                runtimeRefConfig.scene_id,
+                tableProps.dataset?.__mei_runtime_ref?.scene_id,
+              ),
+              scene_path: nonEmptyString(
+                runtimeRefConfig.scenePath,
+                runtimeRefConfig.scene_path,
+                tableProps.dataset?.__mei_runtime_ref?.scene_path,
+              ),
+            },
+          }
+        : tableProps.dataset;
     const compositionField = nonEmptyString(
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
       columns[0],
@@ -171,9 +211,11 @@
       chartTag,
       props: {
         title: String(config?.title || ""),
-        data: tableProps.dataset,
+        data: chartDataset,
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
+        supportRole: config?.supportRole,
+        topN: positiveInt(config?.top_n, config?.topN),
         mapping,
         ...buildAnalyticsChartPresentationProps(config, { mapping }),
       },
@@ -183,11 +225,27 @@
   async function mountAnalyticsChartSlot(root, detail, config, tabId, hostOverride = null) {
     const kind = explainMetricKind(config, tabId);
     const supportRole = nonEmptyString(config?.supportRole, config?.slotByTab?.[normalizeTabId(tabId)]?.supportRole);
-    // 构成图需要明细行在前端按维度聚合；metric KPI 查询只返回标量，不能直接驱动图表。
+    const cardMetricId = nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      config?.tableMetricId,
+    );
+    const chartMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolveCompositionScopedMetricId(cardMetricId, tabId),
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+    );
+    const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
+      supportRole: config?.supportRole ?? supportRole,
+    });
     if (kind === "composition" || supportRole === "composition") {
-      if (await mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride)) {
-        return true;
+      if (dedicatedChartMetric) {
+        if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
+          return true;
+        }
       }
+      return mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride);
     }
     return mountDrilldownChart(root, detail, config, tabId, hostOverride);
   }

@@ -26,6 +26,11 @@
     return String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "typical_case_card";
   }
 
+  function isDocumentPreview(config) {
+    const mapping = resolveListPreviewMapping(config);
+    return String(mapping?.preview_mode || mapping?.previewMode || "").trim() === "document_preview";
+  }
+
   function isSheetDetailCardPreview(config) {
     return isCaseDetailCardPreview(config) || isTypicalCaseCardPreview(config);
   }
@@ -751,5 +756,103 @@
       lanesRoot.appendChild(laneEl);
     });
     panel.appendChild(lanesRoot);
+    host.appendChild(panel);
+  }
+
+  function normalizeUploadRelPath(relPath) {
+    let path = String(relPath || "").trim().replace(/\\/g, "/");
+    if (!path) return "";
+    path = path.replace(/^\/+/, "");
+    if (path.startsWith("upload/")) {
+      path = path.slice("upload/".length);
+    }
+    return path;
+  }
+
+  function resolveUploadDownloadUrl(appId, relPath, options = {}) {
+    const path = normalizeUploadRelPath(relPath);
+    if (!path) return "";
+    const app = String(appId || resolvePreviewAppId() || "").trim();
+    if (!app) return "";
+    const params = new URLSearchParams();
+    params.set("path", path);
+    if (options.inline) {
+      params.set("inline", "true");
+    }
+    return `/api/upload/download/${encodeURIComponent(app)}?${params.toString()}`;
+  }
+
+  function isDocumentPreviewPending(row, mapping) {
+    const statusField = String(mapping?.status_field || mapping?.statusField || "附件状态").trim();
+    const status = resolveCaseDetailFieldValue(row, { field: statusField });
+    const pendingValues = cloneArray(mapping?.pending_status_values || mapping?.pendingStatusValues)
+      .map((entry) => String(entry || "").trim())
+      .filter(Boolean);
+    if (pendingValues.length && pendingValues.includes(status)) return true;
+    const docField = String(
+      mapping?.document_path_field || mapping?.documentPathField || "附件相对路径",
+    ).trim();
+    return !resolveCaseDetailFieldValue(row, { field: docField });
+  }
+
+  function renderDocumentPreviewPanel(host, row, config) {
+    if (!(host instanceof HTMLElement)) return;
+    host.replaceChildren();
+    if (!row || typeof row !== "object") {
+      const empty = document.createElement("div");
+      empty.className = "access-drilldown-list-preview-empty";
+      empty.textContent = "点击清单中的机制查看制度文件";
+      host.appendChild(empty);
+      return;
+    }
+    const mapping = resolveListPreviewMapping(config);
+    if (!mapping) {
+      renderListPreviewItemPanel(host, row, config);
+      return;
+    }
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-document-preview-panel";
+    const title = document.createElement("div");
+    title.className = "access-drilldown-document-preview-title";
+    title.textContent = resolveCaseDetailFieldValue(row, {
+      field: mapping?.title_field || mapping?.titleField || "机制名称",
+      fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
+    });
+    panel.appendChild(title);
+
+    if (isDocumentPreviewPending(row, mapping)) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "access-drilldown-document-preview-empty";
+      placeholder.textContent = "制度文件待上传";
+      panel.appendChild(placeholder);
+      host.appendChild(panel);
+      return;
+    }
+
+    const docPath = resolveCaseDetailFieldValue(row, {
+      field: mapping?.document_path_field || mapping?.documentPathField || "附件相对路径",
+    });
+    const src = resolveUploadDownloadUrl(
+      mapping?.upload_app_id || mapping?.uploadAppId,
+      docPath,
+      { inline: true },
+    );
+    if (!src) {
+      const placeholder = document.createElement("div");
+      placeholder.className = "access-drilldown-document-preview-empty";
+      placeholder.textContent = "暂无可预览的 PDF";
+      panel.appendChild(placeholder);
+      host.appendChild(panel);
+      return;
+    }
+
+    const frame = document.createElement("div");
+    frame.className = "access-drilldown-document-preview-frame";
+    const iframe = document.createElement("iframe");
+    iframe.className = "access-drilldown-document-preview-iframe";
+    iframe.src = src;
+    iframe.title = title.textContent || "PDF 预览";
+    frame.appendChild(iframe);
+    panel.appendChild(frame);
     host.appendChild(panel);
   }

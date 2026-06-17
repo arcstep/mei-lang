@@ -25,6 +25,7 @@ pub(super) fn expand_metric_def(metric_id: &str, raw: &Value, out: &mut BTreeMap
         normalized.insert("explain".to_string(), explain_value.clone());
     }
     maybe_hoist_inferred_scalar_rowset(metric_id, &normalized, out);
+    maybe_hoist_composition_dataframes(metric_id, &normalized, out);
     out.insert(metric_id.to_string(), Value::Object(normalized));
     let Some(items) = explain.as_ref().and_then(Value::as_array) else {
         return;
@@ -44,6 +45,129 @@ pub(super) fn expand_metric_def(metric_id: &str, raw: &Value, out: &mut BTreeMap
         child_metric.insert("key".to_string(), Value::String(scoped_id.clone()));
         child_metric.insert("id".to_string(), Value::String(scoped_id.clone()));
         child_metric.insert("analysis_local_id".to_string(), Value::String(local_id));
+        child_metric.insert(
+            "analysis_parent_metric_id".to_string(),
+            Value::String(metric_id.to_string()),
+        );
+        child_metric.insert(
+            "analysis_node_id".to_string(),
+            Value::String(scoped_id.clone()),
+        );
+        expand_metric_def(&scoped_id, &Value::Object(child_metric), out);
+    }
+}
+
+pub(super) fn maybe_hoist_composition_dataframes(
+    metric_id: &str,
+    normalized: &Map<String, Value>,
+    out: &mut BTreeMap<String, Value>,
+) {
+    let Some(items) = normalized.get("explain").and_then(Value::as_array) else {
+        return;
+    };
+    if !explain_needs_tabular_source(items) {
+        return;
+    }
+    let scalar_rowset_id = scoped_child_metric_id(metric_id, INFERRED_SCALAR_ROWSET_LOCAL_ID);
+    let rowset_ref = serde_json::json!({"__ref": "metric", "id": scalar_rowset_id});
+    for item in items {
+        let Some(item_map) = item.as_object() else {
+            continue;
+        };
+        if item_map.get("__kind").and_then(Value::as_str) == Some("data_product") {
+            continue;
+        }
+        if support_role_for_item(item_map) != "composition" {
+            continue;
+        }
+        let Some(local_id) = item_map
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        let scoped_id = scoped_child_metric_id(metric_id, local_id);
+        if out.contains_key(&scoped_id) {
+            continue;
+        }
+        let by_field = item_map
+            .get("by")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                item_map
+                    .get("fields")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            });
+        let Some(by_field) = by_field else {
+            continue;
+        };
+        let mut group_expr = Map::new();
+        group_expr.insert(
+            "__kind".to_string(),
+            Value::String("analysis_expr".to_string()),
+        );
+        group_expr.insert("type".to_string(), Value::String("group_by".to_string()));
+        group_expr.insert("rowset".to_string(), rowset_ref.clone());
+        group_expr.insert("by".to_string(), Value::String(by_field.to_string()));
+        group_expr.insert(
+            "agg".to_string(),
+            Value::String(
+                item_map
+                    .get("agg")
+                    .and_then(Value::as_str)
+                    .unwrap_or("count")
+                    .to_string(),
+            ),
+        );
+        if let Some(value_field) = item_map
+            .get("value_field")
+            .or_else(|| item_map.get("value"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            group_expr.insert("value".to_string(), Value::String(value_field.to_string()));
+        }
+        if let Some(limit) = item_map
+            .get("top_n")
+            .or_else(|| item_map.get("limit"))
+            .and_then(Value::as_u64)
+        {
+            group_expr.insert("limit".to_string(), Value::from(limit));
+        }
+        let mut child_metric = Map::new();
+        child_metric.insert(
+            "__kind".to_string(),
+            Value::String("data_product".to_string()),
+        );
+        child_metric.insert("id".to_string(), Value::String(local_id.to_string()));
+        child_metric.insert(
+            "shape".to_string(),
+            Value::String("dataframe".to_string()),
+        );
+        child_metric.insert("value".to_string(), Value::Object(group_expr));
+        child_metric.insert(
+            "schema".to_string(),
+            Value::Array(vec![
+                serde_json::json!({"name": by_field, "type": "string"}),
+                serde_json::json!({"name": "value", "type": "number"}),
+            ]),
+        );
+        child_metric.insert(
+            "analysis_inferred_composition".to_string(),
+            Value::Bool(true),
+        );
+        child_metric.insert("key".to_string(), Value::String(scoped_id.clone()));
+        child_metric.insert(
+            "analysis_local_id".to_string(),
+            Value::String(local_id.to_string()),
+        );
         child_metric.insert(
             "analysis_parent_metric_id".to_string(),
             Value::String(metric_id.to_string()),

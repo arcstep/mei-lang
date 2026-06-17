@@ -1281,6 +1281,14 @@ async function collectDatasetPerf(
     scene_projection_assembly_ms: toFinite(perf.scene_projection_assembly_ms),
     source_tree_ms: toFinite(perf.source_tree_ms),
     world_finalize_ms: toFinite(perf.world_finalize_ms),
+    dataset_file_cache_hit: toFinite(perf.file_cache_hit),
+    dataset_file_cache_load_ms: toFinite(perf.file_cache_load_ms),
+    dataset_rows_cache_hit: toFinite(perf.dataset_rows_cache_hit),
+    dataset_rows_cache_rows: toFinite(perf.dataset_rows_cache_rows),
+    dataset_materialized_cache_hit: toFinite(perf.materialized_cache_hit),
+    dataset_metric_eval_ms: toFinite(perf.metric_eval_ms),
+    dataset_hydrate_datasets_ms: toFinite(perf.hydrate_datasets_ms),
+    dataset_base_query_ms: toFinite(perf.base_query_ms),
   };
 }
 

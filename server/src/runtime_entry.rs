@@ -20,6 +20,7 @@ use axum::{
     Router,
 };
 use clap::Parser;
+use http_body_util::BodyExt;
 use mei_lang_kernel::{set_mei_package_root, HostSurface};
 use tracing::Instrument;
 
@@ -334,41 +335,6 @@ fn next_request_id() -> String {
     format!("req-{id:08x}")
 }
 
-fn route_kind_and_app_id(method: &Method, uri: &Uri) -> (&'static str, String) {
-    let path = uri.path();
-    let app_tail = |prefix: &str| {
-        path.strip_prefix(prefix)
-            .unwrap_or_default()
-            .trim_start_matches('/')
-            .to_string()
-    };
-    if *method == Method::GET && path.starts_with("/apps/build/") {
-        return ("build_page", app_tail("/apps/build/"));
-    }
-    if *method == Method::GET && path.starts_with("/apps/app/") {
-        return ("app_page", app_tail("/apps/app/"));
-    }
-    if *method == Method::GET && path.starts_with("/apps/config/") {
-        return ("config_page", app_tail("/apps/config/"));
-    }
-    if *method == Method::GET && path.starts_with("/apps/upload/") {
-        return ("upload_page", app_tail("/apps/upload/"));
-    }
-    if *method == Method::GET && path.starts_with("/apps/manage/") {
-        return ("manage_page_legacy", app_tail("/apps/manage/"));
-    }
-    if *method == Method::GET && path.starts_with("/apps/access/") {
-        return ("access_page_legacy", app_tail("/apps/access/"));
-    }
-    if *method == Method::POST && path.starts_with("/api/datasets/query/") {
-        return ("dataset_query", app_tail("/api/datasets/query/"));
-    }
-    if *method == Method::POST && path.starts_with("/api/datasets/metrics/") {
-        return ("metric_query", app_tail("/api/datasets/metrics/"));
-    }
-    ("http_request", String::new())
-}
-
 fn is_expected_auth_client_error(uri: &Uri, status: StatusCode) -> bool {
     if status != StatusCode::UNAUTHORIZED && status != StatusCode::FORBIDDEN {
         return false;
@@ -381,11 +347,12 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
     let method = request.method().clone();
     let uri = request.uri().clone();
     let request_id = next_request_id();
-    let (route_kind, app_id) = route_kind_and_app_id(&method, &uri);
+    let request_bytes = crate::http::request_trace::request_content_length(request.headers());
+    let (route_kind, app_id) = crate::http::request_trace::classify_route(&method, &uri);
     let span = tracing::info_span!(
         "http_request",
         request_id = %request_id,
-        route_kind = route_kind,
+        route_kind = %route_kind,
         app_id = %app_id,
         method = %method,
         uri = %uri
@@ -393,6 +360,20 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
     let started_at = Instant::now();
     let mut response = next.run(request).instrument(span).await;
     let status = response.status();
+    let (parts, body) = response.into_parts();
+    let body_bytes = match body.collect().await {
+        Ok(buffer) => buffer.to_bytes(),
+        Err(error) => {
+            tracing::warn!(
+                request_id = %request_id,
+                error = %error,
+                "failed to collect response body for request trace"
+            );
+            axum::body::Bytes::new()
+        }
+    };
+    let response_bytes = body_bytes.len() as u64;
+    response = Response::from_parts(parts, Body::from(body_bytes));
     let latency_ms = started_at.elapsed().as_millis();
     if let Ok(value) = HeaderValue::from_str(&request_id) {
         response
@@ -400,13 +381,27 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
             .insert(HeaderName::from_static("x-mei-request-id"), value);
     }
 
+    crate::http::request_trace::record_request(
+        &request_id,
+        &method,
+        &uri,
+        &route_kind,
+        &app_id,
+        status,
+        latency_ms,
+        request_bytes,
+        response_bytes,
+    );
+
     if status.is_server_error() {
         tracing::error!(
             request_id = %request_id,
-            route_kind = route_kind,
+            route_kind = %route_kind,
             app_id = %app_id,
             status = %status,
             latency_ms,
+            request_bytes,
+            response_bytes,
             method = %method,
             uri = %uri,
             "request finished with error status"
@@ -415,10 +410,12 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
         if is_expected_auth_client_error(&uri, status) {
             tracing::debug!(
                 request_id = %request_id,
-                route_kind = route_kind,
+                route_kind = %route_kind,
                 app_id = %app_id,
                 status = %status,
                 latency_ms,
+                request_bytes,
+                response_bytes,
                 method = %method,
                 uri = %uri,
                 "request finished with expected auth client error"
@@ -426,10 +423,12 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
         } else {
             tracing::warn!(
                 request_id = %request_id,
-                route_kind = route_kind,
+                route_kind = %route_kind,
                 app_id = %app_id,
                 status = %status,
                 latency_ms,
+                request_bytes,
+                response_bytes,
                 method = %method,
                 uri = %uri,
                 "request finished with client error status"
@@ -438,10 +437,12 @@ async fn log_request(request: Request<Body>, next: Next) -> Response {
     } else if !is_noisy_success_request(&method, &uri) {
         tracing::info!(
             request_id = %request_id,
-            route_kind = route_kind,
+            route_kind = %route_kind,
             app_id = %app_id,
             status = %status,
             latency_ms,
+            request_bytes,
+            response_bytes,
             method = %method,
             uri = %uri,
             "request finished"

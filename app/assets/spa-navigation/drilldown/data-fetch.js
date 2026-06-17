@@ -1,3 +1,28 @@
+  const drilldownRowFetchInflight = new Map();
+
+  function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
+    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
+    const datasetId = nonEmptyString(
+      config?.datasetId,
+      config?.rowsetDatasetId,
+      resolveDrilldownDatasetId(detail, config),
+    );
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const filterKey = JSON.stringify(popupFetchFilters || {});
+    return [sceneId, datasetId, metricId, queryStateId, filterKey].join("|");
+  }
+
+  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false } = {}) {
+    const pageSize = resolveDrilldownFetchPageSize(config, { previewRow, clientAggregate: false });
+    const dedicated = isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole });
+    return {
+      page: 1,
+      pageSize,
+      full: false,
+      summary: !dedicated,
+    };
+  }
+
   async function fetchPopupDatasetRows(detail, config, datasetId) {
     const appPath = resolvePreviewAppId();
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
@@ -82,12 +107,9 @@
             },
           },
           {
-            page: 1,
-            pageSize: 100000,
+            ...popupDatasetFetchOptions(config),
             queryStateId,
             filters: mergedFilters,
-            full: true,
-            summary: true,
             meta: {
               component: "mei-popup-panel",
               panel_id: String(config?.panelId || "drilldown"),
@@ -200,8 +222,10 @@
           resolveCompositionMetricId(config, detail),
         );
     const detailRowsetMetricId =
-      tableMetricId && !String(tableMetricId).endsWith("::__scalar_rowset__")
-        ? resolveCardMetricRowsetId(tableMetricId)
+      tableMetricId && !isScalarRowsetMetricId(tableMetricId)
+        ? isDedicatedExplainMetricId(tableMetricId)
+          ? tableMetricId
+          : resolveCardMetricRowsetId(tableMetricId)
         : tableMetricId;
     const scopedConfig = detailRowsetMetricId ? { ...config, tableMetricId: detailRowsetMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
@@ -209,35 +233,52 @@
     const runtimeQuery = window.__meiDatasetRuntime;
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
     if (detailRowsetMetricId && tableProps && runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
-      try {
-        const result = await runtimeQuery.fetchDatasetRows(
-          {
-            dataset: tableProps.dataset,
-            _mei: tableProps._mei,
-          },
-          {
-            page: 1,
-            pageSize: 100000,
-            queryStateId: Object.keys(popupFetchFilters).length ? undefined : queryStateId,
-            filters: popupFetchFilters,
-            full: true,
-            summary: true,
-            meta: {
-              component: "mei-popup-panel",
-              phase: "derived_metric_rowset",
-              query_state_id: queryStateId || undefined,
-              filter_intent_source: "drilldown",
+      const fetchOptions = popupDatasetFetchOptions(scopedConfig, {
+        metricId: detailRowsetMetricId,
+        previewRow: hasRowDrilldownFilters(detail),
+      });
+      const inflightKey = drilldownFetchCacheKey(detail, scopedConfig, detailRowsetMetricId, popupFetchFilters);
+      if (drilldownRowFetchInflight.has(inflightKey)) {
+        return drilldownRowFetchInflight.get(inflightKey);
+      }
+      const fetchPromise = (async () => {
+        try {
+          const result = await runtimeQuery.fetchDatasetRows(
+            {
+              dataset: tableProps.dataset,
+              _mei: tableProps._mei,
             },
-          },
-        );
-        if (result && Array.isArray(result.rows) && result.rows.length > 0) {
-          return {
-            rows: Array.isArray(result.rows) ? result.rows : [],
-            columns: Array.isArray(result.columns) ? result.columns : [],
-            column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
-            summary: result?.summary || null,
-            query_state_echo: result?.query_state_echo || null,
-          };
+            {
+              ...fetchOptions,
+              queryStateId: Object.keys(popupFetchFilters).length ? undefined : queryStateId,
+              filters: popupFetchFilters,
+              meta: {
+                component: "mei-popup-panel",
+                phase: "derived_metric_rowset",
+                query_state_id: queryStateId || undefined,
+                filter_intent_source: "drilldown",
+              },
+            },
+          );
+          if (result && Array.isArray(result.rows) && result.rows.length > 0) {
+            return {
+              rows: Array.isArray(result.rows) ? result.rows : [],
+              columns: Array.isArray(result.columns) ? result.columns : [],
+              column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
+              summary: result?.summary || null,
+              query_state_echo: result?.query_state_echo || null,
+            };
+          }
+          return null;
+        } finally {
+          drilldownRowFetchInflight.delete(inflightKey);
+        }
+      })();
+      drilldownRowFetchInflight.set(inflightKey, fetchPromise);
+      try {
+        const fetched = await fetchPromise;
+        if (fetched) {
+          return fetched;
         }
       } catch (error) {
         recordPopupDebugIssue({

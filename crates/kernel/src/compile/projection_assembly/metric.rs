@@ -890,12 +890,29 @@ fn slot_from_explain_block(
         .get("label")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let slot_metric_id = block_map
-        .get("metric_id")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| metric_id.to_string());
+    let slot_metric_id = if support_role == "composition" {
+        block_map
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(|block_id| format!("{}::{}", metric_id.trim(), block_id))
+            .or_else(|| {
+                block_map
+                    .get("metric_id")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| metric_id.to_string())
+    } else {
+        block_map
+            .get("metric_id")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| metric_id.to_string())
+    };
     let block_dataset_id = block_map
         .get("dataset_id")
         .and_then(Value::as_str)

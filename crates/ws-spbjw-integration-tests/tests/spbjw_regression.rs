@@ -1789,7 +1789,7 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
         "effect_sanction_analytics_board",
         "effect_handled_analytics_board",
         "effect_recovered_analytics_board",
-        "effect_mechanism_analytics_board",
+        "effect_mechanism_documents_board",
     ] {
         assert!(
             encoded.contains(board_id),
@@ -1835,6 +1835,28 @@ fn compile_spbjw_supervision_effectiveness_analytics_projection_slots() {
     assert!(
         sanction_encoded.contains("resultId") && sanction_encoded.contains("sanction"),
         "issue_result_list effectiveness boards should include result filter fields, got: {sanction_encoded}"
+    );
+    assert!(
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key("effect_mechanism_documents_board"),
+        "drilldown context should hydrate mechanism documents board assembly, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+    let mechanism_assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("effect_mechanism_documents_board")
+        .and_then(Value::as_object)
+        .expect("mechanism documents assembly");
+    let mechanism_encoded =
+        serde_json::to_string(mechanism_assembly).expect("encode mechanism documents assembly");
+    assert!(
+        mechanism_encoded.contains("document_preview"),
+        "mechanism documents board should lower document_preview mapping, got: {mechanism_encoded}"
+    );
+    assert!(
+        mechanism_encoded.contains("layout_mode") && mechanism_encoded.contains("list_preview"),
+        "mechanism documents board should lower to list_preview layout_mode, got: {mechanism_encoded}"
     );
 }
 
@@ -2277,10 +2299,14 @@ fn compile_spbjw_home_preview_imported_enforcement_personnel_composition_tab_use
         .and_then(|value| value.get("metric_id"))
         .and_then(Value::as_str)
         .unwrap_or("");
-    assert_eq!(
-        composition_metric_id,
-        format!("{metric_key}::__scalar_rowset__"),
-        "imported composition tab should bind to capsule-qualified rowset metric"
+    assert!(
+        composition_metric_id.ends_with("::composition_by_agency")
+            || composition_metric_id.ends_with("::composition_by_rank"),
+        "composition tab should bind to hoisted composition metric, got `{composition_metric_id}`"
+    );
+    assert!(
+        !composition_metric_id.ends_with("::__scalar_rowset__"),
+        "composition tab should not bind to raw scalar rowset"
     );
 }
 
@@ -3256,10 +3282,10 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
     let issue_metric = query_metric_dataframe(
         &issue_compiled,
         app_root.as_path(),
-        "issue_result_list",
-        "effectiveness_mechanism_item_count::__scalar_rowset__",
-        Some("effect_mechanism_analytics_board"),
-        Some(issue_board),
+        "mechanism_documents",
+        "effectiveness_mechanism_item_count::mechanism_documents_list",
+        Some("effect_mechanism_documents_board"),
+        Some("scenes/_shared/mechanism-documents.board.mei"),
         "integration-test",
         DatasetQueryOptions {
             page: 1,
@@ -3270,15 +3296,21 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
         None,
         Vec::new(),
     )
-    .expect("issue_result_list metric dataframe query");
-    assert!(
-        !issue_metric.rows.is_empty(),
-        "mechanism detail should return rows"
+    .expect("mechanism_documents metric dataframe query");
+    assert_eq!(
+        issue_metric.rows.len(),
+        10,
+        "mechanism documents list should expose 10 mapped mechanism rows"
     );
     for row in &issue_metric.rows {
-        for field in ["预警时间", "分办时间", "办结时间"] {
-            assert_calendar_field_is_date_only(row, field);
-        }
+        let name = row
+            .get("机制名称")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        assert!(
+            !name.trim().is_empty(),
+            "mechanism document row should include 机制名称, got: {row:?}"
+        );
     }
 
     let warning_list = issue_compiled
@@ -3345,4 +3377,47 @@ fn spbjw_warning_and_issue_result_metric_dataframe_dates_are_calendar_only() {
     for row in &realtime_metric.rows {
         assert_calendar_field_is_date_only(row, "预警时间");
     }
+}
+
+#[test]
+fn spbjw_enforcement_personnel_composition_by_agency_returns_grouped_rows() {
+    use mei_lang_datasets::{query_metric_dataframe, DatasetQueryOptions};
+
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/01-执法要素.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+
+    let composition = query_metric_dataframe(
+        &compiled,
+        app_root.as_path(),
+        "enforcement_officers",
+        "scenes/01-执法要素.mei::enforcement_personnel_count::composition_by_agency",
+        Some("enforcement_elements"),
+        Some(target),
+        "integration-test",
+        DatasetQueryOptions {
+            page: 1,
+            page_size: 16,
+            collect_all: false,
+            ..DatasetQueryOptions::default()
+        },
+        None,
+        Vec::new(),
+    )
+    .expect("enforcement_personnel_count composition_by_agency");
+    assert!(
+        composition.total > 0,
+        "composition_by_agency should group officers by 所属部门, got total={} rows={:?}",
+        composition.total,
+        composition.rows
+    );
 }

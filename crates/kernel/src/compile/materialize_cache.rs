@@ -1,6 +1,6 @@
 //! L3：独立数据物化缓存，解耦 scene compile 与 xlsx/csv 读表。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -42,12 +42,28 @@ pub fn dataset_materialize_cache_epoch() -> String {
 }
 
 static LEGACY_ROWS_CACHE: Mutex<BTreeMap<String, LegacyRowsSnapshot>> = Mutex::new(BTreeMap::new());
+static LEGACY_ROWS_CACHE_LRU: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 static XLSX_TABLE_SNAPSHOT_CACHE: Mutex<BTreeMap<String, Arc<XlsxTableSnapshot>>> =
     Mutex::new(BTreeMap::new());
+static XLSX_TABLE_SNAPSHOT_CACHE_LRU: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 static LEGACY_ROWS_CACHE_HITS: AtomicU64 = AtomicU64::new(0);
 static LEGACY_ROWS_CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
 const MAX_LEGACY_ROWS_CACHE_ENTRIES: usize = 96;
-const MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES: usize = 32;
+const MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES: usize = 64;
+
+fn touch_lru(lru: &mut VecDeque<String>, key: &str) {
+    lru.retain(|value| value != key);
+    lru.push_front(key.to_string());
+}
+
+fn evict_lru<V>(cache: &mut BTreeMap<String, V>, lru: &mut VecDeque<String>, max_entries: usize) {
+    while cache.len() > max_entries {
+        let Some(oldest) = lru.pop_back() else {
+            break;
+        };
+        cache.remove(&oldest);
+    }
+}
 
 fn resolve_table_snapshot_key(
     app_root: &Path,
@@ -134,10 +150,12 @@ fn source_rows_cache_key(app_root: &Path, source: &LegacySourceDecl) -> Option<S
 
 fn store_rows_cache(key: String, snapshot: LegacyRowsSnapshot) {
     if let Ok(mut cache) = LEGACY_ROWS_CACHE.lock() {
-        if cache.len() >= MAX_LEGACY_ROWS_CACHE_ENTRIES {
-            cache.clear();
+        if let Ok(mut lru) = LEGACY_ROWS_CACHE_LRU.lock() {
+            lru.retain(|value| value != &key);
+            cache.insert(key.clone(), snapshot);
+            touch_lru(&mut lru, key.as_str());
+            evict_lru(&mut cache, &mut lru, MAX_LEGACY_ROWS_CACHE_ENTRIES);
         }
-        cache.insert(key, snapshot);
     }
 }
 
@@ -200,10 +218,15 @@ pub fn cached_load_xlsx_table_snapshot(
         )?;
         return Ok((Arc::new(snapshot), false));
     };
-    if let Ok(cache) = XLSX_TABLE_SNAPSHOT_CACHE.lock() {
-        if let Some(snapshot) = cache.get(&key) {
-            return Ok((snapshot.clone(), true));
+    let cached = XLSX_TABLE_SNAPSHOT_CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(&key).cloned());
+    if let Some(snapshot) = cached {
+        if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
+            touch_lru(&mut lru, key.as_str());
         }
+        return Ok((snapshot, true));
     }
     let resolved_identifier = resolve_versioned_source_identifier(app_root, source_path);
     let absolute_path = app_root.join(&resolved_identifier);
@@ -215,10 +238,16 @@ pub fn cached_load_xlsx_table_snapshot(
         None,
     )?);
     if let Ok(mut cache) = XLSX_TABLE_SNAPSHOT_CACHE.lock() {
-        if cache.len() >= MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES {
-            cache.clear();
+        if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
+            lru.retain(|value| value != &key);
+            cache.insert(key.clone(), snapshot.clone());
+            touch_lru(&mut lru, key.as_str());
+            evict_lru(
+                &mut cache,
+                &mut lru,
+                MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES,
+            );
         }
-        cache.insert(key, snapshot.clone());
     }
     Ok((snapshot, false))
 }
@@ -247,8 +276,14 @@ pub(crate) fn clear_materialize_cache() {
     if let Ok(mut c) = LEGACY_ROWS_CACHE.lock() {
         c.clear();
     }
+    if let Ok(mut lru) = LEGACY_ROWS_CACHE_LRU.lock() {
+        lru.clear();
+    }
     if let Ok(mut c) = XLSX_TABLE_SNAPSHOT_CACHE.lock() {
         c.clear();
+    }
+    if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
+        lru.clear();
     }
 }
 

@@ -23,11 +23,11 @@
         return;
       }
       if (/部门|单位|机构|主责/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 18 };
+        formats[name] = { truncate: false };
         return;
       }
-      if (/描述|事项|问题|表现|情况|名称|规则|依据|文件/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 24 };
+      if (/描述|事项|问题|表现|情况|名称|规则|依据|文件|备注|处置/.test(name)) {
+        formats[name] = { truncate: false };
       }
     });
     return formats;
@@ -42,7 +42,7 @@
           return { key: name, order, width_mode: "fixed", align: "left" };
         }
         if (/等级/.test(name)) {
-          return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
+          return { key: name, order, width: 88, width_mode: "fixed", align: "center" };
         }
         if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };

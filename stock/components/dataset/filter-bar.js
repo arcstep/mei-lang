@@ -80,10 +80,11 @@ class MeiDatasetFilterBar extends HTMLElement {
       },
     };
     try {
+      const FILTER_OPTIONS_MAX_ROWS = 2048;
       const result = await fetchDatasetRows(props, {
         page: 1,
-        pageSize: 0,
-        full: true,
+        pageSize: FILTER_OPTIONS_MAX_ROWS,
+        full: false,
         meta: { component: "dataset.filter-bar", request_id: "filter-bar-options" },
       });
       const rows = Array.isArray(result?.rows) ? result.rows : [];

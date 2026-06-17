@@ -140,6 +140,10 @@ pub(crate) fn clear_eval_node_cache() -> usize {
 #[derive(Debug, Default)]
 pub(crate) struct EvalContext {
     scope: RuntimeMetricEvalScope,
+    /// Runtime metric defs available for `{"__ref":"metric"}` rowset resolution.
+    metric_defs: BTreeMap<String, Value>,
+    /// Rowsets materialized by metric id during this request pass.
+    resolved_metric_rowsets: BTreeMap<String, Vec<Value>>,
     rowset_cache: BTreeMap<String, Vec<Value>>,
     scalar_cache: BTreeMap<String, Value>,
     // This records the request-scoped execution DAG. It must not be confused
@@ -221,9 +225,19 @@ fn expr_identity_hint(expr: &Value) -> Option<String> {
 }
 
 impl EvalContext {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn with_scope(scope: RuntimeMetricEvalScope) -> Self {
+        Self::with_scope_and_metric_defs(scope, BTreeMap::new())
+    }
+
+    pub(crate) fn with_scope_and_metric_defs(
+        scope: RuntimeMetricEvalScope,
+        metric_defs: BTreeMap<String, Value>,
+    ) -> Self {
         Self {
             scope,
+            metric_defs,
+            resolved_metric_rowsets: BTreeMap::new(),
             rowset_cache: BTreeMap::new(),
             scalar_cache: BTreeMap::new(),
             request_dag: RequestDag::default(),
@@ -233,6 +247,21 @@ impl EvalContext {
             eval_stack: Vec::new(),
             in_progress: BTreeSet::new(),
         }
+    }
+
+    pub(crate) fn store_resolved_metric_rowset(&mut self, metric_id: &str, rows: &[Value]) {
+        if !metric_id.trim().is_empty() {
+            self.resolved_metric_rowsets
+                .insert(metric_id.to_string(), rows.to_vec());
+        }
+    }
+
+    pub(crate) fn resolved_metric_rowset(&self, metric_id: &str) -> Option<Vec<Value>> {
+        self.resolved_metric_rowsets.get(metric_id).cloned()
+    }
+
+    pub(crate) fn metric_def(&self, metric_id: &str) -> Option<&Value> {
+        self.metric_defs.get(metric_id)
     }
 
     fn register_node_access(&mut self, key: &str, hit: bool) {

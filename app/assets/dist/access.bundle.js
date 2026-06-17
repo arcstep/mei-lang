@@ -9241,11 +9241,11 @@
         return;
       }
       if (/部门|单位|机构|主责/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 18 };
+        formats[name] = { truncate: false };
         return;
       }
-      if (/描述|事项|问题|表现|情况|名称|规则|依据|文件/.test(name)) {
-        formats[name] = { truncate: true, maxChars: 24 };
+      if (/描述|事项|问题|表现|情况|名称|规则|依据|文件|备注|处置/.test(name)) {
+        formats[name] = { truncate: false };
       }
     });
     return formats;
@@ -9260,7 +9260,7 @@
           return { key: name, order, width_mode: "fixed", align: "left" };
         }
         if (/等级/.test(name)) {
-          return { key: name, order, width: 76, width_mode: "fixed", align: "center" };
+          return { key: name, order, width: 88, width_mode: "fixed", align: "center" };
         }
         if (/部门|单位|机构|主责/.test(name)) {
           return { key: name, order, align: "left" };
@@ -11746,6 +11746,31 @@
 ;
 
 /* ===== spa-navigation/drilldown/data-fetch.js ===== */
+  const drilldownRowFetchInflight = new Map();
+
+  function drilldownFetchCacheKey(detail, config, metricId, popupFetchFilters) {
+    const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId, detail?.host_scene_id);
+    const datasetId = nonEmptyString(
+      config?.datasetId,
+      config?.rowsetDatasetId,
+      resolveDrilldownDatasetId(detail, config),
+    );
+    const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
+    const filterKey = JSON.stringify(popupFetchFilters || {});
+    return [sceneId, datasetId, metricId, queryStateId, filterKey].join("|");
+  }
+
+  function popupDatasetFetchOptions(config, { metricId = "", previewRow = false } = {}) {
+    const pageSize = resolveDrilldownFetchPageSize(config, { previewRow, clientAggregate: false });
+    const dedicated = isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole });
+    return {
+      page: 1,
+      pageSize,
+      full: false,
+      summary: !dedicated,
+    };
+  }
+
   async function fetchPopupDatasetRows(detail, config, datasetId) {
     const appPath = resolvePreviewAppId();
     const runtimeRefConfig = config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
@@ -11830,12 +11855,9 @@
             },
           },
           {
-            page: 1,
-            pageSize: 100000,
+            ...popupDatasetFetchOptions(config),
             queryStateId,
             filters: mergedFilters,
-            full: true,
-            summary: true,
             meta: {
               component: "mei-popup-panel",
               panel_id: String(config?.panelId || "drilldown"),
@@ -11948,8 +11970,10 @@
           resolveCompositionMetricId(config, detail),
         );
     const detailRowsetMetricId =
-      tableMetricId && !String(tableMetricId).endsWith("::__scalar_rowset__")
-        ? resolveCardMetricRowsetId(tableMetricId)
+      tableMetricId && !isScalarRowsetMetricId(tableMetricId)
+        ? isDedicatedExplainMetricId(tableMetricId)
+          ? tableMetricId
+          : resolveCardMetricRowsetId(tableMetricId)
         : tableMetricId;
     const scopedConfig = detailRowsetMetricId ? { ...config, tableMetricId: detailRowsetMetricId } : config;
     const tableProps = buildDrilldownTableProps(detail, scopedConfig);
@@ -11957,35 +11981,52 @@
     const runtimeQuery = window.__meiDatasetRuntime;
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
     if (detailRowsetMetricId && tableProps && runtimeQuery && typeof runtimeQuery.fetchDatasetRows === "function") {
-      try {
-        const result = await runtimeQuery.fetchDatasetRows(
-          {
-            dataset: tableProps.dataset,
-            _mei: tableProps._mei,
-          },
-          {
-            page: 1,
-            pageSize: 100000,
-            queryStateId: Object.keys(popupFetchFilters).length ? undefined : queryStateId,
-            filters: popupFetchFilters,
-            full: true,
-            summary: true,
-            meta: {
-              component: "mei-popup-panel",
-              phase: "derived_metric_rowset",
-              query_state_id: queryStateId || undefined,
-              filter_intent_source: "drilldown",
+      const fetchOptions = popupDatasetFetchOptions(scopedConfig, {
+        metricId: detailRowsetMetricId,
+        previewRow: hasRowDrilldownFilters(detail),
+      });
+      const inflightKey = drilldownFetchCacheKey(detail, scopedConfig, detailRowsetMetricId, popupFetchFilters);
+      if (drilldownRowFetchInflight.has(inflightKey)) {
+        return drilldownRowFetchInflight.get(inflightKey);
+      }
+      const fetchPromise = (async () => {
+        try {
+          const result = await runtimeQuery.fetchDatasetRows(
+            {
+              dataset: tableProps.dataset,
+              _mei: tableProps._mei,
             },
-          },
-        );
-        if (result && Array.isArray(result.rows) && result.rows.length > 0) {
-          return {
-            rows: Array.isArray(result.rows) ? result.rows : [],
-            columns: Array.isArray(result.columns) ? result.columns : [],
-            column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
-            summary: result?.summary || null,
-            query_state_echo: result?.query_state_echo || null,
-          };
+            {
+              ...fetchOptions,
+              queryStateId: Object.keys(popupFetchFilters).length ? undefined : queryStateId,
+              filters: popupFetchFilters,
+              meta: {
+                component: "mei-popup-panel",
+                phase: "derived_metric_rowset",
+                query_state_id: queryStateId || undefined,
+                filter_intent_source: "drilldown",
+              },
+            },
+          );
+          if (result && Array.isArray(result.rows) && result.rows.length > 0) {
+            return {
+              rows: Array.isArray(result.rows) ? result.rows : [],
+              columns: Array.isArray(result.columns) ? result.columns : [],
+              column_meta: Array.isArray(result.column_meta) ? result.column_meta : [],
+              summary: result?.summary || null,
+              query_state_echo: result?.query_state_echo || null,
+            };
+          }
+          return null;
+        } finally {
+          drilldownRowFetchInflight.delete(inflightKey);
+        }
+      })();
+      drilldownRowFetchInflight.set(inflightKey, fetchPromise);
+      try {
+        const fetched = await fetchPromise;
+        if (fetched) {
+          return fetched;
         }
       } catch (error) {
         recordPopupDebugIssue({
@@ -12113,6 +12154,35 @@
     return `${text}::__scalar_rowset__`;
   }
 
+  function isScalarRowsetMetricId(metricId) {
+    const text = String(metricId || "").trim();
+    return text.endsWith("::__scalar_rowset__");
+  }
+
+  /** explain 派生的 composition/trend dataframe（服务端已聚合），不是明细 rowset。 */
+  function isDedicatedExplainMetricId(metricId, { supportRole = "" } = {}) {
+    const text = String(metricId || "").trim();
+    if (!text || isScalarRowsetMetricId(text)) return false;
+    if (text.includes("::")) return true;
+    const role = String(supportRole || "").trim().toLowerCase();
+    return role === "composition" || role === "trend" || role === "attribution";
+  }
+
+  function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
+    if (clientAggregate) return 100000;
+    if (previewRow) return 1;
+    const dedicated = isDedicatedExplainMetricId(resolveCompositionMetricId(config), {
+      supportRole: config?.supportRole,
+    });
+    if (dedicated) {
+      const topN = positiveInt(config?.top_n, config?.topN, config?.topN);
+      return topN > 0 ? Math.max(topN, 16) : 64;
+    }
+    const tablePage = positiveInt(config?.pageSize, config?.page_size);
+    if (tablePage > 0) return tablePage;
+    return 20;
+  }
+
   function resolveCompositionMetricId(config, detail = null) {
     return nonEmptyString(
       config?.tableMetricId,
@@ -12120,6 +12190,19 @@
       config?.runtimeRef?.metric_id,
       detail?.table_metric_id,
     );
+  }
+
+  /** 从父 metric + explain block id 推导服务端 composition dataframe（如 inspections_total_count::composition_by_agency）。 */
+  function resolveCompositionScopedMetricId(parentMetricId, explainBlockId) {
+    const parent = String(parentMetricId || "").trim();
+    const blockId = String(explainBlockId || "").trim();
+    if (!parent || !blockId) return "";
+    if (blockId === "composition" || blockId === "metric" || blockId === "detail" || blockId === "trend") {
+      return "";
+    }
+    const scoped = `${parent}::${blockId}`;
+    if (isScalarRowsetMetricId(scoped)) return "";
+    return scoped;
   }
 
   function groupRowsForComposition(rows, field, columns = [], config = null, detail = null) {
@@ -12423,8 +12506,8 @@
       Number(config?.columnMinWidth) > 0
         ? Number(config.columnMinWidth)
         : tableScrollX
-          ? 88
-          : 56;
+          ? 96
+          : 64;
     const drilldownFilters =
       detail?.drilldown_filters && typeof detail.drilldown_filters === "object" && !Array.isArray(detail.drilldown_filters)
         ? detail.drilldown_filters
@@ -12454,11 +12537,9 @@
       cellOverflowMinChars: 10,
       pageSize: Number(config?.pageSize ?? config?.page_size) > 0 ? Number(config?.pageSize ?? config?.page_size) : 8,
       cellPreviewMaxChars:
-        Number(config?.cellPreviewMaxChars) > 0
+        Number.isFinite(Number(config?.cellPreviewMaxChars)) && Number(config?.cellPreviewMaxChars) >= 0
           ? Number(config.cellPreviewMaxChars)
-          : tableScrollX
-            ? 20
-            : 28,
+          : 0,
       columnMinWidth,
       columnFormats,
       pagination: true,
@@ -12651,6 +12732,46 @@
     if (!chartTag) return null;
     const columns = Array.isArray(config?.columns) ? config.columns : [];
     const normalizedKind = explainMetricKind(config, tabId);
+    const cardMetricId = nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      config?.tableMetricId,
+    );
+    const chartMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolveCompositionScopedMetricId(cardMetricId, tabId),
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+    );
+    const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
+      supportRole: config?.supportRole,
+    });
+    const runtimeRefConfig =
+      config?.runtimeRef && typeof config.runtimeRef === "object" ? config.runtimeRef : {};
+    const chartDataset =
+      dedicatedChartMetric && chartMetricId
+        ? {
+            __mei_runtime_ref: {
+              kind: "metric",
+              metric_id: chartMetricId,
+              dataset_id: nonEmptyString(
+                runtimeRefConfig.datasetId,
+                runtimeRefConfig.dataset_id,
+                tableProps.dataset?.__mei_runtime_ref?.dataset_id,
+              ),
+              scene_id: nonEmptyString(
+                runtimeRefConfig.sceneId,
+                runtimeRefConfig.scene_id,
+                tableProps.dataset?.__mei_runtime_ref?.scene_id,
+              ),
+              scene_path: nonEmptyString(
+                runtimeRefConfig.scenePath,
+                runtimeRefConfig.scene_path,
+                tableProps.dataset?.__mei_runtime_ref?.scene_path,
+              ),
+            },
+          }
+        : tableProps.dataset;
     const compositionField = nonEmptyString(
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
       columns[0],
@@ -12670,9 +12791,11 @@
       chartTag,
       props: {
         title: String(config?.title || ""),
-        data: tableProps.dataset,
+        data: chartDataset,
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
+        supportRole: config?.supportRole,
+        topN: positiveInt(config?.top_n, config?.topN),
         mapping,
         ...buildAnalyticsChartPresentationProps(config, { mapping }),
       },
@@ -12682,11 +12805,27 @@
   async function mountAnalyticsChartSlot(root, detail, config, tabId, hostOverride = null) {
     const kind = explainMetricKind(config, tabId);
     const supportRole = nonEmptyString(config?.supportRole, config?.slotByTab?.[normalizeTabId(tabId)]?.supportRole);
-    // 构成图需要明细行在前端按维度聚合；metric KPI 查询只返回标量，不能直接驱动图表。
+    const cardMetricId = nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      config?.tableMetricId,
+    );
+    const chartMetricId = nonEmptyString(
+      config?.tableMetricId,
+      resolveCompositionScopedMetricId(cardMetricId, tabId),
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+    );
+    const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
+      supportRole: config?.supportRole ?? supportRole,
+    });
     if (kind === "composition" || supportRole === "composition") {
-      if (await mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride)) {
-        return true;
+      if (dedicatedChartMetric) {
+        if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
+          return true;
+        }
       }
+      return mountDerivedDrilldownContent(root, detail, config, tabId, hostOverride);
     }
     return mountDrilldownChart(root, detail, config, tabId, hostOverride);
   }
@@ -12894,6 +13033,17 @@
           : slotConfig.mapping && typeof slotConfig.mapping === "object"
             ? slotConfig.mapping
             : null;
+      const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id, boardMetricId);
+      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, slot.id);
+      const resolvedChartMetricId = nonEmptyString(
+        isDedicatedExplainMetricId(slot.metricId, { supportRole: slot.supportRole })
+          ? slot.metricId
+          : "",
+        compositionMetricId,
+        slot.metricId,
+        slotConfig.tableMetricId,
+        boardMetricId,
+      );
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -12901,61 +13051,43 @@
         hostSceneId: config.hostSceneId,
         hostSceneFile: config.hostSceneFile,
         queryStateId: config.queryStateId,
-        tableMetricId: nonEmptyString(slot.metricId, slotConfig.tableMetricId, boardMetricId),
+        supportRole: nonEmptyString(slot.supportRole, slotConfig.supportRole, "composition"),
+        tableMetricId: resolvedChartMetricId,
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
+        compositionBy:
+          Array.isArray(slot.by) && slot.by.length > 0
+            ? slot.by
+            : Array.isArray(slotConfig.compositionBy)
+              ? slotConfig.compositionBy
+              : [],
+        runtimeRef: {
+          ...(slotConfig.runtimeRef && typeof slotConfig.runtimeRef === "object" ? slotConfig.runtimeRef : {}),
+          kind: "metric",
+          metricId: resolvedChartMetricId,
+          metric_id: resolvedChartMetricId,
+          datasetId: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.datasetId),
+          dataset_id: nonEmptyString(slot.datasetId, slotConfig?.runtimeRef?.dataset_id),
+          sceneId: nonEmptyString(config.hostSceneId, config.sceneId),
+          scene_id: nonEmptyString(config.hostSceneId, config.sceneId),
+          scenePath: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+          scene_path: nonEmptyString(config.hostSceneFile, detail?.host_scene_file, detail?.scene_path),
+        },
       };
       if (await mountAnalyticsChartSlot(root, detail, mergedConfig, slot.id, slotHost)) {
         return true;
       }
-      const fallbackRuntimeRef = {
-        ...(mergedConfig.runtimeRef && typeof mergedConfig.runtimeRef === "object"
-          ? mergedConfig.runtimeRef
-          : {}),
-        kind: "metric",
-        metricId: nonEmptyString(slot.metricId, mergedConfig?.runtimeRef?.metricId, mergedConfig?.runtimeRef?.metric_id),
-        datasetId: nonEmptyString(slot.datasetId, mergedConfig?.runtimeRef?.datasetId, mergedConfig?.runtimeRef?.dataset_id),
-        sceneId: nonEmptyString(mergedConfig?.runtimeRef?.sceneId, config.hostSceneId, config.sceneId),
-        scenePath: nonEmptyString(
-          mergedConfig?.runtimeRef?.scenePath,
-          config.hostSceneFile,
-          detail?.host_scene_file,
-          detail?.scene_path
-        ),
-      };
-      const fallbackConfig = {
-        ...mergedConfig,
-        supportRole: nonEmptyString(slot.supportRole, mergedConfig.supportRole, "composition"),
-        tableMetricId: nonEmptyString(slot.metricId, mergedConfig.tableMetricId),
-        datasetId: nonEmptyString(slot.datasetId, mergedConfig.datasetId),
-        runtimeRef: fallbackRuntimeRef,
-        compositionBy:
-          Array.isArray(slot.by) && slot.by.length > 0
-            ? slot.by
-            : Array.isArray(mergedConfig.compositionBy)
-              ? mergedConfig.compositionBy
-              : [],
-      };
-      const fallbackMounted = await mountDerivedDrilldownContent(
-        root,
+      recordPopupDebugIssue({
+        level: "warn",
+        phase: "analytics_chart_mount_failed",
+        message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
         detail,
-        fallbackConfig,
-        slot.id,
-        slotHost
-      );
-      if (!fallbackMounted) {
-        recordPopupDebugIssue({
-          level: "warn",
-          phase: "analytics_chart_mount_fallback_failed",
-          message: `chart slot ${String(slot.id || "").trim() || "unknown"} mount returned false`,
-          detail,
-          config: fallbackConfig,
-          datasetId: fallbackConfig.datasetId,
-          metricId: fallbackConfig.tableMetricId,
-        });
-      }
-      return fallbackMounted;
+        config: mergedConfig,
+        datasetId: mergedConfig.datasetId,
+        metricId: mergedConfig.tableMetricId,
+      });
+      return false;
     });
     const results = await Promise.all(chartMounts);
     return chartSlots.length === 0 || results.every(Boolean);
@@ -14443,17 +14575,18 @@
     }
     const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const fetchConfig = { ...config, datasetId };
-    if (
-      cardMetricId &&
-      (explainMetricKind(config, tabId) === "composition" ||
-        nonEmptyString(config?.supportRole) === "composition")
-    ) {
-      // 构成图需基于卡片指标 rowset 在前端聚合；查询 inferred __scalar_rowset__ 而非标量根指标。
+    const isCompositionTab =
+      explainMetricKind(config, tabId) === "composition" ||
+      nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+    if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
-      fetchConfig.tableMetricId =
-        slotMetricId && slotMetricId.endsWith("::__scalar_rowset__")
-          ? slotMetricId
-          : resolveCardMetricRowsetId(cardMetricId);
+      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
+      if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
+        fetchConfig.tableMetricId = slotMetricId;
+      } else if (compositionMetricId) {
+        fetchConfig.tableMetricId = compositionMetricId;
+        fetchConfig.supportRole = "composition";
+      }
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];

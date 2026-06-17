@@ -321,6 +321,9 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
             scene: None,
             tab: None,
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -373,6 +376,9 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
             scene: Some("home".to_string()),
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -444,6 +450,9 @@ async fn access_static_html_file_renders_without_scene_redirect() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -515,6 +524,9 @@ async fn access_mei_file_query_still_strips_file_param() {
             scene: Some("details".to_string()),
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -579,6 +591,9 @@ async fn manage_html_preview_uses_document_iframe() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -631,6 +646,9 @@ async fn access_root_redirects_to_default_scene_path() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -680,6 +698,9 @@ async fn access_scene_not_exported_returns_403() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -728,6 +749,9 @@ async fn access_page_launch_button_targets_presentation_route() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -776,6 +800,9 @@ async fn access_scene_not_found_returns_404() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -824,6 +851,9 @@ async fn presentation_route_redirects_to_default_scene() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -873,6 +903,9 @@ async fn presentation_route_strips_file_query() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -926,6 +959,9 @@ async fn presentation_route_renders_navigation_shell() {
             scene: None,
             tab: None,
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -978,6 +1014,9 @@ async fn access_only_surface_redirects_build_route_to_access_scene() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -1028,6 +1067,9 @@ async fn access_only_surface_hides_topbar_tabs_on_app_route() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )
@@ -1082,6 +1124,9 @@ async fn access_only_mode_slug_routes_to_app_surface() {
             scene: None,
             tab: Some("preview".to_string()),
             diag_filter: None,
+            world_metric: None,
+            world_dataset: None,
+            explain: None,
             chrome: None,
         }),
     )

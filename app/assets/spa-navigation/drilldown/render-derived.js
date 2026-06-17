@@ -19,17 +19,18 @@
     }
     const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
     const fetchConfig = { ...config, datasetId };
-    if (
-      cardMetricId &&
-      (explainMetricKind(config, tabId) === "composition" ||
-        nonEmptyString(config?.supportRole) === "composition")
-    ) {
-      // 构成图需基于卡片指标 rowset 在前端聚合；查询 inferred __scalar_rowset__ 而非标量根指标。
+    const isCompositionTab =
+      explainMetricKind(config, tabId) === "composition" ||
+      nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+    if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
-      fetchConfig.tableMetricId =
-        slotMetricId && slotMetricId.endsWith("::__scalar_rowset__")
-          ? slotMetricId
-          : resolveCardMetricRowsetId(cardMetricId);
+      const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
+      if (isDedicatedExplainMetricId(slotMetricId, { supportRole: config?.supportRole })) {
+        fetchConfig.tableMetricId = slotMetricId;
+      } else if (compositionMetricId) {
+        fetchConfig.tableMetricId = compositionMetricId;
+        fetchConfig.supportRole = "composition";
+      }
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];

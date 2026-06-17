@@ -115,7 +115,14 @@ pub(crate) fn materialize_legacy_metric_map_with_scope(
     datasets: &BTreeMap<String, DatasetView>,
     scope: &RuntimeMetricEvalScope,
 ) -> Result<BTreeMap<String, MetricContract>> {
-    Ok(materialize_legacy_metric_map_with_scope_and_dag(decls, base_rows, datasets, scope)?.0)
+    Ok(materialize_legacy_metric_map_with_scope_and_dag(
+        decls,
+        base_rows,
+        datasets,
+        scope,
+        None,
+    )?
+    .0)
 }
 
 pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
@@ -123,10 +130,16 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
     base_rows: &[Value],
     datasets: &BTreeMap<String, DatasetView>,
     scope: &RuntimeMetricEvalScope,
+    metric_ref_lookup: Option<&BTreeMap<String, Value>>,
 ) -> Result<(BTreeMap<String, MetricContract>, RequestDagMetrics)> {
+    let lookup = metric_ref_lookup.unwrap_or(decls);
     let mut metrics = BTreeMap::new();
-    let mut eval_ctx = EvalContext::with_scope(scope.clone());
-    for (metric_id, raw) in decls {
+    let mut eval_ctx = EvalContext::with_scope_and_metric_defs(scope.clone(), lookup.clone());
+    let eval_order = metric_eval_order(decls);
+    for metric_id in eval_order {
+        let Some(raw) = decls.get(&metric_id) else {
+            continue;
+        };
         let Some(map) = raw.as_object() else {
             continue;
         };
@@ -177,6 +190,9 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
         } else {
             value
         };
+        if let Value::Array(rows) = &value {
+            eval_ctx.store_resolved_metric_rowset(&metric_id, rows);
+        }
         metrics.insert(
             metric_id.clone(),
             MetricContract {
@@ -221,4 +237,20 @@ pub(crate) fn materialize_legacy_metric_map_with_scope_and_dag(
     }
     let dag_metrics = eval_ctx.request_dag_metrics();
     Ok((metrics, dag_metrics))
+}
+
+/// Prefer inferred scalar rowsets before composition/dataframe metrics that may
+/// reference them via `metric_ref`.
+fn metric_eval_order(decls: &BTreeMap<String, Value>) -> Vec<String> {
+    let mut ordered = decls.keys().cloned().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| {
+        let left_scalar = left.ends_with("::__scalar_rowset__");
+        let right_scalar = right.ends_with("::__scalar_rowset__");
+        match (left_scalar, right_scalar) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => left.cmp(right),
+        }
+    });
+    ordered
 }

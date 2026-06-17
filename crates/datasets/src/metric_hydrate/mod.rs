@@ -4,6 +4,8 @@ mod binding;
 mod collect;
 mod lookup;
 
+pub(crate) use collect::expand_metric_defs_for_hydrate;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
