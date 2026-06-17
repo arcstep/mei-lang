@@ -66,26 +66,52 @@
   }
 
   function isAnalyticsDetailTableConfig(config = null) {
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
     return Boolean(
       config?.hasChartZone ||
         (Array.isArray(config?.chartSlots) && config.chartSlots.length > 0) ||
-        nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId),
+        nonEmptyString(
+          config?.filterSchema?.rowsetDatasetId,
+          config?.rowsetDatasetId,
+          sceneParamRowsetDatasetId(config?.params),
+          sceneParamRowsetDatasetId(popupParams),
+        ),
     );
   }
 
   const SPBJW_CASE_DETAIL_BOARD_FILE = "scenes/_shared/case-detail.board.mei";
+  const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
+
+  function resolveAnalyticsRowsetDatasetId(config = null) {
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
+    return nonEmptyString(
+      config?.filterSchema?.rowsetDatasetId,
+      config?.rowsetDatasetId,
+      sceneParamRowsetDatasetId(config?.params),
+      sceneParamRowsetDatasetId(popupParams),
+    );
+  }
+
+  function resolveCaseDetailBoardSceneId(rowsetId) {
+    const id = String(rowsetId || "").trim();
+    if (!id) return "";
+    if (id === "issue_result_list") return "issue_result_detail_card_board";
+    if (SPBJW_WARNING_ROWSET_IDS.has(id)) return "warning_detail_card_board";
+    return "";
+  }
 
   function resolveAnalyticsTableRowDrilldown(config = null) {
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
-    const rowsetId = nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId);
-    const boardSceneId =
-      rowsetId === "issue_result_list"
-        ? "issue_result_detail_card_board"
-        : rowsetId === "warning_list"
-          ? "warning_detail_card_board"
-          : "";
+    const rowsetId = resolveAnalyticsRowsetDatasetId(config);
+    const boardSceneId = resolveCaseDetailBoardSceneId(rowsetId);
     if (!boardSceneId) {
       return null;
     }

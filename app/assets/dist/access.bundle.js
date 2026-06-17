@@ -10758,7 +10758,14 @@
     const heroEl = root.querySelector('[data-drilldown-hero="true"]');
     const headMetaEl = root.querySelector(".access-drilldown-overlay-head-meta");
     const structuredLayout = root.querySelector('[data-drilldown-structured-layout="true"]');
-    if (titleEl) titleEl.textContent = String(config?.title || "");
+    const hideOverlayTitle =
+      isPreviewOnlyMapping(config) && !mappingShowsHeader(resolveListPreviewMapping(config));
+    const overlayTitle = hideOverlayTitle ? "" : String(config?.title || "");
+    if (titleEl) {
+      titleEl.textContent = overlayTitle;
+      titleEl.toggleAttribute("hidden", hideOverlayTitle);
+    }
+    root.classList.toggle("access-drilldown-overlay--no-title", hideOverlayTitle);
     if (noteEl) {
       const note = String(config?.note || "").trim();
       noteEl.textContent = note;
@@ -10797,7 +10804,10 @@
       if (boardMode) {
         const heroTitle = heroEl.querySelector('[data-drilldown-hero-title="true"]');
         const heroNote = heroEl.querySelector('[data-drilldown-hero-note="true"]');
-        if (heroTitle) heroTitle.textContent = String(config?.title || "");
+        if (heroTitle) {
+          heroTitle.textContent = overlayTitle;
+          heroTitle.toggleAttribute("hidden", hideOverlayTitle);
+        }
         if (heroNote) {
           // 口径说明留在「口径」tab；明细 tab 不再重复展示 metric_explain.note 副标题。
           heroNote.textContent = "";
@@ -11031,13 +11041,26 @@
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
-    const title = nonEmptyString(
-      popup?.title,
-      detail?.label,
-      defaultSlot?.label,
-      metricId,
-      "指标下钻",
+    const previewMappingSlot = projectionSlots.find(
+      (slot) =>
+        slot?.mapping &&
+        typeof slot.mapping === "object" &&
+        !Array.isArray(slot.mapping) &&
+        String(slot.component || "").trim() === "summary",
     );
+    const previewMapping = previewMappingSlot?.mapping || null;
+    const suppressOverlayTitle =
+      Boolean(previewMapping?.preview_only || previewMapping?.previewOnly) &&
+      (previewMapping?.show_header === false || previewMapping?.showHeader === false);
+    const title = suppressOverlayTitle
+      ? ""
+      : nonEmptyString(
+          popup?.title,
+          detail?.label,
+          defaultSlot?.label,
+          metricId,
+          "指标下钻",
+        );
     const sceneAssembly = sceneProjectionAssembly(
       boardSceneId,
       sceneDrilldownAssemblyById(detail),
@@ -11554,9 +11577,13 @@
 
   function buildProjectionMount(config, detail = {}) {
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    const mapping = resolveListPreviewMapping(config);
+    const hideTitle = isPreviewOnlyMapping(config) && !mappingShowsHeader(mapping);
     return {
       mode: normalizeProjection(nonEmptyString(config.projection, popup?.projection, detail?.projection, "overlay")),
-      title: nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
+      title: hideTitle
+        ? ""
+        : nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
       overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
       restoreContext: {
         hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),
@@ -12156,26 +12183,52 @@
   }
 
   function isAnalyticsDetailTableConfig(config = null) {
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
     return Boolean(
       config?.hasChartZone ||
         (Array.isArray(config?.chartSlots) && config.chartSlots.length > 0) ||
-        nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId),
+        nonEmptyString(
+          config?.filterSchema?.rowsetDatasetId,
+          config?.rowsetDatasetId,
+          sceneParamRowsetDatasetId(config?.params),
+          sceneParamRowsetDatasetId(popupParams),
+        ),
     );
   }
 
   const SPBJW_CASE_DETAIL_BOARD_FILE = "scenes/_shared/case-detail.board.mei";
+  const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
+
+  function resolveAnalyticsRowsetDatasetId(config = null) {
+    const popupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
+    return nonEmptyString(
+      config?.filterSchema?.rowsetDatasetId,
+      config?.rowsetDatasetId,
+      sceneParamRowsetDatasetId(config?.params),
+      sceneParamRowsetDatasetId(popupParams),
+    );
+  }
+
+  function resolveCaseDetailBoardSceneId(rowsetId) {
+    const id = String(rowsetId || "").trim();
+    if (!id) return "";
+    if (id === "issue_result_list") return "issue_result_detail_card_board";
+    if (SPBJW_WARNING_ROWSET_IDS.has(id)) return "warning_detail_card_board";
+    return "";
+  }
 
   function resolveAnalyticsTableRowDrilldown(config = null) {
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
-    const rowsetId = nonEmptyString(config?.filterSchema?.rowsetDatasetId, config?.rowsetDatasetId);
-    const boardSceneId =
-      rowsetId === "issue_result_list"
-        ? "issue_result_detail_card_board"
-        : rowsetId === "warning_list"
-          ? "warning_detail_card_board"
-          : "";
+    const rowsetId = resolveAnalyticsRowsetDatasetId(config);
+    const boardSceneId = resolveCaseDetailBoardSceneId(rowsetId);
     if (!boardSceneId) {
       return null;
     }
@@ -13028,21 +13081,127 @@
   function enrichCaseDetailRow(row, detail) {
     if (!row || typeof row !== "object") return row;
     const enriched = { ...row };
+    const filters =
+      detail?.drilldown_filters && typeof detail.drilldown_filters === "object"
+        ? detail.drilldown_filters
+        : detail?.default_filters && typeof detail.default_filters === "object"
+          ? detail.default_filters
+          : {};
     const title = String(detail?.label ?? detail?.desc ?? "").trim();
     if (title && !String(enriched.案例名称 ?? "").trim()) {
-      enriched.案例名称 = title;
+      const datasetId = String(detail?.dataset_id ?? "").trim();
+      const isLongNarrative = title.length > 80 || title.includes("\n");
+      if (!((datasetId === "warning_list" || datasetId === "warning_detail") && isLongNarrative)) {
+        enriched.案例名称 = title;
+      }
     }
-    const resultId = String(
-      detail?.drilldown_filters?.处理结果ID ??
-        detail?.default_filters?.处理结果ID ??
-        detail?.value ??
-        detail?.处理结果ID ??
-        "",
-    ).trim();
-    if (resultId) {
-      enriched.处理结果ID = resultId;
+    const filterResultId = String(filters["处理结果ID"] ?? "").trim();
+    const rowResultId = String(enriched.处理结果ID ?? "").trim();
+    if (filterResultId) {
+      enriched.处理结果ID = filterResultId;
+    } else if (rowResultId) {
+      enriched.处理结果ID = rowResultId;
+    } else {
+      delete enriched.处理结果ID;
     }
     return enriched;
+  }
+
+  function resolveSpbjwYesFlag(row, field, fallbackFields = []) {
+    const value = resolveCaseDetailFieldValue(row, {
+      field: String(field || "").trim(),
+      fallback_fields: fallbackFields,
+    });
+    const text = String(value ?? "").trim();
+    if (!text || text === "—" || text === "-" || text === "否" || text === "0") {
+      return "";
+    }
+    if (text.includes("否") && !text.includes("是")) {
+      return "";
+    }
+    return text.includes("是") ? "是" : "";
+  }
+
+  function resolvePartyGovSanctionFlag(row) {
+    const explicit = resolveSpbjwYesFlag(row, "是否给予党纪政务处分");
+    if (explicit) return explicit;
+    const sanction = String(row?.处理处分 ?? "").trim();
+    if (sanction.includes("第二种")) return "是";
+    const result = String(row?.处理结果 ?? "").trim();
+    if (/第二种形态/.test(result)) return "是";
+    return "";
+  }
+
+  function enrichHybridCaseDetailRow(row, detail) {
+    const enriched = enrichCaseDetailRow(row, detail);
+    if (!String(enriched.涉及单位 ?? "").trim() && String(enriched.主责单位 ?? "").trim()) {
+      enriched.涉及单位 = enriched.主责单位;
+    }
+    if (!String(enriched.监督模型 ?? "").trim()) {
+      const model = String(enriched.预警类型 ?? enriched.问题分类名称 ?? "").trim();
+      if (model) enriched.监督模型 = model;
+    }
+    const tracking = String(enriched.问题跟踪ID ?? "").trim();
+    const dept = String(enriched.承办部门 ?? "").trim();
+    const close = String(enriched.办结时间 ?? "").trim();
+    enriched.是否待办 = tracking && !dept ? "是" : "";
+    enriched.是否在办 = tracking && dept && !close ? "是" : "";
+    enriched.是否已办 = tracking && dept && close ? "是" : "";
+    enriched.是否查实 = resolveSpbjwYesFlag(enriched, "是否查实");
+    const transferred = resolveSpbjwYesFlag(enriched, "是否转问题线索");
+    enriched.是否转问题线索 = transferred;
+    const datasetId = String(detail?.dataset_id ?? "").trim();
+    const filing = resolveSpbjwYesFlag(enriched, "是否立案");
+    enriched.是否立案 =
+      filing ||
+      (datasetId === "warning_list" || datasetId === "warning_detail" || enriched.预警ID
+        ? transferred
+        : "");
+    enriched.是否给予党纪政务处分 = resolvePartyGovSanctionFlag(enriched);
+    if (!String(enriched.处置方式 ?? "").trim()) {
+      const fallback = String(enriched.处理结果 ?? "").trim();
+      if (fallback && !/第[一二]种形态/.test(fallback)) {
+        enriched.处置方式 = fallback;
+      }
+    }
+    if (!String(enriched.涉及人员 ?? "").trim()) {
+      const person = String(enriched["姓名/单位"] ?? enriched.姓名 ?? "").trim();
+      if (person) enriched.涉及人员 = person;
+    }
+    if (!String(enriched.处理人数 ?? "").trim()) {
+      const person = String(enriched["姓名/单位"] ?? "").trim();
+      if (person) enriched.处理人数 = "1";
+    }
+    if (!String(enriched.挽回资金万 ?? "").trim()) {
+      const funds = String(enriched.挽回资金 ?? "").trim();
+      if (funds) enriched.挽回资金万 = funds;
+    }
+    if (!String(enriched.健全机制数 ?? "").trim()) {
+      const mechanismCount = splitMechanismDocuments(String(enriched.健全机制 ?? "").trim()).length;
+      if (mechanismCount > 0) enriched.健全机制数 = String(mechanismCount);
+    }
+    return enriched;
+  }
+
+  function mappingShowsHeader(mapping) {
+    return mapping?.show_header !== false && mapping?.showHeader !== false;
+  }
+
+  function mappingShowsSummary(mapping) {
+    return mapping?.show_summary !== false && mapping?.showSummary !== false;
+  }
+
+  function mappingShowsMeta(mapping) {
+    return mapping?.show_meta !== false && mapping?.showMeta !== false;
+  }
+
+  function mappingHasTypicalCaseStats(mapping) {
+    return (
+      cloneArray(mapping?.tags).length > 0 ||
+      cloneArray(mapping?.facts).length > 0 ||
+      cloneArray(mapping?.status_flags || mapping?.statusFlags).length > 0 ||
+      cloneArray(mapping?.metrics).length > 0
+    );
   }
 
   function resolveCaseDetailSituationText(row, mapping) {
@@ -13187,18 +13346,15 @@
   }
 
   function formatTypicalCaseMetricValue(row, spec) {
-    const field = String(spec?.field || "").trim();
-    if (!field) return "—";
-    const raw = row?.[field];
-    if (raw == null || raw === "") return "—";
-    const text = String(raw).trim();
-    const numeric = Number(text.replace(/,/g, ""));
+    const raw = resolveCaseDetailFieldValue(row, spec);
+    if (!raw) return "—";
+    const numeric = Number(raw.replace(/,/g, ""));
     const unit = String(spec?.unit || "").trim();
     if (Number.isFinite(numeric)) {
       const formatted = Number.isInteger(numeric) ? String(numeric) : numeric.toFixed(2).replace(/\.?0+$/, "");
       return unit ? `${formatted}${unit}` : formatted;
     }
-    return unit ? `${text}${unit}` : text;
+    return unit ? `${raw}${unit}` : raw;
   }
 
   function appendTypicalCaseTagRow(panel, row, mapping) {
@@ -13323,23 +13479,27 @@
     const enrichedRow = enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-typical-case-panel";
-    appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
+    if (mappingShowsHeader(mapping)) {
+      appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
+    }
     appendTypicalCaseTagRow(panel, enrichedRow, mapping);
-    const summary = resolveCaseDetailFieldValue(enrichedRow, {
-      field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
-      fallback_fields: mapping?.summary_fallback_fields || mapping?.summaryFallbackFields,
-    });
-    const summaryBlock = document.createElement("div");
-    summaryBlock.className = "access-drilldown-typical-case-summary";
-    const summaryLabel = document.createElement("div");
-    summaryLabel.className = "access-drilldown-typical-case-summary-label";
-    summaryLabel.textContent = String(mapping?.summary_label || mapping?.summaryLabel || "基本情况").trim();
-    const summaryText = document.createElement("div");
-    summaryText.className = "access-drilldown-typical-case-summary-text";
-    summaryText.textContent = summary || "—";
-    summaryBlock.appendChild(summaryLabel);
-    summaryBlock.appendChild(summaryText);
-    panel.appendChild(summaryBlock);
+    if (mappingShowsSummary(mapping)) {
+      const summary = resolveCaseDetailFieldValue(enrichedRow, {
+        field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
+        fallback_fields: mapping?.summary_fallback_fields || mapping?.summaryFallbackFields,
+      });
+      const summaryBlock = document.createElement("div");
+      summaryBlock.className = "access-drilldown-typical-case-summary";
+      const summaryLabel = document.createElement("div");
+      summaryLabel.className = "access-drilldown-typical-case-summary-label";
+      summaryLabel.textContent = String(mapping?.summary_label || mapping?.summaryLabel || "基本情况").trim();
+      const summaryText = document.createElement("div");
+      summaryText.className = "access-drilldown-typical-case-summary-text";
+      summaryText.textContent = summary || "—";
+      summaryBlock.appendChild(summaryLabel);
+      summaryBlock.appendChild(summaryText);
+      panel.appendChild(summaryBlock);
+    }
     appendTypicalCaseFacts(panel, enrichedRow, mapping);
     appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
     appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
@@ -13363,26 +13523,43 @@
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const enrichedRow = enrichCaseDetailRow(row, detail);
+    const enrichedRow = mappingHasTypicalCaseStats(mapping)
+      ? enrichHybridCaseDetailRow(row, detail)
+      : enrichCaseDetailRow(row, detail);
     const panel = document.createElement("div");
     panel.className = "access-drilldown-case-detail-panel";
-    appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
-    const summary = resolveCaseDetailFieldValue(enrichedRow, {
-      field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
-      fallback_fields: mapping?.summary_fallback_fields || mapping?.summaryFallbackFields,
-    });
-    const summaryBlock = document.createElement("div");
-    summaryBlock.className = "access-drilldown-case-detail-summary";
-    const summaryLabel = document.createElement("div");
-    summaryLabel.className = "access-drilldown-case-detail-summary-label";
-    summaryLabel.textContent = String(mapping?.summary_label || mapping?.summaryLabel || "基本情况").trim();
-    const summaryText = document.createElement("div");
-    summaryText.className = "access-drilldown-case-detail-summary-text";
-    summaryText.textContent = summary || "—";
-    summaryBlock.appendChild(summaryLabel);
-    summaryBlock.appendChild(summaryText);
-    panel.appendChild(summaryBlock);
-    appendCaseDetailMetaRow(panel, enrichedRow, mapping);
+    if (mappingHasTypicalCaseStats(mapping)) {
+      host.classList.add("access-drilldown-case-detail-host--hybrid");
+    }
+    if (mappingShowsHeader(mapping)) {
+      appendCaseDetailHeader(panel, enrichedRow, mapping, detail);
+    }
+    if (mappingShowsSummary(mapping)) {
+      const summary = resolveCaseDetailFieldValue(enrichedRow, {
+        field: String(mapping?.summary_field || mapping?.summaryField || "基本情况").trim(),
+        fallback_fields: mapping?.summary_fallback_fields || mapping?.summaryFallbackFields,
+      });
+      const summaryBlock = document.createElement("div");
+      summaryBlock.className = "access-drilldown-case-detail-summary";
+      const summaryLabel = document.createElement("div");
+      summaryLabel.className = "access-drilldown-case-detail-summary-label";
+      summaryLabel.textContent = String(mapping?.summary_label || mapping?.summaryLabel || "基本情况").trim();
+      const summaryText = document.createElement("div");
+      summaryText.className = "access-drilldown-case-detail-summary-text";
+      summaryText.textContent = summary || "—";
+      summaryBlock.appendChild(summaryLabel);
+      summaryBlock.appendChild(summaryText);
+      panel.appendChild(summaryBlock);
+    }
+    if (mappingHasTypicalCaseStats(mapping)) {
+      appendTypicalCaseTagRow(panel, enrichedRow, mapping);
+      appendTypicalCaseFacts(panel, enrichedRow, mapping);
+      appendTypicalCaseStatusRow(panel, enrichedRow, mapping);
+      appendTypicalCaseMetricsRow(panel, enrichedRow, mapping);
+    }
+    if (mappingShowsMeta(mapping)) {
+      appendCaseDetailMetaRow(panel, enrichedRow, mapping);
+    }
     const columnsRoot = document.createElement("div");
     columnsRoot.className = "access-drilldown-case-detail-columns";
     cloneArray(mapping?.columns).forEach((column) => {
@@ -13926,7 +14103,7 @@
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };
     if (primarySlot.component === "data_table") {
-      return mountDrilldownTable(root, detail, slotConfig, host);
+      return mountDrilldownTable(root, detail, { ...config, ...slotConfig }, host);
     }
     if (primarySlot.component === "summary" || primarySlot.component === "metric_card") {
       host.appendChild(createDrilldownSummaryNode(slotConfig, primarySlot.id));

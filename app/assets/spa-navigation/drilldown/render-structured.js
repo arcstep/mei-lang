@@ -134,7 +134,7 @@
         config?.rowPreviewSourceZoneId && config.rowPreviewSourceZoneId === zone.id ? "single" : "",
     };
     if (primarySlot.component === "data_table") {
-      return mountDrilldownTable(root, detail, slotConfig, host);
+      return mountDrilldownTable(root, detail, { ...config, ...slotConfig }, host);
     }
     if (primarySlot.component === "summary" || primarySlot.component === "metric_card") {
       host.appendChild(createDrilldownSummaryNode(slotConfig, primarySlot.id));

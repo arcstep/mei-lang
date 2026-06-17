@@ -21,9 +21,13 @@
 
   function buildProjectionMount(config, detail = {}) {
     const popup = config?.popup && typeof config.popup === "object" ? config.popup : {};
+    const mapping = resolveListPreviewMapping(config);
+    const hideTitle = isPreviewOnlyMapping(config) && !mappingShowsHeader(mapping);
     return {
       mode: normalizeProjection(nonEmptyString(config.projection, popup?.projection, detail?.projection, "overlay")),
-      title: nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
+      title: hideTitle
+        ? ""
+        : nonEmptyString(config.title, popup?.title, detail?.label, "指标明细"),
       overlaySize: nonEmptyString(config.overlaySize, popup?.overlay_size, popup?.overlaySize, "large"),
       restoreContext: {
         hostSceneId: nonEmptyString(config.hostSceneId, detail?.scene_id),

@@ -399,7 +399,14 @@
     const heroEl = root.querySelector('[data-drilldown-hero="true"]');
     const headMetaEl = root.querySelector(".access-drilldown-overlay-head-meta");
     const structuredLayout = root.querySelector('[data-drilldown-structured-layout="true"]');
-    if (titleEl) titleEl.textContent = String(config?.title || "");
+    const hideOverlayTitle =
+      isPreviewOnlyMapping(config) && !mappingShowsHeader(resolveListPreviewMapping(config));
+    const overlayTitle = hideOverlayTitle ? "" : String(config?.title || "");
+    if (titleEl) {
+      titleEl.textContent = overlayTitle;
+      titleEl.toggleAttribute("hidden", hideOverlayTitle);
+    }
+    root.classList.toggle("access-drilldown-overlay--no-title", hideOverlayTitle);
     if (noteEl) {
       const note = String(config?.note || "").trim();
       noteEl.textContent = note;
@@ -438,7 +445,10 @@
       if (boardMode) {
         const heroTitle = heroEl.querySelector('[data-drilldown-hero-title="true"]');
         const heroNote = heroEl.querySelector('[data-drilldown-hero-note="true"]');
-        if (heroTitle) heroTitle.textContent = String(config?.title || "");
+        if (heroTitle) {
+          heroTitle.textContent = overlayTitle;
+          heroTitle.toggleAttribute("hidden", hideOverlayTitle);
+        }
         if (heroNote) {
           // 口径说明留在「口径」tab；明细 tab 不再重复展示 metric_explain.note 副标题。
           heroNote.textContent = "";

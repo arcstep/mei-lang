@@ -218,13 +218,26 @@
     const projection = normalizeProjection(
       nonEmptyString(detail?.projection, popup?.projection, boardFields?.projection, "overlay"),
     );
-    const title = nonEmptyString(
-      popup?.title,
-      detail?.label,
-      defaultSlot?.label,
-      metricId,
-      "指标下钻",
+    const previewMappingSlot = projectionSlots.find(
+      (slot) =>
+        slot?.mapping &&
+        typeof slot.mapping === "object" &&
+        !Array.isArray(slot.mapping) &&
+        String(slot.component || "").trim() === "summary",
     );
+    const previewMapping = previewMappingSlot?.mapping || null;
+    const suppressOverlayTitle =
+      Boolean(previewMapping?.preview_only || previewMapping?.previewOnly) &&
+      (previewMapping?.show_header === false || previewMapping?.showHeader === false);
+    const title = suppressOverlayTitle
+      ? ""
+      : nonEmptyString(
+          popup?.title,
+          detail?.label,
+          defaultSlot?.label,
+          metricId,
+          "指标下钻",
+        );
     const sceneAssembly = sceneProjectionAssembly(
       boardSceneId,
       sceneDrilldownAssemblyById(detail),

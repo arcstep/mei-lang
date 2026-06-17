@@ -372,7 +372,7 @@ function buildRowDrilldownFilters(meta, row = {}) {
   }
 
   const warningId = String(row?.预警ID ?? row?.warning_id ?? "").trim();
-  if (datasetId === "warning_list" || warningId) {
+  if (datasetId === "warning_list" || datasetId === "warning_detail" || warningId) {
     if (warningId) {
       filters["预警ID"] = warningId;
     }
@@ -398,11 +398,24 @@ function buildRowDrilldownLabel(meta, row = {}, filters = {}) {
   if (datasetId === "typical_cases") {
     return String(row?.label ?? row?.案例名称 ?? "").trim();
   }
-  if (datasetId === "warning_list" || filters["预警ID"]) {
-    return String(row?.问题描述 ?? row?.问题分类名称 ?? row?.model ?? filters["预警ID"] ?? "").trim();
+  if (datasetId === "warning_list" || datasetId === "warning_detail" || filters["预警ID"]) {
+    const parts = [
+      filters["预警ID"] || row?.预警ID,
+      row?.问题分类名称,
+    ]
+      .map((entry) => String(entry ?? "").trim())
+      .filter(Boolean);
+    return parts.length ? parts.join(" · ") : "预警明细";
   }
   if (datasetId === "issue_result_list" || filters["处理结果ID"]) {
-    return String(row?.["姓名/单位"] ?? row?.问题描述 ?? filters["处理结果ID"] ?? "").trim();
+    const parts = [
+      filters["处理结果ID"] || row?.处理结果ID,
+      row?.["姓名/单位"],
+      row?.问题分类名称,
+    ]
+      .map((entry) => String(entry ?? "").trim())
+      .filter(Boolean);
+    return parts.length ? parts.join(" · ") : "办理明细";
   }
   return String(row?.label ?? row?.案例名称 ?? row?.处理结果ID ?? "").trim();
 }
