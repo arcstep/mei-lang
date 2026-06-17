@@ -734,7 +734,7 @@ def unpivot_columns(rowset, id_field, columns, year_field = "year", value_field 
 def change_rate(current, base, mode = "growth", scale = 100):
     return _analysis("change_rate", current = current, base = base, mode = mode, scale = scale)
 
-def trend_year_compare(rowset, date_field, value = None, agg = "count", limit = 6, years = None, month_label_field = "month", year_label_field = "year"):
+def trend_year_compare(rowset, date_field, value = None, agg = "count", limit = 6, years = None, month_label_field = "month", year_label_field = "year", window = "rolling"):
     return _analysis(
         "trend_year_compare",
         rowset = rowset,
@@ -745,6 +745,18 @@ def trend_year_compare(rowset, date_field, value = None, agg = "count", limit = 
         years = years,
         month_label_field = month_label_field,
         year_label_field = year_label_field,
+        window = window,
+    )
+
+def pivot_long(rowset, row_field, column_field, value_field, columns, row_universe = None):
+    return _analysis(
+        "pivot_long",
+        rowset = rowset,
+        row_field = row_field,
+        column_field = column_field,
+        value_field = value_field,
+        columns = columns,
+        row_universe = row_universe,
     )
 
 def trend(rowset = None, date_field = None, value = None, by = "month", agg = "count", order = "asc", limit = None, id = None, label = None, source = None, grain = None):

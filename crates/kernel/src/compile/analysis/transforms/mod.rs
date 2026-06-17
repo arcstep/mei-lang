@@ -5,8 +5,8 @@ mod tests;
 mod trend;
 
 pub(super) use aggregate::{
-    aggregate_group_rows, aggregate_group_rows_pivot, party_year_aggregate_rows, summarize_rows,
-    unpivot_columns_rows,
+    aggregate_group_rows, aggregate_group_rows_pivot, party_year_aggregate_rows, pivot_long_rows,
+    summarize_rows, unpivot_columns_rows,
 };
 pub(super) use row_ops::{
     distinct_rows_by_fields, first_rows_by_field, mutate_row, rename_fields, reorder_fields,

@@ -191,6 +191,57 @@ pub fn party_year_aggregate_rows(
     out
 }
 
+/// 长表（row_field / column_field / value_field）转宽表，列头来自 `columns`。
+pub fn pivot_long_rows(
+    rows: &[Value],
+    row_field: &str,
+    column_field: &str,
+    value_field: &str,
+    columns: &[String],
+    row_universe: Option<&[String]>,
+) -> Vec<Value> {
+    use std::collections::BTreeMap;
+
+    let mut values: BTreeMap<String, BTreeMap<String, f64>> = BTreeMap::new();
+    for row in rows {
+        let row_key = row_string(row, row_field);
+        if row_key.is_empty() {
+            continue;
+        }
+        let column_key = row_string(row, column_field);
+        if !columns.iter().any(|item| item == &column_key) {
+            continue;
+        }
+        let value = row_number(row, value_field).unwrap_or(0.0);
+        values
+            .entry(row_key)
+            .or_default()
+            .insert(column_key, value);
+    }
+
+    let row_keys: Vec<String> = if let Some(labels) = row_universe {
+        labels.to_vec()
+    } else {
+        values.keys().cloned().collect()
+    };
+
+    let mut out = Vec::new();
+    for row_key in row_keys {
+        let mut object = serde_json::Map::new();
+        object.insert(row_field.to_string(), Value::String(row_key.clone()));
+        let bucket = values.get(&row_key);
+        for column in columns {
+            let value = bucket
+                .and_then(|stats| stats.get(column))
+                .copied()
+                .unwrap_or(0.0);
+            object.insert(column.clone(), json!(value));
+        }
+        out.push(Value::Object(object));
+    }
+    out
+}
+
 pub fn unpivot_columns_rows(
     rows: &[Value],
     id_field: &str,

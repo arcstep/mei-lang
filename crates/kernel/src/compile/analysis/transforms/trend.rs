@@ -14,15 +14,24 @@ pub fn trend_year_compare_rows(
     years: &[i32],
     month_label_field: &str,
     year_label_field: &str,
+    window_mode: &str,
 ) -> Vec<Value> {
-    let Some(anchor) = max_row_month(rows, date_field) else {
-        return Vec::new();
+    let month_nums: Vec<u32> = if window_mode.eq_ignore_ascii_case("calendar") {
+        (1..=12).collect()
+    } else {
+        let Some(anchor) = max_row_month(rows, date_field) else {
+            return Vec::new();
+        };
+        latest_month_window(anchor, months)
+            .into_iter()
+            .map(|(_, month)| month)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
     };
-    let window = latest_month_window(anchor, months);
-    let month_nums = window
-        .iter()
-        .map(|(_, month)| *month)
-        .collect::<std::collections::BTreeSet<_>>();
+    if month_nums.is_empty() {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     for month in month_nums {
         for year in years {

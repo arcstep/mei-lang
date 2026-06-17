@@ -12,7 +12,7 @@ use super::super::transforms::{
     aggregate_group_rows, aggregate_group_rows_pivot, bucket_rows_by_month,
     distinct_rows_by_fields, first_rows_by_field, mutate_row, party_year_aggregate_rows,
     rename_fields, reorder_fields, select_fields, sort_rows_by_field, summarize_rows,
-    trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows,
+    trend_rows_by_month, trend_year_compare_rows, unpivot_columns_rows, pivot_long_rows,
 };
 use super::build::{
     apply_universe, eval_lookup_value_rowset, eval_rowset_with_ctx, eval_split_text_rowset,
@@ -317,6 +317,10 @@ pub(super) fn eval_analysis_rowset(
                 .get("year_label_field")
                 .and_then(Value::as_str)
                 .unwrap_or("year");
+            let window_mode = map
+                .get("window")
+                .and_then(Value::as_str)
+                .unwrap_or("rolling");
             let years = map
                 .get("years")
                 .and_then(Value::as_array)
@@ -341,6 +345,7 @@ pub(super) fn eval_analysis_rowset(
                 &years,
                 month_label_field,
                 year_label_field,
+                window_mode,
             ))
         }
         "party_year_aggregate" => {
@@ -423,6 +428,57 @@ pub(super) fn eval_analysis_rowset(
                 &columns,
                 year_field,
                 value_field,
+            ))
+        }
+        "pivot_long" => {
+            let rowset_expr = map
+                .get("rowset")
+                .ok_or_else(|| anyhow!("pivot_long expression missing rowset"))?;
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
+            let row_field = map
+                .get("row_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("pivot_long expression missing row_field"))?;
+            let column_field = map
+                .get("column_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("pivot_long expression missing column_field"))?;
+            let value_field = map
+                .get("value_field")
+                .and_then(Value::as_str)
+                .ok_or_else(|| anyhow!("pivot_long expression missing value_field"))?;
+            let columns = map
+                .get("columns")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.as_str()
+                                .map(str::to_string)
+                                .or_else(|| item.as_i64().map(|value| value.to_string()))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty())
+                .ok_or_else(|| anyhow!("pivot_long expression missing columns"))?;
+            let row_universe = map
+                .get("row_universe")
+                .and_then(Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_string))
+                        .collect::<Vec<_>>()
+                })
+                .filter(|items| !items.is_empty());
+            Ok(pivot_long_rows(
+                &rows,
+                row_field,
+                column_field,
+                value_field,
+                &columns,
+                row_universe.as_deref(),
             ))
         }
         "table_rows" => {

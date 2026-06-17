@@ -1,6 +1,6 @@
 use super::row_ops::eval_row_value;
 use super::{
-    aggregate_group_rows_pivot, party_year_aggregate_rows, trend_rows_by_month,
+    aggregate_group_rows_pivot, party_year_aggregate_rows, pivot_long_rows, trend_rows_by_month,
     trend_year_compare_rows, unpivot_columns_rows,
 };
 use serde_json::json;
@@ -22,6 +22,7 @@ fn trend_year_compare_aligns_months_across_years() {
         &[2024, 2025],
         "month",
         "year",
+        "rolling",
     );
     let march_2024 = trend
         .iter()
@@ -39,6 +40,105 @@ fn trend_year_compare_aligns_months_across_years() {
         .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
     assert_eq!(march_2024, Some(2.0));
     assert_eq!(march_2025, Some(1.0));
+}
+
+#[test]
+fn trend_year_compare_calendar_emits_twelve_months_per_year() {
+    let rows = vec![
+        json!({"检查日期": "2024-03-10"}),
+        json!({"检查日期": "2024-03-12"}),
+        json!({"检查日期": "2025-03-15"}),
+    ];
+    let trend = trend_year_compare_rows(
+        &rows,
+        "检查日期",
+        None,
+        "count",
+        6,
+        &[2024, 2025],
+        "month",
+        "year",
+        "calendar",
+    );
+    assert_eq!(trend.len(), 24);
+    let dec_2024 = trend
+        .iter()
+        .find(|row| {
+            row.get("month").and_then(|v| v.as_str()) == Some("12")
+                && row.get("year").and_then(|v| v.as_str()) == Some("2024")
+        })
+        .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
+    assert_eq!(dec_2024, Some(0.0));
+    let march_2024 = trend
+        .iter()
+        .find(|row| {
+            row.get("month").and_then(|v| v.as_str()) == Some("03")
+                && row.get("year").and_then(|v| v.as_str()) == Some("2024")
+        })
+        .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
+    assert_eq!(march_2024, Some(2.0));
+}
+
+#[test]
+fn trend_year_compare_calendar_sum_aggregates_penalty_amount() {
+    let rows = vec![
+        json!({"做出处罚日期": "2024-03-10", "罚款金额": 100}),
+        json!({"做出处罚日期": "2024-03-12", "罚款金额": 50}),
+        json!({"做出处罚日期": "2025-03-15", "罚款金额": 200}),
+    ];
+    let trend = trend_year_compare_rows(
+        &rows,
+        "做出处罚日期",
+        Some("罚款金额"),
+        "sum",
+        6,
+        &[2024, 2025],
+        "month",
+        "year",
+        "calendar",
+    );
+    let march_2024 = trend
+        .iter()
+        .find(|row| {
+            row.get("month").and_then(|v| v.as_str()) == Some("03")
+                && row.get("year").and_then(|v| v.as_str()) == Some("2024")
+        })
+        .and_then(|row| row.get("value").and_then(|v| v.as_f64()));
+    assert_eq!(march_2024, Some(150.0));
+}
+
+#[test]
+fn pivot_long_builds_year_columns_with_row_universe() {
+    let rows = vec![
+        json!({"month": "03", "year": "2024", "value": 2}),
+        json!({"month": "03", "year": "2025", "value": 1}),
+    ];
+    let wide = pivot_long_rows(
+        &rows,
+        "month",
+        "year",
+        "value",
+        &["2024".to_string(), "2025".to_string()],
+        Some(&[
+            "01".to_string(),
+            "02".to_string(),
+            "03".to_string(),
+            "12".to_string(),
+        ]),
+    );
+    assert_eq!(wide.len(), 4);
+    let jan = wide
+        .iter()
+        .find(|row| row.get("month").and_then(|v| v.as_str()) == Some("01"))
+        .expect("01");
+    assert_eq!(jan.get("2024").and_then(|v| v.as_f64()), Some(0.0));
+    assert_eq!(jan.get("2025").and_then(|v| v.as_f64()), Some(0.0));
+    let march = wide
+        .iter()
+        .find(|row| row.get("month").and_then(|v| v.as_str()) == Some("03"))
+        .expect("03");
+    assert_eq!(march.get("2024").and_then(|v| v.as_f64()), Some(2.0));
+    assert_eq!(march.get("2025").and_then(|v| v.as_f64()), Some(1.0));
 }
 
 #[test]
