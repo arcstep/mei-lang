@@ -324,7 +324,7 @@ a { color: inherit; text-decoration: none; }
 }
 .statusbar-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto) minmax(0, max-content);
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -334,6 +334,15 @@ a { color: inherit; text-decoration: none; }
   align-items: center;
   gap: 6px;
   flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
+}
+.statusbar-track-scroll {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 1px;
@@ -343,22 +352,53 @@ a { color: inherit; text-decoration: none; }
 .statusbar-track-left {
   justify-content: flex-start;
   padding-left: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 1px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(56, 189, 248, 0.28) transparent;
 }
 .statusbar-track-center {
   justify-content: center;
+  max-width: min(52vw, 560px);
 }
 .statusbar-track-right {
   justify-content: flex-end;
   padding-right: 12px;
+  gap: 8px;
 }
-.statusbar-track::-webkit-scrollbar {
+.statusbar-right-aux {
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  max-width: min(36vw, 420px);
+}
+.statusbar-right-anchor {
+  flex: 0 0 auto;
+  max-width: none;
+  white-space: nowrap;
+}
+.status-chip-host {
+  color: rgba(226, 232, 240, 0.82);
+  font-variant-numeric: tabular-nums;
+}
+.status-chip-host::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(165, 180, 252, 0.62);
+  box-shadow: 0 0 6px rgba(129, 140, 248, 0.18);
+}
+.statusbar-track-left::-webkit-scrollbar,
+.statusbar-track-scroll::-webkit-scrollbar {
   height: 6px;
 }
-.statusbar-track::-webkit-scrollbar-thumb {
+.statusbar-track-left::-webkit-scrollbar-thumb,
+.statusbar-track-scroll::-webkit-scrollbar-thumb {
   background: rgba(56, 189, 248, 0.24);
   border-radius: 999px;
 }
-.statusbar-track::-webkit-scrollbar-track {
+.statusbar-track-left::-webkit-scrollbar-track,
+.statusbar-track-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 .status-chip {
@@ -4646,9 +4686,20 @@ a.tree-link {
     grid-template-columns: 1fr;
     gap: 6px;
   }
-  .statusbar-track-center,
-  .statusbar-track-right {
+  .statusbar-track-center {
     justify-content: flex-start;
+    max-width: none;
+  }
+  .statusbar-track-right {
+    justify-content: space-between;
+    padding-right: 12px;
+  }
+  .statusbar-right-aux {
+    max-width: none;
+    justify-content: flex-start;
+  }
+  .statusbar-right-anchor {
+    margin-left: auto;
   }
   .sidebar, .main { height: auto; }
 }

@@ -99,7 +99,7 @@ pub(crate) fn statusbar_view(
                 <div class="statusbar-track statusbar-track-center min-w-0" aria-hidden=(!show_compile_center).then_some("true")>
                     {if show_compile_center {
                         view! {
-                            <>
+                            <div class="statusbar-track-scroll">
                                 <span class="status-chip status-chip-compile" data-tone=compile_tone title=compile_summary_title.clone()>{compile_summary}</span>
                                 {diagnostics_tab_href
                                     .map(|href| {
@@ -125,7 +125,7 @@ pub(crate) fn statusbar_view(
                                     })}
                                 <span class="status-chip status-chip-diagnostic" data-tone=warning_tone>{format!("Warning {}", warnings)}</span>
                                 <span class="status-chip status-chip-diagnostic" data-tone=info_tone>{format!("Info {}", infos)}</span>
-                            </>
+                            </div>
                         }
                             .into_any()
                     } else {
@@ -133,9 +133,11 @@ pub(crate) fn statusbar_view(
                     }}
                 </div>
                 <div class="statusbar-track statusbar-track-right min-w-0">
-                    <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
-                    <span class="status-chip status-chip-host max-w-[220px]" id="mei-status-host-version" data-tone="neutral">"Mei --"</span>
-                    <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
+                    <div class="statusbar-track-scroll statusbar-right-aux">
+                        <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
+                        <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
+                    </div>
+                    <span class="status-chip status-chip-host statusbar-right-anchor" id="mei-status-host-version" data-tone="neutral">"Mei --"</span>
                 </div>
             </div>
         </footer>
