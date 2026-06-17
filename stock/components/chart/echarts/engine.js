@@ -13,7 +13,15 @@ import {
   subscribeQueryState,
 } from "../../dataset/runtime-query.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
-import { COCKPIT_Z_INDEX } from "../../cockpit/tokens.js";
+import { cockpitCssVars, COCKPIT_Z_INDEX, readThemeTypography } from "../../cockpit/tokens.js";
+import {
+  bindFloatingPopoverDrag,
+  buildTextPopoverBodyHtml,
+  copyTextToClipboard,
+  ensureFloatingTextPopoverStyles,
+  mountFloatingPopoverOnBody,
+  positionFloatingPopoverNearAnchor,
+} from "../../mei/floating-text-popover.js";
 import { ensureEChartsGlobal } from "../../vendor/runtime-libs.js";
 const CARTESIAN_KINDS = new Set(["line", "area", "trend", "column", "bar", "scatter"]);
 const PIE_KINDS = new Set(["pie", "donut", "rose"]);
@@ -165,7 +173,7 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
     }
 
     async renderChart() {
-      const props = Object.assign({}, parseProps(this), this._runtimeProps || {});
+      const props = Object.assign({}, parseProps(this), this._runtimeProps || {}, { __host: this });
       this._renderTrace?.mark("render_start", {
         has_runtime_props: Boolean(this._runtimeProps),
       });
@@ -277,43 +285,39 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
 
     openLabelPopover(fullText, anchorEvent) {
       this.closeLabelPopover();
-      ensureRankingPopoverStyles();
+      ensureFloatingTextPopoverStyles();
       const pop = document.createElement("div");
-      pop.className = "mei-rank-pop";
+      pop.className = "cell-pop cell-pop--large";
       pop.setAttribute("role", "dialog");
       pop.setAttribute("aria-modal", "true");
+      pop.setAttribute("aria-label", "完整名称");
       pop.innerHTML = `
-        <div class="mei-rank-pop-hd">
-          <span>完整名称</span>
-          <div class="mei-rank-pop-actions">
-            <button type="button" class="mei-rank-pop-copy">复制</button>
-            <button type="button" class="mei-rank-pop-close" aria-label="关闭">×</button>
+        <div class="cell-pop-hd">
+          <div class="cell-pop-title"><span>完整名称</span></div>
+          <div class="cell-pop-actions">
+            <button type="button" class="cell-pop-copy">复制</button>
+            <button type="button" class="cell-pop-done">关闭</button>
+            <button type="button" class="cell-pop-close" aria-label="关闭">×</button>
           </div>
         </div>
-        <textarea class="mei-rank-pop-body" readonly spellcheck="false"></textarea>
+        ${buildTextPopoverBodyHtml(fullText, escapeHtml)}
       `;
-      const ta = pop.querySelector(".mei-rank-pop-body");
-      if (ta) ta.value = String(fullText ?? "");
-      document.body.appendChild(pop);
+      mountFloatingPopoverOnBody(pop, { width: 480, height: 340 });
       this._labelPopoverEl = pop;
-      const anchor = anchorEvent?.target;
-      const rect =
-        anchor && typeof anchor.getBoundingClientRect === "function"
-          ? anchor.getBoundingClientRect()
-          : { left: 80, top: 80, bottom: 100 };
-      let left = rect.left;
-      let top = rect.bottom + 6;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const estW = Math.min(760, vw * 0.96);
-      if (left + estW > vw - 8) left = Math.max(8, vw - estW - 8);
-      if (top + 280 > vh) top = Math.max(8, rect.top - Math.min(620, vh * 0.72) - 8);
-      pop.style.left = `${left}px`;
-      pop.style.top = `${top}px`;
+      const anchor = anchorEvent?.target || anchorEvent;
+      positionFloatingPopoverNearAnchor(pop, anchor, {
+        topOffset: 8,
+        defaultWidth: 480,
+        defaultHeight: 340,
+      });
+      this._labelPopoverDragCleanup = bindFloatingPopoverDrag(
+        pop,
+        pop.querySelector(".cell-pop-hd"),
+      );
 
       const onDoc = (ev) => {
         const path = ev.composedPath();
-        if (path.includes(pop)) return;
+        if (path.includes(pop) || (anchor && path.includes(anchor))) return;
         this.closeLabelPopover();
       };
       setTimeout(() => document.addEventListener("pointerdown", onDoc, true), 0);
@@ -325,30 +329,20 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
         }
       };
       document.addEventListener("keydown", this._labelPopoverKeydown, true);
-      pop.querySelector(".mei-rank-pop-close")?.addEventListener("click", () => this.closeLabelPopover());
-      pop.querySelector(".mei-rank-pop-copy")?.addEventListener("click", async () => {
-        const text = String(fullText ?? "");
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch (_) {
-          try {
-            ta?.focus();
-            ta?.select();
-            document.execCommand("copy");
-          } catch (_) {
-            /* ignore */
-          }
-        }
+      const close = () => this.closeLabelPopover();
+      pop.querySelector(".cell-pop-close")?.addEventListener("click", close);
+      pop.querySelector(".cell-pop-done")?.addEventListener("click", close);
+      pop.querySelector(".cell-pop-copy")?.addEventListener("click", () => {
+        copyTextToClipboard(fullText);
       });
-      try {
-        ta?.focus();
-        ta?.select();
-      } catch (_) {
-        /* ignore */
-      }
+      pop.querySelector(".cell-pop-done")?.focus();
     }
 
     closeLabelPopover() {
+      if (typeof this._labelPopoverDragCleanup === "function") {
+        this._labelPopoverDragCleanup();
+        this._labelPopoverDragCleanup = null;
+      }
       if (typeof this._labelPopoverDocCleanup === "function") {
         this._labelPopoverDocCleanup();
         this._labelPopoverDocCleanup = null;
@@ -481,7 +475,13 @@ function chartShellHtml(defaultTitle, props = {}) {
   const showHead = !compact && String(props.title ?? defaultTitle).trim().length > 0;
   return `
     <style>
-      :host { display: block; width: 100%; min-width: 0; overflow: hidden; }
+      :host {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+        ${cockpitCssVars()}
+      }
       .wrap {
         display: grid;
         gap: ${compact ? "0" : "8px"};
@@ -497,8 +497,8 @@ function chartShellHtml(defaultTitle, props = {}) {
         align-items: baseline;
         color: #e2e8f0;
       }
-      .title { margin: 0; font-size: 14px; color: #f8fafc; }
-      .meta { font-size: 12px; color: #94a3b8; }
+      .title { margin: 0; font-size: var(--cockpit-font-chart-title); font-weight: 600; color: #f8fafc; }
+      .meta { font-size: var(--cockpit-font-unit); color: #94a3b8; }
       .chart {
         width: 100%;
         min-height: ${chartHeight}px;
@@ -518,7 +518,7 @@ function chartShellHtml(defaultTitle, props = {}) {
       .mei-rank-above-title {
         flex: 0 0 auto;
         margin: 0 0 2px;
-        font-size: 10px;
+        font-size: var(--cockpit-font-chart-title);
         font-weight: 600;
         color: #94a3b8;
         line-height: 1.1;
@@ -550,7 +550,7 @@ function chartShellHtml(defaultTitle, props = {}) {
       .mei-rank-above-label {
         flex: 1 1 0;
         min-width: 0;
-        font-size: 11px;
+        font-size: var(--cockpit-font-label);
         line-height: 1.2;
         font-weight: 500;
         color: #e2e8f0;
@@ -561,7 +561,7 @@ function chartShellHtml(defaultTitle, props = {}) {
       }
       .mei-rank-above-value {
         flex: 0 0 auto;
-        font-size: 11px;
+        font-size: var(--cockpit-font-label);
         font-weight: 600;
         color: #7dd3fc;
       }
@@ -587,7 +587,7 @@ function chartShellHtml(defaultTitle, props = {}) {
         z-index: 1;
         pointer-events: none;
       }
-      .error { min-height: ${compact ? "0" : "18px"}; font-size: 12px; color: #fca5a5; }
+      .error { min-height: ${compact ? "0" : "18px"}; font-size: var(--cockpit-font-unit); color: #fca5a5; }
     </style>
     <section class="wrap">
       <div class="head">
@@ -687,7 +687,7 @@ function buildChartModel(kind, props, diagnostics) {
   const rows = resolveRows(props);
   const columns = resolveColumns(props, rows);
   const mapping = resolveMapping(props, columns);
-  const legacy = resolveLegacyBehavior(props);
+  const legacy = Object.assign(resolveLegacyBehavior(props), { __host: props.__host });
   const normalized = normalizeKind(kind);
   const topN = resolveTopN(props);
   const chartRows =
@@ -893,6 +893,49 @@ function metricSparkBarItemStyle() {
   };
 }
 
+/** 驾驶舱年度对比分组柱：深蓝 + 荧光浅蓝竖向渐变 */
+function cockpitYearDuoBarItemStyle(seriesIndex, { emphasis = false } = {}) {
+  const presets = [
+    {
+      color: {
+        type: "linear",
+        x: 0,
+        y: 0,
+        x2: 0,
+        y2: 1,
+        colorStops: [
+          { offset: 0, color: emphasis ? "#6EC8FF" : "#4AB8FF" },
+          { offset: 0.38, color: emphasis ? "#1E78E8" : "#1565C8" },
+          { offset: 1, color: emphasis ? "#0C3A78" : "#082E5E" },
+        ],
+      },
+      borderRadius: [4, 4, 0, 0],
+      shadowBlur: emphasis ? 14 : 9,
+      shadowColor: "rgba(30, 120, 232, 0.58)",
+      shadowOffsetY: 1,
+    },
+    {
+      color: {
+        type: "linear",
+        x: 0,
+        y: 0,
+        x2: 0,
+        y2: 1,
+        colorStops: [
+          { offset: 0, color: emphasis ? "#FFFFFF" : "#F0FCFF" },
+          { offset: 0.35, color: emphasis ? "#8AEEFF" : "#6FE4FF" },
+          { offset: 1, color: emphasis ? "#22C8F5" : "#12B8F5" },
+        ],
+      },
+      borderRadius: [4, 4, 0, 0],
+      shadowBlur: emphasis ? 16 : 11,
+      shadowColor: "rgba(111, 228, 255, 0.55)",
+      shadowOffsetY: 1,
+    },
+  ];
+  return presets[seriesIndex % presets.length];
+}
+
 function resolveColorPalette(props) {
   const raw = props?.palette ?? props?.color_palette ?? props?.colors;
   if (Array.isArray(raw)) {
@@ -905,6 +948,65 @@ function resolveColorPalette(props) {
       .filter(Boolean);
   }
   return [];
+}
+
+/** 驾驶舱深色 tooltip 底 + 高对比文字（避免灰字落在 ECharts 默认浅黄/白底上） */
+const ECHARTS_TOOLTIP_CHROME = {
+  backgroundColor: "rgba(8, 24, 48, 0.94)",
+  borderColor: "rgba(56, 189, 248, 0.45)",
+  borderWidth: 1,
+  padding: [8, 12],
+};
+
+const ECHARTS_TOOLTIP_TEXT = {
+  primary: "#f0f9ff",
+  secondary: "#bae6fd",
+  muted: "#cbd5e1",
+};
+
+/** 驾驶舱紧凑柱/线图：浅灰绘图区底 + 低对比网格线（避免默认白线抢眼） */
+const COCKPIT_CARTESIAN_GRID_BG = "rgba(148, 163, 184, 0.12)";
+const COCKPIT_CARTESIAN_SPLIT_LINE = {
+  show: true,
+  lineStyle: {
+    color: "rgba(148, 163, 184, 0.24)",
+    width: 1,
+  },
+};
+
+function echartsTooltipTextStyle(typography, role = "label") {
+  const fontSize =
+    role === "value"
+      ? typography.value
+      : role === "unit"
+        ? typography.unit
+        : role === "body"
+          ? typography.body
+          : typography.label;
+  return {
+    fontSize,
+    color:
+      role === "unit" || role === "muted"
+        ? ECHARTS_TOOLTIP_TEXT.secondary
+        : ECHARTS_TOOLTIP_TEXT.primary,
+    lineHeight: Math.round(fontSize * 1.45),
+  };
+}
+
+/** ECharts 飘窗：深色底 + 主题字号 + 二级看板内 z-index */
+function echartsTooltip(typography, trigger, extra = {}) {
+  const { textRole = "label", ...rest } = extra;
+  const z = COCKPIT_Z_INDEX.tooltipInBoard;
+  return {
+    trigger,
+    ...ECHARTS_TOOLTIP_CHROME,
+    className: "mei-cockpit-echarts-tooltip",
+    appendTo: typeof document !== "undefined" ? document.body : undefined,
+    confine: false,
+    extraCssText: `z-index:${z} !important;box-shadow:0 8px 24px rgba(0,0,0,0.35);border-radius:6px;`,
+    textStyle: echartsTooltipTextStyle(typography, textRole),
+    ...rest,
+  };
 }
 
 function resolveLegacyBehavior(props) {
@@ -972,15 +1074,18 @@ function compactAxisValueLabel(value) {
   return String(n);
 }
 
-function resolveCompactCartesianGrid(props, legacy) {
+function resolveCompactCartesianGrid(props, legacy, categoryAxisRotate = 0) {
   const containLabel = gridContainLabelEnabled(props, true);
   const showLegend = legacy.showLegend === true;
+  const bottomDefault = Math.abs(categoryAxisRotate) >= 30 ? 40 : 22;
   return {
     left: readGridInset(props, "left", containLabel ? 2 : 24),
     right: readGridInset(props, "right", showLegend ? 2 : 6),
     top: readGridInset(props, "top", showLegend ? 16 : 4),
-    bottom: readGridInset(props, "bottom", 22),
+    bottom: readGridInset(props, "bottom", bottomDefault),
     containLabel,
+    backgroundColor: COCKPIT_CARTESIAN_GRID_BG,
+    borderWidth: 0,
   };
 }
 
@@ -994,8 +1099,43 @@ function resolveCategoryAxisLabelFormatter(props) {
     if (text.length <= maxChars) {
       return text;
     }
-    return `${text.slice(0, Math.max(1, maxChars - 1))}…`;
+    return `${text.slice(0, maxChars)}...`;
   };
+}
+
+function resolveCategoryAxisLabelRotate(props) {
+  const raw =
+    props?.axisLabelRotate ??
+    props?.axis_label_rotate ??
+    props?.categoryLabelRotate ??
+    props?.category_label_rotate;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function buildCategoryAxisLabel(chartProps, typography) {
+  const formatter = resolveCategoryAxisLabelFormatter(chartProps);
+  const rotate = resolveCategoryAxisLabelRotate(chartProps);
+  const label = {
+    fontSize: typography.unit,
+    color: "#94a3b8",
+    interval: 0,
+  };
+  if (formatter) {
+    label.formatter = formatter;
+  }
+  if (rotate) {
+    label.rotate = rotate;
+  }
+  return label;
+}
+
+function resolveChannelDisplayName(channels, field, fallback = "") {
+  const channel = Array.isArray(channels)
+    ? channels.find((item) => item?.field === field)
+    : null;
+  const name = String(channel?.name || "").trim();
+  return name || fallback || String(field || "");
 }
 
 function channelList(channel, legacyField, fallbackField) {
@@ -1029,7 +1169,7 @@ function buildOption(kind, rows, mapping, legacy, diagnostics) {
     return buildPieOption(chartKind, rows, mapping, diagnostics, legacy);
   }
   if (chartKind === "scatter") {
-    return buildScatterOption(rows, mapping, diagnostics);
+    return buildScatterOption(rows, mapping, diagnostics, legacy);
   }
   return buildCartesianOption(chartKind, rows, mapping, legacy, diagnostics);
 }
@@ -1062,11 +1202,12 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
   const metricSpark = legacy.barGradient === "metric-spark";
   const palette = Array.isArray(legacy.palette) ? legacy.palette : [];
   for (const yField of yFields) {
+    const yDisplayName = resolveChannelDisplayName(mapping.y, yField);
     if (groups.length === 0) {
       const data = categories.map((category) => aggregateValue(rows, xField, category, yField));
       if (legacy.barLine && !isBar) {
         series.push({
-          name: `${yField} · 柱`,
+          name: `${yDisplayName} · 柱`,
           type: "bar",
           barWidth: compact ? 10 : 14,
           itemStyle: {
@@ -1086,7 +1227,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           z: 1,
         });
         series.push({
-          name: yField,
+          name: yDisplayName,
           type: "line",
           smooth: true,
           symbol: "circle",
@@ -1107,7 +1248,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
               }))
             : data;
         series.push({
-          name: yField,
+          name: yDisplayName,
           type: seriesType,
           smooth: kind === "trend",
           areaStyle: kind === "area" ? {} : undefined,
@@ -1118,9 +1259,11 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         });
       }
     } else {
+      const yearDuoGradient = isBar && legacy.barGradient === "cockpit-year-duo";
+      let groupSeriesIndex = 0;
       for (const groupName of groups) {
-        series.push({
-          name: `${groupName} · ${yField}`,
+        const seriesItem = {
+          name: `${groupName} · ${yDisplayName}`,
           type: seriesType,
           smooth: kind === "trend",
           areaStyle: kind === "area" ? {} : undefined,
@@ -1128,7 +1271,18 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           data: categories.map((category) =>
             aggregateValue(rows, xField, category, yField, grouped, groupName),
           ),
-        });
+        };
+        if (yearDuoGradient) {
+          seriesItem.barWidth = compact ? "34%" : "38%";
+          seriesItem.barGap = "24%";
+          seriesItem.itemStyle = cockpitYearDuoBarItemStyle(groupSeriesIndex);
+          seriesItem.emphasis = {
+            focus: "series",
+            itemStyle: cockpitYearDuoBarItemStyle(groupSeriesIndex, { emphasis: true }),
+          };
+        }
+        series.push(seriesItem);
+        groupSeriesIndex += 1;
       }
     }
   }
@@ -1136,12 +1290,15 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
     applyPercentTransform(series);
   }
   const chartProps = legacy.chartProps || {};
+  const themeTypography = readThemeTypography(legacy.__host);
+  const categoryAxisRotate = resolveCategoryAxisLabelRotate(chartProps);
   const compactGrid = metricSpark
     ? { left: 2, right: 2, top: 4, bottom: 4, containLabel: false }
-    : resolveCompactCartesianGrid(chartProps, legacy);
-  const categoryAxisFormatter = resolveCategoryAxisLabelFormatter(chartProps);
+    : resolveCompactCartesianGrid(chartProps, legacy, categoryAxisRotate);
+  const categoryAxisLabel = buildCategoryAxisLabel(chartProps, themeTypography);
   const option = {
-    tooltip: { trigger: "axis" },
+    backgroundColor: legacy.compact ? "transparent" : undefined,
+    tooltip: echartsTooltip(themeTypography, "axis"),
     legend: legacy.showLegend
       ? {
           show: true,
@@ -1152,7 +1309,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           itemWidth: 10,
           itemHeight: 8,
           itemGap: 6,
-          textStyle: { fontSize: 10, color: "#94a3b8" },
+          textStyle: { fontSize: themeTypography.unit, color: "#94a3b8" },
         }
       : { show: false },
     toolbox: legacy.compact ? undefined : { feature: { saveAsImage: {} } },
@@ -1171,37 +1328,29 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
       option.xAxis = {
         ...option.xAxis,
         axisLabel: {
-          fontSize: 10,
+          fontSize: themeTypography.unit,
           color: "#94a3b8",
           formatter: compactAxisValueLabel,
         },
+        splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
       };
       option.yAxis = {
         ...option.yAxis,
-        axisLabel: {
-          fontSize: 10,
-          color: "#94a3b8",
-          interval: 0,
-          ...(categoryAxisFormatter ? { formatter: categoryAxisFormatter } : {}),
-        },
+        axisLabel: categoryAxisLabel,
       };
     } else {
       option.xAxis = {
         ...option.xAxis,
-        axisLabel: {
-          fontSize: 10,
-          color: "#94a3b8",
-          interval: 0,
-          ...(categoryAxisFormatter ? { formatter: categoryAxisFormatter } : {}),
-        },
+        axisLabel: categoryAxisLabel,
       };
       option.yAxis = {
         ...option.yAxis,
         axisLabel: {
-          fontSize: 10,
+          fontSize: themeTypography.unit,
           color: "#94a3b8",
           formatter: compactAxisValueLabel,
         },
+        splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
         splitNumber: 4,
       };
     }
@@ -1247,6 +1396,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
     .filter((item) => item.name && Number.isFinite(item.value));
   const compact = legacy.compact === true || legacy.compact === "true";
   const chartHeight = Number(legacy.chartHeight) > 0 ? Number(legacy.chartHeight) : 0;
+  const themeTypography = readThemeTypography(legacy.__host);
   const tight = compact && chartHeight > 0 && chartHeight <= 56;
   const donutRadius = tight
     ? ["58%", "82%"]
@@ -1254,15 +1404,24 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       ? ["52%", "78%"]
       : ["45%", "72%"];
   const option = {
-    tooltip: { trigger: "item" },
-    legend: compact ? { show: false } : { top: 0 },
+    tooltip: echartsTooltip(themeTypography, "item"),
+    legend: compact
+      ? { show: false }
+      : {
+          top: 0,
+          textStyle: { fontSize: themeTypography.label, color: "#94a3b8" },
+        },
     toolbox: compact ? undefined : { feature: { saveAsImage: {} } },
     series: [
       {
         type: "pie",
         radius: kind === "donut" ? donutRadius : tight ? "62%" : compact ? "68%" : "70%",
         center: compact ? ["50%", "50%"] : undefined,
-        label: { show: !compact },
+        label: {
+          show: !compact,
+          fontSize: themeTypography.label,
+          color: "#e2e8f0",
+        },
         labelLine: { show: !compact },
         roseType: kind === "rose" ? "radius" : undefined,
         data,
@@ -1275,7 +1434,8 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
   return option;
 }
 
-function buildScatterOption(rows, mapping, diagnostics) {
+function buildScatterOption(rows, mapping, diagnostics, legacy = {}) {
+  const themeTypography = readThemeTypography(legacy.__host);
   const xField = mapping.x[0]?.field;
   const yField = mapping.y[0]?.field;
   const sizeField = mapping.size[0]?.field;
@@ -1308,7 +1468,7 @@ function buildScatterOption(rows, mapping, diagnostics) {
     };
   });
   return {
-    tooltip: { trigger: "item" },
+    tooltip: echartsTooltip(themeTypography, "item"),
     legend: { top: 0, show: !!colorField },
     toolbox: { feature: { saveAsImage: {} } },
     xAxis: { type: "value" },
@@ -1318,6 +1478,7 @@ function buildScatterOption(rows, mapping, diagnostics) {
 }
 
 function buildRadarOption(rows, mapping, legacy, diagnostics) {
+  const themeTypography = readThemeTypography(legacy.__host);
   const dimensions = mapping.radarDimensions.length > 0
     ? mapping.radarDimensions
     : mapping.y;
@@ -1337,7 +1498,7 @@ function buildRadarOption(rows, mapping, legacy, diagnostics) {
     normalizeRadarData(data);
   }
   return {
-    tooltip: { trigger: "item" },
+    tooltip: echartsTooltip(themeTypography, "item"),
     legend: { top: 0 },
     toolbox: { feature: { saveAsImage: {} } },
     radar: { indicator: indicators },
@@ -1345,7 +1506,8 @@ function buildRadarOption(rows, mapping, legacy, diagnostics) {
   };
 }
 
-function buildBoxplotOption(rows, mapping, _legacy, diagnostics) {
+function buildBoxplotOption(rows, mapping, legacy, diagnostics) {
+  const themeTypography = readThemeTypography(legacy.__host);
   const labelField = mapping.x[0]?.field || "label";
   const def = mapping.boxplot;
   if (def.length >= 5) {
@@ -1359,7 +1521,7 @@ function buildBoxplotOption(rows, mapping, _legacy, diagnostics) {
       toNumber(row?.[maxField]),
     ]);
     return {
-      tooltip: { trigger: "item" },
+      tooltip: echartsTooltip(themeTypography, "item"),
       xAxis: { type: "category", data: labels },
       yAxis: { type: "value" },
       series: [{ type: "boxplot", data }],
@@ -1373,7 +1535,7 @@ function buildBoxplotOption(rows, mapping, _legacy, diagnostics) {
   const labels = Object.keys(grouped);
   const data = labels.map((label) => toBoxStats(grouped[label]));
   return {
-    tooltip: { trigger: "item" },
+    tooltip: echartsTooltip(themeTypography, "item"),
     xAxis: { type: "category", data: labels },
     yAxis: { type: "value" },
     series: [{ type: "boxplot", data }],
@@ -1456,7 +1618,8 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   const showTitle = (props.compact === true || props.compact === "true") && title.length > 0;
   const pullUp = Math.max(0, Number(props.rankingPullUp ?? props.ranking_pull_up ?? 0));
   const padLeft = Math.max(0, Number(props.contentPadLeft ?? props.content_pad_left ?? 0));
-  const titleH = showTitle ? 12 : 0;
+  const titleFontPx = readThemeTypography(props.__host).chartTitle;
+  const titleH = showTitle ? Math.max(14, Math.ceil(titleFontPx * 1.15)) : 0;
   const listHeight = Math.max(48, chartHeight - titleH + pullUp);
   const slotPx = items.length > 0 ? Math.floor(listHeight / items.length) : 0;
   chartEl.style.height = `${chartHeight}px`;
@@ -1513,20 +1676,13 @@ function resolveRankingTheme(props) {
 }
 
 function resolveRankingTypography(props, slotPx = 0) {
-  const compact = props.compact === true || props.compact === "true";
-  let labelFontSize = compact ? 12 : 14;
-  let valueFontSize = compact ? 12 : 13;
-  let axisLabelFontSize = compact ? 12 : 13;
-  if (compact && slotPx > 0) {
-    labelFontSize = Math.min(14, Math.max(11, Math.floor(slotPx * 0.46)));
-    valueFontSize = labelFontSize;
-    axisLabelFontSize = Math.min(13, Math.max(11, Math.floor(slotPx * 0.4)));
-  }
+  void slotPx;
+  const typography = readThemeTypography(props.__host);
   return {
-    labelFontSize,
-    valueFontSize,
-    axisLabelFontSize,
-    labelLineHeight: Math.round(labelFontSize * 1.42),
+    labelFontSize: typography.label,
+    valueFontSize: typography.value,
+    axisLabelFontSize: typography.unit,
+    labelLineHeight: Math.round(typography.label * 1.42),
   };
 }
 
@@ -1591,14 +1747,16 @@ function buildRankingBarSeries({
   };
 }
 
-function rankingTooltipFormatter(items, valueName) {
+function rankingTooltipFormatter(items, valueName, typography) {
+  const labelPx = typography.label;
+  const unitPx = typography.unit;
   return (params) => {
     const point = Array.isArray(params) ? params[0] : params;
     const idx = point?.dataIndex ?? 0;
     const item = items[idx];
     if (!item) return "";
     const title = escapeHtml(item.label);
-    return `<div style="max-width:min(92vw,420px);line-height:1.45;word-break:break-all;">${title}<br/><span style="color:#94a3b8">${escapeHtml(valueName)}: ${item.value}</span></div>`;
+    return `<div style="max-width:min(92vw,420px);line-height:1.45;word-break:break-all;font-size:${labelPx}px;color:${ECHARTS_TOOLTIP_TEXT.primary};">${title}<br/><span style="color:${ECHARTS_TOOLTIP_TEXT.secondary};font-size:${unitPx}px">${escapeHtml(valueName)}: ${item.value}</span></div>`;
   };
 }
 
@@ -1616,18 +1774,6 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
   const values = items.map((item) => item.value);
   const compact = props.compact === true || props.compact === "true";
   const chartHeight = Number(props.chartHeight) > 0 ? Number(props.chartHeight) : 0;
-  const charWidth = compact ? 11 : 14;
-  const gridLeftMin = compact ? 76 : 100;
-  const gridLeftMax = compact ? 220 : 380;
-  const gridLeft = Math.min(
-    gridLeftMax,
-    Math.max(gridLeftMin, configuredMaxChars * charWidth + (compact ? 18 : 28)),
-  );
-  const labelWidthPx = gridLeft - (compact ? 14 : 20);
-  const maxChars = Math.min(
-    configuredMaxChars,
-    estimateRankingMaxChars(labelWidthPx, compact ? 12 : 14),
-  );
   let gridTop = compact ? 8 : 28;
   let gridBottom = compact ? 12 : 24;
   let barMaxWidth = 22;
@@ -1640,13 +1786,25 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
     barMaxWidth = Math.min(22, Math.max(8, Math.floor(slotPx * 0.58)));
   }
   const typography = resolveRankingTypography(props, slotPx);
+  const themeTypography = readThemeTypography(props.__host);
+  const charWidth = Math.max(8, Math.round(typography.labelFontSize * 0.58));
+  const gridLeftMin = compact ? 76 : 100;
+  const gridLeftMax = compact ? 220 : 380;
+  const gridLeft = Math.min(
+    gridLeftMax,
+    Math.max(gridLeftMin, configuredMaxChars * charWidth + (compact ? 18 : 28)),
+  );
+  const labelWidthPx = gridLeft - (compact ? 14 : 20);
+  const maxChars = Math.min(
+    configuredMaxChars,
+    estimateRankingMaxChars(labelWidthPx, typography.axisLabelFontSize),
+  );
   const borderRadius = [0, 4, 4, 0];
   const option = {
-    tooltip: {
-      trigger: "axis",
+    tooltip: echartsTooltip(themeTypography, "axis", {
       axisPointer: { type: "shadow" },
-      formatter: rankingTooltipFormatter(items, valueName),
-    },
+      formatter: rankingTooltipFormatter(items, valueName, themeTypography),
+    }),
     grid: {
       left: gridLeft,
       right: compact ? 28 : 36,
@@ -1731,17 +1889,17 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
     labelWidth = Math.max(160, Math.floor(chartHeight * 2.1));
   }
   const typography = resolveRankingTypography(props, slotPx);
+  const themeTypography = readThemeTypography(props.__host);
   const maxChars = Math.min(
     configuredMaxChars,
     estimateRankingMaxChars(labelWidth, typography.labelFontSize),
   );
   const borderRadius = [0, 3, 3, 0];
   const option = {
-    tooltip: {
-      trigger: "axis",
+    tooltip: echartsTooltip(themeTypography, "axis", {
       axisPointer: { type: "shadow" },
-      formatter: rankingTooltipFormatter(items, valueName),
-    },
+      formatter: rankingTooltipFormatter(items, valueName, themeTypography),
+    }),
     grid: {
       left: gridLeft,
       right: gridRight,
@@ -1860,31 +2018,6 @@ function inferLabelField(rows) {
   if (!first) return "";
   const keys = Object.keys(first);
   return keys.find((key) => key !== "value" && typeof first[key] === "string") || keys[0] || "";
-}
-
-let rankingPopoverStylesReady = false;
-function ensureRankingPopoverStyles() {
-  if (rankingPopoverStylesReady || typeof document === "undefined") return;
-  rankingPopoverStylesReady = true;
-  const style = document.createElement("style");
-  style.dataset.meiRankingPopover = "true";
-  style.textContent = `
-    .mei-rank-pop {
-      position: fixed; z-index: ${COCKPIT_Z_INDEX.tooltip};
-      min-width: 320px; max-width: min(96vw, 760px); max-height: min(82vh, 680px);
-      display: flex; flex-direction: column; gap: 12px;
-      padding: 14px 16px; border-radius: 14px;
-      border: 1px solid rgba(148,163,184,.35);
-      background: rgba(15,23,42,.98);
-      box-shadow: 0 20px 48px rgba(0,0,0,.5); color: #e2e8f0;
-    }
-    .mei-rank-pop-hd { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 15px; font-weight: 600; color: #cbd5e1; }
-    .mei-rank-pop-actions { display: flex; gap: 8px; align-items: center; }
-    .mei-rank-pop-actions button { border-radius: 8px; border: 1px solid rgba(148,163,184,.3); background: rgba(30,41,59,.9); color: #e2e8f0; font-size: 14px; padding: 7px 14px; cursor: pointer; }
-    .mei-rank-pop-close { border: none; background: transparent; color: #94a3b8; font-size: 24px; line-height: 1; padding: 0 6px; }
-    .mei-rank-pop-body { flex: 1; min-height: 120px; width: 100%; resize: vertical; border-radius: 10px; border: 1px solid rgba(148,163,184,.22); background: rgba(2,6,23,.55); color: #e2e8f0; font-size: 16px; line-height: 1.55; padding: 12px 14px; font-family: ui-sans-serif, system-ui, sans-serif; }
-  `;
-  document.head.appendChild(style);
 }
 
 function normalizeKind(kind) {

@@ -199,9 +199,9 @@ if (!customElements.get(TAG)) {
       this.bindLayerToggleEvents();
       if (!this._onDocumentPointerDown) {
         this._onDocumentPointerDown = (event) => {
-          const path = typeof event.composedPath === "function" ? event.composedPath() : [];
-          if (path.includes(this)) return;
-          this.setLayerControlOpen(false);
+          if (!this.isLayerControlPointerTarget(event)) {
+            this.setLayerControlOpen(false);
+          }
         };
         document.addEventListener("pointerdown", this._onDocumentPointerDown, true);
       }
@@ -593,6 +593,23 @@ if (!customElements.get(TAG)) {
       this.mountLayerToggleInNav();
     }
 
+    isLayerControlPointerTarget(event) {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+      if (path.includes(this)) {
+        return true;
+      }
+      if (this.layerControlEl && path.includes(this.layerControlEl)) {
+        return true;
+      }
+      if (this._portaledNavCtrl && path.includes(this._portaledNavCtrl)) {
+        return true;
+      }
+      if (this.layerToggleEl && path.includes(this.layerToggleEl)) {
+        return true;
+      }
+      return false;
+    }
+
     bindLayerControlPanelEvents() {
       if (!this.layerControlEl || this._layerControlPanelBound) return;
       this.layerControlEl.addEventListener("click", (event) => {
@@ -752,7 +769,7 @@ if (!customElements.get(TAG)) {
           this._portaledLayerControl = this.layerControlEl;
         }
         this.layerControlEl.style.position = "fixed";
-        this.layerControlEl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools);
+        this.layerControlEl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools + 1);
         this.layerControlEl.style.transform = "none";
         this.layerControlEl.style.right = `${Math.round(window.innerWidth - anchorRect.right + gap)}px`;
         this.layerControlEl.style.left = "auto";
@@ -1122,7 +1139,6 @@ if (!customElements.get(TAG)) {
       }
       this.positionCockpitNavCtrl(navCtrl);
       navCtrl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools);
-      navCtrl.style.pointerEvents = "auto";
     }
 
     restoreCockpitMapToolsLayer() {

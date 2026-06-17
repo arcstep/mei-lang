@@ -64,6 +64,8 @@ html, body { height: 100%; }
   --mei-z-cockpit-tooltip: 1550;
   --mei-z-drilldown: 1600;
   --mei-z-drilldown-board: 1620;
+  --mei-z-cockpit-tooltip-in-board: 1650;
+  --mei-z-cockpit-text-popover: 1700;
 }
 body {
   margin: 0;
@@ -1408,6 +1410,12 @@ body > .maplibregl-popup.mei-cockpit-floating-tip {
   z-index: var(--mei-z-cockpit-tooltip, 1550);
   pointer-events: auto;
 }
+body.access-drilldown-open > .maplibregl-popup.mei-cockpit-floating-tip {
+  z-index: var(--mei-z-cockpit-tooltip-in-board, 1650);
+}
+body > .mei-cockpit-echarts-tooltip {
+  z-index: var(--mei-z-cockpit-tooltip-in-board, 1650) !important;
+}
 body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-content {
   background: linear-gradient(180deg, rgba(12, 30, 56, 0.99) 0%, rgba(7, 16, 30, 1) 100%);
   color: #f8fafc;
@@ -1457,10 +1465,14 @@ body > .maplibregl-popup.mei-cockpit-floating-tip .popup-value {
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
   position: fixed;
   z-index: var(--mei-z-cockpit-map-tools, 1520);
-  pointer-events: auto;
+  /* MapLibre 控件容器默认横跨父级宽度；挂 body 后须保持 none，仅按钮组可点 */
+  pointer-events: none;
+  width: max-content;
+  height: max-content;
   margin: 0;
 }
 body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group {
+  pointer-events: auto;
   border: 1px solid rgba(84, 160, 255, 0.35);
   border-radius: 10px;
   overflow: hidden;
@@ -1511,7 +1523,7 @@ body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctr
 }
 body > .mei-cockpit-floating-layer-control {
   position: fixed;
-  z-index: var(--mei-z-cockpit-map-tools, 1520);
+  z-index: calc(var(--mei-z-cockpit-map-tools, 1520) + 1);
   min-width: 220px;
   max-width: 280px;
   padding: 10px 12px;
@@ -1565,9 +1577,8 @@ body > .mei-cockpit-floating-layer-control .layer-item {
   cursor: pointer;
   line-height: 1.35;
 }
-body > .mei-cockpit-floating-layer-control .layer-item input {
-  margin-top: 2px;
-  accent-color: #38bdf8;
+body > .mei-floating-text-pop-backdrop {
+  z-index: calc(var(--mei-z-cockpit-text-popover, 1700) - 1);
 }
 .access-drilldown-overlay-backdrop {
   position: absolute;

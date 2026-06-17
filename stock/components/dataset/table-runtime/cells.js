@@ -1,5 +1,14 @@
 import { escapeHtml, escapeHtmlAttr } from "../runtime-query.js";
 import {
+  bindFloatingPopoverDrag,
+  buildTextPopoverBodyHtml,
+  copyTextToClipboard,
+  ensureFloatingTextPopoverStyles,
+  mountFloatingPopoverOnBody,
+  positionFloatingPopoverNearAnchor,
+  textPopoverStyleBlock,
+} from "../../mei/floating-text-popover.js";
+import {
   DEFAULT_CELL_PADDING,
   descriptorUsesRelativeTime,
   descriptorsHaveRelativeTime,
@@ -229,106 +238,19 @@ export function resolveCellPopoverVariant(props) {
   return "default";
 }
 
+let cellPopoverGlobalStylesReady = false;
+
+function ensureCellPopoverGlobalStyles() {
+  if (cellPopoverGlobalStylesReady || typeof document === "undefined") return;
+  cellPopoverGlobalStylesReady = true;
+  const style = document.createElement("style");
+  style.dataset.meiCellPopoverGlobal = "true";
+  style.textContent = cellPopoverStyleBlock("large").replace(/\.cell-pop/g, "body > .cell-pop");
+  document.head.appendChild(style);
+}
+
 export function cellPopoverStyleBlock(variant = "default") {
-  const large = variant === "large";
-  return `
-    .cell-pop-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 99998;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: clamp(12px, 4vw, 32px);
-      background: rgba(2, 6, 23, 0.78);
-      backdrop-filter: blur(2px);
-    }
-    .cell-pop {
-      position: fixed;
-      z-index: 99999;
-      min-width: ${large ? "360px" : "320px"};
-      max-width: min(96vw, ${large ? "880px" : "760px"});
-      max-height: min(82vh, ${large ? "720px" : "680px"});
-      display: flex;
-      flex-direction: column;
-      gap: ${large ? "14px" : "12px"};
-      padding: ${large ? "18px 20px" : "14px 16px"};
-      border-radius: ${large ? "16px" : "14px"};
-      border: 1px solid rgba(148, 163, 184, 0.35);
-      background: rgba(15, 23, 42, 0.98);
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
-      color: #e2e8f0;
-    }
-    .cell-pop--modal {
-      position: relative;
-      left: auto !important;
-      top: auto !important;
-      width: min(96vw, ${large ? "880px" : "720px"});
-      max-height: min(86vh, ${large ? "760px" : "680px"});
-    }
-    .cell-pop-hd {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
-      font-size: ${large ? "18px" : "15px"};
-      font-weight: 600;
-      color: #cbd5e1;
-    }
-    .cell-pop-title { display: grid; gap: 4px; min-width: 0; }
-    .cell-pop-subtitle {
-      font-size: ${large ? "15px" : "12px"};
-      font-weight: 400;
-      color: #94a3b8;
-      line-height: 1.35;
-    }
-    .cell-pop-actions { display: flex; gap: 8px; align-items: center; flex: 0 0 auto; flex-wrap: wrap; }
-    .cell-pop-actions button {
-      border-radius: 8px;
-      border: 1px solid rgba(148, 163, 184, 0.3);
-      background: rgba(30, 41, 59, 0.9);
-      color: #e2e8f0;
-      font-size: ${large ? "15px" : "14px"};
-      padding: ${large ? "8px 14px" : "7px 14px"};
-      cursor: pointer;
-    }
-    .cell-pop-actions button:hover { background: rgba(51, 65, 85, 0.95); }
-    .cell-pop-done {
-      border-color: rgba(59, 130, 246, 0.55) !important;
-      background: rgba(37, 99, 235, 0.88) !important;
-      color: #f8fafc !important;
-      font-weight: 600;
-      min-width: ${large ? "88px" : "72px"};
-    }
-    .cell-pop-done:hover { background: rgba(59, 130, 246, 0.95) !important; }
-    .cell-pop-close {
-      border: none !important;
-      background: transparent !important;
-      color: #94a3b8 !important;
-      font-size: ${large ? "28px" : "24px"} !important;
-      line-height: 1 !important;
-      padding: 0 6px !important;
-    }
-    .cell-pop-body {
-      flex: 1;
-      min-height: ${large ? "220px" : "200px"};
-      width: 100%;
-      resize: vertical;
-      border-radius: 10px;
-      border: 1px solid rgba(148, 163, 184, 0.22);
-      background: rgba(2, 6, 23, 0.55);
-      color: #e2e8f0;
-      font-size: ${large ? "22px" : "18px"};
-      line-height: 1.55;
-      padding: ${large ? "14px 16px" : "12px 14px"};
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .cell-with-tip[title] { cursor: help; }
-    .cell-relative-time { display: inline; max-width: 100%; }
-    .cell-relative-label { display: inline; }
-  `;
+  return textPopoverStyleBlock(variant === "large" ? "large" : "default");
 }
 
 export function formatCellInnerHtml(
@@ -566,29 +488,31 @@ export function bindCellPreviewClick(shadowRoot, cellTextMap, openPopover, { get
     if (full == null) return;
     const variant = typeof getVariant === "function" ? getVariant() : "large";
     const title = String(btn.getAttribute("aria-label") || "").trim() || "全文";
-    openPopover(full, btn, { variant, layout: "modal", title });
+    openPopover(full, btn, { variant, layout: "anchored", title });
   };
   shadowRoot.addEventListener("click", handler);
   return () => shadowRoot.removeEventListener("click", handler);
 }
 
-function removePopoverNodes(owner, shadowRoot) {
-  if (owner._cellPopoverBackdrop && shadowRoot?.contains(owner._cellPopoverBackdrop)) {
+function removePopoverNodes(owner) {
+  for (const node of [owner._cellPopoverBackdrop, owner._cellPopoverEl]) {
+    if (!node?.isConnected) continue;
     try {
-      owner._cellPopoverBackdrop.remove();
-    } catch (_) {
+      node.remove();
+    } catch {
       /* ignore */
     }
   }
   owner._cellPopoverBackdrop = null;
-  if (owner._cellPopoverEl && shadowRoot?.contains(owner._cellPopoverEl)) {
+  owner._cellPopoverEl = null;
+  if (typeof owner._cellPopoverDragCleanup === "function") {
     try {
-      owner._cellPopoverEl.remove();
-    } catch (_) {
+      owner._cellPopoverDragCleanup();
+    } catch {
       /* ignore */
     }
+    owner._cellPopoverDragCleanup = null;
   }
-  owner._cellPopoverEl = null;
 }
 
 export function closeCellPopover(owner, shadowRoot) {
@@ -601,7 +525,7 @@ export function closeCellPopover(owner, shadowRoot) {
     }
     owner._cellPopoverDocCleanup = null;
   }
-  removePopoverNodes(owner, shadowRoot);
+  removePopoverNodes(owner);
   if (typeof owner._cellPopoverKeydown === "function") {
     try {
       document.removeEventListener("keydown", owner._cellPopoverKeydown, true);
@@ -619,17 +543,19 @@ export function openCellPopover(
   anchor,
   { topOffset = 6, focusOnOpen = false, variant = "default", layout = "anchored", subtitle = "", title = "详细内容" } = {}
 ) {
-  if (!owner || !shadowRoot) return;
+  if (!owner) return;
   closeCellPopover(owner, shadowRoot);
+  ensureFloatingTextPopoverStyles();
+  ensureCellPopoverGlobalStyles();
   const useModal = layout === "modal";
   const effectiveVariant = useModal ? "large" : variant;
   const large = effectiveVariant === "large";
 
   const backdrop = useModal ? document.createElement("div") : null;
   if (backdrop) {
-    backdrop.className = "cell-pop-backdrop";
+    backdrop.className = "cell-pop-backdrop mei-floating-text-pop-backdrop";
     backdrop.setAttribute("data-cell-pop-backdrop", "true");
-    shadowRoot.appendChild(backdrop);
+    document.body.appendChild(backdrop);
     owner._cellPopoverBackdrop = backdrop;
   }
 
@@ -653,29 +579,23 @@ export function openCellPopover(
           <button type="button" class="cell-pop-close" aria-label="关闭">×</button>
         </div>
       </div>
-      <textarea class="cell-pop-body" readonly spellcheck="false"></textarea>
+      ${buildTextPopoverBodyHtml(fullText, escapeHtml)}
     `;
-  const ta = pop.querySelector(".cell-pop-body");
-  if (ta) ta.value = String(fullText ?? "");
 
-  if (backdrop) {
+  const defaultWidth = large ? 560 : 480;
+  const defaultHeight = large ? 400 : 340;
+  if (useModal) {
     backdrop.appendChild(pop);
+    owner._cellPopoverEl = pop;
   } else {
-    shadowRoot.appendChild(pop);
-  }
-  owner._cellPopoverEl = pop;
-
-  if (!useModal && anchor) {
-    const rect = anchor.getBoundingClientRect();
-    let left = rect.left;
-    let top = rect.bottom + Number(topOffset || 0);
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const estW = Math.min(large ? 880 : 760, vw * 0.96);
-    if (left + estW > vw - 8) left = Math.max(8, vw - estW - 8);
-    if (top + 280 > vh) top = Math.max(8, rect.top - Math.min(large ? 680 : 620, vh * 0.72) - 8);
-    pop.style.left = `${left}px`;
-    pop.style.top = `${top}px`;
+    mountFloatingPopoverOnBody(pop, { width: defaultWidth, height: defaultHeight });
+    owner._cellPopoverEl = pop;
+    positionFloatingPopoverNearAnchor(pop, anchor, {
+      topOffset,
+      defaultWidth,
+      defaultHeight,
+    });
+    owner._cellPopoverDragCleanup = bindFloatingPopoverDrag(pop, pop.querySelector(".cell-pop-hd"));
   }
 
   const requestClose = () => closeCellPopover(owner, shadowRoot);
@@ -711,22 +631,11 @@ export function openCellPopover(
 
   pop.querySelector(".cell-pop-close")?.addEventListener("click", requestClose);
   pop.querySelector(".cell-pop-done")?.addEventListener("click", requestClose);
-  pop.querySelector(".cell-pop-copy")?.addEventListener("click", async () => {
-    const text = String(fullText ?? "");
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch (_) {
-      try {
-        ta?.focus();
-        ta?.select();
-        document.execCommand("copy");
-      } catch (_) {
-        /* ignore */
-      }
-    }
+  pop.querySelector(".cell-pop-copy")?.addEventListener("click", () => {
+    copyTextToClipboard(fullText);
   });
 
-  const focusTarget = pop.querySelector(".cell-pop-done") || ta;
+  const focusTarget = pop.querySelector(".cell-pop-done");
   if (focusOnOpen || useModal) {
     try {
       focusTarget?.focus();

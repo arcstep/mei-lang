@@ -59,6 +59,10 @@ export const COCKPIT_Z_INDEX = {
   tooltip: 1550,
   drilldown: 1600,
   drilldownBoard: 1620,
+  /** 二级看板内 ECharts / 地图飘窗（高于看板面板，低于「查看全文」） */
+  tooltipInBoard: 1650,
+  /** 长文本「查看全文」飘窗（高于二级看板） */
+  textPopover: 1700,
 };
 
 /** 字号由 theme 语义角色（--mei-metric-*）与 font 档位（--mei-font-*）驱动，此处仅作 fallback */
