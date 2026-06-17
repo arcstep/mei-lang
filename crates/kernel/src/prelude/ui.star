@@ -183,7 +183,7 @@ def _merge_dict(base, overlay):
             out[k] = v
     return out
 
-def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, metric_sub_label = None, metric_sub_value = None, metric_sub_unit = None, tokens = None, shared = None, components = None):
+def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, panel_body = None, heading = None, font = None, metric_label = None, metric_value = None, metric_unit = None, metric_desc = None, metric_sub_label = None, metric_sub_value = None, metric_sub_unit = None, chart_title = None, chart_label = None, table_head = None, table_body = None, tokens = None, shared = None, components = None):
     resolved_panel_head = _merge_dict(panel_head, heading)
     return _declare(_clean({
         "kind": "theme",
@@ -202,6 +202,10 @@ def theme(id, frame = None, panel = None, panel_bare = None, panel_head = None, 
         "metric_sub_label": metric_sub_label if metric_sub_label != None else {},
         "metric_sub_value": metric_sub_value if metric_sub_value != None else {},
         "metric_sub_unit": metric_sub_unit if metric_sub_unit != None else {},
+        "chart_title": chart_title if chart_title != None else {},
+        "chart_label": chart_label if chart_label != None else {},
+        "table_head": table_head if table_head != None else {},
+        "table_body": table_body if table_body != None else {},
         "tokens": tokens if tokens != None else {},
         "shared": shared if shared != None else {},
         "components": components if components != None else {},

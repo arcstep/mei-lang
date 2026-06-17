@@ -98,7 +98,16 @@ fn title_block_typography_from_head_props(head_props: &Value) -> Value {
         "line_height",
     ];
     let mut out = serde_json::Map::new();
+    let has_font = map.get("font").is_some_and(|value| {
+        value
+            .as_str()
+            .is_some_and(|raw| !raw.trim().is_empty())
+            || value.as_i64().is_some()
+    });
     for key in KEYS {
+        if has_font && matches!(*key, "font_size" | "fontSize") {
+            continue;
+        }
         if let Some(value) = map.get(*key) {
             if value.is_string() {
                 if value.as_str().is_some_and(|raw| !raw.trim().is_empty()) {

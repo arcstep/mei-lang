@@ -392,7 +392,56 @@
     return panel;
   }
 
+  function resolvePreviewThemeStyleSource() {
+    return (
+      document.querySelector('.preview-viewport[data-mei-frame-viewport="true"]') ||
+      document.querySelector(".preview-viewport")
+    );
+  }
+
+  function parseThemeVarDeclarations(rawStyle) {
+    const out = [];
+    for (const chunk of String(rawStyle || "").split(";")) {
+      const trimmed = chunk.trim();
+      if (!trimmed) continue;
+      const idx = trimmed.indexOf(":");
+      if (idx <= 0) continue;
+      const name = trimmed.slice(0, idx).trim();
+      if (name.startsWith("--mei-") || name.startsWith("--cockpit-")) {
+        out.push([name, trimmed.slice(idx + 1).trim()]);
+      }
+    }
+    return out;
+  }
+
+  function syncDrilldownOverlayThemeVars(root) {
+    if (!(root instanceof HTMLElement)) return;
+    const source = resolvePreviewThemeStyleSource();
+    if (!(source instanceof HTMLElement)) return;
+    for (const [name, value] of parseThemeVarDeclarations(source.getAttribute("style"))) {
+      if (value) root.style.setProperty(name, value);
+    }
+    const computed = window.getComputedStyle(source);
+    for (const name of [
+      "--mei-theme-id",
+      "--mei-font-1",
+      "--mei-font-2",
+      "--mei-font-3",
+      "--mei-font-4",
+      "--mei-font-5",
+      "--mei-chart-title-font-size",
+      "--mei-metric-label-font-size",
+      "--mei-metric-value-font-size",
+      "--mei-metric-unit-font-size",
+      "--mei-metric-desc-font-size",
+    ]) {
+      const value = computed.getPropertyValue(name).trim();
+      if (value) root.style.setProperty(name, value);
+    }
+  }
+
   function applyDrilldownOverlayMeta(root, config) {
+    syncDrilldownOverlayThemeVars(root);
     const titleEl = root.querySelector('[data-drilldown-title="true"]');
     const noteEl = root.querySelector('[data-drilldown-note="true"]');
     const panelEl = root.querySelector(".access-drilldown-overlay-panel");

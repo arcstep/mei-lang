@@ -282,23 +282,30 @@ function metricVerticalAlign(props) {
   return "center";
 }
 
+const METRIC_FONT_FALLBACK = { label: "2", value: "3", unit: "2", desc: "1" };
+const METRIC_SUB_FONT_FALLBACK = { label: "1", value: "2", unit: "1", desc: "1" };
+
 function fontSizeVar(props) {
   const key = String(props.font || "").trim();
-  if (!key) {
-    const role = String(props.metric_role || "").trim().toLowerCase();
-    if (role === "label" || role === "value" || role === "unit" || role === "desc") {
-      const tier =
-        String(props.metric_variant || "").trim().toLowerCase() === "sub"
-          ? "metric-sub"
-          : "metric";
-      return `var(--mei-${tier}-${role}-font-size, inherit)`;
+  if (key) {
+    if (/^\d+(\.\d+)?(px|rem|em|%)$/.test(key)) {
+      return key;
     }
-    return "inherit";
+    return `var(--mei-font-${key}, 14px)`;
   }
-  if (/^\d+(\.\d+)?(px|rem|em|%)$/.test(key)) {
-    return key;
+  const explicitSize = String(props.font_size ?? props.fontSize ?? "").trim();
+  if (explicitSize && /^\d+(\.\d+)?(px|rem|em|%)$/.test(explicitSize)) {
+    return explicitSize;
   }
-  return `var(--mei-font-${key}, 14px)`;
+  const role = String(props.metric_role || "").trim().toLowerCase();
+  if (role === "label" || role === "value" || role === "unit" || role === "desc") {
+    const isSub = String(props.metric_variant || "").trim().toLowerCase() === "sub";
+    const tier = isSub ? "metric-sub" : "metric";
+    const table = isSub ? METRIC_SUB_FONT_FALLBACK : METRIC_FONT_FALLBACK;
+    const fallback = table[role] || "2";
+    return `var(--mei-${tier}-${role}-font-size, var(--mei-font-${fallback}, 14px))`;
+  }
+  return "var(--mei-panel-head-font-size, inherit)";
 }
 
 function metricDescShellBox(shell) {

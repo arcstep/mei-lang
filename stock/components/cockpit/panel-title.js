@@ -1,13 +1,13 @@
 import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 import {
-  QUNFU_COLOR,
-  QUNFU_FONT,
-  QUNFU_LAYOUT,
-  QUNFU_PANEL_TITLE_CARET,
-  QUNFU_SHADOW,
-  QUNFU_SPACING,
-  QUNFU_TYPE,
-  qunfuCssVars,
+  COCKPIT_COLOR,
+  COCKPIT_FONT,
+  COCKPIT_LAYOUT,
+  COCKPIT_PANEL_TITLE_CARET,
+  COCKPIT_SHADOW,
+  COCKPIT_SPACING,
+  COCKPIT_TYPE,
+  cockpitCssVars,
 } from "./tokens.js";
 
 class MeiCockpitPanelTitle extends HTMLElement {
@@ -23,17 +23,17 @@ class MeiCockpitPanelTitle extends HTMLElement {
     const showCarets =
       (p.showCarets === true || p.showCarets === "true") && !!caretSrc;
     const height =
-      size === "compact" ? QUNFU_LAYOUT.panelTitleCompact : QUNFU_LAYOUT.panelTitleWide;
-    const maxWidth = Number(p.maxWidth) > 0 ? Number(p.maxWidth) : QUNFU_LAYOUT.panelWidth;
+      size === "compact" ? COCKPIT_LAYOUT.panelTitleCompact : COCKPIT_LAYOUT.panelTitleWide;
+    const maxWidth = Number(p.maxWidth) > 0 ? Number(p.maxWidth) : COCKPIT_LAYOUT.panelWidth;
     const fontSize =
-      size === "compact" ? QUNFU_TYPE.panelTitleCompact : QUNFU_TYPE.panelTitle;
+      size === "compact" ? COCKPIT_TYPE.panelTitleCompact : COCKPIT_TYPE.panelTitle;
     const letterSpacing =
       size === "compact"
-        ? QUNFU_TYPE.panelTitleLetterSpacing
+        ? COCKPIT_TYPE.panelTitleLetterSpacing
         : maxWidth >= 800
-          ? QUNFU_TYPE.panelTitleLetterSpacingWide
-          : QUNFU_TYPE.panelTitleLetterSpacing;
-    const caretPos = QUNFU_PANEL_TITLE_CARET[size] || QUNFU_PANEL_TITLE_CARET.compact;
+          ? COCKPIT_TYPE.panelTitleLetterSpacingWide
+          : COCKPIT_TYPE.panelTitleLetterSpacing;
+    const caretPos = COCKPIT_PANEL_TITLE_CARET[size] || COCKPIT_PANEL_TITLE_CARET.compact;
     const caretTop =
       size === "compact"
         ? "calc(50% + 1px)"
@@ -49,7 +49,7 @@ class MeiCockpitPanelTitle extends HTMLElement {
           min-width: 0;
           max-width: 100%;
           box-sizing: border-box;
-          ${qunfuCssVars()}
+          ${cockpitCssVars()}
         }
         .wrap {
           position: relative;
@@ -90,17 +90,17 @@ class MeiCockpitPanelTitle extends HTMLElement {
           align-items: center;
           justify-content: center;
           height: 100%;
-          padding: var(--qunfu-panel-pad);
+          padding: var(--cockpit-panel-pad);
           margin: 0;
           box-sizing: border-box;
-          font-family: var(--mei-panel-head-font-family, ${QUNFU_FONT.headerFamily});
+          font-family: var(--mei-panel-head-font-family, ${COCKPIT_FONT.headerFamily});
           font-size: var(--mei-panel-head-font-size, ${fontSize}px);
           font-weight: var(--mei-panel-head-font-weight, 700);
           letter-spacing: var(--mei-panel-head-letter-spacing, ${letterSpacing});
           line-height: var(--mei-panel-head-line-height, 1);
-          color: var(--mei-panel-head-color, var(--qunfu-color-panel, ${QUNFU_COLOR.panelTitle}));
+          color: var(--mei-panel-head-color, var(--cockpit-color-panel, ${COCKPIT_COLOR.panelTitle}));
           text-align: var(--mei-panel-head-text-align, center);
-          text-shadow: ${QUNFU_SHADOW.panelTitle};
+          text-shadow: ${COCKPIT_SHADOW.panelTitle};
           max-width: 100%;
           white-space: nowrap;
           overflow: hidden;

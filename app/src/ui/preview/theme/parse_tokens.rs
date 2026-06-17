@@ -25,6 +25,10 @@ pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
         theme.metric_sub_value.clone(),
     );
     map.insert("metric_sub_unit".to_string(), theme.metric_sub_unit.clone());
+    map.insert("chart_title".to_string(), theme.chart_title.clone());
+    map.insert("chart_label".to_string(), theme.chart_label.clone());
+    map.insert("table_head".to_string(), theme.table_head.clone());
+    map.insert("table_body".to_string(), theme.table_body.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
     if !theme.shared.is_null() {
         map.insert("shared".to_string(), theme.shared.clone());
@@ -61,6 +65,18 @@ pub(super) fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
     }
     if let Some(panel_head) = theme.as_object().and_then(|map| map.get("panel_head")) {
         push_typography_vars(panel_head, "mei-panel-head", &mut vars);
+    }
+    if let Some(chart_title) = theme.as_object().and_then(|map| map.get("chart_title")) {
+        push_typography_vars(chart_title, "mei-chart-title", &mut vars);
+    }
+    if let Some(chart_label) = theme.as_object().and_then(|map| map.get("chart_label")) {
+        push_typography_vars(chart_label, "mei-chart-label", &mut vars);
+    }
+    if let Some(table_head) = theme.as_object().and_then(|map| map.get("table_head")) {
+        push_typography_vars(table_head, "mei-table-head", &mut vars);
+    }
+    if let Some(table_body) = theme.as_object().and_then(|map| map.get("table_body")) {
+        push_typography_vars(table_body, "mei-table-body", &mut vars);
     }
     if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
         flatten_tokens(tokens, "mei", &mut vars);
@@ -101,7 +117,16 @@ fn push_typography_vars(entry: &Value, var_prefix: &str, vars: &mut Vec<(String,
     let Some(map) = entry.as_object() else {
         return;
     };
+    let has_font_token = map.get("font").is_some_and(|value| {
+        value
+            .as_str()
+            .is_some_and(|raw| !raw.trim().is_empty())
+            || value.as_i64().is_some()
+    });
     for (key, value) in map {
+        if has_font_token && matches!(key.as_str(), "font_size" | "fontSize") {
+            continue;
+        }
         let Some(suffix) = typography_css_suffix(key) else {
             continue;
         };

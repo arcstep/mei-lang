@@ -274,6 +274,14 @@ pub struct ThemeDecl {
     #[serde(default)]
     pub metric_sub_unit: Value,
     #[serde(default)]
+    pub chart_title: Value,
+    #[serde(default)]
+    pub chart_label: Value,
+    #[serde(default)]
+    pub table_head: Value,
+    #[serde(default)]
+    pub table_body: Value,
+    #[serde(default)]
     pub tokens: Value,
     /// 与 CSS tokens 分轨的只读共享参数默认值。
     #[serde(default)]

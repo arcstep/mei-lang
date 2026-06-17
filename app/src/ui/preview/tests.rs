@@ -895,6 +895,10 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
             metric_sub_label: json!({}),
             metric_sub_value: json!({}),
             metric_sub_unit: json!({}),
+            chart_title: json!({}),
+            chart_label: json!({}),
+            table_head: json!({}),
+            table_body: json!({}),
             tokens: json!({}),
             shared: json!({
                 "layout": {"rail_width": "480px", "header_height": "72px"},

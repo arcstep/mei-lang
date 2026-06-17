@@ -109,12 +109,19 @@ mod tests {
             metric_sub_label: json!({"font_size": "12px"}),
             metric_sub_value: json!({"font_size": "18px", "text_align": "right"}),
             metric_sub_unit: json!({}),
+            chart_title: json!({"font": "3"}),
+            chart_label: json!({}),
+            table_head: json!({}),
+            table_body: json!({}),
             tokens: json!({}),
             shared: json!({}),
             components: json!({}),
         };
         let merged = theme_decl_value(&decl);
         let vars = collect_theme_css_vars(&merged);
+        assert!(vars
+            .iter()
+            .any(|(k, v)| k == "--mei-chart-title-font-size" && v.contains("--mei-font-3")));
         assert!(vars
             .iter()
             .any(|(k, v)| k == "--mei-metric-value-font-size" && v.contains("--mei-font-4")));
@@ -124,5 +131,24 @@ mod tests {
         assert!(vars
             .iter()
             .any(|(k, v)| k == "--mei-metric-sub-value-text-align" && v == "right"));
+    }
+
+    #[test]
+    fn collect_theme_css_vars_prefers_font_over_font_size() {
+        let merged = json!({
+            "font": {"4": "18px"},
+            "metric_value": {
+                "font": "4",
+                "font_size": "28px",
+            },
+        });
+        let vars = collect_theme_css_vars(&merged);
+        let value_sizes: Vec<_> = vars
+            .iter()
+            .filter(|(k, _)| k == "--mei-metric-value-font-size")
+            .collect();
+        assert_eq!(value_sizes.len(), 1);
+        assert!(value_sizes[0].1.contains("--mei-font-4"));
+        assert!(!value_sizes[0].1.contains("28px"));
     }
 }

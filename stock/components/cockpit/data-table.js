@@ -2,7 +2,7 @@
  * 驾驶舱表格组件（cockpit.data-table → mei-cockpit-data-table）。
  */
 import { escapeAttr, escapeHtml, parseProps, rowsOf } from "./shared.js";
-import { QUNFU_FONT, QUNFU_TYPE, qunfuCssVars } from "./tokens.js";
+import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars } from "./tokens.js";
 import {
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
@@ -273,14 +273,14 @@ function resolveSampleMeasureFonts(host, { embedded = false, compactEmbedded = f
     String(
       style?.getPropertyValue("--mei-font-family-ui") ||
         style?.fontFamily ||
-        QUNFU_FONT.uiFamily
-    ).trim() || QUNFU_FONT.uiFamily;
+        COCKPIT_FONT.uiFamily
+    ).trim() || COCKPIT_FONT.uiFamily;
   const embeddedFontPx = parseCssPx(style?.getPropertyValue("--mei-font-3"), 18);
   const bodyFontPx = compactEmbedded
     ? 12
     : embedded
       ? embeddedFontPx
-      : parseCssPx(QUNFU_TYPE.metricLabel, 12);
+      : parseCssPx(COCKPIT_TYPE.metricLabel, 12);
   return {
     bodyFont: `400 ${bodyFontPx}px ${fontFamily}`,
     labelFont: `600 ${bodyFontPx}px ${fontFamily}`,
@@ -1076,13 +1076,13 @@ export class MeiCockpitDataTable extends HTMLElement {
           width: 100%;
           min-width: 0;
           ${embedded ? "height:100%;min-height:0;" : ""}
-          ${qunfuCssVars()}
+          ${cockpitCssVars()}
         }
         .table-wrap {
           ${embedded ? "height:100%;max-height:none;" : `max-height:${maxHeight};`}
           overflow: hidden;
           border-radius: ${embedded ? "0" : "4px"};
-          font-family: ${QUNFU_FONT.uiFamily};
+          font-family: ${COCKPIT_FONT.uiFamily};
           display: flex;
           flex-direction: column;
           min-height: 0;
@@ -1134,7 +1134,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           align-items: center;
           box-sizing: border-box;
           padding: 0 ${cellPadX}px;
-          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
           color: #7dd3fc;
           font-weight: 600;
           white-space: nowrap;
@@ -1171,7 +1171,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           box-sizing: border-box;
           padding: 0 ${cellPadX}px;
           min-width: 0;
-          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
           color: #cbd5e1;
           line-height: 1.35;
           overflow: hidden;
@@ -1208,7 +1208,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           padding: 24px 10px;
           text-align: center;
           color: #94a3b8;
-          font-size: ${embedded ? "var(--mei-font-3, 18px)" : QUNFU_TYPE.metricLabel};
+          font-size: ${embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
         }
         .table-footer {
           flex: 0 0 auto;

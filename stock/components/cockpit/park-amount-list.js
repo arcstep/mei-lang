@@ -7,7 +7,7 @@ import {
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import { escapeHtml } from "./shared.js";
-import { QUNFU_FONT, qunfuCssVars } from "./tokens.js";
+import { COCKPIT_FONT, cockpitCssVars } from "./tokens.js";
 
 function metricRows(metric) {
   if (!metric || typeof metric !== "object") return [];
@@ -97,8 +97,8 @@ class MeiCockpitParkAmountList extends HTMLElement {
           min-width: 0;
           height: ${h}px;
           min-height: ${h}px;
-          font-family: ${QUNFU_FONT.uiFamily};
-          ${qunfuCssVars()}
+          font-family: ${COCKPIT_FONT.uiFamily};
+          ${cockpitCssVars()}
         }
         .list {
           display: flex;
