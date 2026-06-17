@@ -13,3 +13,7 @@ node_modules/
 /scripts/perf-wave*-report.md
 # scenario 目录只保留 *.json 配置，采样输出勿落盘到此
 /scripts/perf-scenarios/**/*.jsonl
+
+# workspace runtime install 输出（见 docs/mei-lang/implementation/toolchain/14-workspace-local-environment-mode1-contract.md）
+/.mei/
+/start.sh
