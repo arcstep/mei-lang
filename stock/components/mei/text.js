@@ -282,7 +282,7 @@ function metricVerticalAlign(props) {
   return "center";
 }
 
-const METRIC_FONT_FALLBACK = { label: "2", value: "3", unit: "2", desc: "1" };
+const METRIC_FONT_FALLBACK = { label: "2", value: "3", unit: "1", desc: "1" };
 const METRIC_SUB_FONT_FALLBACK = { label: "1", value: "2", unit: "1", desc: "1" };
 
 function fontSizeVar(props) {

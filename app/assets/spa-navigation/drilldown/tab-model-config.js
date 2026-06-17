@@ -422,21 +422,12 @@
       if (value) root.style.setProperty(name, value);
     }
     const computed = window.getComputedStyle(source);
-    for (const name of [
-      "--mei-theme-id",
-      "--mei-font-1",
-      "--mei-font-2",
-      "--mei-font-3",
-      "--mei-font-4",
-      "--mei-font-5",
-      "--mei-chart-title-font-size",
-      "--mei-metric-label-font-size",
-      "--mei-metric-value-font-size",
-      "--mei-metric-unit-font-size",
-      "--mei-metric-desc-font-size",
-    ]) {
-      const value = computed.getPropertyValue(name).trim();
-      if (value) root.style.setProperty(name, value);
+    for (let i = 0; i < computed.length; i += 1) {
+      const name = computed[i];
+      if (name.startsWith("--mei-") || name.startsWith("--cockpit-")) {
+        const value = computed.getPropertyValue(name).trim();
+        if (value) root.style.setProperty(name, value);
+      }
     }
   }
 

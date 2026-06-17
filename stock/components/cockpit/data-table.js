@@ -2,7 +2,7 @@
  * 驾驶舱表格组件（cockpit.data-table → mei-cockpit-data-table）。
  */
 import { escapeAttr, escapeHtml, parseProps, rowsOf } from "./shared.js";
-import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars } from "./tokens.js";
+import { COCKPIT_FONT, COCKPIT_TYPE, parseThemeFontPx, cockpitCssVars, themeColor, themeShadow } from "./tokens.js";
 import {
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
@@ -271,8 +271,7 @@ function resolveColumnMinWidth(props) {
 }
 
 function parseCssPx(raw, fallback) {
-  const value = Number.parseFloat(String(raw ?? "").trim());
-  return Number.isFinite(value) && value > 0 ? value : fallback;
+  return parseThemeFontPx(raw, fallback);
 }
 
 function resolveSampleMeasureFonts(host, { embedded = false, compactEmbedded = false } = {}) {
@@ -284,15 +283,22 @@ function resolveSampleMeasureFonts(host, { embedded = false, compactEmbedded = f
         style?.fontFamily ||
         COCKPIT_FONT.uiFamily
     ).trim() || COCKPIT_FONT.uiFamily;
-  const embeddedFontPx = parseCssPx(style?.getPropertyValue("--mei-font-3"), 18);
+  const tableHeadPx = parseCssPx(
+    style?.getPropertyValue("--mei-table-head-font-size"),
+    parseCssPx(style?.getPropertyValue("--mei-font-2"), 18),
+  );
+  const tableBodyPx = parseCssPx(
+    style?.getPropertyValue("--mei-table-body-font-size"),
+    parseCssPx(style?.getPropertyValue("--mei-font-2"), 18),
+  );
   const bodyFontPx = compactEmbedded
-    ? 12
+    ? parseCssPx(style?.getPropertyValue("--mei-font-2"), 18)
     : embedded
-      ? embeddedFontPx
-      : parseCssPx(COCKPIT_TYPE.metricLabel, 12);
+      ? tableBodyPx
+      : tableBodyPx;
   return {
     bodyFont: `400 ${bodyFontPx}px ${fontFamily}`,
-    labelFont: `600 ${bodyFontPx}px ${fontFamily}`,
+    labelFont: `600 ${tableHeadPx}px ${fontFamily}`,
     charPx: Math.max(7, bodyFontPx * 0.9),
   };
 }
@@ -929,7 +935,7 @@ export class MeiCockpitDataTable extends HTMLElement {
       embedded && (p.compactEmbedded === true || p.compact_embedded === true);
     const rowMinHeight = compactEmbedded ? 34 : embedded ? 42 : 32;
     const headMinHeight = compactEmbedded ? 34 : embedded ? 42 : 32;
-    const cellPadX = compactEmbedded ? 8 : 14;
+    const cellPadX = compactEmbedded ? 10 : embedded ? 16 : 14;
     const columnMinWidth = resolveColumnMinWidth(p);
     const popoverVariant = resolveCellPopoverVariant(p);
     if (keys.length === 0 && rows.length > 0) {
@@ -961,7 +967,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           charPx: measureFonts.charPx,
           font: measureFonts.bodyFont,
           labelFont: measureFonts.labelFont,
-          cellPaddingPx: 24,
+          cellPaddingPx: embedded ? 30 : 24,
           minVisibleChars: Number(p.cellOverflowMinChars ?? p.cell_overflow_min_chars) || 10,
         })
       : descriptors;
@@ -1132,8 +1138,8 @@ export class MeiCockpitDataTable extends HTMLElement {
           align-items: center;
           padding: 0;
           column-gap: 0;
-          background: rgba(8, 47, 73, 0.92);
-          border-bottom: 1px solid rgba(56, 120, 200, 0.2);
+          background: ${themeColor("table_head_bg", "rgba(8, 47, 73, 0.92)")};
+          border-bottom: 1px solid ${themeColor("table_head_border", "rgba(56, 120, 200, 0.2)")};
           position: sticky;
           top: 0;
           z-index: 1;
@@ -1143,8 +1149,8 @@ export class MeiCockpitDataTable extends HTMLElement {
           align-items: center;
           box-sizing: border-box;
           padding: 0 ${cellPadX}px;
-          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
-          color: #7dd3fc;
+          font-size: ${compactEmbedded ? "var(--cockpit-font-label)" : COCKPIT_TYPE.tableHead};
+          color: ${themeColor("table_btn_fg", "#7dd3fc")};
           font-weight: 600;
           white-space: nowrap;
           overflow: hidden;
@@ -1158,19 +1164,19 @@ export class MeiCockpitDataTable extends HTMLElement {
           align-items: center;
           padding: 0;
           column-gap: 0;
-          border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+          border-bottom: 1px solid ${themeColor("table_row_border", "rgba(148, 163, 184, 0.1)")};
           transition: background 140ms ease, box-shadow 140ms ease, transform 140ms ease;
         }
-        .tr.zebra { background: rgba(8, 24, 48, 0.25); }
+        .tr.zebra { background: ${themeColor("table_row_zebra", "rgba(8, 24, 48, 0.25)")}; }
         .tr.drilldown-row,
         .tr.selectable-row { cursor: pointer; }
         .tr.is-selected {
-          background: rgba(14, 116, 144, 0.34);
-          box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.55);
+          background: ${themeColor("table_row_hover", "rgba(14, 116, 144, 0.34)")};
+          box-shadow: ${themeShadow("table_row_hover", "inset 0 0 0 1px rgba(56, 189, 248, 0.55)")};
         }
         .tr:hover {
-          background: rgba(14, 58, 94, 0.42);
-          box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.2);
+          background: ${themeColor("table_row_selected", "rgba(14, 58, 94, 0.42)")};
+          box-shadow: ${themeShadow("table_row_selected", "inset 0 0 0 1px rgba(125, 211, 252, 0.2)")};
           transform: translateY(-1px);
         }
         .tr:last-child { border-bottom: none; }
@@ -1180,24 +1186,24 @@ export class MeiCockpitDataTable extends HTMLElement {
           box-sizing: border-box;
           padding: 0 ${cellPadX}px;
           min-width: 0;
-          font-size: ${compactEmbedded ? "12px" : embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
-          color: #cbd5e1;
+          font-size: ${compactEmbedded ? "var(--cockpit-font-label)" : COCKPIT_TYPE.tableHead};
+          color: ${themeColor("text_body", "#cbd5e1")};
           line-height: 1.35;
           overflow: hidden;
           transition: color 120ms ease;
         }
         .tr:hover .td-cell {
-          color: #e2e8f0;
+          color: ${themeColor("text_primary", "#e2e8f0")};
         }
-        .align-right { text-align: right; color: #fde68a; }
-        .tone-blue { color: #38bdf8; }
-        .tone-yellow { color: #facc15; }
-        .tone-red { color: #f87171; }
-        .tone-orange { color: #fb923c; }
-        .tone-green { color: #4ade80; }
-        .tone-slate { color: #cbd5e1; }
-        .tone-cyan { color: #67e8f9; }
-        .tone-violet { color: #c4b5fd; }
+        .align-right { text-align: right; color: ${themeColor("text_accent", "#fde68a")}; }
+        .tone-blue { color: ${themeColor("tone_blue", "#38bdf8")}; }
+        .tone-yellow { color: ${themeColor("tone_yellow", "#facc15")}; }
+        .tone-red { color: ${themeColor("tone_red", "#f87171")}; }
+        .tone-orange { color: ${themeColor("tone_orange", "#fb923c")}; }
+        .tone-green { color: ${themeColor("tone_green", "#4ade80")}; }
+        .tone-slate { color: ${themeColor("tone_slate", "#cbd5e1")}; }
+        .tone-cyan { color: ${themeColor("tone_cyan", "#67e8f9")}; }
+        .tone-violet { color: ${themeColor("tone_violet", "#c4b5fd")}; }
         .cell-tag {
           display: inline-flex;
           align-items: center;
@@ -1216,8 +1222,8 @@ export class MeiCockpitDataTable extends HTMLElement {
         .empty {
           padding: 24px 10px;
           text-align: center;
-          color: #94a3b8;
-          font-size: ${embedded ? "var(--mei-font-3, 18px)" : COCKPIT_TYPE.metricLabel};
+          color: ${themeColor("text_muted", "#94a3b8")};
+          font-size: ${COCKPIT_TYPE.tableHead};
         }
         .table-footer {
           flex: 0 0 auto;
@@ -1227,13 +1233,13 @@ export class MeiCockpitDataTable extends HTMLElement {
           gap: 12px;
           min-height: ${embedded ? "44px" : "36px"};
           padding: ${embedded ? "8px 14px 6px" : "6px 12px 4px"};
-          border-top: 1px solid rgba(56, 120, 200, 0.18);
-          background: rgba(8, 24, 48, 0.35);
+          border-top: 1px solid ${themeColor("table_footer_border", "rgba(56, 120, 200, 0.18)")};
+          background: ${themeColor("table_footer_bg", "rgba(8, 24, 48, 0.35)")};
         }
         .row-total {
           flex: 0 0 auto;
-          font-size: ${embedded ? "15px" : "11px"};
-          color: #94a3b8;
+          font-size: ${COCKPIT_TYPE.tableBody};
+          color: ${themeColor("text_muted", "#94a3b8")};
           white-space: nowrap;
         }
         .table-footer .pager {
@@ -1248,18 +1254,18 @@ export class MeiCockpitDataTable extends HTMLElement {
           background: transparent;
         }
         .pager-btn {
-          border: 1px solid rgba(56, 189, 248, 0.35);
-          background: rgba(8, 47, 73, 0.85);
-          color: #7dd3fc;
-          font-size: ${embedded ? "15px" : "11px"};
+          border: 1px solid ${themeColor("table_btn_border", "rgba(56, 189, 248, 0.35)")};
+          background: ${themeColor("table_btn_bg", "rgba(8, 47, 73, 0.85)")};
+          color: ${themeColor("table_btn_fg", "#7dd3fc")};
+          font-size: ${COCKPIT_TYPE.tableBody};
           line-height: 1.2;
           padding: ${embedded ? "5px 12px" : "3px 10px"};
           border-radius: 4px;
           cursor: pointer;
         }
         .pager-btn:hover:not(:disabled) {
-          border-color: rgba(56, 189, 248, 0.55);
-          color: #e0f2fe;
+          border-color: ${themeColor("table_btn_hover_border", "rgba(56, 189, 248, 0.55)")};
+          color: ${themeColor("table_btn_hover_fg", "#e0f2fe")};
         }
         .pager-btn:disabled {
           opacity: 0.45;
@@ -1268,8 +1274,8 @@ export class MeiCockpitDataTable extends HTMLElement {
         .pager-info {
           min-width: 3.5rem;
           text-align: center;
-          font-size: ${embedded ? "15px" : "11px"};
-          color: #94a3b8;
+          font-size: ${COCKPIT_TYPE.tableBody};
+          color: ${themeColor("text_muted", "#94a3b8")};
         }
         .table-footer.has-carousel-hint {
           justify-content: space-between;
@@ -1298,16 +1304,16 @@ export class MeiCockpitDataTable extends HTMLElement {
             box-shadow 220ms ease;
         }
         .carousel-dot.is-active {
-          background: #38bdf8;
+          background: ${themeColor("tone_blue", "#38bdf8")};
           transform: scale(1.4);
-          box-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+          box-shadow: ${themeShadow("scrollbar_thumb", "0 0 8px rgba(56, 189, 248, 0.5)")};
         }
         .carousel-page-label {
           display: inline-flex;
           align-items: baseline;
           gap: 2px;
-          font-size: ${embedded ? "14px" : "11px"};
-          color: #94a3b8;
+          font-size: ${COCKPIT_TYPE.tableBody};
+          color: ${themeColor("text_muted", "#94a3b8")};
           font-variant-numeric: tabular-nums;
           letter-spacing: 0.02em;
         }
@@ -1315,7 +1321,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           display: inline-block;
           min-width: 0.65em;
           text-align: center;
-          color: #e0f2fe;
+          color: ${themeColor("table_btn_hover_fg", "#e0f2fe")};
           font-weight: 600;
           animation: carousel-page-bump 380ms cubic-bezier(0.34, 1.4, 0.64, 1);
         }
@@ -1324,7 +1330,7 @@ export class MeiCockpitDataTable extends HTMLElement {
           padding: 0 1px;
         }
         .carousel-page-total {
-          color: #7dd3fc;
+          color: ${themeColor("table_btn_fg", "#7dd3fc")};
           font-weight: 500;
         }
         @keyframes carousel-page-bump {
@@ -1350,7 +1356,7 @@ export class MeiCockpitDataTable extends HTMLElement {
         }
         .carousel-ring-progress {
           fill: none;
-          stroke: #38bdf8;
+          stroke: ${themeColor("tone_blue", "#38bdf8")};
           stroke-width: 2;
           stroke-linecap: round;
           transform: rotate(-90deg);

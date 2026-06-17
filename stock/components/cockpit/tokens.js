@@ -1,5 +1,6 @@
 /**
  * 驾驶舱大屏设计 token（通用 chrome，Sketch @3x 逻辑尺寸）。
+ * 颜色真源：theme.tokens.color → --mei-color-*（见项目 .mei-config.json ops.themes.cockpit）。
  */
 
 export const COCKPIT_LAYOUT = {
@@ -46,6 +47,20 @@ export const COCKPIT_LAYOUT = {
   },
 };
 
+/**
+ * 首屏驾驶舱叠层（自低到高）：底图 / GIS 图层 < 各板块 < GIS 工具 < 飘窗提示 < 二级看板
+ * 与 app-shell.css `--mei-z-cockpit-*` 保持一致。
+ */
+export const COCKPIT_Z_INDEX = {
+  map: 1,
+  panel: 100,
+  header: 110,
+  mapTools: 1520,
+  tooltip: 1550,
+  drilldown: 1600,
+  drilldownBoard: 1620,
+};
+
 /** 字号由 theme 语义角色（--mei-metric-*）与 font 档位（--mei-font-*）驱动，此处仅作 fallback */
 export const COCKPIT_TYPE = {
   headerTitle: "var(--mei-font-5, var(--mei-font-4, 32px))",
@@ -53,14 +68,56 @@ export const COCKPIT_TYPE = {
   panelTitleCompact: "var(--mei-panel-head-font-size, var(--mei-font-4, 32px))",
   panelTitleLetterSpacing: "0.12em",
   panelTitleLetterSpacingWide: "0.08em",
-  metricLabel: "var(--mei-metric-label-font-size, var(--mei-font-2, 24px))",
-  metricValue: "var(--mei-metric-value-font-size, var(--mei-font-3, 28px))",
-  metricUnit: "var(--mei-metric-unit-font-size, var(--mei-font-2, 24px))",
-  chartTitle: "var(--mei-chart-title-font-size, var(--mei-font-3, 28px))",
-  chartLabel: "var(--mei-chart-label-font-size, var(--mei-font-2, 24px))",
-  tableHead: "var(--mei-table-head-font-size, var(--mei-font-2, 24px))",
-  tableBody: "var(--mei-table-body-font-size, var(--mei-font-2, 24px))",
+  metricLabel: "var(--mei-metric-label-font-size, var(--mei-font-2, 18px))",
+  metricValue: "var(--mei-metric-value-font-size, var(--mei-font-3, 26px))",
+  metricUnit: "var(--mei-metric-unit-font-size, var(--mei-font-1, 16px))",
+  chartTitle: "var(--mei-chart-title-font-size, var(--mei-font-2, 18px))",
+  chartLabel: "var(--mei-chart-label-font-size, var(--mei-font-1, 16px))",
+  tableHead: "var(--mei-table-head-font-size, var(--mei-font-2, 18px))",
+  tableBody: "var(--mei-table-body-font-size, var(--mei-font-2, 18px))",
+  filterPanel: "var(--mei-filter-panel-font-size, var(--mei-font-2, 18px))",
 };
+
+const CHART_COLOR_KEYS = ["chart_1", "chart_2", "chart_3", "chart_4", "chart_5", "chart_6"];
+
+/** 静态 fallback（无 DOM / 无 theme 注入时） */
+export const COCKPIT_CHART_PALETTE_FALLBACK = [
+  "#22d3ee",
+  "#38bdf8",
+  "#0ea5e9",
+  "#0369a1",
+  "#62beeb",
+  "#475569",
+];
+
+/** @deprecated 请用 readThemeChartPalette(host)；保留作静态 fallback */
+export const COCKPIT_CHART_PALETTE = [...COCKPIT_CHART_PALETTE_FALLBACK];
+
+/** theme.tokens.color.* → CSS var（带 fallback） */
+export function themeColor(name, fallback) {
+  const key = String(name ?? "")
+    .trim()
+    .replace(/_/g, "-");
+  if (!key) {
+    return fallback ?? "inherit";
+  }
+  return fallback != null && String(fallback).length > 0
+    ? `var(--mei-color-${key}, ${fallback})`
+    : `var(--mei-color-${key})`;
+}
+
+/** theme.tokens.shadow.* → CSS var */
+export function themeShadow(name, fallback) {
+  const key = String(name ?? "")
+    .trim()
+    .replace(/_/g, "-");
+  if (!key) {
+    return fallback ?? "none";
+  }
+  return fallback != null && String(fallback).length > 0
+    ? `var(--mei-shadow-${key}, ${fallback})`
+    : `var(--mei-shadow-${key})`;
+}
 
 export function parseThemeFontPx(raw, fallback) {
   const value = Number.parseFloat(String(raw ?? "").trim());
@@ -92,49 +149,53 @@ export function readThemeRoleFontPx(host, roleCssVar, fontTokenKey, fallback) {
 
 /** ECharts / 运行时排版：读 theme metric_* / chart_title 语义角色，再回退 font 档位 */
 export function readThemeTypography(host) {
-  let chartTitle = 28;
+  let chartTitle = 18;
   if (typeof window !== "undefined" && host instanceof Element) {
     const style = window.getComputedStyle(host);
     chartTitle = parseThemeFontPx(style.getPropertyValue("--mei-chart-title-font-size"), 0);
     if (chartTitle <= 0) {
-      chartTitle = readThemeFontPx(host, "3", 28);
+      chartTitle = readThemeFontPx(host, "2", 18);
     }
   }
   return {
-    unit: readThemeRoleFontPx(host, "--mei-metric-unit-font-size", "2", 24),
-    label: readThemeRoleFontPx(host, "--mei-chart-label-font-size", "2", 24),
-    body: readThemeFontPx(host, "2", 24),
-    value: readThemeRoleFontPx(host, "--mei-metric-value-font-size", "3", 28),
+    unit: readThemeRoleFontPx(host, "--mei-metric-unit-font-size", "1", 16),
+    label: readThemeRoleFontPx(host, "--mei-chart-label-font-size", "1", 16),
+    body: readThemeFontPx(host, "2", 18),
+    value: readThemeRoleFontPx(host, "--mei-metric-value-font-size", "3", 26),
     chartTitle,
   };
 }
 
-/** 标题+内容一体外框（对齐 module-bg 描边 #34526C） */
+/** 从宿主读取 theme.tokens.color.chart_* 色板（ECharts 等运行时消费） */
+export function readThemeChartPalette(host) {
+  if (typeof window === "undefined" || !(host instanceof Element)) {
+    return [...COCKPIT_CHART_PALETTE_FALLBACK];
+  }
+  const style = window.getComputedStyle(host);
+  const colors = CHART_COLOR_KEYS.map((key, index) => {
+    const cssKey = key.replace(/_/g, "-");
+    const raw = style.getPropertyValue(`--mei-color-${cssKey}`).trim();
+    return raw || COCKPIT_CHART_PALETTE_FALLBACK[index];
+  }).filter(Boolean);
+  return colors.length > 0 ? colors : [...COCKPIT_CHART_PALETTE_FALLBACK];
+}
+
+/** 标题+内容一体外框 */
 export const COCKPIT_SECTION_SHELL = {
-  border: "1px solid rgba(52, 82, 108, 0.5)",
+  border: `1px solid ${themeColor("section_border", "rgba(52, 82, 108, 0.5)")}`,
   radius: "4px",
-  /** 稿面板块间透出全页 bg，不在外壳再叠一层渐变 */
   fill: "transparent",
 };
 
+/** 语义色别名（指向 --mei-color-* / --mei-metric-*-color） */
 export const COCKPIT_COLOR = {
-  headerTitle: "#d8f0ff",
-  panelTitle: "#ecfeff",
-  metricLabel: "#94a3b8",
-  metricValue: "#f0f9ff",
-  metricValueRate: "#fde68a",
-  metricUnit: "#7dd3fc",
+  headerTitle: themeColor("text_primary", "#d8f0ff"),
+  panelTitle: themeColor("panel_title", "#ecfeff"),
+  metricLabel: "var(--mei-metric-label-color, var(--mei-color-text-muted, #94a3b8))",
+  metricValue: "var(--mei-metric-value-color, var(--mei-color-text-value, #f0f9ff))",
+  metricValueRate: themeColor("text_accent", "#fde68a"),
+  metricUnit: "var(--mei-metric-unit-color, var(--mei-color-text-unit, #7dd3fc))",
 };
-
-/** 驾驶舱环形图/饼图默认切片色 */
-export const COCKPIT_CHART_PALETTE = [
-  "#22d3ee",
-  "#38bdf8",
-  "#0ea5e9",
-  "#0369a1",
-  "#62beeb",
-  "#475569",
-];
 
 /** Sketch caret：520 栏内约 x=150 / x=384（相对栏左缘 ~136px / ~370px） */
 export const COCKPIT_PANEL_TITLE_CARET = {
@@ -161,8 +222,11 @@ export const COCKPIT_FONT = {
 };
 
 export const COCKPIT_SHADOW = {
-  headerTitle: "0 20px 30px #0091ff, 0 0 4px #0d74c2",
-  panelTitle: "0 0 10px rgba(0, 145, 255, 0.55), 0 0 2px rgba(13, 116, 194, 0.9)",
+  headerTitle: themeShadow("header_title", "0 20px 30px #0091ff, 0 0 4px #0d74c2"),
+  panelTitle: themeShadow(
+    "panel_title",
+    "0 0 10px rgba(0, 145, 255, 0.55), 0 0 2px rgba(13, 116, 194, 0.9)",
+  ),
 };
 
 /** 注入为 :host 可用的 CSS 变量块（别名层，指向 theme --mei-* 语义变量） */
@@ -194,6 +258,7 @@ export function cockpitCssVars() {
     --cockpit-font-chart-label: ${T.chartLabel};
     --cockpit-font-table-head: ${T.tableHead};
     --cockpit-font-table-body: ${T.tableBody};
+    --cockpit-font-filter: ${T.filterPanel};
     --cockpit-font-family-ui: ${COCKPIT_FONT.uiFamily};
     --cockpit-font-family-header: ${COCKPIT_FONT.headerFamily};
     --cockpit-color-header: ${C.headerTitle};

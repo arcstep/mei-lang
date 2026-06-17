@@ -32,6 +32,13 @@ pub struct UploadDeleteQuery {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UploadDownloadQuery {
+    pub path: String,
+    #[serde(default)]
+    pub inline: bool,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct UploadChunkStatusQuery {
     pub upload_id: String,
 }
@@ -631,6 +638,21 @@ fn content_disposition_attachment(file_name: &str) -> Result<HeaderValue, AppErr
         .map_err(|error| AppError::msg(format!("invalid download header: {error}")))
 }
 
+fn content_disposition_inline(file_name: &str) -> Result<HeaderValue, AppError> {
+    let ascii_name = ascii_content_disposition_filename(file_name);
+    let encoded = percent_encode_for_content_disposition(file_name);
+    let value = format!("inline; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}");
+    HeaderValue::from_str(&value)
+        .map_err(|error| AppError::msg(format!("invalid inline header: {error}")))
+}
+
+fn upload_supports_inline_preview(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|value| value.to_str()).map(str::to_ascii_lowercase).as_deref(),
+        Some("pdf")
+    )
+}
+
 fn download_content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|value| value.to_str()) {
         Some("xlsx") => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -653,7 +675,7 @@ fn download_content_type(path: &Path) -> &'static str {
 pub async fn upload_file_download_get(
     State(state): State<AppState>,
     AxumPath(app_id): AxumPath<String>,
-    Query(query): Query<UploadDeleteQuery>,
+    Query(query): Query<UploadDownloadQuery>,
 ) -> Result<Response, AppError> {
     let upload_root = resolve_upload_root(&state, &app_id)?;
     let rel = sanitize_upload_rel(&query.path)?;
@@ -706,7 +728,14 @@ pub async fn upload_file_download_get(
     );
     response
         .headers_mut()
-        .insert(CONTENT_DISPOSITION, content_disposition_attachment(&file_name)?);
+        .insert(
+            CONTENT_DISPOSITION,
+            if query.inline && upload_supports_inline_preview(&target) {
+                content_disposition_inline(&file_name)?
+            } else {
+                content_disposition_attachment(&file_name)?
+            },
+        );
     Ok(response)
 }
 
@@ -812,9 +841,12 @@ pub async fn upload_entry_rename_post(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
         ascii_content_disposition_filename, build_rename_target_rel,
-        content_disposition_attachment, percent_encode_for_content_disposition,
+        content_disposition_attachment, content_disposition_inline,
+        percent_encode_for_content_disposition, upload_supports_inline_preview,
     };
 
     #[test]
@@ -828,6 +860,19 @@ mod tests {
             ascii_content_disposition_filename("11.预警清单.xlsx"),
             "11.____.xlsx"
         );
+    }
+
+    #[test]
+    fn content_disposition_inline_uses_inline_disposition() {
+        let header = content_disposition_inline("demo.pdf").expect("header");
+        let value = header.to_str().expect("header str");
+        assert!(value.starts_with("inline;"));
+    }
+
+    #[test]
+    fn upload_supports_inline_preview_only_for_pdf() {
+        assert!(upload_supports_inline_preview(Path::new("文件附件/demo.pdf")));
+        assert!(!upload_supports_inline_preview(Path::new("文件附件/demo.xlsx")));
     }
 
     #[test]

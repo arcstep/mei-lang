@@ -113,6 +113,7 @@ mod tests {
             chart_label: json!({}),
             table_head: json!({}),
             table_body: json!({}),
+            filter_panel: json!({}),
             tokens: json!({}),
             shared: json!({}),
             components: json!({}),

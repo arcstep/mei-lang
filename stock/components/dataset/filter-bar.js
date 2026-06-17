@@ -9,6 +9,7 @@ import {
   setQueryState,
   subscribeQueryState,
 } from "./runtime-query.js";
+import { COCKPIT_TYPE, cockpitCssVars, themeColor } from "../cockpit/tokens.js";
 
 class MeiDatasetFilterBar extends HTMLElement {
   connectedCallback() {
@@ -121,24 +122,27 @@ class MeiDatasetFilterBar extends HTMLElement {
     const loadingOptions = !this._optionsLoaded;
     this.shadowRoot.innerHTML = `
       <style>
-        :host { display: block; }
-        .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.18); color: #e2e8f0; }
-        .title { margin: 0; font-size: 14px; color: #f8fafc; }
-        .desc { color: #94a3b8; font-size: 12px; }
+        :host {
+          display: block;
+          ${cockpitCssVars()}
+        }
+        .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${themeColor("filter_panel_bg", "rgba(10, 40, 78, 0.88)")}; border: 1px solid ${themeColor("filter_panel_border", "rgba(56, 160, 240, 0.22)")}; color: ${themeColor("text_body", "#e2e8f0")}; }
+        .title { margin: 0; font-size: ${COCKPIT_TYPE.filterPanel}; color: ${themeColor("text_inverse", "#f8fafc")}; }
+        .desc { color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${COCKPIT_TYPE.filterPanel}; }
         .fields { display: grid; gap: 10px; grid-template-columns: 1fr; }
-        label.field { display: grid; gap: 6px; font-size: 12px; color: #cbd5e1; position: relative; }
-        input[type="text"], button { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: #e2e8f0; font-size: 12px; padding: 7px 9px; }
+        label.field { display: grid; gap: 6px; font-size: ${COCKPIT_TYPE.filterPanel}; color: ${themeColor("text_body", "#e2e8f0")}; position: relative; }
+        input[type="text"], input[type="date"], select, button { border-radius: 8px; border: 1px solid ${themeColor("drilldown_tab_border", "rgba(56, 160, 240, 0.32)")}; background: ${themeColor("drilldown_tab_bg", "rgba(10, 40, 78, 0.72)")}; color: ${themeColor("text_body", "#e2e8f0")}; font-size: ${COCKPIT_TYPE.filterPanel}; padding: 7px 9px; }
         .multi-trigger { width: 100%; text-align: left; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
         .multi-trigger::after { content: "▾"; opacity: .7; }
         .multi-trigger.is-open::after { content: "▴"; }
-        .multi-panel { position: absolute; left: 0; right: 0; top: calc(100% - 2px); z-index: 20; max-height: 220px; overflow: auto; border-radius: 8px; border: 1px solid rgba(148,163,184,.28); background: rgba(15,23,42,.96); box-shadow: 0 12px 28px rgba(2,6,23,.45); padding: 6px; }
-        .multi-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12px; color: #e2e8f0; }
-        .multi-option:hover { background: rgba(51,65,85,.45); }
+        .multi-panel { position: absolute; left: 0; right: 0; top: calc(100% - 2px); z-index: 20; max-height: 220px; overflow: auto; border-radius: 8px; border: 1px solid ${themeColor("filter_panel_border", "rgba(56, 160, 240, 0.22)")}; background: ${themeColor("drilldown_panel_bottom", "rgba(10, 40, 78, 0.98)")}; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45); padding: 6px; }
+        .multi-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: ${COCKPIT_TYPE.filterPanel}; color: ${themeColor("text_body", "#e2e8f0")}; }
+        .multi-option:hover { background: ${themeColor("table_row_hover", "rgba(32, 96, 168, 0.38)")}; }
         .multi-option input { margin: 0; }
         .actions { display: flex; gap: 8px; justify-content: flex-end; }
         button.action { cursor: pointer; }
-        .loading { color: #94a3b8; font-size: 12px; }
-        .multi-empty { padding: 8px; color: #94a3b8; font-size: 12px; }
+        .loading { color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${COCKPIT_TYPE.filterPanel}; }
+        .multi-empty { padding: 8px; color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${COCKPIT_TYPE.filterPanel}; }
       </style>
       <section class="wrap">
         <h4 class="title">${escapeHtml(this._props.title || "过滤条件")}</h4>

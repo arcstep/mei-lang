@@ -95,11 +95,21 @@
     return text.endsWith("::__scalar_rowset__");
   }
 
+  /** scene-qualified 指标 id 在 `.mei::` 之后是否还带 explain 派生后缀（如 composition_by_agency）。 */
+  function sceneQualifiedMetricHasExplainSuffix(metricId) {
+    const text = String(metricId || "").trim();
+    const marker = ".mei::";
+    const sceneIdx = text.indexOf(marker);
+    if (sceneIdx <= 0) return false;
+    return text.slice(sceneIdx + marker.length).includes("::");
+  }
+
   /** explain 派生的 composition/trend dataframe（服务端已聚合），不是明细 rowset。 */
   function isDedicatedExplainMetricId(metricId, { supportRole = "" } = {}) {
     const text = String(metricId || "").trim();
     if (!text || isScalarRowsetMetricId(text)) return false;
-    if (text.includes("::")) return true;
+    if (sceneQualifiedMetricHasExplainSuffix(text)) return true;
+    if (text.includes("::")) return !text.includes(".mei::");
     const role = String(supportRole || "").trim().toLowerCase();
     return role === "composition" || role === "trend" || role === "attribution";
   }

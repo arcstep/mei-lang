@@ -34,6 +34,7 @@ import {
   valueToColor,
 } from "../../gis/layer-spec.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
+import { COCKPIT_Z_INDEX } from "../../cockpit/tokens.js";
 import { ensureMapLibreGlobal } from "../../vendor/runtime-libs.js";
 
 const TAG = "mei-map-maplibre";
@@ -63,6 +64,48 @@ function basemapUnavailableMessage(basemap, error) {
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+const ENFORCEMENT_POPUP_LABELS = {
+  检查次数: "行政检查",
+  处罚次数: "行政处罚",
+};
+
+function popupFieldMeta(fieldDef, field) {
+  const meta = typeof fieldDef === "object" && fieldDef ? fieldDef : {};
+  const alwaysShow =
+    meta.alwaysShow === true ||
+    meta.always_show === true ||
+    field === "检查次数" ||
+    field === "处罚次数";
+  const fallback =
+    meta.fallback != null && String(meta.fallback).length > 0
+      ? String(meta.fallback)
+      : alwaysShow
+        ? "0"
+        : "—";
+  const unit =
+    String(meta.unit || meta.suffix || "").trim() ||
+    (field === "检查次数" ? "次" : field === "处罚次数" ? "件" : "");
+  const label =
+    typeof fieldDef === "object" && fieldDef?.label
+      ? String(fieldDef.label)
+      : ENFORCEMENT_POPUP_LABELS[field] || field;
+  return { alwaysShow, fallback, unit, label };
+}
+
+function formatPopupFieldValue(raw, meta) {
+  const { alwaysShow, fallback, unit } = meta;
+  if (raw == null || raw === "") {
+    if (!alwaysShow) return null;
+    raw = fallback;
+  }
+  const num = Number(raw);
+  if (unit && (Number.isFinite(num) || alwaysShow)) {
+    const display = Number.isFinite(num) ? String(num) : String(raw);
+    return `${display}${unit}`;
+  }
+  return String(raw);
 }
 
 if (!customElements.get(TAG)) {
@@ -107,6 +150,7 @@ if (!customElements.get(TAG)) {
         document.removeEventListener("keydown", this._onDocumentKeyDown, true);
         this._onDocumentKeyDown = null;
       }
+      this.restoreCockpitMapToolsLayer();
       if (this.map) {
         this.map.remove();
         this.map = null;
@@ -374,12 +418,14 @@ if (!customElements.get(TAG)) {
         }
         const maplibregl = window.maplibregl;
         if (this.map) {
+          this.restoreCockpitMapToolsLayer();
           this.detachLayerToggleFromMap();
           this.map.remove();
           this.map = null;
         }
         this._boundLayerEvents = new Set();
         this._mapStyleReady = false;
+        this._cockpitFloatingLayersBound = false;
         this.map = new maplibregl.Map({
           container: this.mapContainer,
           center: basemap.center,
@@ -391,6 +437,7 @@ if (!customElements.get(TAG)) {
         });
         const map = this.map;
         map.addControl(new maplibregl.NavigationControl(), "top-right");
+        this.bindCockpitFloatingLayers();
         this.mountLayerToggleInNav();
         map.on("load", async () => {
           if (!this.isConnected || renderToken !== this._renderToken || this.map !== map) {
@@ -563,6 +610,24 @@ if (!customElements.get(TAG)) {
       if (this.layerControlEl) {
         this.layerControlEl.hidden = !this._layerControlOpen;
       }
+      if (!this._layerControlOpen && this._portaledLayerControl) {
+        const wrap = this.shadowRoot?.querySelector(".map-wrap");
+        const panel = this._portaledLayerControl;
+        if (wrap && panel?.parentElement === document.body) {
+          panel.classList.remove("mei-cockpit-floating-layer-control");
+          panel.style.position = "";
+          panel.style.top = "";
+          panel.style.right = "";
+          panel.style.left = "";
+          panel.style.bottom = "";
+          panel.style.maxHeight = "";
+          panel.style.maxWidth = "";
+          panel.style.zIndex = "";
+          panel.style.transform = "";
+          wrap.appendChild(panel);
+          this._portaledLayerControl = null;
+        }
+      }
       if (this.layerToggleEl) {
         this.layerToggleEl.setAttribute("aria-pressed", this._layerControlOpen ? "true" : "false");
         this.layerToggleEl.setAttribute(
@@ -621,13 +686,18 @@ if (!customElements.get(TAG)) {
       wrap.insertBefore(btn, panel || null);
     }
 
+    getNavCtrlGroup() {
+      const nav =
+        this._portaledNavCtrl ||
+        this.mapContainer?.querySelector(".maplibregl-ctrl-top-right");
+      return nav?.querySelector(".maplibregl-ctrl-group") || null;
+    }
+
     /** 将图层按钮挂入 MapLibre NavigationControl 的 ctrl-group（作为第四枚工具钮） */
     mountLayerToggleInNav() {
       const btn = this.layerToggleEl;
       if (!btn || btn.hidden) return;
-      const group = this.mapContainer?.querySelector(
-        ".maplibregl-ctrl-top-right .maplibregl-ctrl-group",
-      );
+      const group = this.getNavCtrlGroup();
       if (!group) return;
       btn.classList.add("maplibregl-ctrl", "mei-layer-toggle");
       if (btn.parentElement !== group) {
@@ -648,6 +718,7 @@ if (!customElements.get(TAG)) {
       }
       this._layerControlLayoutFrame = requestAnimationFrame(() => {
         this._layerControlLayoutFrame = null;
+        this.syncCockpitMapToolsLayer();
         this.mountLayerToggleInNav();
         this.positionLayerControlPanel();
       });
@@ -667,13 +738,56 @@ if (!customElements.get(TAG)) {
       }
       const gap = 8;
       const wrapRect = wrap.getBoundingClientRect();
-      const navGroup = this.mapContainer?.querySelector(
-        ".maplibregl-ctrl-top-right .maplibregl-ctrl-group",
-      );
+      const navGroup = this.getNavCtrlGroup();
       const navRect = navGroup?.getBoundingClientRect();
       const toggleRect = this.layerToggleEl.getBoundingClientRect();
       const anchorRect = navRect || toggleRect;
       const focus = this._layout?.focusInsetPx;
+      const cockpitBleed = Boolean(this._layout?.cockpitBleed);
+
+      if (cockpitBleed) {
+        this.layerControlEl.classList.add("mei-cockpit-floating-layer-control");
+        if (this.layerControlEl.parentElement !== document.body) {
+          document.body.appendChild(this.layerControlEl);
+          this._portaledLayerControl = this.layerControlEl;
+        }
+        this.layerControlEl.style.position = "fixed";
+        this.layerControlEl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools);
+        this.layerControlEl.style.transform = "none";
+        this.layerControlEl.style.right = `${Math.round(window.innerWidth - anchorRect.right + gap)}px`;
+        this.layerControlEl.style.left = "auto";
+
+        const focusBottom = Number(focus?.bottom) || 0;
+        const focusTop = Number(focus?.top) || 0;
+        const focusLeft = Number(focus?.left) || 0;
+        let panelTop = Math.round(anchorRect.bottom + gap);
+        let maxHeight = window.innerHeight - panelTop - focusBottom - gap;
+        if (maxHeight < 160) {
+          panelTop = Math.max(focusTop + gap, panelTop);
+          maxHeight = window.innerHeight - panelTop - focusBottom - gap;
+        }
+        this.layerControlEl.style.top = `${panelTop}px`;
+        this.layerControlEl.style.bottom = "auto";
+        this.layerControlEl.style.maxHeight = `${Math.max(120, Math.round(maxHeight))}px`;
+
+        const panelWidth = this.layerControlEl.offsetWidth || 260;
+        const panelLeft = anchorRect.right - gap - panelWidth;
+        if (panelLeft < focusLeft + gap) {
+          this.layerControlEl.style.right = "auto";
+          this.layerControlEl.style.left = `${Math.round(focusLeft + gap)}px`;
+          this.layerControlEl.style.maxWidth = `${Math.max(
+            180,
+            Math.round(anchorRect.left - focusLeft - gap * 2),
+          )}px`;
+        } else {
+          this.layerControlEl.style.maxWidth = "";
+        }
+        return;
+      }
+
+      this.layerControlEl.style.position = "";
+      this.layerControlEl.style.zIndex = "";
+
       const anchorBottomInWrap = Math.round(
         (navRect?.bottom ?? toggleRect.bottom) - wrapRect.top,
       );
@@ -958,6 +1072,108 @@ if (!customElements.get(TAG)) {
       }
     }
 
+    bindCockpitFloatingLayers() {
+      if (!this._layout?.cockpitBleed || !this.map || this._cockpitFloatingLayersBound) {
+        return;
+      }
+      this._cockpitFloatingLayersBound = true;
+      const syncPopup = () => this.syncCockpitPopupLayer();
+      this.map.on("move", syncPopup);
+      this.map.on("zoom", syncPopup);
+      this.map.on("rotate", syncPopup);
+      this.map.on("pitch", syncPopup);
+    }
+
+    positionCockpitNavCtrl(navCtrl) {
+      const metrics = resolveCockpitStageMetrics(this);
+      const focus = this._layout?.focusInsetPx;
+      if (!navCtrl || !metrics || !focus) {
+        return;
+      }
+      const gap = 10;
+      const top = metrics.offsetY + (Number(focus.top) + gap) * metrics.scale;
+      const right =
+        window.innerWidth -
+        (metrics.offsetX + metrics.designW * metrics.scale) +
+        (Number(focus.right) + gap) * metrics.scale;
+      navCtrl.style.position = "fixed";
+      navCtrl.style.top = `${Math.round(top)}px`;
+      navCtrl.style.right = `${Math.round(right)}px`;
+      navCtrl.style.left = "auto";
+      navCtrl.style.bottom = "auto";
+      navCtrl.style.margin = "0";
+    }
+
+    syncCockpitMapToolsLayer() {
+      if (!this._layout?.cockpitBleed || !this.map || !this.mapContainer) {
+        this.restoreCockpitMapToolsLayer();
+        return;
+      }
+      const navCtrl =
+        this._portaledNavCtrl ||
+        this.mapContainer.querySelector(".maplibregl-ctrl-top-right");
+      if (!navCtrl) {
+        return;
+      }
+      navCtrl.classList.add("mei-cockpit-floating-map-tools");
+      if (navCtrl.parentElement !== document.body) {
+        document.body.appendChild(navCtrl);
+        this._portaledNavCtrl = navCtrl;
+      }
+      this.positionCockpitNavCtrl(navCtrl);
+      navCtrl.style.zIndex = String(COCKPIT_Z_INDEX.mapTools);
+      navCtrl.style.pointerEvents = "auto";
+    }
+
+    restoreCockpitMapToolsLayer() {
+      const nav = this._portaledNavCtrl;
+      if (nav?.isConnected && this.mapContainer?.isConnected) {
+        nav.classList.remove("mei-cockpit-floating-map-tools");
+        nav.style.position = "";
+        nav.style.top = "";
+        nav.style.right = "";
+        nav.style.left = "";
+        nav.style.bottom = "";
+        nav.style.margin = "";
+        nav.style.zIndex = "";
+        nav.style.pointerEvents = "";
+        this.mapContainer.appendChild(nav);
+      }
+      this._portaledNavCtrl = null;
+
+      const wrap = this.shadowRoot?.querySelector(".map-wrap");
+      const panel = this._portaledLayerControl;
+      if (panel?.isConnected && wrap) {
+        panel.classList.remove("mei-cockpit-floating-layer-control");
+        panel.style.position = "";
+        panel.style.top = "";
+        panel.style.right = "";
+        panel.style.left = "";
+        panel.style.bottom = "";
+        panel.style.maxHeight = "";
+        panel.style.maxWidth = "";
+        panel.style.zIndex = "";
+        panel.style.transform = "";
+        wrap.appendChild(panel);
+      }
+      this._portaledLayerControl = null;
+    }
+
+    syncCockpitPopupLayer() {
+      if (!this._layout?.cockpitBleed || !this._popup) {
+        return;
+      }
+      const el = this._popup.getElement?.();
+      if (!el) {
+        return;
+      }
+      el.classList.add("mei-cockpit-floating-tip");
+      if (el.parentElement !== document.body) {
+        document.body.appendChild(el);
+      }
+      el.style.zIndex = String(COCKPIT_Z_INDEX.tooltip);
+    }
+
     showFeaturePopup(event, feature, layerSpec = {}) {
       if (!this.map || !window.maplibregl) return;
       const html = this.buildPopupHtml(feature, layerSpec);
@@ -972,10 +1188,12 @@ if (!customElements.get(TAG)) {
         closeButton: true,
         closeOnClick: true,
         maxWidth: "320px",
+        className: this._layout?.cockpitBleed ? "mei-cockpit-floating-tip" : "",
       })
         .setLngLat(lngLat)
         .setHTML(html)
         .addTo(this.map);
+      this.syncCockpitPopupLayer();
     }
 
     buildPopupHtml(feature, layerSpec = {}) {
@@ -1003,17 +1221,15 @@ if (!customElements.get(TAG)) {
       for (const fieldDef of defaults) {
         const field = typeof fieldDef === "string" ? fieldDef : String(fieldDef?.field || "").trim();
         if (!field) continue;
-        const label =
-          typeof fieldDef === "object" && fieldDef?.label
-            ? String(fieldDef.label)
-            : field;
+        const meta = popupFieldMeta(fieldDef, field);
         let raw = feature?.properties?.[field];
         if ((raw == null || raw === "") && field === "__mei_value") {
           raw = feature?.properties?.value;
         }
-        if (raw == null || raw === "") continue;
+        const formatted = formatPopupFieldValue(raw, meta);
+        if (formatted == null) continue;
         rows.push(
-          `<div class="popup-row"><span class="popup-label">${escapeHtml(label)}</span><span class="popup-value">${escapeHtml(String(raw))}</span></div>`,
+          `<div class="popup-row"><span class="popup-label">${escapeHtml(meta.label)}</span><span class="popup-value">${escapeHtml(formatted)}</span></div>`,
         );
       }
       if (rows.length === 0) {
@@ -1060,6 +1276,9 @@ if (!customElements.get(TAG)) {
       if (guide) {
         guide.hidden = !layout?.cockpitBleed || !layout?.showFocusGuide;
       }
+      if (!layout?.cockpitBleed) {
+        this.restoreCockpitMapToolsLayer();
+      }
     }
 
     applyMapViewportPadding(layout) {
@@ -1079,6 +1298,40 @@ function stablePropsSignature(props) {
   } catch (_) {
     return "";
   }
+}
+
+/** 访问态 contain 缩放后，将设计稿 focusInset 换算为视口坐标 */
+function resolveCockpitStageMetrics(host) {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const stage =
+    host?.closest?.(".preview-stage.preview-surface") ||
+    document.querySelector(".preview-stage.preview-surface");
+  if (!stage) {
+    return null;
+  }
+  const rect = stage.getBoundingClientRect();
+  const stageStyle = window.getComputedStyle(stage);
+  const rootStyle = window.getComputedStyle(document.documentElement);
+  const designW =
+    Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-width")) ||
+    Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-width")) ||
+    1920;
+  const designH =
+    Number.parseFloat(stageStyle.getPropertyValue("--mei-viewport-design-height")) ||
+    Number.parseFloat(rootStyle.getPropertyValue("--mei-viewport-design-height")) ||
+    1080;
+  const scale = Math.min(rect.width / designW, rect.height / designH);
+  const contentW = designW * scale;
+  const contentH = designH * scale;
+  return {
+    scale,
+    designW,
+    designH,
+    offsetX: rect.left + (rect.width - contentW) / 2,
+    offsetY: rect.top + (rect.height - contentH) / 2,
+  };
 }
 
 /** 驾驶舱全幅底图 + 中间观察区：地图铺满，控件落在 focusInset 内 */
@@ -1253,6 +1506,10 @@ function shellHtml(props) {
       .map .maplibregl-ctrl-top-right {
         ${layout.cockpitBleed ? layout.navCtrlPos : ""}
       }
+      .wrap.wrap-cockpit-bleed .map .maplibregl-ctrl-top-right {
+        position: fixed !important;
+        z-index: ${COCKPIT_Z_INDEX.mapTools};
+      }
       .map .maplibregl-ctrl-top-right .maplibregl-ctrl-group {
         border: 1px solid rgba(84, 160, 255, 0.35);
         border-radius: 10px;
@@ -1316,6 +1573,9 @@ function shellHtml(props) {
         height: 18px;
         pointer-events: none;
         filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
+      }
+      .wrap.wrap-cockpit-bleed .layer-control {
+        z-index: ${COCKPIT_Z_INDEX.mapTools};
       }
       .layer-control {
         position: absolute;

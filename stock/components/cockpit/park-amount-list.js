@@ -7,7 +7,7 @@ import {
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import { escapeHtml } from "./shared.js";
-import { COCKPIT_FONT, cockpitCssVars } from "./tokens.js";
+import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars, themeColor } from "./tokens.js";
 
 function metricRows(metric) {
   if (!metric || typeof metric !== "object") return [];
@@ -85,28 +85,44 @@ class MeiCockpitParkAmountList extends HTMLElement {
     const listGap = compact ? "2px" : "0";
     const rowPad = compact ? "3px 2px 4px" : "6px 4px 8px";
     const rowGap = compact ? "6px" : "8px";
-    const nameSize = compact ? "11px" : "12px";
+    const titleText = String(this._props?.title ?? "").trim();
+    const nameSize = COCKPIT_TYPE.chartLabel;
     const nameLh = compact ? "1.2" : "1.35";
-    const valueSize = compact ? "13px" : "15px";
-    const unitSize = compact ? "10px" : "11px";
+    const valueSize = COCKPIT_TYPE.chartTitle;
+    const unitSize = COCKPIT_TYPE.chartLabel;
     this.shadowRoot.innerHTML = `
       <style>
         :host {
-          display: block;
+          display: flex;
+          flex-direction: column;
           width: 100%;
           min-width: 0;
           height: ${h}px;
           min-height: ${h}px;
+          box-sizing: border-box;
           font-family: ${COCKPIT_FONT.uiFamily};
           ${cockpitCssVars()}
+        }
+        .head {
+          flex: 0 0 auto;
+          margin: 0 0 ${compact ? "2px" : "4px"};
+          padding: 0 2px;
+          font-size: ${COCKPIT_TYPE.chartTitle};
+          font-weight: 600;
+          line-height: 1.2;
+          color: ${themeColor("text_inverse", "#f8fafc")};
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         .list {
           display: flex;
           flex-direction: column;
           justify-content: ${listLayout};
           gap: ${listGap};
-          height: 100%;
-          min-height: ${h}px;
+          flex: 1 1 auto;
+          min-height: 0;
+          height: auto;
           padding: ${listPad};
           box-sizing: border-box;
         }
@@ -116,7 +132,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
           align-items: baseline;
           gap: ${rowGap};
           padding: ${rowPad};
-          border-bottom: 1px solid rgba(52, 82, 108, 0.45);
+          border-bottom: 1px solid ${themeColor("section_border_soft", "rgba(52, 82, 108, 0.45)")};
         }
         .row:last-child {
           border-bottom: none;
@@ -125,7 +141,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
         .name {
           font-size: ${nameSize};
           line-height: ${nameLh};
-          color: #cbd5e1;
+          color: ${themeColor("text_body", "#cbd5e1")};
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -140,22 +156,23 @@ class MeiCockpitParkAmountList extends HTMLElement {
         .value {
           font-size: ${valueSize};
           font-weight: 700;
-          color: #e8f4ff;
+          color: ${themeColor("text_highlight", "#e8f4ff")};
           line-height: 1;
         }
         .unit {
           font-size: ${unitSize};
-          color: #94a3b8;
+          color: var(--cockpit-color-label);
           font-weight: 600;
         }
         .status {
-          font-size: 10px;
-          color: #64748b;
+          font-size: ${COCKPIT_TYPE.chartLabel};
+          color: ${themeColor("text_secondary", "#64748b")};
           text-align: center;
           padding: 12px 0;
         }
-        .status.error { color: #fca5a5; }
+        .status.error { color: ${themeColor("status_error", "#fca5a5")}; }
       </style>
+      ${titleText ? `<h4 class="head">${escapeHtml(titleText)}</h4>` : ""}
       <div class="list"></div>
       <div class="status"></div>
     `;

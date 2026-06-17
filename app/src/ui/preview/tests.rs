@@ -899,6 +899,7 @@ fn resolve_theme_merges_shared_context_and_resolves_component_defaults() {
             chart_label: json!({}),
             table_head: json!({}),
             table_body: json!({}),
+            filter_panel: json!({}),
             tokens: json!({}),
             shared: json!({
                 "layout": {"rail_width": "480px", "header_height": "72px"},

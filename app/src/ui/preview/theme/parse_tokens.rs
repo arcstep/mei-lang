@@ -29,6 +29,7 @@ pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
     map.insert("chart_label".to_string(), theme.chart_label.clone());
     map.insert("table_head".to_string(), theme.table_head.clone());
     map.insert("table_body".to_string(), theme.table_body.clone());
+    map.insert("filter_panel".to_string(), theme.filter_panel.clone());
     map.insert("tokens".to_string(), theme.tokens.clone());
     if !theme.shared.is_null() {
         map.insert("shared".to_string(), theme.shared.clone());
@@ -77,6 +78,9 @@ pub(super) fn collect_theme_css_vars(theme: &Value) -> Vec<(String, String)> {
     }
     if let Some(table_body) = theme.as_object().and_then(|map| map.get("table_body")) {
         push_typography_vars(table_body, "mei-table-body", &mut vars);
+    }
+    if let Some(filter_panel) = theme.as_object().and_then(|map| map.get("filter_panel")) {
+        push_typography_vars(filter_panel, "mei-filter-panel", &mut vars);
     }
     if let Some(tokens) = theme.as_object().and_then(|map| map.get("tokens")) {
         flatten_tokens(tokens, "mei", &mut vars);

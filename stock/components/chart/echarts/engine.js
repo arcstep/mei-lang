@@ -13,6 +13,7 @@ import {
   subscribeQueryState,
 } from "../../dataset/runtime-query.js";
 import { createComponentTracer } from "../../perf/render-trace.js";
+import { COCKPIT_Z_INDEX } from "../../cockpit/tokens.js";
 import { ensureEChartsGlobal } from "../../vendor/runtime-libs.js";
 const CARTESIAN_KINDS = new Set(["line", "area", "trend", "column", "bar", "scatter"]);
 const PIE_KINDS = new Set(["pie", "donut", "rose"]);
@@ -376,10 +377,28 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           mode: metricRef ? "metric" : "dataset",
         });
         if (metricRef) {
+          const metricId = String(metricRef?.metric_id || metricRef?.metricId || "").trim();
+          const supportRole = String(props?.supportRole ?? props?.support_role ?? "").trim().toLowerCase();
+          const dedicatedExplain =
+            (metricId.includes("::") && !metricId.endsWith("::__scalar_rowset__")) ||
+            supportRole === "composition" ||
+            supportRole === "trend" ||
+            supportRole === "attribution" ||
+            (!metricId.includes("::") && /composition|trend|breakdown|attribution/i.test(metricId));
+          const topN = Number(props?.top_n ?? props?.topN ?? 0);
+          const pageSize = dedicatedExplain
+            ? topN > 0
+              ? Math.max(topN, 16)
+              : 64
+            : Number(props?.pageSize ?? props?.page_size ?? 0) > 0
+              ? Number(props?.pageSize ?? props?.page_size)
+              : 20;
           const rowsResult = await fetchDatasetRows(props, {
             queryStateId: this._queryStateId,
             filters: this._sharedFilters,
-            full: true,
+            page: 1,
+            pageSize,
+            full: false,
             meta: runtimeCallerMeta(this, tagName),
           });
           if (Array.isArray(rowsResult?.rows)) {
@@ -419,8 +438,13 @@ export function defineChartElement(tagName, chartKind, defaultTitle) {
           });
         } else {
           const result = await fetchDatasetRows(props, {
+            queryStateId: this._queryStateId,
             filters: this._sharedFilters,
-            full: true,
+            page: 1,
+            pageSize: Number(props?.pageSize ?? props?.page_size ?? 0) > 0
+              ? Number(props?.pageSize ?? props?.page_size)
+              : 20,
+            full: false,
             meta: runtimeCallerMeta(this, tagName),
           });
           const dataset = resolveDatasetSource(props);
@@ -1846,7 +1870,7 @@ function ensureRankingPopoverStyles() {
   style.dataset.meiRankingPopover = "true";
   style.textContent = `
     .mei-rank-pop {
-      position: fixed; z-index: 100000;
+      position: fixed; z-index: ${COCKPIT_Z_INDEX.tooltip};
       min-width: 320px; max-width: min(96vw, 760px); max-height: min(82vh, 680px);
       display: flex; flex-direction: column; gap: 12px;
       padding: 14px 16px; border-radius: 14px;

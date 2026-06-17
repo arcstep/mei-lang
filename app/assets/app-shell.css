@@ -52,6 +52,15 @@ html, body { height: 100%; }
   --mei-splitter-hover-line-right: rgba(45, 212, 191, 0.42);
   --mei-splitter-active-line-right: rgba(45, 212, 191, 0.78);
   --mei-splitter-active-track-right: linear-gradient(90deg, rgba(15, 23, 42, 0.28), rgba(45, 212, 191, 0.3), rgba(15, 23, 42, 0.28));
+
+  /* 首屏驾驶舱叠层（低→高）：底图 < 板块 < GIS工具 < 飘窗 < 二级看板 */
+  --mei-z-cockpit-map: 1;
+  --mei-z-cockpit-panel: 100;
+  --mei-z-cockpit-header: 110;
+  --mei-z-cockpit-map-tools: 1520;
+  --mei-z-cockpit-tooltip: 1550;
+  --mei-z-drilldown: 1600;
+  --mei-z-drilldown-board: 1620;
 }
 body {
   margin: 0;
@@ -1379,7 +1388,7 @@ a.status-chip-link:focus-visible {
 .access-drilldown-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1600;
+  z-index: var(--mei-z-drilldown, 1600);
   display: grid;
   align-items: center;
   justify-items: center;
@@ -1389,12 +1398,178 @@ a.status-chip-link:focus-visible {
   display: none !important;
 }
 .access-scene-board-overlay {
-  z-index: 1620;
+  z-index: var(--mei-z-drilldown-board, 1620);
+}
+/* 首屏地图 POI 弹窗（挂到 body 后仍走统一 tooltip 层级） */
+body > .maplibregl-popup.mei-cockpit-floating-tip {
+  z-index: var(--mei-z-cockpit-tooltip, 1550);
+  pointer-events: auto;
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-content {
+  background: linear-gradient(180deg, rgba(12, 30, 56, 0.99) 0%, rgba(7, 16, 30, 1) 100%);
+  color: #f8fafc;
+  border: 1px solid rgba(96, 180, 255, 0.5);
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+  padding: 12px 14px;
+  font-family: var(--mei-font-family-ui, "Microsoft YaHei", "PingFang SC", sans-serif);
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-tip {
+  border-top-color: rgba(7, 16, 30, 1);
+  border-bottom-color: rgba(7, 16, 30, 1);
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button {
+  color: #cbd5e1;
+  font-size: 18px;
+  padding: 4px 8px;
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .maplibregl-popup-close-button:hover {
+  color: #f8fafc;
+  background: rgba(49, 102, 173, 0.35);
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .popup-wrap {
+  display: grid;
+  gap: 7px;
+  min-width: 180px;
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .popup-row {
+  display: grid;
+  grid-template-columns: 88px 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .popup-label {
+  color: #7dd3fc;
+  font-size: 13px;
+  font-weight: 500;
+}
+body > .maplibregl-popup.mei-cockpit-floating-tip .popup-value {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: right;
+  word-break: break-all;
+}
+/* 首屏地图 GIS 工具（挂到 body 后高于各板块） */
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools {
+  position: fixed;
+  z-index: var(--mei-z-cockpit-map-tools, 1520);
+  pointer-events: auto;
+  margin: 0;
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group {
+  border: 1px solid rgba(84, 160, 255, 0.35);
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(11, 31, 56, 0.94) 0%, rgba(8, 22, 40, 0.96) 100%);
+  box-shadow: 0 10px 26px rgba(0, 8, 20, 0.42);
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  color: #d8e8ff;
+  border: 0;
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(84, 160, 255, 0.18);
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:hover {
+  background: rgba(49, 102, 173, 0.32);
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button:focus-visible {
+  outline: 1px solid rgba(125, 211, 252, 0.75);
+  outline-offset: -1px;
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-in .maplibregl-ctrl-icon,
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-zoom-out .maplibregl-ctrl-icon,
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl button.maplibregl-ctrl-compass .maplibregl-ctrl-icon {
+  filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #d8e8ff;
+  cursor: pointer;
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle[aria-pressed="true"] {
+  background: rgba(49, 102, 173, 0.42);
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 252, 0.35);
+}
+body > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools .maplibregl-ctrl-group button.mei-layer-toggle svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  filter: brightness(1.55) saturate(0.72) hue-rotate(180deg);
+}
+body > .mei-cockpit-floating-layer-control {
+  position: fixed;
+  z-index: var(--mei-z-cockpit-map-tools, 1520);
+  min-width: 220px;
+  max-width: 280px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.96);
+  color: #e2e8f0;
+  font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+  max-height: min(360px, calc(100% - 24px));
+  overflow: auto;
+}
+body > .mei-cockpit-floating-layer-control .layer-control-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+body > .mei-cockpit-floating-layer-control .layer-control-title {
+  font-weight: 600;
+  margin: 0;
+  color: #f8fafc;
+  font-size: 13px;
+}
+body > .mei-cockpit-floating-layer-control .layer-control-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.85);
+  color: #e2e8f0;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+body > .mei-cockpit-floating-layer-control .layer-control-list {
+  display: grid;
+  gap: 6px;
+}
+body > .mei-cockpit-floating-layer-control .layer-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  line-height: 1.35;
+}
+body > .mei-cockpit-floating-layer-control .layer-item input {
+  margin-top: 2px;
+  accent-color: #38bdf8;
 }
 .access-drilldown-overlay-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(2, 6, 23, 0.62);
+  background: var(--mei-color-drilldown-backdrop, rgba(8, 24, 48, 0.72));
   backdrop-filter: blur(2px);
 }
 .access-drilldown-overlay-panel {
@@ -1404,8 +1579,12 @@ a.status-chip-link:focus-visible {
   height: min(620px, 72vh);
   min-height: 360px;
   border-radius: 16px;
-  border: 1px solid rgba(100, 116, 139, 0.5);
-  background: linear-gradient(180deg, rgba(8, 15, 25, 0.98), rgba(5, 10, 18, 0.98));
+  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.35));
+  background: linear-gradient(
+    180deg,
+    var(--mei-color-drilldown-panel-top, rgba(18, 62, 112, 0.98)),
+    var(--mei-color-drilldown-panel-bottom, rgba(10, 40, 78, 0.98))
+  );
   box-shadow: 0 24px 60px rgba(2, 6, 23, 0.72);
   overflow: hidden;
   display: grid;
@@ -1517,8 +1696,8 @@ a.status-chip-link:focus-visible {
   min-height: 0;
   min-width: 0;
   border-radius: 12px;
-  border: 1px solid rgba(71, 85, 105, 0.28);
-  background: rgba(11, 18, 29, 0.72);
+  border: 1px solid var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.28));
+  background: var(--mei-color-drilldown-shell-bg, rgba(10, 40, 78, 0.85));
   overflow: hidden;
 }
 .access-drilldown-shell-slot {
@@ -1540,7 +1719,7 @@ a.status-chip-link:focus-visible {
   flex: 0 0 auto;
   font-size: var(--mei-chart-title-font-size, var(--mei-font-3, 28px));
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--mei-color-text-muted, #a8c8e6);
   line-height: 1.3;
   padding: 0 2px;
   text-align: center;
@@ -1553,7 +1732,7 @@ a.status-chip-link:focus-visible {
   place-items: center;
   min-height: 180px;
   padding: 24px 16px;
-  color: #94a3b8;
+  color: var(--mei-color-text-muted, #a8c8e6);
   font-size: 13px;
   text-align: center;
 }
@@ -1565,7 +1744,7 @@ a.status-chip-link:focus-visible {
 .access-drilldown-list-preview-title {
   font-size: 14px;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--mei-color-text-primary, #ffffff);
   line-height: 1.4;
 }
 .access-drilldown-list-preview-fields {
@@ -1576,13 +1755,13 @@ a.status-chip-link:focus-visible {
 }
 .access-drilldown-list-preview-fields dt {
   margin: 0;
-  color: #7dd3fc;
+  color: var(--mei-color-text-unit, #7dd3fc);
   font-size: 12px;
   font-weight: 600;
 }
 .access-drilldown-list-preview-fields dd {
   margin: 0;
-  color: #cbd5e1;
+  color: var(--mei-color-text-body, #e2e8f0);
   font-size: 12px;
   line-height: 1.45;
   word-break: break-word;
@@ -1599,7 +1778,7 @@ a.status-chip-link:focus-visible {
 .access-drilldown-document-preview-title {
   font-size: 14px;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--mei-color-text-primary, #ffffff);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -1607,9 +1786,9 @@ a.status-chip-link:focus-visible {
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.28));
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.55);
+  background: var(--mei-color-drilldown-shell-bg, rgba(10, 40, 78, 0.85));
 }
 .access-drilldown-document-preview-iframe {
   display: block;
@@ -1623,9 +1802,9 @@ a.status-chip-link:focus-visible {
   flex: 1;
   min-height: 180px;
   padding: 24px 16px;
-  border: 1px dashed rgba(148, 163, 184, 0.35);
+  border: 1px dashed var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.28));
   border-radius: 10px;
-  color: #94a3b8;
+  color: var(--mei-color-text-muted, #a8c8e6);
   font-size: 13px;
   text-align: center;
 }
@@ -2310,11 +2489,11 @@ a.status-chip-link:focus-visible {
 .access-drilldown-panel-hero-title {
   font-size: 14px;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--mei-color-text-primary, #ffffff);
 }
 .access-drilldown-panel-hero-note {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--mei-color-text-muted, #a8c8e6);
   line-height: 1.45;
 }
 .access-drilldown-overlay-head {
@@ -2323,8 +2502,12 @@ a.status-chip-link:focus-visible {
   justify-content: space-between;
   gap: 12px;
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(71, 85, 105, 0.38);
-  background: linear-gradient(180deg, rgba(20, 31, 47, 0.86), rgba(12, 21, 34, 0.9));
+  border-bottom: 1px solid var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.28));
+  background: linear-gradient(
+    180deg,
+    var(--mei-color-drilldown-panel-top, rgba(18, 62, 112, 0.86)),
+    var(--mei-color-drilldown-panel-bottom, rgba(10, 40, 78, 0.9))
+  );
 }
 .access-drilldown-overlay-head-meta {
   min-width: 0;
@@ -2334,7 +2517,7 @@ a.status-chip-link:focus-visible {
 .access-drilldown-overlay-title {
   font-size: 13px;
   font-weight: 700;
-  color: #e2e8f0;
+  color: var(--mei-color-text-primary, #ffffff);
 }
 .access-drilldown-overlay--no-title .access-drilldown-overlay-head-meta {
   display: none;
@@ -2347,38 +2530,38 @@ a.status-chip-link:focus-visible {
 }
 .access-drilldown-overlay-note {
   font-size: 12px;
-  color: #94a3b8;
+  color: var(--mei-color-text-muted, #a8c8e6);
 }
 .access-drilldown-overlay-close {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  border: 1px solid rgba(100, 116, 139, 0.45);
-  background: rgba(15, 23, 42, 0.62);
-  color: #cbd5e1;
+  border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.32));
+  background: var(--mei-color-drilldown-tab-bg, rgba(10, 40, 78, 0.72));
+  color: var(--mei-color-text-body, #e2e8f0);
   font-size: 16px;
   line-height: 1;
   cursor: pointer;
 }
 .access-drilldown-overlay-close:hover,
 .access-drilldown-overlay-close:focus-visible {
-  border-color: rgba(148, 163, 184, 0.74);
-  background: rgba(30, 41, 59, 0.88);
+  border-color: var(--mei-color-table-btn-hover-border, rgba(186, 230, 253, 0.55));
+  background: var(--mei-color-table-row-hover, rgba(32, 96, 168, 0.38));
 }
 .access-drilldown-overlay-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(71, 85, 105, 0.28);
-  background: rgba(11, 18, 29, 0.9);
+  border-bottom: 1px solid var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.28));
+  background: var(--mei-color-drilldown-body-bg, rgba(10, 36, 72, 0.92));
 }
 .access-drilldown-tab-button {
   appearance: none;
-  border: 1px solid rgba(71, 85, 105, 0.72);
+  border: 1px solid var(--mei-color-drilldown-tab-border, rgba(56, 160, 240, 0.32));
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.56);
-  color: #cbd5e1;
+  background: var(--mei-color-drilldown-tab-bg, rgba(10, 40, 78, 0.72));
+  color: var(--mei-color-text-body, #e2e8f0);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
@@ -2387,14 +2570,14 @@ a.status-chip-link:focus-visible {
   transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
 }
 .access-drilldown-tab-button[aria-selected="true"] {
-  border-color: rgba(56, 189, 248, 0.78);
-  background: rgba(14, 116, 144, 0.34);
-  color: #e0f2fe;
+  border-color: var(--mei-color-table-btn-hover-border, rgba(186, 230, 253, 0.55));
+  background: var(--mei-color-table-row-hover, rgba(32, 96, 168, 0.38));
+  color: var(--mei-color-text-primary, #ffffff);
 }
 .access-drilldown-tab-button:hover,
 .access-drilldown-tab-button:focus-visible {
-  border-color: rgba(125, 211, 252, 0.74);
-  color: #e2e8f0;
+  border-color: var(--mei-color-table-btn-border, rgba(125, 211, 252, 0.35));
+  color: var(--mei-color-text-primary, #ffffff);
   outline: none;
 }
 .access-drilldown-overlay-body {
@@ -2403,7 +2586,7 @@ a.status-chip-link:focus-visible {
   min-width: 0;
   width: 100%;
   display: flex;
-  background: rgba(7, 12, 19, 0.9);
+  background: var(--mei-color-drilldown-body-bg, rgba(10, 36, 72, 0.92));
 }
 .access-drilldown-table-shell {
   width: 100%;
@@ -2423,8 +2606,8 @@ a.status-chip-link:focus-visible {
   min-width: 0;
   flex: 1 1 auto;
   border-radius: 8px;
-  border: 1px solid rgba(56, 120, 200, 0.24);
-  background: rgba(5, 18, 36, 0.4);
+  border: 1px solid var(--mei-color-table-head-border, rgba(56, 160, 240, 0.25));
+  background: var(--mei-color-drilldown-shell-bg, rgba(10, 40, 78, 0.85));
   overflow: hidden;
 }
 .access-drilldown-summary {

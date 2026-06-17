@@ -10,7 +10,7 @@ fn ops_editor_main_view(app_path: &str) -> impl IntoView {
     view! {
         <section
             id="manage-ops-editor-root"
-            class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-auto"
+            class="manage-ops-editor-shell flex min-h-0 flex-1 flex-col overflow-hidden"
             data-app-id=app_path.to_string()
         ></section>
     }

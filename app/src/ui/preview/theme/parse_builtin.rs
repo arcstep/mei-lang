@@ -123,7 +123,23 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "color": {
                     "text_primary": "#e0f2fe",
                     "text_muted": "#94a3b8",
-                    "text_accent": "#fde68a"
+                    "text_accent": "#fde68a",
+                    "text_value": "#f0f9ff",
+                    "text_unit": "#7dd3fc",
+                    "text_body": "#cbd5e1",
+                    "panel_title": "#ecfeff",
+                    "section_border": "rgba(52, 82, 108, 0.5)",
+                    "chart_1": "#22d3ee",
+                    "chart_2": "#38bdf8",
+                    "chart_3": "#0ea5e9",
+                    "chart_4": "#0369a1",
+                    "chart_5": "#62beeb",
+                    "chart_6": "#475569",
+                    "surface_bg": "rgb(29, 47, 65)"
+                },
+                "shadow": {
+                    "header_title": "0 20px 30px #0091ff, 0 0 4px #0d74c2",
+                    "panel_title": "0 0 10px rgba(0, 145, 255, 0.55), 0 0 2px rgba(13, 116, 194, 0.9)"
                 },
                 "panel": {
                     "radius": "6px",
