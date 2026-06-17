@@ -30,6 +30,7 @@
       compact: true,
       gridContainLabel: true,
       label_max_chars: 6,
+      category_label_rotate: 30,
       showLegend: multiSeries,
       chartHeight: 300,
       color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
@@ -186,13 +187,7 @@
     if (!appPath) return null;
     const datasetId = resolveDrilldownDatasetId(detail, config);
     if (!datasetId) return null;
-    const metricId = nonEmptyString(
-      config?.tableMetricId,
-      runtimeRefConfig.metricId,
-      runtimeRefConfig.metric_id,
-      detail?.metric_id,
-      detail?.__mei_runtime_ref?.metric_id,
-    );
+    const metricId = resolveDrilldownDetailTableMetricId(config, detail);
     const scenePathMetricId = nonEmptyString(
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,

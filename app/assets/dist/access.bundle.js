@@ -10962,7 +10962,12 @@
           datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
           component: nonEmptyString(entry.component, entry.as) || "data_table",
           label: nonEmptyString(entry.label),
-          supportRole: nonEmptyString(entry.support_role, entry.supportRole, entry.component),
+          supportRole: nonEmptyString(entry.support_role, entry.supportRole) ||
+            (/composition/i.test(nonEmptyString(entry.explain_block_id, entry.explainBlockId, entry.id))
+              ? "composition"
+              : /trend/i.test(nonEmptyString(entry.explain_block_id, entry.explainBlockId, entry.id))
+                ? "trend"
+                : nonEmptyString(entry.component, entry.as) || "data_table"),
           default: Boolean(entry.default),
           fields,
           by,
@@ -11205,6 +11210,7 @@
             id: slot.id,
             kind: nonEmptyString(slot.supportRole, slot.id),
             label: slot.label,
+            by: slot.by[0] || "",
           },
         ]),
       ),
@@ -12169,6 +12175,20 @@
     return role === "composition" || role === "trend" || role === "attribution";
   }
 
+  function resolveDrilldownDetailTableMetricId(config, detail = null) {
+    const raw = nonEmptyString(
+      config?.detailSlot?.metricId,
+      config?.tableMetricId,
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+      detail?.table_metric_id,
+    );
+    if (!raw) return "";
+    if (isScalarRowsetMetricId(raw)) return raw;
+    if (isDedicatedExplainMetricId(raw, { supportRole: config?.supportRole })) return raw;
+    return resolveCardMetricRowsetId(raw);
+  }
+
   function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
     if (clientAggregate) return 100000;
     if (previewRow) return 1;
@@ -12280,6 +12300,7 @@
       compact: true,
       gridContainLabel: true,
       label_max_chars: 6,
+      category_label_rotate: 30,
       showLegend: multiSeries,
       chartHeight: 300,
       color_palette: ["#38bdf8", "#34d399", "#f59e0b", "#a78bfa", "#f87171", "#facc15", "#22d3ee", "#fb7185"],
@@ -12436,13 +12457,7 @@
     if (!appPath) return null;
     const datasetId = resolveDrilldownDatasetId(detail, config);
     if (!datasetId) return null;
-    const metricId = nonEmptyString(
-      config?.tableMetricId,
-      runtimeRefConfig.metricId,
-      runtimeRefConfig.metric_id,
-      detail?.metric_id,
-      detail?.__mei_runtime_ref?.metric_id,
-    );
+    const metricId = resolveDrilldownDetailTableMetricId(config, detail);
     const scenePathMetricId = nonEmptyString(
       detail?.metric_id,
       detail?.__mei_runtime_ref?.metric_id,
@@ -12774,9 +12789,10 @@
           }
         : tableProps.dataset;
     const compositionField = nonEmptyString(
+      compositionFieldForTab(config, tabId),
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
       columns[0],
-      "label",
     );
     const xField =
       normalizedKind === "trend" ? "month" : normalizedKind === "composition" ? compositionField : columns[0] || "label";
@@ -12785,8 +12801,9 @@
       config?.mapping && typeof config.mapping === "object"
         ? config.mapping
         : {
-            x: xField,
-            y: yField,
+            x: [{ field: xField, name: xField }],
+            y: [{ field: yField, name: yField }],
+            label: [{ field: xField, name: xField }],
           };
     return {
       chartTag,
@@ -12796,6 +12813,7 @@
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
         supportRole: config?.supportRole,
+        labelField: compositionField,
         topN: positiveInt(config?.top_n, config?.topN),
         mapping,
         ...buildAnalyticsChartPresentationProps(config, { mapping }),
@@ -12820,7 +12838,7 @@
     const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
       supportRole: config?.supportRole ?? supportRole,
     });
-    if (kind === "composition" || supportRole === "composition") {
+    if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
       if (dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
@@ -13045,6 +13063,12 @@
         slotConfig.tableMetricId,
         boardMetricId,
       );
+      const explainBy = nonEmptyString(
+        slot.by?.[0],
+        config.explainMetrics?.[slot.id]?.by,
+        config.tabMetrics?.[slot.id]?.by,
+        slotConfig.by,
+      );
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -13057,8 +13081,10 @@
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
-        compositionBy:
-          Array.isArray(slot.by) && slot.by.length > 0
+        by: explainBy,
+        compositionBy: explainBy
+          ? [explainBy]
+          : Array.isArray(slot.by) && slot.by.length > 0
             ? slot.by
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
@@ -13127,6 +13153,12 @@
       const detailConfig = detailSlot
         ? {
             ...detailTabConfig,
+            detailSlot,
+            tableMetricId: nonEmptyString(
+              detailSlot.metricId,
+              detailTabConfig.tableMetricId,
+              config.tableMetricId,
+            ),
             queryStateId: config.queryStateId,
             pageSize: positiveInt(
               detailSlot.pageSize,
@@ -14579,6 +14611,9 @@
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+    const isTrendTab =
+      explainMetricKind(config, tabId) === "trend" ||
+      nonEmptyString(config?.supportRole).toLowerCase() === "trend";
     if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
@@ -14588,6 +14623,8 @@
         fetchConfig.tableMetricId = compositionMetricId;
         fetchConfig.supportRole = "composition";
       }
+    } else if (cardMetricId && isTrendTab) {
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];

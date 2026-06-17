@@ -20,6 +20,12 @@
         slotConfig.tableMetricId,
         boardMetricId,
       );
+      const explainBy = nonEmptyString(
+        slot.by?.[0],
+        config.explainMetrics?.[slot.id]?.by,
+        config.tabMetrics?.[slot.id]?.by,
+        slotConfig.by,
+      );
       const mergedConfig = {
         ...slotConfig,
         hasChartZone: config.hasChartZone,
@@ -32,8 +38,10 @@
         chartKind: nonEmptyString(slot.chartKind, slotConfig.chartKind),
         topN: positiveInt(slot.topN, slot.top_n, slotConfig.topN, slotConfig.top_n),
         mapping: chartMapping,
-        compositionBy:
-          Array.isArray(slot.by) && slot.by.length > 0
+        by: explainBy,
+        compositionBy: explainBy
+          ? [explainBy]
+          : Array.isArray(slot.by) && slot.by.length > 0
             ? slot.by
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
@@ -102,6 +110,12 @@
       const detailConfig = detailSlot
         ? {
             ...detailTabConfig,
+            detailSlot,
+            tableMetricId: nonEmptyString(
+              detailSlot.metricId,
+              detailTabConfig.tableMetricId,
+              config.tableMetricId,
+            ),
             queryStateId: config.queryStateId,
             pageSize: positiveInt(
               detailSlot.pageSize,

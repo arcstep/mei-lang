@@ -114,6 +114,20 @@
     return role === "composition" || role === "trend" || role === "attribution";
   }
 
+  function resolveDrilldownDetailTableMetricId(config, detail = null) {
+    const raw = nonEmptyString(
+      config?.detailSlot?.metricId,
+      config?.tableMetricId,
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+      detail?.table_metric_id,
+    );
+    if (!raw) return "";
+    if (isScalarRowsetMetricId(raw)) return raw;
+    if (isDedicatedExplainMetricId(raw, { supportRole: config?.supportRole })) return raw;
+    return resolveCardMetricRowsetId(raw);
+  }
+
   function resolveDrilldownFetchPageSize(config, { previewRow = false, clientAggregate = false } = {}) {
     if (clientAggregate) return 100000;
     if (previewRow) return 1;

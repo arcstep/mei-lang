@@ -890,7 +890,7 @@ fn slot_from_explain_block(
         .get("label")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let slot_metric_id = if support_role == "composition" {
+    let slot_metric_id = if support_role == "composition" || support_role == "trend" {
         block_map
             .get("id")
             .and_then(Value::as_str)

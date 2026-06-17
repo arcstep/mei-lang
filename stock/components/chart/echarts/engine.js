@@ -683,10 +683,37 @@ function reorderRowsByCategoryOrder(rows, xField, categoryOrder) {
   });
 }
 
+function reconcileCartesianMapping(rows, mapping) {
+  const xField = mapping?.x?.[0]?.field;
+  if (!Array.isArray(rows) || rows.length === 0 || !xField) {
+    return mapping;
+  }
+  const hasXValues = rows.some((row) => {
+    const value = row?.[xField];
+    return value !== undefined && value !== null && String(value).trim() !== "";
+  });
+  if (hasXValues) {
+    return mapping;
+  }
+  const sample = rows[0] && typeof rows[0] === "object" ? rows[0] : {};
+  const fallback = Object.keys(sample).find((key) => key !== "value" && key !== xField);
+  if (!fallback) {
+    return mapping;
+  }
+  return {
+    ...mapping,
+    x: [{ field: fallback, name: fallback }],
+    label:
+      Array.isArray(mapping.label) && mapping.label.length > 0
+        ? mapping.label
+        : [{ field: fallback, name: fallback }],
+  };
+}
+
 function buildChartModel(kind, props, diagnostics) {
   const rows = resolveRows(props);
   const columns = resolveColumns(props, rows);
-  const mapping = resolveMapping(props, columns);
+  const mapping = reconcileCartesianMapping(rows, resolveMapping(props, columns));
   const legacy = Object.assign(resolveLegacyBehavior(props), { __host: props.__host });
   const normalized = normalizeKind(kind);
   const topN = resolveTopN(props);

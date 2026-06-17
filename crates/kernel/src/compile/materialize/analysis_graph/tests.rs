@@ -429,6 +429,54 @@ fn build_analysis_contracts_hoists_composition_dataframe_without_prior_data_prod
 }
 
 #[test]
+fn build_analysis_contracts_hoists_trend_dataframe_without_prior_data_product() {
+    let defs = BTreeMap::from([(
+        "enterprise_complaints_count".to_string(),
+        json!({
+            "key": "enterprise_complaints_count",
+            "values": {
+                "value": {
+                    "__kind": "analysis_expr",
+                    "type": "count",
+                    "rowset": {"__ref": "data", "id": "complaint_rows"}
+                }
+            },
+            "explain": [
+                {
+                    "__kind": "explain_item",
+                    "id": "trend_by_report_time",
+                    "kind": "trend",
+                    "date_field": "反映时间",
+                    "grain": "month"
+                },
+                {
+                    "__kind": "explain_item",
+                    "id": "composition_by_satisfaction",
+                    "kind": "composition",
+                    "by": "群众满意度"
+                }
+            ]
+        }),
+    )]);
+    let contracts = build_analysis_contracts(&defs, "enterprise_complaints");
+    let contract = contracts
+        .get("enterprise_complaints_count")
+        .expect("contract");
+    let tab_metrics = contract
+        .get("tab_metrics")
+        .and_then(Value::as_object)
+        .expect("tab_metrics");
+    let trend = tab_metrics
+        .get("trend")
+        .and_then(Value::as_object)
+        .expect("trend tab");
+    assert_eq!(
+        trend.get("metric_id").and_then(Value::as_str),
+        Some("enterprise_complaints_count::trend_by_report_time")
+    );
+}
+
+#[test]
 fn build_analysis_contracts_infers_detail_from_scalar_rowset_without_explain_dataframe() {
     let defs = BTreeMap::from([(
         "transfer_clue_count".to_string(),

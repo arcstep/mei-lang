@@ -111,7 +111,7 @@ pub(super) fn explain_block_value(
     let target_metric_id = metric_target_from_item(item_map).or_else(|| {
         if support_role == "detail" && explain_has_support_role(explain_items, "composition") {
             infer_inferred_scalar_rowset_metric_id(graph, metric_id)
-        } else if support_role == "composition" {
+        } else if support_role == "composition" || support_role == "trend" {
             if let Some(block_id) = item_map
                 .get("id")
                 .and_then(Value::as_str)

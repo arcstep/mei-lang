@@ -99,7 +99,12 @@
           datasetId: nonEmptyString(entry.dataset_id, entry.datasetId),
           component: nonEmptyString(entry.component, entry.as) || "data_table",
           label: nonEmptyString(entry.label),
-          supportRole: nonEmptyString(entry.support_role, entry.supportRole, entry.component),
+          supportRole: nonEmptyString(entry.support_role, entry.supportRole) ||
+            (/composition/i.test(nonEmptyString(entry.explain_block_id, entry.explainBlockId, entry.id))
+              ? "composition"
+              : /trend/i.test(nonEmptyString(entry.explain_block_id, entry.explainBlockId, entry.id))
+                ? "trend"
+                : nonEmptyString(entry.component, entry.as) || "data_table"),
           default: Boolean(entry.default),
           fields,
           by,
@@ -342,6 +347,7 @@
             id: slot.id,
             kind: nonEmptyString(slot.supportRole, slot.id),
             label: slot.label,
+            by: slot.by[0] || "",
           },
         ]),
       ),

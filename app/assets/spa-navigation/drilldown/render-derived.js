@@ -22,6 +22,9 @@
     const isCompositionTab =
       explainMetricKind(config, tabId) === "composition" ||
       nonEmptyString(config?.supportRole).toLowerCase() === "composition";
+    const isTrendTab =
+      explainMetricKind(config, tabId) === "trend" ||
+      nonEmptyString(config?.supportRole).toLowerCase() === "trend";
     if (cardMetricId && isCompositionTab) {
       const slotMetricId = nonEmptyString(config?.tableMetricId);
       const compositionMetricId = resolveCompositionScopedMetricId(cardMetricId, tabId);
@@ -31,6 +34,8 @@
         fetchConfig.tableMetricId = compositionMetricId;
         fetchConfig.supportRole = "composition";
       }
+    } else if (cardMetricId && isTrendTab) {
+      fetchConfig.tableMetricId = resolveCardMetricRowsetId(cardMetricId);
     }
     const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);
     const rows = Array.isArray(dataset?.rows) ? dataset.rows : [];

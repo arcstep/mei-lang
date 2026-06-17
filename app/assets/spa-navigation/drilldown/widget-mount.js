@@ -193,9 +193,10 @@
           }
         : tableProps.dataset;
     const compositionField = nonEmptyString(
+      compositionFieldForTab(config, tabId),
       Array.isArray(config?.compositionBy) ? config.compositionBy[0] : "",
+      config?.by,
       columns[0],
-      "label",
     );
     const xField =
       normalizedKind === "trend" ? "month" : normalizedKind === "composition" ? compositionField : columns[0] || "label";
@@ -204,8 +205,9 @@
       config?.mapping && typeof config.mapping === "object"
         ? config.mapping
         : {
-            x: xField,
-            y: yField,
+            x: [{ field: xField, name: xField }],
+            y: [{ field: yField, name: yField }],
+            label: [{ field: xField, name: xField }],
           };
     return {
       chartTag,
@@ -215,6 +217,7 @@
         _mei: tableProps._mei,
         query_state: tableProps.query_state,
         supportRole: config?.supportRole,
+        labelField: compositionField,
         topN: positiveInt(config?.top_n, config?.topN),
         mapping,
         ...buildAnalyticsChartPresentationProps(config, { mapping }),
@@ -239,7 +242,7 @@
     const dedicatedChartMetric = isDedicatedExplainMetricId(chartMetricId, {
       supportRole: config?.supportRole ?? supportRole,
     });
-    if (kind === "composition" || supportRole === "composition") {
+    if (kind === "composition" || supportRole === "composition" || kind === "trend" || supportRole === "trend") {
       if (dedicatedChartMetric) {
         if (await mountDrilldownChart(root, detail, config, tabId, hostOverride)) {
           return true;
