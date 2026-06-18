@@ -74,11 +74,13 @@ fn workspace_warmup_deserializes_from_json() {
         vec![
             WorkspaceWarmupDatasetConfig {
                 scene_id: Some("home".to_string()),
+                focus: None,
                 dataset_id: "warning_list".to_string(),
                 metric_id: None,
             },
             WorkspaceWarmupDatasetConfig {
                 scene_id: Some("home".to_string()),
+                focus: None,
                 dataset_id: "warning_metric".to_string(),
                 metric_id: Some("case_total".to_string()),
             }

@@ -1099,10 +1099,25 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         "apps/preview-shared",
         &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
         Some("scenes/home.mei"),
+        HostMetaOptions {
+            host_ssr_slim_payload: true,
+            ..Default::default()
+        },
+    );
+    assert!(props
+        .get("_mei")
+        .and_then(|value| value.get("runtime_capabilities"))
+        .is_none());
+    let legacy_props = attach_host_meta(
+        json!({"value": 1}),
+        &compiled,
+        "apps/preview-shared",
+        &json!({"dataset_table": {"cell_preview_max_chars": 18}}),
+        Some("scenes/home.mei"),
         HostMetaOptions::default(),
     );
     assert_eq!(
-        props
+        legacy_props
             .get("_mei")
             .and_then(|value| value.get("runtime_capabilities"))
             .and_then(|value| value.get("rows_query"))
@@ -1111,7 +1126,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         Some(true)
     );
     assert_eq!(
-        props
+        legacy_props
             .get("_mei")
             .and_then(|value| value.get("runtime_capabilities"))
             .and_then(|value| value.get("rows_query"))
@@ -1120,7 +1135,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         Some("/api/datasets/query/apps/preview-shared")
     );
     assert_eq!(
-        props
+        legacy_props
             .get("_mei")
             .and_then(|value| value.get("runtime_capabilities"))
             .and_then(|value| value.get("metric_query"))
@@ -1128,16 +1143,16 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
             .and_then(Value::as_str),
         Some("/api/datasets/metrics/apps/preview-shared")
     );
-    assert!(props
+    assert!(legacy_props
         .get("_mei")
         .and_then(|value| value.get("dataset_query_api"))
         .is_none());
-    assert!(props
+    assert!(legacy_props
         .get("_mei")
         .and_then(|value| value.get("metric_query_api"))
         .is_none());
     assert_eq!(
-        props
+        legacy_props
             .get("_mei")
             .and_then(|value| value.get("components"))
             .and_then(|value| value.get("dataset_table"))
@@ -1145,15 +1160,15 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
             .and_then(Value::as_i64),
         Some(18)
     );
-    assert!(props
+    assert!(legacy_props
         .get("_mei")
         .and_then(|value| value.get("shared"))
         .is_none());
-    assert!(props
+    assert!(legacy_props
         .get("_mei")
         .and_then(|value| value.get("scene_local_nav_by_target"))
         .is_none());
-    assert!(props
+    assert!(legacy_props
         .get("_mei")
         .and_then(|value| value.get("scene_bindings_by_id"))
         .is_none());
@@ -1165,6 +1180,7 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         Some("scenes/home.mei"),
         HostMetaOptions {
             include_scene_drilldown_context: true,
+            host_ssr_slim_payload: false,
         },
     );
     assert!(drilldown_props

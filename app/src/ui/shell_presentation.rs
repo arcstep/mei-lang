@@ -3,7 +3,7 @@ use mei_lang_kernel::{CompiledApp, CompiledSceneRoute, WorkspaceAppMeta};
 
 use super::manage_routing::WorldSemanticQuery;
 use super::preview;
-use super::scene_drilldown_context::scene_drilldown_context_script;
+use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::view_routing::{app_scene_href, presentation_scene_href};
 use super::{HostAccountView, TopbarMenuContext};
 
@@ -155,7 +155,7 @@ pub(crate) fn presentation_shell(
             data-prev-href=prev_href.clone().unwrap_or_default()
             data-next-href=next_href.clone().unwrap_or_default()
         >
-            {scene_drilldown_context_script(compiled)}
+            {host_ssr_bootstrap_scripts(compiled, app_path, Some(current_scene_id))}
             <main class="relative h-full overflow-hidden">
                 <section class="h-full overflow-hidden [&_.preview-viewport]:h-full [&_.preview-viewport]:min-h-full [&_.preview-surface:not(.preview-stage)]:h-full [&_.preview-surface:not(.preview-stage)]:min-h-full [&_.preview-stage-shell]:h-full [&_.preview-stage-shell]:min-h-full">
                     {preview}

@@ -11,6 +11,7 @@ use crate::ui::manage_routing::WorldSemanticQuery;
 
 mod nodes;
 mod resolve;
+pub(crate) use resolve::host_runtime_capabilities_value;
 mod style;
 mod theme;
 mod viewport;

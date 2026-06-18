@@ -14,6 +14,7 @@ pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "manage-tabs.js",
     "manage-source-lazy.js",
     "manage-diagnostics.js",
+    "statusbar.js",
     "spa-navigation/preamble.js",
     "spa-navigation/constants.js",
     "spa-navigation/events.js",
@@ -147,12 +148,14 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
 pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "statusbar.js",
     "manage-ops-panel.js",
 ];
 
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "statusbar.js",
     "workspace-splitters.js",
     "upload-upload-panel.js",
 ];

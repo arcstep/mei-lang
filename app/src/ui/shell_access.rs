@@ -7,7 +7,7 @@ use super::manage_routing::WorldSemanticQuery;
 use super::preview;
 use super::preview_chrome::asset_preview_body;
 use super::route::UiRouteMode;
-use super::scene_drilldown_context::scene_drilldown_context_script;
+use super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::statusbar::statusbar_view;
 use super::topbar::{access_scene_for_topbar, topbar_view};
 use super::{HostAccountView, TopbarMenuContext};
@@ -138,7 +138,7 @@ pub(crate) fn access_shell(
     };
     view! {
         <div class=shell_class>
-            {scene_drilldown_context_script(compiled)}
+            {host_ssr_bootstrap_scripts(compiled, app_path, selected_scene.or(compiled.active_scene.as_deref()))}
             {if chrome_hidden {
                 view! { <></> }.into_any()
             } else {

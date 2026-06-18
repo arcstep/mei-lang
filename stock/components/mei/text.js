@@ -3,9 +3,12 @@ import {
   fetchPanelRuntimeMetrics,
   fetchRuntimeMetrics,
   findRuntimeMetricInResults,
+  isDrilldownOverlayOpen,
+  MEI_DRILLDOWN_OVERLAY_ID,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
+  shouldReactToPreviewUpdated,
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import {
@@ -520,7 +523,7 @@ class MeiText extends HTMLElement {
       return;
     }
     const queryStateId = String(initialProps.query_state ?? initialProps.queryState ?? "page").trim() || "page";
-    const refresh = () => {
+    const refreshMetric = () => {
       if (!this.isConnected) return;
       const props = parseProps(this);
       if (!this._isMetricContent(props)) {
@@ -529,10 +532,25 @@ class MeiText extends HTMLElement {
       this._renderMetric(props);
       this._refreshMetricRuntime(props, queryStateId);
     };
-    this._previewHandler = refresh;
-    window.addEventListener("meilang:preview-updated", refresh);
-    this._queryUnsubscribe = subscribeQueryState(queryStateId, refresh);
-    deferUntilDisplayed(this, refresh);
+    const refreshFromPreview = (event) => {
+      if (!shouldReactToPreviewUpdated(event, this)) {
+        return;
+      }
+      refreshMetric();
+    };
+    const refreshFromQueryState = () => {
+      if (
+        isDrilldownOverlayOpen() &&
+        !this.closest(`#${MEI_DRILLDOWN_OVERLAY_ID}`)
+      ) {
+        return;
+      }
+      refreshMetric();
+    };
+    this._previewHandler = refreshFromPreview;
+    window.addEventListener("meilang:preview-updated", refreshFromPreview);
+    this._queryUnsubscribe = subscribeQueryState(queryStateId, refreshFromQueryState);
+    deferUntilDisplayed(this, refreshMetric);
   }
 
   async _refreshMetricRuntime(props, queryStateId) {

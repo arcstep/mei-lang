@@ -134,6 +134,9 @@ impl WorkspaceWarmupConfig {
 pub struct WorkspaceWarmupAppConfig {
     #[serde(default, rename = "hotScenes")]
     pub hot_scenes: Vec<String>,
+    /// Manage / build preview locators (e.g. `main.mei`). Empty → app entry main.
+    #[serde(default)]
+    pub focuses: Vec<String>,
     #[serde(default)]
     pub datasets: Vec<WorkspaceWarmupDatasetConfig>,
 }
@@ -142,6 +145,9 @@ pub struct WorkspaceWarmupAppConfig {
 pub struct WorkspaceWarmupDatasetConfig {
     #[serde(default, rename = "sceneId")]
     pub scene_id: Option<String>,
+    /// Compile focus for dataset warmup; empty → app default focus (entry main).
+    #[serde(default)]
+    pub focus: Option<String>,
     #[serde(default, rename = "datasetId")]
     pub dataset_id: String,
     #[serde(default, rename = "metricId")]
@@ -169,6 +175,8 @@ pub struct RuntimeWarmupApp {
     #[serde(default)]
     pub scenes: Vec<String>,
     #[serde(default)]
+    pub focuses: Vec<String>,
+    #[serde(default)]
     pub datasets: Vec<RuntimeWarmupDatasetRequest>,
 }
 
@@ -176,6 +184,8 @@ pub struct RuntimeWarmupApp {
 pub struct RuntimeWarmupDatasetRequest {
     #[serde(default, rename = "sceneId")]
     pub scene_id: Option<String>,
+    #[serde(default)]
+    pub focus: Option<String>,
     #[serde(rename = "datasetId")]
     pub dataset_id: String,
     #[serde(default, rename = "metricId")]

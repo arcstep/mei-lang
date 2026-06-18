@@ -13,6 +13,7 @@
     "manage-tabs.js",
     "manage-source-lazy.js",
     "manage-diagnostics.js",
+    "statusbar.js",
     "spa-navigation/preamble.js",
     "spa-navigation/constants.js",
     "spa-navigation/events.js",
@@ -143,11 +144,13 @@
   "configScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "statusbar.js",
     "manage-ops-panel.js"
   ],
   "uploadScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "statusbar.js",
     "workspace-splitters.js",
     "upload-upload-panel.js"
   ],

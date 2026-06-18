@@ -48,6 +48,30 @@ pub(crate) struct RuntimeSceneAnchor {
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct HostMetaOptions {
     pub include_scene_drilldown_context: bool,
+    /// Build/App/Access SSR：`_mei.runtime_capabilities` 改由 `#mei-host-runtime-capabilities` 全局注入。
+    pub host_ssr_slim_payload: bool,
+}
+
+pub(crate) fn host_runtime_capabilities_value(app_path: &str) -> Value {
+    json!({
+        "rows_query": {
+            "enabled": true,
+            "api": format!("/api/datasets/query/{}", app_path),
+            "scene_qualified": true,
+        },
+        "metric_query": {
+            "enabled": true,
+            "api": format!("/api/datasets/metrics/{}", app_path),
+            "scene_qualified": true,
+        },
+        "metric_batch_query": {
+            "enabled": true,
+            "api": format!("/api/datasets/metrics/{}", app_path),
+            "scene_qualified": true,
+        },
+        "catalog": host_runtime_capabilities_catalog(),
+        "host_contract": host_runtime_contract_descriptor(),
+    })
 }
 
 impl RuntimeSceneAnchor {
@@ -154,28 +178,12 @@ pub(crate) fn attach_host_meta(
             "step_api".to_string(),
             Value::String(format!("/api/sim/step/{}", app_path)),
         );
-        host_meta.insert(
-            "runtime_capabilities".to_string(),
-            json!({
-                "rows_query": {
-                    "enabled": true,
-                    "api": format!("/api/datasets/query/{}", app_path),
-                    "scene_qualified": true,
-                },
-                "metric_query": {
-                    "enabled": true,
-                    "api": format!("/api/datasets/metrics/{}", app_path),
-                    "scene_qualified": true,
-                },
-                "metric_batch_query": {
-                    "enabled": true,
-                    "api": format!("/api/datasets/metrics/{}", app_path),
-                    "scene_qualified": true,
-                },
-                "catalog": host_runtime_capabilities_catalog(),
-                "host_contract": host_runtime_contract_descriptor(),
-            }),
-        );
+        if !options.host_ssr_slim_payload {
+            host_meta.insert(
+                "runtime_capabilities".to_string(),
+                host_runtime_capabilities_value(app_path),
+            );
+        }
         host_meta.insert("components".to_string(), theme_components.clone());
         if options.include_scene_drilldown_context {
             host_meta.insert(

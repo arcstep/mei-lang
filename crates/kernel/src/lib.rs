@@ -12,6 +12,7 @@ mod runtime;
 mod runtime_resource_index;
 mod source_version;
 mod typed_refs;
+mod warmup_manifest;
 mod workspace;
 
 pub use compile::{
@@ -82,6 +83,10 @@ pub use mei_config::{
     WORKSPACE_HOSTS_DIR_REL, WORKSPACE_HOST_STATE_SCHEMA_VERSION, WORKSPACE_LOCAL_DIR_REL,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL, WORKSPACE_SNAPSHOT_DIR_REL,
     WORKSPACE_SNAPSHOT_GIT_REL,
+};
+pub use warmup_manifest::{
+    build_runtime_warmup_manifest, resolve_runtime_warmup_manifest,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_SCHEMA_VERSION,
 };
 pub use model::{
     AnalysisEdge, AnalysisGraph, AnalysisNode, BlockDecl, ColumnSchema, CompiledApp,

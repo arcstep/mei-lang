@@ -20,7 +20,7 @@ struct CachedPageRenderTemplate {
 const PAGE_RENDER_CACHE_TTL_MS: u64 = 300_000;
 const MAX_PAGE_RENDER_CACHE_ENTRIES: usize = 128;
 /// SSR `data-props` 策略变更时递增，使旧的大体积 HTML 渲染缓存自动失效。
-const HOST_SSR_PAYLOAD_REVISION: &str = "slim-build-v2";
+const HOST_SSR_PAYLOAD_REVISION: &str = "slim-build-v3";
 
 fn page_render_cache() -> &'static Mutex<BTreeMap<String, CachedPageRenderTemplate>> {
     static CACHE: OnceLock<Mutex<BTreeMap<String, CachedPageRenderTemplate>>> = OnceLock::new();

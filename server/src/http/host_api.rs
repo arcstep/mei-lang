@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -8,8 +7,9 @@ use axum::{
     Json,
 };
 use mei_lang_kernel::{
-    locate_dataset_resource, resolve_app_root, CompileOptions, RuntimeWarmupApp,
-    RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    locate_dataset_resource, resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions,
+    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use serde::Serialize;
 
@@ -22,6 +22,8 @@ pub(crate) struct HostReadyResponse {
     pub phase: String,
     #[serde(rename = "manifestPath")]
     pub manifest_path: String,
+    #[serde(rename = "manifestSource")]
+    pub manifest_source: String,
     #[serde(rename = "warmedApps")]
     pub warmed_apps: Vec<String>,
     #[serde(rename = "failedApps")]
@@ -34,6 +36,7 @@ pub(crate) struct HostReadyResponse {
 struct HostWarmupStatus {
     phase: String,
     manifest_path: String,
+    manifest_source: String,
     warmed_apps: Vec<String>,
     failed_apps: Vec<String>,
     error_summary: Vec<String>,
@@ -44,6 +47,7 @@ impl Default for HostWarmupStatus {
         Self {
             phase: "starting".to_string(),
             manifest_path: String::new(),
+            manifest_source: String::new(),
             warmed_apps: Vec::new(),
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
@@ -84,6 +88,7 @@ fn status_snapshot() -> HostReadyResponse {
         ready: matches!(snapshot.phase.as_str(), "ready" | "skipped"),
         phase: snapshot.phase,
         manifest_path: snapshot.manifest_path,
+        manifest_source: snapshot.manifest_source,
         warmed_apps: snapshot.warmed_apps,
         failed_apps: snapshot.failed_apps,
         error_summary: snapshot.error_summary,
@@ -94,20 +99,32 @@ fn manifest_path_for(source_root: &Path) -> PathBuf {
     source_root.join(WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL)
 }
 
-fn load_runtime_warmup_manifest(source_root: &Path) -> Result<Option<RuntimeWarmupManifest>, String> {
-    let manifest_path = manifest_path_for(source_root);
-    if !manifest_path.is_file() {
-        return Ok(None);
+fn manifest_source_label(source_root: &Path) -> &'static str {
+    if manifest_path_for(source_root).is_file() {
+        "runtime_manifest"
+    } else {
+        "workspace_config_fallback"
     }
-    let raw = fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("read warmup manifest {}: {error}", manifest_path.display()))?;
-    let manifest = serde_json::from_str::<RuntimeWarmupManifest>(&raw).map_err(|error| {
-        format!(
-            "parse warmup manifest {}: {error}",
-            manifest_path.display()
-        )
-    })?;
-    Ok(Some(manifest))
+}
+
+fn warmup_compile(
+    state: &AppState,
+    app_id: &str,
+    scene: Option<String>,
+    preview_target: Option<String>,
+    components_root: &Path,
+) -> Result<(), String> {
+    compile_app_with_cache(
+        state,
+        app_id,
+        CompileOptions {
+            scene,
+            preview_target,
+        },
+        components_root,
+    )
+    .map(|_| ())
+    .map_err(|failure| failure.error.to_string())
 }
 
 fn warmup_scene(
@@ -149,6 +166,41 @@ fn warmup_scene(
     Ok(())
 }
 
+fn warmup_focus_targets(
+    state: &AppState,
+    app: &RuntimeWarmupApp,
+    components_root: &Path,
+) -> Result<(), String> {
+    for focus in &app.focuses {
+        let focus = focus.trim();
+        if focus.is_empty() {
+            continue;
+        }
+        let preview_target = Some(focus.to_string());
+        warmup_compile(
+            state,
+            app.app_id.as_str(),
+            None,
+            preview_target.clone(),
+            components_root,
+        )?;
+        for scene in &app.scenes {
+            let scene = scene.trim();
+            if scene.is_empty() {
+                continue;
+            }
+            warmup_compile(
+                state,
+                app.app_id.as_str(),
+                Some(scene.to_string()),
+                preview_target.clone(),
+                components_root,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 fn warmup_dataset_request(
     state: &AppState,
     app_id: &str,
@@ -167,12 +219,18 @@ fn warmup_dataset_request(
         .filter(|value| !value.is_empty())
         .or(default_scene.map(str::trim).filter(|value| !value.is_empty()))
         .ok_or_else(|| format!("dataset `{dataset_id}` warmup requires a scene_id"))?;
+    let preview_target = request
+        .focus
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
     let compile_outcome = compile_app_with_cache(
         state,
         app_id,
         CompileOptions {
             scene: Some(scene_id.to_string()),
-            preview_target: None,
+            preview_target,
         },
         components_root,
     )
@@ -204,7 +262,7 @@ fn warmup_dataset_request(
             dataset_id,
             metric_id,
             Some(scene_id),
-            None,
+            request.focus.as_deref(),
             &compile_outcome.compile_revision,
             warm_query,
             None,
@@ -226,6 +284,7 @@ fn warmup_app(
     for scene in &app.scenes {
         warmup_scene(state, app.app_id.as_str(), scene, components_root)?;
     }
+    warmup_focus_targets(state, app, components_root)?;
     for request in &app.datasets {
         warmup_dataset_request(
             state,
@@ -262,6 +321,7 @@ pub(crate) fn schedule_startup_warmup(state: AppState) {
         replace_status(HostWarmupStatus {
             phase: "skipped".to_string(),
             manifest_path: manifest_path_display,
+            manifest_source: "disabled".to_string(),
             warmed_apps: Vec::new(),
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
@@ -269,15 +329,17 @@ pub(crate) fn schedule_startup_warmup(state: AppState) {
         return;
     }
 
-    let manifest = match load_runtime_warmup_manifest(state.source_root.as_path()) {
+    let manifest_source = manifest_source_label(state.source_root.as_path()).to_string();
+    let manifest = match resolve_runtime_warmup_manifest(state.source_root.as_path()) {
         Ok(Some(manifest)) => manifest,
         Ok(None) => {
             replace_status(HostWarmupStatus {
                 phase: "skipped".to_string(),
                 manifest_path: manifest_path_display,
+                manifest_source,
                 warmed_apps: Vec::new(),
                 failed_apps: Vec::new(),
-                error_summary: vec!["warmup manifest missing; startup warmup skipped".to_string()],
+                error_summary: vec!["warmup disabled in workspace config".to_string()],
             });
             return;
         }
@@ -285,9 +347,10 @@ pub(crate) fn schedule_startup_warmup(state: AppState) {
             replace_status(HostWarmupStatus {
                 phase: "failed".to_string(),
                 manifest_path: manifest_path_display,
+                manifest_source,
                 warmed_apps: Vec::new(),
                 failed_apps: Vec::new(),
-                error_summary: vec![error],
+                error_summary: vec![error.to_string()],
             });
             return;
         }
@@ -297,6 +360,7 @@ pub(crate) fn schedule_startup_warmup(state: AppState) {
         replace_status(HostWarmupStatus {
             phase: "skipped".to_string(),
             manifest_path: manifest_path_display,
+            manifest_source,
             warmed_apps: Vec::new(),
             failed_apps: Vec::new(),
             error_summary: Vec::new(),
@@ -304,9 +368,18 @@ pub(crate) fn schedule_startup_warmup(state: AppState) {
         return;
     }
 
+    if manifest_source == "workspace_config_fallback" {
+        tracing::info!(
+            manifest_path = %manifest_path_display,
+            apps = manifest.apps.len(),
+            "startup warmup using workspace config fallback (runtime manifest missing)"
+        );
+    }
+
     replace_status(HostWarmupStatus {
         phase: "running".to_string(),
         manifest_path: manifest_path_display,
+        manifest_source,
         warmed_apps: Vec::new(),
         failed_apps: Vec::new(),
         error_summary: Vec::new(),
@@ -348,4 +421,37 @@ pub async fn api_host_ready() -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
     (status, Json(response))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn manifest_source_label_distinguishes_runtime_file_and_fallback() {
+        let root = std::env::temp_dir().join(format!(
+            "mei-host-warmup-source-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).expect("create temp root");
+        assert_eq!(
+            manifest_source_label(root.as_path()),
+            "workspace_config_fallback"
+        );
+
+        let runtime_dir = root.join(".mei/runtime");
+        fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+        fs::write(
+            runtime_dir.join("warmup-manifest.json"),
+            r#"{"enabled":false,"apps":[]}"#,
+        )
+        .expect("write manifest");
+        assert_eq!(manifest_source_label(root.as_path()), "runtime_manifest");
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

@@ -388,6 +388,7 @@ fn block_view(
             &resolved,
             runtime_ctx.host_ssr_slim_payload,
         ),
+        host_ssr_slim_payload: runtime_ctx.host_ssr_slim_payload,
     };
     let props = attach_host_meta(
         resolved,

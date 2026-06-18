@@ -9,7 +9,7 @@ use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, 
 use super::super::preview;
 use super::super::preview_chrome::{asset_preview_body, diagnostics_view};
 use super::super::route::UiRouteMode;
-use super::super::scene_drilldown_context::scene_drilldown_context_json as build_scene_drilldown_context_json;
+use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
 use super::super::source_tree;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
@@ -262,8 +262,13 @@ pub(crate) fn manage_shell(
     let source_tab_active = active_manage_tab == ManageViewTab::Source;
     let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
     let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
-    let scene_drilldown_context_json = if script_target || stage_enabled {
-        Some(build_scene_drilldown_context_json(compiled))
+    let preview_scene_id = scene_for_links.or(compiled.active_scene.as_deref());
+    let host_ssr_bootstrap = if script_target || stage_enabled {
+        Some(host_ssr_bootstrap_scripts(
+            compiled,
+            app_path,
+            preview_scene_id,
+        ))
     } else {
         None
     };
@@ -351,19 +356,7 @@ pub(crate) fn manage_shell(
 
     view! {
         <div class=shell_class>
-            {scene_drilldown_context_json
-                .as_ref()
-                .map(|payload| {
-                    view! {
-                        <script
-                            id="mei-scene-drilldown-context"
-                            type="application/json"
-                            inner_html=payload.clone()
-                        ></script>
-                    }
-                        .into_any()
-                })
-                .unwrap_or_else(|| view! { <></> }.into_any())}
+            {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <div
                 id="tree-icons-sprite-root"
                 class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"

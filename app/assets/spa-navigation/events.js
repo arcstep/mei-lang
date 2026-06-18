@@ -1,10 +1,18 @@
   function dispatchPreviewUpdated(scope = "page", detail = {}) {
+    const normalizedScope = String(scope || "page");
+    const mergedDetail = {
+      scope: normalizedScope,
+      ...detail,
+    };
+    if (
+      normalizedScope === "drilldown" &&
+      mergedDetail.resetRuntimeQueryCache === undefined
+    ) {
+      mergedDetail.resetRuntimeQueryCache = false;
+    }
     window.dispatchEvent(
       new CustomEvent("meilang:preview-updated", {
-        detail: {
-          scope: String(scope || "page"),
-          ...detail,
-        },
+        detail: mergedDetail,
       }),
     );
   }

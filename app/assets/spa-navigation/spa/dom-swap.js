@@ -277,6 +277,16 @@
     } catch (_) {}
   }
 
+  function syncHostRuntimeCapabilitiesFromDoc(doc) {
+    const currentNode = document.getElementById("mei-host-runtime-capabilities");
+    const nextNode = doc.getElementById("mei-host-runtime-capabilities");
+    if (!currentNode || !nextNode) return;
+    currentNode.textContent = nextNode.textContent || "";
+    try {
+      delete window.__meiHostRuntimeCapabilities;
+    } catch (_) {}
+  }
+
   /** 同路径 SPA 只替换 #workspace-root 时，顶栏仍在壳外，需从下一页文档同步 href（访问 / 演示 / 应用切换）。 */
   function syncManageTopbarFromDoc(doc) {
     try {
@@ -370,6 +380,7 @@
 
     syncManageTopbarFromDoc(doc);
     syncSceneDrilldownContextFromDoc(doc);
+    syncHostRuntimeCapabilitiesFromDoc(doc);
 
     if (replaceHistory) {
       window.history.replaceState({}, "", url);

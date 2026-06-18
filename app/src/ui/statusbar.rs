@@ -132,13 +132,11 @@ pub(crate) fn statusbar_view(
                         view! { <></> }.into_any()
                     }}
                 </div>
-                <div class="statusbar-track statusbar-track-right min-w-0">
-                    <div class="statusbar-track-scroll statusbar-right-aux">
-                        <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
-                        <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
-                    </div>
-                    <span class="status-chip status-chip-host statusbar-right-anchor" id="mei-status-host-version" data-tone="neutral">"Mei --"</span>
+                <div class="statusbar-track-scroll statusbar-right-aux min-w-0">
+                    <span class="status-chip status-chip-compliance max-w-[280px]" id="mei-status-compliance" data-tone="neutral" hidden></span>
+                    <span class="status-chip status-chip-runtime max-w-[300px]" id="mei-status-model-service" data-tone="neutral">{model_service_summary}</span>
                 </div>
+                <span class="status-chip status-chip-host statusbar-right-anchor" id="mei-status-host-version" data-tone="neutral" title="__MEI_HOST_VERSION_LABEL__">"__MEI_HOST_VERSION_LABEL__"</span>
             </div>
         </footer>
     }

@@ -128,8 +128,32 @@ function sceneQueryCoords(props, runtimeRef) {
   return coords;
 }
 
+function readGlobalHostRuntimeCapabilities() {
+  if (typeof window === "undefined") return null;
+  const cached = window.__meiHostRuntimeCapabilities;
+  if (cached && typeof cached === "object" && !Array.isArray(cached)) {
+    return cached;
+  }
+  const script = document.getElementById("mei-host-runtime-capabilities");
+  const raw = String(script?.textContent || "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      window.__meiHostRuntimeCapabilities = parsed;
+      return parsed;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
 function runtimeCapabilityMap(props) {
-  const raw = props?._mei?.runtime_capabilities ?? props?._mei?.runtimeCapabilities;
+  const raw =
+    props?._mei?.runtime_capabilities ??
+    props?._mei?.runtimeCapabilities ??
+    readGlobalHostRuntimeCapabilities();
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
   }
@@ -327,7 +351,26 @@ export function isDrilldownOverlayOpen() {
   if (typeof document === "undefined") {
     return false;
   }
-  return document.body?.classList?.contains("access-drilldown-open") === true;
+  return (
+    document.body?.classList?.contains("access-drilldown-open") === true ||
+    document.body?.classList?.contains("access-scene-board-open") === true
+  );
+}
+
+function isHomeViewportRuntimeProps(props) {
+  const target = String(
+    props?._mei?.entry_target ?? props?._mei?.active_target_file ?? ""
+  ).trim();
+  if (!target) {
+    return true;
+  }
+  const normalized = target.replace(/\\/g, "/");
+  return normalized === "main.mei" || normalized.endsWith("/main.mei");
+}
+
+/** overlay 打开时暂停主屏（main.mei）metric 拉取，避免误触发 batch:9。 */
+export function shouldPauseHomeRuntimeMetricFetch(props) {
+  return isDrilldownOverlayOpen() && isHomeViewportRuntimeProps(props);
 }
 
 /**
@@ -1321,10 +1364,11 @@ if (typeof window !== "undefined") {
     abortRuntimeQueries(event?.detail?.reason || "");
   });
   window.addEventListener("meilang:preview-updated", (event) => {
-    if (previewUpdatedScope(event) === "page") {
+    const scope = previewUpdatedScope(event);
+    if (scope === "page") {
       scheduleSceneMetricBatchFlush(0);
     }
-    if (event?.detail?.resetRuntimeQueryCache === false) {
+    if (scope === "drilldown" || event?.detail?.resetRuntimeQueryCache === false) {
       return;
     }
     clearRuntimeQueryCaches();
@@ -2137,6 +2181,9 @@ function scheduleSceneRuntimeMetricRequest(
     datasetId: explicitDatasetId = "",
   } = {}
 ) {
+  if (shouldPauseHomeRuntimeMetricFetch(props)) {
+    return null;
+  }
   const capability = metricBatchQueryCapabilityConfig(props);
   if (!capability.enabled) {
     return null;
@@ -2206,6 +2253,9 @@ function scheduleSceneRuntimeMetricRequest(
       schedule.cancelFlush = null;
       const active = SCENE_METRIC_BATCH_SCHEDULES.get(scheduleKey);
       if (!active || active !== schedule) {
+        return;
+      }
+      if (shouldPauseHomeRuntimeMetricFetch(schedule.props)) {
         return;
       }
       SCENE_METRIC_BATCH_SCHEDULES.delete(scheduleKey);
@@ -2602,6 +2652,9 @@ export async function fetchRuntimeMetrics(
   const compileEpoch = runtimeCompileEpoch(props);
   maybeInvalidateRuntimeQueryCachesForCompileEpoch(compileEpoch);
   if (runtimePerfDisabled("runtime_metric_share")) {
+    if (shouldPauseHomeRuntimeMetricFetch(props)) {
+      return null;
+    }
     const managedController = createManagedAbortController([signal]);
     return fetchRuntimeMetricsUncached(
       api,
@@ -2635,6 +2688,9 @@ export async function fetchRuntimeMetrics(
       ),
       signal
     );
+  }
+  if (shouldPauseHomeRuntimeMetricFetch(props)) {
+    return null;
   }
   let shared = METRIC_QUERY_INFLIGHT.get(cacheKey);
   if (!shared) {
