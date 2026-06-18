@@ -2401,19 +2401,54 @@ function scheduleSceneRuntimeMetricRequest(
           return;
         }
         if (groups.length > 1 && sceneBatchData) {
+          const unresolved = [];
           for (const request of liveRequests) {
+            const reqDatasetId =
+              safeTrim(request.datasetId) ||
+              resolveRuntimeMetricRef(request.props)?.dataset_id ||
+              datasetId;
             const projected = projectScheduledSceneMetricBatchResult(
               sceneBatchData,
-              safeTrim(request.datasetId) ||
-                resolveRuntimeMetricRef(request.props)?.dataset_id ||
-                datasetId,
+              reqDatasetId,
               request.metricIds
             );
             if (projected && Array.isArray(projected.metrics) && projected.metrics.length > 0) {
               request.resolve(projected);
             } else {
-              request.reject(new Error("scene metric batch projection failed"));
+              unresolved.push(request);
             }
+          }
+          if (unresolved.length > 0) {
+            await Promise.all(
+              unresolved.map(async (request) => {
+                const reqDatasetId =
+                  safeTrim(request.datasetId) ||
+                  safeTrim(resolveRuntimeMetricRef(request.props)?.dataset_id) ||
+                  safeTrim(datasetId);
+                try {
+                  const data = await fetchRuntimeMetrics(request.props, {
+                    metricIds: request.metricIds,
+                    queryStateId: request.queryStateId,
+                    search: request.search,
+                    filters: request.filters,
+                    signal: request.signal,
+                    meta: scheduledSceneMetricMeta(request.meta),
+                  });
+                  const projected = projectScheduledSingleDatasetMetricResult(
+                    data,
+                    reqDatasetId,
+                    request.metricIds
+                  );
+                  if (projected) {
+                    request.resolve(projected);
+                  } else {
+                    request.reject(new Error("scene metric batch projection failed"));
+                  }
+                } catch (error) {
+                  request.reject(error);
+                }
+              })
+            );
           }
           return;
         }
