@@ -9789,6 +9789,52 @@
     return text.slice(0, idx + 4);
   }
 
+  function metricRefId(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    if (value.__ref === "metric") return nonEmptyString(value.id);
+    const runtimeRef = value.__mei_runtime_ref;
+    if (runtimeRef && typeof runtimeRef === "object" && !Array.isArray(runtimeRef)) {
+      return nonEmptyString(runtimeRef.metric_id, runtimeRef.metricId);
+    }
+    return nonEmptyString(value.metric_id, value.metricId);
+  }
+
+  /** 父级 popup / 行级下钻传入的 metric，优先于 board example 默认 metric。 */
+  function resolvePopupPassedMetricId(detail, config = null) {
+    const popupParams =
+      detail?.popup && typeof detail.popup === "object" && !Array.isArray(detail.popup)
+        ? detail.popup.params
+        : null;
+    const configParams =
+      config?.params && typeof config.params === "object" && !Array.isArray(config.params)
+        ? config.params
+        : null;
+    const configPopupParams =
+      config?.popup && typeof config.popup === "object" && !Array.isArray(config.popup)
+        ? config.popup.params
+        : null;
+    return nonEmptyString(
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
+      metricRefId(popupParams?.metric),
+      metricRefId(configParams?.metric),
+      metricRefId(configPopupParams?.metric),
+    );
+  }
+
+  /** 下钻表/行级详情卡应使用的 metric：父级传入优先于 board slot / 示例默认。 */
+  function resolveDrilldownTableMetricId(detail, config = null) {
+    const metricId = String(detail?.metric_id || "").trim();
+    return nonEmptyString(
+      metricId,
+      resolvePopupPassedMetricId(detail, config),
+      config?.tableMetricId,
+      config?.detailSlot?.metricId,
+      config?.runtimeRef?.metricId,
+      config?.runtimeRef?.metric_id,
+    );
+  }
+
   function resolveMetricOwnerScenePath(projectionSlots, detail) {
     if (Array.isArray(projectionSlots)) {
       for (const slot of projectionSlots) {
@@ -11212,7 +11258,14 @@
       projection,
       title,
       note: "",
-      tableMetricId: nonEmptyString(defaultTableSlot?.metricId, metricId),
+      tableMetricId: nonEmptyString(
+        metricId,
+        resolvePopupPassedMetricId(detail, {
+          params: boardFields?.params || normalizeSceneParams(popup?.params),
+          popup,
+        }),
+        defaultTableSlot?.metricId,
+      ),
       datasetId: nonEmptyString(
         defaultTableSlot?.datasetId,
         detail?.dataset_id,
@@ -11968,22 +12021,24 @@
       config?.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
     );
-    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
-    const detailSlotMetricId = nonEmptyString(
-      config?.detailSlot?.metricId,
-      config?.tableMetricId,
+    const passedMetricId = resolvePopupPassedMetricId(detail, config);
+    const cardMetricId = nonEmptyString(
+      passedMetricId,
+      resolveDrilldownTableMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
     );
+    const detailSlotMetricId = nonEmptyString(config?.detailSlot?.metricId);
     const tableMetricId = hasRowDrilldownFilters(detail)
       ? nonEmptyString(
           cardMetricId,
-          detail?.__mei_runtime_ref?.metric_id,
           detailSlotMetricId,
           resolveCompositionMetricId(config, detail),
         )
       : nonEmptyString(
-          detailSlotMetricId,
-          config?.structuredBoard && cardMetricId ? cardMetricId : "",
+          cardMetricId,
           resolveCompositionMetricId(config, detail),
+          detailSlotMetricId,
         );
     const detailRowsetMetricId =
       tableMetricId && !isScalarRowsetMetricId(tableMetricId)
@@ -12196,6 +12251,7 @@
 
   function resolveDrilldownDetailTableMetricId(config, detail = null) {
     const raw = nonEmptyString(
+      resolveDrilldownTableMetricId(detail, config),
       config?.detailSlot?.metricId,
       config?.tableMetricId,
       config?.runtimeRef?.metricId,
@@ -12441,7 +12497,7 @@
     return "";
   }
 
-  function resolveAnalyticsTableRowDrilldown(config = null) {
+  function resolveAnalyticsTableRowDrilldown(config = null, detail = null) {
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
@@ -12450,7 +12506,7 @@
     if (!boardSceneId) {
       return null;
     }
-    const metricId = nonEmptyString(config?.tableMetricId);
+    const metricId = resolveDrilldownTableMetricId(detail, config);
     const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId);
     const scenePath = nonEmptyString(
       config?.detailSlot?.runtimeRef?.scenePath,
@@ -12490,11 +12546,11 @@
     };
   }
 
-  function applyAnalyticsTableRowDrilldown(props, config) {
+  function applyAnalyticsTableRowDrilldown(props, config, detail = null) {
     if (!props) {
       return props;
     }
-    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config);
+    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config, detail);
     if (!rowDrilldown) {
       return props;
     }
@@ -12940,7 +12996,7 @@
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const props = applyAnalyticsTableRowDrilldown(buildDrilldownTableProps(detail, config), config);
+    const props = applyAnalyticsTableRowDrilldown(buildDrilldownTableProps(detail, config), config, detail);
     if (!props) {
       recordPopupDebugIssue({
         level: "error",
@@ -13278,6 +13334,7 @@
             ...detailTabConfig,
             detailSlot,
             tableMetricId: nonEmptyString(
+              resolveDrilldownTableMetricId(detail, config),
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
               config.tableMetricId,
@@ -14524,7 +14581,12 @@
       queryStateId: config.queryStateId,
       hasChartZone: config.hasChartZone,
       hasRowPreviewZone: config.hasRowPreviewZone,
-      tableMetricId: nonEmptyString(primarySlot.metricId, baseConfig.tableMetricId, config.tableMetricId),
+      tableMetricId: nonEmptyString(
+        resolveDrilldownTableMetricId(detail, config),
+        baseConfig.tableMetricId,
+        primarySlot.metricId,
+        config.tableMetricId,
+      ),
       datasetId: nonEmptyString(primarySlot.datasetId, baseConfig.datasetId, config.datasetId),
       columns: cloneArray(primarySlot.fields).length
         ? cloneArray(primarySlot.fields)
@@ -14586,12 +14648,9 @@
         ...config,
         drilldownDetail: detail,
         tableMetricId: nonEmptyString(
-          hasRowDrilldownFilters(detail) ? detail?.metric_id : "",
-          hasRowDrilldownFilters(detail) ? detail?.__mei_runtime_ref?.metric_id : "",
-          config?.rowPreviewSlot?.metricId,
+          resolvePopupPassedMetricId(detail, config),
           config?.tableMetricId,
-          detail?.metric_id,
-          detail?.__mei_runtime_ref?.metric_id,
+          config?.rowPreviewSlot?.metricId,
         ),
       };
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);

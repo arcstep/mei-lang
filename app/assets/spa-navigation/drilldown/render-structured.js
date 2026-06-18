@@ -111,7 +111,12 @@
       queryStateId: config.queryStateId,
       hasChartZone: config.hasChartZone,
       hasRowPreviewZone: config.hasRowPreviewZone,
-      tableMetricId: nonEmptyString(primarySlot.metricId, baseConfig.tableMetricId, config.tableMetricId),
+      tableMetricId: nonEmptyString(
+        resolveDrilldownTableMetricId(detail, config),
+        baseConfig.tableMetricId,
+        primarySlot.metricId,
+        config.tableMetricId,
+      ),
       datasetId: nonEmptyString(primarySlot.datasetId, baseConfig.datasetId, config.datasetId),
       columns: cloneArray(primarySlot.fields).length
         ? cloneArray(primarySlot.fields)
@@ -173,12 +178,9 @@
         ...config,
         drilldownDetail: detail,
         tableMetricId: nonEmptyString(
-          hasRowDrilldownFilters(detail) ? detail?.metric_id : "",
-          hasRowDrilldownFilters(detail) ? detail?.__mei_runtime_ref?.metric_id : "",
-          config?.rowPreviewSlot?.metricId,
+          resolvePopupPassedMetricId(detail, config),
           config?.tableMetricId,
-          detail?.metric_id,
-          detail?.__mei_runtime_ref?.metric_id,
+          config?.rowPreviewSlot?.metricId,
         ),
       };
       const dataset = await fetchPopupDrilldownRows(detail, fetchConfig);

@@ -107,7 +107,7 @@
     return "";
   }
 
-  function resolveAnalyticsTableRowDrilldown(config = null) {
+  function resolveAnalyticsTableRowDrilldown(config = null, detail = null) {
     if (!isAnalyticsDetailTableConfig(config)) {
       return null;
     }
@@ -116,7 +116,7 @@
     if (!boardSceneId) {
       return null;
     }
-    const metricId = nonEmptyString(config?.tableMetricId);
+    const metricId = resolveDrilldownTableMetricId(detail, config);
     const sceneId = nonEmptyString(config?.hostSceneId, config?.sceneId);
     const scenePath = nonEmptyString(
       config?.detailSlot?.runtimeRef?.scenePath,
@@ -156,11 +156,11 @@
     };
   }
 
-  function applyAnalyticsTableRowDrilldown(props, config) {
+  function applyAnalyticsTableRowDrilldown(props, config, detail = null) {
     if (!props) {
       return props;
     }
-    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config);
+    const rowDrilldown = resolveAnalyticsTableRowDrilldown(config, detail);
     if (!rowDrilldown) {
       return props;
     }

@@ -280,7 +280,7 @@
     if (!(host instanceof HTMLElement)) {
       return false;
     }
-    const props = applyAnalyticsTableRowDrilldown(buildDrilldownTableProps(detail, config), config);
+    const props = applyAnalyticsTableRowDrilldown(buildDrilldownTableProps(detail, config), config, detail);
     if (!props) {
       recordPopupDebugIssue({
         level: "error",

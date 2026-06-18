@@ -112,6 +112,7 @@
             ...detailTabConfig,
             detailSlot,
             tableMetricId: nonEmptyString(
+              resolveDrilldownTableMetricId(detail, config),
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
               config.tableMetricId,

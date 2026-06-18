@@ -204,22 +204,24 @@
       config?.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
     );
-    const cardMetricId = nonEmptyString(detail?.metric_id, detail?.__mei_runtime_ref?.metric_id);
-    const detailSlotMetricId = nonEmptyString(
-      config?.detailSlot?.metricId,
-      config?.tableMetricId,
+    const passedMetricId = resolvePopupPassedMetricId(detail, config);
+    const cardMetricId = nonEmptyString(
+      passedMetricId,
+      resolveDrilldownTableMetricId(detail, config),
+      detail?.metric_id,
+      detail?.__mei_runtime_ref?.metric_id,
     );
+    const detailSlotMetricId = nonEmptyString(config?.detailSlot?.metricId);
     const tableMetricId = hasRowDrilldownFilters(detail)
       ? nonEmptyString(
           cardMetricId,
-          detail?.__mei_runtime_ref?.metric_id,
           detailSlotMetricId,
           resolveCompositionMetricId(config, detail),
         )
       : nonEmptyString(
-          detailSlotMetricId,
-          config?.structuredBoard && cardMetricId ? cardMetricId : "",
+          cardMetricId,
           resolveCompositionMetricId(config, detail),
+          detailSlotMetricId,
         );
     const detailRowsetMetricId =
       tableMetricId && !isScalarRowsetMetricId(tableMetricId)

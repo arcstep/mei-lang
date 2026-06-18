@@ -116,6 +116,7 @@
 
   function resolveDrilldownDetailTableMetricId(config, detail = null) {
     const raw = nonEmptyString(
+      resolveDrilldownTableMetricId(detail, config),
       config?.detailSlot?.metricId,
       config?.tableMetricId,
       config?.runtimeRef?.metricId,

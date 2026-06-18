@@ -341,7 +341,14 @@
       projection,
       title,
       note: "",
-      tableMetricId: nonEmptyString(defaultTableSlot?.metricId, metricId),
+      tableMetricId: nonEmptyString(
+        metricId,
+        resolvePopupPassedMetricId(detail, {
+          params: boardFields?.params || normalizeSceneParams(popup?.params),
+          popup,
+        }),
+        defaultTableSlot?.metricId,
+      ),
       datasetId: nonEmptyString(
         defaultTableSlot?.datasetId,
         detail?.dataset_id,
