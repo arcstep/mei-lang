@@ -101,17 +101,17 @@ export function inferColumnProfile(column, rows = [], hint = null) {
     return buildDateProfile(values);
   }
   if (controlHint === "date_range") {
-    const profile = buildDateProfile(values);
     return {
-      ...profile,
-      operators: ["month_range"],
+      kind: "date",
+      operators: ["date_range"],
+      options: [],
     };
   }
   if (controlHint === "multi_select") {
     if (distinct.length > 0) {
-      return buildEnumProfile(distinct);
+      return { ...buildEnumProfile(distinct), operators: ["in", "contains"] };
     }
-    return { kind: "enum", operators: ["in"], options: [] };
+    return { kind: "enum", operators: ["in", "contains"], options: [] };
   }
   if (controlHint === "text") {
     return { kind: "text", operators: ["contains", "eq"], options: [] };
@@ -160,20 +160,33 @@ export function inferColumnProfile(column, rows = [], hint = null) {
 export function buildColumnProfiles(catalog, rows) {
   const profiles = new Map();
   for (const entry of catalog || []) {
-    const column =
-      typeof entry === "string"
-        ? String(entry || "").trim()
-        : String(entry?.column || entry?.key || "").trim();
-    if (!column) continue;
-    const hint = typeof entry === "object" && entry ? entry : null;
-    profiles.set(column, inferColumnProfile(column, rows, hint));
+    if (typeof entry === "string") {
+      const name = String(entry || "").trim();
+      if (!name) continue;
+      profiles.set(name, inferColumnProfile(name, rows, null));
+      continue;
+    }
+    const queryKey = String(entry?.key || entry?.field || entry?.column || "").trim();
+    const dataColumn = String(
+      entry?.column || entry?.options_field || entry?.optionsField || queryKey,
+    ).trim();
+    if (!queryKey) continue;
+    profiles.set(queryKey, inferColumnProfile(dataColumn, rows, entry));
   }
   return profiles;
 }
 
 export function defaultOperatorForProfile(profile, hint = null) {
+  const controlHint = normalizeControlHint(hint);
+  if (controlHint === "date_range") return "date_range";
+  if (controlHint === "multi_select") return "in";
+  if (controlHint === "month_multi_select") return "month_in";
+  if (controlHint === "text") return "contains";
   const hinted = String(hint?.operator || hint?.default_operator || hint?.defaultOperator || "").trim();
-  if (hinted) return hinted;
+  if (hinted) {
+    const allowed = operatorsForField(profile, hint);
+    if (allowed.includes(hinted)) return hinted;
+  }
   if (!profile) return "contains";
   if (profile.kind === "enum") return "in";
   if (profile.kind === "number") return "eq";
@@ -181,18 +194,44 @@ export function defaultOperatorForProfile(profile, hint = null) {
   return "contains";
 }
 
+const OPERATOR_LABELS = {
+  in: "属于（多选）",
+  contains: "包含",
+  eq: "等于",
+  gt: "大于",
+  gte: "大于等于",
+  lt: "小于",
+  lte: "小于等于",
+  month_in: "月份属于",
+  month_range: "月份范围",
+  date_range: "日期范围",
+};
+
+export function operatorsForField(profile, fieldHint = null) {
+  const control = normalizeControlHint(fieldHint);
+  if (control === "text") return ["contains", "eq"];
+  if (control === "multi_select") return ["in", "contains"];
+  if (control === "date_range") return ["date_range"];
+  if (control === "month_multi_select") return ["month_in", "month_range"];
+  if (profile?.kind === "number") return ["eq", "gt", "gte", "lt", "lte"];
+  if (profile?.kind === "date") return ["month_in", "month_range", "date_range"];
+  if (profile?.kind === "enum") return ["in"];
+  return ["contains", "eq"];
+}
+
+export function operatorOptionsForField(profile, fieldHint = null) {
+  return operatorsForField(profile, fieldHint).map((id) => ({
+    id,
+    label: OPERATOR_LABELS[id] || id,
+  }));
+}
+
+/** @deprecated use operatorOptionsForField */
+export function operatorOptionsForAdditiveBuilder(profile, fieldHint = null) {
+  return operatorOptionsForField(profile, fieldHint);
+}
+
 export function operatorOptionsForProfile(profile) {
-  const labels = {
-    in: "属于",
-    contains: "包含",
-    eq: "等于",
-    gt: "大于",
-    gte: "大于等于",
-    lt: "小于",
-    lte: "小于等于",
-    month_in: "月份属于",
-    month_range: "月份范围",
-  };
   const operators = Array.isArray(profile?.operators) ? profile.operators : ["contains"];
-  return operators.map((id) => ({ id, label: labels[id] || id }));
+  return operators.map((id) => ({ id, label: OPERATOR_LABELS[id] || id }));
 }

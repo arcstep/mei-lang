@@ -15,9 +15,11 @@ function stripNegate(encoded) {
   return { negate: false, body: text };
 }
 
-export function createEmptyFilterRow(nextRowId) {
+export function createEmptyFilterRow(nextRowId, options = {}) {
+  const status = options.status === "active" ? "active" : "draft";
   return {
     id: nextRowId(),
+    status,
     column: "",
     operator: "contains",
     negate: false,
@@ -47,6 +49,11 @@ export function encodeFilterRow(row, profile) {
     const end = String(row?.rangeEnd || "").trim();
     if (!start || !end) return "";
     body = `mrange:${start}..${end}`;
+  } else if (operator === "date_range") {
+    const start = String(row?.rangeStart || "").trim();
+    const end = String(row?.rangeEnd || "").trim();
+    if (!start || !end) return "";
+    body = `drange:${start}..${end}`;
   } else if (operator === "contains") {
     const value = String(row?.value || "").trim();
     if (!value) return "";
@@ -80,6 +87,13 @@ export function decodeFilterRow(encoded, column, profile) {
   if (body.startsWith("mrange:")) {
     const [start, end] = body.slice(7).split("..");
     row.operator = "month_range";
+    row.rangeStart = String(start || "").trim();
+    row.rangeEnd = String(end || "").trim();
+    return row;
+  }
+  if (body.startsWith("drange:")) {
+    const [start, end] = body.slice(7).split("..");
+    row.operator = "date_range";
     row.rangeStart = String(start || "").trim();
     row.rangeEnd = String(end || "").trim();
     return row;
@@ -122,15 +136,39 @@ export function decodeFilterRow(encoded, column, profile) {
   return row;
 }
 
+function fieldQueryKey(field) {
+  return String(field?.key || field?.field || field?.column || "").trim();
+}
+
+function filterStateKey(field) {
+  const column = String(field?.column || "").trim();
+  return column || fieldQueryKey(field);
+}
+
+function findCatalogFieldByStateKey(catalog, stateKey) {
+  const needle = String(stateKey || "").trim();
+  if (!needle) return null;
+  return (
+    (catalog || []).find((field) => {
+      const queryKey = fieldQueryKey(field);
+      const column = String(field?.column || "").trim();
+      return queryKey === needle || column === needle || filterStateKey(field) === needle;
+    }) || null
+  );
+}
+
 export function filtersToRows(filters, catalog, profiles, nextRowId) {
   const entries = Object.entries(filters || {}).filter(([, raw]) => String(raw ?? "").trim());
   if (!entries.length) {
-    return [createEmptyFilterRow(nextRowId)];
+    return null;
   }
-  return entries.map(([column, raw]) => {
-    const profile = profiles?.get(column) || null;
-    const row = decodeFilterRow(String(raw ?? ""), column, profile);
+  return entries.map(([stateKey, raw]) => {
+    const field = findCatalogFieldByStateKey(catalog, stateKey);
+    const rowColumn = field ? fieldQueryKey(field) : stateKey;
+    const profile = profiles?.get(rowColumn) || profiles?.get(stateKey) || null;
+    const row = decodeFilterRow(String(raw ?? ""), rowColumn, profile);
     row.id = nextRowId();
+    row.status = "active";
     return row;
   });
 }
@@ -140,15 +178,17 @@ export function schemaToRows(schemaFields, filters, profiles, nextRowId) {
     .map((field) => {
       const column = String(field?.column || field?.key || "").trim();
       if (!column) return null;
+      const fieldKey = String(field?.key || column).trim();
       const profile = profiles?.get(column) || null;
-      const raw = String(filters?.[column] ?? "").trim();
+      // Prefer filter_schema field key (e.g. dateRange) over column name for query_state round-trip.
+      const raw = String(filters?.[fieldKey] ?? filters?.[column] ?? "").trim();
       const row = raw
         ? decodeFilterRow(raw, column, profile)
         : createEmptyFilterRow(() => "schema-empty");
       row.id = nextRowId();
       row.column = column;
       row.label = String(field?.label || column).trim();
-      row.fieldKey = String(field?.key || column).trim();
+      row.fieldKey = fieldKey;
       const hinted = String(field?.operator || field?.default_operator || field?.defaultOperator || "").trim();
       if (hinted) {
         row.operator = hinted;

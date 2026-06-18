@@ -353,8 +353,34 @@
 
   function buildAnalyticsFilterBarProps(config, detail) {
     const tableProps = buildDrilldownTableProps(detail, config) || {};
-    const columnCatalog = buildFilterColumnCatalog(config, tableProps);
     const filterSchema = config?.filterSchema || {};
+    const schemaFields = Array.isArray(filterSchema.fields) ? filterSchema.fields : [];
+    const useSchemaCatalog = schemaFields.length > 0;
+    const columnCatalog = useSchemaCatalog
+      ? schemaFields.map((field) => ({
+          key: nonEmptyString(field.key, field.column),
+          label: field.label || field.key || field.column,
+          column: nonEmptyString(field.column, field.key),
+          control: nonEmptyString(field.control, field.type) || undefined,
+          operator: nonEmptyString(field.operator, field.default_operator, field.defaultOperator),
+          options_from: nonEmptyString(field.options_from, field.optionsFrom) || "rowset",
+          options_field: nonEmptyString(field.options_field, field.optionsField, field.column),
+          options: Array.isArray(field.options) ? field.options : undefined,
+          placeholder: nonEmptyString(field.placeholder),
+          visible: field.visible !== false,
+        }))
+      : buildFilterColumnCatalog(config, tableProps);
+    const presetFilterCount = useSchemaCatalog
+      ? Math.max(
+          0,
+          Number(
+            filterSchema.presetFilterCount ??
+              filterSchema.preset_filter_count ??
+              filterSchema.defaultPresetCount ??
+              3,
+          ) || 0,
+        )
+      : 0;
     const rowsetDatasetId = nonEmptyString(
       filterSchema.rowsetDatasetId,
       config?.filterSchema?.rowsetDatasetId,
@@ -366,6 +392,7 @@
       live: false,
       title: nonEmptyString(filterSchema.title) || "筛选条件",
       default_collapsed: Boolean(filterSchema.defaultCollapsed),
+      preset_filter_count: presetFilterCount,
       query_state: config?.queryStateId || undefined,
       default_filters: tableProps?.default_filters || undefined,
       rowset_dataset_id: rowsetDatasetId || undefined,

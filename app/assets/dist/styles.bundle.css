@@ -1742,7 +1742,22 @@ body > .mei-floating-text-pop-backdrop {
 }
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-host,
 .access-drilldown-shell-zone[data-shell-zone-role="filter"] {
-  overflow: auto;
+  overflow: visible;
+}
+.access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-surface {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  overflow: visible;
+}
+.access-drilldown-shell-zone[data-shell-zone-role="filter"] .access-drilldown-shell-host {
+  padding: 0;
+  overflow: visible;
+}
+.access-drilldown-shell-zone[data-shell-zone-role="filter"] mei-dataset-filter-bar {
+  display: block;
+  height: 100%;
+  min-height: 0;
 }
 .access-drilldown-shell-surface {
   width: 100%;
