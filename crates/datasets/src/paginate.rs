@@ -263,6 +263,7 @@ enum FilterSpec {
     InValues(Vec<String>),
     Month(Vec<String>),
     MonthRange { start: String, end: String },
+    DateRange { start: String, end: String },
     NumCompare { op: NumCompareOp, value: f64 },
     Not(Box<FilterSpec>),
 }
@@ -344,6 +345,18 @@ fn parse_filter_spec(expected: &str) -> FilterSpec {
             }
         }
     }
+    if let Some(rest) = trimmed.strip_prefix("drange:") {
+        if let Some((start, end)) = rest.split_once("..") {
+            let start = start.trim();
+            let end = end.trim();
+            if !start.is_empty() && !end.is_empty() {
+                return FilterSpec::DateRange {
+                    start: start.to_string(),
+                    end: end.to_string(),
+                };
+            }
+        }
+    }
     if let Some(rest) = trimmed.strip_prefix("in:") {
         return FilterSpec::InValues(
             split_filter_values(rest)
@@ -398,6 +411,18 @@ fn eval_filter_spec(actual: &str, spec: &FilterSpec) -> bool {
                 return false;
             };
             actual_month.as_str() >= start.as_str() && actual_month.as_str() <= end.as_str()
+        }
+        FilterSpec::DateRange { start, end } => {
+            let Some(actual_ord) = sort_datetime(actual) else {
+                return false;
+            };
+            let Some(start_ord) = sort_datetime(start) else {
+                return false;
+            };
+            let Some(end_ord) = sort_datetime(end) else {
+                return false;
+            };
+            actual_ord >= start_ord && actual_ord <= end_ord
         }
         FilterSpec::NumCompare { op, value } => parse_filter_number(actual)
             .is_some_and(|actual_value| eval_num_compare(actual_value, *op, *value)),
@@ -464,6 +489,16 @@ mod filter_spec_tests {
         let spec = parse_filter_spec("mrange:2024-01..2024-06");
         assert!(eval_filter_spec("2024-03-15", &spec));
         assert!(!eval_filter_spec("2023-12-01", &spec));
+    }
+
+    #[test]
+    fn parse_date_range() {
+        let spec = parse_filter_spec("drange:2024-01-15..2024-06-30");
+        assert!(eval_filter_spec("2024-03-15", &spec));
+        assert!(eval_filter_spec("2024-01-15", &spec));
+        assert!(eval_filter_spec("2024-06-30", &spec));
+        assert!(!eval_filter_spec("2024-01-14", &spec));
+        assert!(!eval_filter_spec("2024-07-01", &spec));
     }
 }
 
