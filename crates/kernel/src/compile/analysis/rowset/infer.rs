@@ -43,7 +43,21 @@ pub(super) fn eval_analysis_rowset(
                 .get("rowset")
                 .ok_or_else(|| anyhow!("where expression missing rowset"))?;
             let predicate = map.get("predicate").unwrap_or(&Value::Null);
-            Ok(eval_rowset_with_ctx(rowset_expr, datasets, ctx)?
+            let rows = eval_rowset_with_ctx(rowset_expr, datasets, ctx)?;
+            if let (Some(field), Some(expected)) = (
+                predicate.get("field").and_then(Value::as_str),
+                predicate
+                    .get("equals")
+                    .and_then(Value::as_str)
+                    .or_else(|| predicate.get("eq").and_then(Value::as_str)),
+            ) {
+                if let Some(filtered) =
+                    crate::compile::rowset_engine::try_where_eq_columnar(&rows, field, expected)
+                {
+                    return Ok(filtered);
+                }
+            }
+            Ok(rows
                 .into_iter()
                 .filter(|row| predicate_matches_with_ctx(row, predicate, datasets, ctx))
                 .collect())
@@ -218,13 +232,26 @@ pub(super) fn eval_analysis_rowset(
             }
             let value_field = map.get("value").and_then(Value::as_str);
             let agg = map.get("agg").and_then(Value::as_str).unwrap_or("count");
-            let mut grouped = aggregate_group_rows(
-                &rows,
-                group_field,
-                value_field,
-                agg,
-                map.get("limit").and_then(Value::as_u64).map(|n| n as usize),
-            );
+            let limit = map.get("limit").and_then(Value::as_u64).map(|n| n as usize);
+            let mut grouped = if value_field.is_none() && agg == "count" && group_fields.len() == 1 {
+                crate::compile::rowset_engine::try_group_by_count_columnar(
+                    &rows,
+                    group_field,
+                    limit,
+                )
+                .or_else(|| {
+                    crate::compile::rowset_engine::try_polars_group_by(
+                        &rows,
+                        group_field,
+                        agg,
+                    )
+                })
+                .unwrap_or_else(|| {
+                    aggregate_group_rows(&rows, group_field, value_field, agg, limit)
+                })
+            } else {
+                aggregate_group_rows(&rows, group_field, value_field, agg, limit)
+            };
             if let Some(universe) = map.get("universe") {
                 grouped = apply_universe(grouped, universe, group_field, datasets, ctx)?;
             }

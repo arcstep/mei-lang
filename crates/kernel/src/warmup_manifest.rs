@@ -7,7 +7,8 @@ use anyhow::{Context, Result};
 use crate::compile::resolve_default_scene_from_root;
 use crate::mei_config::{
     load_workspace_config, resolve_app_entry_main, resolve_app_root, RuntimeWarmupApp,
-    RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, WorkspaceWarmupDatasetConfig,
+    RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
+    WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use crate::workspace::discover_apps;
@@ -80,6 +81,11 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
                 .map(|config| config.datasets.as_slice())
                 .unwrap_or(&[]),
         );
+        let xlsx_sources = normalize_warmup_xlsx_sources(
+            app_config
+                .map(|config| config.xlsx_sources.as_slice())
+                .unwrap_or(&[]),
+        );
         warmup_apps.push(RuntimeWarmupApp {
             app_id: app.id,
             default_scene,
@@ -87,6 +93,7 @@ pub fn build_runtime_warmup_manifest(source_root: &Path) -> Result<RuntimeWarmup
             scenes,
             focuses,
             datasets,
+            xlsx_sources,
         });
     }
 
@@ -184,6 +191,40 @@ fn normalize_warmup_dataset_requests(
             dataset_id: dataset_id.to_string(),
             metric_id,
             focus,
+        });
+    }
+    normalized
+}
+
+fn normalize_warmup_xlsx_sources(
+    sources: &[WorkspaceWarmupXlsxConfig],
+) -> Vec<RuntimeWarmupXlsxSource> {
+    let mut normalized = Vec::new();
+    let mut seen = BTreeSet::new();
+    for source in sources {
+        let path = source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let sheet = source
+            .sheet
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let header_row = source.header_row.unwrap_or(1).max(1);
+        let dedupe_key = format!(
+            "{}|{}|{header_row}",
+            path,
+            sheet.as_deref().unwrap_or("")
+        );
+        if !seen.insert(dedupe_key) {
+            continue;
+        }
+        normalized.push(RuntimeWarmupXlsxSource {
+            path: path.to_string(),
+            sheet,
+            header_row: Some(header_row),
         });
     }
     normalized

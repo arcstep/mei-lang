@@ -366,6 +366,18 @@ pub enum ExportCommand {
     Contracts(ExportContractsArgs),
     EvalPlan(ExportEvalPlanArgs),
     RuntimeTrace(ExportRuntimeTraceArgs),
+    DataSnapshots(ExportDataSnapshotsArgs),
+}
+
+#[derive(Args, Clone)]
+pub struct ExportDataSnapshotsArgs {
+    #[command(flatten)]
+    pub app: CliAppSelectorArgs,
+    /// xlsx 相对路径（可重复）；省略时使用 zhifa 默认热表
+    #[arg(long = "xlsx")]
+    pub xlsx_paths: Vec<String>,
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Clone)]

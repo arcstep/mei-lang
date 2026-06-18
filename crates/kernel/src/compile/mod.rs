@@ -8,6 +8,7 @@ mod app_compile;
 mod app_decl;
 mod authoring_eval;
 mod catalog;
+mod data_snapshot;
 mod decl_file_cache;
 mod decls;
 mod dependency_graph;
@@ -22,6 +23,7 @@ mod panel_normalize;
 mod projection_assembly;
 mod resources;
 mod route_compile;
+mod rowset_engine;
 mod scene;
 mod scene_binding;
 mod scene_payload_cache;
@@ -29,10 +31,16 @@ mod source_tree_enrich;
 mod source_tree_world;
 mod shards;
 mod ui_data_policy;
+mod xlsx_singleflight;
 
 pub use analysis::dates::{
     coerce_calendar_columns_in_rows, coerce_row_to_schema, coerce_rows_to_schema,
     format_calendar_date_value,
+};
+pub use data_snapshot::{
+    data_snapshot_store_root, parquet_snapshot_path, publish_xlsx_data_snapshots_for_paths,
+    source_file_content_signature, try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
+    DATA_SNAPSHOT_SCHEMA_VERSION,
 };
 pub use loaders::{load_xlsx_table_snapshot, materialize_xlsx_column_headers};
 

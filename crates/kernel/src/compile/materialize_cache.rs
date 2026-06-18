@@ -10,8 +10,14 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::decls::LegacySourceDecl;
+use super::data_snapshot::{
+    source_file_content_signature, try_load_xlsx_parquet_snapshot, write_xlsx_parquet_snapshot,
+};
 use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
 use super::scene_payload_cache::file_mtime_ms;
+use super::xlsx_singleflight::{
+    finish_xlsx_inflight, register_xlsx_inflight, wait_for_xlsx_inflight, xlsx_singleflight_enabled,
+};
 use crate::resolve_versioned_source_identifier;
 
 #[derive(Debug, Clone)]
@@ -35,7 +41,7 @@ pub struct TableSnapshotKey {
     pub header_row: usize,
 }
 
-pub const DATASET_MATERIALIZE_CACHE_VERSION: u32 = 2;
+pub const DATASET_MATERIALIZE_CACHE_VERSION: u32 = 3;
 
 pub fn dataset_materialize_cache_epoch() -> String {
     format!("l3v{DATASET_MATERIALIZE_CACHE_VERSION}")
@@ -192,14 +198,142 @@ fn xlsx_table_snapshot_cache_key(
     header_row: usize,
 ) -> Option<String> {
     let key = resolve_table_snapshot_key(app_root, "xlsx", source_path, sheet, header_row)?;
+    let absolute_path = app_root.join(&key.resolved_identifier);
+    let content_sig = if absolute_path.is_file() {
+        source_file_content_signature(absolute_path.as_path(), key.resolved_identifier.as_str())
+    } else {
+        "missing".to_string()
+    };
     Some(format!(
-        "xlsx-table|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{}|{}|{}|{}",
+        "xlsx-table|v{DATASET_MATERIALIZE_CACHE_VERSION}|{}|{}|{}|{}|{}|{content_sig}",
         app_root.display(),
         key.resolved_identifier,
         key.data_mtime,
         key.sheet,
         key.header_row
     ))
+}
+
+fn store_xlsx_table_snapshot_cache(key: &str, snapshot: Arc<XlsxTableSnapshot>) {
+    if let Ok(mut cache) = XLSX_TABLE_SNAPSHOT_CACHE.lock() {
+        if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
+            lru.retain(|value| value != key);
+            cache.insert(key.to_string(), snapshot);
+            touch_lru(&mut lru, key);
+            evict_lru(
+                &mut cache,
+                &mut lru,
+                MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES,
+            );
+        }
+    }
+}
+
+fn take_xlsx_table_snapshot_cache(key: &str) -> Option<Arc<XlsxTableSnapshot>> {
+    let snapshot = XLSX_TABLE_SNAPSHOT_CACHE
+        .lock()
+        .ok()
+        .and_then(|cache| cache.get(key).cloned())?;
+    if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
+        touch_lru(&mut lru, key);
+    }
+    Some(snapshot)
+}
+
+fn parquet_sidecar_write_enabled() -> bool {
+    !std::env::var("MEI_DISABLE_PARQUET_SIDECAR_WRITE")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
+fn load_xlsx_table_snapshot_arc(
+    app_root: &Path,
+    absolute_path: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+) -> Result<Arc<XlsxTableSnapshot>> {
+    if let Some(snapshot) = try_load_xlsx_parquet_snapshot(app_root, source_path, sheet, header_row)
+    {
+        return Ok(Arc::new(snapshot));
+    }
+    let snapshot = load_xlsx_table_snapshot(
+        absolute_path,
+        source_path,
+        sheet,
+        header_row.max(1),
+        None,
+    )?;
+    if parquet_sidecar_write_enabled() {
+        let _ = write_xlsx_parquet_snapshot(app_root, source_path, sheet, header_row);
+    }
+    Ok(Arc::new(snapshot))
+}
+
+fn cached_load_xlsx_table_snapshot_with_key(
+    app_root: &Path,
+    key: &str,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+) -> Result<(Arc<XlsxTableSnapshot>, bool)> {
+    if let Some(snapshot) = take_xlsx_table_snapshot_cache(key) {
+        return Ok((snapshot, true));
+    }
+
+    if xlsx_singleflight_enabled() {
+        if let Some((entry, is_leader)) = register_xlsx_inflight(key) {
+            if !is_leader {
+                let snapshot = wait_for_xlsx_inflight(&entry)?;
+                return Ok((snapshot, true));
+            }
+
+            // Leader: double-check cache after registration.
+            if let Some(snapshot) = take_xlsx_table_snapshot_cache(key) {
+                finish_xlsx_inflight(key, &entry, Ok(snapshot.clone()));
+                return Ok((snapshot, true));
+            }
+
+            let resolved_identifier = resolve_versioned_source_identifier(app_root, source_path);
+            let absolute_path = app_root.join(&resolved_identifier);
+            let load_result = load_xlsx_table_snapshot_arc(
+                app_root,
+                absolute_path.as_path(),
+                source_path,
+                sheet,
+                header_row,
+            )
+            .map_err(|error| error.to_string());
+            match load_result {
+                Ok(snapshot) => {
+                    store_xlsx_table_snapshot_cache(key, snapshot.clone());
+                    finish_xlsx_inflight(key, &entry, Ok(snapshot.clone()));
+                    return Ok((snapshot, false));
+                }
+                Err(error) => {
+                    finish_xlsx_inflight(key, &entry, Err(error.clone()));
+                    return Err(anyhow::anyhow!(error));
+                }
+            }
+        }
+    }
+
+    let resolved_identifier = resolve_versioned_source_identifier(app_root, source_path);
+    let absolute_path = app_root.join(&resolved_identifier);
+    let snapshot = load_xlsx_table_snapshot_arc(
+        app_root,
+        absolute_path.as_path(),
+        source_path,
+        sheet,
+        header_row,
+    )?;
+    store_xlsx_table_snapshot_cache(key, snapshot.clone());
+    Ok((snapshot, false))
 }
 
 pub fn cached_load_xlsx_table_snapshot(
@@ -218,38 +352,7 @@ pub fn cached_load_xlsx_table_snapshot(
         )?;
         return Ok((Arc::new(snapshot), false));
     };
-    let cached = XLSX_TABLE_SNAPSHOT_CACHE
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&key).cloned());
-    if let Some(snapshot) = cached {
-        if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
-            touch_lru(&mut lru, key.as_str());
-        }
-        return Ok((snapshot, true));
-    }
-    let resolved_identifier = resolve_versioned_source_identifier(app_root, source_path);
-    let absolute_path = app_root.join(&resolved_identifier);
-    let snapshot = Arc::new(load_xlsx_table_snapshot(
-        &absolute_path,
-        source_path,
-        sheet,
-        header_row.max(1),
-        None,
-    )?);
-    if let Ok(mut cache) = XLSX_TABLE_SNAPSHOT_CACHE.lock() {
-        if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
-            lru.retain(|value| value != &key);
-            cache.insert(key.clone(), snapshot.clone());
-            touch_lru(&mut lru, key.as_str());
-            evict_lru(
-                &mut cache,
-                &mut lru,
-                MAX_XLSX_TABLE_SNAPSHOT_CACHE_ENTRIES,
-            );
-        }
-    }
-    Ok((snapshot, false))
+    cached_load_xlsx_table_snapshot_with_key(app_root, &key, source_path, sheet, header_row)
 }
 
 pub fn try_get_cached_xlsx_table_snapshot(
@@ -285,6 +388,7 @@ pub(crate) fn clear_materialize_cache() {
     if let Ok(mut lru) = XLSX_TABLE_SNAPSHOT_CACHE_LRU.lock() {
         lru.clear();
     }
+    super::xlsx_singleflight::clear_xlsx_inflight_for_tests();
 }
 
 /// 供测试：清空 L3 缓存。

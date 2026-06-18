@@ -7,6 +7,9 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 calamine.workspace = true
+arrow-array.workspace = true
+arrow-schema.workspace = true
+parquet.workspace = true
 csv.workspace = true
 regex.workspace = true
 rusqlite = { version = "0.39.0", features = ["bundled"] }
@@ -15,3 +18,7 @@ serde_json.workspace = true
 starlark.workspace = true
 thiserror.workspace = true
 walkdir.workspace = true
+
+[features]
+default = []
+polars = []

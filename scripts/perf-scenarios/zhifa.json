@@ -308,6 +308,19 @@
       "run_kind": "cold"
     },
     {
+      "scenario_id": "zhifa.heavy.xlsx.inspection.parquet_cold",
+      "scenario_family": "heavy_bottleneck",
+      "route_mode": "metric_probe",
+      "scene_id": "administrative_inspection",
+      "target_file": "scenes/02-行政检查.mei",
+      "dataset_id": "administrative_inspection_dashboard_ds",
+      "metric_ids": ["inspections_6m_count_trend"],
+      "clear_before_sample": true,
+      "clear_mode": "clear_only",
+      "run_kind": "cold",
+      "notes": ["parquet_prefetch=export_data_snapshots"]
+    },
+    {
       "scenario_id": "zhifa.heavy.metric.penalty_dashboard.penalties_top_matter_year_ranking.cold_clear",
       "scenario_family": "heavy_bottleneck",
       "route_mode": "metric_probe",

@@ -344,19 +344,23 @@ pub fn query_metric_dataframe(
     let meta = parse_source_meta(dataset.source.content.as_deref());
     if let Some(materialized) = take_cached_metric_dataframe_materialized(&materialized_cache_key) {
         if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
+            let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
             let result = paginate_materialized_metric_dataframe(
                 &materialized,
                 &meta,
                 &options,
                 &response_cache_key,
-                response_cache_lookup_started,
+                response_cache_lookup_ms,
                 true,
+                Some(0),
             );
             store_cached_metric_dataframe_result(response_cache_key, &result);
             return Ok(result);
         }
     }
 
+    let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
+    let eval_started = Instant::now();
     let primary_filters =
         resolve_dataset_query_bindings_from_state(&effective_query_state, dataset).mapped_filters;
     let base_query = DatasetQueryOptions {
@@ -575,13 +579,15 @@ pub fn query_metric_dataframe(
     };
     store_cached_metric_dataframe_materialized(materialized_cache_key, materialized.clone());
 
+    let metric_dataframe_eval_ms = elapsed_ms(eval_started);
     let mut result = paginate_materialized_metric_dataframe(
         &materialized,
         &meta,
         &options,
         &response_cache_key,
-        response_cache_lookup_started,
+        response_cache_lookup_ms,
         false,
+        Some(metric_dataframe_eval_ms),
     );
     result.perf.extend(filtered_rows.perf);
     store_cached_metric_dataframe_result(response_cache_key, &result);
@@ -593,8 +599,9 @@ fn paginate_materialized_metric_dataframe(
     meta: &super::types::SourceMeta,
     options: &DatasetQueryOptions,
     response_cache_key: &str,
-    response_cache_lookup_started: Instant,
+    response_cache_lookup_ms: u64,
     from_materialized_cache: bool,
+    metric_dataframe_eval_ms: Option<u64>,
 ) -> DatasetQueryResult {
     let default_page_size = meta
         .lazy
@@ -656,8 +663,13 @@ fn paginate_materialized_metric_dataframe(
     );
     result.perf.insert(
         "response_cache_lookup_ms".to_string(),
-        elapsed_ms(response_cache_lookup_started),
+        response_cache_lookup_ms,
     );
+    if let Some(eval_ms) = metric_dataframe_eval_ms {
+        result
+            .perf
+            .insert("metric_dataframe_eval_ms".to_string(), eval_ms);
+    }
     result
 }
 

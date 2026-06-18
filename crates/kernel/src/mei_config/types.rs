@@ -139,6 +139,18 @@ pub struct WorkspaceWarmupAppConfig {
     pub focuses: Vec<String>,
     #[serde(default)]
     pub datasets: Vec<WorkspaceWarmupDatasetConfig>,
+    /// App-relative xlsx paths to preload into L3 table snapshot cache.
+    #[serde(default, rename = "xlsxSources")]
+    pub xlsx_sources: Vec<WorkspaceWarmupXlsxConfig>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceWarmupXlsxConfig {
+    pub path: String,
+    #[serde(default)]
+    pub sheet: Option<String>,
+    #[serde(default, rename = "headerRow")]
+    pub header_row: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +190,17 @@ pub struct RuntimeWarmupApp {
     pub focuses: Vec<String>,
     #[serde(default)]
     pub datasets: Vec<RuntimeWarmupDatasetRequest>,
+    #[serde(default, rename = "xlsxSources")]
+    pub xlsx_sources: Vec<RuntimeWarmupXlsxSource>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeWarmupXlsxSource {
+    pub path: String,
+    #[serde(default)]
+    pub sheet: Option<String>,
+    #[serde(default, rename = "headerRow")]
+    pub header_row: Option<usize>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

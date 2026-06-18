@@ -11,6 +11,7 @@ mod export;
 mod knowledge_bundle;
 mod observation;
 mod platform_assets;
+mod publish_data_snapshots;
 mod runtime_sim;
 mod semantic_summary;
 mod types;
@@ -73,6 +74,7 @@ pub use platform_assets::{
     ComponentExportDescriptor, ComponentPackDescriptor, PlatformAssetCatalogDescriptor,
     TemplatePackDescriptor, PLATFORM_ASSET_SCHEMA_VERSION,
 };
+pub use publish_data_snapshots::{publish_data_snapshots, PublishDataSnapshotsReport};
 pub use runtime_sim::{runtime_sim_step, RuntimeSimStepResult};
 pub use types::{
     ResourceInventoryItem, ResourceInventorySnapshot, ResourceQueryToolSpec, WorkspaceAppSummary,

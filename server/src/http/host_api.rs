@@ -7,9 +7,9 @@ use axum::{
     Json,
 };
 use mei_lang_kernel::{
-    locate_dataset_resource, resolve_app_root, resolve_runtime_warmup_manifest, CompileOptions,
-    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest,
-    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    cached_load_xlsx_table_snapshot, locate_dataset_resource, resolve_app_root,
+    resolve_runtime_warmup_manifest, CompileOptions, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
+    RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use serde::Serialize;
 
@@ -244,10 +244,10 @@ fn warmup_dataset_request(
     let app_root = resolve_app_root(state.source_root.as_path(), app_id);
     let warm_query = super::datasets::DatasetQueryOptions {
         page: 1,
-        page_size: 20,
+        page_size: 0,
         search: None,
         filters: Default::default(),
-        collect_all: false,
+        collect_all: true,
         ..Default::default()
     };
     if let Some(metric_id) = request
@@ -276,6 +276,24 @@ fn warmup_dataset_request(
     Ok(())
 }
 
+fn warmup_xlsx_sources(app_root: &Path, sources: &[RuntimeWarmupXlsxSource]) -> Result<(), String> {
+    for source in sources {
+        let path = source.path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        let header_row = source.header_row.unwrap_or(1).max(1);
+        cached_load_xlsx_table_snapshot(
+            app_root,
+            path,
+            source.sheet.as_deref(),
+            header_row,
+        )
+        .map_err(|error| format!("xlsx warmup `{path}` failed: {error}"))?;
+    }
+    Ok(())
+}
+
 fn warmup_app(
     state: &AppState,
     app: &RuntimeWarmupApp,
@@ -294,6 +312,8 @@ fn warmup_app(
             components_root,
         )?;
     }
+    let app_root = resolve_app_root(state.source_root.as_path(), app.app_id.as_str());
+    warmup_xlsx_sources(app_root.as_path(), app.xlsx_sources.as_slice())?;
     Ok(())
 }
 

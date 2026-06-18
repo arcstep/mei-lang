@@ -1,6 +1,6 @@
 use super::super::args::{
-    ExportArgs, ExportCommand, ExportContractsArgs, ExportEvalPlanArgs, ExportInventoryArgs,
-    ExportRuntimeTraceArgs, ExportSemanticDagArgs,
+    ExportArgs, ExportCommand, ExportContractsArgs, ExportDataSnapshotsArgs, ExportEvalPlanArgs,
+    ExportInventoryArgs, ExportRuntimeTraceArgs, ExportSemanticDagArgs,
 };
 use super::super::util::{
     attach_layout_to_envelope, ensure_cli_layout_ready, inspect_layout_for_app, parse_cli_filters,
@@ -16,6 +16,7 @@ pub fn export_command(args: ExportArgs) -> Result<()> {
         ExportCommand::Contracts(args) => export_contracts_command(args),
         ExportCommand::EvalPlan(args) => export_eval_plan_command(args),
         ExportCommand::RuntimeTrace(args) => export_runtime_trace_command(args),
+        ExportCommand::DataSnapshots(args) => export_data_snapshots_command(args),
     }
 }
 
@@ -137,4 +138,22 @@ pub fn export_runtime_trace_command(args: ExportRuntimeTraceArgs) -> Result<()> 
     )?;
     attach_layout_to_envelope(&mut envelope, &layout)?;
     print_json_output(&envelope, args.app.json)
+}
+
+pub fn export_data_snapshots_command(args: ExportDataSnapshotsArgs) -> Result<()> {
+    let package_root = resolve_package_root()?;
+    let source_root = resolve_cli_source_root(&package_root, &args.app.source_root)?;
+    let app_id = args.app.app.trim();
+    if app_id.is_empty() {
+        anyhow::bail!("--app is required");
+    }
+    let layout = inspect_layout_for_app(&source_root, app_id);
+    ensure_cli_layout_ready(&layout)?;
+    let extra: Vec<(&str, Option<&str>, usize)> = args
+        .xlsx_paths
+        .iter()
+        .map(|path| (path.as_str(), None, 1usize))
+        .collect();
+    let report = toolchain::publish_data_snapshots(&source_root, app_id, extra.as_slice())?;
+    print_json_output(&report, args.json || args.app.json)
 }

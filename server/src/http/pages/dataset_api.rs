@@ -312,6 +312,7 @@ pub async fn dataset_query_api(
         total_rows = result.total,
         compile_cache_hit = compile_outcome.cache_hit,
         compile_ms = compile_observation.compile_ms,
+        compile_cache_lock_wait_ms = compile_outcome.compile_cache_lock_wait_ms,
         query_api_ms = query_ms,
         total_ms,
         "dataset query finished"
