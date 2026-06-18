@@ -1,20 +1,14 @@
 import {
   deferUntilDisplayed,
-  fetchPanelRuntimeMetrics,
+  fetchDatasetRows,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
+  subscribeHomeRuntimeResume,
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import { escapeHtml } from "./shared.js";
 import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars, themeColor } from "./tokens.js";
-
-function metricRows(metric) {
-  if (!metric || typeof metric !== "object") return [];
-  if (Array.isArray(metric.rows)) return metric.rows;
-  if (Array.isArray(metric.value)) return metric.value;
-  return [];
-}
 
 function formatWanYuan(raw) {
   const n = Number(raw);
@@ -63,6 +57,9 @@ class MeiCockpitParkAmountList extends HTMLElement {
       this._sharedFilters = state?.filters || {};
       this.refreshData();
     });
+    this._unsubscribeHomeRuntimeResume = subscribeHomeRuntimeResume(() => {
+      this.refreshData();
+    });
     this.renderShell();
     this.refreshData();
   }
@@ -74,6 +71,9 @@ class MeiCockpitParkAmountList extends HTMLElement {
     }
     if (typeof this._unsubscribeQueryState === "function") {
       this._unsubscribeQueryState();
+    }
+    if (typeof this._unsubscribeHomeRuntimeResume === "function") {
+      this._unsubscribeHomeRuntimeResume();
     }
   }
 
@@ -184,14 +184,14 @@ class MeiCockpitParkAmountList extends HTMLElement {
     const lineProps = propsWithMetricValue(this._props, resolvedValue);
     const metricRef = resolveRuntimeMetricRef(lineProps);
     if (!metricRef) return [];
-    const result = await fetchPanelRuntimeMetrics(this, lineProps, {
+    const limit = Math.max(1, Number(this._props?.limit) || 3);
+    const result = await fetchDatasetRows(lineProps, {
       filters: this._sharedFilters,
-      metricIds: [metricRef.metric_id].filter(Boolean),
+      page: 1,
+      pageSize: Math.max(limit + 4, 16),
       meta: runtimeCallerMeta(this, "mei-cockpit-park-amount-list"),
     });
-    const metrics = Array.isArray(result?.metrics) ? result.metrics : [];
-    const metric = metrics.find((m) => m.id === metricRef.metric_id) || metrics[0];
-    return metricRows(metric);
+    return Array.isArray(result?.rows) ? result.rows : [];
   }
 
   async refreshData() {

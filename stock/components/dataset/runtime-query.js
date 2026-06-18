@@ -443,6 +443,7 @@ export function deferUntilDisplayed(el, fn) {
     document.removeEventListener(MEI_MANAGE_TAB_CHANGE, onManageTab);
     window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("meilang:preview-updated", onPreviewUpdated);
+    window.removeEventListener("meilang:prefetch-panel-metrics", onPreviewUpdated);
     if (io) {
       try {
         io.disconnect();
@@ -514,6 +515,7 @@ export function deferUntilDisplayed(el, fn) {
   document.addEventListener(MEI_MANAGE_TAB_CHANGE, onManageTab);
   window.addEventListener("pageshow", onPageShow);
   window.addEventListener("meilang:preview-updated", onPreviewUpdated);
+  window.addEventListener("meilang:prefetch-panel-metrics", onPreviewUpdated);
 
   if (window.IntersectionObserver) {
     try {
@@ -1066,33 +1068,92 @@ export function abortRuntimeQueries(reason = "") {
   }
 }
 
+const EXPLICIT_METRIC_PROP_KEYS = [
+  "content",
+  "value",
+  "data",
+  "metric",
+  "totalMetric",
+  "total_metric",
+  "numerMetric",
+  "numer_metric",
+  "noViolMetric",
+  "no_viol_metric",
+];
+
+function collectRuntimeMetricRefsFromProps(props) {
+  const refs = [];
+  const seen = new Set();
+  for (const key of EXPLICIT_METRIC_PROP_KEYS) {
+    const candidate = props?.[key];
+    const ref = candidate?.__mei_runtime_ref;
+    if (!ref || ref.kind !== "metric" || !ref.dataset_id || !ref.metric_id) {
+      continue;
+    }
+    const metricId = String(ref.metric_id).trim();
+    if (!metricId || seen.has(metricId)) {
+      continue;
+    }
+    seen.add(metricId);
+    refs.push(ref);
+  }
+  return refs;
+}
+
+function normalizeExplicitMetricIds(metricIds) {
+  if (!Array.isArray(metricIds)) {
+    return [];
+  }
+  return [
+    ...new Set(
+      metricIds.map((value) => String(value || "").trim()).filter(Boolean),
+    ),
+  ].sort();
+}
+
 export function collectPanelRuntimeMetricIdsFromPanel(panel, anchorProps, queryStateId = "") {
-  const runtimeRef = resolveRuntimeMetricRef(anchorProps);
+  const anchorRefs = collectRuntimeMetricRefsFromProps(anchorProps);
+  const runtimeRef = anchorRefs[0] || resolveRuntimeMetricRef(anchorProps);
   const metricId = safeTrim(runtimeRef?.metric_id);
   if (!runtimeRef?.dataset_id) {
-    return metricId ? [metricId] : [];
+    return anchorRefs.length
+      ? [...new Set(anchorRefs.map((ref) => String(ref.metric_id).trim()).filter(Boolean))].sort()
+      : metricId
+        ? [metricId]
+        : [];
   }
   if (!(panel instanceof Element)) {
-    return metricId ? [metricId] : [];
+    return anchorRefs.length
+      ? [...new Set(anchorRefs.map((ref) => String(ref.metric_id).trim()).filter(Boolean))].sort()
+      : metricId
+        ? [metricId]
+        : [];
   }
   const currentQueryStateId = String(queryStateId || queryStateIdOf(anchorProps) || "").trim();
   const currentCoords = sceneQueryCoords(anchorProps, runtimeRef);
   const ids = new Set();
-  if (metricId) {
+  for (const ref of anchorRefs) {
+    const id = String(ref?.metric_id || "").trim();
+    if (id) {
+      ids.add(id);
+    }
+  }
+  if (!ids.size && metricId) {
     ids.add(metricId);
   }
   panel.querySelectorAll("[data-props]").forEach((node) => {
     const candidateProps = parseProps(node);
-    const candidateRef = resolveRuntimeMetricRef(candidateProps);
-    if (!candidateRef?.dataset_id || !candidateRef?.metric_id) return;
-    if (safeTrim(candidateRef.dataset_id) !== safeTrim(runtimeRef.dataset_id)) return;
-    const candidateQueryStateId = String(queryStateIdOf(candidateProps) || "").trim();
-    if (currentQueryStateId && candidateQueryStateId && candidateQueryStateId !== currentQueryStateId) {
-      return;
+    for (const candidateRef of collectRuntimeMetricRefsFromProps(candidateProps)) {
+      if (!candidateRef?.dataset_id || !candidateRef?.metric_id) continue;
+      if (safeTrim(candidateRef.dataset_id) !== safeTrim(runtimeRef.dataset_id)) continue;
+      const candidateQueryStateId = String(queryStateIdOf(candidateProps) || "").trim();
+      if (currentQueryStateId && candidateQueryStateId && candidateQueryStateId !== currentQueryStateId) {
+        continue;
+      }
+      const candidateCoords = sceneQueryCoords(candidateProps, candidateRef);
+      if (!sameSceneQueryCoords(currentCoords, candidateCoords)) continue;
+      ids.add(String(candidateRef.metric_id).trim());
     }
-    const candidateCoords = sceneQueryCoords(candidateProps, candidateRef);
-    if (!sameSceneQueryCoords(currentCoords, candidateCoords)) return;
-    ids.add(String(candidateRef.metric_id).trim());
   });
   return [...ids].sort();
 }
@@ -1259,8 +1320,14 @@ export function prefetchViewportRuntimeMetrics(root = document) {
         return;
       }
       const props = parseProps(node);
-      const runtimeRef = resolveRuntimeMetricRef(props);
-      if (!runtimeRef?.dataset_id || !runtimeRef?.metric_id) {
+      const runtimeRefs = collectRuntimeMetricRefsFromProps(props);
+      if (!runtimeRefs.length) {
+        const runtimeRef = resolveRuntimeMetricRef(props);
+        if (runtimeRef?.dataset_id && runtimeRef?.metric_id) {
+          runtimeRefs.push(runtimeRef);
+        }
+      }
+      if (!runtimeRefs.length) {
         return;
       }
       const capability = metricQueryCapabilityConfig(props);
@@ -1274,16 +1341,18 @@ export function prefetchViewportRuntimeMetrics(root = document) {
         group = { props, queryStateId: effectiveQueryStateId, entries: new Map() };
         groups.set(groupKey, group);
       }
-      const datasetId = safeTrim(runtimeRef.dataset_id);
-      if (!datasetId) {
-        return;
+      for (const runtimeRef of runtimeRefs) {
+        const datasetId = safeTrim(runtimeRef.dataset_id);
+        if (!datasetId) {
+          continue;
+        }
+        let entry = group.entries.get(datasetId);
+        if (!entry) {
+          entry = { datasetId, metricIds: new Set(), props };
+          group.entries.set(datasetId, entry);
+        }
+        entry.metricIds.add(String(runtimeRef.metric_id).trim());
       }
-      let entry = group.entries.get(datasetId);
-      if (!entry) {
-        entry = { datasetId, metricIds: new Set(), props };
-        group.entries.set(datasetId, entry);
-      }
-      entry.metricIds.add(String(runtimeRef.metric_id).trim());
     });
   }
   for (const group of groups.values()) {
@@ -2256,6 +2325,7 @@ function scheduleSceneRuntimeMetricRequest(
         return;
       }
       if (shouldPauseHomeRuntimeMetricFetch(schedule.props)) {
+        scheduleSceneMetricBatchFlush(160);
         return;
       }
       SCENE_METRIC_BATCH_SCHEDULES.delete(scheduleKey);
@@ -2751,9 +2821,21 @@ export async function fetchPanelRuntimeMetrics(
     filters = {},
     signal = undefined,
     meta = {},
+    metricIds: explicitMetricIds = undefined,
   } = {}
 ) {
   const resolvedQueryStateId = String(queryStateId || queryStateIdOf(props) || "").trim();
+  const requestedMetricIds = normalizeExplicitMetricIds(explicitMetricIds);
+  if (requestedMetricIds.length > 0) {
+    return fetchRuntimeMetrics(props, {
+      metricIds: requestedMetricIds,
+      queryStateId: resolvedQueryStateId,
+      search,
+      filters,
+      signal,
+      meta,
+    });
+  }
   const batchCapability = metricBatchQueryCapabilityConfig(props);
   if (batchCapability.enabled) {
     const metricIds = collectPanelRuntimeMetricIds(element, props, resolvedQueryStateId);
@@ -3009,11 +3091,47 @@ function runtimeCandidates(props) {
     props?.metric,
     props?.totalMetric,
     props?.total_metric,
+    props?.numerMetric,
+    props?.numer_metric,
     props?.noViolMetric,
     props?.no_viol_metric,
     props?.dataset?.dataset,
     props?.dataset,
   ].filter(Boolean);
+}
+
+export const MEI_HOME_RUNTIME_RESUME = "meilang:home-runtime-resume";
+
+let homeRuntimeResumeObserver = null;
+let homeRuntimeResumeOverlayOpen = false;
+
+function ensureHomeRuntimeResumeObserver() {
+  if (homeRuntimeResumeObserver || typeof document === "undefined" || !document.body) {
+    return;
+  }
+  homeRuntimeResumeOverlayOpen = isDrilldownOverlayOpen();
+  homeRuntimeResumeObserver = new MutationObserver(() => {
+    const nowOpen = isDrilldownOverlayOpen();
+    if (homeRuntimeResumeOverlayOpen && !nowOpen) {
+      window.dispatchEvent(new CustomEvent(MEI_HOME_RUNTIME_RESUME));
+      scheduleSceneMetricBatchFlush(0);
+    }
+    homeRuntimeResumeOverlayOpen = nowOpen;
+  });
+  homeRuntimeResumeObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class"],
+  });
+}
+
+/** overlay 关闭后通知主屏组件补拉 metric（关闭时不发 page 级 preview-updated）。 */
+export function subscribeHomeRuntimeResume(fn) {
+  if (typeof window === "undefined" || typeof fn !== "function") {
+    return () => {};
+  }
+  ensureHomeRuntimeResumeObserver();
+  window.addEventListener(MEI_HOME_RUNTIME_RESUME, fn);
+  return () => window.removeEventListener(MEI_HOME_RUNTIME_RESUME, fn);
 }
 
 function ensureStore() {

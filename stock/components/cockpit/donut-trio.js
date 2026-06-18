@@ -1,9 +1,10 @@
 import {
   deferUntilDisplayed,
-  fetchPanelRuntimeMetrics,
+  fetchDatasetRows,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
+  subscribeHomeRuntimeResume,
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import { createComponentTracer } from "../perf/render-trace.js";
@@ -204,6 +205,9 @@ class MeiCockpitDonutTrio extends HTMLElement {
       this._sharedFilters = state?.filters || {};
       this.refreshData();
     });
+    this._unsubscribeHomeRuntimeResume = subscribeHomeRuntimeResume(() => {
+      this.refreshData();
+    });
     this.renderShell();
     this._renderTrace.mark("bootstrap", {
       query_state_id: this._queryStateId || "",
@@ -222,6 +226,9 @@ class MeiCockpitDonutTrio extends HTMLElement {
     }
     if (typeof this._unsubscribeQueryState === "function") {
       this._unsubscribeQueryState();
+    }
+    if (typeof this._unsubscribeHomeRuntimeResume === "function") {
+      this._unsubscribeHomeRuntimeResume();
     }
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
@@ -339,25 +346,27 @@ class MeiCockpitDonutTrio extends HTMLElement {
     this._sliceLabels = donutSliceLabels(this._props);
   }
 
-  async fetchMetricRows(resolvedValue) {
+  async fetchRowsForMetric(resolvedValue) {
     const lineProps = propsWithMetricValue(this._props, resolvedValue);
-    const metricRef = resolveRuntimeMetricRef(lineProps);
-    if (!metricRef) return [];
-    const result = await fetchPanelRuntimeMetrics(this, lineProps, {
+    if (!resolveRuntimeMetricRef(lineProps)) return [];
+    const limit = Number(this._props?.limit) > 0 ? Number(this._props.limit) : 3;
+    const result = await fetchDatasetRows(lineProps, {
       filters: this._sharedFilters,
-      metricIds: [metricRef.metric_id].filter(Boolean),
+      page: 1,
+      pageSize: Math.max(limit + 4, 16),
       meta: runtimeCallerMeta(this, "mei-cockpit-donut-trio"),
     });
-    const metric = Array.isArray(result?.metrics)
-      ? result.metrics.find((item) => item?.id === metricRef.metric_id) || result.metrics[0]
-      : null;
-    return metricRows(metric);
+    return Array.isArray(result?.rows) ? result.rows : [];
   }
 
   async refreshData() {
     this._renderTrace?.mark("render_start");
     const totalValue = this._props?.totalMetric ?? this._props?.total_metric;
-    const numerValue = this._props?.numerMetric ?? this._props?.numer_metric ?? this._props?.noViolMetric ?? this._props?.no_viol_metric;
+    const numerValue =
+      this._props?.numerMetric ??
+      this._props?.numer_metric ??
+      this._props?.noViolMetric ??
+      this._props?.no_viol_metric;
     const totalRef = resolveRuntimeMetricRef(propsWithMetricValue(this._props, totalValue));
     if (!totalRef?.dataset_id) {
       this.statusEl.textContent = "缺少 totalMetric";
@@ -366,8 +375,8 @@ class MeiCockpitDonutTrio extends HTMLElement {
     this.statusEl.textContent = "";
     try {
       const [totalRows, numerRows] = await Promise.all([
-        this.fetchMetricRows(totalValue),
-        numerValue ? this.fetchMetricRows(numerValue) : Promise.resolve([]),
+        this.fetchRowsForMetric(totalValue),
+        numerValue ? this.fetchRowsForMetric(numerValue) : Promise.resolve([]),
       ]);
       const numerMap = new Map(
         numerRows.map((row) => [rowGroupLabel(row, this._groupField), rowValue(row, "value")])
