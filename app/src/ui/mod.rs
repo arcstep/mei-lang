@@ -217,6 +217,7 @@ pub fn render_page(
         component_scripts(compiled, scene_component_bundle_url).into_any(),
         auth_enabled,
         auth_account,
+        preview::body_theme_style(compiled).as_str(),
     )
 }
 
@@ -253,6 +254,7 @@ pub fn render_config_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
+        preview::default_body_theme_style().as_str(),
     )
 }
 
@@ -295,6 +297,7 @@ pub fn render_upload_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
+        preview::default_body_theme_style().as_str(),
     )
 }
 
@@ -337,6 +340,7 @@ pub fn render_build_source_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
+        preview::default_body_theme_style().as_str(),
     )
 }
 

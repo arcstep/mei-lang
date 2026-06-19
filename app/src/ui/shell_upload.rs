@@ -209,7 +209,7 @@ pub(crate) fn upload_shell(
     );
     let file_tree = upload_tree_view(files, "", selected, app_path);
     view! {
-        <div class="shell shell-surface upload-view-shell text-slate-200">
+        <div class="shell shell-surface upload-view-shell mei-text-primary">
             <div
                 id="tree-icons-sprite-root"
                 class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"

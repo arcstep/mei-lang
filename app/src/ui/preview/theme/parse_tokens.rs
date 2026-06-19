@@ -2,6 +2,7 @@ use mei_lang_kernel::ThemeDecl;
 use serde_json::Value;
 
 use super::parse::ThemeResolved;
+use super::resolve_literals::resolve_color_token;
 
 pub(super) fn theme_decl_value(theme: &ThemeDecl) -> Value {
     let mut map = serde_json::Map::new();
@@ -138,6 +139,8 @@ fn push_typography_vars(entry: &Value, var_prefix: &str, vars: &mut Vec<(String,
             Value::String(raw) if !raw.trim().is_empty() => {
                 if suffix == "font-size" {
                     resolve_font_size_value(raw)
+                } else if suffix == "color" {
+                    resolve_color_token(raw)
                 } else {
                     raw.trim().to_string()
                 }

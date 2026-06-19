@@ -1,7 +1,9 @@
-use mei_lang_kernel::{decode_theme_ref_token, SceneContract};
+use mei_lang_kernel::{decode_theme_ref_token, CompiledApp, SceneContract};
 use serde_json::Value;
 
 use super::{deep_merge_value, resolve_shared_refs};
+use super::parse_builtin::builtin_theme;
+use super::parse_tokens::{collect_theme_css_vars, theme_css_vars_style, theme_decl_value};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ThemeResolved {
@@ -81,8 +83,50 @@ pub(crate) fn resolve_theme(scene_contract: &SceneContract) -> ThemeResolved {
     }
 }
 
-use super::parse_builtin::{builtin_theme, merge_panel_head_theme, theme_field};
-use super::parse_tokens::{collect_theme_css_vars, theme_decl_value};
+/// Page preset CSS variables when no `CompiledApp` / scene contract is available.
+pub(crate) fn default_body_theme_style() -> String {
+    theme_css_vars_style(&resolve_builtin_only("page"))
+}
+
+/// Inject full theme CSS variables on `<body>` (shell + scene); falls back to `page` preset.
+pub(crate) fn body_theme_style(compiled: &CompiledApp) -> String {
+    if let Some(contract) = compiled.scene_contract.as_ref() {
+        return theme_css_vars_style(&resolve_theme(contract));
+    }
+    default_body_theme_style()
+}
+
+fn resolve_builtin_only(theme_id: &str) -> ThemeResolved {
+    let mut theme_id = theme_id.to_string();
+    let mut theme = builtin_theme(theme_id.as_str());
+    if theme.is_none() {
+        theme_id = "page".to_string();
+        theme = builtin_theme("page");
+    }
+    let theme = theme.unwrap_or_else(|| serde_json::json!({}));
+    let shared = theme_field(&theme, "shared");
+    let css_vars = collect_theme_css_vars(&theme);
+    let components = theme
+        .as_object()
+        .and_then(|map| map.get("components"))
+        .cloned()
+        .filter(|value| !value.is_null())
+        .unwrap_or_else(|| serde_json::json!({}));
+    ThemeResolved {
+        id: theme_id,
+        frame: resolve_shared_refs(&theme_field(&theme, "frame"), &shared),
+        panel: resolve_shared_refs(&theme_field(&theme, "panel"), &shared),
+        panel_bare: resolve_shared_refs(&theme_field(&theme, "panel_bare"), &shared),
+        panel_head: resolve_shared_refs(&merge_panel_head_theme(&theme), &shared),
+        panel_body: resolve_shared_refs(&theme_field(&theme, "panel_body"), &shared),
+        heading: resolve_shared_refs(&theme_field(&theme, "heading"), &shared),
+        shared: shared.clone(),
+        components: resolve_shared_refs(&components, &shared),
+        css_vars,
+    }
+}
+
+use super::parse_builtin::{merge_panel_head_theme, theme_field};
 
 #[cfg(test)]
 mod tests {

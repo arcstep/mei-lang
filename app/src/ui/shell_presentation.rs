@@ -106,11 +106,11 @@ pub(crate) fn presentation_shell(
     let deck = exported_presentation_routes(compiled);
     if deck.is_empty() {
         return view! {
-            <div class="shell shell-surface min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-                <section class="mx-auto max-w-3xl rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl">
-                    <p class="text-sm uppercase tracking-[0.18em] text-slate-400">"Presentation"</p>
+            <div class="shell shell-surface min-h-screen mei-surface-shell px-6 py-10 mei-text-inverse">
+                <section class="mx-auto max-w-3xl rounded-3xl border mei-border-default mei-surface-panel-muted p-6 shadow-2xl">
+                    <p class="text-sm uppercase tracking-[0.18em] mei-text-muted">"Presentation"</p>
                     <h1 class="mt-3 text-2xl font-semibold">{compiled.title.clone()}</h1>
-                    <p class="mt-4 text-sm leading-7 text-slate-300">
+                    <p class="mt-4 text-sm leading-7 mei-text-body">
                         "当前应用没有可用于演示的导出 scene。请先为至少一个 scene 保持默认 access export。"
                     </p>
                 </section>
@@ -151,7 +151,7 @@ pub(crate) fn presentation_shell(
     view! {
         <div
             id="presentation-shell"
-            class="shell shell-surface presentation-shell min-h-screen h-screen overflow-hidden bg-slate-950 text-slate-100"
+            class="shell shell-surface presentation-shell min-h-screen h-screen overflow-hidden mei-surface-shell mei-text-inverse"
             data-prev-href=prev_href.clone().unwrap_or_default()
             data-next-href=next_href.clone().unwrap_or_default()
         >
@@ -162,25 +162,25 @@ pub(crate) fn presentation_shell(
                 </section>
 
                 <div class="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 sm:p-6">
-                    <header class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 shadow-lg backdrop-blur-md">
+                    <header class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 mei-surface-panel-muted px-4 py-3 shadow-lg backdrop-blur-md">
                         <div class="min-w-0">
-                            <div class="text-[11px] uppercase tracking-[0.18em] text-slate-400">"Slides Projection MVP"</div>
-                            <div class="mt-1 truncate text-sm font-semibold text-slate-100">{compiled.title.clone()}</div>
-                            <div class="truncate text-xs text-slate-400">{current_title.to_string()}</div>
+                            <div class="text-[11px] uppercase tracking-[0.18em] mei-text-muted">"Slides Projection MVP"</div>
+                            <div class="mt-1 truncate text-sm font-semibold mei-text-inverse">{compiled.title.clone()}</div>
+                            <div class="truncate text-xs mei-text-muted">{current_title.to_string()}</div>
                         </div>
                         <div class="shrink-0 text-right">
-                            <div class="text-xs text-slate-400">"当前页"</div>
-                            <div class="text-base font-semibold text-slate-100">{format!("{} / {}", current_index + 1, total)}</div>
+                            <div class="text-xs mei-text-muted">"当前页"</div>
+                            <div class="text-base font-semibold mei-text-inverse">{format!("{} / {}", current_index + 1, total)}</div>
                         </div>
                     </header>
 
-                    <footer class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 shadow-lg backdrop-blur-md">
+                    <footer class="pointer-events-auto mx-auto flex w-full max-w-6xl items-center justify-between gap-3 rounded-2xl border border-white/10 mei-surface-panel-muted px-4 py-3 shadow-lg backdrop-blur-md">
                         <div class="flex items-center gap-2">
                             {prev_href
                                 .as_ref()
                                 .map(|href| {
                                     view! {
-                                        <a class="inline-flex items-center rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 transition hover:border-sky-300/60 hover:text-white" href=href.clone() rel="prev">
+                                        <a class="inline-flex items-center rounded-xl border border-white/10 mei-surface-panel-muted px-3 py-2 text-sm mei-text-inverse transition hover:border-sky-300/60 hover:text-white" href=href.clone() rel="prev">
                                             "上一页"
                                         </a>
                                     }
@@ -188,7 +188,7 @@ pub(crate) fn presentation_shell(
                                 })
                                 .unwrap_or_else(|| {
                                     view! {
-                                        <span class="inline-flex cursor-not-allowed items-center rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2 text-sm text-slate-500">
+                                        <span class="inline-flex cursor-not-allowed items-center rounded-xl border border-white/5 mei-surface-panel-muted px-3 py-2 text-sm mei-text-muted">
                                             "上一页"
                                         </span>
                                     }
@@ -198,7 +198,7 @@ pub(crate) fn presentation_shell(
                                 .as_ref()
                                 .map(|href| {
                                     view! {
-                                        <a class="inline-flex items-center rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 transition hover:border-sky-300/60 hover:text-white" href=href.clone() rel="next">
+                                        <a class="inline-flex items-center rounded-xl border border-white/10 mei-surface-panel-muted px-3 py-2 text-sm mei-text-inverse transition hover:border-sky-300/60 hover:text-white" href=href.clone() rel="next">
                                             "下一页"
                                         </a>
                                     }
@@ -206,7 +206,7 @@ pub(crate) fn presentation_shell(
                                 })
                                 .unwrap_or_else(|| {
                                     view! {
-                                        <span class="inline-flex cursor-not-allowed items-center rounded-xl border border-white/5 bg-slate-900/40 px-3 py-2 text-sm text-slate-500">
+                                        <span class="inline-flex cursor-not-allowed items-center rounded-xl border border-white/5 mei-surface-panel-muted px-3 py-2 text-sm mei-text-muted">
                                             "下一页"
                                         </span>
                                     }
@@ -217,12 +217,12 @@ pub(crate) fn presentation_shell(
                         <div class="flex items-center gap-2">
                             <button
                                 id="presentation-fullscreen-btn"
-                                class="inline-flex items-center rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 transition hover:border-sky-300/60 hover:text-white"
+                                class="inline-flex items-center rounded-xl border border-white/10 mei-surface-panel-muted px-3 py-2 text-sm mei-text-inverse transition hover:border-sky-300/60 hover:text-white"
                                 type="button"
                             >
                                 "全屏"
                             </button>
-                            <a class="inline-flex items-center rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-slate-100 transition hover:border-sky-300/60 hover:text-white" href=exit_href>
+                            <a class="inline-flex items-center rounded-xl border border-white/10 mei-surface-panel-muted px-3 py-2 text-sm mei-text-inverse transition hover:border-sky-300/60 hover:text-white" href=exit_href>
                                 "返回访问页"
                             </a>
                         </div>

@@ -38,8 +38,8 @@ fn asset_codemirror_stack(
 
 fn readonly_source_notice() -> impl IntoView {
     view! {
-        <div class="manage-readonly-note mb-2 rounded-lg border border-slate-700/55 bg-slate-900/45 px-3 py-2 text-[11px] leading-5 text-slate-300">
-            <strong class="mr-2 text-slate-100">"只读查看"</strong>
+        <div class="manage-readonly-note mb-2 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 text-[11px] leading-5 mei-text-body">
+            <strong class="mr-2 mei-text-inverse">"只读查看"</strong>
             <span>"构建视图中的 `.mei` 与资源文件仅用于预览和只读源码查看；应用配置请切换到「配置」视图。"</span>
         </div>
     }
@@ -191,7 +191,7 @@ pub(crate) fn manage_source_shell(
         .into_any(),
     };
     view! {
-        <div class="shell shell-surface text-slate-200">
+        <div class="shell shell-surface mei-text-primary">
             <div
                 id="tree-icons-sprite-root"
                 class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"

@@ -49,10 +49,10 @@ fn tree_file_link_class(active: bool, text_muted: bool) -> &'static str {
             "tree-link tree-file-row tree-file-row--active font-medium text-sky-100 transition-colors"
         }
         (false, true) => {
-            "tree-link tree-file-row text-slate-400 transition-colors hover:text-slate-100"
+            "tree-link tree-file-row mei-text-muted transition-colors hover:mei-text-inverse"
         }
         (false, false) => {
-            "tree-link tree-file-row text-slate-300 transition-colors hover:text-slate-100"
+            "tree-link tree-file-row mei-text-body transition-colors hover:mei-text-inverse"
         }
     }
 }
@@ -61,7 +61,7 @@ fn tree_file_summary_class(active: bool) -> &'static str {
     if active {
         "tree-folder-summary tree-file-row tree-file-row--active cursor-pointer select-none font-medium text-sky-100 transition-colors"
     } else {
-        "tree-folder-summary tree-file-row cursor-pointer select-none text-slate-300 transition-colors hover:text-slate-100"
+        "tree-folder-summary tree-file-row cursor-pointer select-none mei-text-body transition-colors hover:mei-text-inverse"
     }
 }
 
@@ -137,7 +137,7 @@ pub(crate) fn source_tree_view(
                     <li class="tree-node tree-li-branch">
                         <details class="pl-1" open=open>
                             <summary
-                                class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium text-slate-300"
+                                class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium mei-text-body"
                                 title=folder_path.clone()
                             >
                                 <span class="tree-folder-label min-w-0 truncate">{node.name.clone()}</span>
@@ -355,7 +355,7 @@ fn world_tree_node(
             <li class="tree-node tree-li-branch">
                 <details class="pl-1" open=true>
                     <summary
-                        class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium text-slate-400"
+                        class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium mei-text-muted"
                         title=node.name.clone()
                     >
                         <span class="tree-folder-label min-w-0 truncate">{node.name.clone()}</span>
@@ -389,7 +389,7 @@ fn world_tree_node(
     let class = if active {
         "tree-link tree-file-row tree-file-row--active font-medium text-sky-100 transition-colors"
     } else {
-        "tree-link tree-file-row text-slate-400 transition-colors hover:text-slate-100"
+        "tree-link tree-file-row mei-text-muted transition-colors hover:mei-text-inverse"
     };
     let prefix = match node.kind.as_str() {
         "explain_block" => "",
@@ -526,7 +526,7 @@ fn scene_export_tree_row(
     let class = if active {
         "tree-link tree-link--scene-export tree-link--active flex min-w-0 w-full items-center gap-1.5 border-l-2 border-sky-400 bg-sky-500/15 py-0.5 pl-2 pr-1 text-[12px] font-medium text-sky-100 transition-colors"
     } else {
-        "tree-link tree-link--scene-export flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] text-slate-400 transition-colors hover:text-slate-100"
+        "tree-link tree-link--scene-export flex min-w-0 w-full items-center gap-1.5 border-l-2 border-transparent py-0.5 pl-2 pr-1 text-[12px] mei-text-muted transition-colors hover:mei-text-inverse"
     };
     let icon = scene_export_icon(node);
     let title = format!(

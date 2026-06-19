@@ -2,6 +2,7 @@ use serde_json::Value;
 
 use super::layout::length_px_from_value;
 use super::panel_chrome::container_visual_style;
+use crate::ui::preview::theme::{resolve_color_token, resolve_font_token};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PanelHeadingConfig {
@@ -181,21 +182,11 @@ pub(crate) fn panel_slot_typography_style(props: &Value) -> String {
                 .as_str()
                 .map(str::trim)
                 .filter(|raw| !raw.is_empty())
-                .map(|raw| {
-                    if raw.ends_with("px")
-                        || raw.ends_with("rem")
-                        || raw.ends_with("em")
-                        || raw.ends_with('%')
-                    {
-                        format!("font-size:{raw};")
-                    } else {
-                        format!("font-size:var(--mei-font-{raw},14px);")
-                    }
-                })
+                .map(|raw| format!("font-size:{};", resolve_font_token(raw)))
                 .or_else(|| {
                     value
                         .as_i64()
-                        .map(|raw| format!("font-size:var(--mei-font-{raw},14px);"))
+                        .map(|raw| format!("font-size:{};", resolve_font_token(&raw.to_string())))
                 }),
             "font_family" => value
                 .as_str()
@@ -206,7 +197,7 @@ pub(crate) fn panel_slot_typography_style(props: &Value) -> String {
                 .as_str()
                 .map(str::trim)
                 .filter(|raw| !raw.is_empty())
-                .map(|raw| format!("color:{raw};")),
+                .map(|raw| format!("color:{};", resolve_color_token(raw))),
             "font_weight" => value
                 .as_str()
                 .map(str::trim)

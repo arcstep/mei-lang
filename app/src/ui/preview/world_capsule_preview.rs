@@ -280,7 +280,7 @@ fn dataset_table_preview(
         Err(message) => {
             let detail = message.to_string();
             return view! {
-                <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+                <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 mei-surface-panel-muted p-4 text-sm mei-text-body">
                     <p class="m-0">"无法解析 dataset："{detail}</p>
                 </section>
             }
@@ -289,7 +289,7 @@ fn dataset_table_preview(
     };
     let Some(resource) = runtime_ctx.resources.get(&resolved_id) else {
         return view! {
-            <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+            <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 mei-surface-panel-muted p-4 text-sm mei-text-body">
                 <p class="m-0">"未找到已物化的 dataset `"{dataset_id}"`。"</p>
             </section>
         }
@@ -297,7 +297,7 @@ fn dataset_table_preview(
     };
     let Some(dataset) = resource.dataset.as_ref() else {
         return view! {
-            <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+            <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 mei-surface-panel-muted p-4 text-sm mei-text-body">
                 <p class="m-0">"资源 `"{resolved_id}"` 不含 dataset 视图。"</p>
             </section>
         }
@@ -376,7 +376,7 @@ fn scalar_metric_form_preview(
         .unwrap_or_else(|| {
             scalar_form_field(
                 "指标值".to_string(),
-                view! { <span class="text-slate-500">"（未物化）"</span> }.into_any(),
+                view! { <span class="mei-text-muted">"（未物化）"</span> }.into_any(),
             )
         });
     let mut fields = vec![
@@ -411,7 +411,7 @@ fn scalar_metric_form_preview(
         fields.push(scalar_form_field(
             "Schema".to_string(),
             view! {
-                <ul class="m-0 list-none pl-0 font-mono text-[11px] text-slate-300">
+                <ul class="m-0 list-none pl-0 font-mono text-[11px] mei-text-body">
                     {schema_lines
                         .into_iter()
                         .map(|line| view! { <li>{line}</li> })
@@ -423,10 +423,10 @@ fn scalar_metric_form_preview(
     }
 
     view! {
-        <section class="world-capsule-preview world-capsule-scalar-form preview-surface rounded-[14px] border border-slate-700/55 bg-slate-950/35 p-4">
+        <section class="world-capsule-preview world-capsule-scalar-form preview-surface rounded-[14px] border mei-border-default mei-surface-panel-muted p-4">
             <header class="mb-4 border-b border-slate-700/50 pb-3">
-                <h3 class="m-0 text-base font-semibold text-slate-100">{display_label}</h3>
-                <div class="mt-1 font-mono text-[11px] text-slate-400">{metric.id.clone()}</div>
+                <h3 class="m-0 text-base font-semibold mei-text-inverse">{display_label}</h3>
+                <div class="mt-1 font-mono text-[11px] mei-text-muted">{metric.id.clone()}</div>
             </header>
             <form class="world-capsule-scalar-form__grid" on:submit=|ev| { ev.prevent_default(); }>
                 {fields}
@@ -554,7 +554,7 @@ pub(crate) fn world_capsule_semantic_preview(
             scalar_metric_form_preview(metric_meta, contract)
         } else {
             view! {
-                <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+                <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 mei-surface-panel-muted p-4 text-sm mei-text-body">
                     <p class="m-0">
                         "未找到 explain 块 `"
                         {lookup_metric_id.to_string()}

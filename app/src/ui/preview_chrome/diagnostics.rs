@@ -32,8 +32,8 @@ fn compile_diag_card(diag: &mei_lang_kernel::Diagnostic, compiled: &CompiledApp)
             attr:data-diag-source=source_attr
         >
             <strong class="text-xs font-semibold text-slate-50">{diag.code.clone()}</strong>
-            <span class="text-xs leading-5 text-slate-200">{diag.message.clone()}</span>
-            <span class="text-[10px] font-mono text-slate-500">{format!("来源：{source_label}")}</span>
+            <span class="text-xs leading-5 mei-text-primary">{diag.message.clone()}</span>
+            <span class="text-[10px] font-mono mei-text-muted">{format!("来源：{source_label}")}</span>
         </div>
     }
     .into_any()
@@ -94,11 +94,11 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                 .into_iter()
                 .map(|(id, label, status, ms_str)| {
                     view! {
-                        <tr class="border-b border-slate-800/80 text-[11px]">
-                            <td class="whitespace-nowrap px-2 py-1.5 font-mono text-slate-400">{id}</td>
-                            <td class="px-2 py-1.5 text-slate-200">{label}</td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-slate-300">{status}</td>
-                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-200">{ms_str}</td>
+                        <tr class="border-b mei-border-default/80 text-[11px]">
+                            <td class="whitespace-nowrap px-2 py-1.5 font-mono mei-text-muted">{id}</td>
+                            <td class="px-2 py-1.5 mei-text-primary">{label}</td>
+                            <td class="whitespace-nowrap px-2 py-1.5 mei-text-body">{status}</td>
+                            <td class="whitespace-nowrap px-2 py-1.5 text-right font-mono mei-text-primary">{ms_str}</td>
                         </tr>
                     }
                 })
@@ -134,7 +134,7 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                 view! { <></> }.into_any()
             } else {
                 view! {
-                    <ul class="m-0 list-disc space-y-1 pl-4 text-[10px] leading-4 text-slate-400">
+                    <ul class="m-0 list-disc space-y-1 pl-4 text-[10px] leading-4 mei-text-muted">
                         {pending
                             .into_iter()
                             .map(|line| {
@@ -170,28 +170,28 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                     })
                     .unwrap_or_else(|| "—".to_string());
                 view! {
-                    <div class="mt-2 grid gap-1 rounded-lg border border-slate-600/40 bg-slate-950/40 p-2">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    <div class="mt-2 grid gap-1 rounded-lg border border-slate-600/40 mei-surface-shell/40 p-2">
+                        <span class="text-[10px] font-semibold uppercase tracking-wide mei-text-muted">
                             "请求墙钟（服务端）"
                         </span>
-                        <div class="grid gap-0.5 text-[11px] leading-5 text-slate-200">
+                        <div class="grid gap-0.5 text-[11px] leading-5 mei-text-primary">
                             <div>
-                                <span class="text-slate-400">"handler_html_ready_ms "</span>
+                                <span class="mei-text-muted">"handler_html_ready_ms "</span>
                                 <span class="font-mono">{h_ms.clone()}</span>
-                                <span class="text-slate-500">" · 亦见响应头 "</span>
-                                <code class="text-slate-300">"X-Mei-Handler-Html-Ready-Ms"</code>
+                                <span class="mei-text-muted">" · 亦见响应头 "</span>
+                                <code class="mei-text-body">"X-Mei-Handler-Html-Ready-Ms"</code>
                             </div>
                             <div>
-                                <span class="text-slate-400">"ssr_http_response_body_ms "</span>
+                                <span class="mei-text-muted">"ssr_http_response_body_ms "</span>
                                 <span class="font-mono">{b_ms.clone()}</span>
-                                <span class="text-slate-500">" · 亦见 "</span>
-                                <code class="text-slate-300">"X-Mei-Ssr-Http-Response-Body-Ms"</code>
+                                <span class="mei-text-muted">" · 亦见 "</span>
+                                <code class="mei-text-body">"X-Mei-Ssr-Http-Response-Body-Ms"</code>
                             </div>
                             {if hint.is_empty() {
                                 view! { <></> }.into_any()
                             } else {
                                 view! {
-                                    <p class="m-0 text-[10px] leading-4 text-slate-500">{hint}</p>
+                                    <p class="m-0 text-[10px] leading-4 mei-text-muted">{hint}</p>
                                 }
                                 .into_any()
                             }}
@@ -206,13 +206,13 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
             view! {
                 <div class=base_class attr:data-manage-pipeline-json=json_attr>
                     <strong class="text-xs font-semibold text-slate-50">"manage_page_pipeline"</strong>
-                    <div class="text-[11px] text-slate-400">
+                    <div class="text-[11px] mei-text-muted">
                         {format!("应用 {} · 目标 {} · {}", app_id, target, summary)}
                     </div>
                     <div class="overflow-x-auto rounded-lg border border-slate-600/40">
                         <table class="w-full border-collapse text-left">
                             <thead>
-                                <tr class="bg-slate-900/90 text-[10px] uppercase tracking-wide text-slate-500">
+                                <tr class="bg-slate-900/90 text-[10px] uppercase tracking-wide mei-text-muted">
                                     <th class="px-2 py-1.5">"id"</th>
                                     <th class="px-2 py-1.5">"环节"</th>
                                     <th class="px-2 py-1.5">"状态"</th>
@@ -222,19 +222,19 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
                             <tbody>{stages_table}</tbody>
                         </table>
                     </div>
-                    <div class="text-[10px] text-slate-500">
+                    <div class="text-[10px] mei-text-muted">
                         {format!("产物规模：resources={} · dataset_resources={}", resources, datasets)}
                     </div>
                     <div class="grid gap-1">
-                        <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        <span class="text-[10px] font-semibold uppercase tracking-wide mei-text-muted">
                             "运行时（待 iframe 上报）"
                         </span>
                         {pending_view}
                     </div>
                     {timing_block.unwrap_or_else(|| view! { <></> }.into_any())}
                     <details class="mt-1">
-                        <summary class="cursor-pointer text-[11px] text-slate-400">"原始 JSON"</summary>
-                        <pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950/80 p-2 font-mono text-[10px] leading-4 text-slate-300">{diag.message.clone()}</pre>
+                        <summary class="cursor-pointer text-[11px] mei-text-muted">"原始 JSON"</summary>
+                        <pre class="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg mei-surface-shell/80 p-2 font-mono text-[10px] leading-4 mei-text-body">{diag.message.clone()}</pre>
                     </details>
                 </div>
             }
@@ -243,7 +243,7 @@ fn manage_page_pipeline_diag_view(diag: &mei_lang_kernel::Diagnostic) -> AnyView
         _ => view! {
             <div class=base_class>
                 <strong class="text-xs font-semibold text-slate-50">"manage_page_pipeline"</strong>
-                <pre class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-slate-300">{diag.message.clone()}</pre>
+                <pre class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] mei-text-body">{diag.message.clone()}</pre>
             </div>
         }
         .into_any(),
@@ -284,7 +284,7 @@ pub(crate) fn diagnostics_view(
         .collect_view();
     let empty_compile_hint = if compile_list.is_empty() {
         view! {
-            <p class="m-0 rounded-lg border border-dashed border-slate-600/50 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
+            <p class="m-0 rounded-lg border border-dashed border-slate-600/50 mei-surface-panel-muted px-3 py-2 text-xs mei-text-muted">
                 {match filter_mode {
                     DiagnosticsFilterMode::CurrentFile => {
                         if is_world_capsule_target(selected_target) {
@@ -320,7 +320,7 @@ pub(crate) fn diagnostics_view(
             WorldSemanticQuery::default(),
         );
         view! {
-            <p class="m-0 text-xs text-slate-400">
+            <p class="m-0 text-xs mei-text-muted">
                 {format!("另有 {other_count} 条诊断来自其它文件。")}
                 <a class="ml-1 text-sky-300 hover:text-sky-200" href=href>"查看全部诊断"</a>
             </p>
@@ -368,25 +368,25 @@ pub(crate) fn diagnostics_view(
         >
             <div class="mb-0 grid gap-1">
                 <h3 class="m-0 text-[15px] font-semibold text-slate-50">"错误与诊断"</h3>
-                <p class="m-0 text-xs text-slate-400">
+                <p class="m-0 text-xs mei-text-muted">
                     "编译期 diagnostics 默认按当前文件过滤；"
-                    <code class="text-slate-200">"manage_page_pipeline"</code>
+                    <code class="mei-text-primary">"manage_page_pipeline"</code>
                     " 表示本页请求流水线。"
                     " 运行时见下方 "
-                    <code class="text-slate-200">"layout_eval_runtime"</code>
+                    <code class="mei-text-primary">"layout_eval_runtime"</code>
                     " / "
-                    <code class="text-slate-200">"runtime_query_errors"</code>
+                    <code class="mei-text-primary">"runtime_query_errors"</code>
                     " / "
-                    <code class="text-slate-200">"runtime_perf"</code>
+                    <code class="mei-text-primary">"runtime_perf"</code>
                     " / "
-                    <code class="text-slate-200">"agent_sse_delta"</code>
+                    <code class="mei-text-primary">"agent_sse_delta"</code>
                     "。"
                 </p>
                 <div class="flex flex-wrap items-center gap-2 text-[11px]">
-                    <span class="text-slate-500">"编译诊断范围："</span>
+                    <span class="mei-text-muted">"编译诊断范围："</span>
                     <a class=filter_current_class href=href_current data-mei-diag-filter-link="current">"当前文件"</a>
                     <a class=filter_all_class href=href_all data-mei-diag-filter-link="all">"全部诊断"</a>
-                    <span class="text-slate-500">
+                    <span class="mei-text-muted">
                         {format!(
                             "（当前文件 {cur_e} 错 / {cur_w} 警 / {cur_i} 提 · 全部 {all_e} 错 / {all_w} 警 / {all_i} 提）"
                         )}
@@ -396,7 +396,7 @@ pub(crate) fn diagnostics_view(
             </div>
             {pipeline_views}
             <div class="grid gap-1" data-mei-compile-diagnostics="true">
-                <span class="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                <span class="text-[10px] font-semibold uppercase tracking-wide mei-text-muted">
                     "compile diagnostics"
                 </span>
                 {empty_compile_hint}
@@ -404,101 +404,101 @@ pub(crate) fn diagnostics_view(
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-cyan-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"layout_eval_runtime"</strong>
-                <span class="text-xs leading-5 text-slate-300">
+                <span class="text-xs leading-5 mei-text-body">
                     "预览评估报告：检测画布溢出、裁切、重叠、留白/gap 偏离与对齐漂移，并给出 score/blocking/worstPanels。"
                     " 内容由 "
-                    <code class="text-slate-200">"frame-stage.js"</code>
+                    <code class="mei-text-primary">"frame-stage.js"</code>
                     " 上报并复用同一诊断面板。"
                 </span>
                 <div
                     id="mei-runtime-layout-audit"
                     data-empty-text="尚未发现布局几何问题。"
-                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 mei-text-body"
                 >
                     "尚未发现布局几何问题。"
                 </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-red-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_query_errors"</strong>
-                <span class="text-xs leading-5 text-slate-300">
-                    <code class="text-slate-200">"mei-dataset-table"</code>
+                <span class="text-xs leading-5 mei-text-body">
+                    <code class="mei-text-primary">"mei-dataset-table"</code>
                     " / "
-                    <code class="text-slate-200">"dataset.summary-cards"</code>
+                    <code class="mei-text-primary">"dataset.summary-cards"</code>
                     " / "
-                    <code class="text-slate-200">"chart.*"</code>
+                    <code class="mei-text-primary">"chart.*"</code>
                     " / "
-                    <code class="text-slate-200">"map.maplibre"</code>
+                    <code class="mei-text-primary">"map.maplibre"</code>
                     " 在运行时失败时写入（最新 25 条）。"
                 </span>
                 <div
                     id="mei-runtime-query-errors"
-                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                    class="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 mei-text-body"
                 >
                     "尚无数据查询或地图运行时错误上报。"
                 </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-slate-500/35">
                 <strong class="text-xs font-semibold text-slate-50">"runtime_perf"</strong>
-                <span class="text-xs leading-5 text-slate-300">
+                <span class="text-xs leading-5 mei-text-body">
                     "数据查询运行时耗时（最新 20 条；SPA 换文件会清空，避免其它页慢记录误导）。"
-                    <code class="text-slate-200">"mei-dataset-table"</code>
+                    <code class="mei-text-primary">"mei-dataset-table"</code>
                     " / "
-                    <code class="text-slate-200">"dataset.summary-cards"</code>
+                    <code class="mei-text-primary">"dataset.summary-cards"</code>
                     " 对外部源会调 /api/datasets/query 或 metrics。"
-                    <code class="text-slate-200">"client_ttfb_ms"</code>
+                    <code class="mei-text-primary">"client_ttfb_ms"</code>
                     " / "
-                    <code class="text-slate-200">"client_json_ms"</code>
+                    <code class="mei-text-primary">"client_json_ms"</code>
                     " 拆分浏览器侧；"
-                    <code class="text-slate-200">"server_handler_total_ms"</code>
+                    <code class="mei-text-primary">"server_handler_total_ms"</code>
                     " 为接口 handler 墙钟；"
-                    <code class="text-slate-200">"client_outside_server_ms"</code>
+                    <code class="mei-text-primary">"client_outside_server_ms"</code>
                     " 为二者差（排队、主线程、并发 manage 编译等）。"
                     " 行尾 "
-                    <code class="text-slate-200">"scene/file"</code>
+                    <code class="mei-text-primary">"scene/file"</code>
                     " 标明触发组件与当前预览目标。"
                 </span>
                 <div
                     id="runtime-perf-diagnostics"
-                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 mei-text-body"
                 >
                     "尚无懒加载查询记录。"
                 </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-cyan-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"render_trace"</strong>
-                <span class="text-xs leading-5 text-slate-300">
+                <span class="text-xs leading-5 mei-text-body">
                     "记录图表/地图从空白到出内容的关键阶段：如 runtime query、ECharts / MapLibre 本体加载、底图 style load、layer 同步完成。"
                     "用于定位“编译后页面空白很久”到底卡在哪一段。"
                 </span>
                 <div
                     id="mei-render-trace-diagnostics"
-                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 text-slate-300"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-5 mei-text-body"
                 >
                     "尚无组件渲染追踪。"
                 </div>
             </div>
             <div class="diag mt-2 grid gap-1 rounded-xl border px-3 py-2 bg-slate-900/35 border-emerald-500/25">
                 <strong class="text-xs font-semibold text-slate-50">"agent_sse_delta"</strong>
-                <span class="text-xs leading-5 text-slate-300">
+                <span class="text-xs leading-5 mei-text-body">
                     "内置助手 EventSource "
-                    <code class="text-slate-200">"message_part_delta"</code>
+                    <code class="mei-text-primary">"message_part_delta"</code>
                     "："
-                    <code class="text-slate-200">"srv"</code>
+                    <code class="mei-text-primary">"srv"</code>
                     " 为载荷 "
-                    <code class="text-slate-200">"server_ts_ms"</code>
+                    <code class="mei-text-primary">"server_ts_ms"</code>
                     "；"
-                    <code class="text-slate-200">"cli_rx"</code>
+                    <code class="mei-text-primary">"cli_rx"</code>
                     " / "
-                    <code class="text-slate-200">"gap_rx"</code>
+                    <code class="mei-text-primary">"gap_rx"</code>
                     " 为收到 SSE 并解析时的墙钟及对 srv 的差；"
-                    <code class="text-slate-200">"cli_paint"</code>
+                    <code class="mei-text-primary">"cli_paint"</code>
                     " / "
-                    <code class="text-slate-200">"gap_paint"</code>
+                    <code class="mei-text-primary">"gap_paint"</code>
                     " 为连续两次 requestAnimationFrame 之后（近似排帧后）及对 srv 的差。由作者面板写入；换文件 SPA 后请再点「调试」或收新 delta 以刷新。"
                 </span>
                 <div
                     id="mei-manage-debug-agent-sse-delta"
-                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-300"
+                    class="m-0 max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 mei-text-body"
                 >
                     "尚无记录。连接作者会话后发消息；或从其它页签切回「调试」以刷新。"
                 </div>

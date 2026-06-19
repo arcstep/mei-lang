@@ -204,10 +204,10 @@ pub(crate) fn preview_view(
         }
 
         return view! {
-            <section class="scene-placeholder rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4">
-                <h3 class="mb-2 text-base font-semibold text-slate-100">{scene_contract.scene.id.clone()}</h3>
-                <p class="text-slate-300">{scene_contract.scene.summary.clone().unwrap_or_else(|| "已生成 scene contract，运行态将在后续阶段接入。".to_string())}</p>
-                <ul class="mt-3 list-disc pl-[18px] text-slate-400">
+            <section class="scene-placeholder rounded-[14px] border mei-border-default mei-surface-panel-muted p-4">
+                <h3 class="mb-2 text-base font-semibold mei-text-inverse">{scene_contract.scene.id.clone()}</h3>
+                <p class="mei-text-body">{scene_contract.scene.summary.clone().unwrap_or_else(|| "已生成 scene contract，运行态将在后续阶段接入。".to_string())}</p>
+                <ul class="mt-3 list-disc pl-[18px] mei-text-muted">
                     <li>{format!("观察面区块：{}", scene_contract.panels.len())}</li>
                     <li>{format!("目标：{}", scene_contract.scene.goal.clone().unwrap_or_else(|| "未声明".to_string()))}</li>
                 </ul>
@@ -230,7 +230,7 @@ pub(crate) fn preview_view(
             }
             if world_semantic.has_selection() {
                 return view! {
-                    <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 bg-slate-950/35 p-4 text-sm text-slate-300">
+                    <section class="world-capsule-preview world-capsule-preview-empty rounded-[14px] border border-amber-500/25 mei-surface-panel-muted p-4 text-sm mei-text-body">
                         <p class="m-0">"当前语义选择无法生成预览，请检查 world 胶囊是否已成功编译。"</p>
                     </section>
                 }
@@ -253,10 +253,10 @@ pub(crate) fn preview_view(
                         <div class="text-xs font-semibold uppercase tracking-[0.02em] text-red-200">
                             {diag.code.clone()}
                         </div>
-                        <div class="mt-1 text-sm leading-6 text-slate-200">
+                        <div class="mt-1 text-sm leading-6 mei-text-primary">
                             {diag.message.clone()}
                         </div>
-                        <div class="mt-1 text-[11px] text-slate-400">
+                        <div class="mt-1 text-[11px] mei-text-muted">
                             {source}
                         </div>
                     </li>
@@ -264,9 +264,9 @@ pub(crate) fn preview_view(
             })
             .collect_view();
         return view! {
-            <section class="scene-placeholder rounded-[14px] border border-red-500/30 bg-slate-950/35 p-4">
-                <h3 class="mb-2 text-base font-semibold text-slate-100">"编译失败，预览已降级"</h3>
-                <p class="text-slate-300">
+            <section class="scene-placeholder rounded-[14px] border border-red-500/30 mei-surface-panel-muted p-4">
+                <h3 class="mb-2 text-base font-semibold mei-text-inverse">"编译失败，预览已降级"</h3>
+                <p class="mei-text-body">
                     "当前入口未能生成可渲染的 scene/frame。你仍可继续查看源码、错误诊断，并切换到其他文件或应用。"
                 </p>
                 <ul class="mt-3 grid gap-2 pl-0">{error_items}</ul>
@@ -275,5 +275,5 @@ pub(crate) fn preview_view(
         .into_any();
     }
 
-    view! { <div class="empty-preview rounded-[14px] border border-blue-500/20 bg-slate-950/35 p-4 text-slate-300">"当前入口还没有可渲染的 frame 或 scene。"</div> }.into_any()
+    view! { <div class="empty-preview rounded-[14px] border mei-border-default mei-surface-panel-muted p-4 mei-text-body">"当前入口还没有可渲染的 frame 或 scene。"</div> }.into_any()
 }

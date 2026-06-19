@@ -16,29 +16,54 @@ pub(super) fn theme_field(theme: &Value, key: &str) -> Value {
         .unwrap_or_else(|| serde_json::json!({}))
 }
 
+fn page_shell_tokens() -> Value {
+    serde_json::json!({
+        "bg": "radial-gradient(circle at top, #1a2a41 0%, #10192a 28%, #080d16 68%, #04070d 100%)",
+        "text": "#dbe8f6",
+        "stage": "linear-gradient(180deg, rgba(20, 31, 47, 0.56), rgba(8, 13, 21, 0.26))",
+        "stage_border": "rgba(124, 145, 173, 0.12)",
+        "chrome_top_bg": "linear-gradient(180deg, rgba(18, 32, 51, 0.97), rgba(9, 18, 30, 0.97))",
+        "chrome_bottom_bg": "linear-gradient(180deg, rgba(8, 15, 25, 0.97), rgba(5, 10, 18, 0.98))",
+        "chrome_border_top": "rgba(96, 165, 250, 0.24)",
+        "chrome_border_bottom": "rgba(45, 212, 191, 0.22)"
+    })
+}
+
+fn page_color_tokens() -> Value {
+    serde_json::json!({
+        "text_primary": "#e2e8f0",
+        "text_muted": "#94a3b8",
+        "text_body": "#cbd5e1",
+        "text_inverse": "#f8fafc",
+        "text_accent": "#f8fafc",
+        "surface_bg": "rgba(2,6,23,.32)",
+        "border_default": "rgba(59,130,246,.18)"
+    })
+}
+
 pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
     let value = match theme_id {
         "cockpit" => serde_json::json!({
             "frame": {
                 "background": {
-                    "image": "radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%), radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%), linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%)",
+                    "image": "frame_cockpit",
                     "position": "center",
                     "repeat": "no-repeat"
                 },
-                "border": "1px solid rgba(56,189,248,.18)",
+                "border": "1px solid border_accent",
                 "radius": "8px",
                 "overflow": "hidden",
                 "padding": "0",
             },
             "panel": {
                 "background": {
-                    "color": "rgba(3,10,20,.76)",
-                    "image": "radial-gradient(120% 100% at 0% 0%, rgba(34,211,238,.10), transparent 36%), radial-gradient(120% 100% at 100% 0%, rgba(59,130,246,.08), transparent 34%), linear-gradient(180deg, rgba(8,28,48,.92) 0%, rgba(4,16,30,.9) 58%, rgba(2,10,20,.94) 100%)",
+                    "color": "surface_panel",
+                    "image": "panel_cockpit",
                     "position": "center",
                     "size": "cover",
                     "repeat": "no-repeat"
                 },
-                "border": "1px solid rgba(56,189,248,.14)",
+                "border": "1px solid border_panel",
                 "radius": "6px",
                 "box_shadow": "inset 0 1px 0 rgba(125,211,252,.08), inset 0 0 0 1px rgba(15,23,42,.22), 0 10px 24px rgba(2,8,23,.24)",
                 "padding": "0",
@@ -59,56 +84,52 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "flair": false,
                 "dots": false,
                 "height": "44px",
-                "align": "center"
+                "align": "center",
+                "color": "panel_title",
+                "font": "4"
             },
             "panel_body": {
                 "min_height": "0"
             },
             "heading": {},
             "metric_label": {
-                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "16px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "2",
+                "color": "text_value",
                 "font_weight": "400",
                 "text_align": "left",
                 "line_height": "1.15"
             },
             "metric_value": {
-                "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "28px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "4",
+                "color": "text_value",
                 "font_weight": "700",
                 "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_unit": {
-                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "16px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "2",
+                "color": "text_value",
                 "font_weight": "400",
                 "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_sub_label": {
-                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "12px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "1",
+                "color": "text_value",
                 "font_weight": "400",
                 "text_align": "left",
                 "line_height": "1.05"
             },
             "metric_sub_value": {
-                "font_family": "Microsoft YaHei Bold, Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "18px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "3",
+                "color": "text_value",
                 "font_weight": "700",
                 "text_align": "right",
                 "line_height": "1.05"
             },
             "metric_sub_unit": {
-                "font_family": "Microsoft YaHei, PingFang SC, sans-serif",
-                "font_size": "12px",
-                "color": "rgba(255,255,255,0.80)",
+                "font": "1",
+                "color": "text_value",
                 "font_weight": "400",
                 "text_align": "right",
                 "line_height": "1.05"
@@ -117,30 +138,41 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "1": "12px",
                 "2": "14px",
                 "3": "18px",
-                "4": "24px"
+                "4": "24px",
+                "5": "32px"
             },
             "tokens": {
                 "color": {
                     "text_primary": "#e0f2fe",
                     "text_muted": "#94a3b8",
                     "text_accent": "#fde68a",
-                    "text_value": "#f0f9ff",
+                    "text_value": "rgba(255,255,255,0.80)",
                     "text_unit": "#7dd3fc",
                     "text_body": "#cbd5e1",
+                    "text_inverse": "#f8fafc",
                     "panel_title": "#ecfeff",
                     "section_border": "rgba(52, 82, 108, 0.5)",
+                    "surface_bg": "rgb(29, 47, 65)",
+                    "surface_panel": "rgba(3,10,20,.76)",
+                    "border_default": "rgba(56,189,248,.18)",
+                    "border_accent": "rgba(56,189,248,.18)",
+                    "border_panel": "rgba(56,189,248,.14)",
                     "chart_1": "#22d3ee",
                     "chart_2": "#38bdf8",
                     "chart_3": "#0ea5e9",
                     "chart_4": "#0369a1",
                     "chart_5": "#62beeb",
-                    "chart_6": "#475569",
-                    "surface_bg": "rgb(29, 47, 65)"
+                    "chart_6": "#475569"
+                },
+                "gradient": {
+                    "frame_cockpit": "radial-gradient(120% 80% at 50% -10%, rgba(14,165,233,.22), transparent 55%), radial-gradient(80% 50% at 100% 50%, rgba(59,130,246,.12), transparent 45%), linear-gradient(180deg, #050b14 0%, #0a1628 40%, #071018 100%)",
+                    "panel_cockpit": "radial-gradient(120% 100% at 0% 0%, rgba(34,211,238,.10), transparent 36%), radial-gradient(120% 100% at 100% 0%, rgba(59,130,246,.08), transparent 34%), linear-gradient(180deg, rgba(8,28,48,.92) 0%, rgba(4,16,30,.9) 58%, rgba(2,10,20,.94) 100%)"
                 },
                 "shadow": {
                     "header_title": "0 20px 30px #0091ff, 0 0 4px #0d74c2",
                     "panel_title": "0 0 10px rgba(0, 145, 255, 0.55), 0 0 2px rgba(13, 116, 194, 0.9)"
                 },
+                "shell": page_shell_tokens(),
                 "panel": {
                     "radius": "6px",
                     "padding": "12px"
@@ -156,13 +188,15 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
         "game" => serde_json::json!({
             "frame": {
                 "background": {
-                    "image": "linear-gradient(180deg, #111827 0%, #1f2937 100%)"
+                    "image": "frame_game"
                 },
                 "padding": "0"
             },
             "panel": {
-                "background": "rgba(17, 24, 39, 0.78)",
-                "border": "1px solid rgba(148,163,184,.18)",
+                "background": {
+                    "color": "surface_panel"
+                },
+                "border": "1px solid border_default",
                 "radius": "8px",
                 "padding": "0",
                 "overflow": "hidden"
@@ -180,7 +214,9 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "flair": false,
                 "dots": false,
                 "height": "40px",
-                "align": "center"
+                "align": "center",
+                "color": "text_primary",
+                "font": "3"
             },
             "panel_body": {
                 "min_height": "0"
@@ -196,8 +232,17 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "color": {
                     "text_primary": "#f3f4f6",
                     "text_muted": "#9ca3af",
-                    "text_accent": "#fbbf24"
-                }
+                    "text_body": "#d1d5db",
+                    "text_inverse": "#f9fafb",
+                    "text_accent": "#fbbf24",
+                    "surface_bg": "rgba(17, 24, 39, 0.78)",
+                    "surface_panel": "rgba(17, 24, 39, 0.78)",
+                    "border_default": "rgba(148,163,184,.18)"
+                },
+                "gradient": {
+                    "frame_game": "linear-gradient(180deg, #111827 0%, #1f2937 100%)"
+                },
+                "shell": page_shell_tokens()
             },
             "components": {
                 "dataset_table": {
@@ -211,8 +256,10 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "padding": "0"
             },
             "panel": {
-                "background": "rgba(2,6,23,.32)",
-                "border": "1px solid rgba(59,130,246,.18)",
+                "background": {
+                    "color": "surface_bg"
+                },
+                "border": "1px solid border_default",
                 "radius": "14px",
                 "padding": "12px"
             },
@@ -229,7 +276,9 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "flair": false,
                 "dots": false,
                 "height": "40px",
-                "align": "center"
+                "align": "center",
+                "color": "text_primary",
+                "font": "3"
             },
             "panel_body": {
                 "min_height": "0"
@@ -242,11 +291,8 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "4": "20px"
             },
             "tokens": {
-                "color": {
-                    "text_primary": "#e2e8f0",
-                    "text_muted": "#94a3b8",
-                    "text_accent": "#f8fafc"
-                }
+                "color": page_color_tokens(),
+                "shell": page_shell_tokens()
             },
             "components": {
                 "dataset_table": {

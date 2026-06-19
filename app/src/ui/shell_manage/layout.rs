@@ -44,8 +44,8 @@ fn asset_codemirror_stack(
 
 fn readonly_source_notice() -> impl IntoView {
     view! {
-        <div class="manage-readonly-note mb-2 rounded-lg border border-slate-700/55 bg-slate-900/45 px-3 py-2 text-[11px] leading-5 text-slate-300">
-            <strong class="mr-2 text-slate-100">"只读查看"</strong>
+        <div class="manage-readonly-note mb-2 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 text-[11px] leading-5 mei-text-body">
+            <strong class="mr-2 mei-text-inverse">"只读查看"</strong>
             <span>"构建视图中的 `.mei` 与资源文件仅用于预览和只读源码查看；应用配置请切换到「配置」视图。"</span>
         </div>
     }
@@ -161,9 +161,9 @@ pub(crate) fn manage_shell(
         view! { <></> }.into_any()
     };
     let shell_class = if stage_enabled {
-        "shell shell-surface frame-stage-enabled text-slate-200"
+        "shell shell-surface frame-stage-enabled mei-text-primary"
     } else {
-        "shell shell-surface text-slate-200"
+        "shell shell-surface mei-text-primary"
     };
     let preview_scroll_class = if stage_enabled {
         "main-pane-scroll preview-pane-scroll frame-stage-enabled flex-1 min-h-0 overflow-auto p-0"
@@ -248,10 +248,10 @@ pub(crate) fn manage_shell(
 
     let diagnostics_panel = if compiled.diagnostics.is_empty() {
         view! {
-            <section class="grid gap-2 rounded-xl border border-dashed border-slate-600/55 bg-slate-900/45 p-4 text-xs leading-6 text-slate-400">
-                <strong class="text-slate-200">"调试"</strong>
+            <section class="grid gap-2 rounded-xl border border-dashed mei-border-muted mei-surface-panel-muted p-4 text-xs leading-6 mei-text-muted">
+                <strong class="mei-text-primary">"调试"</strong>
                 <span>"当前编译没有 diagnostics。"</span>
-                <span class="text-slate-500">"出现错误后，此页签会自动展示 Error / Warning / Info 列表。"</span>
+                <span class="mei-text-muted">"出现错误后，此页签会自动展示 Error / Warning / Info 列表。"</span>
             </section>
         }
         .into_any()

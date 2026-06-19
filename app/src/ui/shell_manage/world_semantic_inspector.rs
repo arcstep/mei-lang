@@ -132,26 +132,26 @@ fn metric_inspector_body(
             .filter(|_| metric.explain.len() == 1)
     });
     view! {
-        <div class="world-semantic-inspector-body grid gap-3 text-xs leading-5 text-slate-300">
+        <div class="world-semantic-inspector-body grid gap-3 text-xs leading-5 mei-text-body">
             <header class="grid gap-1 border-b border-slate-700/50 pb-2">
-                <div class="text-sm font-medium text-slate-100">
+                <div class="text-sm font-medium mei-text-inverse">
                     {metric
                         .label
                         .clone()
                         .filter(|text| !text.trim().is_empty())
                         .unwrap_or_else(|| metric.id.clone())}
                 </div>
-                <div class="font-mono text-[11px] text-slate-400">{metric.id.clone()}</div>
+                <div class="font-mono text-[11px] mei-text-muted">{metric.id.clone()}</div>
             </header>
             {scalar
                 .map(|value| {
                     let unit = metric.unit.clone().unwrap_or_default();
                     view! {
                         <section class="grid gap-1">
-                            <div class="text-[11px] uppercase tracking-wide text-slate-500">"指标值"</div>
+                            <div class="text-[11px] uppercase tracking-wide mei-text-muted">"指标值"</div>
                             <div class="text-lg font-semibold text-sky-100">
                                 {value}
-                                {(!unit.is_empty()).then(|| view! { <span class="ml-1 text-sm text-slate-400">{unit}</span> })}
+                                {(!unit.is_empty()).then(|| view! { <span class="ml-1 text-sm mei-text-muted">{unit}</span> })}
                             </div>
                         </section>
                     }
@@ -159,7 +159,7 @@ fn metric_inspector_body(
                 })
                 .unwrap_or_else(|| {
                     view! {
-                        <section class="rounded-lg border border-dashed border-slate-600/55 bg-slate-900/45 px-3 py-2 text-[11px] text-slate-400">
+                        <section class="rounded-lg border border-dashed mei-border-muted mei-surface-panel-muted px-3 py-2 text-[11px] mei-text-muted">
                             "当前编译未物化该指标值；请确认 world 胶囊已成功编译，或查看调试页诊断。"
                         </section>
                     }
@@ -172,8 +172,8 @@ fn metric_inspector_body(
                 .map(|note| {
                     view! {
                         <section class="grid gap-1">
-                            <div class="text-[11px] uppercase tracking-wide text-slate-500">"口径"</div>
-                            <p class="m-0 text-slate-300">{note.clone()}</p>
+                            <div class="text-[11px] uppercase tracking-wide mei-text-muted">"口径"</div>
+                            <p class="m-0 mei-text-body">{note.clone()}</p>
                         </section>
                     }
                         .into_any()
@@ -182,15 +182,15 @@ fn metric_inspector_body(
             {if !contract_lines.is_empty() {
                 view! {
                     <section class="grid gap-1.5">
-                        <div class="text-[11px] uppercase tracking-wide text-slate-500">"Analysis Contract"</div>
+                        <div class="text-[11px] uppercase tracking-wide mei-text-muted">"Analysis Contract"</div>
                         <dl class="m-0 grid gap-1">
                             {contract_lines
                                 .into_iter()
                                 .map(|(label, value)| {
                                     view! {
                                         <div class="grid gap-0.5">
-                                            <dt class="text-[11px] text-slate-500">{label}</dt>
-                                            <dd class="m-0 text-slate-300">{value}</dd>
+                                            <dt class="text-[11px] mei-text-muted">{label}</dt>
+                                            <dd class="m-0 mei-text-body">{value}</dd>
                                         </div>
                                     }
                                 })
@@ -207,8 +207,8 @@ fn metric_inspector_body(
                     view! {
                         <section class="grid gap-1.5 rounded-lg border border-sky-500/25 bg-sky-500/5 px-3 py-2">
                             <div class="text-[11px] uppercase tracking-wide text-sky-300/80">"Explain 块"</div>
-                            <div class="font-mono text-[11px] text-slate-400">{block.id.clone()}</div>
-                            <div class="text-slate-200">{block.kind.clone()}</div>
+                            <div class="font-mono text-[11px] mei-text-muted">{block.id.clone()}</div>
+                            <div class="mei-text-primary">{block.kind.clone()}</div>
                             {block
                                 .label
                                 .as_ref()
@@ -219,9 +219,9 @@ fn metric_inspector_body(
                                 .as_ref()
                                 .map(|by| {
                                     view! {
-                                        <div class="text-slate-400">
+                                        <div class="mei-text-muted">
                                             "维度："
-                                            <span class="text-slate-200">{by.clone()}</span>
+                                            <span class="mei-text-primary">{by.clone()}</span>
                                         </div>
                                     }
                                         .into_any()
@@ -239,19 +239,19 @@ fn metric_inspector_body(
 
 fn dataset_inspector_body(dataset: &WorldSemanticDataset) -> AnyView {
     view! {
-        <div class="world-semantic-inspector-body grid gap-3 text-xs leading-5 text-slate-300">
+        <div class="world-semantic-inspector-body grid gap-3 text-xs leading-5 mei-text-body">
             <header class="grid gap-1 border-b border-slate-700/50 pb-2">
-                <div class="text-sm font-medium text-slate-100">{dataset.id.clone()}</div>
+                <div class="text-sm font-medium mei-text-inverse">{dataset.id.clone()}</div>
                 {dataset
                     .title
                     .as_ref()
                     .filter(|title| !title.trim().is_empty())
-                    .map(|title| view! { <div class="text-slate-400">{title.clone()}</div> }.into_any())
+                    .map(|title| view! { <div class="mei-text-muted">{title.clone()}</div> }.into_any())
                     .unwrap_or_else(|| view! { <></> }.into_any())}
             </header>
             <section class="grid gap-1">
-                <div class="text-[11px] uppercase tracking-wide text-slate-500">"Source"</div>
-                <div class="text-slate-300">
+                <div class="text-[11px] uppercase tracking-wide mei-text-muted">"Source"</div>
+                <div class="mei-text-body">
                     {dataset
                         .source_kind
                         .clone()
@@ -259,16 +259,16 @@ fn dataset_inspector_body(dataset: &WorldSemanticDataset) -> AnyView {
                 </div>
             </section>
             <section class="grid gap-1">
-                <div class="text-[11px] uppercase tracking-wide text-slate-500">"Filters"</div>
-                <div class="text-slate-300">{dataset.filter_field_count} " 个字段"</div>
+                <div class="text-[11px] uppercase tracking-wide mei-text-muted">"Filters"</div>
+                <div class="mei-text-body">{dataset.filter_field_count} " 个字段"</div>
             </section>
             <section class="grid gap-1.5">
-                <div class="text-[11px] uppercase tracking-wide text-slate-500">"Schema"</div>
+                <div class="text-[11px] uppercase tracking-wide mei-text-muted">"Schema"</div>
                 {if dataset.schema_columns.is_empty() {
-                    view! { <div class="text-slate-500">"（无列信息）"</div> }.into_any()
+                    view! { <div class="mei-text-muted">"（无列信息）"</div> }.into_any()
                 } else {
                     view! {
-                        <ul class="m-0 grid list-none gap-0.5 pl-0 font-mono text-[11px] text-slate-300">
+                        <ul class="m-0 grid list-none gap-0.5 pl-0 font-mono text-[11px] mei-text-body">
                             {dataset
                                 .schema_columns
                                 .iter()
@@ -304,7 +304,7 @@ pub(crate) fn world_semantic_inspector_view(
             .map(dataset_inspector_body)
             .unwrap_or_else(|| {
                 view! {
-                    <div class="text-xs text-slate-400">
+                    <div class="text-xs mei-text-muted">
                         "未找到 dataset `"
                         {dataset_id.to_string()}
                         "` 的语义索引。"
@@ -341,7 +341,7 @@ pub(crate) fn world_semantic_inspector_view(
             })
             .unwrap_or_else(|| {
                 view! {
-                    <div class="text-xs text-slate-400">
+                    <div class="text-xs mei-text-muted">
                         "未找到 metric `"
                         {metric_id.to_string()}
                         "` 的语义索引。"
@@ -369,8 +369,8 @@ pub(crate) fn world_semantic_inspector_view(
         <aside class="sidebar right workspace-panel workspace-panel-side workspace-panel-inspector h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
             <div class="mb-2 flex items-center justify-between gap-2 border-b border-slate-700/50 pb-2">
                 <div>
-                    <div class="text-[11px] uppercase tracking-wide text-slate-500">"语义检视"</div>
-                    <div class="text-sm font-medium text-slate-100">"World 胶囊"</div>
+                    <div class="text-[11px] uppercase tracking-wide mei-text-muted">"语义检视"</div>
+                    <div class="text-sm font-medium mei-text-inverse">"World 胶囊"</div>
                 </div>
             </div>
             <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
@@ -378,8 +378,8 @@ pub(crate) fn world_semantic_inspector_view(
                 {companion_href
                     .map(|href| {
                         view! {
-                            <section class="mt-4 border-t border-slate-700/50 pt-3 text-[11px] leading-5 text-slate-400">
-                                <div class="mb-1 text-slate-500">"关联场景"</div>
+                            <section class="mt-4 border-t border-slate-700/50 pt-3 text-[11px] leading-5 mei-text-muted">
+                                <div class="mb-1 mei-text-muted">"关联场景"</div>
                                 <a class="text-sky-300 hover:text-sky-200" href=href>
                                     {companion.clone().unwrap_or_default()}
                                 </a>

@@ -117,7 +117,7 @@ pub(crate) fn panel_view(
                 <section class="author-chat-section author-surface-chat flex min-h-0 flex-1 flex-col gap-1.5 overflow-hidden p-1.5">
                     <div class="author-progress-strip author-surface-progress grid gap-1 px-2 py-1.5" id="author-progress-strip" hidden>
                         <div class="author-progress-main flex min-w-0 flex-wrap items-center gap-1.5">
-                            <span class="author-progress-label text-xs font-bold tracking-[0.01em] text-slate-100" id="author-progress-label">
+                            <span class="author-progress-label text-xs font-bold tracking-[0.01em] mei-text-inverse" id="author-progress-label">
                                 "准备中"
                             </span>
                             <span class="author-progress-detail text-[11px] leading-5 text-blue-300" id="author-progress-detail"></span>
@@ -126,10 +126,10 @@ pub(crate) fn panel_view(
                     </div>
                     <div
                         id="author-context-preview"
-                        class="author-context-preview min-h-0 overflow-hidden rounded-xl border border-slate-700/55 bg-slate-950/35 px-2 py-1.5"
+                        class="author-context-preview min-h-0 overflow-hidden rounded-xl border mei-border-default mei-surface-panel-muted px-2 py-1.5"
                     >
                         <details class="grid gap-1">
-                            <summary class="cursor-pointer text-[10px] font-bold tracking-[0.02em] text-slate-300">"上下文预期"</summary>
+                            <summary class="cursor-pointer text-[10px] font-bold tracking-[0.02em] mei-text-body">"上下文预期"</summary>
                             <div
                                 class="mt-1 grid min-h-0 gap-1 pr-1"
                                 style="max-height:50vh;min-height:10rem;overflow-y:auto;overscroll-behavior:contain;"
@@ -144,8 +144,8 @@ pub(crate) fn panel_view(
                                         "刷新"
                                     </sl-button>
                                 </div>
-                                <div class="flex flex-wrap items-center gap-2 text-[10px] text-slate-300">
-                                    <span class="shrink-0 font-bold tracking-[0.02em] text-slate-400">
+                                <div class="flex flex-wrap items-center gap-2 text-[10px] mei-text-body">
+                                    <span class="shrink-0 font-bold tracking-[0.02em] mei-text-muted">
                                         "引用可见"
                                     </span>
                                     <sl-select
@@ -161,25 +161,25 @@ pub(crate) fn panel_view(
                                         <sl-option value="allow_scene_reachable">"场景可达"</sl-option>
                                     </sl-select>
                                 </div>
-                                <div id="author-context-preview-scope" class="text-[10px] text-slate-400"></div>
-                                <div id="author-context-preview-skill" class="text-[10px] text-slate-400"></div>
-                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"可用工具"</summary>
-                                    <pre id="author-context-preview-tools" class="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                <div id="author-context-preview-scope" class="text-[10px] mei-text-muted"></div>
+                                <div id="author-context-preview-skill" class="text-[10px] mei-text-muted"></div>
+                                <details class="rounded-lg border border-slate-700/60 mei-surface-panel-muted px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold mei-text-body">"可用工具"</summary>
+                                    <pre id="author-context-preview-tools" class="mt-1 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 mei-text-primary"></pre>
                                 </details>
-                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"资源树（按类型）"</summary>
-                                    <div id="author-context-preview-inventory" class="mt-1 grid gap-1 text-[10px] text-slate-200"></div>
+                                <details class="rounded-lg border border-slate-700/60 mei-surface-panel-muted px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold mei-text-body">"资源树（按类型）"</summary>
+                                    <div id="author-context-preview-inventory" class="mt-1 grid gap-1 text-[10px] mei-text-primary"></div>
                                 </details>
-                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"提示语注入预览"</summary>
-                                    <pre id="author-context-preview-prompt" class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"></pre>
+                                <details class="rounded-lg border border-slate-700/60 mei-surface-panel-muted px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold mei-text-body">"提示语注入预览"</summary>
+                                    <pre id="author-context-preview-prompt" class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 mei-text-primary"></pre>
                                 </details>
-                                <details class="rounded-lg border border-slate-700/60 bg-slate-900/45 px-2 py-1">
-                                    <summary class="cursor-pointer text-[10px] font-bold text-slate-300">"Delta（srv / cli_rx / cli_paint；与管理页「调试」同步）"</summary>
+                                <details class="rounded-lg border border-slate-700/60 mei-surface-panel-muted px-2 py-1">
+                                    <summary class="cursor-pointer text-[10px] font-bold mei-text-body">"Delta（srv / cli_rx / cli_paint；与管理页「调试」同步）"</summary>
                                     <pre
                                         id="author-context-preview-delta-debug"
-                                        class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 text-slate-200"
+                                        class="mt-1 min-h-0 whitespace-pre-wrap break-words font-mono text-[10px] leading-5 mei-text-primary"
                                     ></pre>
                                 </details>
                             </div>
@@ -283,12 +283,12 @@ pub(crate) fn panel_view(
                                     >
                                         <select
                                             id="author-completion-model-select"
-                                            class="author-completion-select box-border max-w-full min-w-0 cursor-pointer appearance-none border-0 bg-transparent py-0.5 pl-0 pr-4 text-left text-[10px] font-medium leading-tight text-slate-100 outline-none ring-0 focus:outline-none focus:ring-0"
+                                            class="author-completion-select box-border max-w-full min-w-0 cursor-pointer appearance-none border-0 bg-transparent py-0.5 pl-0 pr-4 text-left text-[10px] font-medium leading-tight mei-text-inverse outline-none ring-0 focus:outline-none focus:ring-0"
                                             title="点击展开可切换补全模型（与 .env 中 OPENAI_IMITATORS 及 *_COMPLETION_MODEL 顺序一致）"
                                             hidden=true
                                         ></select>
                                         <span
-                                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-0.5 text-[9px] leading-none text-slate-500 select-none"
+                                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-0.5 text-[9px] leading-none mei-text-muted select-none"
                                             aria-hidden="true"
                                         >
                                             "▾"

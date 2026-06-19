@@ -16,6 +16,7 @@ pub(crate) fn render_document(
     component_scripts_view: AnyView,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    body_theme_style: &str,
 ) -> String {
     let shell_mode_class = match route_mode {
         UiRouteMode::App if chrome_hidden => "app-view chrome-none",
@@ -106,6 +107,7 @@ pub(crate) fn render_document(
             </head>
             <body
                 class=body_class
+                style=body_theme_style.to_string()
                 data-mei-view=route_mode.slug()
                 data-mei-handler-html-ready-ms="__MEI_HANDLER_HTML_READY_MS__"
                 data-mei-ssr-http-response-body-ms="__MEI_SSR_HTTP_BODY_MS__"

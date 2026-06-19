@@ -1,20 +1,41 @@
 use serde_json::Value;
 
 use super::layout::normalize_background_image;
+use crate::ui::preview::theme::{resolve_color_token, resolve_gradient_token};
+
+fn resolve_background_image_value(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let resolved = resolve_gradient_token(trimmed);
+    normalize_background_image(resolved.as_str())
+}
 
 fn append_background_inline(style: &mut String, background: &Value) {
     match background {
         Value::String(value) if !value.trim().is_empty() => {
-            style.push_str(&format!("background:{};", value.trim()));
+            let trimmed = value.trim();
+            if trimmed.eq_ignore_ascii_case("transparent") {
+                style.push_str("background:transparent;");
+            } else {
+                style.push_str(&format!(
+                    "background:{};",
+                    resolve_background_image_value(trimmed)
+                ));
+            }
         }
         Value::Object(bg) => {
             if let Some(value) = bg.get("color").and_then(Value::as_str) {
-                style.push_str(&format!("background-color:{};", value));
+                style.push_str(&format!(
+                    "background-color:{};",
+                    resolve_color_token(value)
+                ));
             }
             if let Some(value) = bg.get("image").and_then(Value::as_str) {
                 style.push_str(&format!(
                     "background-image:{};",
-                    normalize_background_image(value)
+                    resolve_background_image_value(value)
                 ));
             }
             append_background_layer_props(style, bg);
@@ -44,16 +65,22 @@ fn append_background_layer_props(style: &mut String, bg: &serde_json::Map<String
 fn append_background_css_vars(style: &mut String, prefix: &str, background: &Value) {
     match background {
         Value::String(value) if !value.trim().is_empty() => {
-            style.push_str(&format!("--{prefix}-bg-image:{};", value.trim()));
+            style.push_str(&format!(
+                "--{prefix}-bg-image:{};",
+                resolve_background_image_value(value.trim())
+            ));
         }
         Value::Object(bg) => {
             if let Some(value) = bg.get("color").and_then(Value::as_str) {
-                style.push_str(&format!("--{prefix}-bg-color:{};", value));
+                style.push_str(&format!(
+                    "--{prefix}-bg-color:{};",
+                    resolve_color_token(value)
+                ));
             }
             if let Some(value) = bg.get("image").and_then(Value::as_str) {
                 style.push_str(&format!(
                     "--{prefix}-bg-image:{};",
-                    normalize_background_image(value)
+                    resolve_background_image_value(value)
                 ));
             }
             if let Some(value) = bg.get("size").and_then(Value::as_str) {
@@ -79,13 +106,15 @@ fn append_background_css_vars(style: &mut String, prefix: &str, background: &Val
 pub(crate) fn frame_background_color(props: &Value) -> Option<String> {
     let background = props.as_object()?.get("background")?;
     match background {
-        Value::String(value) if !value.trim().is_empty() => Some(value.trim().to_string()),
+        Value::String(value) if !value.trim().is_empty() => {
+            Some(resolve_color_token(value.trim()))
+        }
         Value::Object(bg) => bg
             .get("color")
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .map(str::to_string),
+            .map(resolve_color_token),
         _ => None,
     }
 }
