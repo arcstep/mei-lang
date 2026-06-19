@@ -231,6 +231,15 @@ Use this when:
 - multiple named themes must be switchable
 - the theme is part of the app contract instead of a built-in preset
 
+### Theme token rules
+
+All font/color values are managed through theme tokens (preview + editor shell):
+
+- **Definition layer** (`theme.tokens.color`, `tokens.shell`, `tokens.gradient`, `theme.font`): literal `#hex`, `rgba()`, and `Npx` are allowed.
+- **Reference layer** (scene/frame/panel props, `metric_*` roles): use semantic names only — `color = "text_primary"`, `font = "3"`. Literals compile as errors.
+
+Required token keys and profile tables: `docs/mei-lang/topics/theme-token-contract.md`.
+
 ## Source refs and upload-backed datasets
 
 Prefer `source_ref(...)` when the data source should come from `.mei-config.json` instead of a hard-coded path:
