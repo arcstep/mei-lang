@@ -85,6 +85,10 @@
 
   const SPBJW_CASE_DETAIL_BOARD_FILE = "scenes/_shared/case-detail.board.mei";
   const SPBJW_WARNING_ROWSET_IDS = new Set(["warning_list", "warning_detail"]);
+  const SPBJW_ISSUE_CLUE_METRIC_IDS = new Set([
+    "effectiveness_transfer_clue_count",
+    "effectiveness_filing_count",
+  ]);
 
   function resolveAnalyticsRowsetDatasetId(config = null) {
     const popupParams =
@@ -99,11 +103,20 @@
     );
   }
 
-  function resolveCaseDetailBoardSceneId(rowsetId) {
+  function resolveCaseDetailBoardSceneId(rowsetId, detail = null, config = null) {
     const id = String(rowsetId || "").trim();
     if (!id) return "";
     if (id === "issue_result_list") return "issue_result_detail_card_board";
-    if (SPBJW_WARNING_ROWSET_IDS.has(id)) return "warning_detail_card_board";
+    if (id === "typical_cases") return "typical_cases_detail_board";
+    if (SPBJW_WARNING_ROWSET_IDS.has(id)) {
+      const metricId = normalizeMetricLocalId(
+        resolveDrilldownTableMetricId(detail, config),
+      );
+      if (SPBJW_ISSUE_CLUE_METRIC_IDS.has(metricId)) {
+        return "issue_clue_detail_card_board";
+      }
+      return "warning_detail_card_board";
+    }
     return "";
   }
 
@@ -112,7 +125,7 @@
       return null;
     }
     const rowsetId = resolveAnalyticsRowsetDatasetId(config);
-    const boardSceneId = resolveCaseDetailBoardSceneId(rowsetId);
+    const boardSceneId = resolveCaseDetailBoardSceneId(rowsetId, detail, config);
     if (!boardSceneId) {
       return null;
     }
