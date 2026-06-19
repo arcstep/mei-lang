@@ -9,6 +9,16 @@ import {
 } from "../dataset/runtime-query.js";
 import { createComponentTracer } from "../perf/render-trace.js";
 import { ensureEChartsGlobal } from "../vendor/runtime-libs.js";
+import {
+  COCKPIT_FONT,
+  COCKPIT_TYPE,
+  cockpitCssVars,
+  readThemeTypography,
+  readThemeColor,
+  readThemeUiFontFamily,
+  resolveRuntimeColor,
+  themeColor as color,
+} from "./tokens.js";
 
 function ensureECharts() {
   return ensureEChartsGlobal();
@@ -79,7 +89,7 @@ function legendItemsFromProps(props) {
     return custom
       .map((item) => ({
         label: String(item?.label ?? item?.name ?? "").trim(),
-        color: String(item?.color ?? "#62beeb").trim(),
+        color: String(item?.color ?? color("chart_5")).trim(),
       }))
       .filter((item) => item.label);
   }
@@ -93,7 +103,7 @@ function legendItemsFromProps(props) {
           "无违规"
       ).trim(),
       color: String(
-        props?.legendOkColor ?? props?.legend_ok_color ?? props?.legendRateColor ?? props?.legend_rate_color ?? "#62beeb"
+        props?.legendOkColor ?? props?.legend_ok_color ?? props?.legendRateColor ?? props?.legend_rate_color ?? color("chart_5")
       ).trim(),
     },
     {
@@ -109,7 +119,7 @@ function legendItemsFromProps(props) {
           props?.legend_viol_color ??
           props?.legendRestColor ??
           props?.legend_rest_color ??
-          "#c47a3a"
+          color("tone_orange")
       ).trim(),
     },
   ].filter((item) => item.label);
@@ -120,15 +130,18 @@ function donutSliceLabels(props) {
   return {
     okLabel: items[0]?.label || "无违规",
     violLabel: items[1]?.label || "违规",
-    okColor: items[0]?.color || "#62beeb",
-    violColor: items[1]?.color || "#c47a3a",
+    okColor: items[0]?.color || color("chart_5"),
+    violColor: items[1]?.color || color("tone_orange"),
   };
 }
 
-function buildProgressDonutOption(rate, sliceLabels) {
+function buildProgressDonutOption(rate, sliceLabels, host) {
   const pct = Math.max(0, Math.min(100, Math.round(rate)));
   const rest = Math.max(0, 100 - pct);
   const { okLabel, violLabel, okColor, violColor } = sliceLabels;
+  const typography = readThemeTypography(host);
+  const okFill = resolveRuntimeColor(host, okColor, "chart_5");
+  const violFill = resolveRuntimeColor(host, violColor, "tone_orange");
   return {
     animation: false,
     tooltip: { show: false },
@@ -143,21 +156,22 @@ function buildProgressDonutOption(rate, sliceLabels) {
           show: true,
           position: "center",
           formatter: `${pct}%`,
-          color: "#e8f4ff",
-          fontSize: 15,
+          color: readThemeColor(host, "text_highlight"),
+          fontSize: typography.body,
           fontWeight: 700,
+          fontFamily: readThemeUiFontFamily(host),
         },
         labelLine: { show: false },
         data: [
           {
             value: pct,
             name: okLabel,
-            itemStyle: { color: okColor },
+            itemStyle: { color: okFill },
           },
           {
             value: rest,
             name: violLabel,
-            itemStyle: { color: violColor },
+            itemStyle: { color: violFill },
             label: { show: false },
             emphasis: { disabled: true },
           },
@@ -250,7 +264,8 @@ class MeiCockpitDonutTrio extends HTMLElement {
           width: 100%;
           min-width: 0;
           height: 100%;
-          font-family: ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+          font-family: ${COCKPIT_FONT.uiFamily};
+          ${cockpitCssVars()}
         }
         .wrap {
           display: flex;
@@ -282,9 +297,9 @@ class MeiCockpitDonutTrio extends HTMLElement {
         .cap {
           margin-top: 2px;
           text-align: center;
-          font-size: 11px;
+          font-size: ${COCKPIT_TYPE.chartLabel};
           line-height: 1.3;
-          color: #94a3b8;
+          color: ${color("text_muted")};
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -312,9 +327,9 @@ class MeiCockpitDonutTrio extends HTMLElement {
           min-width: 0;
         }
         .legend-item .label {
-          font-size: 10px;
+          font-size: ${COCKPIT_TYPE.chartLabel};
           line-height: 1.2;
-          color: #94a3b8;
+          color: ${color("text_muted")};
           white-space: nowrap;
         }
         .swatch {
@@ -324,12 +339,12 @@ class MeiCockpitDonutTrio extends HTMLElement {
           flex-shrink: 0;
         }
         .status {
-          font-size: 10px;
-          color: #64748b;
+          font-size: ${COCKPIT_TYPE.chartLabel};
+          color: ${color("text_muted")};
           text-align: center;
           padding: 8px 0;
         }
-        .status.error { color: #fca5a5; }
+        .status.error { color: ${color("status_error")}; }
       </style>
       <div class="wrap">
         <div class="charts">
@@ -409,7 +424,7 @@ class MeiCockpitDonutTrio extends HTMLElement {
           chart = echarts.init(chartEl);
           this._charts[index] = chart;
         }
-        chart.setOption(buildProgressDonutOption(item.rate, this._sliceLabels), true);
+        chart.setOption(buildProgressDonutOption(item.rate, this._sliceLabels, this), true);
         requestAnimationFrame(() => chart?.resize?.());
       });
       requestAnimationFrame(() => {

@@ -1,4 +1,5 @@
 import { parseProps } from "./shared.js";
+import { color } from "../mei/theme-style.js";
 
 function parsePercent(raw) {
   const text = String(raw ?? "").trim();
@@ -17,7 +18,7 @@ function progressShell(props) {
     extendX: String(shell.extend_x ?? shell.extendX ?? "0px"),
     height: String(shell.height ?? "14px"),
     radius: String(shell.border_radius ?? shell.borderRadius ?? "2px"),
-    fill: String(shell.fill ?? shell.background ?? "#C9E9F8"),
+    fill: String(shell.fill ?? shell.background ?? color("text_unit")),
   };
 }
 

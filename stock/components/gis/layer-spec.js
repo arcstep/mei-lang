@@ -1,4 +1,5 @@
 /**
+import { color } from "../mei/theme-style.js";
  * GIS layerSpec / joinSpec 共享工具（chart.geo 与 map.maplibre 共用）
  */
 
@@ -371,7 +372,7 @@ export function choroplethRange(valueMap, palette) {
   const max = values.length ? Math.max(...values) : 1;
   const colors = Array.isArray(palette) && palette.length >= 2
     ? palette
-    : ["#14243a", "#38bdf8"];
+    : ["#14243a", color("chart_2")];
   return { min, max, colors };
 }
 
@@ -453,7 +454,7 @@ export function resolveLayerDataLabels(layerSpec = {}, options = {}) {
     minZoom: Number((raw && typeof raw === "object" ? raw.minZoom ?? raw.min_zoom : null) ?? 10),
     maxZoom: Number((raw && typeof raw === "object" ? raw.maxZoom ?? raw.max_zoom : null) ?? 22),
     textSize: Number(style.labelTextSize ?? style.label_text_size ?? 11),
-    textColor: String(style.labelColor || style.label_color || "#e2e8f0"),
+    textColor: String(style.labelColor || style.label_color || color("text_body")),
     textHaloColor: String(style.labelHaloColor || style.label_halo_color || "#0f172a"),
     textHaloWidth: Number(style.labelHaloWidth ?? style.label_halo_width ?? 1.2),
     valueLabel: String(
@@ -716,15 +717,15 @@ export function basemapLabelLayers(basemap = {}) {
   const textField = textFieldForBasemap(basemap);
   const roadClasses = resolveBasemapRoadClasses(basemap);
   const roadClassFilter = filterByRoadClasses(roadClasses);
-  const waterLabelColor = basemapValue(basemap, "waterLabelColor", "water_label_color", "#7dd3fc");
+  const waterLabelColor = basemapValue(basemap, "waterLabelColor", "water_label_color", color("text_unit"));
   const waterLabelOpacity = basemapValue(basemap, "waterLabelOpacity", "water_label_opacity", 1);
   const waterLabelHaloColor = basemapValue(basemap, "waterLabelHaloColor", "water_label_halo_color", "#0f172a");
   const waterLabelHaloWidth = basemapValue(basemap, "waterLabelHaloWidth", "water_label_halo_width", 1.2);
-  const roadLabelColor = basemapValue(basemap, "roadLabelColor", "road_label_color", "#e2e8f0");
+  const roadLabelColor = basemapValue(basemap, "roadLabelColor", "road_label_color", color("text_body"));
   const roadLabelOpacity = basemapValue(basemap, "roadLabelOpacity", "road_label_opacity", 1);
   const roadLabelHaloColor = basemapValue(basemap, "roadLabelHaloColor", "road_label_halo_color", "#0f172a");
   const roadLabelHaloWidth = basemapValue(basemap, "roadLabelHaloWidth", "road_label_halo_width", 1);
-  const placeLabelColor = basemapValue(basemap, "placeLabelColor", "place_label_color", "#f8fafc");
+  const placeLabelColor = basemapValue(basemap, "placeLabelColor", "place_label_color", color("text_inverse"));
   const placeLabelOpacity = basemapValue(basemap, "placeLabelOpacity", "place_label_opacity", 1);
   const placeLabelHaloColor = basemapValue(basemap, "placeLabelHaloColor", "place_label_halo_color", "#0f172a");
   const placeLabelHaloWidth = basemapValue(basemap, "placeLabelHaloWidth", "place_label_halo_width", 1.2);
@@ -828,7 +829,7 @@ export function buildBasemapStyle(basemap) {
   const waterwayWidth = basemapValue(basemap, "waterwayWidth", "waterway_width", 1);
   const landuseColor = basemapValue(basemap, "landuseColor", "landuse_color", "#14243a");
   const landuseOpacity = basemapValue(basemap, "landuseOpacity", "landuse_opacity", 0.6);
-  const roadColor = basemapValue(basemap, "roadColor", "road_color", "#38bdf8");
+  const roadColor = basemapValue(basemap, "roadColor", "road_color", color("chart_2"));
   const roadOpacity = basemapValue(basemap, "roadOpacity", "road_opacity", 1);
   const buildingColor = basemapValue(basemap, "buildingColor", "building_color", "#334155");
   const buildingOpacity = basemapValue(basemap, "buildingOpacity", "building_opacity", 0.5);

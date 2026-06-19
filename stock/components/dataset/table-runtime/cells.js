@@ -198,14 +198,14 @@ export function cellTableChromeStyleBlock() {
       font-weight: 700;
       line-height: 1;
       letter-spacing: 0.02em;
-      color: #93c5fd;
+      color: ${color("text_unit")};
       cursor: pointer;
       vertical-align: middle;
     }
     button.cell-ellipsis.cell-expand-btn:hover {
       background: rgba(59, 130, 246, 0.38);
       border-color: rgba(147, 197, 253, 0.85);
-      color: #e0f2fe;
+      color: ${color("text_highlight")};
     }
     button.cell-ellipsis.cell-expand-btn:focus-visible {
       outline: 2px solid rgba(147, 197, 253, 0.9);

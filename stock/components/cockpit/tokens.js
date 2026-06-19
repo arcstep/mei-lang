@@ -1,3 +1,4 @@
+import { color } from "../mei/theme-style.js";
 /**
  * 驾驶舱大屏设计 token（通用 chrome，Sketch @3x 逻辑尺寸）。
  * 颜色真源：theme.tokens.color → --mei-color-*（见项目 .mei-config.json ops.themes.cockpit）。
@@ -86,18 +87,21 @@ const CHART_COLOR_KEYS = ["chart_1", "chart_2", "chart_3", "chart_4", "chart_5",
 
 /** 静态 fallback（无 DOM / 无 theme 注入时） */
 export const COCKPIT_CHART_PALETTE_FALLBACK = [
-  "#22d3ee",
-  "#38bdf8",
-  "#0ea5e9",
-  "#0369a1",
-  "#62beeb",
-  "#475569",
+  "var(--mei-color-chart-1, #22d3ee)",
+  "var(--mei-color-chart-2, #38bdf8)",
+  "var(--mei-color-chart-3, #0ea5e9)",
+  "var(--mei-color-chart-4, #0369a1)",
+  "var(--mei-color-chart-5, #62beeb)",
+  "var(--mei-color-chart-6, #475569)",
 ];
 
 /** @deprecated 请用 readThemeChartPalette(host)；保留作静态 fallback */
 export const COCKPIT_CHART_PALETTE = [...COCKPIT_CHART_PALETTE_FALLBACK];
 
-/** theme.tokens.color.* → CSS var（带 fallback） */
+import { fallbackColor, fallbackShadow } from "../mei/theme-fallback.js";
+
+/** theme.tokens.color.* → CSS var（fallback 仅来自 theme-fallback.js） */
+/** @deprecated 第二参数 fallback 已废弃，请改用 `mei/theme-style.js` 的 `color()` */
 export function themeColor(name, fallback) {
   const key = String(name ?? "")
     .trim()
@@ -105,9 +109,11 @@ export function themeColor(name, fallback) {
   if (!key) {
     return fallback ?? "inherit";
   }
-  return fallback != null && String(fallback).length > 0
-    ? `var(--mei-color-${key}, ${fallback})`
-    : `var(--mei-color-${key})`;
+  const fb =
+    fallback != null && String(fallback).length > 0
+      ? fallback
+      : fallbackColor(String(name ?? "").trim());
+  return `var(--mei-color-${key}, ${fb})`;
 }
 
 /** theme.tokens.shadow.* → CSS var */
@@ -118,9 +124,11 @@ export function themeShadow(name, fallback) {
   if (!key) {
     return fallback ?? "none";
   }
-  return fallback != null && String(fallback).length > 0
-    ? `var(--mei-shadow-${key}, ${fallback})`
-    : `var(--mei-shadow-${key})`;
+  const fb =
+    fallback != null && String(fallback).length > 0
+      ? fallback
+      : fallbackShadow(String(name ?? "").trim());
+  return `var(--mei-shadow-${key}, ${fb})`;
 }
 
 export function parseThemeFontPx(raw, fallback) {
@@ -184,20 +192,60 @@ export function readThemeChartPalette(host) {
   return colors.length > 0 ? colors : [...COCKPIT_CHART_PALETTE_FALLBACK];
 }
 
+/** 从宿主 computed style 读取 theme.tokens.color.* 实色（ECharts/canvas 用） */
+export function readThemeColor(host, name) {
+  const token = String(name ?? "").trim();
+  const key = token.replace(/_/g, "-");
+  const fb = fallbackColor(token);
+  if (!key) {
+    return fb;
+  }
+  if (typeof window === "undefined" || !(host instanceof Element)) {
+    return fb;
+  }
+  const raw = window.getComputedStyle(host).getPropertyValue(`--mei-color-${key}`).trim();
+  return raw || fb;
+}
+
+/** 字面量色值直通；`var(--mei-color-*)` 或 token 名从宿主解析 */
+export function resolveRuntimeColor(host, value, tokenName) {
+  const text = String(value ?? "").trim();
+  if (/^#([0-9a-f]{3,8})$/i.test(text)) {
+    return text;
+  }
+  if (/^rgba?\(/i.test(text) || /^hsla?\(/i.test(text)) {
+    return text;
+  }
+  if (text && !text.startsWith("var(")) {
+    return readThemeColor(host, text);
+  }
+  return readThemeColor(host, String(tokenName ?? "").trim());
+}
+
+/** ECharts 文本 fontFamily：解析 --mei-font-family-ui */
+export function readThemeUiFontFamily(host) {
+  const fallback = '"Microsoft YaHei", "PingFang SC", "DIN Alternate", sans-serif';
+  if (typeof window === "undefined" || !(host instanceof Element)) {
+    return fallback;
+  }
+  const raw = window.getComputedStyle(host).getPropertyValue("--mei-font-family-ui").trim();
+  return raw || fallback;
+}
+
 /** 标题+内容一体外框 */
 export const COCKPIT_SECTION_SHELL = {
-  border: `1px solid ${themeColor("section_border", "rgba(52, 82, 108, 0.5)")}`,
+  border: `1px solid ${color("section_border")}`,
   radius: "4px",
   fill: "transparent",
 };
 
 /** 语义色别名（指向 --mei-color-* / --mei-metric-*-color） */
 export const COCKPIT_COLOR = {
-  headerTitle: themeColor("text_primary", "#d8f0ff"),
-  panelTitle: themeColor("panel_title", "#ecfeff"),
+  headerTitle: color("text_primary"),
+  panelTitle: color("panel_title"),
   metricLabel: "var(--mei-metric-label-color, var(--mei-color-text-muted, #94a3b8))",
   metricValue: "var(--mei-metric-value-color, var(--mei-color-text-value, #f0f9ff))",
-  metricValueRate: themeColor("text_accent", "#fde68a"),
+  metricValueRate: color("text_accent"),
   metricUnit: "var(--mei-metric-unit-color, var(--mei-color-text-unit, #7dd3fc))",
 };
 
@@ -226,7 +274,7 @@ export const COCKPIT_FONT = {
 };
 
 export const COCKPIT_SHADOW = {
-  headerTitle: themeShadow("header_title", "0 20px 30px #0091ff, 0 0 4px #0d74c2"),
+  headerTitle: themeShadow("header_title"),
   panelTitle: themeShadow(
     "panel_title",
     "0 0 10px rgba(0, 145, 255, 0.55), 0 0 2px rgba(13, 116, 194, 0.9)",

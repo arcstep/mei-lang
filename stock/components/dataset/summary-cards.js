@@ -128,11 +128,11 @@ class MeiDatasetSummaryCards extends HTMLElement {
         .wrap { display: grid; gap: 10px; }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
         .card { display: grid; gap: 6px; padding: 12px; border-radius: 14px; background: linear-gradient(150deg, rgba(15,23,42,.92), rgba(30,41,59,.75)); border: 1px solid rgba(59,130,246,.25); }
-        .label { color: #94a3b8; font-size: 12px; }
-        .value { color: #f8fafc; font-size: 24px; font-weight: 800; line-height: 1.1; }
-        .unit { color: #94a3b8; font-size: 12px; }
-        .status { min-height: 16px; color: #94a3b8; font-size: 12px; }
-        .status.error { color: #fca5a5; }
+        .label { color: ${color("text_muted")}; font-size: 12px; }
+        .value { color: ${color("text_inverse")}; font-size: 24px; font-weight: 800; line-height: 1.1; }
+        .unit { color: ${color("text_muted")}; font-size: 12px; }
+        .status { min-height: 16px; color: ${color("text_muted")}; font-size: 12px; }
+        .status.error { color: ${color("status_error")}; }
       </style>
       <section class="wrap">
         <div class="status ${this._state.error ? "error" : ""}">

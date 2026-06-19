@@ -323,7 +323,7 @@ function metricDescShellBox(shell) {
 }
 
 function metricDescShellBackground(shell) {
-  const rawBg = shell.background ?? "#C9E9F8";
+  const rawBg = shell.background ?? color("text_unit");
   if (String(rawBg).trim().toLowerCase().startsWith("rgba(")) {
     return String(rawBg).trim();
   }

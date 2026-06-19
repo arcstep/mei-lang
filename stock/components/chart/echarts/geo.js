@@ -1,4 +1,5 @@
 import {
+import { color } from "../mei/theme-style.js";
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
   escapeHtml,
@@ -139,7 +140,7 @@ if (!customElements.get(TAG)) {
             min,
             max: max === min ? min + 1 : max,
             inRange: { color: colors },
-            textStyle: { color: "#94a3b8" },
+            textStyle: { color: color("text_muted") },
             left: 8,
             bottom: 8,
           },
@@ -151,12 +152,12 @@ if (!customElements.get(TAG)) {
               layoutSize,
               roam: props.roam !== false,
               emphasis: {
-                label: { show: true, color: "#f8fafc" },
-                itemStyle: { areaColor: props.highlightColor || "#fbbf24" },
+                label: { show: true, color: color("text_inverse") },
+                itemStyle: { areaColor: props.highlightColor || color("text_accent") },
               },
               itemStyle: {
                 areaColor: colors[0],
-                borderColor: props.borderColor || "#38bdf8",
+                borderColor: props.borderColor || color("chart_2"),
                 borderWidth: props.borderWidth ?? 0.8,
               },
               data,

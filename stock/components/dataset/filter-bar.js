@@ -9,7 +9,8 @@ import {
   setQueryState,
   subscribeQueryState,
 } from "./runtime-query.js";
-import { COCKPIT_TYPE, cockpitCssVars, themeColor } from "../cockpit/tokens.js";
+import { COCKPIT_TYPE, cockpitCssVars } from "../cockpit/tokens.js";
+import { color } from "../mei/theme-style.js";
 import {
   buildColumnProfiles,
   defaultOperatorForProfile,
@@ -1918,30 +1919,30 @@ function sharedStyles() {
       display: block;
       ${cockpitCssVars()}
     }
-    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${themeColor("filter_panel_bg", "rgba(10, 40, 78, 0.88)")}; border: 1px solid ${themeColor("filter_panel_border", "rgba(56, 160, 240, 0.22)")}; color: ${themeColor("text_body", "#e2e8f0")}; }
-    .title { margin: 0; font-size: ${FILTER_PANEL_FONT}; color: ${themeColor("text_inverse", "#f8fafc")}; }
-    .desc { color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${FILTER_PANEL_FONT}; line-height: 1.45; }
+    .wrap { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: ${color("filter_panel_bg")}; border: 1px solid ${color("filter_panel_border")}; color: ${color("text_body")}; }
+    .title { margin: 0; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_inverse")}; }
+    .desc { color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; line-height: 1.45; }
     .fields { display: grid; gap: 10px; grid-template-columns: 1fr; }
-    label.field { display: grid; gap: 6px; font-size: ${FILTER_PANEL_FONT}; color: ${themeColor("text_body", "#e2e8f0")}; position: relative; }
-    input[type="text"], input[type="date"], input[type="month"], select, button { border-radius: 8px; border: 1px solid ${themeColor("drilldown_tab_border", "rgba(56, 160, 240, 0.32)")}; background: ${themeColor("drilldown_tab_bg", "rgba(10, 40, 78, 0.72)")}; color: ${themeColor("text_body", "#e2e8f0")}; font-size: ${FILTER_PANEL_FONT}; padding: 7px 9px; }
+    label.field { display: grid; gap: 6px; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_body")}; position: relative; }
+    input[type="text"], input[type="date"], input[type="month"], select, button { border-radius: 8px; border: 1px solid ${color("drilldown_tab_border")}; background: ${color("drilldown_tab_bg")}; color: ${color("text_body")}; font-size: ${FILTER_PANEL_FONT}; padding: 7px 9px; }
     .multi-trigger { width: 100%; text-align: left; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
     .multi-trigger::after { content: "▾"; opacity: .7; }
     .multi-trigger.is-open::after { content: "▴"; }
-    .multi-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 2px); z-index: 20; max-height: 280px; overflow: auto; border-radius: 8px; border: 1px solid ${themeColor("filter_panel_border", "rgba(56, 160, 240, 0.22)")}; background: ${themeColor("drilldown_panel_bottom", "rgba(10, 40, 78, 0.98)")}; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45); padding: 6px; }
+    .multi-panel { display: none; position: absolute; left: 0; right: 0; top: calc(100% - 2px); z-index: 20; max-height: 280px; overflow: auto; border-radius: 8px; border: 1px solid ${color("filter_panel_border")}; background: ${color("drilldown_panel_bottom")}; box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45); padding: 6px; }
     .multi-panel.is-open { display: block; }
     .multi-search { width: 100%; margin-bottom: 6px; position: sticky; top: 0; z-index: 1; box-sizing: border-box; }
     .multi-options { display: flex; flex-direction: column; gap: 2px; }
-    .multi-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: ${FILTER_PANEL_FONT}; color: ${themeColor("text_body", "#e2e8f0")}; }
+    .multi-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: ${FILTER_PANEL_FONT}; color: ${color("text_body")}; }
     .multi-option[hidden] { display: none !important; }
-    .multi-option:hover { background: ${themeColor("table_row_hover", "rgba(32, 96, 168, 0.38)")}; }
+    .multi-option:hover { background: ${color("table_row_hover")}; }
     .multi-option input { margin: 0; }
-    .multi-filter-empty { padding: 8px; color: ${themeColor("text_muted", "#a8c8e6")}; font-size: calc(${FILTER_PANEL_FONT} * 0.9); text-align: center; }
+    .multi-filter-empty { padding: 8px; color: ${color("text_muted")}; font-size: calc(${FILTER_PANEL_FONT} * 0.9); text-align: center; }
     .multi-filter-empty[hidden] { display: none !important; }
     .actions { display: flex; gap: 8px; justify-content: flex-end; }
     button.action { cursor: pointer; }
-    button.action.primary { border-color: rgba(56, 189, 248, 0.55); color: #e0f2fe; background: rgba(14, 116, 178, 0.35); }
-    .loading { color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${FILTER_PANEL_FONT}; }
-    .multi-empty { padding: 8px; color: ${themeColor("text_muted", "#a8c8e6")}; font-size: ${FILTER_PANEL_FONT}; }
+    button.action.primary { border-color: rgba(56, 189, 248, 0.55); color: ${color("text_highlight")}; background: rgba(14, 116, 178, 0.35); }
+    .loading { color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; }
+    .multi-empty { padding: 8px; color: ${color("text_muted")}; font-size: ${FILTER_PANEL_FONT}; }
     .multi-panel.is-floating,
     .field-picker-panel.is-floating {
       right: auto !important;
@@ -1988,7 +1989,7 @@ function additiveStyles() {
       padding: 0;
       border: 0;
       background: transparent;
-      color: ${themeColor("text_inverse", "#f8fafc")};
+      color: ${color("text_inverse")};
       font-size: ${FILTER_PANEL_FONT};
       cursor: pointer;
       text-align: left;
@@ -2003,7 +2004,7 @@ function additiveStyles() {
       padding: 0 6px;
       border-radius: 999px;
       background: rgba(56, 189, 248, 0.22);
-      color: #bae6fd;
+      color: ${color("text_highlight")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.82);
     }
     .panel-chevron {
@@ -2087,7 +2088,7 @@ function additiveStyles() {
       min-width: 0;
     }
     .field-label {
-      color: ${themeColor("text_inverse", "#f8fafc")};
+      color: ${color("text_inverse")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.9);
       font-weight: 600;
       line-height: 1.35;
@@ -2098,27 +2099,27 @@ function additiveStyles() {
       cursor: pointer;
       border-radius: ${radius};
       border: 1px solid rgba(56, 189, 248, 0.55);
-      color: #e0f2fe;
+      color: ${color("text_highlight")};
       background: linear-gradient(180deg, rgba(14, 116, 178, 0.55), rgba(8, 72, 120, 0.45));
       font-size: ${FILTER_PANEL_FONT};
       padding: 6px 10px;
     }
     .row-confirm-error {
       margin: 0;
-      color: #fda4af;
+      color: ${color("status_error")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.86);
       line-height: 1.35;
     }
     .row-confirm-hint {
       margin: 0;
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.82);
       line-height: 1.35;
     }
     .row-stack { display: grid; gap: 6px; min-width: 0; }
     .row-block { display: grid; gap: 5px; font-size: ${FILTER_PANEL_FONT}; min-width: 0; }
     .row-label {
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.88);
       line-height: 1.35;
       letter-spacing: 0.02em;
@@ -2132,7 +2133,7 @@ function additiveStyles() {
       border-radius: ${radius};
       border: 1px solid ${border};
       background: ${bg};
-      color: ${themeColor("text_body", "#e2e8f0")};
+      color: ${color("text_body")};
       font-size: ${FILTER_PANEL_FONT};
       padding: 6px 9px;
     }
@@ -2145,7 +2146,7 @@ function additiveStyles() {
       gap: 8px;
       align-items: center;
     }
-    .row-value-multi .multi-trigger.cockpit-filter-control::after { content: "▾"; opacity: 0.72; color: #bae6fd; }
+    .row-value-multi .multi-trigger.cockpit-filter-control::after { content: "▾"; opacity: 0.72; color: ${color("text_highlight")}; }
     .row-value-multi .multi-trigger.cockpit-filter-control.is-open::after { content: "▴"; }
     .row-value-multi .multi-panel {
       display: none;
@@ -2158,7 +2159,7 @@ function additiveStyles() {
       overflow: auto;
       border-radius: ${radius};
       border: 1px solid ${border};
-      background: ${themeColor("drilldown_panel_bottom", "rgba(10, 40, 78, 0.98)")};
+      background: ${color("drilldown_panel_bottom")};
       box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45);
       padding: 6px;
     }
@@ -2188,7 +2189,7 @@ function additiveStyles() {
     .date-range-control .date-input-icon {
       position: absolute;
       right: 8px;
-      color: #c9e9f8;
+      color: ${color("text_unit")};
       pointer-events: none;
       display: inline-flex;
     }
@@ -2205,7 +2206,7 @@ function additiveStyles() {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      color: ${themeColor("text_body", "#e2e8f0")};
+      color: ${color("text_body")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.88);
       cursor: pointer;
     }
@@ -2225,7 +2226,7 @@ function additiveStyles() {
       font-size: 18px;
       line-height: 1;
     }
-    .row-remove:hover { color: #e2e8f0; background: rgba(15, 45, 82, 0.45); }
+    .row-remove:hover { color: ${color("text_body")}; background: rgba(15, 45, 82, 0.45); }
     .field-picker {
       position: relative;
       width: 100%;
@@ -2242,13 +2243,13 @@ function additiveStyles() {
       gap: 8px;
       border-style: dashed;
       border-color: rgba(56, 189, 248, 0.35);
-      color: #bae6fd;
+      color: ${color("text_highlight")};
       background: rgba(8, 32, 68, 0.22);
     }
     .field-picker-trigger::after {
       content: "▾";
       opacity: 0.72;
-      color: #bae6fd;
+      color: ${color("text_highlight")};
       flex-shrink: 0;
     }
     .field-picker-trigger.is-open::after { content: "▴"; }
@@ -2263,7 +2264,7 @@ function additiveStyles() {
       z-index: 45;
       border-radius: ${radius};
       border: 1px solid ${border};
-      background: ${themeColor("drilldown_panel_bottom", "rgba(10, 40, 78, 0.98)")};
+      background: ${color("drilldown_panel_bottom")};
       box-shadow: 0 12px 28px rgba(2, 6, 23, 0.45);
       padding: 6px;
       box-sizing: border-box;
@@ -2286,7 +2287,7 @@ function additiveStyles() {
     .field-picker-meta {
       margin: 0 0 6px;
       padding: 0 4px;
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.82);
       line-height: 1.35;
     }
@@ -2311,20 +2312,20 @@ function additiveStyles() {
       border: 0;
       border-radius: 6px;
       background: transparent;
-      color: ${themeColor("text_body", "#e2e8f0")};
+      color: ${color("text_body")};
       font-size: ${FILTER_PANEL_FONT};
       text-align: left;
       cursor: pointer;
     }
     .field-picker-option:hover {
-      background: ${themeColor("table_row_hover", "rgba(32, 96, 168, 0.38)")};
-      color: #f8fafc;
+      background: ${color("table_row_hover")};
+      color: ${color("text_inverse")};
     }
     .field-picker-option[hidden] { display: none !important; }
     .field-picker-empty,
     .field-picker-filter-empty {
       padding: 8px 6px;
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.9);
       text-align: center;
     }
@@ -2335,7 +2336,7 @@ function additiveStyles() {
       min-height: ${minHeight};
       padding: 0 2px;
       font-weight: 600;
-      color: #e2e8f0;
+      color: ${color("text_body")};
     }
     .sr-only {
       position: absolute;
@@ -2354,7 +2355,7 @@ function additiveStyles() {
       padding: 8px 10px;
       border-radius: ${radius};
       border: 1px dashed rgba(148, 163, 184, 0.28);
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.88);
       text-align: center;
       line-height: 1.4;
@@ -2370,8 +2371,8 @@ function additiveStyles() {
 }
 
 function schemaControlTokens() {
-  const border = themeColor("drilldown_tab_border", "rgba(56, 160, 240, 0.32)");
-  const bg = themeColor("drilldown_tab_bg", "rgba(10, 40, 78, 0.72)");
+  const border = color("drilldown_tab_border");
+  const bg = color("drilldown_tab_bg");
   const radius = "6px";
   const minHeight = "34px";
   return { border, bg, radius, minHeight };
@@ -2409,7 +2410,7 @@ function schemaStyles() {
       padding: 0;
       border: 0;
       background: transparent;
-      color: ${themeColor("text_inverse", "#f8fafc")};
+      color: ${color("text_inverse")};
       font-size: ${FILTER_PANEL_FONT};
       cursor: pointer;
       text-align: left;
@@ -2424,7 +2425,7 @@ function schemaStyles() {
       padding: 0 6px;
       border-radius: 999px;
       background: rgba(56, 189, 248, 0.22);
-      color: #bae6fd;
+      color: ${color("text_highlight")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.82);
     }
     .panel-chevron {
@@ -2467,7 +2468,7 @@ function schemaStyles() {
       box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.12);
     }
     .schema-label {
-      color: ${themeColor("text_muted", "#a8c8e6")};
+      color: ${color("text_muted")};
       font-size: calc(${FILTER_PANEL_FONT} * 0.88);
       line-height: 1.35;
       letter-spacing: 0.02em;
@@ -2480,7 +2481,7 @@ function schemaStyles() {
       border-radius: ${radius};
       border: 1px solid ${border};
       background: ${bg};
-      color: ${themeColor("text_body", "#e2e8f0")};
+      color: ${color("text_body")};
       font-size: ${FILTER_PANEL_FONT};
       padding: 6px 9px;
     }
@@ -2494,7 +2495,7 @@ function schemaStyles() {
       gap: 8px;
       align-items: center;
     }
-    .schema-control .multi-trigger.cockpit-filter-control::after { content: "▾"; opacity: 0.72; color: #bae6fd; }
+    .schema-control .multi-trigger.cockpit-filter-control::after { content: "▾"; opacity: 0.72; color: ${color("text_highlight")}; }
     .schema-control .multi-trigger.cockpit-filter-control.is-open::after { content: "▴"; }
     .schema-control .multi-panel {
       left: 0;
@@ -2567,7 +2568,7 @@ function schemaStyles() {
       right: 10px;
       top: 50%;
       transform: translateY(-50%);
-      color: #c9e9f8;
+      color: ${color("text_unit")};
       pointer-events: none;
       display: inline-flex;
       align-items: center;

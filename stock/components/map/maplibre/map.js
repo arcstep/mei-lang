@@ -1,4 +1,5 @@
 import {
+import { color } from "../mei/theme-style.js";
   deferUntilDisplayed,
   fetchRuntimeMetrics,
   findRuntimeMetricInResults,
@@ -985,7 +986,7 @@ if (!customElements.get(TAG)) {
           type: "line",
           source: sourceId,
           paint: {
-            "line-color": style.lineColor || "#38bdf8",
+            "line-color": style.lineColor || color("chart_2"),
             "line-width": style.lineWidth ?? 1.2,
             "line-opacity": style.lineOpacity ?? style.line_opacity ?? 1,
           },

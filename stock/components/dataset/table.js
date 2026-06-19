@@ -270,12 +270,12 @@ class MeiDatasetTable extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host { display: block; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
-        .wrap { display: grid; gap: 12px; padding: 16px; border-radius: 14px; background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.18); color: #e2e8f0; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }
-        .meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: #94a3b8; font-size: 12px; align-items: center; min-width: 0; }
-        .meta strong { color: #e2e8f0; font-size: 13px; }
-        .lazy-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(59,130,246,.45); color: #93c5fd; font-size: 11px; }
+        .wrap { display: grid; gap: 12px; padding: 16px; border-radius: 14px; background: rgba(15,23,42,.72); border: 1px solid rgba(148,163,184,.18); color: ${color("text_body")}; min-width: 0; max-width: 100%; box-sizing: border-box; overflow: hidden; }
+        .meta { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: ${color("text_muted")}; font-size: 12px; align-items: center; min-width: 0; }
+        .meta strong { color: ${color("text_body")}; font-size: 13px; }
+        .lazy-badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(59,130,246,.45); color: ${color("text_unit")}; font-size: 11px; }
         .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; max-width: 100%; }
-        .toolbar input, .toolbar select, .toolbar button, .toolbar summary { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: #e2e8f0; font-size: 12px; padding: 7px 9px; box-sizing: border-box; }
+        .toolbar input, .toolbar select, .toolbar button, .toolbar summary { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: ${color("text_body")}; font-size: 12px; padding: 7px 9px; box-sizing: border-box; }
         .toolbar input, .toolbar select { flex: 1 1 140px; min-width: 0; max-width: 100%; }
         .toolbar button, .toolbar summary { flex: 0 0 auto; cursor: pointer; white-space: nowrap; }
         .toolbar .column-menu { flex: 0 0 auto; }
@@ -284,36 +284,36 @@ class MeiDatasetTable extends HTMLElement {
         .column-menu summary { list-style: none; user-select: none; }
         .column-menu summary::-webkit-details-marker { display: none; }
         .column-panel { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; width: 240px; display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.98); box-shadow: 0 16px 32px rgba(0,0,0,.3); }
-        .column-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1; }
+        .column-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: ${color("text_body")}; }
         .column-row input { margin: 0; }
         .column-actions { display: flex; justify-content: flex-end; }
-        .status { color: #94a3b8; font-size: 11px; min-height: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
-        .error { color: #fca5a5; }
+        .status { color: ${color("text_muted")}; font-size: 11px; min-height: 16px; display: flex; gap: 12px; flex-wrap: wrap; }
+        .error { color: ${color("status_error")}; }
         .table-wrap { overflow-x: auto; overflow-y: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; border: 1px solid rgba(148,163,184,.16); min-height: 80px; max-width: 100%; min-width: 0; }
         table { border-collapse: collapse; table-layout: fixed; }
         th, td { border-bottom: 1px solid rgba(148,163,184,.12); font-size: 12px; }
-        th { background: rgba(30,41,59,.92); color: #f8fafc; position: sticky; top: 0; z-index: 1; }
-        td { color: #cbd5e1; overflow: hidden; }
+        th { background: rgba(30,41,59,.92); color: ${color("text_inverse")}; position: sticky; top: 0; z-index: 1; }
+        td { color: ${color("text_body")}; overflow: hidden; }
         ${cellTableChromeStyleBlock()}
         .th-shell { display: flex; align-items: center; gap: 8px; min-width: 0; }
         .drag-handle { cursor: grab; color: #64748b; font-size: 14px; }
         .th-button { display: inline-flex; align-items: center; gap: 6px; width: 100%; min-width: 0; border: none; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; text-align: inherit; }
         .th-button:hover { color: #bfdbfe; }
         .th-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-        .sort-indicator { flex: 0 0 auto; color: #93c5fd; font-size: 11px; }
+        .sort-indicator { flex: 0 0 auto; color: ${color("text_unit")}; font-size: 11px; }
         .th-drop-target { box-shadow: inset 0 -2px 0 rgba(96,165,250,.9); }
-        .tone-red { color: #fca5a5; }
+        .tone-red { color: ${color("status_error")}; }
         .tone-orange { color: #fdba74; }
         .tone-yellow { color: #fde68a; }
         .tone-green { color: #86efac; }
-        .tone-blue { color: #93c5fd; }
-        .tone-slate { color: #cbd5e1; }
+        .tone-blue { color: ${color("text_unit")}; }
+        .tone-slate { color: ${color("text_body")}; }
         .cell-tag { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; background: rgba(15,23,42,.25); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
-        .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 4px 2px; border-top: 1px solid rgba(148,163,184,.14); color: #94a3b8; font-size: 12px; min-height: 32px; }
-        .row-total { flex: 0 0 auto; color: #cbd5e1; white-space: nowrap; }
+        .table-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 8px 4px 2px; border-top: 1px solid rgba(148,163,184,.14); color: ${color("text_muted")}; font-size: 12px; min-height: 32px; }
+        .row-total { flex: 0 0 auto; color: ${color("text_body")}; white-space: nowrap; }
         .table-footer .pager { flex: 1 1 auto; display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
-        .pager-meta { color: #94a3b8; white-space: nowrap; }
-        .table-footer button { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: #e2e8f0; font-size: 12px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+        .pager-meta { color: ${color("text_muted")}; white-space: nowrap; }
+        .table-footer button { border-radius: 8px; border: 1px solid rgba(148,163,184,.25); background: rgba(15,23,42,.45); color: ${color("text_body")}; font-size: 12px; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
         .table-footer button[disabled] { opacity: .5; cursor: not-allowed; }
         ${cellPopoverStyleBlock(popoverVariant)}
       </style>

@@ -104,7 +104,7 @@ export function textPopoverStyleBlock(variant = "large") {
         0 0 0 1px rgba(255, 255, 255, 0.06) inset,
         0 0 28px rgba(0, 120, 220, 0.22),
         0 20px 48px rgba(0, 0, 0, 0.55);
-      color: #f8fafc;
+      color: ${color("text_inverse")};
       font-family: var(--mei-font-family-ui, "Microsoft YaHei", "PingFang SC", sans-serif);
     }
     .cell-pop--modal {

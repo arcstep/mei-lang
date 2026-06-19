@@ -1,4 +1,5 @@
 import {
+import { color } from "../mei/theme-style.js";
   deferUntilDisplayed,
   shouldReactToPreviewUpdated,
   fetchDatasetRows,
@@ -979,8 +980,8 @@ const ECHARTS_TOOLTIP_CHROME = {
 
 const ECHARTS_TOOLTIP_TEXT = {
   primary: "#f0f9ff",
-  secondary: "#bae6fd",
-  muted: "#cbd5e1",
+  secondary: color("text_highlight"),
+  muted: color("text_body"),
 };
 
 /** 驾驶舱紧凑柱/线图：浅灰绘图区底 + 低对比网格线（避免默认白线抢眼） */
@@ -1137,7 +1138,7 @@ function buildCategoryAxisLabel(chartProps, typography) {
   const rotate = resolveCategoryAxisLabelRotate(chartProps);
   const label = {
     fontSize: typography.unit,
-    color: "#94a3b8",
+    color: color("text_muted"),
     interval: 0,
   };
   if (formatter) {
@@ -1251,8 +1252,8 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           smooth: true,
           symbol: "circle",
           symbolSize: compact ? 4 : 6,
-          itemStyle: { color: "#f8fafc", borderColor: "#7dd3fc", borderWidth: 1 },
-          lineStyle: { color: "#7dd3fc", width: 1.5 },
+          itemStyle: { color: color("text_inverse"), borderColor: color("text_unit"), borderWidth: 1 },
+          lineStyle: { color: color("text_unit"), width: 1.5 },
           data,
           z: 3,
         });
@@ -1328,7 +1329,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
           itemWidth: 10,
           itemHeight: 8,
           itemGap: 6,
-          textStyle: { fontSize: themeTypography.unit, color: "#94a3b8" },
+          textStyle: { fontSize: themeTypography.unit, color: color("text_muted") },
         }
       : { show: false },
     toolbox: legacy.compact ? undefined : { feature: { saveAsImage: {} } },
@@ -1348,7 +1349,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         ...option.xAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
-          color: "#94a3b8",
+          color: color("text_muted"),
           formatter: compactAxisValueLabel,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
@@ -1366,7 +1367,7 @@ function buildCartesianOption(kind, rows, mapping, legacy, diagnostics) {
         ...option.yAxis,
         axisLabel: {
           fontSize: themeTypography.unit,
-          color: "#94a3b8",
+          color: color("text_muted"),
           formatter: compactAxisValueLabel,
         },
         splitLine: COCKPIT_CARTESIAN_SPLIT_LINE,
@@ -1428,7 +1429,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
       ? { show: false }
       : {
           top: 0,
-          textStyle: { fontSize: themeTypography.label, color: "#94a3b8" },
+          textStyle: { fontSize: themeTypography.label, color: color("text_muted") },
         },
     toolbox: compact ? undefined : { feature: { saveAsImage: {} } },
     series: [
@@ -1439,7 +1440,7 @@ function buildPieOption(kind, rows, mapping, diagnostics, legacy = {}) {
         label: {
           show: !compact,
           fontSize: themeTypography.label,
-          color: "#e2e8f0",
+          color: color("text_body"),
         },
         labelLine: { show: !compact },
         roseType: kind === "rose" ? "radius" : undefined,
@@ -1648,7 +1649,7 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
   if (chartEl.parentElement) {
     chartEl.parentElement.style.overflow = pullUp > 0 ? "visible" : "hidden";
   }
-  const barColor = theme.barColor || "#38bdf8";
+  const barColor = theme.barColor || color("chart_2");
   const trackBg = theme.barBackground || "rgba(148, 163, 184, 0.14)";
   const trackBorder = theme.barBackgroundBorder || "rgba(100, 116, 139, 0.35)";
   const rowsHtml = items
@@ -1684,7 +1685,7 @@ function renderRankingAboveDom(chartEl, model, props, onLabelClick) {
 
 function resolveRankingTheme(props) {
   return {
-    barColor: String(props.barColor || props.bar_color || "").trim() || "#38bdf8",
+    barColor: String(props.barColor || props.bar_color || "").trim() || color("chart_2"),
     barBackground:
       String(props.barBackground || props.bar_background || "").trim() ||
       "rgba(148, 163, 184, 0.14)",
@@ -1845,7 +1846,7 @@ function buildRankingSideOption(rows, mapping, props, diagnostics) {
       data: categories,
       inverse: true,
       axisLabel: {
-        color: "#e2e8f0",
+        color: color("text_body"),
         fontSize: typography.axisLabelFontSize,
         fontWeight: 500,
         width: labelWidthPx,
@@ -1961,7 +1962,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
           width: labelWidth,
           overflow: "truncate",
           ellipsis: "…",
-          color: "#e2e8f0",
+          color: color("text_body"),
           formatter: (params) => {
             const item = items[params.dataIndex];
             if (!item) return "";
@@ -1972,7 +1973,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
             name: {
               fontSize: typography.labelFontSize,
               fontWeight: 500,
-              color: "#e2e8f0",
+              color: color("text_body"),
               align: "left",
               lineHeight: typography.labelLineHeight,
               width: labelWidth,
@@ -1981,7 +1982,7 @@ function buildRankingLabelAboveOption(rows, mapping, props, diagnostics) {
             val: {
               fontSize: typography.valueFontSize,
               fontWeight: 600,
-              color: "#7dd3fc",
+              color: color("text_unit"),
               align: "right",
               lineHeight: Math.round(typography.valueFontSize * 1.25),
             },

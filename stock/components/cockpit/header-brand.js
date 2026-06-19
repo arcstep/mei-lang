@@ -1,4 +1,5 @@
 /** 驾驶舱大屏标题：全宽底图 + 居中帽檐（随标题宽度）+ 主标题。1920×72 设计稿逻辑尺寸。 */
+import { color } from "../mei/theme-style.js";
 
 import { cockpitAsset, escapeHtml, parseProps } from "./shared.js";
 
@@ -72,7 +73,7 @@ class MeiCockpitHeaderBrand extends HTMLElement {
       ? cockpitAsset(p, "title_mid")
       : "";
     const chromeless = !titleBg && !titleMid;
-    const titleColor = p.titleColor || "#E8F0FF";
+    const titleColor = p.titleColor || color("text_highlight");
     const titleLineHeight = p.titleLineHeight || "68px";
     const titleLetterSpacing =
       p.titleLetterSpacing !== undefined && p.titleLetterSpacing !== null

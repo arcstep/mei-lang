@@ -8,7 +8,8 @@ import {
   subscribeQueryState,
 } from "../dataset/runtime-query.js";
 import { escapeHtml } from "./shared.js";
-import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars, themeColor } from "./tokens.js";
+import { COCKPIT_FONT, COCKPIT_TYPE, cockpitCssVars } from "./tokens.js";
+import { color } from "../mei/theme-style.js";
 
 function formatWanYuan(raw) {
   const n = Number(raw);
@@ -110,7 +111,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
           font-size: ${COCKPIT_TYPE.chartTitle};
           font-weight: 600;
           line-height: 1.2;
-          color: ${themeColor("text_inverse", "#f8fafc")};
+          color: ${color("text_inverse")};
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -132,7 +133,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
           align-items: baseline;
           gap: ${rowGap};
           padding: ${rowPad};
-          border-bottom: 1px solid ${themeColor("section_border_soft", "rgba(52, 82, 108, 0.45)")};
+          border-bottom: 1px solid ${color("section_border_soft")};
         }
         .row:last-child {
           border-bottom: none;
@@ -141,7 +142,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
         .name {
           font-size: ${nameSize};
           line-height: ${nameLh};
-          color: ${themeColor("text_body", "#cbd5e1")};
+          color: ${color("text_body")};
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -156,7 +157,7 @@ class MeiCockpitParkAmountList extends HTMLElement {
         .value {
           font-size: ${valueSize};
           font-weight: 700;
-          color: ${themeColor("text_highlight", "#e8f4ff")};
+          color: ${color("text_highlight")};
           line-height: 1;
         }
         .unit {
@@ -166,11 +167,11 @@ class MeiCockpitParkAmountList extends HTMLElement {
         }
         .status {
           font-size: ${COCKPIT_TYPE.chartLabel};
-          color: ${themeColor("text_secondary", "#64748b")};
+          color: ${color("text_secondary")};
           text-align: center;
           padding: 12px 0;
         }
-        .status.error { color: ${themeColor("status_error", "#fca5a5")}; }
+        .status.error { color: ${color("status_error")}; }
       </style>
       ${titleText ? `<h4 class="head">${escapeHtml(titleText)}</h4>` : ""}
       <div class="list"></div>
