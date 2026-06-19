@@ -235,4 +235,18 @@ test.describe("spbjw explain 弹层", () => {
       overlay.getByRole("tab", { name: "问题处理结果（处理人数）" }),
     ).toHaveAttribute("aria-selected", "true");
   });
+
+  test("body 注入 theme CSS 变量", async ({ page }) => {
+    await openManage(page, SPBJW_MANAGE);
+    const themeId = await page.evaluate(() =>
+      getComputedStyle(document.body).getPropertyValue("--mei-theme-id").trim(),
+    );
+    const textPrimary = await page.evaluate(() =>
+      getComputedStyle(document.body)
+        .getPropertyValue("--mei-color-text-primary")
+        .trim(),
+    );
+    expect(themeId.length).toBeGreaterThan(0);
+    expect(textPrimary.length).toBeGreaterThan(0);
+  });
 });
