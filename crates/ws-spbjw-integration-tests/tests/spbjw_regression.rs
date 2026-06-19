@@ -1557,6 +1557,62 @@ fn compile_spbjw_supervision_board_export_preview_projection_slots_in_assembly()
 }
 
 #[test]
+fn compile_spbjw_enforcement_personnel_board_preview_precompiles_single_route() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/01-执法要素.board.mei";
+    let scene_id = "enforcement_personnel_analytics_board";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: Some(scene_id.to_string()),
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    assert_eq!(compiled.active_scene.as_deref(), Some(scene_id));
+    let routes_attempted = compiled
+        .diagnostics
+        .iter()
+        .find_map(|diag| {
+            if diag.code != "route_precompile_stats" {
+                return None;
+            }
+            diag.message.split(',').find_map(|part| {
+                part.trim()
+                    .strip_prefix("routes_attempted=")
+                    .and_then(|value| value.parse::<usize>().ok())
+            })
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "route_precompile_stats missing, diagnostics: {:?}",
+                compiled.diagnostics
+            )
+        });
+    assert_eq!(
+        routes_attempted, 1,
+        "multi-export board manage preview should precompile one route, diagnostics: {:?}",
+        compiled.diagnostics
+    );
+    assert!(
+        compiled
+            .scene_projection_assembly_by_id
+            .contains_key(scene_id),
+        "expected assembly for `{scene_id}`, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        !compiled
+            .scene_projection_assembly_by_id
+            .contains_key("enforcement_units_analytics_board"),
+        "sibling board should not be pre-warmed, keys: {:?}",
+        compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn compile_spbjw_issue_handling_board_export_preview_projection_slots_in_assembly() {
     let source_root = source_root();
     let app_root = zhifa_app_root();

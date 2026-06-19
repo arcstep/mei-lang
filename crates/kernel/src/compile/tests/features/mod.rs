@@ -4,6 +4,7 @@ mod panel_theme;
 mod refs_builtin;
 mod authoring_helpers;
 mod board_assembly_diagnostics;
+mod board_preview_scope;
 mod world_capsule_tree;
 
 pub(super) use std::collections::BTreeMap;

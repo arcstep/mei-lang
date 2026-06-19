@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -86,7 +86,7 @@ pub(super) fn route_targets_preview(
 pub(super) fn route_matches_preview_scope(
     route: &CompiledSceneRoute,
     preview_target: Option<&str>,
-    affected_targets: Option<&std::collections::BTreeSet<String>>,
+    affected_targets: Option<&BTreeSet<String>>,
 ) -> bool {
     if let Some(targets) = affected_targets {
         if !targets.is_empty() {
@@ -94,6 +94,85 @@ pub(super) fn route_matches_preview_scope(
         }
     }
     route_targets_preview(route, preview_target)
+}
+
+/// Manage `preview_only` 预编译 route 列表：同文件多 `scene_export` 时按 `options.scene` 裁剪。
+pub(super) fn manage_preview_precompile_routes(
+    options: &CompileOptions,
+    routes: &[CompiledSceneRoute],
+    preview_affected_targets: Option<&BTreeSet<String>>,
+) -> Result<Vec<CompiledSceneRoute>, Diagnostic> {
+    let preview_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty());
+
+    let candidates = routes
+        .iter()
+        .filter(|route| {
+            route_matches_preview_scope(route, preview_target, preview_affected_targets)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let Some(preview_file) = preview_target else {
+        return Ok(candidates);
+    };
+
+    let export_ids = candidates
+        .iter()
+        .filter(|route| route.target_file == preview_file)
+        .map(|route| route.scene_id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    if export_ids.len() <= 1 {
+        return Ok(candidates);
+    }
+
+    let requested_scene = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+
+    let Some(requested_scene) = requested_scene else {
+        return Err(Diagnostic {
+            severity: Severity::Error,
+            code: "missing_scene_export_selector".to_string(),
+            message: format!(
+                "scene resource file declares multiple exported scenes [{}]; select one via scene_id/route before compile",
+                export_ids.into_iter().collect::<Vec<_>>().join(", ")
+            ),
+            source_path: Some(preview_file.to_string()),
+        });
+    };
+
+    let mut filtered = Vec::with_capacity(candidates.len());
+    let mut matched_on_preview_file = false;
+    for route in candidates {
+        if route.target_file == preview_file {
+            if route.scene_id == requested_scene {
+                matched_on_preview_file = true;
+                filtered.push(route);
+            }
+            continue;
+        }
+        filtered.push(route);
+    }
+
+    if !matched_on_preview_file {
+        return Err(Diagnostic {
+            severity: Severity::Error,
+            code: "board_export_not_found".to_string(),
+            message: format!(
+                "scene `{requested_scene}` not found among exported scenes for preview target `{preview_file}`"
+            ),
+            source_path: Some(preview_file.to_string()),
+        });
+    }
+
+    Ok(filtered)
 }
 
 pub(super) fn catalog_focus_target<'a>(
@@ -260,7 +339,20 @@ pub(super) fn inject_discovered_entry_scene_routes(
     if let Some(preview) = preview_target.map(str::trim).filter(|s| !s.is_empty()) {
         if preview.ends_with(".mei") {
             if let Ok(scenes) = load_scene_decls_from_file(app_root, preview) {
-                for scene in scenes {
+                let requested_scene = scene_selector.map(str::trim).filter(|s| !s.is_empty());
+                let scenes_to_register = if preview_only {
+                    match requested_scene {
+                        Some(requested) => scenes
+                            .into_iter()
+                            .filter(|scene| scene.id.trim() == requested)
+                            .collect::<Vec<_>>(),
+                        None if scenes.len() == 1 => scenes,
+                        None => Vec::new(),
+                    }
+                } else {
+                    scenes
+                };
+                for scene in scenes_to_register {
                     let sid = scene.id.trim().to_string();
                     if !sid.is_empty() {
                         try_push_discovered_entry_route(

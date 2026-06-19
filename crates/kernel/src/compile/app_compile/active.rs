@@ -2,11 +2,11 @@ use std::{collections::BTreeMap, path::Path, time::Instant};
 
 use serde_json::Value;
 
-use crate::model::{CompiledSceneRoute, ComponentAsset};
+use crate::model::{CompiledSceneRoute, ComponentAsset, Diagnostic};
 use crate::typed_refs::SceneRegistry;
 
 use super::super::dependency_graph::DependencyGraph;
-use super::super::discover_routes::{route_matches_preview_scope, CompileOptions};
+use super::super::discover_routes::{manage_preview_precompile_routes, CompileOptions};
 use super::super::entry_payload::CompiledScenePayload;
 use super::super::route_compile::{elapsed_ms, precompile_route_payloads, RoutePrecompileStats};
 use super::super::scene::find_scene_route;
@@ -23,6 +23,7 @@ pub(super) struct ActiveCompileResult {
     pub active_payload_pick_or_compile_ms: u64,
     /// Board / scene-first targets compiled while hydrating popup links on the active scene.
     pub hydrated_link_targets: BTreeMap<String, (String, CompiledScenePayload)>,
+    pub preview_scope_diagnostics: Vec<Diagnostic>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -42,15 +43,15 @@ pub(super) fn precompile_and_pick_active(
 ) -> ActiveCompileResult {
     let mut official_results: BTreeMap<String, CompiledScenePayload> = BTreeMap::new();
     let mut precompile_routes = Vec::<CompiledSceneRoute>::new();
+    let mut preview_scope_diagnostics = Vec::<Diagnostic>::new();
     if preview_only {
-        for route in &route_registry.routes {
-            if route_matches_preview_scope(
-                route,
-                options.preview_target.as_deref(),
-                preview_affected_targets.as_ref(),
-            ) {
-                precompile_routes.push(route.clone());
-            }
+        match manage_preview_precompile_routes(
+            options,
+            &route_registry.routes,
+            preview_affected_targets.as_ref(),
+        ) {
+            Ok(routes) => precompile_routes = routes,
+            Err(diag) => preview_scope_diagnostics.push(diag),
         }
     } else {
         let mut route_by_target = BTreeMap::<String, CompiledSceneRoute>::new();
@@ -282,5 +283,6 @@ pub(super) fn precompile_and_pick_active(
         active_payload,
         active_payload_pick_or_compile_ms,
         hydrated_link_targets: BTreeMap::new(),
+        preview_scope_diagnostics,
     }
 }

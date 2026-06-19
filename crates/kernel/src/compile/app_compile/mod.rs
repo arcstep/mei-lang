@@ -182,6 +182,7 @@ pub fn compile_app_from_root_with_options_and_revision(
         preview_affected_targets.clone(),
         &options,
     );
+    diagnostics.extend(std::mem::take(&mut active.preview_scope_diagnostics));
     active.hydrated_link_targets = hydrate_scene_links(
         app_root,
         &app_decls,

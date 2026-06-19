@@ -73,6 +73,7 @@ pub(super) fn finish_compiled_app(
         mut active_payload,
         active_payload_pick_or_compile_ms,
         hydrated_link_targets,
+        preview_scope_diagnostics: _,
     } = active;
     let CatalogCompileResult {
         resources,
