@@ -46,6 +46,8 @@
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
               : [],
+        trendField: nonEmptyString(slot.trendField, slot.dateField, slotConfig.trendField),
+        trendGrain: nonEmptyString(slot.grain, slotConfig.trendGrain),
         runtimeRef: {
           ...(slotConfig.runtimeRef && typeof slotConfig.runtimeRef === "object" ? slotConfig.runtimeRef : {}),
           kind: "metric",

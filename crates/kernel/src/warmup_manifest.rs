@@ -170,6 +170,18 @@ fn normalize_warmup_dataset_requests(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
+        let mut metric_ids = request
+            .metric_ids
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if let Some(metric_id) = metric_id.as_deref() {
+            metric_ids.push(metric_id.to_string());
+        }
+        metric_ids.sort();
+        metric_ids.dedup();
         let focus = request
             .focus
             .as_deref()
@@ -177,11 +189,12 @@ fn normalize_warmup_dataset_requests(
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         let dedupe_key = format!(
-            "{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}",
             scene_id.as_deref().unwrap_or(""),
             focus.as_deref().unwrap_or(""),
             dataset_id,
-            metric_id.as_deref().unwrap_or("")
+            metric_id.as_deref().unwrap_or(""),
+            serde_json::to_string(&metric_ids).unwrap_or_default()
         );
         if !seen.insert(dedupe_key) {
             continue;
@@ -190,6 +203,7 @@ fn normalize_warmup_dataset_requests(
             scene_id,
             dataset_id: dataset_id.to_string(),
             metric_id,
+            metric_ids,
             focus,
         });
     }
@@ -301,10 +315,15 @@ mod tests {
             scene_id: Some("home".to_string()),
             dataset_id: "warning_list".to_string(),
             metric_id: Some("case_total".to_string()),
+            metric_ids: vec!["case_delta".to_string(), "case_total".to_string()],
             focus: Some("main.mei".to_string()),
         }]);
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].focus.as_deref(), Some("main.mei"));
+        assert_eq!(
+            requests[0].metric_ids,
+            vec!["case_delta".to_string(), "case_total".to_string()]
+        );
     }
 
     #[test]
@@ -313,6 +332,7 @@ mod tests {
             scene_id: Some("home".to_string()),
             dataset_id: "warning_list".to_string(),
             metric_id: Some("case_total".to_string()),
+            metric_ids: Vec::new(),
             focus: None,
         }]);
         assert_eq!(requests.len(), 1);

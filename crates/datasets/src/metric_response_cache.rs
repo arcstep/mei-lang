@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use mei_lang_kernel::MetricContract;
+use mei_lang_kernel::{FilterIntent, MetricContract};
 
 use super::serialize_cache_value;
 use super::types::DatasetQueryOptions;
@@ -53,16 +53,18 @@ pub fn metric_response_cache_scope_key(
     query: &DatasetQueryOptions,
     compile_revision: &str,
     dependency_revision_key: &str,
+    filter_intents: &[FilterIntent],
 ) -> String {
     let group = serialize_cache_value(&query.group);
     let time_range = serialize_cache_value(&query.time_range);
     format!(
-        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|search={}|filters={}|group={}|time_range={}",
+        "{app_id}|compile={compile_revision}|{dependency_revision_key}|scene={scene_id}|target={}|dataset={dataset_id}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
         scene_path.unwrap_or(""),
         query.search.as_deref().unwrap_or(""),
         serialize_cache_value(&query.filters),
         group,
-        time_range
+        time_range,
+        serde_json::to_string(filter_intents).unwrap_or_else(|_| "[]".to_string())
     )
 }
 

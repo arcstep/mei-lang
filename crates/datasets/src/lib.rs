@@ -1,6 +1,7 @@
 mod csv_dataset;
 mod dataset_rows_cache;
 mod db_dataset;
+mod eval_artifact;
 mod file_cache;
 mod geojson_dataset;
 mod json_dataset;
@@ -13,6 +14,7 @@ mod metric_response_cache;
 mod paginate;
 mod paths;
 mod query;
+mod result_artifact;
 pub mod table_contract;
 mod types;
 mod util;
@@ -44,6 +46,11 @@ pub use metric_response_cache::{
     CachedMetricResponse,
 };
 pub use query::query_dataset_rows;
+pub use result_artifact::{
+    default_result_artifact_scope, load_metric_dataframe_result_artifact,
+    load_metric_response_result_artifact, store_metric_dataframe_result_artifact,
+    store_metric_response_result_artifact,
+};
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
     TableSortSpec,
@@ -67,6 +74,10 @@ pub fn clear_metric_dataframe_result_cache() -> usize {
 
 pub fn clear_dataset_rows_cache() -> usize {
     dataset_rows_cache::clear_dataset_rows_cache()
+}
+
+pub fn clear_eval_artifact_store(app_root: &Path) -> usize {
+    eval_artifact::clear_eval_artifact_store(app_root)
 }
 
 pub fn query_metric_dataframe(

@@ -1,6 +1,7 @@
 import {
   deferUntilDisplayed,
   fetchDatasetRows,
+  isAbortError,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
@@ -434,6 +435,9 @@ class MeiCockpitDonutTrio extends HTMLElement {
         item_count: items.length,
       });
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       this.statusEl.textContent = String(error?.message || error || "加载失败");
       this.statusEl.className = "status error";
       this._renderTrace?.mark("render_error", {

@@ -28,6 +28,29 @@ pub(crate) fn compile_app_with_cache_shared(
     toolchain::compile_app_with_cache_shared(&state.source_root, app_id, options, components_root)
 }
 
+pub(crate) fn load_compile_artifact_only(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &std::path::Path,
+) -> Option<CompileWithCacheOutcome> {
+    toolchain::load_compile_artifact_only(&state.source_root, app_id, options, components_root)
+}
+
+pub(crate) fn load_compile_artifact_only_shared(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &std::path::Path,
+) -> Option<CompileWithCacheOutcomeShared> {
+    toolchain::load_compile_artifact_only_shared(
+        &state.source_root,
+        app_id,
+        options,
+        components_root,
+    )
+}
+
 pub(crate) fn peek_compile_cache_shared(
     state: &AppState,
     app_id: &str,
@@ -89,6 +112,14 @@ pub(crate) fn clear_compile_cache_for_app(state: &AppState, app_id: &str) -> usi
     toolchain::clear_compile_cache_for_app(&state.source_root, app_id)
 }
 
+pub(crate) fn clear_compiled_app_artifacts_for_app(state: &AppState, app_id: &str) -> usize {
+    toolchain::clear_compiled_app_artifacts_for_app(&state.source_root, app_id)
+}
+
 pub(crate) fn env_flag_enabled(name: &str) -> bool {
     toolchain::env_flag_enabled(name)
+}
+
+pub(crate) fn access_artifact_only_mode_enabled() -> bool {
+    env_flag_enabled("MEI_ACCESS_ARTIFACT_ONLY")
 }

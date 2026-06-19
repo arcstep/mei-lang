@@ -21,7 +21,7 @@ fn default_sort_direction() -> String {
     "asc".to_string()
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct QueryStateEcho {
     pub page: usize,
     pub page_size: usize,

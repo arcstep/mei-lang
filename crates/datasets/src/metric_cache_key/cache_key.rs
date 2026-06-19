@@ -2,11 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, Result};
 use mei_lang_kernel::{
-    dataset_materialize_cache_epoch, resolve_versioned_source_identifier, CompiledApp, DatasetView,
+    dataset_materialize_cache_epoch, resolve_data_snapshot_import_entry,
+    resolve_versioned_source_identifier, source_file_content_signature, CompiledApp, DatasetView,
     FilterIntent, QueryState, RuntimeMetricEvalScope,
 };
 use serde::Serialize;
@@ -50,6 +50,14 @@ pub(crate) fn metric_scope_cache_key(resolved_metric_ids: &[String]) -> String {
 
 pub(crate) fn serialize_cache_value<T: Serialize>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_default()
+}
+
+fn filter_intents_fingerprint(scope: &RuntimeMetricEvalScope) -> String {
+    serialize_cache_value(&scope.filter_intents)
+}
+
+fn dimension_bindings_fingerprint(scope: &RuntimeMetricEvalScope) -> String {
+    serialize_cache_value(&scope.dimension_bindings)
 }
 
 pub(crate) fn metric_request_revision_fingerprint(
@@ -274,13 +282,15 @@ pub(crate) fn eval_node_cache_key(
     scope: &RuntimeMetricEvalScope,
 ) -> String {
     format!(
-        "expr={}|dataset={}|scene={}|target={}|search={}|filters={}|group={}|time_range={}|deps={}",
+        "expr={}|dataset={}|scene={}|target={}|search={}|filters={}|filter_intents={}|dimension_bindings={}|group={}|time_range={}|deps={}",
         expr_fingerprint.trim(),
         scope.base_dataset_id.trim(),
         scope.scene_id.trim(),
         scope.target.trim(),
         scope.search.trim(),
         scope.filters_fingerprint.trim(),
+        filter_intents_fingerprint(scope),
+        dimension_bindings_fingerprint(scope),
         scope.query_state.group_identity_key(),
         scope.query_state.time_range_identity_key(),
         scope.dependency_revision_key.trim()
@@ -302,18 +312,25 @@ fn dataset_source_fingerprint(app_root: &Path, dataset: &DatasetView) -> String 
     }
     let resolved_identifier = resolve_versioned_source_identifier(app_root, path);
     let absolute_path = app_root.join(&resolved_identifier);
-    let modified_ms = std::fs::metadata(&absolute_path)
-        .ok()
-        .and_then(|meta| meta.modified().ok())
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
+    let content_signature = resolve_data_snapshot_import_entry(
+        app_root,
+        path,
+        dataset.source.sheet.as_deref(),
+        dataset.source.header_row.unwrap_or(1).max(1) as usize,
+    )
+    .map(|entry| format!("import:{}", entry.content_signature))
+    .unwrap_or_else(|| {
+        format!(
+            "source:{}",
+            source_file_content_signature(absolute_path.as_path(), resolved_identifier.as_str())
+        )
+    });
     format!(
-        "{}|kind={}|path={}|mtime={}|sheet={}|header_row={}",
+        "{}|kind={}|path={}|content_sig={}|sheet={}|header_row={}",
         dataset.id,
         kind,
         resolved_identifier,
-        modified_ms,
+        content_signature,
         dataset.source.sheet.as_deref().unwrap_or(""),
         dataset.source.header_row.unwrap_or(1).max(1)
     )

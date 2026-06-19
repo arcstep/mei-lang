@@ -164,6 +164,8 @@ pub struct WorkspaceWarmupDatasetConfig {
     pub dataset_id: String,
     #[serde(default, rename = "metricId")]
     pub metric_id: Option<String>,
+    #[serde(default, rename = "metricIds")]
+    pub metric_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -213,6 +215,8 @@ pub struct RuntimeWarmupDatasetRequest {
     pub dataset_id: String,
     #[serde(default, rename = "metricId")]
     pub metric_id: Option<String>,
+    #[serde(default, rename = "metricIds")]
+    pub metric_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -16,7 +16,9 @@ pub struct CompileObservation {
     pub compile_revision: Option<String>,
     pub compile_ms: u64,
     pub compile_cache_hit: u64,
+    pub artifact_cache_hit: u64,
     pub compile_cache_lookup_ms: u64,
+    pub artifact_load_ms: u64,
     pub compile_cache_lock_wait_ms: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub stage_perf: BTreeMap<String, u64>,
@@ -39,7 +41,9 @@ impl CompileObservation {
             compile_revision: Some(outcome.compile_revision.clone()),
             compile_ms: outcome.compile_ms,
             compile_cache_hit: u64::from(outcome.cache_hit),
+            artifact_cache_hit: u64::from(outcome.artifact_cache_hit),
             compile_cache_lookup_ms: outcome.cache_lookup_ms,
+            artifact_load_ms: outcome.artifact_load_ms,
             compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
             stage_perf: collect_compile_diag_perf(&outcome.compiled),
         }
@@ -61,7 +65,9 @@ impl CompileObservation {
             compile_revision: Some(outcome.compile_revision.clone()),
             compile_ms: outcome.compile_ms,
             compile_cache_hit: u64::from(outcome.cache_hit),
+            artifact_cache_hit: u64::from(outcome.artifact_cache_hit),
             compile_cache_lookup_ms: outcome.cache_lookup_ms,
+            artifact_load_ms: outcome.artifact_load_ms,
             compile_cache_lock_wait_ms: outcome.compile_cache_lock_wait_ms,
             stage_perf: collect_compile_diag_perf(&outcome.compiled),
         }
@@ -83,7 +89,9 @@ impl CompileObservation {
             compile_revision: None,
             compile_ms: load_world_bundle_ms,
             compile_cache_hit: 0,
+            artifact_cache_hit: 0,
             compile_cache_lookup_ms: 0,
+            artifact_load_ms: 0,
             compile_cache_lock_wait_ms: 0,
             stage_perf: BTreeMap::new(),
         }
@@ -92,10 +100,12 @@ impl CompileObservation {
     pub fn write_perf(&self, perf: &mut BTreeMap<String, u64>) {
         perf.insert("compile_ms".to_string(), self.compile_ms);
         perf.insert("compile_cache_hit".to_string(), self.compile_cache_hit);
+        perf.insert("artifact_cache_hit".to_string(), self.artifact_cache_hit);
         perf.insert(
             "compile_cache_lookup_ms".to_string(),
             self.compile_cache_lookup_ms,
         );
+        perf.insert("artifact_load_ms".to_string(), self.artifact_load_ms);
         perf.insert(
             "compile_cache_lock_wait_ms".to_string(),
             self.compile_cache_lock_wait_ms,

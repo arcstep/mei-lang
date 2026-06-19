@@ -1780,6 +1780,69 @@ fn compile_spbjw_issue_handling_analytics_projection_slots() {
 }
 
 #[test]
+fn compile_spbjw_enterprise_complaints_analytics_board_projection_slots() {
+    let source_root = source_root();
+    let app_root = zhifa_app_root();
+    let target = "scenes/02-行政检查.mei";
+    let compiled = compile_app_from_root_with_options(
+        &source_root,
+        &app_root,
+        CompileOptions {
+            scene: None,
+            preview_target: Some(target.to_string()),
+        },
+    )
+    .unwrap_or_else(|error| panic!("compile `{target}` failed: {error}"));
+    let assembly = compiled
+        .scene_projection_assembly_by_id
+        .get("enterprise_complaints_analytics_board")
+        .and_then(Value::as_object)
+        .unwrap_or_else(|| {
+            panic!(
+                "missing enterprise_complaints_analytics_board assembly, keys: {:?}",
+                compiled.scene_projection_assembly_by_id.keys().collect::<Vec<_>>()
+            )
+        });
+    let slots = assembly
+        .get("projection_slots")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let detail_metric_id = slots
+        .iter()
+        .find(|slot| {
+            slot.as_object()
+                .and_then(|map| map.get("layout_zone"))
+                .and_then(Value::as_str)
+                == Some("detail")
+        })
+        .and_then(Value::as_object)
+        .and_then(|slot| slot.get("metric_id"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .expect("detail slot metric_id");
+    assert!(
+        detail_metric_id.ends_with("::__scalar_rowset__"),
+        "detail slot should bind scalar rowset, got `{detail_metric_id}`"
+    );
+    let trend_slot = slots
+        .iter()
+        .find(|slot| {
+            slot.as_object()
+                .and_then(|map| map.get("explain_block_id"))
+                .and_then(Value::as_str)
+                == Some("trend_by_report_time")
+        })
+        .and_then(Value::as_object)
+        .expect("trend_by_report_time chart slot");
+    assert_eq!(
+        trend_slot.get("date_field").and_then(Value::as_str),
+        Some("反映时间"),
+        "trend slot should carry date_field for filtered client-side aggregation"
+    );
+}
+
+#[test]
 fn compile_spbjw_left_rail_analytics_projection_slots() {
     let source_root = source_root();
     let app_root = zhifa_app_root();

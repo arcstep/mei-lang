@@ -962,6 +962,15 @@ fn slot_from_explain_block(
     if let Some(by) = block_map.get("by") {
         slot.insert("by".to_string(), by.clone());
     }
+    if let Some(date_field) = block_map
+        .get("date_field")
+        .or_else(|| block_map.get("dateField"))
+    {
+        slot.insert("date_field".to_string(), date_field.clone());
+    }
+    if let Some(grain) = block_map.get("grain") {
+        slot.insert("grain".to_string(), grain.clone());
+    }
     if let Some(mapping) = block_map.get("mapping") {
         slot.insert("mapping".to_string(), mapping.clone());
     }

@@ -1,6 +1,7 @@
 import {
   deferUntilDisplayed,
   fetchDatasetRows,
+  isAbortError,
   parseProps,
   resolveRuntimeMetricRef,
   runtimeCallerMeta,
@@ -243,6 +244,9 @@ class MeiCockpitParkAmountList extends HTMLElement {
         )
         .join("");
     } catch (error) {
+      if (isAbortError(error)) {
+        return;
+      }
       this.listEl.innerHTML = "";
       this.statusEl.textContent = String(error?.message || error);
       this.statusEl.className = "status error";

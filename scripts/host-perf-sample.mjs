@@ -609,6 +609,11 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
     metric: NaN,
     query: NaN,
   };
+  const firstRequestReady = {
+    metric: NaN,
+    query: NaN,
+  };
+  let criticalMetricsReadyMs = NaN;
   let resourceSummary = {
     metric: [],
     query: [],
@@ -663,6 +668,15 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
       duration: Date.now() - state.startedAt,
       failed,
     });
+    if (!failed) {
+      const readyAt = Date.now() - navigationStartedAt;
+      if (!Number.isFinite(firstRequestReady[state.kind])) {
+        firstRequestReady[state.kind] = readyAt;
+      }
+      if (state.kind === "metric" && !Number.isFinite(criticalMetricsReadyMs)) {
+        criticalMetricsReadyMs = readyAt;
+      }
+    }
   };
 
   page.on("request", onRequest);
@@ -737,6 +751,13 @@ async function captureBrowserWindowMetrics(url, extraHeaders, windowMs, options 
     browser_load_event_ms: toFinite(navigationSummary.load_ms),
     first_metric_request_start_ms: toFinite(firstRequestStart.metric),
     first_query_request_start_ms: toFinite(firstRequestStart.query),
+    first_metric_ready_ms: toFinite(firstRequestReady.metric),
+    first_query_ready_ms: toFinite(firstRequestReady.query),
+    critical_metrics_ready_ms: toFinite(
+      Number.isFinite(criticalMetricsReadyMs)
+        ? criticalMetricsReadyMs
+        : firstRequestReady.query
+    ),
     metrics_request_count: Math.max(finished.metric.length, resourceSummary.metric.length),
     query_request_count: Math.max(finished.query.length, resourceSummary.query.length),
     unique_metrics_payload_count: Math.max(seenMetricPayloads.size, resourceSummary.metric.length),
@@ -1071,12 +1092,29 @@ function applyPagePerf(target, headers) {
   setNumeric(target, "ssr_http_response_body_ms", headers.get("x-mei-ssr-http-response-body-ms"));
   setNumeric(target, "compile_ms", headers.get("x-mei-compile-ms"));
   setNumeric(target, "compile_cache_hit", headers.get("x-mei-compile-cache-hit"));
+  setNumeric(target, "artifact_cache_hit", headers.get("x-mei-artifact-cache-hit"));
+  setNumeric(target, "artifact_load_ms", headers.get("x-mei-artifact-load-ms"));
   setNumeric(target, "compile_cache_lookup_ms", headers.get("x-mei-compile-cache-lookup-ms"));
   setNumeric(target, "page_render_cache_hit", headers.get("x-mei-page-render-cache-hit"));
+  setNumeric(target, "scene_bundle_probe_ms", headers.get("x-mei-scene-bundle-probe-ms"));
+  setNumeric(
+    target,
+    "scene_bundle_build_scheduled",
+    headers.get("x-mei-scene-bundle-build-scheduled")
+  );
   applyKeyValueHeaderPerf(target, headers.get("x-mei-compile-stage-timing"));
   applyKeyValueHeaderPerf(target, headers.get("x-mei-compile-cache-stats"));
   applyKeyValueHeaderPerf(target, headers.get("x-mei-dependency-graph-stats"));
   applyKeyValueHeaderPerf(target, headers.get("x-mei-catalog-compile-stats"));
+  const sceneBundleStatus = String(headers.get("x-mei-scene-bundle-status") || "").trim();
+  if (sceneBundleStatus) {
+    target.scene_bundle_status = sceneBundleStatus;
+    target.scene_bundle_ready = Number(sceneBundleStatus === "ready");
+    target.scene_bundle_scheduled = Number(sceneBundleStatus === "scheduled");
+    target.scene_bundle_disabled = Number(sceneBundleStatus === "disabled");
+    target.scene_bundle_fallback = Number(sceneBundleStatus === "fallback");
+    target.scene_bundle_empty = Number(sceneBundleStatus === "empty");
+  }
   const revisionScope = headers.get("x-mei-compile-revision-scope");
   if (revisionScope) {
     target.compile_revision_scope = revisionScope;
@@ -1268,6 +1306,8 @@ async function collectDatasetPerf(
     dataset_total_rows: toFinite(payload?.total),
     dataset_compile_ms: toFinite(perf.compile_ms),
     dataset_compile_cache_hit: toFinite(perf.compile_cache_hit),
+    dataset_artifact_cache_hit: toFinite(perf.artifact_cache_hit),
+    dataset_artifact_load_ms: toFinite(perf.artifact_load_ms),
     dataset_query_api_ms: toFinite(perf.query_api_ms),
     dataset_total_ms: toFinite(perf.total_ms),
     dataset_compile_cache_lookup_ms: toFinite(perf.compile_cache_lookup_ms),
@@ -1283,9 +1323,12 @@ async function collectDatasetPerf(
     world_finalize_ms: toFinite(perf.world_finalize_ms),
     dataset_file_cache_hit: toFinite(perf.file_cache_hit),
     dataset_file_cache_load_ms: toFinite(perf.file_cache_load_ms),
+    dataset_import_load_ms: toFinite(perf.dataset_import_load_ms),
+    dataset_import_artifact_hit: toFinite(perf.dataset_import_artifact_hit),
     dataset_rows_cache_hit: toFinite(perf.dataset_rows_cache_hit),
     dataset_rows_cache_rows: toFinite(perf.dataset_rows_cache_rows),
     dataset_materialized_cache_hit: toFinite(perf.materialized_cache_hit),
+    dataset_default_board_bundle_hit: toFinite(perf.default_board_bundle_hit),
     dataset_metric_eval_ms: toFinite(perf.metric_eval_ms),
     dataset_hydrate_datasets_ms: toFinite(perf.hydrate_datasets_ms),
     dataset_base_query_ms: toFinite(perf.base_query_ms),
@@ -1299,6 +1342,8 @@ function buildMetricPerfObject(payload, perf, elapsedMs) {
     metric_total_rows: toFinite(payload?.total_rows),
     metric_compile_ms: toFinite(perf.compile_ms),
     metric_compile_cache_hit: toFinite(perf.compile_cache_hit),
+    metric_artifact_cache_hit: toFinite(perf.artifact_cache_hit),
+    metric_artifact_load_ms: toFinite(perf.artifact_load_ms),
     metric_query_api_ms: toFinite(perf.query_api_ms),
     metric_hydrate_datasets_ms: toFinite(perf.hydrate_datasets_ms),
     metric_eval_ms: toFinite(perf.metric_eval_ms),
@@ -1318,6 +1363,8 @@ function buildMetricPerfObject(payload, perf, elapsedMs) {
     world_finalize_ms: toFinite(perf.world_finalize_ms),
     file_cache_hit: toFinite(perf.file_cache_hit),
     file_cache_load_ms: toFinite(perf.file_cache_load_ms),
+    dataset_import_load_ms: toFinite(perf.dataset_import_load_ms),
+    dataset_import_artifact_hit: toFinite(perf.dataset_import_artifact_hit),
     file_cache_paginate_ms: toFinite(perf.file_cache_paginate_ms),
     eval_plan_nodes: toFinite(perf.eval_plan_nodes),
     eval_plan_rowset_nodes: toFinite(perf.eval_plan_rowset_nodes),
@@ -1330,6 +1377,9 @@ function buildMetricPerfObject(payload, perf, elapsedMs) {
     response_cache_lookup_ms: toFinite(perf.response_cache_lookup_ms),
     query_api_ms: toFinite(perf.query_api_ms),
     hydrate_datasets_ms: toFinite(perf.hydrate_datasets_ms),
+    base_rowset_materialize_ms: toFinite(perf.base_rowset_materialize_ms),
+    default_board_bundle_hit: toFinite(perf.default_board_bundle_hit),
+    eval_artifact_load_ms: toFinite(perf.eval_artifact_load_ms),
     metric_eval_total_ms: toFinite(perf.metric_eval_ms),
     total_ms: toFinite(perf.total_ms),
   };
@@ -1472,10 +1522,14 @@ function printSummary({ outputPath, append: appendMode, records }) {
       stable_render_within_window: perf.stable_render_within_window,
       interactive_within_window: perf.interactive_within_window,
       compile_ms: perf.compile_ms,
+      artifact_load_ms: perf.artifact_load_ms,
       total_ms: perf.total_ms,
       metric_total_ms: perf.metric_total_ms,
       metric_eval_ms: perf.metric_eval_ms,
       hydrate_datasets_ms: perf.hydrate_datasets_ms,
+      dataset_import_load_ms: perf.dataset_import_load_ms,
+      base_rowset_materialize_ms: perf.base_rowset_materialize_ms,
+      default_board_bundle_hit: perf.default_board_bundle_hit,
       response_cache_hit: perf.response_cache_hit,
       metrics_request_count: perf.metrics_request_count,
       metric_request_max_ms: perf.metric_request_max_ms,

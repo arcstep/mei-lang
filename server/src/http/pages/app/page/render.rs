@@ -188,18 +188,23 @@ pub(super) fn render_compiled_success(
         "disabled".to_string()
     };
     let mut scene_bundle_revision_header: Option<String> = None;
+    let mut scene_bundle_probe_ms = 0u64;
+    let mut scene_bundle_build_scheduled = false;
     let (mut html, page_render_cache_hit, ssr_http_response_body_ms, handler_html_ready_ms) = {
         let t = Instant::now();
         let (h, cache_hit) = render_page_template_with_cache(render_cache_key, || {
             let scene_bundle_probe = if scene_bundle_enabled {
-                probe_scene_component_bundle(
+                let scene_bundle_probe_started = Instant::now();
+                let probe = probe_scene_component_bundle(
                     state.package_root.as_path(),
                     state.source_root.as_path(),
                     app_id,
                     scene_id,
                     compile_revision,
                     &compiled.component_assets,
-                )
+                );
+                scene_bundle_probe_ms = elapsed_ms(scene_bundle_probe_started);
+                probe
             } else {
                 crate::http::scene_bundle::SceneBundleProbe {
                     bundle: None,
@@ -212,6 +217,7 @@ pub(super) fn render_compiled_success(
                 scene_bundle_revision_header = Some(bundle.revision.clone());
             }
             if let Some(build) = scene_bundle_probe.build.as_ref() {
+                scene_bundle_build_scheduled = true;
                 schedule_scene_component_bundle_build(state.package_root.as_path(), build);
             }
             let scene_bundle_for_render =
@@ -273,6 +279,16 @@ pub(super) fn render_compiled_success(
         res.headers_mut()
             .insert(HeaderName::from_static("x-mei-scene-bundle-status"), v);
     }
+    if let Ok(v) = HeaderValue::from_str(&scene_bundle_probe_ms.to_string()) {
+        res.headers_mut()
+            .insert(HeaderName::from_static("x-mei-scene-bundle-probe-ms"), v);
+    }
+    if let Ok(v) = HeaderValue::from_str(if scene_bundle_build_scheduled { "1" } else { "0" }) {
+        res.headers_mut().insert(
+            HeaderName::from_static("x-mei-scene-bundle-build-scheduled"),
+            v,
+        );
+    }
     if let Some(bundle_revision) = scene_bundle_revision_header.as_deref() {
         if let Ok(v) = HeaderValue::from_str(bundle_revision) {
             res.headers_mut()
@@ -298,10 +314,12 @@ pub(super) fn render_compiled_success(
         &crate::http::compile_cache::CompileWithCacheOutcome {
             compiled: compiled.clone(),
             cache_hit: compile_cache_hit,
+            artifact_cache_hit: false,
             compile_revision: compile_revision.to_string(),
             revision_scope: compile_revision_scope.to_string(),
             cache_validation: compile_cache_validation.to_string(),
             cache_lookup_ms: compile_cache_lookup_ms,
+            artifact_load_ms: 0,
             compile_cache_lock_wait_ms: 0,
             compile_ms,
         },
@@ -315,6 +333,8 @@ pub(super) fn render_compiled_success(
         compile_cache_lookup_ms,
         source_read_ms,
         page_render_cache_hit,
+        scene_bundle_probe_ms,
+        scene_bundle_build_scheduled,
         handler_html_ready_ms,
         ssr_http_response_body_ms,
         html_bytes = payload_stats.html_bytes,

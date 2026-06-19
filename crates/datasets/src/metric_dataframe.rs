@@ -14,11 +14,19 @@ use mei_lang_kernel::{
 };
 use serde_json::Value;
 
+use super::eval_artifact::{
+    eval_artifact_hydrate_dataset_ids, load_or_build_eval_plan_artifact,
+    load_or_build_runtime_metric_workset_artifact,
+};
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_hydrate::hydrate_file_backed_datasets_for_metric_defs;
 use super::metric_locate::locate_runtime_metric_resource;
 use super::paginate::{infer_columns, paginate_rows};
 use super::query::query_dataset_rows;
+use super::result_artifact::{
+    default_result_artifact_scope, load_metric_dataframe_result_artifact,
+    store_metric_dataframe_result_artifact,
+};
 use super::table_contract::{
     column_meta_for_row_schema, format_rows_with_dataset_schema,
 };
@@ -27,7 +35,7 @@ use super::util::elapsed_ms;
 use super::{
     build_compiled_datasets_map, metric_request_revision_fingerprint_for_compiled,
     metric_scope_cache_key, query_state_from_request, runtime_metric_eval_scope,
-    runtime_metric_workset, serialize_cache_value,
+    serialize_cache_value,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -277,18 +285,19 @@ pub fn query_metric_dataframe(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
-    let workset = runtime_metric_workset(
-        &resource.id,
-        std::slice::from_ref(&resolved_metric_id),
-        dataset,
-    );
+    let (workset, workset_artifact_load_ms, workset_artifact_hit) =
+        load_or_build_runtime_metric_workset_artifact(
+            app_root,
+            &resource.id,
+            std::slice::from_ref(&resolved_metric_id),
+            dataset,
+        )?;
     let effective_metric_ids = workset
         .eval_metric_ids
         .clone()
         .unwrap_or_else(|| vec![resolved_metric_id.clone()]);
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let referenced_dataset_ids =
-        super::metric_hydrate::collect_dataset_ids_from_metric_defs(&defs_for_hydrate);
+    let referenced_dataset_ids = eval_artifact_hydrate_dataset_ids(&defs_for_hydrate);
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root,
         compiled,
@@ -318,12 +327,15 @@ pub fn query_metric_dataframe(
         &filter_intents,
     );
     let response_cache_lookup_started = Instant::now();
+    let result_artifact_candidate =
+        default_result_artifact_scope(&effective_query_state, &filter_intents);
     if let Some(mut cached) = take_cached_metric_dataframe_result(&response_cache_key) {
         if cached.rows.is_empty() && cached.total == 0 {
             // 跳过竞态产生的空响应缓存，重新求值。
         } else {
             cached.perf = BTreeMap::from([
                 ("response_cache_hit".to_string(), 1),
+                ("result_artifact_hit".to_string(), 0),
                 (
                     "response_cache_key_hash".to_string(),
                     hash_fingerprint(&response_cache_key),
@@ -340,6 +352,33 @@ pub fn query_metric_dataframe(
             return Ok(cached);
         }
     }
+    if result_artifact_candidate {
+        if let Some((mut artifact, artifact_load_ms)) =
+            load_metric_dataframe_result_artifact(app_root, &response_cache_key)?
+        {
+            if !(artifact.rows.is_empty() && artifact.total == 0) {
+                artifact.perf = BTreeMap::from([
+                    ("response_cache_hit".to_string(), 0),
+                    ("result_artifact_hit".to_string(), 1),
+                    ("result_artifact_load_ms".to_string(), artifact_load_ms),
+                    (
+                        "response_cache_key_hash".to_string(),
+                        hash_fingerprint(&response_cache_key),
+                    ),
+                    ("request_dag_observed".to_string(), 0),
+                    ("eval_memo_hits".to_string(), 0),
+                    ("eval_memo_eval_node_cache_hits".to_string(), 0),
+                    ("eval_memo_eval_node_cache_misses".to_string(), 0),
+                    (
+                        "response_cache_lookup_ms".to_string(),
+                        elapsed_ms(response_cache_lookup_started),
+                    ),
+                ]);
+                store_cached_metric_dataframe_result(response_cache_key.clone(), &artifact);
+                return Ok(artifact);
+            }
+        }
+    }
 
     let meta = parse_source_meta(dataset.source.content.as_deref());
     if let Some(materialized) = take_cached_metric_dataframe_materialized(&materialized_cache_key) {
@@ -354,7 +393,7 @@ pub fn query_metric_dataframe(
                 true,
                 Some(0),
             );
-            store_cached_metric_dataframe_result(response_cache_key, &result);
+            store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
             return Ok(result);
         }
     }
@@ -378,6 +417,7 @@ pub fn query_metric_dataframe(
     let base_started = Instant::now();
     let filtered_rows = query_dataset_rows(app_root, dataset, base_query.clone())?;
     let base_query_ms = elapsed_ms(base_started);
+    let base_rowset_materialize_ms = base_query_ms;
 
     let mut runtime_dataset = dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
@@ -429,6 +469,15 @@ pub fn query_metric_dataframe(
             resource.id, resolved_metric_id
         )
     })?;
+    let (persisted_eval_plan, eval_artifact_load_ms, eval_artifact_hit) =
+        load_or_build_eval_plan_artifact(
+            app_root,
+            &resource.id,
+            &effective_metric_ids,
+            &dataset.runtime_metric_defs,
+            &datasets,
+            &eval_scope,
+        )?;
     let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
         &dataset.runtime_metric_defs,
         &runtime_dataset.rows,
@@ -442,6 +491,8 @@ pub fn query_metric_dataframe(
             resource.id, resolved_metric_id
         )
     })?;
+    let mut eval_report = eval_report;
+    eval_report.eval_plan = persisted_eval_plan;
     let metric_eval_ms = elapsed_ms(metric_started);
     let dag_metrics = &eval_report.request_dag_metrics;
     let eval_plan = &eval_report.eval_plan;
@@ -492,7 +543,27 @@ pub fn query_metric_dataframe(
         normalize: meta.normalize.clone(),
         base_perf: BTreeMap::from([
             ("base_query_ms".to_string(), base_query_ms),
+            (
+                "base_rowset_materialize_ms".to_string(),
+                base_rowset_materialize_ms,
+            ),
             ("metric_eval_ms".to_string(), metric_eval_ms),
+            (
+                "eval_artifact_load_ms".to_string(),
+                eval_artifact_load_ms,
+            ),
+            (
+                "eval_artifact_hit".to_string(),
+                u64::from(eval_artifact_hit),
+            ),
+            (
+                "workset_artifact_load_ms".to_string(),
+                workset_artifact_load_ms,
+            ),
+            (
+                "workset_artifact_hit".to_string(),
+                u64::from(workset_artifact_hit),
+            ),
             (
                 "eval_plan_targets".to_string(),
                 eval_plan.targets.len() as u64,
@@ -590,7 +661,10 @@ pub fn query_metric_dataframe(
         Some(metric_dataframe_eval_ms),
     );
     result.perf.extend(filtered_rows.perf);
-    store_cached_metric_dataframe_result(response_cache_key, &result);
+    store_cached_metric_dataframe_result(response_cache_key.clone(), &result);
+    if result_artifact_candidate {
+        store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
+    }
     Ok(result)
 }
 
@@ -653,6 +727,7 @@ fn paginate_materialized_metric_dataframe(
     }
     result.perf.extend(materialized.base_perf.clone());
     result.perf.insert("response_cache_hit".to_string(), 0);
+    result.perf.insert("result_artifact_hit".to_string(), 0);
     result.perf.insert(
         "materialized_cache_hit".to_string(),
         u64::from(from_materialized_cache),

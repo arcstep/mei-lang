@@ -84,10 +84,15 @@ pub(super) fn insert_manage_compile_request_headers(
             outcome.revision_scope.clone(),
         ),
         (
+            "x-mei-artifact-cache-hit",
+            if outcome.artifact_cache_hit { "1" } else { "0" }.to_string(),
+        ),
+        (
             "x-mei-compile-cache-validation",
             outcome.cache_validation.clone(),
         ),
         ("x-mei-compile-ms", outcome.compile_ms.to_string()),
+        ("x-mei-artifact-load-ms", outcome.artifact_load_ms.to_string()),
         (
             "x-mei-compile-cache-lookup-ms",
             outcome.cache_lookup_ms.to_string(),

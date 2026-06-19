@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use mei_lang_kernel::CompileWatchedFile;
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::types::WorldScope;
@@ -99,6 +100,18 @@ fn scope_slug(scope: &WorldScope) -> String {
     format!("{scene}__{target}")
 }
 
+fn artifact_store_name(context: &ArtifactWriteContext) -> String {
+    format!(
+        "{}__{}",
+        sanitize_segment(&context.artifact_name),
+        scope_slug(&context.scope)
+    )
+}
+
+fn artifact_store_name_from_parts(artifact_name: &str, scope: &WorldScope) -> String {
+    format!("{}__{}", sanitize_segment(artifact_name), scope_slug(scope))
+}
+
 fn ensure_metadata(root: &Path) -> Result<PathBuf> {
     fs::create_dir_all(root).with_context(|| {
         format!(
@@ -124,11 +137,7 @@ pub fn write_json_artifact(
 ) -> Result<ArtifactStoreWriteResult> {
     let root = toolchain_artifact_store_root(app_root);
     let metadata_path = ensure_metadata(&root)?;
-    let name = format!(
-        "{}__{}",
-        sanitize_segment(&context.artifact_name),
-        scope_slug(&context.scope)
-    );
+    let name = artifact_store_name(context);
     let manifests_dir = root.join("manifests").join(&context.artifact_kind);
     let artifacts_dir = root.join("artifacts").join(&context.artifact_kind);
     fs::create_dir_all(&manifests_dir).with_context(|| {
@@ -175,6 +184,60 @@ pub fn write_json_artifact(
         manifest_path: manifest_path.display().to_string(),
         artifact_path: artifact_path.display().to_string(),
     })
+}
+
+pub fn artifact_manifest_path(
+    app_root: &Path,
+    artifact_kind: &str,
+    artifact_name: &str,
+    scope: &WorldScope,
+) -> PathBuf {
+    toolchain_artifact_store_root(app_root)
+        .join("manifests")
+        .join(artifact_kind)
+        .join(format!(
+            "{}.json",
+            artifact_store_name_from_parts(artifact_name, scope)
+        ))
+}
+
+pub fn artifact_payload_path(
+    app_root: &Path,
+    artifact_kind: &str,
+    artifact_name: &str,
+    scope: &WorldScope,
+) -> PathBuf {
+    toolchain_artifact_store_root(app_root)
+        .join("artifacts")
+        .join(artifact_kind)
+        .join(format!(
+            "{}.json",
+            artifact_store_name_from_parts(artifact_name, scope)
+        ))
+}
+
+pub fn read_json_artifact<T: DeserializeOwned>(
+    app_root: &Path,
+    artifact_kind: &str,
+    artifact_name: &str,
+    scope: &WorldScope,
+) -> Result<Option<(ArtifactStoreManifest, T)>> {
+    let manifest_path = artifact_manifest_path(app_root, artifact_kind, artifact_name, scope);
+    let artifact_path = artifact_payload_path(app_root, artifact_kind, artifact_name, scope);
+    if !manifest_path.is_file() || !artifact_path.is_file() {
+        return Ok(None);
+    }
+    let manifest = serde_json::from_str::<ArtifactStoreManifest>(
+        &fs::read_to_string(&manifest_path)
+            .with_context(|| format!("failed to read manifest {}", manifest_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse manifest {}", manifest_path.display()))?;
+    let artifact = serde_json::from_str::<T>(
+        &fs::read_to_string(&artifact_path)
+            .with_context(|| format!("failed to read artifact {}", artifact_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse artifact {}", artifact_path.display()))?;
+    Ok(Some((manifest, artifact)))
 }
 
 #[cfg(test)]

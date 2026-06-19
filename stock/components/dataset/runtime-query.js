@@ -1552,7 +1552,7 @@ export function recordRuntimeDatasetQueryError({
     .join("");
 }
 
-function isAbortError(error) {
+export function isAbortError(error) {
   if (!error) return false;
   if (error.name === "AbortError") return true;
   const msg = String(error.message || error || "");

@@ -3,7 +3,7 @@ use std::{path::Path, time::Instant};
 use anyhow::Result;
 use mei_lang_kernel::{
     cached_load_xlsx_table_snapshot, coerce_calendar_columns_in_rows, coerce_row_to_schema,
-    ColumnSchema, DatasetView,
+    resolve_data_snapshot_import_entry, ColumnSchema, DatasetView,
 };
 
 use super::dataset_rows_cache::{
@@ -24,6 +24,8 @@ pub(crate) fn query_xlsx_rows(
     let source = &dataset.source;
     let sheet = meta.sheet.as_deref();
     let header_row = meta.header_row.unwrap_or(1).max(1) as usize;
+    let import_entry =
+        resolve_data_snapshot_import_entry(app_root, source.path.as_str(), sheet, header_row);
     let snapshot_started = Instant::now();
     let (snapshot, cache_hit) =
         cached_load_xlsx_table_snapshot(app_root, source.path.as_str(), sheet, header_row)?;
@@ -72,6 +74,15 @@ pub(crate) fn query_xlsx_rows(
         result
             .perf
             .insert("file_cache_direct_snapshot".to_string(), 1);
+        result.perf.insert(
+            "dataset_import_artifact_hit".to_string(),
+            u64::from(import_entry.is_some()),
+        );
+        if import_entry.is_some() && !cache_hit {
+            result
+                .perf
+                .insert("dataset_import_load_ms".to_string(), snapshot_ms);
+        }
         if let Some(scope_key) = dataset_rows_scope_cache_key(app_root, dataset, meta, options) {
             store_materialized_dataset_rows(
                 scope_key,
@@ -124,6 +135,15 @@ pub(crate) fn query_xlsx_rows(
         "file_cache_paginate_ms".to_string(),
         elapsed_ms(paginate_started),
     );
+    result.perf.insert(
+        "dataset_import_artifact_hit".to_string(),
+        u64::from(import_entry.is_some()),
+    );
+    if import_entry.is_some() && !cache_hit {
+        result
+            .perf
+            .insert("dataset_import_load_ms".to_string(), snapshot_ms);
+    }
     Ok(result)
 }
 

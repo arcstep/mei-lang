@@ -9,6 +9,10 @@ use mei_lang_kernel::{
     RuntimeMetricEvalScope,
 };
 
+use super::eval_artifact::{
+    eval_artifact_hydrate_dataset_ids, load_or_build_eval_plan_artifact,
+    load_or_build_runtime_metric_workset_artifact,
+};
 use super::metric_hydrate::{resolve_dataset_query_bindings_from_state, unique_dataset_views};
 use super::metric_locate::{plan_access_metric_eval_for_ids, AccessMetricEvalPlan};
 use super::types::DatasetQueryOptions;
@@ -16,7 +20,6 @@ use super::util::elapsed_ms;
 use super::{
     hydrate_file_backed_datasets_for_metric_defs, metric_request_revision_fingerprint_for_compiled,
     project_requested_metrics, query_dataset_rows, runtime_metric_eval_scope,
-    runtime_metric_workset,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,14 +36,19 @@ pub struct RuntimeMetricEvalOutcome {
     pub closure_metric_ids: Vec<String>,
     pub covered_eval_metric_ids: Vec<String>,
     pub dependency_revision_key: String,
+    pub workset_artifact_hit: bool,
+    pub eval_artifact_hit: bool,
     pub total_rows: usize,
     pub metrics_map: BTreeMap<String, MetricContract>,
     pub metrics: Vec<MetricContract>,
     pub query_perf: BTreeMap<String, u64>,
     pub hydrate_perf: BTreeMap<String, u64>,
+    pub base_rowset_materialize_ms: u64,
     pub query_ms: u64,
     pub hydrate_ms: u64,
     pub eval_scope_ms: u64,
+    pub workset_artifact_load_ms: u64,
+    pub eval_artifact_load_ms: u64,
     pub metric_eval_ms: u64,
     pub eval_scope: RuntimeMetricEvalScope,
     pub eval_report: Option<RuntimeMetricEvalReport>,
@@ -150,17 +158,18 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     let primary_dataset = eval_plan.primary_dataset;
     let owner_dataset = eval_plan.owner_dataset;
     let query_options = collect_all_query_options(query_state);
-    let workset = runtime_metric_workset(
-        &eval_plan.owner.id,
-        &eval_plan.request_metric_ids,
-        owner_dataset,
-    );
+    let (workset, workset_artifact_load_ms, workset_artifact_hit) =
+        load_or_build_runtime_metric_workset_artifact(
+            app_root,
+            &eval_plan.owner.id,
+            &eval_plan.request_metric_ids,
+            owner_dataset,
+        )?;
     let closure_metric_ids = workset.closure_metric_ids.clone();
     let covered_eval_metric_ids = workset.eval_metric_ids.clone().unwrap_or_default();
     let metric_filter = workset.eval_metric_ids.as_deref();
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
-    let referenced_dataset_ids =
-        super::metric_hydrate::collect_dataset_ids_from_metric_defs(&defs_for_hydrate);
+    let referenced_dataset_ids = eval_artifact_hydrate_dataset_ids(&defs_for_hydrate);
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root,
         compiled,
@@ -177,6 +186,7 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
     let query_started = Instant::now();
     let filtered_rows = query_dataset_rows(app_root, primary_dataset, primary_query_options)?;
     let query_ms = elapsed_ms(query_started);
+    let base_rowset_materialize_ms = query_ms;
     let total_rows = filtered_rows.rows.len();
     let query_perf = filtered_rows.perf.clone();
 
@@ -221,9 +231,18 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         &supplementary_binding_datasets,
     )?;
     let eval_scope_ms = elapsed_ms(eval_scope_started);
+    let (persisted_eval_plan, eval_artifact_load_ms, eval_artifact_hit) =
+        load_or_build_eval_plan_artifact(
+            app_root,
+            &eval_plan.owner.id,
+            &covered_eval_metric_ids,
+            &owner_dataset.runtime_metric_defs,
+            &datasets,
+            &eval_scope,
+        )?;
 
     let metric_eval_started = Instant::now();
-    let (metrics_map, eval_report) = match mode {
+    let (metrics_map, mut eval_report) = match mode {
         RuntimeMetricEvalMode::WithDag => {
             let (map, report) = evaluate_runtime_metric_defs_with_scope_and_dag(
                 &owner_dataset.runtime_metric_defs,
@@ -245,6 +264,9 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
             (map, None)
         }
     };
+    if let Some(report) = eval_report.as_mut() {
+        report.eval_plan = persisted_eval_plan;
+    }
     let metric_eval_ms = elapsed_ms(metric_eval_started);
 
     let metrics = if request_all_metrics {
@@ -265,14 +287,19 @@ pub fn evaluate_runtime_metrics_from_plan<'a>(
         closure_metric_ids,
         covered_eval_metric_ids,
         dependency_revision_key,
+        workset_artifact_hit,
+        eval_artifact_hit,
         total_rows,
         metrics_map,
         metrics,
         query_perf,
         hydrate_perf,
+        base_rowset_materialize_ms,
         query_ms,
         hydrate_ms,
         eval_scope_ms,
+        workset_artifact_load_ms,
+        eval_artifact_load_ms,
         metric_eval_ms,
         eval_scope,
         eval_report,

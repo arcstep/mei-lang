@@ -5767,6 +5767,9 @@
           chartKind: nonEmptyString(entry.chart_kind, entry.chartKind),
         topN: positiveInt(entry.top_n, entry.topN),
         valueField: nonEmptyString(entry.value_field, entry.valueField),
+        trendField: nonEmptyString(entry.trend_field, entry.date_field, entry.dateField),
+        dateField: nonEmptyString(entry.date_field, entry.dateField, entry.trend_field),
+        grain: nonEmptyString(entry.grain, entry.trend_grain, entry.trendGrain),
         compositionAgg: nonEmptyString(entry.agg, entry.composition_agg, entry.compositionAgg),
         mapping:
             entry.mapping && typeof entry.mapping === "object" && !Array.isArray(entry.mapping)
@@ -6022,6 +6025,9 @@
             kind: nonEmptyString(slot.supportRole, slot.id),
             label: slot.label,
             by: slot.by[0] || "",
+            dateField: nonEmptyString(slot.dateField, slot.trendField),
+            trendField: nonEmptyString(slot.trendField, slot.dateField),
+            grain: nonEmptyString(slot.grain),
           },
         ]),
       ),
@@ -6034,6 +6040,9 @@
             label: slot.label,
             tableMetricId: slot.metricId,
             datasetId: slot.datasetId,
+            dateField: nonEmptyString(slot.dateField, slot.trendField),
+            trendField: nonEmptyString(slot.trendField, slot.dateField),
+            grain: nonEmptyString(slot.grain),
             chartKind: slot.chartKind,
             topN: slot.topN,
             valueField: slot.valueField,
@@ -8020,6 +8029,8 @@
             : Array.isArray(slotConfig.compositionBy)
               ? slotConfig.compositionBy
               : [],
+        trendField: nonEmptyString(slot.trendField, slot.dateField, slotConfig.trendField),
+        trendGrain: nonEmptyString(slot.grain, slotConfig.trendGrain),
         runtimeRef: {
           ...(slotConfig.runtimeRef && typeof slotConfig.runtimeRef === "object" ? slotConfig.runtimeRef : {}),
           kind: "metric",

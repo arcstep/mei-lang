@@ -362,10 +362,12 @@ pub async fn app_page(
     let CompileWithCacheOutcome {
         compiled,
         cache_hit,
+        artifact_cache_hit: _,
         compile_revision,
         revision_scope,
         cache_validation,
         cache_lookup_ms,
+        artifact_load_ms: _,
         compile_cache_lock_wait_ms: _,
         compile_ms,
     } = compile_outcome;

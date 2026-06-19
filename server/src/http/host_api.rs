@@ -6,11 +6,20 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use mei_lang_datasets::{
+    collect_all_query_options, evaluate_runtime_metrics_from_plan,
+    metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
+    normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
+    query_state_from_request, runtime_metric_workset, store_cached_metric_response,
+    store_metric_response_result_artifact, RuntimeMetricEvalMode,
+};
 use mei_lang_kernel::{
     cached_load_xlsx_table_snapshot, locate_dataset_resource, resolve_app_root,
+    resolve_data_snapshot_import_entry,
     resolve_runtime_warmup_manifest, CompileOptions, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
+use std::collections::BTreeMap;
 use serde::Serialize;
 
 use crate::http::compile_cache::compile_app_with_cache;
@@ -201,6 +210,153 @@ fn warmup_focus_targets(
     Ok(())
 }
 
+fn normalized_warmup_metric_ids(request: &RuntimeWarmupDatasetRequest) -> Vec<String> {
+    let mut metric_ids = request
+        .metric_ids
+        .iter()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if let Some(metric_id) = request
+        .metric_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        metric_ids.push(metric_id.to_string());
+    }
+    metric_ids.sort();
+    metric_ids.dedup();
+    metric_ids
+}
+
+fn require_import_snapshot(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+    label: &str,
+) -> Result<(), String> {
+    if resolve_data_snapshot_import_entry(app_root, source_path, sheet, header_row).is_some() {
+        return Ok(());
+    }
+    Err(format!(
+        "{label} requires published import snapshot for `{source_path}` (sheet=`{}`, header_row={header_row}); run `mei-host-web export data-snapshots --app <app>` before serving",
+        sheet.unwrap_or("")
+    ))
+}
+
+fn validate_dataset_import_hit(
+    source_kind: &str,
+    perf: &BTreeMap<String, u64>,
+    label: &str,
+) -> Result<(), String> {
+    if !matches!(source_kind.trim(), "xlsx" | "xls") {
+        return Ok(());
+    }
+    if perf.get("dataset_import_artifact_hit").copied().unwrap_or(0) == 1 {
+        return Ok(());
+    }
+    Err(format!(
+        "{label} expected dataset_import_artifact_hit=1 for xlsx source during warmup"
+    ))
+}
+
+fn warmup_metric_group_request(
+    app_id: &str,
+    request: &RuntimeWarmupDatasetRequest,
+    compile_outcome: &crate::http::compile_cache::CompileWithCacheOutcome,
+    app_root: &Path,
+) -> Result<(), String> {
+    let metric_ids = normalized_warmup_metric_ids(request);
+    if metric_ids.is_empty() {
+        return Ok(());
+    }
+    let active_scene = compile_outcome
+        .compiled
+        .active_scene
+        .as_deref()
+        .unwrap_or_default();
+    let active_target = compile_outcome.compiled.active_target_file.as_str();
+    let filters = normalize_query_filters(&BTreeMap::new());
+    let search = normalize_query_search(None);
+    let effective_query_state = query_state_from_request(&filters, search.as_deref(), None);
+    let access_plan = plan_access_metric_eval_for_ids(
+        &compile_outcome.compiled,
+        request.dataset_id.trim(),
+        &metric_ids,
+    )
+    .map_err(|error| error.to_string())?;
+    let runtime_workset = runtime_metric_workset(
+        &access_plan.owner.id,
+        &access_plan.request_metric_ids,
+        access_plan.owner_dataset,
+    );
+    let requested_eval_metric_ids = runtime_workset
+        .eval_metric_ids
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        &compile_outcome.compiled,
+        &access_plan.owner.id,
+        &runtime_workset.defs_for_hydrate,
+    );
+    let query = collect_all_query_options(&effective_query_state);
+    let response_cache_key = metric_response_cache_scope_key(
+        app_id,
+        active_scene,
+        Some(active_target),
+        &access_plan.owner.id,
+        &query,
+        &compile_outcome.compile_revision,
+        &dependency_revision_key,
+        &[],
+    );
+    let request_all_metrics = access_plan.request_metric_ids.is_empty();
+    let eval_outcome = evaluate_runtime_metrics_from_plan(
+        &compile_outcome.compiled,
+        app_root,
+        &access_plan,
+        active_scene,
+        Some(active_target),
+        &effective_query_state,
+        &[],
+        RuntimeMetricEvalMode::WithDag,
+        request_all_metrics,
+    )
+    .map_err(|error| error.to_string())?;
+    validate_dataset_import_hit(
+        access_plan.primary_dataset.source.kind.as_str(),
+        &eval_outcome.query_perf,
+        &format!(
+            "warmup metric group `{}` ({})",
+            request.dataset_id,
+            metric_ids.join(",")
+        ),
+    )?;
+    store_cached_metric_response(
+        response_cache_key.clone(),
+        eval_outcome.total_rows,
+        &eval_outcome.metrics_map,
+        &requested_eval_metric_ids,
+        request_all_metrics,
+    );
+    store_metric_response_result_artifact(
+        app_root,
+        &response_cache_key,
+        eval_outcome.total_rows,
+        &eval_outcome.metrics_map,
+        &requested_eval_metric_ids,
+        request_all_metrics,
+    )
+    .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn warmup_dataset_request(
     state: &AppState,
     app_id: &str,
@@ -242,6 +398,15 @@ fn warmup_dataset_request(
         .as_ref()
         .ok_or_else(|| format!("resource `{}` is not a dataset", resource.id))?;
     let app_root = resolve_app_root(state.source_root.as_path(), app_id);
+    if matches!(dataset.source.kind.trim(), "xlsx" | "xls") {
+        require_import_snapshot(
+            app_root.as_path(),
+            dataset.source.path.as_str(),
+            dataset.source.sheet.as_deref(),
+            dataset.source.header_row.unwrap_or(1).max(1) as usize,
+            &format!("warmup dataset `{}`", resource.id),
+        )?;
+    }
     let warm_query = super::datasets::DatasetQueryOptions {
         page: 1,
         page_size: 0,
@@ -250,13 +415,11 @@ fn warmup_dataset_request(
         collect_all: true,
         ..Default::default()
     };
-    if let Some(metric_id) = request
-        .metric_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        super::datasets::query_metric_dataframe(
+    let metric_ids = normalized_warmup_metric_ids(request);
+    if metric_ids.len() > 1 {
+        warmup_metric_group_request(app_id, request, &compile_outcome, app_root.as_path())?;
+    } else if let Some(metric_id) = metric_ids.first() {
+        let result = super::datasets::query_metric_dataframe(
             &compile_outcome.compiled,
             &app_root,
             dataset_id,
@@ -269,9 +432,19 @@ fn warmup_dataset_request(
             Vec::new(),
         )
         .map_err(|error| error.to_string())?;
+        validate_dataset_import_hit(
+            dataset.source.kind.as_str(),
+            &result.perf,
+            &format!("warmup metric `{metric_id}` from `{}`", resource.id),
+        )?;
     } else {
-        super::datasets::query_dataset_rows(&app_root, dataset, warm_query)
+        let result = super::datasets::query_dataset_rows(&app_root, dataset, warm_query)
             .map_err(|error| error.to_string())?;
+        validate_dataset_import_hit(
+            dataset.source.kind.as_str(),
+            &result.perf,
+            &format!("warmup dataset rows `{}`", resource.id),
+        )?;
     }
     Ok(())
 }
@@ -283,6 +456,13 @@ fn warmup_xlsx_sources(app_root: &Path, sources: &[RuntimeWarmupXlsxSource]) -> 
             continue;
         }
         let header_row = source.header_row.unwrap_or(1).max(1);
+        require_import_snapshot(
+            app_root,
+            path,
+            source.sheet.as_deref(),
+            header_row,
+            &format!("warmup xlsx `{path}`"),
+        )?;
         cached_load_xlsx_table_snapshot(
             app_root,
             path,

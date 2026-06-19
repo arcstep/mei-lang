@@ -5,6 +5,7 @@ use std::fs::{self, File};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use arrow_array::{Array, ArrayRef, RecordBatch, StringArray};
@@ -12,6 +13,7 @@ use arrow_schema::{DataType, Field, Schema};
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::loaders::{load_xlsx_table_snapshot, XlsxTableSnapshot};
@@ -19,14 +21,52 @@ use super::scene_payload_cache::file_mtime_ms;
 use crate::resolve_versioned_source_identifier;
 
 pub const DATA_SNAPSHOT_SCHEMA_VERSION: u32 = 1;
+pub const DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION: &str =
+    "mei-dataset-import-manifest-v1";
 const PARQUET_META_COLUMNS: &str = "mei_columns_json";
 const PARQUET_META_SOURCE_PATH: &str = "mei_source_path";
 const PARQUET_META_SHEET: &str = "mei_sheet";
 const PARQUET_META_HEADER_ROW: &str = "mei_header_row";
 const PARQUET_META_CONTENT_SIG: &str = "mei_content_sig";
+const PARQUET_META_ROW_COUNT: &str = "mei_row_count";
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DataSnapshotImportManifest {
+    pub schema_version: String,
+    #[serde(default)]
+    pub entries: Vec<DataSnapshotImportEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DataSnapshotImportEntry {
+    pub source_path: String,
+    pub resolved_source_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<String>,
+    pub header_row: usize,
+    pub content_signature: String,
+    pub artifact_path: String,
+    pub row_count: usize,
+    pub column_count: usize,
+    #[serde(default)]
+    pub columns: Vec<String>,
+    pub imported_at_ms: u64,
+}
 
 pub fn data_snapshot_store_root(app_root: &Path) -> PathBuf {
     app_root.join(".mei").join("data-snapshots")
+}
+
+pub fn data_snapshot_import_manifest_path(app_root: &Path) -> PathBuf {
+    data_snapshot_store_root(app_root).join("import-manifest.json")
+}
+
+fn now_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|dur| dur.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 pub fn source_file_content_signature(path: &Path, rel: &str) -> String {
@@ -72,6 +112,84 @@ pub fn parquet_snapshot_path(
         data_snapshot_store_root(app_root)
             .join(parquet_snapshot_filename(content_sig.as_str(), sheet, header_row.max(1))),
     )
+}
+
+pub fn read_data_snapshot_import_manifest(
+    app_root: &Path,
+) -> Result<Option<DataSnapshotImportManifest>> {
+    let path = data_snapshot_import_manifest_path(app_root);
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let manifest = serde_json::from_str::<DataSnapshotImportManifest>(
+        &fs::read_to_string(&path)
+            .with_context(|| format!("read import manifest {}", path.display()))?,
+    )
+    .with_context(|| format!("parse import manifest {}", path.display()))?;
+    Ok(Some(manifest))
+}
+
+pub fn write_data_snapshot_import_manifest(
+    app_root: &Path,
+    manifest: &DataSnapshotImportManifest,
+) -> Result<PathBuf> {
+    let path = data_snapshot_import_manifest_path(app_root);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create import manifest dir {}", parent.display()))?;
+    }
+    fs::write(&path, serde_json::to_string_pretty(manifest)?)
+        .with_context(|| format!("write import manifest {}", path.display()))?;
+    Ok(path)
+}
+
+pub fn resolve_data_snapshot_import_entry(
+    app_root: &Path,
+    source_path: &str,
+    sheet: Option<&str>,
+    header_row: usize,
+) -> Option<DataSnapshotImportEntry> {
+    let source_path = source_path.trim();
+    if source_path.is_empty() {
+        return None;
+    }
+    let resolved = resolve_versioned_source_identifier(app_root, source_path);
+    let absolute = app_root.join(&resolved);
+    if !absolute.is_file() {
+        return None;
+    }
+    let expected_sig = source_file_content_signature(absolute.as_path(), resolved.as_str());
+    let manifest = read_data_snapshot_import_manifest(app_root).ok().flatten()?;
+    manifest.entries.into_iter().find(|entry| {
+        entry.resolved_source_path == resolved
+            && entry.header_row == header_row.max(1)
+            && entry.sheet.as_deref().unwrap_or("") == sheet.unwrap_or("").trim()
+            && entry.content_signature == expected_sig
+    })
+}
+
+fn upsert_data_snapshot_import_entry(app_root: &Path, entry: DataSnapshotImportEntry) -> Result<()> {
+    let mut manifest = read_data_snapshot_import_manifest(app_root)?.unwrap_or(
+        DataSnapshotImportManifest {
+            schema_version: DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION.to_string(),
+            entries: Vec::new(),
+        },
+    );
+    manifest.schema_version = DATA_SNAPSHOT_IMPORT_MANIFEST_SCHEMA_VERSION.to_string();
+    manifest.entries.retain(|existing| {
+        !(existing.resolved_source_path == entry.resolved_source_path
+            && existing.header_row == entry.header_row
+            && existing.sheet == entry.sheet)
+    });
+    manifest.entries.push(entry);
+    manifest.entries.sort_by(|left, right| {
+        left.resolved_source_path
+            .cmp(&right.resolved_source_path)
+            .then(left.sheet.cmp(&right.sheet))
+            .then(left.header_row.cmp(&right.header_row))
+    });
+    write_data_snapshot_import_manifest(app_root, &manifest)?;
+    Ok(())
 }
 
 fn cell_to_string(value: &Value) -> String {
@@ -150,7 +268,11 @@ pub fn write_xlsx_parquet_snapshot(
             ),
             parquet::file::metadata::KeyValue::new(
                 PARQUET_META_CONTENT_SIG.to_string(),
-                content_sig,
+                content_sig.clone(),
+            ),
+            parquet::file::metadata::KeyValue::new(
+                PARQUET_META_ROW_COUNT.to_string(),
+                snapshot.rows.len().to_string(),
             ),
         ]))
         .build();
@@ -158,6 +280,21 @@ pub fn write_xlsx_parquet_snapshot(
         .context("open parquet writer")?;
     writer.write(&batch).context("write parquet batch")?;
     writer.close().context("close parquet writer")?;
+    upsert_data_snapshot_import_entry(
+        app_root,
+        DataSnapshotImportEntry {
+            source_path: source_path.to_string(),
+            resolved_source_path: resolved,
+            sheet: (!sheet_label.is_empty()).then(|| sheet_label.to_string()),
+            header_row: header_row.max(1),
+            content_signature: content_sig,
+            artifact_path: out_path.display().to_string(),
+            row_count: snapshot.rows.len(),
+            column_count: snapshot.columns.len(),
+            columns: snapshot.columns.clone(),
+            imported_at_ms: now_epoch_ms(),
+        },
+    )?;
     Ok(out_path)
 }
 

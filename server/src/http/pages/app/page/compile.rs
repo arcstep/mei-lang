@@ -12,15 +12,19 @@ use mei_lang_kernel::{read_source_file, resolve_app_root, CompileOptions, Worksp
 use crate::AppState;
 
 use crate::http::compile_cache::{
-    compile_app_with_cache, is_compile_inflight, peek_compile_cache_hit, recent_compile_failure,
+    access_artifact_only_mode_enabled, compile_app_with_cache, is_compile_inflight,
+    load_compile_artifact_only, peek_compile_cache_hit, recent_compile_failure,
     start_compile_in_background_if_needed, CompileWithCacheFailure, CompileWithCacheOutcome,
 };
+use crate::http::host_error_page::{self, HostShellAction};
 use crate::http::pages::app::compiling_shell::{
     compile_bootstrap_disabled_for_request, compile_bootstrap_enabled,
     compile_bootstrap_probe_requested, compile_bootstrap_route_supported,
     render_compiling_shell,
 };
-use crate::http::pages::app::page_render::insert_manage_compile_observability_headers;
+use crate::http::pages::app::page_render::{
+    access_only_surface_enabled, insert_manage_compile_observability_headers,
+};
 use crate::http::pages::app::query::AppQuery;
 use crate::http::pages::app::scene::manage_scene_for_render;
 use crate::http::pages::app_render::{compile_error_fallback_app, source_panel_meta};
@@ -120,6 +124,37 @@ pub(super) fn resolve_compile_outcome(
     discover_ms: u64,
     app_started: Instant,
 ) -> CompileResolution {
+    if route_mode.is_access_like() {
+        if let Some(outcome) = load_compile_artifact_only(
+            state,
+            app_id,
+            &compile_options,
+            components_root.as_path(),
+        ) {
+            return CompileResolution::Outcome(outcome);
+        }
+    }
+    if route_mode.is_access_like()
+        && access_only_surface_enabled()
+        && access_artifact_only_mode_enabled()
+    {
+        return match load_compile_artifact_only(
+            state,
+            app_id,
+            &compile_options,
+            components_root.as_path(),
+        ) {
+            Some(outcome) => CompileResolution::Outcome(outcome),
+            None => CompileResolution::EarlyResponse(
+                render_access_artifact_unavailable(
+                    route_mode,
+                    app_id,
+                    compile_options.scene.as_deref().or(access_path_scene),
+                    manage_file,
+                ),
+            ),
+        };
+    }
     if compile_bootstrap_enabled()
         && compile_bootstrap_route_supported(route_mode)
         && !compile_bootstrap_disabled_for_request(query)
@@ -131,10 +166,12 @@ pub(super) fn resolve_compile_outcome(
                 return CompileResolution::Outcome(CompileWithCacheOutcome {
                     compiled: hit.compiled,
                     cache_hit: true,
+                    artifact_cache_hit: false,
                     compile_revision: hit.compile_revision,
                     revision_scope: hit.revision_scope,
                     cache_validation: hit.cache_validation,
                     cache_lookup_ms: elapsed_ms(peek_started),
+                    artifact_load_ms: 0,
                     compile_cache_lock_wait_ms: 0,
                     compile_ms: 0,
                 });
@@ -215,6 +252,57 @@ pub(super) fn resolve_compile_outcome(
             app_started,
         )),
     }
+}
+
+fn render_access_artifact_unavailable(
+    route_mode: UiRouteMode,
+    app_id: &str,
+    scene_hint: Option<&str>,
+    manage_file: Option<&str>,
+) -> Response {
+    let mut actions = vec![HostShellAction {
+        href: "/".to_string(),
+        label: "返回首页".to_string(),
+        primary: true,
+    }];
+    if let Some(scene_id) = scene_hint.map(str::trim).filter(|value| !value.is_empty()) {
+        actions.insert(
+            0,
+            HostShellAction {
+                href: format!("/apps/app/{app_id}/scene/{scene_id}?chrome=none"),
+                label: "重试当前场景".to_string(),
+                primary: false,
+            },
+        );
+    } else if let Some(target) = manage_file.map(str::trim).filter(|value| !value.is_empty()) {
+        actions.insert(
+            0,
+            HostShellAction {
+                href: format!("/apps/build/{app_id}?file={target}"),
+                label: "打开构建视图".to_string(),
+                primary: false,
+            },
+        );
+    }
+    let detail = scene_hint
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|scene_id| format!("mode={} app={app_id} scene={scene_id}", route_mode.slug()))
+        .unwrap_or_else(|| format!("mode={} app={app_id}", route_mode.slug()));
+    let html = host_error_page::render_error_page(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "访问态产物尚未就绪",
+        "当前 access-only 宿主已切到 artifact-first 主路径，请先等待启动预热完成，或预先构建访问产物后再提供访问流量。",
+        Some(detail.as_str()),
+        &actions,
+    );
+    let mut response = Html(html).into_response();
+    *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+    response.headers_mut().insert(
+        HeaderName::from_static("retry-after"),
+        HeaderValue::from_static("3"),
+    );
+    response
 }
 
 fn render_compile_failure(

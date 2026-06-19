@@ -89,13 +89,17 @@ fn eval_node_cache_ttl() -> Duration {
 }
 
 fn eval_node_cache_enabled() -> bool {
-    let raw = std::env::var("MEI_ENABLE_EVAL_NODE_CACHE")
-        .ok()
-        .or_else(|| std::env::var("MEI_PERF_ENABLE").ok())
-        .unwrap_or_default();
-    raw.split(',')
-        .map(str::trim)
-        .any(|flag| flag.eq_ignore_ascii_case("1") || flag.eq_ignore_ascii_case("eval_node_cache"))
+    if let Ok(raw) = std::env::var("MEI_ENABLE_EVAL_NODE_CACHE") {
+        let normalized = raw.trim();
+        if normalized.is_empty() {
+            return true;
+        }
+        return matches!(
+            normalized.to_ascii_lowercase().as_str(),
+            "1" | "true" | "on" | "yes" | "eval_node_cache"
+        );
+    }
+    true
 }
 
 pub fn runtime_eval_node_cache_enabled() -> bool {
@@ -158,12 +162,14 @@ pub(crate) struct EvalContext {
 
 fn scope_cache_key(scope: &RuntimeMetricEvalScope) -> String {
     format!(
-        "base={}|scene={}|target={}|search={}|filters={}|group={}|time_range={}|deps={}",
+        "base={}|scene={}|target={}|search={}|filters={}|filter_intents={}|dimension_bindings={}|group={}|time_range={}|deps={}",
         scope.base_dataset_id,
         scope.scene_id,
         scope.target,
         scope.search,
         scope.filters_fingerprint,
+        serde_json::to_string(&scope.filter_intents).unwrap_or_else(|_| "[]".to_string()),
+        serde_json::to_string(&scope.dimension_bindings).unwrap_or_else(|_| "[]".to_string()),
         scope.query_state.group_identity_key(),
         scope.query_state.time_range_identity_key(),
         scope.dependency_revision_key

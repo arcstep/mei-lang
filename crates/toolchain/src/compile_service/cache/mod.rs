@@ -1,18 +1,24 @@
 mod revision;
 mod singleflight;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use mei_lang_kernel::{
     compile_app_with_options, compile_app_with_options_and_revision, resolve_app_root,
-    CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
+    AnalysisGraph, CompileOptions, CompileWatchedFile, CompiledApp, COMPILE_SEMANTICS_GENERATION,
 };
 
 use mei_lang_kernel::resolve_components_root as kernel_resolve_components_root;
 
+use crate::artifact_store::{
+    read_json_artifact, write_json_artifact, ArtifactWatchedFile, ArtifactWriteContext,
+};
+use crate::types::WorldScope;
 pub use singleflight::env_flag_enabled;
 
 use revision::{compile_revision, components_revision, normalize_path};
@@ -29,13 +35,41 @@ pub(super) struct CachedCompiledApp {
     compiled: Arc<CompiledApp>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DatasetRuntimePayload {
+    #[serde(default)]
+    runtime_metric_defs: BTreeMap<String, Value>,
+    #[serde(default)]
+    runtime_analysis_graph: AnalysisGraph,
+    #[serde(default)]
+    runtime_analysis_contracts: BTreeMap<String, Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CompiledAppDiskArtifact {
+    schema_version: String,
+    compile_revision: String,
+    revision_scope: String,
+    compiled: CompiledApp,
+    /// `DatasetView::runtime_*` fields are `serde(skip)` on the public model, so they must be
+    /// stored alongside the compiled app for artifact reload to support runtime metric eval.
+    #[serde(default)]
+    dataset_runtime_payloads: BTreeMap<String, DatasetRuntimePayload>,
+}
+
+const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v2";
+const COMPILED_APP_ARTIFACT_KIND: &str = "compiled_app";
+const COMPILED_APP_ARTIFACT_NAME: &str = "compiled_app";
+
 pub struct CompileWithCacheOutcome {
     pub compiled: CompiledApp,
     pub cache_hit: bool,
+    pub artifact_cache_hit: bool,
     pub compile_revision: String,
     pub revision_scope: String,
     pub cache_validation: String,
     pub cache_lookup_ms: u64,
+    pub artifact_load_ms: u64,
     pub compile_cache_lock_wait_ms: u64,
     pub compile_ms: u64,
 }
@@ -43,10 +77,12 @@ pub struct CompileWithCacheOutcome {
 pub struct CompileWithCacheOutcomeShared {
     pub compiled: Arc<CompiledApp>,
     pub cache_hit: bool,
+    pub artifact_cache_hit: bool,
     pub compile_revision: String,
     pub revision_scope: String,
     pub cache_validation: String,
     pub cache_lookup_ms: u64,
+    pub artifact_load_ms: u64,
     pub compile_cache_lock_wait_ms: u64,
     pub compile_ms: u64,
 }
@@ -79,10 +115,12 @@ impl CompileWithCacheOutcomeShared {
         CompileWithCacheOutcome {
             compiled: (*self.compiled).clone(),
             cache_hit: self.cache_hit,
+            artifact_cache_hit: self.artifact_cache_hit,
             compile_revision: self.compile_revision,
             revision_scope: self.revision_scope,
             cache_validation: self.cache_validation,
             cache_lookup_ms: self.cache_lookup_ms,
+            artifact_load_ms: self.artifact_load_ms,
             compile_cache_lock_wait_ms: self.compile_cache_lock_wait_ms,
             compile_ms: self.compile_ms,
         }
@@ -112,6 +150,234 @@ pub(super) fn compile_failure_latch() -> &'static StdMutex<HashMap<String, Insta
 
 const COMPILE_FAILURE_LATCH_TTL: Duration = Duration::from_secs(45);
 const COMPILE_CACHE_MAX_ENTRIES: usize = 128;
+
+fn compiled_app_artifact_enabled() -> bool {
+    !env_flag_enabled("MEI_DISABLE_COMPILED_APP_ARTIFACTS")
+}
+
+fn compiled_app_artifact_scope(options: &CompileOptions) -> WorldScope {
+    WorldScope {
+        scene_id: options.scene.clone(),
+        target_file: options.preview_target.clone(),
+    }
+}
+
+fn compiled_app_artifact_context(
+    app_id: &str,
+    options: &CompileOptions,
+    active_scene_id: Option<String>,
+    active_target_file: String,
+    revision_stamp: &revision::CompileRevisionStamp,
+) -> ArtifactWriteContext {
+    ArtifactWriteContext {
+        app_id: app_id.to_string(),
+        artifact_kind: COMPILED_APP_ARTIFACT_KIND.to_string(),
+        artifact_name: COMPILED_APP_ARTIFACT_NAME.to_string(),
+        scope: compiled_app_artifact_scope(options),
+        active_scene_id,
+        active_target_file,
+        revision_token: revision_stamp.token.clone(),
+        components_revision: revision_stamp.components_revision,
+        watched_files: revision_stamp
+            .watched_files
+            .iter()
+            .map(ArtifactWatchedFile::from)
+            .collect(),
+    }
+}
+
+fn compiled_app_artifact_root(app_root: &Path) -> PathBuf {
+    app_root.join(".mei")
+}
+
+fn extract_dataset_runtime_payloads(compiled: &CompiledApp) -> BTreeMap<String, DatasetRuntimePayload> {
+    let mut payloads = BTreeMap::new();
+    for resource in &compiled.resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if dataset.runtime_metric_defs.is_empty()
+            && dataset.runtime_analysis_graph.nodes.is_empty()
+            && dataset.runtime_analysis_contracts.is_empty()
+        {
+            continue;
+        }
+        payloads.insert(
+            resource.id.clone(),
+            DatasetRuntimePayload {
+                runtime_metric_defs: dataset.runtime_metric_defs.clone(),
+                runtime_analysis_graph: dataset.runtime_analysis_graph.clone(),
+                runtime_analysis_contracts: dataset.runtime_analysis_contracts.clone(),
+            },
+        );
+    }
+    payloads
+}
+
+fn hydrate_compiled_app_runtime_payloads(
+    compiled: &mut CompiledApp,
+    payloads: &BTreeMap<String, DatasetRuntimePayload>,
+) {
+    for resource in &mut compiled.resources {
+        let Some(payload) = payloads.get(&resource.id) else {
+            continue;
+        };
+        let Some(dataset) = resource.dataset.as_mut() else {
+            continue;
+        };
+        dataset.runtime_metric_defs = payload.runtime_metric_defs.clone();
+        dataset.runtime_analysis_graph = payload.runtime_analysis_graph.clone();
+        dataset.runtime_analysis_contracts = payload.runtime_analysis_contracts.clone();
+    }
+}
+
+fn count_files_recursively(path: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .map(|entry| entry.path())
+        .map(|child| {
+            if child.is_file() {
+                1
+            } else if child.is_dir() {
+                count_files_recursively(&child)
+            } else {
+                0
+            }
+        })
+        .sum()
+}
+
+fn store_compile_cache_entry(
+    cache_key: &str,
+    source_root: &Path,
+    app_id: &str,
+    alias_options: &CompileOptions,
+    compile_revision: &str,
+    watched_files: &[CompileWatchedFile],
+    components_revision: u128,
+    compiled: Arc<CompiledApp>,
+) {
+    let write_lock_started = Instant::now();
+    if let Ok(mut cache) = compile_cache().write() {
+        let _ = elapsed_ms(write_lock_started);
+        if cache.len() >= COMPILE_CACHE_MAX_ENTRIES {
+            evict_compile_cache_entries_for_write(&mut cache, source_root, app_id);
+        }
+        let cache_entry = CachedCompiledApp {
+            compile_revision: compile_revision.to_string(),
+            watched_files: watched_files.to_vec(),
+            components_revision,
+            compiled: compiled.clone(),
+        };
+        cache.insert(cache_key.to_string(), cache_entry.clone());
+        for alias_key in default_scene_alias_keys(source_root, app_id, alias_options, &compiled) {
+            cache.insert(alias_key, cache_entry.clone());
+        }
+    } else {
+        tracing::warn!(
+            app_id = %app_id,
+            "compile cache lock poisoned during write; skip cache store"
+        );
+    }
+}
+
+fn maybe_write_compiled_app_artifact(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    revision_stamp: &revision::CompileRevisionStamp,
+    compiled: &CompiledApp,
+) {
+    if !compiled_app_artifact_enabled() {
+        return;
+    }
+    let app_root = resolve_app_root(source_root, app_id);
+    let artifact = CompiledAppDiskArtifact {
+        schema_version: COMPILED_APP_ARTIFACT_SCHEMA_VERSION.to_string(),
+        compile_revision: revision_stamp.token.clone(),
+        revision_scope: revision_stamp.scope.to_string(),
+        compiled: compiled.clone(),
+        dataset_runtime_payloads: extract_dataset_runtime_payloads(compiled),
+    };
+    let context = compiled_app_artifact_context(
+        app_id,
+        options,
+        compiled.active_scene.clone(),
+        compiled.active_target_file.clone(),
+        revision_stamp,
+    );
+    if let Ok(value) = serde_json::to_value(&artifact) {
+        if let Err(error) = write_json_artifact(&app_root, &context, &value) {
+            tracing::warn!(
+                app_id = %app_id,
+                scene = %options.scene.as_deref().unwrap_or(""),
+                focus = %options.preview_target.as_deref().unwrap_or(""),
+                error = %error,
+                "failed to write compiled app artifact"
+            );
+        }
+    }
+}
+
+fn maybe_load_compiled_app_artifact(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<(PeekCompileCacheHitShared, u64)> {
+    if !compiled_app_artifact_enabled() {
+        return None;
+    }
+    let artifact_started = Instant::now();
+    let app_root = resolve_app_root(source_root, app_id);
+    let scope = compiled_app_artifact_scope(options);
+    let Ok(Some((manifest, mut artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
+        &app_root,
+        COMPILED_APP_ARTIFACT_KIND,
+        COMPILED_APP_ARTIFACT_NAME,
+        &scope,
+    ) else {
+        return None;
+    };
+    if artifact.schema_version != COMPILED_APP_ARTIFACT_SCHEMA_VERSION {
+        return None;
+    }
+    hydrate_compiled_app_runtime_payloads(
+        &mut artifact.compiled,
+        &artifact.dataset_runtime_payloads,
+    );
+    artifact.compiled.app_root = app_root.display().to_string();
+    let cached = CachedCompiledApp {
+        compile_revision: artifact.compile_revision.clone(),
+        watched_files: manifest
+            .watched_files
+            .iter()
+            .map(|watched| CompileWatchedFile {
+                rel_path: watched.rel_path.clone(),
+                modified_ms: watched.modified_ms,
+                size_bytes: watched.size_bytes,
+            })
+            .collect(),
+        components_revision: manifest.components_revision,
+        compiled: Arc::new(artifact.compiled),
+    };
+    let hit = validate_cached_entry(source_root, app_id, &cached, components_root, options)?;
+    let artifact_load_ms = elapsed_ms(artifact_started);
+    store_compile_cache_entry(
+        &compile_cache_key(source_root, app_id, options),
+        source_root,
+        app_id,
+        options,
+        &cached.compile_revision,
+        &cached.watched_files,
+        cached.components_revision,
+        cached.compiled.clone(),
+    );
+    Some((hit, artifact_load_ms))
+}
 
 pub(super) fn record_compile_failure(cache_key: &str) {
     if let Ok(mut guard) = compile_failure_latch().lock() {
@@ -143,6 +409,54 @@ pub fn compile_app_with_cache(
 ) -> Result<CompileWithCacheOutcome, CompileWithCacheFailure> {
     compile_app_with_cache_shared(source_root, app_id, options, components_root)
         .map(CompileWithCacheOutcomeShared::into_owned)
+}
+
+pub fn load_compile_artifact_only(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<CompileWithCacheOutcome> {
+    load_compile_artifact_only_shared(source_root, app_id, options, components_root)
+        .map(CompileWithCacheOutcomeShared::into_owned)
+}
+
+pub fn load_compile_artifact_only_shared(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<CompileWithCacheOutcomeShared> {
+    let cache_lookup_started = Instant::now();
+    if let Some(hit) = peek_compile_cache_hit_shared(source_root, app_id, options, components_root) {
+        return Some(CompileWithCacheOutcomeShared {
+            compiled: hit.compiled,
+            cache_hit: true,
+            artifact_cache_hit: false,
+            compile_revision: hit.compile_revision,
+            revision_scope: hit.revision_scope,
+            cache_validation: hit.cache_validation,
+            cache_lookup_ms: elapsed_ms(cache_lookup_started),
+            artifact_load_ms: 0,
+            compile_cache_lock_wait_ms: 0,
+            compile_ms: 0,
+        });
+    }
+    let cache_lookup_ms = elapsed_ms(cache_lookup_started);
+    let (artifact_hit, artifact_load_ms) =
+        maybe_load_compiled_app_artifact(source_root, app_id, options, components_root)?;
+    Some(CompileWithCacheOutcomeShared {
+        compiled: artifact_hit.compiled,
+        cache_hit: true,
+        artifact_cache_hit: true,
+        compile_revision: artifact_hit.compile_revision,
+        revision_scope: artifact_hit.revision_scope,
+        cache_validation: artifact_hit.cache_validation,
+        cache_lookup_ms,
+        artifact_load_ms,
+        compile_cache_lock_wait_ms: 0,
+        compile_ms: 0,
+    })
 }
 
 pub fn compile_app_with_cache_shared(
@@ -185,11 +499,13 @@ pub fn compile_app_with_cache_shared(
             Ok(compiled) => Ok(CompileWithCacheOutcomeShared {
                 compiled,
                 cache_hit: true,
+                artifact_cache_hit: false,
                 compile_revision: compile_revision(source_root, app_id, &options, components_root)
                     .token,
                 revision_scope: "singleflight_wait".to_string(),
                 cache_validation: "singleflight_wait".to_string(),
                 cache_lookup_ms: elapsed_ms(singleflight_started),
+                artifact_load_ms: 0,
                 compile_cache_lock_wait_ms: 0,
                 compile_ms: 0,
             }),
@@ -246,10 +562,12 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
                 return Ok(CompileWithCacheOutcomeShared {
                     compiled: entry.compiled.clone(),
                     cache_hit: true,
+                    artifact_cache_hit: false,
                     compile_revision: hit.compile_revision,
                     revision_scope: hit.revision_scope,
                     cache_validation: hit.cache_validation,
                     cache_lookup_ms,
+                    artifact_load_ms: 0,
                     compile_cache_lock_wait_ms,
                     compile_ms: 0,
                 });
@@ -262,6 +580,22 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
             "compile cache lock poisoned during lookup; fallback to direct compile"
         );
         cache_lookup_ms = elapsed_ms(lookup_lock_started);
+    }
+    if let Some((artifact_hit, artifact_load_ms)) =
+        maybe_load_compiled_app_artifact(source_root, app_id, &options, components_root)
+    {
+        return Ok(CompileWithCacheOutcomeShared {
+            compiled: artifact_hit.compiled,
+            cache_hit: true,
+            artifact_cache_hit: true,
+            compile_revision: artifact_hit.compile_revision,
+            revision_scope: artifact_hit.revision_scope,
+            cache_validation: artifact_hit.cache_validation,
+            cache_lookup_ms,
+            artifact_load_ms,
+            compile_cache_lock_wait_ms,
+            compile_ms: 0,
+        });
     }
     let alias_options = options.clone();
     let compile_started = Instant::now();
@@ -307,35 +641,27 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     let compile_ms = elapsed_ms(compile_started);
     let compiled = Arc::new(compiled);
     let write_lock_started = Instant::now();
-    if let Ok(mut cache) = compile_cache().write() {
-        compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
-        if cache.len() >= COMPILE_CACHE_MAX_ENTRIES {
-            evict_compile_cache_entries_for_write(&mut cache, source_root, app_id);
-        }
-        let cache_entry = CachedCompiledApp {
-            compile_revision: revision_stamp.token.clone(),
-            watched_files: revision_stamp.watched_files,
-            components_revision: revision_stamp.components_revision,
-            compiled: compiled.clone(),
-        };
-        cache.insert(cache_key.to_string(), cache_entry.clone());
-        for alias_key in default_scene_alias_keys(source_root, app_id, &alias_options, &compiled) {
-            cache.insert(alias_key, cache_entry.clone());
-        }
-    } else {
-        tracing::warn!(
-            app_id = %app_id,
-            "compile cache lock poisoned during write; skip cache store"
-        );
-        compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
-    }
+    store_compile_cache_entry(
+        cache_key,
+        source_root,
+        app_id,
+        &alias_options,
+        &revision_stamp.token,
+        &revision_stamp.watched_files,
+        revision_stamp.components_revision,
+        compiled.clone(),
+    );
+    compile_cache_lock_wait_ms += elapsed_ms(write_lock_started);
+    maybe_write_compiled_app_artifact(source_root, app_id, &alias_options, &revision_stamp, &compiled);
     Ok(CompileWithCacheOutcomeShared {
         compiled,
         cache_hit: false,
+        artifact_cache_hit: false,
         compile_revision: revision_stamp.token.clone(),
         revision_scope: revision_stamp.scope.to_string(),
         cache_validation: "miss".to_string(),
         cache_lookup_ms,
+        artifact_load_ms: 0,
         compile_cache_lock_wait_ms,
         compile_ms,
     })
@@ -569,6 +895,17 @@ pub fn clear_compile_cache_for_app(source_root: &Path, app_id: &str) -> usize {
     let before = cache.len();
     cache.retain(|key, _| !key.starts_with(prefix.as_str()));
     before.saturating_sub(cache.len())
+}
+
+pub fn clear_compiled_app_artifacts_for_app(source_root: &Path, app_id: &str) -> usize {
+    let app_root = resolve_app_root(source_root, app_id);
+    let root = compiled_app_artifact_root(&app_root);
+    let manifests_dir = root.join("manifests").join(COMPILED_APP_ARTIFACT_KIND);
+    let artifacts_dir = root.join("artifacts").join(COMPILED_APP_ARTIFACT_KIND);
+    let removed = count_files_recursively(&manifests_dir) + count_files_recursively(&artifacts_dir);
+    let _ = std::fs::remove_dir_all(manifests_dir);
+    let _ = std::fs::remove_dir_all(artifacts_dir);
+    removed
 }
 
 pub fn resolve_components_root(source_root: &Path) -> PathBuf {

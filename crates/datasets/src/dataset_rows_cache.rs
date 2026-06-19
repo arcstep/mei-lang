@@ -5,7 +5,10 @@ use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use mei_lang_kernel::DatasetView;
+use mei_lang_kernel::{
+    resolve_data_snapshot_import_entry, resolve_versioned_source_identifier,
+    source_file_content_signature, DatasetView,
+};
 use serde_json::Value;
 
 use crate::paginate::paginate_rows;
@@ -43,16 +46,24 @@ fn cache_ttl() -> Duration {
     Duration::from_millis(DATASET_ROWS_CACHE_TTL_MS)
 }
 
-fn source_data_stamp(app_root: &Path, dataset: &DatasetView) -> Option<(u64, u128)> {
+fn source_data_stamp(app_root: &Path, dataset: &DatasetView) -> Option<String> {
     let path = resolve_source_path(app_root, dataset.source.path.as_str());
-    let meta = std::fs::metadata(&path).ok()?;
-    let modified_ms = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| duration.as_millis())
-        .unwrap_or(0);
-    Some((meta.len(), modified_ms))
+    if !path.is_file() {
+        return None;
+    }
+    if let Some(imported) = resolve_data_snapshot_import_entry(
+        app_root,
+        dataset.source.path.as_str(),
+        dataset.source.sheet.as_deref(),
+        dataset.source.header_row.unwrap_or(1).max(1) as usize,
+    ) {
+        return Some(format!("import={}", imported.content_signature));
+    }
+    let resolved = resolve_versioned_source_identifier(app_root, dataset.source.path.as_str());
+    Some(format!(
+        "source={}",
+        source_file_content_signature(path.as_path(), resolved.as_str())
+    ))
 }
 
 pub(crate) fn dataset_rows_scope_cache_key(
@@ -61,7 +72,7 @@ pub(crate) fn dataset_rows_scope_cache_key(
     meta: &SourceMeta,
     options: &DatasetQueryOptions,
 ) -> Option<String> {
-    let (size_bytes, modified_ms) = source_data_stamp(app_root, dataset)?;
+    let data_revision = source_data_stamp(app_root, dataset)?;
     let sheet = meta.sheet.as_deref().unwrap_or("");
     let header_row = meta.header_row.unwrap_or(1);
     let schema_key = serialize_cache_value(
@@ -72,13 +83,12 @@ pub(crate) fn dataset_rows_scope_cache_key(
             .collect::<Vec<_>>(),
     );
     Some(format!(
-        "rows|{}|{}|{}|{}|rev={}:{}|sheet={}|header={}|schema={}|search={}|filters={}|group={}|time_range={}",
+        "rows|{}|{}|{}|{}|rev={}|sheet={}|header={}|schema={}|search={}|filters={}|group={}|time_range={}",
         app_root.display(),
         dataset.id,
         dataset.source.kind,
         dataset.source.path,
-        size_bytes,
-        modified_ms,
+        data_revision,
         sheet,
         header_row,
         schema_key,

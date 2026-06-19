@@ -12,7 +12,10 @@ use std::collections::BTreeMap;
 use crate::{AppError, AppState};
 use crate::http::observation::CompileObservation;
 
-use super::super::compile_cache::compile_app_with_cache_shared;
+use super::super::compile_cache::{
+    access_artifact_only_mode_enabled, compile_app_with_cache_shared,
+    load_compile_artifact_only_shared,
+};
 use super::super::datasets::{
     query_dataset_rows, query_metric_dataframe, query_state_from_request,
     table_contract::{
@@ -108,10 +111,38 @@ pub struct DatasetRecomputeResponse {
     pub metric_id: Option<String>,
     pub mode: String,
     pub compile_cache_cleared: usize,
+    pub compiled_app_artifacts_cleared: usize,
     pub file_cache_cleared: usize,
+    pub import_artifacts_cleared: usize,
+    pub dataset_rows_cache_cleared: usize,
+    pub eval_artifacts_cleared: usize,
     pub kernel_caches_cleared: bool,
     pub warmed: bool,
     pub perf: BTreeMap<String, u64>,
+}
+
+fn access_artifact_unavailable_error(
+    request_kind: &str,
+    app_id: &str,
+    scene_id: &str,
+    target: &str,
+) -> AppError {
+    let scene_label = if scene_id.trim().is_empty() || scene_id == "-" {
+        "scene=<unspecified>"
+    } else {
+        scene_id
+    };
+    let target_label = if target.trim().is_empty() || target == "-" {
+        "target=<unspecified>"
+    } else {
+        target
+    };
+    AppError::status(
+        StatusCode::SERVICE_UNAVAILABLE,
+        format!(
+            "{request_kind} requires prebuilt access artifacts on access-only host: app={app_id} {scene_label} {target_label}; wait for startup warmup or prebuild artifacts before serving access traffic"
+        ),
+    )
 }
 
 pub async fn dataset_query_api(
@@ -170,12 +201,33 @@ pub async fn dataset_query_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let compile_outcome = compile_app_with_cache_shared(
-        &state,
-        &app_id,
-        compile_options,
-        components_root.as_path(),
-    )
+    let access_artifact_only = access_artifact_only_mode_enabled();
+    let compile_outcome = if access_artifact_only {
+        load_compile_artifact_only_shared(
+            &state,
+            &app_id,
+            &compile_options,
+            components_root.as_path(),
+        )
+        .ok_or_else(|| {
+            tracing::warn!(
+                app_id = %app_id,
+                scene_id = %requested_scene_id,
+                target = %requested_target,
+                dataset_id = %requested_dataset_id,
+                metric_id = %requested_metric_id,
+                phase = "artifact_only_miss",
+                "dataset query rejected because access-only host requires prebuilt artifacts"
+            );
+            access_artifact_unavailable_error(
+                "dataset query",
+                &app_id,
+                requested_scene_id,
+                requested_target,
+            )
+        })?
+    } else {
+        compile_app_with_cache_shared(&state, &app_id, compile_options, components_root.as_path())
             .map_err(|failure| {
                 tracing::warn!(
                     app_id = %app_id,
@@ -191,7 +243,8 @@ pub async fn dataset_query_api(
                     "dataset query compile failed"
                 );
                 AppError::from(failure.error)
-            })?;
+            })?
+    };
     let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
         "-",
@@ -297,6 +350,10 @@ pub async fn dataset_query_api(
     result = enrich_table_result(dataset, &query, result);
     let mut perf = result.perf.clone();
     compile_observation.write_perf(&mut perf);
+    perf.insert(
+        "access_artifact_only_mode".to_string(),
+        u64::from(access_artifact_only),
+    );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("query_api_ms".to_string(), query_ms);
     let total_ms = elapsed_ms(request_started);
@@ -471,7 +528,11 @@ pub async fn dataset_recompute_api(
         metric_id,
         mode,
         compile_cache_cleared: invalidate_report.compile_cache_cleared,
+        compiled_app_artifacts_cleared: invalidate_report.compiled_app_artifacts_cleared,
         file_cache_cleared: invalidate_report.file_cache_cleared,
+        import_artifacts_cleared: invalidate_report.import_artifacts_cleared,
+        dataset_rows_cache_cleared: invalidate_report.dataset_rows_cache_cleared,
+        eval_artifacts_cleared: invalidate_report.eval_artifacts_cleared,
         kernel_caches_cleared: true,
         warmed,
         perf,

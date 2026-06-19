@@ -36,7 +36,7 @@ impl Default for DatasetQueryOptions {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TableColumnMeta {
     pub name: String,
     #[serde(rename = "type")]
@@ -45,12 +45,12 @@ pub struct TableColumnMeta {
     pub filterable: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TableSummary {
     pub total: usize,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DatasetQueryResult {
     pub page: usize,
     pub page_size: usize,
