@@ -90,9 +90,19 @@ pub(super) fn scan_declarations(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
+                        crate::theme_tokens::validate_frame_token_refs(
+                            &frame_decl,
+                            target_file,
+                            &mut ctx.diagnostics,
+                        );
                         ctx.frames.insert(id.to_string(), frame_decl);
                     } else {
                         if ctx.frame_default.is_none() {
+                            crate::theme_tokens::validate_frame_token_refs(
+                                &frame_decl,
+                                target_file,
+                                &mut ctx.diagnostics,
+                            );
                             ctx.frame_default = Some(frame_decl);
                         }
                     }
@@ -130,6 +140,11 @@ pub(super) fn scan_declarations(
                         .map(str::trim)
                         .filter(|id| !id.is_empty())
                     {
+                        crate::theme_tokens::validate_frame_token_refs(
+                            &frame_decl,
+                            target_file,
+                            &mut ctx.diagnostics,
+                        );
                         ctx.frames.insert(id.to_string(), frame_decl);
                     }
                 }
@@ -403,6 +418,11 @@ pub(super) fn scan_declarations(
                         target_file,
                         &mut ctx.diagnostics,
                     );
+                    crate::theme_tokens::validate_theme_decl(
+                        &theme_decl,
+                        target_file,
+                        &mut ctx.diagnostics,
+                    );
                     ctx.themes.push(theme_decl);
                 }
                 "panel" => {
@@ -413,6 +433,11 @@ pub(super) fn scan_declarations(
                         &mut ctx.diagnostics,
                         target_file,
                     ) {
+                        crate::theme_tokens::validate_panel_token_refs(
+                            &panel,
+                            target_file,
+                            &mut ctx.diagnostics,
+                        );
                         ctx.panels.push(panel);
                     }
                 }

@@ -11,6 +11,7 @@ mod ops_journal;
 mod runtime;
 mod runtime_resource_index;
 mod source_version;
+mod theme_tokens;
 mod typed_refs;
 mod warmup_manifest;
 mod workspace;
@@ -119,6 +120,11 @@ pub use source_version::{
     register_upload_version, resolve_versioned_source_identifier, resolve_versioned_source_path,
     write_upload_registry, ParsedVersionedUploadFile, UploadAliasRecord, UploadRegistry,
     UploadVersionRecord,
+};
+pub use theme_tokens::{
+    is_font_scale_key, is_literal_color, is_literal_font_size, is_literal_gradient,
+    validate_frame_token_refs, validate_panel_token_refs, validate_theme_decl,
+    validate_theme_value_from_ops,
 };
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,

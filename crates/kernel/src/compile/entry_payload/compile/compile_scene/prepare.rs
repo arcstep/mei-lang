@@ -42,7 +42,14 @@ pub(super) fn prepare_scene_selection(
                             &mut ctx.diagnostics,
                         );
                         match theme_decl_from_value(theme_id.as_str(), theme_value) {
-                            Ok(theme_decl) => ctx.themes.push(theme_decl),
+                            Ok(theme_decl) => {
+                                crate::theme_tokens::validate_theme_decl(
+                                    &theme_decl,
+                                    target_file,
+                                    &mut ctx.diagnostics,
+                                );
+                                ctx.themes.push(theme_decl);
+                            }
                             Err(message) => ctx.diagnostics.push(Diagnostic {
                                 severity: Severity::Error,
                                 code: "invalid_config_ref".to_string(),
