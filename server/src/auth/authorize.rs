@@ -30,6 +30,7 @@ fn is_public_path(path: &str) -> bool {
         || path.starts_with("/gis/")
         || path.starts_with("/workspace-components/vendor/")
         || path == "/api/host/ready"
+        || path == "/api/host/heartbeat"
         || path == "/api/auth/public-key"
         || path == "/api/auth/login"
         || path == "/api/auth/session"

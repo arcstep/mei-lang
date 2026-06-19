@@ -2,6 +2,7 @@
   "manageScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -73,6 +74,7 @@
   "accessScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -144,12 +146,14 @@
   "configScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "statusbar.js",
     "manage-ops-panel.js"
   ],
   "uploadScripts": [
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "statusbar.js",
     "workspace-splitters.js",
     "upload-upload-panel.js"

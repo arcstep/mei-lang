@@ -443,10 +443,39 @@ pub async fn api_host_ready() -> impl IntoResponse {
     (status, Json(response))
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct HostHeartbeatResponse {
+    #[serde(rename = "buildVersion")]
+    pub build_version: String,
+    pub ready: bool,
+    pub phase: String,
+}
+
+pub async fn api_host_heartbeat() -> impl IntoResponse {
+    let ready = status_snapshot();
+    Json(HostHeartbeatResponse {
+        build_version: crate::build_info::BUILD_VERSION.to_string(),
+        ready: ready.ready,
+        phase: ready.phase,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn host_heartbeat_response_includes_build_version() {
+        let ready = status_snapshot();
+        let heartbeat = HostHeartbeatResponse {
+            build_version: crate::build_info::BUILD_VERSION.to_string(),
+            ready: ready.ready,
+            phase: ready.phase,
+        };
+        assert!(!heartbeat.build_version.is_empty());
+        assert_eq!(heartbeat.build_version, crate::build_info::BUILD_VERSION);
+    }
 
     #[test]
     fn manifest_source_label_distinguishes_runtime_file_and_fallback() {

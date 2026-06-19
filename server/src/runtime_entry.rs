@@ -322,6 +322,7 @@ fn is_noisy_success_request(method: &Method, uri: &Uri) -> bool {
             | "/api/agent/health"
             | "/api/agent/session"
             | "/api/host/ready"
+            | "/api/host/heartbeat"
             | "/favicon.ico"
     ) || path.starts_with("/app-assets/")
         || path.starts_with("/workspace-components/")

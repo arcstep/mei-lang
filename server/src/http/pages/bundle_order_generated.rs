@@ -3,6 +3,7 @@
 pub(super) const BUNDLE_MANAGE_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -76,6 +77,7 @@ pub(super) const BUNDLE_MANAGE_SOURCE_SCRIPTS: &[&str] = &[
 pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "frame-stage/preamble.js",
     "frame-stage/util.js",
     "frame-stage/viewport.js",
@@ -148,6 +150,7 @@ pub(super) const BUNDLE_ACCESS_SCRIPTS: &[&str] = &[
 pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "statusbar.js",
     "manage-ops-panel.js",
 ];
@@ -155,6 +158,7 @@ pub(super) const BUNDLE_CONFIG_SCRIPTS: &[&str] = &[
 pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
     "host-http-feedback.js",
     "host-auth-session.js",
+    "host-heartbeat.js",
     "statusbar.js",
     "workspace-splitters.js",
     "upload-upload-panel.js",

@@ -30,6 +30,7 @@
 
   function shouldSkipNotify(url, status) {
     if (!url || !String(url).includes("/api/")) return true;
+    if (String(url).includes("/api/host/heartbeat")) return true;
     if (
       Number(status) === 410 &&
       /\/api\/agent\/session\/[^/?]+\/(diff|revert|unrevert)(?:\?|$)/.test(String(url))
