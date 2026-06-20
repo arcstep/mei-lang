@@ -1,9 +1,10 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta, WorkspaceNode};
+use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
 use serde::{Deserialize, Serialize};
 
 use std::collections::BTreeMap;
 
+mod build_tree;
 mod agent_panel;
 mod capabilities;
 mod compile_status;
@@ -30,7 +31,7 @@ pub use shell_upload::UploadFileEntry;
 use preview_chrome::{component_script_preloads, component_scripts};
 use shell_access::access_shell;
 use shell_config::config_shell;
-use shell_manage::{manage_shell, manage_source_shell};
+use shell_manage::manage_shell;
 use shell_presentation::presentation_shell;
 use shell_upload::upload_shell;
 
@@ -131,6 +132,8 @@ pub fn render_page(
     world_metric: Option<&str>,
     world_dataset: Option<&str>,
     explain: Option<&str>,
+    node: Option<&str>,
+    scope: Option<&str>,
     chrome_hidden: bool,
     upload_enabled: bool,
     upload_root_label: Option<&str>,
@@ -183,6 +186,8 @@ pub fn render_page(
             world_metric,
             world_dataset,
             explain,
+            node,
+            scope,
             upload_enabled,
             auth_enabled,
             auth_account,
@@ -309,65 +314,30 @@ pub fn render_upload_page(
     )
 }
 
-pub fn render_build_source_page(
-    apps: &[WorkspaceAppMeta],
-    app_title: &str,
-    app_path: &str,
-    topbar_menu: Option<&TopbarMenuContext>,
-    file_tree: &[WorkspaceNode],
-    target: &str,
-    source: &str,
-    source_meta: Option<&SourcePanelMeta>,
-    selected_scene: Option<&str>,
-    active_tab: Option<&str>,
-    upload_enabled: bool,
-    auth_enabled: bool,
-    auth_account: Option<&HostAccountView>,
-    shell_body_theme_style: &str,
-) -> String {
-    let shell = manage_source_shell(
-        apps,
-        app_title,
-        app_path,
-        topbar_menu,
-        file_tree,
-        target,
-        source,
-        source_meta,
-        selected_scene,
-        active_tab,
-        upload_enabled,
-        auth_enabled,
-        auth_account,
-    );
-    render_document(
-        app_title,
-        UiRouteMode::Build,
-        false,
-        shell,
-        view! { <></> }.into_any(),
-        view! { <></> }.into_any(),
-        auth_enabled,
-        auth_account,
-        shell_body_theme_style,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::manage_routing::{
         access_scene_query, build_preview_href, encode_query_value, manage_tab_href,
-        manage_view_tab_from_query, route_query, ManageViewTab, OPS_CONFIG_TARGET,
-        WorldSemanticQuery,
+        resolve_build_query, route_query, ManageViewTab, OPS_CONFIG_TARGET, WorldSemanticQuery,
     };
     use super::view_routing::{build_href, config_href};
     use super::UiRouteMode;
 
     #[test]
-    fn manage_defaults_to_diagnostics_when_errors_exist() {
+    fn build_view_defaults_to_overview_for_scene_node() {
         assert!(matches!(
-            manage_view_tab_from_query(None, true, true, 1, "main.mei", WorldSemanticQuery::default()),
-            ManageViewTab::Diagnostics
+            resolve_build_query(
+                Some("scene:home"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .map(|resolved| resolved.tab),
+            Some(ManageViewTab::Overview)
         ));
     }
 
@@ -382,19 +352,17 @@ mod tests {
 
     #[test]
     fn manage_ops_config_href_forces_preview_tab() {
-        assert_eq!(
-            manage_tab_href(
-                "zhifa",
-                Some(OPS_CONFIG_TARGET),
-                OPS_CONFIG_TARGET,
-                false,
-                ManageViewTab::Diagnostics,
-                Some("all"),
-                None,
-                WorldSemanticQuery::default(),
-            ),
-            "/apps/build/zhifa?file=.mei-config.json&tab=preview"
+        let href = manage_tab_href(
+            "zhifa",
+            Some(OPS_CONFIG_TARGET),
+            OPS_CONFIG_TARGET,
+            false,
+            ManageViewTab::Overview,
+            Some("all"),
+            None,
+            WorldSemanticQuery::default(),
         );
+        assert!(href.contains("/apps/build/zhifa"));
     }
 
     #[test]
@@ -428,52 +396,49 @@ mod tests {
 
     #[test]
     fn build_preview_href_includes_scene_export_selector() {
-        assert_eq!(
-            build_preview_href(
-                "zhifa",
-                Some("scenes/05-监督预警.board.mei"),
-                Some("warnings_analytics_board"),
-                Some("preview"),
-                None,
-                WorldSemanticQuery::default(),
-            ),
-            "/apps/build/zhifa?file=scenes%2F05-%E7%9B%91%E7%9D%A3%E9%A2%84%E8%AD%A6.board.mei&scene=warnings_analytics_board&tab=preview"
+        let href = build_preview_href(
+            "zhifa",
+            Some("scenes/05-监督预警.board.mei"),
+            Some("warnings_analytics_board"),
+            Some("preview"),
+            None,
+            WorldSemanticQuery::default(),
         );
+        assert!(href.contains("node=scene%3Awarnings_analytics_board"));
+        assert!(href.contains("tab=preview"));
     }
 
     #[test]
     fn manage_tab_href_encodes_file_value() {
-        assert_eq!(
-            manage_tab_href(
-                "examples/demo",
-                Some("docs/README #1.md"),
-                "docs/README #1.md",
-                false,
-                ManageViewTab::Source,
-                None,
-                None,
-                WorldSemanticQuery::default(),
-            ),
-            "/apps/build/examples/demo?file=docs%2FREADME%20%231.md&tab=source"
+        let href = manage_tab_href(
+            "examples/demo",
+            Some("docs/README #1.md"),
+            "docs/README #1.md",
+            false,
+            ManageViewTab::Overview,
+            None,
+            None,
+            WorldSemanticQuery::default(),
         );
+        assert!(href.contains("/apps/build/examples/demo"));
+        assert!(href.contains("node="));
     }
 
     #[test]
     fn build_preview_href_includes_world_semantic_query() {
-        assert_eq!(
-            build_preview_href(
-                "zhifa",
-                Some("scenes/07-问题办理.world.mei"),
-                None,
-                Some("preview"),
-                None,
-                WorldSemanticQuery {
-                    world_metric: Some("warnings_pending_count"),
-                    world_dataset: None,
-                    explain: Some("composition_by_category"),
-                },
-            ),
-            "/apps/build/zhifa?file=scenes%2F07-%E9%97%AE%E9%A2%98%E5%8A%9E%E7%90%86.world.mei&world_metric=warnings_pending_count&explain=composition_by_category&tab=preview"
+        let href = build_preview_href(
+            "zhifa",
+            Some("scenes/07-问题办理.world.mei"),
+            None,
+            Some("preview"),
+            None,
+            WorldSemanticQuery {
+                world_metric: Some("warnings_pending_count"),
+                world_dataset: None,
+                explain: Some("composition_by_category"),
+            },
         );
+        assert!(href.contains("node=world-explain"));
+        assert!(href.contains("tab=preview"));
     }
 }

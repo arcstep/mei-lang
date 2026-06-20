@@ -14,6 +14,15 @@ pub(crate) fn load_compile_artifact_only(
     toolchain::load_compile_artifact_only(&state.source_root, app_id, options, components_root)
 }
 
+pub(crate) fn compile_app_with_cache(
+    state: &AppState,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &std::path::Path,
+) -> Result<CompileWithCacheOutcome, toolchain::CompileWithCacheFailure> {
+    toolchain::compile_app_with_cache(&state.source_root, app_id, options.clone(), components_root)
+}
+
 pub(crate) fn load_compile_artifact_only_shared(
     state: &AppState,
     app_id: &str,

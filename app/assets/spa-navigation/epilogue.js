@@ -38,4 +38,14 @@
       void navigateInternal(window.location.href, true);
     }
   });
+
+  if (typeof globalThis.__meiBuildCopyContextInit === "function") {
+    globalThis.__meiBuildCopyContextInit();
+  }
+  if (typeof globalThis.__meiBuildExecPanelInit === "function") {
+    globalThis.__meiBuildExecPanelInit();
+  }
+  if (typeof globalThis.__meiBuildProjectionPreviewInit === "function") {
+    globalThis.__meiBuildProjectionPreviewInit();
+  }
 })();

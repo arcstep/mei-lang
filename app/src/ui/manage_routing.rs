@@ -1,4 +1,8 @@
-use super::compile_status::{asset_dual_preview_source, is_world_capsule_target};
+use mei_lang_kernel::{
+    resolve_build_view_query, BuildExecScope, BuildNodeId, BuildViewTab, LegacyBuildQuery,
+    ResolvedBuildViewQuery,
+};
+
 use super::UiRouteMode;
 
 pub const OPS_CONFIG_TARGET: &str = ".mei-config.json";
@@ -23,32 +27,7 @@ impl WorldSemanticQuery<'_> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ManageViewTab {
-    Preview,
-    Source,
-    Diagnostics,
-}
-
-impl ManageViewTab {
-    pub fn slug(self) -> &'static str {
-        match self {
-            ManageViewTab::Preview => "preview",
-            ManageViewTab::Source => "source",
-            ManageViewTab::Diagnostics => "diagnostics",
-        }
-    }
-}
-
-fn manage_tab_from_slug(value: Option<&str>) -> Option<ManageViewTab> {
-    match value.unwrap_or("").trim().to_ascii_lowercase().as_str() {
-        "preview" => Some(ManageViewTab::Preview),
-        "source" => Some(ManageViewTab::Source),
-        "diff" => Some(ManageViewTab::Source),
-        "diagnostics" => Some(ManageViewTab::Diagnostics),
-        _ => None,
-    }
-}
+pub(crate) use mei_lang_kernel::BuildViewTab as ManageViewTab;
 
 pub(crate) fn is_ops_config_target(target: &str) -> bool {
     target.trim() == OPS_CONFIG_TARGET
@@ -70,86 +49,95 @@ pub(crate) fn encode_query_value(value: &str) -> String {
     out
 }
 
-pub(crate) fn manage_view_tab_from_query(
-    active_tab: Option<&str>,
-    script_target: bool,
-    prefer_diagnostics: bool,
-    diagnostics_count: usize,
-    selected_target: &str,
-    semantic: WorldSemanticQuery<'_>,
-) -> ManageViewTab {
-    if is_ops_config_target(selected_target) {
-        return ManageViewTab::Preview;
-    }
-    let has_diagnostics_tab = script_target && diagnostics_count > 0;
-    let asset_dual = asset_dual_preview_source(selected_target);
-    let next = manage_tab_from_slug(active_tab).unwrap_or_else(|| {
-        if script_target && is_world_capsule_target(selected_target) {
-            if semantic.has_selection() {
-                ManageViewTab::Preview
-            } else {
-                ManageViewTab::Source
-            }
-        } else if prefer_diagnostics && has_diagnostics_tab {
-            ManageViewTab::Diagnostics
-        } else {
-            ManageViewTab::Preview
-        }
-    });
-    if script_target {
-        if matches!(next, ManageViewTab::Diagnostics) && !has_diagnostics_tab {
-            return ManageViewTab::Preview;
-        }
-        next
-    } else if asset_dual {
-        match next {
-            ManageViewTab::Source => ManageViewTab::Source,
-            _ => ManageViewTab::Preview,
-        }
+pub(crate) fn resolve_build_query(
+    node: Option<&str>,
+    scope: Option<&str>,
+    tab: Option<&str>,
+    file: Option<&str>,
+    scene: Option<&str>,
+    world_metric: Option<&str>,
+    world_dataset: Option<&str>,
+    explain: Option<&str>,
+) -> Option<ResolvedBuildViewQuery> {
+    resolve_build_view_query(
+        node,
+        scope,
+        tab,
+        &LegacyBuildQuery {
+            file: file.map(str::to_string),
+            scene: scene.map(str::to_string),
+            world_metric: world_metric.map(str::to_string),
+            world_dataset: world_dataset.map(str::to_string),
+            explain: explain.map(str::to_string),
+            tab: tab.map(str::to_string),
+        },
+    )
+}
+
+pub(crate) fn build_node_href(
+    app_path: &str,
+    node: &BuildNodeId,
+    tab: BuildViewTab,
+    scope: BuildExecScope,
+) -> String {
+    let query = build_node_query_parts(node, tab, scope);
+    if query.is_empty() {
+        format!("/apps/build/{app_path}")
     } else {
-        ManageViewTab::Preview
+        format!("/apps/build/{app_path}?{}", query.join("&"))
     }
 }
 
+pub(crate) fn build_node_query_parts(
+    node: &BuildNodeId,
+    tab: BuildViewTab,
+    scope: BuildExecScope,
+) -> Vec<String> {
+    let mut query = vec![format!("node={}", encode_query_value(&node.encode()))];
+    if tab != node.default_tab() {
+        query.push(format!("tab={}", encode_query_value(tab.slug())));
+    }
+    if scope != BuildExecScope::Warmup {
+        query.push(format!("scope={}", encode_query_value(scope.slug())));
+    }
+    query
+}
+
+/// Legacy wrapper for statusbar / diagnostics links.
 pub(crate) fn manage_tab_href(
     app_path: &str,
     file_param: Option<&str>,
     selected_target: &str,
-    script_target: bool,
-    tab: ManageViewTab,
-    diag_filter: Option<&str>,
+    _script_target: bool,
+    tab: BuildViewTab,
+    _diag_filter: Option<&str>,
     selected_scene: Option<&str>,
     semantic: WorldSemanticQuery<'_>,
 ) -> String {
-    let asset_dual = asset_dual_preview_source(selected_target);
-    let route_tab = if is_ops_config_target(selected_target) {
-        ManageViewTab::Preview
-    } else if script_target {
-        tab
-    } else if asset_dual {
-        match tab {
-            ManageViewTab::Preview | ManageViewTab::Source => tab,
-            _ => ManageViewTab::Preview,
-        }
-    } else {
-        ManageViewTab::Preview
-    };
-    let diag = if matches!(route_tab, ManageViewTab::Diagnostics) {
-        diag_filter
-    } else {
-        None
-    };
+    let resolved = resolve_build_query(
+        None,
+        None,
+        Some(tab.slug()),
+        file_param.or(Some(selected_target)),
+        selected_scene,
+        semantic.world_metric,
+        semantic.world_dataset,
+        semantic.explain,
+    );
+    if let Some(resolved) = resolved {
+        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope);
+    }
     build_preview_href(
         app_path,
-        file_param,
+        file_param.or(Some(selected_target)),
         selected_scene,
-        Some(route_tab.slug()),
-        diag,
+        Some(tab.slug()),
+        None,
         semantic,
     )
 }
 
-/// 构建视图预览链接：`file` + 可选 `scene`（多 `scene_export` 选择）+ `tab` + world 语义参数。
+/// 构建视图预览链接（legacy + canonical node）。
 pub(crate) fn build_preview_href(
     app_path: &str,
     file: Option<&str>,
@@ -158,6 +146,18 @@ pub(crate) fn build_preview_href(
     diag_filter: Option<&str>,
     semantic: WorldSemanticQuery<'_>,
 ) -> String {
+    if let Some(resolved) = resolve_build_query(
+        None,
+        None,
+        tab,
+        file,
+        scene,
+        semantic.world_metric,
+        semantic.world_dataset,
+        semantic.explain,
+    ) {
+        return build_node_href(app_path, &resolved.node, resolved.tab, resolved.scope);
+    }
     let query = build_preview_query_parts(file, scene, tab, diag_filter, semantic);
     if query.is_empty() {
         format!("/apps/build/{app_path}")
@@ -173,6 +173,18 @@ pub(crate) fn build_preview_query_parts(
     diag_filter: Option<&str>,
     semantic: WorldSemanticQuery<'_>,
 ) -> Vec<String> {
+    if let Some(resolved) = resolve_build_query(
+        None,
+        None,
+        tab,
+        file,
+        scene,
+        semantic.world_metric,
+        semantic.world_dataset,
+        semantic.explain,
+    ) {
+        return build_node_query_parts(&resolved.node, resolved.tab, resolved.scope);
+    }
     let mut query = Vec::new();
     if let Some(f) = file.map(str::trim).filter(|s| !s.is_empty()) {
         query.push(format!("file={}", encode_query_value(f)));
@@ -227,17 +239,12 @@ pub(crate) fn access_scene_route_suffix(
         q.push(format!("chrome={}", encode_query_value(c)));
     }
     if !q.is_empty() {
-        if out.is_empty() {
-            out.push('?');
-        } else {
-            out.push('?');
-        }
+        out.push('?');
         out.push_str(&q.join("&"));
     }
     out
 }
 
-/// 访问态入口使用的路径后缀；无 scene 时返回空串（由调用方决定是否禁用「访问」按钮）。
 pub(crate) fn access_scene_query(selected_scene: Option<&str>) -> String {
     access_scene_route_suffix(selected_scene, None, None)
 }
@@ -253,5 +260,28 @@ pub(crate) fn route_query(
         access_scene_route_suffix(selected_scene, active_tab, None)
     } else {
         String::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_world_metric_resolves_to_node_href() {
+        let href = build_preview_href(
+            "zhifa",
+            Some("metrics.world.mei"),
+            None,
+            Some("preview"),
+            None,
+            WorldSemanticQuery {
+                world_metric: Some("total"),
+                world_dataset: None,
+                explain: None,
+            },
+        );
+        assert!(href.contains("node=world-metric"));
+        assert!(href.contains("tab=preview"));
     }
 }

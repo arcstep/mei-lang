@@ -2,33 +2,6 @@ use mei_lang_kernel::{CompiledApp, Diagnostic};
 
 pub(crate) const MANAGE_PIPELINE_DIAG_CODE: &str = "manage_page_pipeline";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DiagnosticsFilterMode {
-    CurrentFile,
-    All,
-}
-
-impl DiagnosticsFilterMode {
-    pub fn from_query(value: Option<&str>) -> Self {
-        match value
-            .map(str::trim)
-            .unwrap_or("")
-            .to_ascii_lowercase()
-            .as_str()
-        {
-            "all" => Self::All,
-            _ => Self::CurrentFile,
-        }
-    }
-
-    pub fn slug(self) -> &'static str {
-        match self {
-            Self::CurrentFile => "current",
-            Self::All => "all",
-        }
-    }
-}
-
 pub(crate) fn is_manage_pipeline_diag(diag: &Diagnostic) -> bool {
     diag.code == MANAGE_PIPELINE_DIAG_CODE
 }
@@ -129,62 +102,6 @@ pub(crate) fn should_display_diagnostic(
     !is_world_capsule_manage_hint(compiled, selected_target, diag)
 }
 
-#[allow(dead_code)]
-pub(crate) fn is_global_or_unattributed_diagnostic(
-    compiled: &CompiledApp,
-    selected_target: &str,
-    diag: &Diagnostic,
-) -> bool {
-    if !is_compile_diagnostic(diag) || diagnostic_matches_target(compiled, selected_target, diag) {
-        return false;
-    }
-    let Some(source) = normalize_diagnostic_source(&compiled.app_root, diag.source_path.as_deref())
-    else {
-        return true;
-    };
-    source == "main.mei" || source.ends_with("/main.mei")
-}
-
-pub(crate) fn compile_diagnostics_for_mode<'a>(
-    compiled: &'a CompiledApp,
-    selected_target: &str,
-    mode: DiagnosticsFilterMode,
-) -> Vec<&'a Diagnostic> {
-    match mode {
-        DiagnosticsFilterMode::All => compiled
-            .diagnostics
-            .iter()
-            .filter(|diag| {
-                is_compile_diagnostic(diag)
-                    && should_display_diagnostic(compiled, selected_target, diag)
-            })
-            .collect(),
-        DiagnosticsFilterMode::CurrentFile => compiled
-            .diagnostics
-            .iter()
-            .filter(|diag| {
-                diagnostic_matches_target(compiled, selected_target, diag)
-                    && should_display_diagnostic(compiled, selected_target, diag)
-            })
-            .collect(),
-    }
-}
-
-pub(crate) fn compile_diagnostics_other_file_count(
-    compiled: &CompiledApp,
-    selected_target: &str,
-) -> usize {
-    compiled
-        .diagnostics
-        .iter()
-        .filter(|diag| {
-            is_compile_diagnostic(diag)
-                && !diagnostic_matches_target(compiled, selected_target, diag)
-                && should_display_diagnostic(compiled, selected_target, diag)
-        })
-        .count()
-}
-
 pub(crate) fn severity_counts(diags: &[&Diagnostic]) -> (usize, usize, usize) {
     let errors = diags
         .iter()
@@ -226,24 +143,6 @@ pub(crate) fn compile_status_counts_for_display(
         .filter(|diag| should_display_diagnostic(compiled, selected_target, diag))
         .collect();
     severity_counts(&diags)
-}
-
-pub(crate) fn visible_diagnostics_count(compiled: &CompiledApp, selected_target: &str) -> usize {
-    compiled
-        .diagnostics
-        .iter()
-        .filter(|diag| should_display_diagnostic(compiled, selected_target, diag))
-        .count()
-}
-
-pub(crate) fn compiled_has_error_diagnostics(
-    compiled: &CompiledApp,
-    selected_target: &str,
-) -> bool {
-    compiled.diagnostics.iter().any(|diag| {
-        matches!(diag.severity, mei_lang_kernel::Severity::Error)
-            && should_display_diagnostic(compiled, selected_target, diag)
-    })
 }
 
 /// 预览降级：优先当前文件 Error，不足时再补其它文件 Error。
@@ -329,27 +228,24 @@ mod tests {
     }
 
     #[test]
-    fn compile_diagnostics_for_mode_filters_current_file() {
+    fn compile_diagnostics_filter_current_file() {
         let compiled = sample_compiled(vec![
             diag("missing_scene", "panels/shared-frame.mei"),
             diag("missing_scene", "main.mei"),
         ]);
-        let current = compile_diagnostics_for_mode(
-            &compiled,
-            "panels/shared-frame.mei",
-            DiagnosticsFilterMode::CurrentFile,
-        );
+        let current: Vec<_> = compiled
+            .diagnostics
+            .iter()
+            .filter(|diag| {
+                diagnostic_matches_target(&compiled, "panels/shared-frame.mei", diag)
+                    && should_display_diagnostic(&compiled, "panels/shared-frame.mei", diag)
+            })
+            .collect();
         assert_eq!(current.len(), 1);
         assert_eq!(
             current[0].source_path.as_deref(),
             Some("panels/shared-frame.mei")
         );
-        let all = compile_diagnostics_for_mode(
-            &compiled,
-            "panels/shared-frame.mei",
-            DiagnosticsFilterMode::All,
-        );
-        assert_eq!(all.len(), 2);
     }
 
     #[test]
@@ -364,16 +260,19 @@ mod tests {
             diag("missing_scene", "scenes/foo.world.mei"),
             diag("invalid_resource_ref", "scenes/foo.world.mei"),
         ]);
-        let current = compile_diagnostics_for_mode(
-            &compiled,
-            "scenes/foo.world.mei",
-            DiagnosticsFilterMode::CurrentFile,
-        );
+        let current: Vec<_> = compiled
+            .diagnostics
+            .iter()
+            .filter(|diag| {
+                diagnostic_matches_target(&compiled, "scenes/foo.world.mei", diag)
+                    && should_display_diagnostic(&compiled, "scenes/foo.world.mei", diag)
+            })
+            .collect();
         assert_eq!(current.len(), 1);
         assert_eq!(current[0].code, "invalid_resource_ref");
-        assert!(compiled_has_error_diagnostics(
-            &compiled,
-            "scenes/foo.world.mei"
-        ));
+        assert!(compiled.diagnostics.iter().any(|diag| {
+            matches!(diag.severity, Severity::Error)
+                && should_display_diagnostic(&compiled, "scenes/foo.world.mei", diag)
+        }));
     }
 }

@@ -12,7 +12,7 @@ use mei_lang_kernel::{CompileOptions, WorkspaceAppMeta};
 use crate::AppState;
 
 use crate::http::compile_cache::{
-    load_compile_artifact_only, CompileWithCacheOutcome,
+    compile_app_with_cache, load_compile_artifact_only, CompileWithCacheOutcome,
 };
 use crate::http::host_api;
 use crate::http::host_error_page::{self, HostShellAction};
@@ -102,17 +102,20 @@ pub(super) fn resolve_compile_outcome(
 ) -> CompileResolution {
     match load_compile_artifact_only(state, app_id, &compile_options, components_root.as_path()) {
         Some(outcome) => CompileResolution::Outcome(outcome),
-        None => {
-            if route_mode == UiRouteMode::Build {
-                return CompileResolution::EarlyResponse(
-                    Redirect::temporary(&build_source_fallback_location(
-                        app_id,
-                        manage_file,
-                        compile_options.scene.as_deref().or(access_path_scene),
-                    ))
-                    .into_response(),
-                );
+        None if route_mode == UiRouteMode::Build => {
+            match compile_app_with_cache(
+                state,
+                app_id,
+                &compile_options,
+                components_root.as_path(),
+            ) {
+                Ok(outcome) => CompileResolution::Outcome(outcome),
+                Err(_) => CompileResolution::EarlyResponse(
+                    Redirect::temporary(&build_source_fallback_location(app_id)).into_response(),
+                ),
             }
+        }
+        None => {
             CompileResolution::EarlyResponse(render_access_artifact_unavailable(
                 route_mode,
                 app_id,
@@ -123,12 +126,8 @@ pub(super) fn resolve_compile_outcome(
     }
 }
 
-fn build_source_fallback_location(
-    app_id: &str,
-    _manage_file: Option<&str>,
-    _scene_hint: Option<&str>,
-) -> String {
-    format!("/apps/build/{app_id}?tab=source")
+fn build_source_fallback_location(app_id: &str) -> String {
+    format!("/apps/build/{app_id}?tab=overview")
 }
 
 fn render_access_artifact_unavailable(
@@ -215,10 +214,10 @@ mod tests {
     use super::build_source_fallback_location;
 
     #[test]
-    fn build_source_fallback_uses_source_tab() {
+    fn build_source_fallback_uses_overview_tab() {
         assert_eq!(
-            build_source_fallback_location("zhifa", Some("scenes/home.mei"), Some("home")),
-            "/apps/build/zhifa?tab=source"
+            build_source_fallback_location("zhifa"),
+            "/apps/build/zhifa?tab=overview"
         );
     }
 }

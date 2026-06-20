@@ -3154,208 +3154,223 @@
 
 ;
 
-/* ===== manage-source-lazy.js ===== */
-(() => {
-  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
-  if (typeof boot.ensureManageSourceBundle === "function") return;
+/* ===== build-copy-context.js ===== */
+/**
+ * Build view: copy Markdown agent context + load previews.
+ */
+(function (global) {
+  "use strict";
 
-  let loadingPromise = null;
-
-  function perfDisableSet() {
-    const raw = [];
-    try {
-      const query = new URLSearchParams(window.location.search || "");
-      raw.push(query.get("mei_perf_disable") || "");
-    } catch (_) {}
-    const globalValue = window.__MEI_PERF_DISABLE__;
-    if (Array.isArray(globalValue)) {
-      raw.push(globalValue.join(","));
-    } else if (typeof globalValue === "string") {
-      raw.push(globalValue);
+  function copyText(value) {
+    if (navigator.clipboard && global.isSecureContext) {
+      return navigator.clipboard.writeText(value);
     }
-    return new Set(
-      raw
-        .join(",")
-        .split(",")
-        .map((item) => String(item || "").trim().toLowerCase())
-        .filter(Boolean)
-    );
+    const ta = document.createElement("textarea");
+    ta.value = value;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    return Promise.resolve();
   }
 
-  function perfDisabled(flag) {
-    return perfDisableSet().has(String(flag || "").trim().toLowerCase());
+  async function fetchMarkdown(params) {
+    const qs = new URLSearchParams(params);
+    const res = await fetch("/api/build/context/export?" + qs.toString());
+    return res.text();
   }
 
-  function normalizeTab(raw) {
-    const value = String(raw || "").trim().toLowerCase();
-    if (value === "source" || value === "diff" || value === "diagnostics") return value;
-    return "preview";
-  }
-
-  function tabFromUrl() {
-    try {
-      const url = new URL(window.location.href);
-      return normalizeTab(url.searchParams.get("tab"));
-    } catch (_) {
-      return "preview";
-    }
-  }
-
-  function scriptAlreadyLoaded(scriptEl) {
-    if (!scriptEl) return false;
-    if (scriptEl.readyState === "complete" || scriptEl.readyState === "loaded") {
-      return true;
-    }
-    return scriptEl.complete === true;
-  }
-
-  /** bundle 首次加载完成：挂载树控件并通知编辑器（勿再派发 tab-change，避免与 lazy 监听死循环）。 */
-  function afterManageSourceBundleReady() {
-    if (typeof boot.mountSourceTreeControls === "function") {
-      try {
-        boot.mountSourceTreeControls();
-      } catch (_) {
-        /* ignore */
-      }
-    }
-    const tab = tabFromUrl();
-    try {
-      document.dispatchEvent(
-        new CustomEvent("mei:manage-source-bundle-ready", { detail: { tab } })
-      );
-    } catch (_) {
-      /* ignore */
-    }
-  }
-
-  function loadManageSourceBundle() {
-    if (boot.manageSourceBundleLoaded === true) {
-      return Promise.resolve(false);
-    }
-    if (loadingPromise) {
-      return loadingPromise;
-    }
-    loadingPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
-      if (existing) {
-        if (scriptAlreadyLoaded(existing)) {
-          boot.manageSourceBundleLoaded = true;
-          resolve(true);
-          return;
+  function bindCopyButtons() {
+    document.querySelectorAll("[data-app-path][data-node][data-intent]").forEach((btn) => {
+      if (btn.__buildCopyBound) return;
+      btn.__buildCopyBound = true;
+      btn.addEventListener("click", async () => {
+        const appId = btn.getAttribute("data-app-path");
+        const node = btn.getAttribute("data-node");
+        const tab = btn.getAttribute("data-tab") || "overview";
+        const intent = btn.getAttribute("data-intent") || "lock_node";
+        try {
+          const md = await fetchMarkdown({ app_id: appId, node, tab, intent, include_readiness: "1" });
+          await copyText(md);
+          btn.textContent = "已复制";
+          setTimeout(() => {
+            btn.textContent = intent === "full" ? "复制 Agent 上下文" : "复制 Markdown 简报";
+          }, 1500);
+        } catch (err) {
+          console.error("build copy failed", err);
         }
-        existing.addEventListener(
-          "load",
-          () => {
-            boot.manageSourceBundleLoaded = true;
-            resolve(true);
-          },
-          { once: true }
-        );
-        existing.addEventListener(
-          "error",
-          () => reject(new Error("manage source bundle load failed")),
-          { once: true }
-        );
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = "/app-bundles/manage-source.js";
-      script.async = true;
-      script.dataset.meiManageSourceBundle = "true";
-      script.onload = () => {
-        boot.manageSourceBundleLoaded = true;
-        resolve(true);
-      };
-      script.onerror = () => {
-        reject(new Error("manage source bundle load failed"));
-      };
-      document.head.appendChild(script);
-    }).finally(() => {
-      loadingPromise = null;
-    });
-    return loadingPromise;
-  }
-
-  function maybeLoadForTab(tab) {
-    const normalized = normalizeTab(tab);
-    if (normalized !== "source" && normalized !== "diff") {
-      return;
-    }
-    loadManageSourceBundle()
-      .then((freshLoad) => {
-        if (freshLoad) {
-          afterManageSourceBundleReady();
-        }
-      })
-      .catch((error) => {
-        boot.manageSourceBundleError = String(error?.message || error || "unknown error");
       });
+    });
+    document.querySelectorAll(".build-copy-provenance[data-copy-text]").forEach((btn) => {
+      if (btn.__provCopyBound) return;
+      btn.__provCopyBound = true;
+      btn.addEventListener("click", () => {
+        copyText(btn.getAttribute("data-copy-text") || "");
+      });
+    });
   }
 
-  boot.ensureManageSourceBundle = async function ensureManageSourceBundle() {
-    const freshLoad = await loadManageSourceBundle();
-    if (freshLoad) {
-      afterManageSourceBundleReady();
+  async function refreshAgentPreview() {
+    const pre = document.getElementById("build-agent-context-preview");
+    if (!pre) return;
+    const appId = pre.getAttribute("data-app-path");
+    const node = pre.getAttribute("data-node");
+    const tab = pre.getAttribute("data-tab") || "agent";
+    try {
+      pre.textContent = await fetchMarkdown({
+        app_id: appId,
+        node,
+        tab,
+        intent: "full",
+        include_graph: "semantic,eval",
+        include_readiness: "1",
+      });
+    } catch (err) {
+      pre.textContent = String(err);
     }
-    return freshLoad;
-  };
+  }
 
-  boot.remountManageSourceAfterSpa = async function remountManageSourceAfterSpa() {
-    if (!boot.manageSourceBundleLoaded) {
-      return;
-    }
-    if (typeof boot.mountSourceTreeControls === "function") {
-      boot.mountSourceTreeControls();
-      return;
-    }
-    const existing = document.querySelector('script[data-mei-manage-source-bundle="true"]');
-    if (existing) {
-      existing.remove();
-    }
-    boot.manageSourceBundleLoaded = false;
-    loadingPromise = null;
-    const freshLoad = await loadManageSourceBundle();
-    if (freshLoad) {
-      afterManageSourceBundleReady();
-    }
-  };
-
-  document.addEventListener("mei:manage-tab-change", (event) => {
-    maybeLoadForTab(event?.detail?.tab);
-  });
-
-  if (document.readyState === "loading") {
-    document.addEventListener(
-      "DOMContentLoaded",
-      () => {
-        if (perfDisabled("manage_source_lazy")) {
-          loadManageSourceBundle()
-            .then((freshLoad) => {
-              if (freshLoad) afterManageSourceBundleReady();
-            })
-            .catch((error) => {
-              boot.manageSourceBundleError = String(error?.message || error || "unknown error");
-            });
-          return;
-        }
-        maybeLoadForTab(tabFromUrl());
-      },
-      { once: true }
-    );
-  } else {
-    if (perfDisabled("manage_source_lazy")) {
-      loadManageSourceBundle()
-        .then((freshLoad) => {
-          if (freshLoad) afterManageSourceBundleReady();
-        })
-        .catch((error) => {
-          boot.manageSourceBundleError = String(error?.message || error || "unknown error");
+  async function refreshGraphPanels() {
+    document.querySelectorAll(".build-graph-markdown[data-graph-kind]").forEach(async (el) => {
+      const node = el.getAttribute("data-node");
+      const kind = el.getAttribute("data-graph-kind");
+      const shell = document.querySelector("[data-build-node]");
+      const appPath = shell && shell.getAttribute("data-app-path");
+      if (!appPath || !node) return;
+      try {
+        const md = await fetchMarkdown({
+          app_id: appPath,
+          node,
+          tab: kind === "eval" ? "eval" : "semantic",
+          intent: "debug_eval",
+          include_graph: kind,
         });
-      return;
-    }
-    maybeLoadForTab(tabFromUrl());
+        el.textContent = md;
+      } catch (err) {
+        el.textContent = String(err);
+      }
+    });
   }
-})();
+
+  async function refreshArtifactPanels() {
+    const shell = document.querySelector("[data-build-node]");
+    const appPath = shell && shell.getAttribute("data-app-path");
+    const node = shell && shell.getAttribute("data-build-node");
+    if (!appPath || !node) return;
+
+    const gateHost = document.getElementById("build-overview-gate");
+    const artifactSummary = document.getElementById("build-artifact-summary");
+    try {
+      const md = await fetchMarkdown({
+        app_id: appPath,
+        node,
+        tab: "artifact",
+        intent: "debug_artifact",
+        include_readiness: "1",
+      });
+      if (artifactSummary) {
+        artifactSummary.textContent = md.split("### 建议 Agent 任务")[0].trim();
+      }
+      if (gateHost) {
+        const gateLine = md
+          .split("\n")
+          .find((line) => line.includes("**Gate**") || line.includes("Gate"));
+        gateHost.textContent = gateLine ? gateLine.replace(/^-\s*/, "") : "Gate 状态已加载";
+      }
+    } catch (err) {
+      if (artifactSummary) artifactSummary.textContent = String(err);
+      if (gateHost) gateHost.textContent = String(err);
+    }
+
+    try {
+      const res = await fetch("/api/host/readiness");
+      if (!res.ok || !artifactSummary) return;
+      const readiness = await res.json();
+      const app = (readiness.apps || []).find((entry) => entry.app_id === appPath);
+      const cacheBits = [
+        readiness.phase ? `host_phase=${readiness.phase}` : "",
+        app ? `app_phase=${app.phase}` : "",
+        readiness.access_ready != null ? `access_ready=${readiness.access_ready}` : "",
+      ].filter(Boolean);
+      if (cacheBits.length) {
+        artifactSummary.textContent += "\n\n" + cacheBits.join(" · ");
+      }
+    } catch (_) {}
+  }
+
+  function initBuildCopyContext() {
+    bindCopyButtons();
+    refreshAgentPreview();
+    refreshGraphPanels();
+    refreshArtifactPanels();
+  }
+
+  global.__meiBuildCopyContextInit = initBuildCopyContext;
+})(typeof window !== "undefined" ? window : globalThis);
+
+;
+
+/* ===== build-exec-panel.js ===== */
+/**
+ * Build view exec REPL panel (metric/query smoke).
+ */
+(function (global) {
+  "use strict";
+
+  function storageKey(appPath, node) {
+    return "mei.build.exec." + appPath + "." + node;
+  }
+
+  function initBuildExecPanel() {
+    const panel = document.getElementById("build-exec-panel");
+    if (!panel || panel.__bound) return;
+    panel.__bound = true;
+    const appPath = panel.getAttribute("data-app-path");
+    const node = panel.getAttribute("data-node");
+    const output = document.getElementById("build-exec-output");
+    const runBtn = document.getElementById("build-exec-run");
+    let scope = "warmup";
+
+    panel.querySelectorAll(".build-exec-scope").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        scope = btn.getAttribute("data-scope") || "warmup";
+        panel.querySelectorAll(".build-exec-scope").forEach((b) => b.classList.remove("is-active"));
+        btn.classList.add("is-active");
+      });
+    });
+
+    if (runBtn) {
+      runBtn.addEventListener("click", async () => {
+        if (!output) return;
+        output.textContent = "running…";
+        try {
+          const res = await fetch(
+            "/api/build/context/export?" +
+              new URLSearchParams({
+                app_id: appPath,
+                node,
+                tab: "exec",
+                intent: "debug_eval",
+                scope,
+              }).toString()
+          );
+          const text = await res.text();
+          output.textContent = text;
+          try {
+            sessionStorage.setItem(
+              storageKey(appPath, node),
+              JSON.stringify({ scope, text, at: Date.now() })
+            );
+          } catch (_) {}
+        } catch (err) {
+          output.textContent = String(err);
+        }
+      });
+    }
+  }
+
+  global.__meiBuildExecPanelInit = initBuildExecPanel;
+})(typeof window !== "undefined" ? window : globalThis);
 
 ;
 
@@ -10815,6 +10830,25 @@
         closeSceneBoardOverlay();
       }
     });
+    boot.openSceneProjection = openSceneProjection;
+    global.MeiDrilldown = global.MeiDrilldown || {};
+    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+      const sceneId = nonEmptyString(options?.sceneId);
+      const projectionId = nonEmptyString(options?.projectionId);
+      const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};
+      if (!sceneId || !projectionId) return Promise.resolve();
+      const popup =
+        (assembly.overlays && assembly.overlays[projectionId]) ||
+        (assembly.boards && assembly.boards[projectionId]) ||
+        assembly[projectionId] ||
+        {};
+      return openSceneProjection({
+        scene_id: sceneId,
+        projection_id: projectionId,
+        popup,
+        __mei_build_isolated: Boolean(options?.isolated),
+      });
+    };
   }
 
 
@@ -12468,6 +12502,66 @@
 
 ;
 
+/* ===== spa-navigation/spa/build-projection-preview.js ===== */
+/**
+ * Build view: isolated projection / overlay preview mount.
+ */
+(function (global) {
+  "use strict";
+
+  function initBuildProjectionPreview() {
+    const host = document.getElementById("build-projection-preview-host");
+    if (!host || host.__bound) return;
+    host.__bound = true;
+    const sceneId = host.getAttribute("data-scene-id");
+    const projectionId = host.getAttribute("data-projection-id");
+    if (!sceneId || !projectionId) return;
+
+    const script = document.getElementById("mei-scene-drilldown-context");
+    if (!script) return;
+    let context = {};
+    try {
+      context = JSON.parse(script.textContent || "{}");
+    } catch (_) {
+      return;
+    }
+    const byScene = context.scene_projection_assembly_by_id || {};
+    const assembly = byScene[sceneId];
+    if (!assembly) return;
+
+    const boot = global.__meiLangBoot || {};
+    const open =
+      (global.MeiDrilldown && global.MeiDrilldown.openProjectionPreview) ||
+      boot.openSceneProjection;
+    if (typeof open !== "function") return;
+
+    if (global.MeiDrilldown && typeof global.MeiDrilldown.openProjectionPreview === "function") {
+      global.MeiDrilldown.openProjectionPreview({
+        sceneId,
+        projectionId,
+        assembly,
+        isolated: true,
+      });
+      return;
+    }
+
+    const popup =
+      (assembly.overlays && assembly.overlays[projectionId]) ||
+      (assembly.boards && assembly.boards[projectionId]) ||
+      {};
+    boot.openSceneProjection({
+      scene_id: sceneId,
+      projection_id: projectionId,
+      popup,
+      __mei_build_isolated: true,
+    });
+  }
+
+  global.__meiBuildProjectionPreviewInit = initBuildProjectionPreview;
+})(typeof window !== "undefined" ? window : globalThis);
+
+;
+
 /* ===== spa-navigation/spa/dom-swap.js ===== */
   function replaceShellFromDoc(doc, url, replaceHistory) {
     const currentShell = document.querySelector(".shell");
@@ -13239,6 +13333,16 @@
       void navigateInternal(window.location.href, true);
     }
   });
+
+  if (typeof globalThis.__meiBuildCopyContextInit === "function") {
+    globalThis.__meiBuildCopyContextInit();
+  }
+  if (typeof globalThis.__meiBuildExecPanelInit === "function") {
+    globalThis.__meiBuildExecPanelInit();
+  }
+  if (typeof globalThis.__meiBuildProjectionPreviewInit === "function") {
+    globalThis.__meiBuildProjectionPreviewInit();
+  }
 })();
 
 ;

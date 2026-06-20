@@ -1,3 +1,4 @@
+pub(crate) mod build_api;
 pub(crate) mod agent_api;
 pub mod auth_api;
 mod compile_cache;
@@ -47,6 +48,10 @@ pub fn router() -> Router<AppState> {
         .route("/api/host/readiness", get(host_api::api_host_readiness))
         .route("/api/host/heartbeat", get(host_api::api_host_heartbeat))
         .route("/api/host/build", post(host_api::api_host_build))
+        .route(
+            "/api/build/context/export",
+            get(build_api::api_build_context_export),
+        )
         .route(
             "/api/host/request-trace",
             get(request_trace::api_request_trace),

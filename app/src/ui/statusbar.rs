@@ -75,7 +75,7 @@ pub(crate) fn statusbar_view(
                 Some(current_target),
                 current_target,
                 current_target.ends_with(".mei"),
-                ManageViewTab::Diagnostics,
+                ManageViewTab::Overview,
                 None,
                 selected_scene,
                 WorldSemanticQuery::default(),

@@ -44,6 +44,8 @@ mod tests {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         };
         assert!(compile_bootstrap_probe_requested(&probe));

@@ -1,5 +1,4 @@
 mod asset_preview;
-mod diagnostics;
 mod html_escape;
 mod markdown;
 mod scripts;
@@ -11,22 +10,6 @@ use super::route::UiRouteMode;
 
 pub(crate) fn asset_preview_body(app_path: &str, target: &str, source: &str) -> AnyView {
     asset_preview::asset_preview_body(app_path, target, source)
-}
-
-pub(crate) fn diagnostics_view(
-    compiled: &CompiledApp,
-    app_path: &str,
-    selected_target: &str,
-    selected_scene: Option<&str>,
-    filter_mode: super::compile_status::DiagnosticsFilterMode,
-) -> AnyView {
-    diagnostics::diagnostics_view(
-        compiled,
-        app_path,
-        selected_target,
-        selected_scene,
-        filter_mode,
-    )
 }
 
 pub(crate) fn chrome_scripts_view(route_mode: UiRouteMode) -> AnyView {

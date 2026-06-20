@@ -157,13 +157,13 @@ test.describe("spbjw 完整壳", () => {
     await waitSpaIdle(page, 20000);
   });
 
-  test("预览/源码 Tab：仅客户端切换", async ({ page }) => {
+  test("构建 Tab：仅客户端切换", async ({ page }) => {
     const tracker = trackHostBundleLoads(page);
     const before = tracker.counts();
-    const sourceTab = page.getByRole("tab", { name: "源码" });
-    await expect(sourceTab).toBeVisible();
-    await sourceTab.click();
-    await expect(page).toHaveURL(/tab=source/, { timeout: 5000 });
+    const overviewTab = page.getByRole("tab", { name: "概览" });
+    await expect(overviewTab).toBeVisible();
+    await overviewTab.click();
+    await expect(page).toHaveURL(/tab=overview/, { timeout: 5000 });
     expect(tracker.counts().manage).toBe(before.manage);
     const previewTab = page.getByRole("tab", { name: "预览" });
     await previewTab.click();

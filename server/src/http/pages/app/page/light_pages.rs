@@ -2,13 +2,9 @@ use std::time::Instant;
 
 use axum::response::{Html, IntoResponse, Response};
 use mei_lang_app::{
-    render_build_source_page, render_config_page, render_upload_page, shell_body_theme_style,
-    UiRouteMode,
+    render_config_page, render_upload_page, shell_body_theme_style, UiRouteMode,
 };
-use mei_lang_kernel::{
-    load_workspace_config, read_source_file, resolve_app_entry_main, resolve_app_root, source_tree,
-    WorkspaceAppMeta,
-};
+use mei_lang_kernel::{load_workspace_config, read_source_file, resolve_app_root, WorkspaceAppMeta};
 
 use crate::AppState;
 
@@ -26,6 +22,7 @@ pub(super) struct LightPageContext<'a> {
     pub state: &'a AppState,
     pub route_mode: UiRouteMode,
     pub app_id: &'a str,
+    #[allow(dead_code)]
     pub query: &'a AppQuery,
     pub apps: &'a [WorkspaceAppMeta],
     pub app_title: &'a str,
@@ -37,6 +34,7 @@ pub(super) struct LightPageContext<'a> {
     pub auth_enabled: bool,
     pub account_view: Option<&'a HostAccountView>,
     pub request_file: Option<&'a str>,
+    #[allow(dead_code)]
     pub manage_file: Option<&'a str>,
     pub app_started: Instant,
 }
@@ -131,59 +129,6 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             source_read_ms,
             total_ms = elapsed_ms(ctx.app_started),
             phase = "finish_light_upload",
-            "app page request finished without compile"
-        );
-        return Some(Html(html).into_response());
-    }
-    if ctx.route_mode == UiRouteMode::Build
-        && ctx
-            .query
-            .tab
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|tab| tab.eq_ignore_ascii_case("source"))
-    {
-        let target = ctx
-            .manage_file
-            .map(ToString::to_string)
-            .unwrap_or_else(|| resolve_app_entry_main(&app_root));
-        let source_path = app_root.join(&target);
-        let source_started = Instant::now();
-        let source = read_source_file(&source_path).unwrap_or_else(|_| "".to_string());
-        let source_read_ms = elapsed_ms(source_started);
-        let source_meta = source_panel_meta(&source_path, &source);
-        let file_tree = source_tree(&app_root).unwrap_or_default();
-        let mut html = render_build_source_page(
-            ctx.apps,
-            ctx.app_title,
-            ctx.app_id,
-            Some(ctx.topbar_menus),
-            &file_tree,
-            target.as_str(),
-            source.as_str(),
-            Some(&source_meta),
-            ctx.lightweight_scene,
-            ctx.query.tab.as_deref(),
-            ctx.upload_enabled,
-            ctx.auth_enabled,
-            ctx.account_view,
-            shell_theme_style.as_str(),
-        );
-        html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
-        html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));
-        let gis = crate::gis_config::GisTilesConfig::resolve_for_app(
-            &app_root,
-            Some(ctx.state.source_root.as_path()),
-            None,
-        );
-        html = fill_page_shell_placeholders(html, &gis, ctx.state.source_root.as_path());
-        tracing::info!(
-            app_id = %ctx.app_id,
-            route_mode = ctx.route_mode.slug(),
-            target = %target,
-            source_read_ms,
-            total_ms = elapsed_ms(ctx.app_started),
-            phase = "finish_light_build_source",
             "app page request finished without compile"
         );
         return Some(Html(html).into_response());

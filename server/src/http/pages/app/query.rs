@@ -16,6 +16,10 @@ pub struct AppQuery {
     pub world_metric: Option<String>,
     pub world_dataset: Option<String>,
     pub explain: Option<String>,
+    /// 构建视图 canonical 节点坐标（BuildNodeId 编码）。
+    pub node: Option<String>,
+    /// 构建视图 exec tab scope：warmup / empty / last_request / custom。
+    pub scope: Option<String>,
     pub chrome: Option<String>,
 }
 

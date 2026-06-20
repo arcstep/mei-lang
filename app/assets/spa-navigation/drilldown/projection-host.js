@@ -130,5 +130,24 @@
         closeSceneBoardOverlay();
       }
     });
+    boot.openSceneProjection = openSceneProjection;
+    global.MeiDrilldown = global.MeiDrilldown || {};
+    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+      const sceneId = nonEmptyString(options?.sceneId);
+      const projectionId = nonEmptyString(options?.projectionId);
+      const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};
+      if (!sceneId || !projectionId) return Promise.resolve();
+      const popup =
+        (assembly.overlays && assembly.overlays[projectionId]) ||
+        (assembly.boards && assembly.boards[projectionId]) ||
+        assembly[projectionId] ||
+        {};
+      return openSceneProjection({
+        scene_id: sceneId,
+        projection_id: projectionId,
+        popup,
+        __mei_build_isolated: Boolean(options?.isolated),
+      });
+    };
   }
 

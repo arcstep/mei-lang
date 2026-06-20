@@ -324,6 +324,8 @@ async fn app_page_returns_html_error_page_when_compile_fails() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -379,6 +381,8 @@ async fn manage_file_scene_route_overrides_conflicting_scene_query() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -453,6 +457,8 @@ async fn access_static_html_file_renders_without_scene_redirect() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -527,6 +533,8 @@ async fn access_mei_file_query_still_strips_file_param() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -594,6 +602,8 @@ async fn manage_html_preview_uses_document_iframe() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: Some("world-file:demo/index.html".to_string()),
+            scope: None,
             chrome: None,
         }),
     )
@@ -649,6 +659,8 @@ async fn access_root_redirects_to_default_scene_path() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -701,6 +713,8 @@ async fn access_scene_not_exported_returns_403() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -752,6 +766,8 @@ async fn access_page_launch_button_targets_presentation_route() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -803,6 +819,8 @@ async fn access_scene_not_found_returns_404() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -854,6 +872,8 @@ async fn presentation_route_redirects_to_default_scene() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: Some("none".to_string()),
         }),
     )
@@ -906,6 +926,8 @@ async fn presentation_route_strips_file_query() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -962,6 +984,8 @@ async fn presentation_route_renders_navigation_shell() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -1017,6 +1041,8 @@ async fn access_only_surface_redirects_build_route_to_access_scene() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -1070,6 +1096,8 @@ async fn access_only_surface_hides_topbar_tabs_on_app_route() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )
@@ -1127,6 +1155,8 @@ async fn access_only_mode_slug_routes_to_app_surface() {
             world_metric: None,
             world_dataset: None,
             explain: None,
+            node: None,
+            scope: None,
             chrome: None,
         }),
     )

@@ -16565,6 +16565,25 @@
         closeSceneBoardOverlay();
       }
     });
+    boot.openSceneProjection = openSceneProjection;
+    global.MeiDrilldown = global.MeiDrilldown || {};
+    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+      const sceneId = nonEmptyString(options?.sceneId);
+      const projectionId = nonEmptyString(options?.projectionId);
+      const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};
+      if (!sceneId || !projectionId) return Promise.resolve();
+      const popup =
+        (assembly.overlays && assembly.overlays[projectionId]) ||
+        (assembly.boards && assembly.boards[projectionId]) ||
+        assembly[projectionId] ||
+        {};
+      return openSceneProjection({
+        scene_id: sceneId,
+        projection_id: projectionId,
+        popup,
+        __mei_build_isolated: Boolean(options?.isolated),
+      });
+    };
   }
 
 
@@ -18989,6 +19008,16 @@
       void navigateInternal(window.location.href, true);
     }
   });
+
+  if (typeof globalThis.__meiBuildCopyContextInit === "function") {
+    globalThis.__meiBuildCopyContextInit();
+  }
+  if (typeof globalThis.__meiBuildExecPanelInit === "function") {
+    globalThis.__meiBuildExecPanelInit();
+  }
+  if (typeof globalThis.__meiBuildProjectionPreviewInit === "function") {
+    globalThis.__meiBuildProjectionPreviewInit();
+  }
 })();
 
 ;

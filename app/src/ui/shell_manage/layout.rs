@@ -1,55 +1,27 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{CompiledApp, WorkspaceAppMeta};
-
-use super::super::compile_status::{
-    classify_asset_shell, codemirror_dataset_lang, compiled_has_error_diagnostics,
-    is_mei_script_target, visible_diagnostics_count, AssetShellKind, DiagnosticsFilterMode,
+use mei_lang_kernel::{
+    build_reachability_tree, default_build_node_for_compiled, resolve_build_node_context,
+    resolve_build_view_query, tabs_for_node_kind, BuildViewTab,
+    CompiledApp, LegacyBuildQuery, WorkspaceAppMeta,
 };
-use super::super::manage_routing::{manage_tab_href, manage_view_tab_from_query, ManageViewTab, WorldSemanticQuery};
+
+use super::super::build_tree::reachability_tree_view;
+use super::super::manage_routing::{build_node_href, WorldSemanticQuery};
 use super::super::preview;
-use super::super::preview_chrome::{asset_preview_body, diagnostics_view};
+use super::super::preview_chrome::asset_preview_body;
 use super::super::route::UiRouteMode;
 use super::super::scene_drilldown_context::host_ssr_bootstrap_scripts;
-use super::super::source_tree;
 use super::super::statusbar::statusbar_view;
 use super::super::topbar::{access_scene_for_topbar, topbar_view};
 use super::super::{HostAccountView, SourcePanelMeta, TopbarMenuContext};
+use super::build_panels::{
+    build_agent_view, build_artifact_panel, build_exec_panel_shell, build_graph_panel,
+    build_overview_view, build_provenance_view,
+};
 use super::world_semantic_inspector::{
     should_show_world_semantic_inspector, world_semantic_inspector_view,
 };
 
-fn asset_codemirror_stack(
-    app_path: &str,
-    target: &str,
-    source: &str,
-    cm_lang: &'static str,
-) -> impl IntoView {
-    view! {
-        <div class="main-pane-scroll source-pane-scroll flex min-h-0 flex-1 flex-col overflow-auto">
-            <div
-                id="asset-source-editor-host"
-                class="source-editor-host asset-source-editor-host min-h-[12rem] flex-1"
-                data-app-path=app_path.to_string()
-                data-source-target=target.to_string()
-            ></div>
-            <pre
-                id="asset-source-raw"
-                hidden
-                data-source-target=target.to_string()
-                data-source-lang=cm_lang
-            >{source.to_string()}</pre>
-        </div>
-    }
-}
-
-fn readonly_source_notice() -> impl IntoView {
-    view! {
-        <div class="manage-readonly-note mb-2 rounded-lg border mei-border-default mei-surface-panel-muted px-3 py-2 text-[11px] leading-5 mei-text-body">
-            <strong class="mr-2 mei-text-inverse">"只读查看"</strong>
-            <span>"构建视图中的 `.mei` 与资源文件仅用于预览和只读源码查看；应用配置请切换到「配置」视图。"</span>
-        </div>
-    }
-}
 pub(crate) fn manage_shell(
     apps: &[WorkspaceAppMeta],
     compiled: &CompiledApp,
@@ -61,22 +33,41 @@ pub(crate) fn manage_shell(
     selected_scene: Option<&str>,
     preview_target: Option<&str>,
     active_tab: Option<&str>,
-    diag_filter: Option<&str>,
+    _diag_filter: Option<&str>,
     world_metric: Option<&str>,
     world_dataset: Option<&str>,
     explain: Option<&str>,
+    node: Option<&str>,
+    scope: Option<&str>,
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
 ) -> AnyView {
-    let selected_target = target.unwrap_or(&compiled.active_target_file).to_string();
+    let legacy = LegacyBuildQuery {
+        file: target.map(str::to_string),
+        scene: selected_scene.map(str::to_string),
+        world_metric: world_metric.map(str::to_string),
+        world_dataset: world_dataset.map(str::to_string),
+        explain: explain.map(str::to_string),
+        tab: active_tab.map(str::to_string),
+    };
+    let resolved = resolve_build_view_query(node, scope, active_tab, &legacy)
+        .unwrap_or_else(|| {
+            let default_node = default_build_node_for_compiled(compiled);
+            mei_lang_kernel::ResolvedBuildViewQuery {
+                node: default_node.clone(),
+                tab: default_node.default_tab(),
+                scope: Default::default(),
+            }
+        });
+    let ctx = resolve_build_node_context(compiled, &resolved.node);
+    let selected_target = ctx.target_file.clone();
     let semantic = WorldSemanticQuery {
-        world_metric,
-        world_dataset,
-        explain,
+        world_metric: ctx.world_metric.as_deref(),
+        world_dataset: ctx.world_dataset.as_deref(),
+        explain: ctx.explain.as_deref(),
     };
     let show_inspector = should_show_world_semantic_inspector(selected_target.as_str(), semantic);
-    let diag_filter_mode = DiagnosticsFilterMode::from_query(diag_filter);
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(
         compiled,
@@ -85,42 +76,17 @@ pub(crate) fn manage_shell(
         UiRouteMode::Build,
         semantic,
     );
-    let active_scene = compiled.active_scene.as_deref();
-    let scene_for_links = selected_scene.or(active_scene);
-    let scene_target_pairs = compiled
-        .scene_routes
-        .iter()
-        .map(|route| (route.target_file.clone(), route.scene_id.clone()))
-        .collect::<Vec<_>>();
-    let source_tree = source_tree::source_tree_view(
-        &compiled.file_tree,
-        UiRouteMode::Build,
+    let active_scene = ctx.scene_id.as_deref().or(compiled.active_scene.as_deref());
+    let scene_for_links = active_scene;
+    let reachability_roots = build_reachability_tree(compiled);
+    let build_tree = reachability_tree_view(
+        reachability_roots.as_slice(),
         app_path,
-        selected_target.as_str(),
-        scene_for_links,
-        scene_target_pairs.as_slice(),
-        compiled.active_target_file.as_str(),
-        active_tab,
-        semantic,
+        &resolved.node,
+        resolved.tab,
     );
-    let diagnostics = diagnostics_view(
-        compiled,
-        app_path,
-        selected_target.as_str(),
-        scene_for_links,
-        diag_filter_mode,
-    );
-    let diagnostics_total = visible_diagnostics_count(compiled, selected_target.as_str());
-    let script_target = is_mei_script_target(selected_target.as_str());
     let stage_enabled = preview::compiled_uses_frame_viewport(compiled);
-    let active_manage_tab = manage_view_tab_from_query(
-        active_tab,
-        script_target,
-        compiled_has_error_diagnostics(compiled, selected_target.as_str()),
-        diagnostics_total,
-        selected_target.as_str(),
-        semantic,
-    );
+    let active_tab_enum = resolved.tab;
     let topbar = topbar_view(
         apps,
         app_path,
@@ -129,11 +95,11 @@ pub(crate) fn manage_shell(
         access_scene_for_topbar(
             UiRouteMode::Build,
             compiled,
-            selected_scene.or(active_scene),
+            scene_for_links,
             preview_target,
         ),
         Some(selected_target.as_str()),
-        active_tab,
+        Some(active_tab_enum.slug()),
         upload_enabled,
         stage_enabled,
         auth_enabled,
@@ -170,100 +136,46 @@ pub(crate) fn manage_shell(
     } else {
         "main-pane-scroll preview-pane-scroll flex-1 min-h-0 overflow-auto p-0"
     };
-    let asset_shell = classify_asset_shell(selected_target.as_str());
-    let asset_cm_lang = codemirror_dataset_lang(selected_target.as_str());
 
-    let tab_specs: Vec<(ManageViewTab, String, Option<String>, bool)> = if script_target {
-        let mut v = vec![
-            (ManageViewTab::Preview, "预览".to_string(), None, false),
-            (ManageViewTab::Source, "只读源码".to_string(), None, false),
-        ];
-        if diagnostics_total > 0 {
-            v.push((
-                ManageViewTab::Diagnostics,
-                "调试".to_string(),
-                Some(diagnostics_total.to_string()),
-                false,
-            ));
-        }
-        v
-    } else if asset_shell == AssetShellKind::Dual {
-        vec![
-            (ManageViewTab::Preview, "预览".to_string(), None, false),
-            (ManageViewTab::Source, "只读源码".to_string(), None, false),
-        ]
-    } else {
-        vec![]
-    };
-
-    let tab_links = tab_specs
-        .into_iter()
-        .map(|(tab, label, badge, start_hidden)| {
-            let href = manage_tab_href(
-                app_path,
-                Some(selected_target.as_str()),
-                selected_target.as_str(),
-                script_target,
-                tab,
-                if tab == ManageViewTab::Diagnostics {
-                    Some(diag_filter_mode.slug())
-                } else {
-                    None
-                },
-                scene_for_links,
-                semantic,
-            );
-            let class = if tab == active_manage_tab {
+    let visible_tabs: Vec<BuildViewTab> = tabs_for_node_kind(resolved.node.kind)
+        .iter()
+        .copied()
+        .collect();
+    let tab_links = visible_tabs
+        .iter()
+        .map(|tab| {
+            let href = build_node_href(app_path, &resolved.node, *tab, resolved.scope);
+            let class = if *tab == active_tab_enum {
                 "manage-view-tab is-active"
             } else {
                 "manage-view-tab"
             };
-            let aria_current = if tab == active_manage_tab {
-                Some("page")
-            } else {
-                None
-            };
-            let tab_id = format!("manage-tab-{}", tab.slug());
             view! {
                 <a
-                    id=tab_id
                     class=class
                     href=href
                     role="tab"
-                    aria-selected=if tab == active_manage_tab { "true" } else { "false" }
+                    aria-selected=if *tab == active_tab_enum { "true" } else { "false" }
                     data-manage-tab=tab.slug()
-                    aria-current=aria_current
-                    hidden=start_hidden
                 >
-                    <span class="manage-view-tab-label">{label}</span>
-                    {badge
-                        .map(|value| {
-                            view! { <span class="manage-view-tab-badge">{value}</span> }.into_any()
-                        })
-                        .unwrap_or_else(|| view! { <></> }.into_any())}
+                    <span class="manage-view-tab-label">{tab.label()}</span>
                 </a>
             }
         })
         .collect_view();
 
-    let diagnostics_panel = if compiled.diagnostics.is_empty() {
-        view! {
-            <section class="grid gap-2 rounded-xl border border-dashed mei-border-muted mei-surface-panel-muted p-4 text-xs leading-6 mei-text-muted">
-                <strong class="mei-text-primary">"调试"</strong>
-                <span>"当前编译没有 diagnostics。"</span>
-                <span class="mei-text-muted">"出现错误后，此页签会自动展示 Error / Warning / Info 列表。"</span>
-            </section>
-        }
-        .into_any()
-    } else {
-        diagnostics
-    };
-    let preview_tab_active = active_manage_tab == ManageViewTab::Preview;
-    let source_tab_active = active_manage_tab == ManageViewTab::Source;
-    let diagnostics_tab_active = active_manage_tab == ManageViewTab::Diagnostics;
-    let asset_source_tab_active = active_manage_tab == ManageViewTab::Source;
+    let node_encoded = resolved.node.encode();
+    let tab_slug = active_tab_enum.slug().to_string();
+    let overview_panel = build_overview_view(compiled, &ctx, app_path);
+    let provenance_panel = build_provenance_view(&ctx.provenance);
+    let agent_panel = build_agent_view(app_path, node_encoded.as_str(), tab_slug.as_str());
+    let exec_panel = build_exec_panel_shell(app_path, node_encoded.as_str());
+    let semantic_panel = build_graph_panel("语义图", "semantic", node_encoded.as_str());
+    let eval_panel = build_graph_panel("求值图", "eval", node_encoded.as_str());
+    let artifact_panel = build_artifact_panel(app_path, node_encoded.as_str());
+
     let preview_scene_id = scene_for_links.or(compiled.active_scene.as_deref());
-    let host_ssr_bootstrap = if script_target || stage_enabled {
+    let host_ssr_bootstrap = if stage_enabled || ctx.projection_id.is_some() {
         Some(host_ssr_bootstrap_scripts(
             compiled,
             app_path,
@@ -273,104 +185,56 @@ pub(crate) fn manage_shell(
         None
     };
 
-    let non_script_main = match asset_shell {
-        AssetShellKind::Dual => view! {
-            <>
-                <section
-                    class="preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
-                    data-manage-tab-panel="preview"
-                    hidden=!preview_tab_active
+    let projection_attrs = ctx
+        .projection_id
+        .as_ref()
+        .map(|projection| {
+            view! {
+                <div
+                    id="build-projection-preview-host"
+                    class="build-projection-banner mb-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100"
+                    data-scene-id=ctx.scene_id.clone().unwrap_or_default()
+                    data-projection-id=projection.clone()
                 >
-                    <div class="main-pane-scroll flex-1 min-h-0 overflow-auto p-0">
-                        {asset_preview_body(
-                            app_path,
-                            selected_target.as_str(),
-                            source_panel.as_str(),
-                        )}
-                    </div>
-                </section>
-                <section
-                    class="source-panel source-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
-                    data-manage-tab-panel="source"
-                    hidden=!asset_source_tab_active
-                >
-                    {readonly_source_notice()}
-                    {asset_codemirror_stack(
-                        app_path,
-                        selected_target.as_str(),
-                        source_panel.as_str(),
-                        asset_cm_lang,
-                    )}
-                </section>
-            </>
-        }
-        .into_any(),
-        AssetShellKind::SourceCode => view! {
-            <section
-                class="source-panel source-pane flex min-h-0 flex-1 flex-col overflow-hidden"
-                data-asset-cm-only="1"
-            >
-                {readonly_source_notice()}
-                {asset_codemirror_stack(
-                    app_path,
-                    selected_target.as_str(),
-                    source_panel.as_str(),
-                    asset_cm_lang,
-                )}
-            </section>
-        }
-        .into_any(),
-        AssetShellKind::PreviewOnly | AssetShellKind::Unsupported => view! {
-            <section
-                class="asset-preview-pane flex min-h-0 flex-1 flex-col overflow-hidden"
-                data-manage-tab-panel="preview"
-            >
-                {asset_preview_body(
-                    app_path,
-                    selected_target.as_str(),
-                    source_panel.as_str(),
-                )}
-            </section>
-        }
-        .into_any(),
-    };
-
-    let main_tabs_nav = if script_target || asset_shell == AssetShellKind::Dual {
-        view! {
-            <nav
-                class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
-                role="tablist"
-                aria-label="管理主视图"
-            >
-                <div class="manage-view-tabs-cluster">
-                    <div class="manage-view-tabs-group" role="presentation">
-                        {tab_links}
-                    </div>
+                    "构建视图 · 孤立 overlay 预览 · 非 Access 业务路径"
                 </div>
-            </nav>
-        }
-        .into_any()
-    } else {
-        view! { <></> }.into_any()
-    };
+            }
+            .into_any()
+        })
+        .unwrap_or_else(|| view! { <></> }.into_any());
 
     view! {
-        <div class=shell_class>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-tab=tab_slug.clone() data-app-path=app_path.to_string()>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
+            <script
+                id="mei-build-reachability-tree"
+                type="application/json"
+                inner_html=serde_json::to_string(&reachability_roots).unwrap_or_else(|_| "[]".to_string())
+            ></script>
             <div
                 id="tree-icons-sprite-root"
                 class="pointer-events-none absolute left-0 top-0 -z-10 h-0 w-0 overflow-hidden opacity-0"
                 aria-hidden="true"
-                inner_html=source_tree::TREE_ICONS_SPRITE_SVG
+                inner_html=super::super::source_tree::TREE_ICONS_SPRITE_SVG
             ></div>
             {topbar}
-            <div
-                class=workspace_class
-                id="workspace-root"
-            >
+            <div class="build-copy-toolbar flex items-center justify-end gap-2 border-b mei-border-muted px-3 py-1.5">
+                <button
+                    type="button"
+                    id="build-copy-agent-context-top"
+                    class="text-[11px] text-sky-200 hover:text-sky-100"
+                    data-app-path=app_path.to_string()
+                    data-node=node_encoded.clone()
+                    data-tab=tab_slug.clone()
+                    data-intent="full"
+                >
+                    "复制 Agent 上下文"
+                </button>
+            </div>
+            <div class=workspace_class id="workspace-root">
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
-                        {source_tree}
+                        {build_tree}
                     </div>
                 </aside>
                 <div
@@ -379,82 +243,87 @@ pub(crate) fn manage_shell(
                     role="separator"
                     aria-orientation="vertical"
                     aria-label="调整左侧资源栏宽度"
-                >
-                    <button
-                        class="splitter-toggle"
-                        type="button"
-                        data-workspace-toggle="left"
-                        aria-label="折叠左侧资源栏"
-                        title="折叠左侧资源栏"
-                    >
-                        <span class="splitter-toggle-icon" aria-hidden="true">
-                            <svg
-                                viewBox="0 0 20 20"
-                                width="12"
-                                height="12"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="1.8"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                            >
-                                <path d="M12.5 4.5L7.5 10l5 5.5"></path>
-                            </svg>
-                        </span>
-                    </button>
-                </div>
+                ></div>
                 <main class="main min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
-                        {main_tabs_nav}
-                        {if script_target {
-                            view! {
-                                <>
-                                    <section
-                                        class=if stage_enabled {
-                                            "preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-auto"
-                                        } else {
-                                            "preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
-                                        }
-                                        data-manage-tab-panel="preview"
-                                        hidden=!preview_tab_active
-                                    >
-                                        <div class=preview_scroll_class>
-                                            {preview}
-                                        </div>
-                                    </section>
-                                    <section
-                                        class="source-panel source-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
-                                        data-manage-tab-panel="source"
-                                        hidden=!source_tab_active
-                                    >
-                                        {readonly_source_notice()}
-                                        {asset_codemirror_stack(
-                                            app_path,
-                                            selected_target.as_str(),
-                                            source_panel.as_str(),
-                                            asset_cm_lang,
-                                        )}
-                                    </section>
-                                    {if diagnostics_total > 0 {
-                                        view! {
-                                            <section
-                                                class="min-w-0 min-h-0 flex-1 overflow-auto"
-                                                data-manage-tab-panel="diagnostics"
-                                                hidden=!diagnostics_tab_active
-                                            >
-                                                {diagnostics_panel}
-                                            </section>
-                                        }
-                                            .into_any()
-                                    } else {
-                                        view! { <></> }.into_any()
-                                    }}
-                                </>
-                            }
-                                .into_any()
-                        } else {
-                            non_script_main
-                        }}
+                        <nav
+                            class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
+                            role="tablist"
+                            aria-label="构建主视图"
+                        >
+                            <div class="manage-view-tabs-cluster">
+                                <div class="manage-view-tabs-group" role="presentation">
+                                    {tab_links}
+                                </div>
+                            </div>
+                        </nav>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="overview"
+                            hidden=active_tab_enum != BuildViewTab::Overview
+                        >
+                            {overview_panel}
+                        </section>
+                        <section
+                            class="preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                            data-manage-tab-panel="preview"
+                            hidden=active_tab_enum != BuildViewTab::Preview
+                        >
+                            {projection_attrs}
+                            <div class=preview_scroll_class>
+                                {if selected_target.ends_with(".mei") || selected_target.ends_with(".world.mei") {
+                                    preview.into_any()
+                                } else {
+                                    asset_preview_body(
+                                        app_path,
+                                        selected_target.as_str(),
+                                        source_panel.as_str(),
+                                    ).into_any()
+                                }}
+                            </div>
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="exec"
+                            hidden=active_tab_enum != BuildViewTab::Exec
+                        >
+                            {exec_panel}
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="semantic"
+                            hidden=active_tab_enum != BuildViewTab::Semantic
+                        >
+                            {semantic_panel}
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="eval"
+                            hidden=active_tab_enum != BuildViewTab::Eval
+                        >
+                            {eval_panel}
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="artifact"
+                            hidden=active_tab_enum != BuildViewTab::Artifact
+                        >
+                            {artifact_panel}
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="provenance"
+                            hidden=active_tab_enum != BuildViewTab::Provenance
+                        >
+                            {provenance_panel}
+                        </section>
+                        <section
+                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            data-manage-tab-panel="agent"
+                            hidden=active_tab_enum != BuildViewTab::Agent
+                        >
+                            {agent_panel}
+                        </section>
                     </section>
                 </main>
                 {if show_inspector {
@@ -465,31 +334,7 @@ pub(crate) fn manage_shell(
                                 data-workspace-splitter="right"
                                 role="separator"
                                 aria-orientation="vertical"
-                                aria-label="调整右侧语义检视栏宽度"
-                            >
-                                <button
-                                    class="splitter-toggle"
-                                    type="button"
-                                    data-workspace-toggle="right"
-                                    aria-label="折叠右侧语义检视栏"
-                                    title="折叠右侧语义检视栏"
-                                >
-                                    <span class="splitter-toggle-icon" aria-hidden="true">
-                                        <svg
-                                            viewBox="0 0 20 20"
-                                            width="12"
-                                            height="12"
-                                            fill="none"
-                                            stroke="currentColor"
-                                            stroke-width="1.8"
-                                            stroke-linecap="round"
-                                            stroke-linejoin="round"
-                                        >
-                                            <path d="M7.5 4.5L12.5 10l-5 5.5"></path>
-                                        </svg>
-                                    </span>
-                                </button>
-                            </div>
+                            ></div>
                             {inspector}
                         </>
                     }
