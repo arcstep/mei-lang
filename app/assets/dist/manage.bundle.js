@@ -6998,14 +6998,22 @@
   }
 
   function resolveDrilldownDetailTableMetricId(config, detail = null) {
-    const raw = nonEmptyString(
-      resolveDrilldownTableMetricId(detail, config),
-      config?.detailSlot?.metricId,
+    const popupMetricId = resolveDrilldownTableMetricId(detail, config);
+    const slotMetricIds = [
       config?.tableMetricId,
+      config?.detailSlot?.metricId,
+      detail?.table_metric_id,
       config?.runtimeRef?.metricId,
       config?.runtimeRef?.metric_id,
-      detail?.table_metric_id,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const dedicatedSlotMetricId = slotMetricIds.find(
+      (metricId) =>
+        isScalarRowsetMetricId(metricId) ||
+        isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole }),
     );
+    const raw = nonEmptyString(dedicatedSlotMetricId, popupMetricId, ...slotMetricIds);
     if (!raw) return "";
     if (isScalarRowsetMetricId(raw)) return raw;
     if (isDedicatedExplainMetricId(raw, { supportRole: config?.supportRole })) return raw;
@@ -8097,10 +8105,10 @@
             ...detailTabConfig,
             detailSlot,
             tableMetricId: nonEmptyString(
-              resolveDrilldownTableMetricId(detail, config),
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
               config.tableMetricId,
+              resolveDrilldownTableMetricId(detail, config),
             ),
             queryStateId: config.queryStateId,
             pageSize: positiveInt(
@@ -9345,10 +9353,10 @@
       hasChartZone: config.hasChartZone,
       hasRowPreviewZone: config.hasRowPreviewZone,
       tableMetricId: nonEmptyString(
-        resolveDrilldownTableMetricId(detail, config),
-        baseConfig.tableMetricId,
         primarySlot.metricId,
+        baseConfig.tableMetricId,
         config.tableMetricId,
+        resolveDrilldownTableMetricId(detail, config),
       ),
       datasetId: nonEmptyString(primarySlot.datasetId, baseConfig.datasetId, config.datasetId),
       columns: cloneArray(primarySlot.fields).length

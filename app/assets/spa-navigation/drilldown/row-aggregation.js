@@ -115,14 +115,22 @@
   }
 
   function resolveDrilldownDetailTableMetricId(config, detail = null) {
-    const raw = nonEmptyString(
-      resolveDrilldownTableMetricId(detail, config),
-      config?.detailSlot?.metricId,
+    const popupMetricId = resolveDrilldownTableMetricId(detail, config);
+    const slotMetricIds = [
       config?.tableMetricId,
+      config?.detailSlot?.metricId,
+      detail?.table_metric_id,
       config?.runtimeRef?.metricId,
       config?.runtimeRef?.metric_id,
-      detail?.table_metric_id,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const dedicatedSlotMetricId = slotMetricIds.find(
+      (metricId) =>
+        isScalarRowsetMetricId(metricId) ||
+        isDedicatedExplainMetricId(metricId, { supportRole: config?.supportRole }),
     );
+    const raw = nonEmptyString(dedicatedSlotMetricId, popupMetricId, ...slotMetricIds);
     if (!raw) return "";
     if (isScalarRowsetMetricId(raw)) return raw;
     if (isDedicatedExplainMetricId(raw, { supportRole: config?.supportRole })) return raw;

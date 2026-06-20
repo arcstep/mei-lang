@@ -114,10 +114,10 @@
             ...detailTabConfig,
             detailSlot,
             tableMetricId: nonEmptyString(
-              resolveDrilldownTableMetricId(detail, config),
               detailSlot.metricId,
               detailTabConfig.tableMetricId,
               config.tableMetricId,
+              resolveDrilldownTableMetricId(detail, config),
             ),
             queryStateId: config.queryStateId,
             pageSize: positiveInt(

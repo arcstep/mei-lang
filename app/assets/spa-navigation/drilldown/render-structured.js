@@ -112,10 +112,10 @@
       hasChartZone: config.hasChartZone,
       hasRowPreviewZone: config.hasRowPreviewZone,
       tableMetricId: nonEmptyString(
-        resolveDrilldownTableMetricId(detail, config),
-        baseConfig.tableMetricId,
         primarySlot.metricId,
+        baseConfig.tableMetricId,
         config.tableMetricId,
+        resolveDrilldownTableMetricId(detail, config),
       ),
       datasetId: nonEmptyString(primarySlot.datasetId, baseConfig.datasetId, config.datasetId),
       columns: cloneArray(primarySlot.fields).length
