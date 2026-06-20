@@ -118,6 +118,8 @@ pub(super) struct LegacyDatasetDecl {
     pub dataset: LegacyDatasetNodeDecl,
     #[serde(default)]
     pub metrics: BTreeMap<String, Value>,
+    #[serde(default)]
+    pub filter_dimensions: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

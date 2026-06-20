@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use serde_json::Value;
+
 use crate::model::{
     Diagnostic, LoadedResource, ResourceDecl, Severity, UiNodeDecl, WorldMetricLedgerEntry,
 };
@@ -87,7 +89,43 @@ pub(super) fn decode_world_dataset_decl(
         source,
         dataset: dataset_node,
         metrics: resource.metrics.clone().unwrap_or_default(),
+        filter_dimensions: parse_world_filter_dimensions(resource.filters.as_ref()),
     })
+}
+
+fn parse_world_filter_dimensions(filters: Option<&Value>) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    let Some(map) = filters.and_then(Value::as_object) else {
+        return out;
+    };
+    for (key, expr_val) in map {
+        let Some(expr) = expr_val.as_str().map(str::trim).filter(|text| !text.is_empty()) else {
+            continue;
+        };
+        if let Some(field) = parse_world_filter_expression_column(expr) {
+            out.insert(key.clone(), field);
+        }
+    }
+    out
+}
+
+fn parse_world_filter_expression_column(expr: &str) -> Option<String> {
+    for marker in [
+        " in filter.",
+        " contains filter.",
+        " between filter.",
+        " eq filter.",
+        " gte filter.",
+        " lte filter.",
+    ] {
+        if let Some(idx) = expr.find(marker) {
+            let column = expr[..idx].trim();
+            if !column.is_empty() {
+                return Some(column.to_string());
+            }
+        }
+    }
+    None
 }
 
 pub(super) fn decode_world_metric_pack_decl(

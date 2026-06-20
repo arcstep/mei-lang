@@ -16,7 +16,8 @@ use super::super::compile_cache::{
     load_compile_artifact_only_shared,
 };
 use super::super::datasets::{
-    query_dataset_rows, query_metric_dataframe, query_state_from_request,
+    map_dataset_query_filters, query_dataset_rows, query_metric_dataframe,
+    query_state_from_request,
     table_contract::{
         apply_table_request_fields, enrich_table_result, TableColumnState, TableSortSpec,
     },
@@ -262,11 +263,12 @@ pub async fn dataset_query_api(
         request.search.as_deref(),
         request.query_state.as_ref(),
     );
+    let mapped_filters = map_dataset_query_filters(&effective_query_state, dataset);
     let mut query = DatasetQueryOptions {
         page: request.page.unwrap_or(1),
         page_size: request.page_size.unwrap_or(0),
         search: effective_query_state.search.clone(),
-        filters: effective_query_state.filters.clone(),
+        filters: mapped_filters,
         group: effective_query_state.group.clone(),
         time_range: effective_query_state.time_range.clone(),
         collect_all: request.full,

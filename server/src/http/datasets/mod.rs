@@ -6,6 +6,7 @@ pub(crate) use mei_lang_datasets::clear_eval_artifact_store;
 pub(crate) use mei_lang_datasets::clear_dataset_rows_cache;
 pub(crate) use mei_lang_datasets::clear_metric_dataframe_result_cache;
 pub(crate) use mei_lang_datasets::clear_metric_response_cache;
+pub(crate) use mei_lang_datasets::map_dataset_query_filters;
 pub(crate) use mei_lang_datasets::query_dataset_rows;
 pub(crate) use mei_lang_datasets::query_metric_dataframe;
 pub(crate) use mei_lang_datasets::query_state_from_request;

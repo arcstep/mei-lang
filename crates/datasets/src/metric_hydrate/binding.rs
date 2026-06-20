@@ -108,6 +108,9 @@ pub(crate) fn dataset_dimension_bindings(dataset: &DatasetView) -> Vec<Dimension
     for name in meta.normalize.values() {
         push_binding(name, name);
     }
+    for (dimension, field) in &meta.filter_dimensions {
+        push_binding(dimension, field);
+    }
     bindings
 }
 

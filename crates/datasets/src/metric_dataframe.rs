@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     coerce_calendar_columns_in_rows, evaluate_runtime_metric_defs_with_scope_and_dag,
-    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled, ColumnSchema, CompiledApp,
-    DatasetView, EvalPlanNodeKind, FilterIntent, MetricContract, MetricShape, QueryState,
+    locate_dataset_resource, resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled,
+    ColumnSchema, CompiledApp, DatasetView, EvalPlanNodeKind, FilterIntent, MetricContract,
+    MetricShape, QueryState,
 };
 use serde_json::Value;
 
@@ -103,6 +104,23 @@ fn metric_dataframe_cache_ttl() -> Duration {
 
 fn metric_dataframe_materialized_cache_ttl() -> Duration {
     Duration::from_millis(METRIC_DATAFRAME_MATERIALIZED_CACHE_TTL_MS)
+}
+
+/// 作用域过滤已在 base rowset 物化阶段应用；metric 输出列（如 pivot 的 month/2024/2025）
+/// 不含原始维度字段，分页时不得再次套用 query_state.filters。
+fn metric_output_pagination_options(options: &DatasetQueryOptions) -> DatasetQueryOptions {
+    DatasetQueryOptions {
+        page: options.page,
+        page_size: options.page_size,
+        collect_all: options.collect_all,
+        sort: options.sort.clone(),
+        column_state: options.column_state.clone(),
+        summary: options.summary,
+        search: None,
+        filters: BTreeMap::new(),
+        group: Vec::new(),
+        time_range: None,
+    }
 }
 
 fn hash_fingerprint(value: &str) -> u64 {
@@ -321,22 +339,29 @@ pub fn query_metric_dataframe(
         time_range: effective_query_state.time_range.clone(),
         ..options
     };
-    let (resource, resolved_metric_id) =
+    let (owner_resource, resolved_metric_id) =
         locate_runtime_metric_resource(compiled, dataset_id, metric_id)?;
-    let dataset = resource
+    let owner_dataset = owner_resource
         .dataset
         .as_ref()
-        .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
-    let synthetic_parent = synthetic_scalar_rowset_parent(resource, resolved_metric_id.as_str());
+        .ok_or_else(|| anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let primary_resource = locate_dataset_resource(compiled, dataset_id)
+        .map_err(|error| anyhow!("{error}"))?;
+    let primary_dataset = primary_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow!("resource `{}` is not a dataset", primary_resource.id))?;
+    let synthetic_parent =
+        synthetic_scalar_rowset_parent(owner_resource, resolved_metric_id.as_str());
     let workset_metric_id = synthetic_parent
         .clone()
         .unwrap_or_else(|| resolved_metric_id.clone());
     let (workset, workset_artifact_load_ms, workset_artifact_hit) =
         load_or_build_runtime_metric_workset_artifact(
             app_root,
-            &resource.id,
+            &owner_resource.id,
             std::slice::from_ref(&workset_metric_id),
-            dataset,
+            owner_dataset,
         )?;
     let effective_metric_ids = workset
         .eval_metric_ids
@@ -350,8 +375,8 @@ pub fn query_metric_dataframe(
         scene_id,
         target,
         dataset_id,
-        resource.id.as_str(),
-        dataset,
+        owner_resource.id.as_str(),
+        owner_dataset,
         resolved_metric_id.as_str(),
         &effective_metric_ids,
         &options,
@@ -367,7 +392,7 @@ pub fn query_metric_dataframe(
                 app_root,
                 scene_id,
                 target,
-                resource.id.as_str(),
+                owner_resource.id.as_str(),
                 &metric_scope_cache_key(&effective_metric_ids),
                 &options,
                 compile_revision,
@@ -379,18 +404,18 @@ pub fn query_metric_dataframe(
         app_root,
         scene_id,
         target,
-        resource.id.as_str(),
+        owner_resource.id.as_str(),
         &metric_scope_cache_key(&effective_metric_ids),
         &options,
         compile_revision,
         &metric_request_revision_fingerprint_for_compiled(
             app_root,
             compiled,
-            resource.id.as_str(),
-            if dataset.runtime_metric_defs.is_empty() {
+            owner_resource.id.as_str(),
+            if owner_dataset.runtime_metric_defs.is_empty() {
                 &defs_for_hydrate
             } else {
-                &dataset.runtime_metric_defs
+                &owner_dataset.runtime_metric_defs
             },
         ),
         &filter_intents,
@@ -463,14 +488,14 @@ pub fn query_metric_dataframe(
         }
     }
 
-    let meta = parse_source_meta(dataset.source.content.as_deref());
+    let meta = parse_source_meta(primary_dataset.source.content.as_deref());
     if let Some(materialized) = take_cached_metric_dataframe_materialized(&materialized_cache_key) {
         if materialized.rows.len() >= MIN_MATERIALIZED_METRIC_ROWS_TO_CACHE {
             let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
             let result = paginate_materialized_metric_dataframe(
                 &materialized,
                 &meta,
-                &options,
+                &metric_output_pagination_options(&options),
                 &response_cache_key,
                 response_cache_lookup_ms,
                 true,
@@ -485,16 +510,19 @@ pub fn query_metric_dataframe(
     let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
         app_root,
         compiled,
-        resource.id.as_str(),
-        if dataset.runtime_metric_defs.is_empty() {
+        owner_resource.id.as_str(),
+        if owner_dataset.runtime_metric_defs.is_empty() {
             &defs_for_hydrate
         } else {
-            &dataset.runtime_metric_defs
+            &owner_dataset.runtime_metric_defs
         },
     );
     let eval_started = Instant::now();
-    let primary_filters =
-        resolve_dataset_query_bindings_from_state(&effective_query_state, dataset).mapped_filters;
+    let primary_filters = resolve_dataset_query_bindings_from_state(
+        &effective_query_state,
+        primary_dataset,
+    )
+    .mapped_filters;
     let base_query = DatasetQueryOptions {
         page: 1,
         page_size: 0,
@@ -508,11 +536,11 @@ pub fn query_metric_dataframe(
         summary: false,
     };
     let base_started = Instant::now();
-    let filtered_rows = query_dataset_rows(app_root, dataset, base_query.clone())?;
+    let filtered_rows = query_dataset_rows(app_root, primary_dataset, base_query.clone())?;
     let base_query_ms = elapsed_ms(base_started);
     let base_rowset_materialize_ms = base_query_ms;
 
-    let mut runtime_dataset = dataset.clone();
+    let mut runtime_dataset = primary_dataset.clone();
     runtime_dataset.rows = filtered_rows.rows.clone();
     if !filtered_rows.columns.is_empty() {
         runtime_dataset.columns = filtered_rows.columns.clone();
@@ -520,7 +548,7 @@ pub fn query_metric_dataframe(
 
     let mut datasets = build_compiled_datasets_map(
         compiled,
-        &resource.id,
+        &primary_resource.id,
         runtime_dataset.clone(),
         &referenced_dataset_ids,
     );
@@ -534,19 +562,19 @@ pub fn query_metric_dataframe(
     .with_context(|| {
         format!(
             "metric_hydrate_binding_failed(dataframe): dataset={} metric={}",
-            resource.id, resolved_metric_id
+            owner_resource.id, resolved_metric_id
         )
     })?;
 
-    let binding_datasets = unique_dataset_views(dataset, datasets.values());
+    let binding_datasets = unique_dataset_views(primary_dataset, datasets.values());
     let supplementary_binding_datasets: Vec<&DatasetView> = binding_datasets
         .into_iter()
-        .filter(|view| view.id != dataset.id)
+        .filter(|view| view.id != primary_dataset.id)
         .collect();
     let metric_started = Instant::now();
     let eval_scope = runtime_metric_eval_scope(
-        Some(dataset),
-        &resource.id,
+        Some(primary_dataset),
+        &primary_resource.id,
         scene_id.unwrap_or(""),
         target,
         effective_query_state.search.as_deref(),
@@ -559,20 +587,20 @@ pub fn query_metric_dataframe(
     .with_context(|| {
         format!(
             "metric_scope_binding_failed(dataframe): dataset={} metric={}",
-            resource.id, resolved_metric_id
+            owner_resource.id, resolved_metric_id
         )
     })?;
     let (persisted_eval_plan, eval_artifact_load_ms, eval_artifact_hit) =
         load_or_build_eval_plan_artifact(
             app_root,
-            &resource.id,
+            &owner_resource.id,
             &effective_metric_ids,
-            &dataset.runtime_metric_defs,
+            &owner_dataset.runtime_metric_defs,
             &datasets,
             &eval_scope,
         )?;
     let (metrics_map, eval_report) = evaluate_runtime_metric_defs_with_scope_and_dag(
-        &dataset.runtime_metric_defs,
+        &owner_dataset.runtime_metric_defs,
         &runtime_dataset.rows,
         &datasets,
         Some(effective_metric_ids.as_slice()),
@@ -581,7 +609,7 @@ pub fn query_metric_dataframe(
     .with_context(|| {
         format!(
             "metric_eval_recursion_guard_tripped(dataframe): dataset={} metric={}",
-            resource.id, resolved_metric_id
+            owner_resource.id, resolved_metric_id
         )
     })?;
     let mut eval_report = eval_report;
@@ -636,7 +664,7 @@ pub fn query_metric_dataframe(
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
-    let closure_edges = dataset
+    let closure_edges = owner_dataset
         .runtime_analysis_graph
         .edges
         .iter()
@@ -762,7 +790,7 @@ pub fn query_metric_dataframe(
     let mut result = paginate_materialized_metric_dataframe(
         &materialized,
         &meta,
-        &options,
+        &metric_output_pagination_options(&options),
         &response_cache_key,
         response_cache_lookup_ms,
         false,

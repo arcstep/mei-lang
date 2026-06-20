@@ -58,6 +58,14 @@ pub use table_contract::{
 };
 pub use types::{DatasetQueryOptions, DatasetQueryResult, TableColumnMeta, TableSummary};
 
+/// 将 query_state 中的逻辑 filter 维度（如 agencies）映射为数据集列名（如 检查机构）。
+pub fn map_dataset_query_filters(
+    state: &QueryState,
+    dataset: &DatasetView,
+) -> BTreeMap<String, String> {
+    metric_hydrate::resolve_dataset_query_bindings_from_state(state, dataset).mapped_filters
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RuntimeMetricWorkset {
     pub closure_metric_ids: Vec<String>,

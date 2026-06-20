@@ -101,7 +101,12 @@ fn materialize_one_legacy_dataset(
         .and_then(|value| value.strip_prefix("dataset."))
         .map(ToString::to_string)
         .unwrap_or_else(|| decl.dataset.key.clone());
-    let source_decl = legacy_dataset_source_decl(&resolved_source, &decl.dataset.normalize, false);
+    let source_decl = legacy_dataset_source_decl(
+        &resolved_source,
+        &decl.dataset.normalize,
+        false,
+        &decl.filter_dimensions,
+    );
     let mut source_truncated = false;
     let mut rows = if decl.dataset.kind == "dataframe" {
         let snapshot = load_legacy_rows_from_source(app_root, &resolved_source)?;
@@ -162,6 +167,7 @@ fn materialize_one_legacy_dataset(
             &resolved_source,
             &decl.dataset.normalize,
             source_truncated,
+            &decl.filter_dimensions,
         ),
         sources: Vec::new(),
         metrics,
@@ -309,6 +315,7 @@ fn legacy_dataset_source_decl(
     source: &LegacySourceDecl,
     normalize: &BTreeMap<String, String>,
     preview_truncated: bool,
+    filter_dimensions: &BTreeMap<String, String>,
 ) -> SourceDecl {
     if source.kind.as_deref() == Some(CONFIG_REF_SOURCE_KIND) {
         let source_path = source
@@ -316,6 +323,10 @@ fn legacy_dataset_source_decl(
             .as_deref()
             .or(source.path.as_deref())
             .unwrap_or("");
+        let meta = serde_json::json!({
+            "normalize": normalize,
+            "filter_dimensions": filter_dimensions,
+        });
         return SourceDecl {
             kind: CONFIG_REF_SOURCE_KIND.to_string(),
             path: source_path.to_string(),
@@ -327,7 +338,7 @@ fn legacy_dataset_source_decl(
             table: source.table.clone(),
             query: source.query.clone(),
             connection: source.connection.clone(),
-            content: None,
+            content: serde_json::to_string(&meta).ok(),
         };
     }
     let source_path = source
@@ -356,6 +367,7 @@ fn legacy_dataset_source_decl(
         "query": source.query,
         "connection": source.connection,
         "normalize": normalize,
+        "filter_dimensions": filter_dimensions,
     });
     SourceDecl {
         kind,

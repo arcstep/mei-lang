@@ -79,6 +79,8 @@ pub(crate) struct SourceMeta {
     #[serde(default)]
     pub(crate) normalize: BTreeMap<String, String>,
     #[serde(default)]
+    pub(crate) filter_dimensions: BTreeMap<String, String>,
+    #[serde(default)]
     pub(crate) table: Option<String>,
     #[serde(default)]
     pub(crate) query: Option<String>,
