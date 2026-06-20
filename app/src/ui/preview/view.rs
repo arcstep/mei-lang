@@ -53,6 +53,7 @@ pub(crate) fn preview_view(
                         &resolved_theme,
                         0,
                         preview_scene_path.as_str(),
+                        None,
                     )
                 })
                 .collect_view();

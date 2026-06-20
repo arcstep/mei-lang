@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use mei_lang_kernel::{
-    build_experience_path, build_overview_backing, format_experience_path, BuildNodeContext,
-    BuildNodeKind, CompiledApp, ProvenanceAnchor,
+    build_experience_path, build_overview_backing, experience_layout_hint, experience_mount_chain,
+    format_experience_path, BuildNodeContext, BuildNodeKind, CompiledApp, ProvenanceAnchor,
 };
 
 pub(crate) fn build_overview_view(
@@ -12,9 +12,13 @@ pub(crate) fn build_overview_view(
     let experience = build_experience_path(compiled, &ctx.node);
     let experience_line = format_experience_path(&experience);
     let backing = build_overview_backing(compiled, &ctx.node);
+    let mount_chain = experience_mount_chain(compiled, &ctx.node);
+    let layout_hint = experience_layout_hint(compiled, &ctx.node);
     let node_label = ctx.node.encode();
     let diag_count = compiled.diagnostics.len();
     let business_title = experience.last().cloned().unwrap_or_else(|| node_label.clone());
+    let board_entry = compiled.build_board_index.lookup(&ctx.node);
+    let template_entry = compiled.build_template_index.lookup(ctx.node.key.as_str());
 
     view! {
         <section class="build-overview grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6 mei-text-body">
@@ -57,6 +61,88 @@ pub(crate) fn build_overview_view(
                             }).collect_view()}
                         </dd>
                     </div>
+                })}
+                {(!mount_chain.is_empty()).then(|| view! {
+                    <div class="flex flex-col gap-0.5">
+                        <dt class="mei-text-muted">"挂载链"</dt>
+                        <dd class="font-mono text-[11px] leading-5">
+                            {mount_chain.into_iter().map(|entry| view! {
+                                <div>{format!("{}#{} ({})", entry.file, entry.panel_id, entry.role)}</div>
+                            }).collect_view()}
+                        </dd>
+                    </div>
+                })}
+                {layout_hint.clone().map(|hint| view! {
+                    <div class="flex flex-col gap-0.5">
+                        <dt class="mei-text-muted">"布局"</dt>
+                        <dd class="font-mono text-[11px] break-all">{hint}</dd>
+                    </div>
+                })}
+                {board_entry.map(|entry| view! {
+                    <>
+                        {entry.layout_mode.clone().map(|mode| view! {
+                            <div class="flex gap-2">
+                                <dt class="w-16 shrink-0 mei-text-muted">"Board 模式"</dt>
+                                <dd>{mode}</dd>
+                            </div>
+                        })}
+                        {entry.params_summary.clone().map(|params| view! {
+                            <div class="flex gap-2">
+                                <dt class="w-16 shrink-0 mei-text-muted">"Params"</dt>
+                                <dd class="font-mono text-[11px]">{params}</dd>
+                            </div>
+                        })}
+                        {(!entry.slots.is_empty()).then(|| view! {
+                            <div class="flex flex-col gap-0.5">
+                                <dt class="mei-text-muted">"Slots"</dt>
+                                <dd class="font-mono text-[11px] leading-5">
+                                    {entry.slots.iter().map(|slot| view! {
+                                        <div>
+                                            {format!(
+                                                "{} — {}",
+                                                slot.slot_id,
+                                                slot.component.clone().unwrap_or_else(|| "slot".to_string())
+                                            )}
+                                        </div>
+                                    }).collect_view()}
+                                </dd>
+                            </div>
+                        })}
+                    </>
+                })}
+                {template_entry.map(|entry| view! {
+                    <>
+                        <div class="flex gap-2">
+                            <dt class="w-16 shrink-0 mei-text-muted">"类别"</dt>
+                            <dd>{entry.category.clone()}</dd>
+                        </div>
+                        <div class="flex gap-2">
+                            <dt class="w-16 shrink-0 mei-text-muted">"模板文件"</dt>
+                            <dd class="font-mono text-[11px] break-all">{entry.template_file.clone()}</dd>
+                        </div>
+                        {(!entry.props_schema.is_empty()).then(|| view! {
+                            <div class="flex flex-col gap-0.5">
+                                <dt class="mei-text-muted">"Props 契约"</dt>
+                                <dd class="font-mono text-[11px] leading-5">
+                                    {entry.props_schema.iter().map(|item| view! { <div>{item.clone()}</div> }).collect_view()}
+                                </dd>
+                            </div>
+                        })}
+                        {(!entry.consumers.is_empty()).then(|| view! {
+                            <div class="flex flex-col gap-0.5">
+                                <dt class="mei-text-muted">"Consumers"</dt>
+                                <dd class="font-mono text-[11px] leading-5">
+                                    {entry.consumers.iter().map(|item| view! { <div>{item.clone()}</div> }).collect_view()}
+                                </dd>
+                            </div>
+                        })}
+                        {entry.agent_hint.clone().map(|hint| view! {
+                            <div class="flex flex-col gap-0.5">
+                                <dt class="mei-text-muted">"Agent 提示"</dt>
+                                <dd class="text-[11px] leading-5">{hint}</dd>
+                            </div>
+                        })}
+                    </>
                 })}
                 <div class="flex gap-2">
                     <dt class="w-16 shrink-0 mei-text-muted">"Node"</dt>

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, UiNodeDecl};
+use crate::model::{BlockDecl, BuildNodeId, BuildNodeKind, CompiledApp, ExperienceNodeManifest, PanelDecl, UiNodeDecl};
 
 /// First path segment of scene-scoped UI node keys (`home/panel/block`).
 pub fn scene_id_from_ui_node_key(key: &str) -> Option<String> {
@@ -60,6 +60,15 @@ pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
 
 /// Human-readable breadcrumb segments for build overview / agent export.
 pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
+    if let Some(manifest) = ExperienceNodeManifest::lookup(compiled, node) {
+        if !manifest.experience_path.is_empty() {
+            return manifest.experience_path.clone();
+        }
+    }
+    build_experience_path_runtime(compiled, node)
+}
+
+fn build_experience_path_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
     match node.kind {
         BuildNodeKind::Route | BuildNodeKind::Scene => scene_label(compiled, &node.key),
         BuildNodeKind::Projection => {
@@ -69,19 +78,19 @@ pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<
             path
         }
         BuildNodeKind::ScenePanel => {
-            let (scene_id, panel_id) = split_panel_key(&node.key);
+            let (scene_id, panel_path) = split_panel_key(&node.key);
             let mut path = scene_label(compiled, &scene_id);
-            if let Some(panel) = find_panel(compiled, &scene_id, panel_id.as_str()) {
+            if let Some(panel) = find_panel_by_path(compiled, &scene_id, panel_path.as_str()) {
                 path.push(panel_label(&panel));
             } else {
-                path.push(panel_id);
+                path.push(panel_path);
             }
             path
         }
         BuildNodeKind::SceneBlock => {
-            let (scene_id, panel_id, block_id) = split_block_key(&node.key);
+            let (scene_id, panel_path, block_id) = split_block_key(&node.key);
             let mut path = scene_label(compiled, &scene_id);
-            if let Some(panel) = find_panel(compiled, &scene_id, panel_id.as_str()) {
+            if let Some(panel) = find_panel_by_path(compiled, &scene_id, panel_path.as_str()) {
                 path.push(panel_label(&panel));
                 if let Some(block) = find_block_in_panel(&panel, block_id.as_str()) {
                     path.push(block_label(&block));
@@ -89,7 +98,7 @@ pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<
                     path.push(block_id);
                 }
             } else {
-                path.push(panel_id);
+                path.push(panel_path);
                 path.push(block_id);
             }
             path
@@ -113,6 +122,27 @@ pub fn build_experience_path(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<
             ]
         }
         BuildNodeKind::Dataset => vec!["Backing · Datasets".to_string(), node.key.clone()],
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
+            if let Some(entry) = compiled.build_board_index.lookup(node) {
+                vec![
+                    "Board".to_string(),
+                    entry.label.clone(),
+                    entry.scene_id.clone(),
+                ]
+            } else {
+                vec!["Board".to_string(), node.key.clone()]
+            }
+        }
+        BuildNodeKind::Template => {
+            if let Some(entry) = compiled.build_template_index.lookup(node.key.as_str()) {
+                vec![
+                    "Template".to_string(),
+                    entry.template_key.clone(),
+                ]
+            } else {
+                vec!["Template".to_string(), node.key.clone()]
+            }
+        }
         _ => vec![node.encode()],
     }
 }
@@ -180,10 +210,22 @@ fn block_label(block: &BlockDecl) -> String {
         })
 }
 
-fn find_panel(compiled: &CompiledApp, scene_id: &str, panel_id: &str) -> Option<PanelDecl> {
-    panels_for_scene(compiled, scene_id)?
-        .into_iter()
-        .find(|panel| panel.id == panel_id)
+fn find_panel_by_path(
+    compiled: &CompiledApp,
+    scene_id: &str,
+    panel_path: &str,
+) -> Option<PanelDecl> {
+    let top_level = panels_for_scene(compiled, scene_id)?;
+    let mut segments = panel_path.split('/').filter(|s| !s.is_empty());
+    let first = segments.next()?;
+    let mut current = top_level.into_iter().find(|panel| panel.id == first)?;
+    for segment in segments {
+        current = current.blocks.iter().find_map(|node| match node {
+            UiNodeDecl::Panel(panel) if panel.id == segment => Some(panel.clone()),
+            _ => None,
+        })?;
+    }
+    Some(current)
 }
 
 fn find_block_in_panel(panel: &PanelDecl, block_id: &str) -> Option<BlockDecl> {
@@ -303,11 +345,31 @@ fn collect_backing_refs(value: &Value, out: &mut Vec<String>) {
 }
 
 pub fn build_overview_backing(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
+    if let Some(manifest) = ExperienceNodeManifest::lookup(compiled, node) {
+        if !manifest.backing_refs.is_empty() {
+            return manifest.backing_refs.clone();
+        }
+    }
+    build_overview_backing_runtime(compiled, node)
+}
+
+pub fn experience_mount_chain(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<crate::model::MountChainEntry> {
+    ExperienceNodeManifest::lookup(compiled, node)
+        .map(|manifest| manifest.mount_chain.clone())
+        .unwrap_or_default()
+}
+
+pub fn experience_layout_hint(compiled: &CompiledApp, node: &BuildNodeId) -> Option<String> {
+    ExperienceNodeManifest::lookup(compiled, node)
+        .and_then(|manifest| manifest.layout_hint.clone())
+}
+
+fn build_overview_backing_runtime(compiled: &CompiledApp, node: &BuildNodeId) -> Vec<String> {
     use BuildNodeKind::*;
     match node.kind {
         SceneBlock => {
-            let (scene_id, panel_id, block_id) = split_block_key(&node.key);
-            let Some(panel) = find_panel(compiled, &scene_id, panel_id.as_str()) else {
+            let (scene_id, panel_path, block_id) = split_block_key(&node.key);
+            let Some(panel) = find_panel_by_path(compiled, &scene_id, panel_path.as_str()) else {
                 return Vec::new();
             };
             let Some(block) = find_block_in_panel(&panel, block_id.as_str()) else {
@@ -316,8 +378,8 @@ pub fn build_overview_backing(compiled: &CompiledApp, node: &BuildNodeId) -> Vec
             backing_refs_from_block_props(&block.props)
         }
         ScenePanel => {
-            let (scene_id, panel_id) = split_panel_key(&node.key);
-            let Some(panel) = find_panel(compiled, &scene_id, panel_id.as_str()) else {
+            let (scene_id, panel_path) = split_panel_key(&node.key);
+            let Some(panel) = find_panel_by_path(compiled, &scene_id, panel_path.as_str()) else {
                 return Vec::new();
             };
             let mut refs = Vec::new();

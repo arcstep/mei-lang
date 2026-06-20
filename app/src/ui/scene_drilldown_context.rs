@@ -96,6 +96,9 @@ mod tests {
             scene_projection_assembly_by_id: sample_assembly(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         };
         let payload: Value =
             serde_json::from_str(&scene_drilldown_context_json_for_host_ssr(&compiled, Some("home")))

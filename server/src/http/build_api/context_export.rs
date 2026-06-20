@@ -5,8 +5,9 @@ use axum::{
 };
 use mei_lang_kernel::{
     build_experience_path, build_overview_backing, build_reachability_tree,
-    format_experience_path, resolve_build_node_context, resolve_build_view_query,
-    tab_visible_for_node, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
+    experience_layout_hint, experience_mount_chain, format_experience_path,
+    resolve_build_node_context, resolve_build_view_query, tab_visible_for_node, BuildViewTab,
+    LegacyBuildQuery, ProvenanceAnchor,
 };
 use mei_lang_toolchain::{format_semantic_graph_markdown, load_world_runtime_bundle};
 
@@ -118,6 +119,7 @@ pub async fn api_build_context_export(
     md.push('\n');
 
     append_ux_sections(&mut md, compiled, &ctx, &resolved.node);
+    append_board_template_sections(&mut md, compiled, &resolved.node);
     append_runtime_snapshot(&mut md, compiled, &ctx, &intent);
 
     md.push_str("### 编译摘要\n\n");
@@ -171,6 +173,22 @@ fn append_ux_sections(
     ));
     md.push('\n');
 
+    let mount_chain = experience_mount_chain(compiled, node);
+    if !mount_chain.is_empty() {
+        md.push_str("### 挂载链\n\n");
+        for entry in mount_chain {
+            md.push_str(&format!(
+                "- `{}`#`{}` ({}) \n",
+                entry.file, entry.panel_id, entry.role
+            ));
+        }
+        md.push('\n');
+    }
+    if let Some(hint) = experience_layout_hint(compiled, node) {
+        md.push_str("### 布局\n\n");
+        md.push_str(&format!("- {hint}\n\n"));
+    }
+
     let backing = build_overview_backing(compiled, node);
     if !backing.is_empty() {
         md.push_str("### Backing\n\n");
@@ -178,6 +196,61 @@ fn append_ux_sections(
             md.push_str(&format!("- {item}\n"));
         }
         md.push('\n');
+    }
+}
+
+fn append_board_template_sections(
+    md: &mut String,
+    compiled: &mei_lang_kernel::CompiledApp,
+    node: &mei_lang_kernel::BuildNodeId,
+) {
+    use mei_lang_kernel::BuildNodeKind;
+    if let Some(entry) = compiled.build_board_index.lookup(node) {
+        md.push_str("### Board\n\n");
+        md.push_str(&format!("- board_file: `{}`\n", entry.board_file));
+        md.push_str(&format!("- scene_id: `{}`\n", entry.scene_id));
+        if let Some(mode) = entry.layout_mode.as_deref() {
+            md.push_str(&format!("- layout_mode: `{mode}`\n"));
+        }
+        if let Some(params) = entry.params_summary.as_deref() {
+            md.push_str(&format!("- params: `{params}`\n"));
+        }
+        if !entry.slots.is_empty() {
+            md.push_str("\n#### Slots\n\n");
+            for slot in &entry.slots {
+                md.push_str(&format!(
+                    "- `{}` component={} backing={:?}\n",
+                    slot.slot_id,
+                    slot.component.as_deref().unwrap_or("-"),
+                    slot.backing_refs
+                ));
+            }
+        }
+        md.push('\n');
+    }
+    if node.kind == BuildNodeKind::Template {
+        if let Some(entry) = compiled.build_template_index.lookup(node.key.as_str()) {
+            md.push_str("### 模板\n\n");
+            md.push_str(&format!("- template_key: `{}`\n", entry.template_key));
+            md.push_str(&format!("- template_file: `{}`\n", entry.template_file));
+            md.push_str(&format!("- category: `{}`\n", entry.category));
+            if !entry.props_schema.is_empty() {
+                md.push_str("- props_schema:\n");
+                for item in &entry.props_schema {
+                    md.push_str(&format!("  - {item}\n"));
+                }
+            }
+            if !entry.consumers.is_empty() {
+                md.push_str("- consumers:\n");
+                for item in &entry.consumers {
+                    md.push_str(&format!("  - {item}\n"));
+                }
+            }
+            if let Some(hint) = entry.agent_hint.as_deref() {
+                md.push_str(&format!("\n#### Agent 提示\n\n{hint}\n"));
+            }
+            md.push('\n');
+        }
     }
 }
 

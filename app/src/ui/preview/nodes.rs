@@ -32,6 +32,7 @@ pub(crate) fn panel_view(
     theme: &ThemeResolved,
     embed_depth: u8,
     preview_scene_path: &str,
+    parent_panel_path: Option<&str>,
 ) -> AnyView {
     let card_props = resolve_shared_refs(&resolve_panel_card_props(theme, panel), &theme.shared);
     let head_props = resolve_shared_refs(&resolve_panel_head_props(theme, panel), &theme.shared);
@@ -93,9 +94,14 @@ pub(crate) fn panel_view(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panel.id.clone());
 
+    let panel_path = match parent_panel_path {
+        Some(parent) => format!("{parent}/{}", panel.id),
+        None => panel.id.clone(),
+    };
+
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         Some(
-            BuildNodeId::scene_panel(scene_contract.scene.id.clone(), panel.id.clone()).encode(),
+            BuildNodeId::scene_panel(scene_contract.scene.id.clone(), panel_path.as_str()).encode(),
         )
     } else {
         None
@@ -115,7 +121,7 @@ pub(crate) fn panel_view(
                     theme,
                     embed_depth,
                     preview_scene_path,
-                    Some(panel.id.as_str()),
+                    Some(panel_path.as_str()),
                 )
             })
             .collect_view()
@@ -134,7 +140,7 @@ pub(crate) fn panel_view(
                     theme,
                     embed_depth,
                     preview_scene_path,
-                    Some(panel.id.as_str()),
+                    Some(panel_path.as_str()),
                 )
             })
             .collect_view()
@@ -144,8 +150,9 @@ pub(crate) fn panel_view(
         <section
             class=card_class
             style=card_style.clone()
-            data-mei-panel-id=panel.id.clone()
+            data-mei-panel-id=panel_path.clone()
             data-build-node=build_node_id.clone().unwrap_or_default()
+            data-preview-scope=panel_path.clone()
         >
             {if has_head {
                 let head_carets_attr = head_carets.then_some("true");
@@ -330,6 +337,7 @@ fn node_view(
             theme,
             embed_depth,
             preview_scene_path,
+            parent_panel_id,
         ),
         UiNodeDecl::Block(block) => block_view(
             block,

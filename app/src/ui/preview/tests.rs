@@ -990,6 +990,9 @@ fn resolve_value_preserves_board_link_scene_locator_in_popup() {
         world_semantic_by_file: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let index = build_runtime_resource_index(&compiled);
     let props = json!({
@@ -1092,6 +1095,9 @@ fn attach_host_meta_only_includes_scene_drilldown_context_when_requested() {
         )]),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let props = attach_host_meta(
         json!({"value": 1}),
@@ -1243,6 +1249,9 @@ fn resolve_value_supports_shared_refs() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
         scene_id: "home".to_string(),
@@ -1397,6 +1406,9 @@ fn resolve_value_supports_data_and_metric_refs() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -1584,6 +1596,9 @@ fn resolve_value_host_ssr_slim_strips_dataset_rows() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = RuntimeSceneAnchor {
@@ -1638,6 +1653,9 @@ fn build_preview_runtime_context_enables_host_ssr_slim_for_build_mode() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     assert!(build_preview_runtime_context(&compiled, UiRouteMode::Build).host_ssr_slim_payload);
     assert!(build_preview_runtime_context(&compiled, UiRouteMode::App).host_ssr_slim_payload);
@@ -1764,6 +1782,9 @@ fn resolve_value_route_target_alias_matches_canonical_dataset_id() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -1946,6 +1967,9 @@ fn resolve_metric_ref_prefers_world_metric_ledger_over_first_dataset_match() {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -2051,6 +2075,9 @@ fn resolve_metric_ref_allows_from_dataset_lineage_for_scene_direct_world_metrics
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = super::resolve::RuntimeSceneAnchor {
@@ -2224,6 +2251,9 @@ fn preview_metric_with_runtime_def(runtime_def: Value) -> Value {
         scene_projection_assembly_by_id: BTreeMap::new(),
         component_assets: Vec::new(),
         diagnostics: Vec::new(),
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
     };
     let resource_index = build_runtime_resource_index(&compiled);
     let scene_anchor = RuntimeSceneAnchor {

@@ -1,4 +1,5 @@
 mod build_node;
+mod build_view_index;
 mod compile_out;
 mod contract;
 mod dataset;
@@ -15,6 +16,11 @@ pub use build_node::{
     tab_visible_for_node, tabs_for_node_kind, resolve_build_view_query, BuildExecScope,
     BuildNodeId, BuildNodeKind, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
     ResolvedBuildViewQuery,
+};
+pub use build_view_index::{
+    BoardFileEntry, BoardSlotEntry, BuildBoardIndex, BuildExperienceIndex, BuildTemplateIndex,
+    ExperienceNodeManifest, MountChainEntry, ReachabilityTreeNodeSnapshot,
+    ReachabilityTreeRootSnapshot, TemplateCatalogEntry,
 };
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;

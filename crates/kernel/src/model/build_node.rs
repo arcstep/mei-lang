@@ -21,6 +21,9 @@ pub enum BuildNodeKind {
     WorldExplain,
     Dataset,
     Component,
+    BoardFile,
+    BoardSlot,
+    Template,
     Artifact,
     GraphSemantic,
     GraphEval,
@@ -40,6 +43,9 @@ impl BuildNodeKind {
             Self::WorldExplain => "world-explain",
             Self::Dataset => "dataset",
             Self::Component => "component",
+            Self::BoardFile => "board-file",
+            Self::BoardSlot => "board-slot",
+            Self::Template => "template",
             Self::Artifact => "artifact",
             Self::GraphSemantic => "graph-semantic",
             Self::GraphEval => "graph-eval",
@@ -59,6 +65,9 @@ impl BuildNodeKind {
             "world-explain" => Some(Self::WorldExplain),
             "dataset" => Some(Self::Dataset),
             "component" => Some(Self::Component),
+            "board-file" => Some(Self::BoardFile),
+            "board-slot" => Some(Self::BoardSlot),
+            "template" => Some(Self::Template),
             "artifact" => Some(Self::Artifact),
             "graph-semantic" => Some(Self::GraphSemantic),
             "graph-eval" => Some(Self::GraphEval),
@@ -151,6 +160,21 @@ impl BuildNodeId {
 
     pub fn component(use_key: impl Into<String>) -> Self {
         Self::new(BuildNodeKind::Component, use_key)
+    }
+
+    pub fn board_file(board_path: impl Into<String>) -> Self {
+        Self::new(BuildNodeKind::BoardFile, board_path)
+    }
+
+    pub fn board_slot(board_path: impl Into<String>, slot_id: impl Into<String>) -> Self {
+        Self::new(
+            BuildNodeKind::BoardSlot,
+            format!("{}/{}", board_path.into(), slot_id.into()),
+        )
+    }
+
+    pub fn template(template_key: impl Into<String>) -> Self {
+        Self::new(BuildNodeKind::Template, template_key)
     }
 
     pub fn artifact(kind: impl Into<String>, scope_key: impl Into<String>) -> Self {
@@ -287,7 +311,12 @@ pub fn tabs_for_node_kind(kind: BuildNodeKind) -> &'static [BuildViewTab] {
             &[Overview, Preview, Exec, Provenance, Agent]
         }
         BuildNodeKind::Dataset => &[Overview, Preview, Exec, Provenance, Agent],
-        BuildNodeKind::Component => &[Overview, Preview, Provenance, Agent],
+        BuildNodeKind::Component | BuildNodeKind::Template => {
+            &[Overview, Preview, Provenance, Agent]
+        }
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
+            &[Overview, Preview, Semantic, Provenance, Agent]
+        }
         BuildNodeKind::Artifact => &[Overview, ArtifactTab, Agent],
         BuildNodeKind::GraphSemantic => &[Semantic, Agent],
         BuildNodeKind::GraphEval => &[Eval, Agent],

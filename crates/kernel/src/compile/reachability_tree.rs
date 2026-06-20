@@ -31,6 +31,10 @@ pub struct ReachabilityTreeRoot {
 }
 
 pub fn build_reachability_tree(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
+    crate::compile::build_experience_index::reachability_roots_from_compiled(compiled)
+}
+
+pub(crate) fn build_reachability_tree_runtime_only(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
     vec![
         scenes_root(compiled),
         routes_root(compiled),
@@ -41,7 +45,7 @@ pub fn build_reachability_tree(compiled: &CompiledApp) -> Vec<ReachabilityTreeRo
     ]
 }
 
-fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
+pub(crate) fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     ReachabilityTreeRoot {
         group: "routes".to_string(),
         label: "Routes".to_string(),
@@ -99,7 +103,7 @@ fn scene_tree_node(
         if !panels.is_empty() {
             let panel_nodes = panels
                 .iter()
-                .map(|panel| panel_tree_node(route.scene_id.as_str(), panel))
+                .map(|panel| panel_tree_node(route.scene_id.as_str(), panel, panel.id.as_str()))
                 .collect();
             children.push(ReachabilityTreeNode {
                 id: format!("scene-panels-{}", route.scene_id),
@@ -193,21 +197,31 @@ fn projection_children(
     }]
 }
 
-fn panel_tree_node(scene_id: &str, panel: &PanelDecl) -> ReachabilityTreeNode {
-    let node = BuildNodeId::scene_panel(scene_id, panel.id.clone());
+fn panel_tree_node(scene_id: &str, panel: &PanelDecl, panel_path: &str) -> ReachabilityTreeNode {
+    let node = BuildNodeId::scene_panel(scene_id, panel_path);
     let label = panel
         .title
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panel.id.clone());
     let badges = aggregate_use_key_badges(&panel.blocks);
-    let block_nodes = panel
-        .blocks
-        .iter()
-        .filter_map(|ui_node| block_tree_node(scene_id, &panel.id, ui_node))
-        .collect();
+    let mut block_nodes = Vec::new();
+    for ui_node in &panel.blocks {
+        match ui_node {
+            UiNodeDecl::Panel(nested) => {
+                let nested_path = format!("{panel_path}/{}", nested.id);
+                block_nodes.push(panel_tree_node(scene_id, nested, nested_path.as_str()));
+            }
+            UiNodeDecl::Block(_) => {
+                if let Some(block_node) = block_tree_node(scene_id, panel_path, ui_node) {
+                    block_nodes.push(block_node);
+                }
+            }
+            _ => {}
+        }
+    }
     ReachabilityTreeNode {
-        id: format!("scene-panel-{scene_id}-{}", panel.id),
+        id: format!("scene-panel-{scene_id}-{panel_path}"),
         node_id: node.encode(),
         kind: "scene_panel".to_string(),
         label,
@@ -216,7 +230,11 @@ fn panel_tree_node(scene_id: &str, panel: &PanelDecl) -> ReachabilityTreeNode {
     }
 }
 
-fn block_tree_node(scene_id: &str, panel_id: &str, ui_node: &UiNodeDecl) -> Option<ReachabilityTreeNode> {
+fn block_tree_node(
+    scene_id: &str,
+    panel_path: &str,
+    ui_node: &UiNodeDecl,
+) -> Option<ReachabilityTreeNode> {
     let block = match ui_node {
         UiNodeDecl::Block(block) => block,
         _ => return None,
@@ -226,7 +244,7 @@ fn block_tree_node(scene_id: &str, panel_id: &str, ui_node: &UiNodeDecl) -> Opti
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(block.use_key.as_str());
-    let node = BuildNodeId::scene_block(scene_id, panel_id, block_id);
+    let node = BuildNodeId::scene_block(scene_id, panel_path, block_id);
     let label = block
         .title
         .clone()
@@ -235,7 +253,7 @@ fn block_tree_node(scene_id: &str, panel_id: &str, ui_node: &UiNodeDecl) -> Opti
     let mut badges = vec![block.use_key.clone()];
     badges.extend(backing_refs_from_block_props(&block.props));
     Some(ReachabilityTreeNode {
-        id: format!("scene-block-{scene_id}-{panel_id}-{block_id}"),
+        id: format!("scene-block-{scene_id}-{panel_path}-{block_id}"),
         node_id: node.encode(),
         kind: "scene_block".to_string(),
         label,
@@ -244,7 +262,7 @@ fn block_tree_node(scene_id: &str, panel_id: &str, ui_node: &UiNodeDecl) -> Opti
     })
 }
 
-fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
+pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     let mut children = Vec::new();
     for (file_path, index) in &compiled.world_semantic_by_file {
         let file_node = BuildNodeId::new(BuildNodeKind::WorldFile, file_path.clone());
@@ -350,7 +368,7 @@ fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     }
 }
 
-fn datasets_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
+pub(crate) fn datasets_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     ReachabilityTreeRoot {
         group: "datasets".to_string(),
         label: "Backing · Datasets".to_string(),
@@ -382,7 +400,7 @@ fn datasets_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     }
 }
 
-fn components_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
+pub(crate) fn components_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     ReachabilityTreeRoot {
         group: "components".to_string(),
         label: "Components".to_string(),
@@ -405,7 +423,7 @@ fn components_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     }
 }
 
-fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
+pub(crate) fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     ReachabilityTreeRoot {
         group: "artifacts".to_string(),
         label: "Artifacts".to_string(),
@@ -462,6 +480,9 @@ mod tests {
             world_semantic_by_file: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         };
         compiled.world_semantic_by_file.insert(
             "metrics.world.mei".to_string(),
@@ -557,6 +578,9 @@ mod tests {
             world_semantic_by_file: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         };
         let roots = build_reachability_tree(&compiled);
         let scene = &roots[0].children[0];

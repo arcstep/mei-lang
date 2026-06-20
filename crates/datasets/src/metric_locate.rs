@@ -372,6 +372,9 @@ mod tests {
             world_semantic_by_file: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         }
     }
 
@@ -449,6 +452,9 @@ mod tests {
             world_semantic_by_file: BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: Vec::new(),
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         };
         let (owner, resolved) = locate_runtime_metric_resource(
             &compiled,

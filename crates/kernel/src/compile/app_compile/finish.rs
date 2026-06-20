@@ -193,7 +193,7 @@ pub(super) fn finish_compiled_app(
         &app_main_source,
     );
 
-    Ok(CompiledApp {
+    let mut compiled = CompiledApp {
         app_id: app_id.to_string(),
         title,
         app_root: app_root.to_string_lossy().to_string(),
@@ -211,7 +211,35 @@ pub(super) fn finish_compiled_app(
         world_semantic_by_file,
         component_assets: std::mem::take(&mut active_payload.component_assets),
         diagnostics: std::mem::take(diagnostics),
-    })
+        build_experience_index: Default::default(),
+        build_board_index: Default::default(),
+        build_template_index: Default::default(),
+    };
+    compiled.build_experience_index = crate::compile::build_experience_index::build_experience_index(
+        &compiled.scene_routes,
+        &compiled.scene_projection_assembly_by_id,
+        &target_scene_contracts,
+        &compiled,
+    );
+    let board = crate::compile::build_board_index(
+        &compiled.file_tree,
+        &target_scene_contracts,
+        &compiled.scene_projection_assembly_by_id,
+    );
+    compiled.build_board_index = board.index;
+    let template = crate::compile::build_template_index(
+        &compiled.component_assets,
+        &target_scene_contracts,
+        &compiled.build_experience_index.node_manifest,
+    );
+    compiled.build_template_index = template.index;
+    compiled.build_experience_index.reachability_snapshot =
+        crate::compile::build_experience_index::merge_build_view_tree_roots(
+            compiled.build_experience_index.reachability_snapshot.clone(),
+            board.tree_root,
+            template.tree_root,
+        );
+    Ok(compiled)
 }
 
 const WORLD_CAPSULE_PREVIEW_COMPONENT_KEYS: &[&str] = &["dataset.table"];

@@ -34,7 +34,11 @@ fn root_branch(
         .collect_view();
     view! {
         <li class="build-tree-node build-tree-node--branch">
-            <details class="build-tree-details" open=root.default_open>
+            <details
+                class="build-tree-details"
+                data-build-tree-branch=format!("root:{}", root.group.clone())
+                open=root.default_open
+            >
                 <summary class="build-tree-summary build-tree-summary--root">
                     <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▦"</span>
                     <span class="build-tree-label">{root.label.clone()}</span>
@@ -58,9 +62,10 @@ fn tree_node(
             .iter()
             .map(|child| tree_node(child, app_path, active_node, active_tab))
             .collect_view();
+        let branch_id = format!("group:{}", node.id);
         return view! {
             <li class="build-tree-node build-tree-node--branch">
-                <details class="build-tree-details" open=true>
+                <details class="build-tree-details" data-build-tree-branch=branch_id>
                     <summary class="build-tree-summary build-tree-summary--group">
                         <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▸"</span>
                         <span class="build-tree-label">{node.label.clone()}</span>
@@ -103,9 +108,14 @@ fn tree_node(
         } else {
             "build-tree-summary"
         };
+        let branch_id = if node.id.trim().is_empty() {
+            node.node_id.clone()
+        } else {
+            node.id.clone()
+        };
         view! {
             <li class="build-tree-node build-tree-node--branch">
-                <details class="build-tree-details" open=is_active>
+                <details class="build-tree-details" data-build-tree-branch=branch_id>
                     <summary class=summary_class>
                         <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
                         <a class="build-tree-label build-tree-label--link" href=href data-build-node=node.node_id.clone()>
@@ -150,6 +160,10 @@ fn kind_glyph(kind: &str) -> &'static str {
         "explain_block" => "E",
         "dataset" => "D",
         "component" => "C",
+        "board_file" => "B",
+        "board_slot" => "S",
+        "template" => "T",
+        "template_group" => "▸",
         "artifact" => "A",
         _ => "·",
     }

@@ -209,6 +209,9 @@ mod tests {
             world_semantic_by_file: std::collections::BTreeMap::new(),
             component_assets: Vec::new(),
             diagnostics: diags,
+            build_experience_index: Default::default(),
+            build_board_index: Default::default(),
+            build_template_index: Default::default(),
         }
     }
 

@@ -60,4 +60,11 @@ pub struct CompiledApp {
     pub component_assets: Vec<ComponentAsset>,
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
+    /// Build-view experience tree + node manifests (compile finish).
+    #[serde(default)]
+    pub build_experience_index: super::build_view_index::BuildExperienceIndex,
+    #[serde(default)]
+    pub build_board_index: super::build_view_index::BuildBoardIndex,
+    #[serde(default)]
+    pub build_template_index: super::build_view_index::BuildTemplateIndex,
 }

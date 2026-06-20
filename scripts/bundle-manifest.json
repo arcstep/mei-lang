@@ -13,6 +13,7 @@
     "workspace-splitters.js",
     "manage-tabs.js",
     "build-copy-context.js",
+    "build-tree-persist.js",
     "build-inspect-highlight.js",
     "build-exec-panel.js",
     "manage-diagnostics.js",

@@ -4452,6 +4452,12 @@ body > .mei-floating-text-pop-backdrop {
   outline-offset: 2px;
   box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.2);
 }
+
+.build-preview-scoped-dim {
+  opacity: 0.22;
+  pointer-events: none;
+}
+
 .build-reachability-tree .build-tree-summary--root {
   font-weight: 600;
 }

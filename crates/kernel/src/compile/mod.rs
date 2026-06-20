@@ -23,6 +23,9 @@ mod materialize_cache;
 mod mutations;
 mod panel_normalize;
 mod projection_assembly;
+mod build_experience_index;
+mod build_board_index;
+mod build_template_index;
 mod reachability_tree;
 mod resources;
 mod route_compile;
@@ -59,9 +62,13 @@ pub use app_compile::{
 };
 pub use build_experience::{
     aggregate_use_key_badges, backing_refs_from_block_props, build_experience_path,
-    build_overview_backing, compile_scene_from_build_node, format_experience_path, panels_for_scene,
+    build_overview_backing, compile_scene_from_build_node, experience_layout_hint,
+    experience_mount_chain, format_experience_path, panels_for_scene,
     preview_target_from_build_node_with_app,
 };
+pub use build_board_index::build_board_index;
+pub use build_experience_index::build_experience_index;
+pub use build_template_index::build_template_index;
 pub use build_node_context::{
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
     BuildNodeContext,
