@@ -44,6 +44,13 @@
     await openProjectionOverlay(detail, renderConfig);
   }
 
+  function drilldownSessionMeta(config) {
+    return {
+      label: nonEmptyString(config?.title, config?.boardSceneId, config?.sceneId, "下钻看板"),
+      path: nonEmptyString(config?.boardSceneFile, config?.boardSceneId, config?.sceneId),
+    };
+  }
+
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
@@ -59,6 +66,9 @@
         });
       }
       return;
+    }
+    if (typeof boot.beginDrilldownLoadSession === "function") {
+      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
     if (useSceneBoardOverlay(config)) {
       closeDrilldownOverlay();

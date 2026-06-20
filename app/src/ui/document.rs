@@ -90,6 +90,7 @@ pub(crate) fn render_document(
                 <title>{format!("{app_title} - MeiLang")}</title>
                 <link rel="icon" href="/app-assets/favicon.svg" type="image/svg+xml"/>
                 <link rel="stylesheet" href="/app-bundles/styles.css"/>
+                <script src="/app-assets/spa-navigation/visit-history-store.js"></script>
                 <script src="/app-assets/page-load-progress-shell.js"></script>
                 <script>
                     {r#"(function(){try{if(window.MeiPageLoadProgress){window.MeiPageLoadProgress.mountEarlyHandoffOverlay();}}catch(e){}})();"#}

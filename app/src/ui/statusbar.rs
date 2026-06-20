@@ -88,10 +88,27 @@ pub(crate) fn statusbar_view(
     } else {
         "模型服务 --"
     };
+    let show_visit_history = matches!(route_mode, "app" | "access");
     view! {
         <footer class="statusbar statusbar-shell chrome-inset chrome-safe-x sticky bottom-0 z-10 py-1.5 backdrop-blur-md">
             <div class="statusbar-layout min-w-0 text-[10px]">
                 <div class="statusbar-track statusbar-track-left min-w-0">
+                    {if show_visit_history {
+                        view! {
+                            <button
+                                type="button"
+                                id="mei-visit-history-trigger"
+                                class="status-chip status-chip-visit-history"
+                                data-tone="neutral"
+                                title="最近访问与加载耗时"
+                            >
+                                "访问"
+                            </button>
+                        }
+                        .into_any()
+                    } else {
+                        view! { <></> }.into_any()
+                    }}
                     <span class="status-chip status-chip-app max-w-[18vw]" title=app_summary_title>{app_summary}</span>
                     <span class="status-chip status-chip-file max-w-[26vw]" title=file_summary_title>{file_summary}</span>
                     <span class="status-chip status-chip-mode" data-tone="info">{route_mode_label}</span>

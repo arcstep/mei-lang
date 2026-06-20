@@ -526,7 +526,30 @@
     paint();
   }
 
+  function appendShellVisitHistory() {
+    if (!state) return;
+    const renderMs = phaseDisplayMs("render");
+    const evalMs = state.api.evalMs || state.phases.eval.durationMs || 0;
+    const record = {
+      id: "shell-" + String(Date.now()),
+      kind: "initial",
+      at: Date.now(),
+      label: (global.document && global.document.title) || "首屏",
+      path: global.location.pathname + global.location.search,
+      renderMs: Math.max(0, Math.round(renderMs)),
+      evalMs: Math.max(0, Math.round(evalMs)),
+      totalMs: Math.max(0, Date.now() - state.wallStartedAt),
+      apiTotal: state.api.total || 0,
+      uiShown: overlayVisible(),
+      outcome: state.ready ? "ready" : "aborted",
+    };
+    if (global.MeiVisitHistoryStore && typeof global.MeiVisitHistoryStore.append === "function") {
+      global.MeiVisitHistoryStore.append(record);
+    }
+  }
+
   function hide() {
+    appendShellVisitHistory();
     cancelShowDelay();
     if (hideTimer) {
       global.clearTimeout(hideTimer);

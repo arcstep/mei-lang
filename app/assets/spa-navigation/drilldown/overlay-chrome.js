@@ -1,3 +1,20 @@
+  function drilldownLoadingStatusHtml(fallbackText) {
+    return (
+      '<div class="access-drilldown-overlay-status spa-loading-inline spa-loading-inline--kind-drilldown" data-drilldown-status="loading" data-mei-drilldown-load-progress="true">' +
+      '<span class="spa-loading-inline-fallback">' +
+      String(fallbackText || "正在加载…") +
+      "</span>" +
+      '<div class="spa-loading-inline-body" hidden>' +
+      '<span class="spa-loading-text">下钻加载中…</span>' +
+      '<div class="spa-loading-track">' +
+      '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
+      "</div>" +
+      '<div class="spa-loading-detail"></div>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (root) {
@@ -23,14 +40,14 @@
       "</div>" +
       '<div class="access-drilldown-overlay-tabs" data-drilldown-tabs="true" hidden></div>' +
       '<div class="access-drilldown-overlay-body" data-drilldown-body-mode="generic">' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载明细表...</div>' +
+      drilldownLoadingStatusHtml("正在加载明细表...") +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>明细表加载失败，请稍后重试。</div>' +
       '<div class="access-drilldown-table-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-drilldown-table-host" data-drilldown-table-host="true"></div>' +
       "</div>" +
       "</div>" +
       '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--structured" data-drilldown-body-mode="structured" hidden>' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      drilldownLoadingStatusHtml("正在加载看板...") +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
       '<div class="access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
@@ -67,7 +84,7 @@
       '<button type="button" class="access-scene-board-overlay-close access-drilldown-overlay-close" data-scene-board-close="button" aria-label="关闭">×</button>' +
       "</header>" +
       '<div class="access-scene-board-overlay-body access-drilldown-overlay-body--structured">' +
-      '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      drilldownLoadingStatusHtml("正在加载看板...") +
       '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
       '<div class="access-scene-board-structured-shell access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-scene-board-structured-layout access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
@@ -88,11 +105,33 @@
     root
       .querySelectorAll("[data-drilldown-status]")
       .forEach((node) => node.toggleAttribute("hidden", node.dataset.drilldownStatus !== status));
+    if (status === "loading" && typeof boot.scheduleDrilldownProgressShow === "function") {
+      boot.scheduleDrilldownProgressShow(root);
+    }
+    if (
+      (status === "ready" || status === "error") &&
+      typeof boot.completeDrilldownLoadSession === "function"
+    ) {
+      void boot.completeDrilldownLoadSession({
+        outcome: status === "ready" ? "ready" : "error",
+        root,
+      });
+    }
+  }
+
+  function abortDrilldownLoadIfNeeded(root) {
+    if (typeof boot.clearDrilldownProgressTimer === "function" && root) {
+      boot.clearDrilldownProgressTimer(root);
+    }
+    if (typeof boot.abortDrilldownLoadSession === "function") {
+      boot.abortDrilldownLoadSession();
+    }
   }
 
   function closeDrilldownOverlay() {
     const root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (!root) return;
+    abortDrilldownLoadIfNeeded(root);
     cleanupStructuredDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
@@ -115,6 +154,7 @@
   function closeSceneBoardOverlay() {
     const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
     if (!root) return;
+    abortDrilldownLoadIfNeeded(root);
     cleanupStructuredDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");

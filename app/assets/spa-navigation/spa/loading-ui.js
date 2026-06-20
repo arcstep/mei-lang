@@ -190,6 +190,58 @@
     }
   }
 
+  let drilldownProgressTimers = new WeakMap();
+
+  function drilldownProgressHost(root) {
+    if (!(root instanceof HTMLElement)) return null;
+    return root.querySelector("[data-mei-drilldown-load-progress]");
+  }
+
+  function isDrilldownProgressVisible(root) {
+    const host = drilldownProgressHost(root);
+    return Boolean(host && host.classList.contains("is-progress-visible"));
+  }
+
+  function clearDrilldownProgressTimer(root) {
+    const timer = drilldownProgressTimers.get(root);
+    if (timer) {
+      clearTimeout(timer);
+      drilldownProgressTimers.delete(root);
+    }
+  }
+
+  function revealDrilldownProgress(root) {
+    const host = drilldownProgressHost(root);
+    if (!host) return;
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (!session || session.kind !== "drilldown") return;
+    host.classList.add("is-progress-visible");
+    const fallback = host.querySelector(".spa-loading-inline-fallback");
+    const body = host.querySelector(".spa-loading-inline-body");
+    if (fallback) fallback.hidden = true;
+    if (body) body.hidden = false;
+    session.uiShown = true;
+    if (typeof boot.refreshLoadingProgressUi === "function") {
+      boot.refreshLoadingProgressUi();
+    }
+  }
+
+  function scheduleDrilldownProgressShow(root) {
+    if (!(root instanceof HTMLElement)) return;
+    clearDrilldownProgressTimer(root);
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    const wallStartedAt = session?.wallStartedAt || Date.now();
+    const delay = Math.max(0, LOADING_SHOW_DELAY_MS - (Date.now() - wallStartedAt));
+    const timer = setTimeout(() => {
+      drilldownProgressTimers.delete(root);
+      if (!root.isConnected) return;
+      revealDrilldownProgress(root);
+    }, delay);
+    drilldownProgressTimers.set(root, timer);
+  }
+
   function showLoadingNow() {
     clearLoadingTimer();
     createLoadingOverlay();
@@ -197,6 +249,9 @@
     if (!overlay) return;
     overlay.classList.add("is-visible");
     loadingVisibleAt = Date.now();
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (session) session.uiShown = true;
     if (typeof boot.refreshLoadingProgressUi === "function") {
       boot.refreshLoadingProgressUi();
     }
@@ -221,9 +276,20 @@
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
     }
+    const session =
+      typeof boot.getLoadSession === "function" ? boot.getLoadSession(navigationId) : null;
+    if (session && !session.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(session, { uiShown: Boolean(session.uiShown) });
+    }
     finishLoadingHide();
     clearManageWorkspaceLoadingState();
     if (typeof boot.clearLoadingProgressSession === "function") {
       boot.clearLoadingProgressSession(navigationId);
     }
+    if (typeof boot.refreshVisitHistoryPanel === "function") {
+      boot.refreshVisitHistoryPanel();
+    }
   }
+  boot.scheduleDrilldownProgressShow = scheduleDrilldownProgressShow;
+  boot.clearDrilldownProgressTimer = clearDrilldownProgressTimer;
+  boot.isDrilldownProgressVisible = isDrilldownProgressVisible;

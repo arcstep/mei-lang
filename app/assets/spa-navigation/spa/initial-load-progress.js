@@ -68,6 +68,13 @@
     ) {
       return;
     }
+    const session =
+      typeof boot.getLoadSession === "function"
+        ? boot.getLoadSession(initialLoadNavigationId())
+        : null;
+    if (session && !session.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(session, { uiShown: Boolean(session.uiShown) });
+    }
     if (typeof finishLoadingHide === "function") {
       finishLoadingHide();
     } else if (typeof hideLoading === "function") {

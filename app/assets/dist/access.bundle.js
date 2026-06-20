@@ -3105,6 +3105,208 @@
 
 ;
 
+/* ===== visit-history-panel.js ===== */
+(() => {
+  const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
+  if (boot.visitHistoryPanelMounted) return;
+  boot.visitHistoryPanelMounted = true;
+
+  const POPOVER_ID = "mei-visit-history-popover";
+  const TRIGGER_ID = "mei-visit-history-trigger";
+
+  function store() {
+    return window.MeiVisitHistoryStore || null;
+  }
+
+  function formatMs(value) {
+    const ms = Number(value);
+    if (!Number.isFinite(ms) || ms < 0) return "—";
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  function formatTime(at) {
+    const date = new Date(Number(at) || 0);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleTimeString("zh-CN", { hour12: false });
+  }
+
+  function kindLabel(kind) {
+    if (store() && typeof store().kindLabel === "function") {
+      return store().kindLabel(kind);
+    }
+    return String(kind || "访问");
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;");
+  }
+
+  function truncate(text, max) {
+    const value = String(text || "");
+    if (value.length <= max) return value;
+    return value.slice(0, Math.max(0, max - 1)) + "…";
+  }
+
+  function buildPerfLine(item) {
+    const parts = [`渲染 ${formatMs(item.renderMs)}`];
+    if (Number(item.apiTotal) > 0 || Number(item.evalMs) > 0) {
+      parts.push(`求值 ${formatMs(item.evalMs)}`);
+    }
+    parts.push(`总计 ${formatMs(item.totalMs)}`);
+    return parts.join(" · ");
+  }
+
+  function ensurePopover() {
+    let popover = document.getElementById(POPOVER_ID);
+    if (popover) return popover;
+    popover = document.createElement("div");
+    popover.id = POPOVER_ID;
+    popover.className = "visit-history-popover";
+    popover.setAttribute("hidden", "hidden");
+    popover.innerHTML =
+      '<div class="visit-history-popover-backdrop" data-visit-history-close="mask"></div>' +
+      '<section class="visit-history-popover-panel" role="dialog" aria-label="最近访问">' +
+      '<header class="visit-history-popover-head">' +
+      "<strong>最近访问</strong>" +
+      '<button type="button" class="visit-history-popover-close" data-visit-history-close="button" aria-label="关闭">×</button>' +
+      "</header>" +
+      '<div class="visit-history-popover-body" data-visit-history-list="true"></div>' +
+      "</section>";
+    popover.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.dataset.visitHistoryClose) hidePopover();
+    });
+    document.body.appendChild(popover);
+    return popover;
+  }
+
+  function renderList() {
+    const popover = ensurePopover();
+    const listHost = popover.querySelector("[data-visit-history-list]");
+    if (!listHost) return;
+    const api = store();
+    const items = api && typeof api.list === "function" ? api.list() : [];
+    if (!items.length) {
+      listHost.innerHTML = '<div class="visit-history-empty">暂无访问记录</div>';
+      return;
+    }
+    listHost.innerHTML = items
+      .map((item) => {
+        const hint = item.uiShown ? "" : '<span class="visit-history-muted">未提示</span>';
+        return (
+          '<article class="visit-history-row">' +
+          '<div class="visit-history-row-top">' +
+          `<time>${escapeHtml(formatTime(item.at))}</time>` +
+          `<span class="visit-history-kind">${escapeHtml(kindLabel(item.kind))}</span>` +
+          hint +
+          "</div>" +
+          `<div class="visit-history-label" title="${escapeHtml(item.label || item.path || "")}">${escapeHtml(truncate(item.label || item.path || "访问", 48))}</div>` +
+          `<div class="visit-history-perf">${escapeHtml(buildPerfLine(item))}</div>` +
+          "</article>"
+        );
+      })
+      .join("");
+  }
+
+  function showPopover() {
+    const trigger = document.getElementById(TRIGGER_ID);
+    if (!trigger) return;
+    const popover = ensurePopover();
+    renderList();
+    popover.removeAttribute("hidden");
+    popover.classList.add("is-open");
+    const rect = trigger.getBoundingClientRect();
+    const panel = popover.querySelector(".visit-history-popover-panel");
+    if (panel instanceof HTMLElement) {
+      const margin = 10;
+      const panelWidth = Math.min(360, Math.max(280, window.innerWidth - margin * 2));
+      panel.style.width = `${panelWidth}px`;
+      let left = Math.max(margin, rect.left);
+      if (left + panelWidth > window.innerWidth - margin) {
+        left = Math.max(margin, window.innerWidth - margin - panelWidth);
+      }
+      panel.style.left = `${Math.round(left)}px`;
+      panel.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
+    }
+  }
+
+  function hidePopover() {
+    const popover = document.getElementById(POPOVER_ID);
+    if (!popover) return;
+    popover.setAttribute("hidden", "hidden");
+    popover.classList.remove("is-open");
+  }
+
+  function togglePopover() {
+    const popover = document.getElementById(POPOVER_ID);
+    if (popover && popover.classList.contains("is-open")) {
+      hidePopover();
+      return;
+    }
+    showPopover();
+  }
+
+  function updateTriggerHint() {
+    const trigger = document.getElementById(TRIGGER_ID);
+    const api = store();
+    if (!trigger || !api || typeof api.list !== "function") return;
+    const latest = api.list()[0];
+    if (!latest) {
+      trigger.title = "最近访问与加载耗时";
+      return;
+    }
+    trigger.title = `${kindLabel(latest.kind)} · ${buildPerfLine(latest)}`;
+  }
+
+  function bindTrigger() {
+    const trigger = document.getElementById(TRIGGER_ID);
+    if (!trigger || trigger.dataset.meiVisitHistoryBound === "1") return;
+    trigger.dataset.meiVisitHistoryBound = "1";
+    trigger.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      togglePopover();
+    });
+    updateTriggerHint();
+  }
+
+  function isAccessMode() {
+    return document.body.classList.contains("access-mode") || document.body.classList.contains("app-view");
+  }
+
+  function init() {
+    if (!isAccessMode()) return;
+    bindTrigger();
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hidePopover();
+    });
+    document.addEventListener("mei:visit-history-updated", () => {
+      updateTriggerHint();
+      const popover = document.getElementById(POPOVER_ID);
+      if (popover && popover.classList.contains("is-open")) renderList();
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init, { once: true });
+  } else {
+    init();
+  }
+
+  boot.refreshVisitHistoryPanel = function refreshVisitHistoryPanel() {
+    bindTrigger();
+    updateTriggerHint();
+    renderList();
+  };
+})();
+
+;
+
 /* ===== agent-panel-utils.js ===== */
 /**
  * 作者面板共用纯逻辑：在拼接 bundle 中先于 `agent-panel.js` 执行。
@@ -9488,6 +9690,335 @@
 
 ;
 
+/* ===== spa-navigation/visit-history-store.js ===== */
+(function (global) {
+  const MAX_ENTRIES = 20;
+  const STORAGE_PREFIX = "mei_visit_perf_v1:";
+
+  function readUsername() {
+    const meta = document.querySelector('meta[name="mei-auth-user"]');
+    const fromMeta = meta ? String(meta.getAttribute("content") || "").trim() : "";
+    if (fromMeta) return fromMeta;
+    const bodyUser = document.body?.dataset?.meiAuthUser;
+    if (bodyUser) return String(bodyUser).trim();
+    return "anonymous";
+  }
+
+  function storageKey() {
+    return STORAGE_PREFIX + readUsername();
+  }
+
+  function list() {
+    try {
+      const raw = global.localStorage.getItem(storageKey());
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function append(record) {
+    if (!record || typeof record !== "object") return list();
+    const items = list();
+    items.unshift(record);
+    const trimmed = items.slice(0, MAX_ENTRIES);
+    try {
+      global.localStorage.setItem(storageKey(), JSON.stringify(trimmed));
+    } catch (_) {
+      /* ignore quota */
+    }
+    try {
+      global.document?.dispatchEvent(
+        new CustomEvent("mei:visit-history-updated", { detail: { record, items: trimmed } }),
+      );
+    } catch (_) {}
+    return trimmed;
+  }
+
+  function kindLabel(kind) {
+    const map = {
+      navigation: "导航",
+      drilldown: "下钻",
+      initial: "首屏",
+    };
+    return map[String(kind || "")] || String(kind || "访问");
+  }
+
+  const api = {
+    MAX_ENTRIES,
+    readUsername,
+    list,
+    append,
+    kindLabel,
+  };
+
+  global.MeiVisitHistoryStore = api;
+  const boot = (global.__meiLangBoot = global.__meiLangBoot || {});
+  boot.appendVisitHistory = append;
+  boot.listVisitHistory = list;
+  boot.visitHistoryKindLabel = kindLabel;
+})(
+  typeof window !== "undefined" ? window : typeof globalThis !== "undefined" ? globalThis : {},
+);
+
+;
+
+/* ===== spa-navigation/load-session.js ===== */
+  const LOAD_PHASES = ["render", "eval"];
+  const LOAD_PHASE_LABELS = {
+    render: "渲染",
+    eval: "求值",
+  };
+  const LOAD_PHASE_WEIGHTS = {
+    render: 0.55,
+    eval: 0.45,
+  };
+
+  let activeLoadSession = null;
+
+  function loadNowMs() {
+    if (typeof performance !== "undefined" && typeof performance.now === "function") {
+      return performance.now();
+    }
+    return Date.now();
+  }
+
+  function formatLoadMs(value) {
+    const ms = Number(value);
+    if (!Number.isFinite(ms) || ms < 0) return "—";
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  function createLoadId() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function createPhaseState() {
+    return {
+      status: "pending",
+      startedAt: 0,
+      endedAt: 0,
+      durationMs: 0,
+      detail: "",
+    };
+  }
+
+  function createLoadSession(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const session = {
+      id: createLoadId(),
+      kind: String(opts.kind || "navigation"),
+      label: String(opts.label || ""),
+      path: String(opts.path || opts.url || ""),
+      navigationId: opts.navigationId ?? null,
+      url: String(opts.url || ""),
+      startedAt: loadNowMs(),
+      wallStartedAt: Date.now(),
+      phases: {
+        render: createPhaseState(),
+        eval: createPhaseState(),
+      },
+      compile: {
+        cacheHit: null,
+        serverCompileMs: NaN,
+        handlerReadyMs: NaN,
+        htmlBytes: 0,
+        probeCount: 0,
+        dataPropsBytes: 0,
+        dataPropsCount: 0,
+        lastReason: "",
+      },
+      api: {
+        total: 0,
+        inflight: 0,
+        completed: 0,
+        failed: 0,
+        bytes: 0,
+        evalMs: 0,
+        lastKind: "",
+      },
+      renderTraceCount: 0,
+      postSpaDone: false,
+      swapDone: false,
+      contentReady: false,
+      ready: false,
+      readyReason: "",
+      uiShown: false,
+      finalized: false,
+    };
+    activeLoadSession = session;
+    return session;
+  }
+
+  function getActiveLoadSession() {
+    return activeLoadSession;
+  }
+
+  function getLoadSession(navigationId) {
+    if (!activeLoadSession) return null;
+    if (navigationId != null && activeLoadSession.navigationId !== navigationId) return null;
+    return activeLoadSession;
+  }
+
+  function clearActiveLoadSession(navigationId) {
+    if (!activeLoadSession) return;
+    if (navigationId != null && activeLoadSession.navigationId !== navigationId) return;
+    activeLoadSession = null;
+  }
+
+  function setLoadPhaseStatus(session, phase, status, detail) {
+    if (!session || !session.phases[phase]) return;
+    const entry = session.phases[phase];
+    if (entry.status === "done" && status !== "done") return;
+    if (status === "active" && entry.status === "pending") {
+      entry.startedAt = loadNowMs();
+    }
+    if (status === "done") {
+      if (!entry.startedAt) entry.startedAt = session.startedAt;
+      entry.endedAt = loadNowMs();
+      entry.durationMs = Math.max(0, Math.round(entry.endedAt - entry.startedAt));
+      if (detail) entry.detail = detail;
+    }
+    entry.status = status;
+  }
+
+  function computeRenderMs(session) {
+    if (!session) return 0;
+    let renderMs = session.phases.render.durationMs;
+    if (Number.isFinite(session.compile.handlerReadyMs)) {
+      renderMs = Math.max(renderMs, session.compile.handlerReadyMs);
+    }
+    return Math.max(0, Math.round(renderMs));
+  }
+
+  function computeEvalMs(session) {
+    if (!session) return 0;
+    const evalMs =
+      session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
+    return Math.max(0, Math.round(evalMs));
+  }
+
+  function buildLoadDetailLines(session) {
+    if (!session) return [];
+    const parts = [];
+    const render = session.phases.render;
+    if (render.status !== "pending") {
+      parts.push(`渲染 ${formatLoadMs(computeRenderMs(session))}`);
+    }
+    const evalMs = computeEvalMs(session);
+    if (session.api.total > 0) {
+      parts.push(`求值 ${formatLoadMs(evalMs)}`);
+    } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
+      parts.push(`求值 ${formatLoadMs(evalMs)}`);
+    }
+    parts.push(`总计 ${formatLoadMs(Date.now() - session.wallStartedAt)}`);
+    return [parts.join(" · ")];
+  }
+
+  function loadPhaseProgress(session, phase) {
+    const entry = session.phases[phase];
+    if (!entry) return 0;
+    if (entry.status === "done") return 1;
+    if (entry.status === "active") {
+      if (phase === "eval" && session.api.total > 0) {
+        const ratio = session.api.completed / Math.max(session.api.total, 1);
+        return Math.min(0.92, 0.2 + ratio * 0.72);
+      }
+      if (phase === "render") {
+        if (session.kind === "navigation" && session.swapDone) {
+          return session.postSpaDone ? 0.95 : 0.55;
+        }
+        if (session.kind === "drilldown" && session.contentReady) {
+          return 0.9;
+        }
+      }
+      return 0.35;
+    }
+    return 0;
+  }
+
+  function overallLoadProgress(session) {
+    let sum = 0;
+    for (const phase of LOAD_PHASES) {
+      sum += loadPhaseProgress(session, phase) * LOAD_PHASE_WEIGHTS[phase];
+    }
+    return Math.max(0, Math.min(1, sum));
+  }
+
+  function resolveActiveLoadPhase(session) {
+    for (let i = LOAD_PHASES.length - 1; i >= 0; i -= 1) {
+      if (session.phases[LOAD_PHASES[i]].status === "active") return LOAD_PHASES[i];
+    }
+    return null;
+  }
+
+  function mapOutcome(session, outcome) {
+    if (outcome) return outcome;
+    if (session.readyReason === "timeout") return "timeout";
+    if (session.readyReason === "navigation_error" || session.readyReason === "aborted") {
+      return "error";
+    }
+    if (session.ready && session.readyReason !== "aborted") return "ready";
+    return "aborted";
+  }
+
+  function finalizeLoadSession(session, options) {
+    if (!session || session.finalized) return null;
+    session.finalized = true;
+    const opts = options && typeof options === "object" ? options : {};
+    const uiShown = Boolean(opts.uiShown || session.uiShown);
+    const outcome = mapOutcome(session, opts.outcome);
+    const record = {
+      id: session.id,
+      kind: session.kind,
+      at: Date.now(),
+      label: session.label || session.path || session.url || "访问",
+      path: session.path || session.url || "",
+      renderMs: computeRenderMs(session),
+      evalMs: computeEvalMs(session),
+      totalMs: Math.max(0, Date.now() - session.wallStartedAt),
+      apiTotal: session.api.total,
+      uiShown,
+      outcome,
+    };
+    if (typeof boot.appendVisitHistory === "function") {
+      boot.appendVisitHistory(record);
+    } else if (
+      typeof window !== "undefined" &&
+      window.MeiVisitHistoryStore &&
+      typeof window.MeiVisitHistoryStore.append === "function"
+    ) {
+      window.MeiVisitHistoryStore.append(record);
+    }
+    return record;
+  }
+
+  boot.LOAD_PHASES = LOAD_PHASES;
+  boot.LOAD_PHASE_LABELS = LOAD_PHASE_LABELS;
+  boot.LOAD_PHASE_WEIGHTS = LOAD_PHASE_WEIGHTS;
+  boot.createLoadSession = createLoadSession;
+  boot.getActiveLoadSession = getActiveLoadSession;
+  boot.getLoadSession = getLoadSession;
+  boot.clearActiveLoadSession = clearActiveLoadSession;
+  boot.setLoadPhaseStatus = setLoadPhaseStatus;
+  boot.finalizeLoadSession = finalizeLoadSession;
+  boot.buildLoadDetailLines = buildLoadDetailLines;
+  boot.formatLoadMs = formatLoadMs;
+  boot.overallLoadProgress = overallLoadProgress;
+  boot.resolveActiveLoadPhase = resolveActiveLoadPhase;
+  boot.computeRenderMs = computeRenderMs;
+  boot.computeEvalMs = computeEvalMs;
+  boot.loadNowMs = loadNowMs;
+  boot.loadPhaseProgress = loadPhaseProgress;
+
+;
+
 /* ===== spa-navigation/route-predicates.js ===== */
   // Keep in sync with `UiRouteMode::from_slug` (app/src/ui/route.rs).
   const ACCESS_LIKE_ROUTE_SLUGS = new Set([
@@ -15387,6 +15918,23 @@
 ;
 
 /* ===== spa-navigation/drilldown/overlay-chrome.js ===== */
+  function drilldownLoadingStatusHtml(fallbackText) {
+    return (
+      '<div class="access-drilldown-overlay-status spa-loading-inline spa-loading-inline--kind-drilldown" data-drilldown-status="loading" data-mei-drilldown-load-progress="true">' +
+      '<span class="spa-loading-inline-fallback">' +
+      String(fallbackText || "正在加载…") +
+      "</span>" +
+      '<div class="spa-loading-inline-body" hidden>' +
+      '<span class="spa-loading-text">下钻加载中…</span>' +
+      '<div class="spa-loading-track">' +
+      '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
+      "</div>" +
+      '<div class="spa-loading-detail"></div>' +
+      "</div>" +
+      "</div>"
+    );
+  }
+
   function ensureDrilldownOverlayRoot() {
     let root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (root) {
@@ -15412,14 +15960,14 @@
       "</div>" +
       '<div class="access-drilldown-overlay-tabs" data-drilldown-tabs="true" hidden></div>' +
       '<div class="access-drilldown-overlay-body" data-drilldown-body-mode="generic">' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载明细表...</div>' +
+      drilldownLoadingStatusHtml("正在加载明细表...") +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>明细表加载失败，请稍后重试。</div>' +
       '<div class="access-drilldown-table-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-drilldown-table-host" data-drilldown-table-host="true"></div>' +
       "</div>" +
       "</div>" +
       '<div class="access-drilldown-overlay-body access-drilldown-overlay-body--structured" data-drilldown-body-mode="structured" hidden>' +
-      '<div class="access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      drilldownLoadingStatusHtml("正在加载看板...") +
       '<div class="access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
       '<div class="access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
@@ -15456,7 +16004,7 @@
       '<button type="button" class="access-scene-board-overlay-close access-drilldown-overlay-close" data-scene-board-close="button" aria-label="关闭">×</button>' +
       "</header>" +
       '<div class="access-scene-board-overlay-body access-drilldown-overlay-body--structured">' +
-      '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="loading">正在加载看板...</div>' +
+      drilldownLoadingStatusHtml("正在加载看板...") +
       '<div class="access-scene-board-overlay-status access-drilldown-overlay-status" data-drilldown-status="error" hidden>看板加载失败，请稍后重试。</div>' +
       '<div class="access-scene-board-structured-shell access-drilldown-structured-shell" data-drilldown-status="ready" hidden>' +
       '<div class="access-scene-board-structured-layout access-drilldown-structured-layout" data-drilldown-structured-layout="true"></div>' +
@@ -15477,11 +16025,33 @@
     root
       .querySelectorAll("[data-drilldown-status]")
       .forEach((node) => node.toggleAttribute("hidden", node.dataset.drilldownStatus !== status));
+    if (status === "loading" && typeof boot.scheduleDrilldownProgressShow === "function") {
+      boot.scheduleDrilldownProgressShow(root);
+    }
+    if (
+      (status === "ready" || status === "error") &&
+      typeof boot.completeDrilldownLoadSession === "function"
+    ) {
+      void boot.completeDrilldownLoadSession({
+        outcome: status === "ready" ? "ready" : "error",
+        root,
+      });
+    }
+  }
+
+  function abortDrilldownLoadIfNeeded(root) {
+    if (typeof boot.clearDrilldownProgressTimer === "function" && root) {
+      boot.clearDrilldownProgressTimer(root);
+    }
+    if (typeof boot.abortDrilldownLoadSession === "function") {
+      boot.abortDrilldownLoadSession();
+    }
   }
 
   function closeDrilldownOverlay() {
     const root = document.getElementById(DRILLDOWN_OVERLAY_ROOT_ID);
     if (!root) return;
+    abortDrilldownLoadIfNeeded(root);
     cleanupStructuredDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
@@ -15504,6 +16074,7 @@
   function closeSceneBoardOverlay() {
     const root = document.getElementById(SCENE_BOARD_OVERLAY_ROOT_ID);
     if (!root) return;
+    abortDrilldownLoadIfNeeded(root);
     cleanupStructuredDrilldownWatcher(root);
     root.setAttribute("hidden", "hidden");
     root.classList.remove("is-open");
@@ -15670,6 +16241,13 @@
     await openProjectionOverlay(detail, renderConfig);
   }
 
+  function drilldownSessionMeta(config) {
+    return {
+      label: nonEmptyString(config?.title, config?.boardSceneId, config?.sceneId, "下钻看板"),
+      path: nonEmptyString(config?.boardSceneFile, config?.boardSceneId, config?.sceneId),
+    };
+  }
+
   async function openProjectionOverlay(detail, preResolvedRequest = null) {
     const resolved = preResolvedRequest || resolveSceneOpenRequest(detail);
     const config = resolved;
@@ -15685,6 +16263,9 @@
         });
       }
       return;
+    }
+    if (typeof boot.beginDrilldownLoadSession === "function") {
+      boot.beginDrilldownLoadSession(drilldownSessionMeta(config));
     }
     if (useSceneBoardOverlay(config)) {
       closeDrilldownOverlay();
@@ -15846,170 +16427,69 @@
 ;
 
 /* ===== spa-navigation/spa/loading-progress.js ===== */
-  const PHASES = ["render", "eval"];
-  const PHASE_LABELS = {
-    render: "渲染",
-    eval: "求值",
-  };
-  const PHASE_WEIGHTS = {
-    render: 0.55,
-    eval: 0.45,
-  };
+  const PHASES = boot.LOAD_PHASES || ["render", "eval"];
+  const PHASE_LABELS = boot.LOAD_PHASE_LABELS || { render: "渲染", eval: "求值" };
+  const PHASE_WEIGHTS = boot.LOAD_PHASE_WEIGHTS || { render: 0.55, eval: 0.45 };
   const READY_QUIET_MS = 360;
   const READY_MAX_WAIT_MS = 45000;
   const READY_MAX_WAIT_INITIAL_MS = 120000;
   const READY_POLL_MS = 48;
   const INITIAL_LOAD_NAVIGATION_ID = -1;
 
-  let activeSession = null;
   let fetchHookInstalled = false;
 
-  function nowMs() {
-    if (typeof performance !== "undefined" && typeof performance.now === "function") {
-      return performance.now();
-    }
-    return Date.now();
-  }
-
-  function headerMs(response, name) {
-    if (!response || typeof response.headers?.get !== "function") return NaN;
-    const value = Number(response.headers.get(name));
-    return Number.isFinite(value) && value >= 0 ? value : NaN;
-  }
-
-  function headerText(response, name) {
-    if (!response || typeof response.headers?.get !== "function") return "";
-    return String(response.headers.get(name) || "").trim();
+  function activeSession() {
+    return typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
   }
 
   function formatMs(value) {
-    const ms = Number(value);
-    if (!Number.isFinite(ms) || ms < 0) return "—";
-    if (ms < 1000) return `${Math.round(ms)}ms`;
-    return `${(ms / 1000).toFixed(2)}s`;
+    return typeof boot.formatLoadMs === "function" ? boot.formatLoadMs(value) : String(value);
   }
 
-  function createPhaseState() {
-    return {
-      status: "pending",
-      startedAt: 0,
-      endedAt: 0,
-      durationMs: 0,
-      detail: "",
-    };
-  }
-
-  function createSession(navigationId, url) {
-    return {
-      navigationId,
-      url: String(url || ""),
-      startedAt: nowMs(),
-      wallStartedAt: Date.now(),
-      phases: {
-        render: createPhaseState(),
-        eval: createPhaseState(),
-      },
-      compile: {
-        cacheHit: null,
-        serverCompileMs: NaN,
-        handlerReadyMs: NaN,
-        htmlBytes: 0,
-        probeCount: 0,
-        dataPropsBytes: 0,
-        dataPropsCount: 0,
-        lastReason: "",
-      },
-      api: {
-        total: 0,
-        inflight: 0,
-        completed: 0,
-        failed: 0,
-        bytes: 0,
-        evalMs: 0,
-        lastKind: "",
-      },
-      renderTraceCount: 0,
-      postSpaDone: false,
-      swapDone: false,
-      ready: false,
-      readyReason: "",
-    };
+  function sessionLabelFromUrl(url) {
+    try {
+      const parsed = new URL(url, window.location.href);
+      const file = String(parsed.searchParams.get("file") || "").trim();
+      if (file) return file;
+      const scene = String(parsed.searchParams.get("scene") || "").trim();
+      if (scene) return `scene:${scene}`;
+      return parsed.pathname;
+    } catch (_) {}
+    return String(url || "访问");
   }
 
   function getSession(navigationId) {
-    if (!activeSession) return null;
-    if (navigationId != null && activeSession.navigationId !== navigationId) return null;
-    return activeSession;
+    return typeof boot.getLoadSession === "function" ? boot.getLoadSession(navigationId) : null;
   }
 
   function setPhaseStatus(session, phase, status, detail) {
-    if (!session || !session.phases[phase]) return;
-    const entry = session.phases[phase];
-    if (entry.status === "done" && status !== "done") return;
-    if (status === "active" && entry.status === "pending") {
-      entry.startedAt = nowMs();
-    }
-    if (status === "done") {
-      if (!entry.startedAt) entry.startedAt = session.startedAt;
-      entry.endedAt = nowMs();
-      entry.durationMs = Math.max(0, Math.round(entry.endedAt - entry.startedAt));
-      if (detail) entry.detail = detail;
-    }
-    entry.status = status;
+    if (!session || typeof boot.setLoadPhaseStatus !== "function") return;
+    boot.setLoadPhaseStatus(session, phase, status, detail);
     updateLoadingProgressDom(session);
   }
 
   function phaseProgress(session, phase) {
-    const entry = session.phases[phase];
-    if (!entry) return 0;
-    if (entry.status === "done") return 1;
-    if (entry.status === "active") {
-      if (phase === "eval" && session.api.total > 0) {
-        const ratio = session.api.completed / Math.max(session.api.total, 1);
-        return Math.min(0.92, 0.2 + ratio * 0.72);
-      }
-      if (phase === "render" && session.swapDone) {
-        return session.postSpaDone ? 0.95 : 0.55;
-      }
-      return 0.35;
-    }
-    return 0;
+    return typeof boot.loadPhaseProgress === "function"
+      ? boot.loadPhaseProgress(session, phase)
+      : 0;
   }
 
   function overallProgress(session) {
-    let sum = 0;
-    for (const phase of PHASES) {
-      sum += phaseProgress(session, phase) * PHASE_WEIGHTS[phase];
-    }
-    return Math.max(0, Math.min(1, sum));
+    return typeof boot.overallLoadProgress === "function"
+      ? boot.overallLoadProgress(session)
+      : 0;
   }
 
   function buildDetailLines(session) {
-    const parts = [];
-    const render = session.phases.render;
-    if (render.status !== "pending") {
-      let renderMs = render.durationMs;
-      if (Number.isFinite(session.compile.handlerReadyMs)) {
-        renderMs = Math.max(renderMs, session.compile.handlerReadyMs);
-      }
-      parts.push(`渲染 ${formatMs(renderMs)}`);
-    }
-    const evalMs =
-      session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
-    if (session.api.total > 0) {
-      parts.push(`求值 ${formatMs(evalMs)}`);
-    } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
-      parts.push(`求值 ${formatMs(evalMs)}`);
-    }
-    parts.push(`总计 ${formatMs(Date.now() - session.wallStartedAt)}`);
-    return [parts.join(" · ")];
+    return typeof boot.buildLoadDetailLines === "function"
+      ? boot.buildLoadDetailLines(session)
+      : [];
   }
 
   function resolveActivePhase(session) {
-    for (let i = PHASES.length - 1; i >= 0; i -= 1) {
-      if (session.phases[PHASES[i]].status === "active") return PHASES[i];
-    }
-    return null;
+    return typeof boot.resolveActiveLoadPhase === "function"
+      ? boot.resolveActiveLoadPhase(session)
+      : null;
   }
 
   function paintProgressOverlay(overlay, session) {
@@ -16034,11 +16514,16 @@
       overlay.querySelector("[data-mei-page-load-title]");
     if (title) {
       const activePhase = resolveActivePhase(session);
+      const drilldown = overlay.closest("[data-mei-drilldown-load-progress]");
       title.textContent = activePhase
-        ? `正在${PHASE_LABELS[activePhase]}…`
+        ? drilldown
+          ? `下钻${PHASE_LABELS[activePhase]}…`
+          : `正在${PHASE_LABELS[activePhase]}…`
         : session.ready
           ? "加载完成"
-          : "加载中…";
+          : drilldown
+            ? "下钻加载中…"
+            : "加载中…";
     }
   }
 
@@ -16053,6 +16538,9 @@
     if (!shellTracking) {
       paintProgressOverlay(document.getElementById("mei-page-load-progress"), session);
     }
+    document.querySelectorAll("[data-mei-drilldown-load-progress]").forEach((node) => {
+      paintProgressOverlay(node, session);
+    });
 
     const manageOverlay = document.querySelector('[data-mei-manage-nav-loading="true"]');
     if (manageOverlay) {
@@ -16109,6 +16597,21 @@
     else if (kind === "query") session.api.lastKind = "数据集查询";
   }
 
+  function headerMs(response, name) {
+    if (!response || typeof response.headers?.get !== "function") return NaN;
+    const value = Number(response.headers.get(name));
+    return Number.isFinite(value) && value >= 0 ? value : NaN;
+  }
+
+  function headerText(response, name) {
+    if (!response || typeof response.headers?.get !== "function") return "";
+    return String(response.headers.get(name) || "").trim();
+  }
+
+  function nowMs() {
+    return typeof boot.loadNowMs === "function" ? boot.loadNowMs() : Date.now();
+  }
+
   function installLoadingProgressFetchHook() {
     if (fetchHookInstalled || typeof window === "undefined") return;
     fetchHookInstalled = true;
@@ -16120,7 +16623,7 @@
           : input && typeof input.url === "string"
             ? input.url
             : "";
-      const session = activeSession;
+      const session = activeSession();
       const track = session && isDatasetApiUrl(requestUrl);
       if (track) {
         if (session.phases.eval.status === "pending") {
@@ -16173,10 +16676,28 @@
 
   function beginLoadingProgressSession(navigationId, url) {
     installLoadingProgressFetchHook();
-    activeSession = createSession(navigationId, url);
-    setPhaseStatus(activeSession, "render", "active");
-    updateLoadingProgressDom(activeSession);
-    return activeSession;
+    const kind = navigationId === INITIAL_LOAD_NAVIGATION_ID ? "initial" : "navigation";
+    const session = boot.createLoadSession({
+      kind,
+      label: sessionLabelFromUrl(url),
+      path: url,
+      navigationId,
+      url,
+    });
+    setPhaseStatus(session, "render", "active");
+    return session;
+  }
+
+  function beginDrilldownLoadSession(options) {
+    installLoadingProgressFetchHook();
+    const opts = options && typeof options === "object" ? options : {};
+    const session = boot.createLoadSession({
+      kind: "drilldown",
+      label: String(opts.label || "下钻看板"),
+      path: String(opts.path || ""),
+    });
+    setPhaseStatus(session, "render", "active");
+    return session;
   }
 
   function recordLoadingNavigationResponse(response, navigationId, htmlByteLength) {
@@ -16222,7 +16743,7 @@
   }
 
   function markLoadingRenderTrace(entry) {
-    const session = activeSession;
+    const session = activeSession();
     if (!session || !entry) return;
     session.renderTraceCount += 1;
     const phase = String(entry.phase || "");
@@ -16244,6 +16765,27 @@
 
   function loadingProgressReady(session) {
     if (!session) return { ready: true, reason: "no_session" };
+    if (session.kind === "drilldown") {
+      if (!session.contentReady) {
+        return { ready: false, reason: "content" };
+      }
+      if (session.phases.render.status !== "done") {
+        return { ready: false, reason: "render" };
+      }
+      if (session.api.inflight > 0) {
+        return { ready: false, reason: "api_inflight" };
+      }
+      if (session.phases.eval.status === "pending" && session.api.total === 0) {
+        return { ready: true, reason: "no_runtime_api" };
+      }
+      if (session.phases.eval.status === "active" && session.api.total > 0) {
+        return { ready: true, reason: "eval_done" };
+      }
+      if (session.phases.eval.status === "done") {
+        return { ready: true, reason: "eval_done" };
+      }
+      return { ready: true, reason: "stable" };
+    }
     if (!session.swapDone) {
       return { ready: false, reason: "swap" };
     }
@@ -16272,23 +16814,24 @@
     let quietSince = 0;
     return new Promise((resolve) => {
       const tick = () => {
-        if (!activeSession || activeSession.navigationId !== navigationId) {
+        const current = getSession(navigationId);
+        if (!current) {
           resolve();
           return;
         }
-        const verdict = loadingProgressReady(activeSession);
+        const verdict = loadingProgressReady(current);
         const elapsed = Date.now() - started;
         if (verdict.ready) {
           if (!quietSince) quietSince = Date.now();
           if (Date.now() - quietSince >= READY_QUIET_MS) {
-            if (activeSession.phases.eval.status === "active") {
-              setPhaseStatus(activeSession, "eval", "done");
-            } else if (activeSession.phases.eval.status === "pending") {
-              setPhaseStatus(activeSession, "eval", "done", "无运行时 API");
+            if (current.phases.eval.status === "active") {
+              setPhaseStatus(current, "eval", "done");
+            } else if (current.phases.eval.status === "pending") {
+              setPhaseStatus(current, "eval", "done", "无运行时 API");
             }
-            activeSession.ready = true;
-            activeSession.readyReason = verdict.reason;
-            updateLoadingProgressDom(activeSession);
+            current.ready = true;
+            current.readyReason = verdict.reason;
+            updateLoadingProgressDom(current);
             resolve();
             return;
           }
@@ -16296,9 +16839,9 @@
           quietSince = 0;
         }
         if (elapsed >= (navigationId === INITIAL_LOAD_NAVIGATION_ID ? READY_MAX_WAIT_INITIAL_MS : READY_MAX_WAIT_MS)) {
-          activeSession.ready = true;
-          activeSession.readyReason = "timeout";
-          updateLoadingProgressDom(activeSession);
+          current.ready = true;
+          current.readyReason = "timeout";
+          updateLoadingProgressDom(current);
           resolve();
           return;
         }
@@ -16306,6 +16849,102 @@
       };
       tick();
     });
+  }
+
+  function waitForDrilldownLoadReady() {
+    const session = activeSession();
+    if (!session || session.kind !== "drilldown") return Promise.resolve();
+    const started = Date.now();
+    let quietSince = 0;
+    return new Promise((resolve) => {
+      const tick = () => {
+        const current = activeSession();
+        if (!current || current.kind !== "drilldown") {
+          resolve();
+          return;
+        }
+        const verdict = loadingProgressReady(current);
+        if (verdict.ready) {
+          if (!quietSince) quietSince = Date.now();
+          if (Date.now() - quietSince >= READY_QUIET_MS) {
+            if (current.phases.eval.status === "active") {
+              setPhaseStatus(current, "eval", "done");
+            } else if (current.phases.eval.status === "pending") {
+              setPhaseStatus(current, "eval", "done", "无运行时 API");
+            }
+            current.ready = true;
+            current.readyReason = verdict.reason;
+            updateLoadingProgressDom(current);
+            resolve();
+            return;
+          }
+        } else {
+          quietSince = 0;
+        }
+        if (Date.now() - started >= READY_MAX_WAIT_MS) {
+          current.ready = true;
+          current.readyReason = "timeout";
+          updateLoadingProgressDom(current);
+          resolve();
+          return;
+        }
+        window.setTimeout(tick, READY_POLL_MS);
+      };
+      tick();
+    });
+  }
+
+  async function completeDrilldownLoadSession(options) {
+    const opts = options && typeof options === "object" ? options : {};
+    const session = activeSession();
+    if (!session || session.kind !== "drilldown" || session.finalized) return;
+    if (opts.outcome === "ready") {
+      session.contentReady = true;
+      if (session.phases.render.status !== "done") {
+        setPhaseStatus(session, "render", "done");
+      }
+    } else {
+      session.contentReady = true;
+      for (const phase of PHASES) {
+        if (session.phases[phase].status !== "done") {
+          setPhaseStatus(session, phase, "done", "error");
+        }
+      }
+      session.ready = true;
+      session.readyReason = "error";
+      updateLoadingProgressDom(session);
+      boot.finalizeLoadSession(session, {
+        uiShown: Boolean(session.uiShown),
+        outcome: "error",
+      });
+      boot.clearActiveLoadSession(null);
+      return;
+    }
+    await waitForDrilldownLoadReady();
+    const current = activeSession();
+    if (!current || current.finalized) return;
+    boot.finalizeLoadSession(current, {
+      uiShown: Boolean(current.uiShown),
+      outcome: "ready",
+    });
+    boot.clearActiveLoadSession(null);
+  }
+
+  function abortDrilldownLoadSession() {
+    const session = activeSession();
+    if (!session || session.kind !== "drilldown" || session.finalized) return;
+    for (const phase of PHASES) {
+      if (session.phases[phase].status !== "done") {
+        setPhaseStatus(session, phase, "done", "aborted");
+      }
+    }
+    session.ready = true;
+    session.readyReason = "aborted";
+    boot.finalizeLoadSession(session, {
+      uiShown: Boolean(session.uiShown),
+      outcome: "aborted",
+    });
+    boot.clearActiveLoadSession(null);
   }
 
   function abortLoadingProgressSession(navigationId, reason) {
@@ -16322,13 +16961,16 @@
   }
 
   function clearLoadingProgressSession(navigationId) {
-    if (!activeSession) return;
-    if (navigationId != null && activeSession.navigationId !== navigationId) return;
-    activeSession = null;
+    if (typeof boot.clearActiveLoadSession === "function") {
+      boot.clearActiveLoadSession(navigationId);
+    }
   }
 
   boot.INITIAL_LOAD_NAVIGATION_ID = INITIAL_LOAD_NAVIGATION_ID;
   boot.beginLoadingProgressSession = beginLoadingProgressSession;
+  boot.beginDrilldownLoadSession = beginDrilldownLoadSession;
+  boot.completeDrilldownLoadSession = completeDrilldownLoadSession;
+  boot.abortDrilldownLoadSession = abortDrilldownLoadSession;
   boot.recordLoadingNavigationResponse = recordLoadingNavigationResponse;
   boot.markLoadingRenderSwapDone = markLoadingRenderSwapDone;
   boot.markLoadingPostSpaDone = markLoadingPostSpaDone;
@@ -16336,10 +16978,11 @@
   boot.abortLoadingProgressSession = abortLoadingProgressSession;
   boot.clearLoadingProgressSession = clearLoadingProgressSession;
   boot.refreshLoadingProgressUi = function refreshLoadingProgressUi() {
-    if (activeSession) updateLoadingProgressDom(activeSession);
+    const session = activeSession();
+    if (session) updateLoadingProgressDom(session);
   };
   boot.getLoadingProgressSession = function getLoadingProgressSession() {
-    return activeSession;
+    return activeSession();
   };
   if (typeof window !== "undefined") {
     window.__meiLoadingProgressMarkRender = markLoadingRenderTrace;
@@ -16540,6 +17183,58 @@
     }
   }
 
+  let drilldownProgressTimers = new WeakMap();
+
+  function drilldownProgressHost(root) {
+    if (!(root instanceof HTMLElement)) return null;
+    return root.querySelector("[data-mei-drilldown-load-progress]");
+  }
+
+  function isDrilldownProgressVisible(root) {
+    const host = drilldownProgressHost(root);
+    return Boolean(host && host.classList.contains("is-progress-visible"));
+  }
+
+  function clearDrilldownProgressTimer(root) {
+    const timer = drilldownProgressTimers.get(root);
+    if (timer) {
+      clearTimeout(timer);
+      drilldownProgressTimers.delete(root);
+    }
+  }
+
+  function revealDrilldownProgress(root) {
+    const host = drilldownProgressHost(root);
+    if (!host) return;
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (!session || session.kind !== "drilldown") return;
+    host.classList.add("is-progress-visible");
+    const fallback = host.querySelector(".spa-loading-inline-fallback");
+    const body = host.querySelector(".spa-loading-inline-body");
+    if (fallback) fallback.hidden = true;
+    if (body) body.hidden = false;
+    session.uiShown = true;
+    if (typeof boot.refreshLoadingProgressUi === "function") {
+      boot.refreshLoadingProgressUi();
+    }
+  }
+
+  function scheduleDrilldownProgressShow(root) {
+    if (!(root instanceof HTMLElement)) return;
+    clearDrilldownProgressTimer(root);
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    const wallStartedAt = session?.wallStartedAt || Date.now();
+    const delay = Math.max(0, LOADING_SHOW_DELAY_MS - (Date.now() - wallStartedAt));
+    const timer = setTimeout(() => {
+      drilldownProgressTimers.delete(root);
+      if (!root.isConnected) return;
+      revealDrilldownProgress(root);
+    }, delay);
+    drilldownProgressTimers.set(root, timer);
+  }
+
   function showLoadingNow() {
     clearLoadingTimer();
     createLoadingOverlay();
@@ -16547,6 +17242,9 @@
     if (!overlay) return;
     overlay.classList.add("is-visible");
     loadingVisibleAt = Date.now();
+    const session =
+      typeof boot.getActiveLoadSession === "function" ? boot.getActiveLoadSession() : null;
+    if (session) session.uiShown = true;
     if (typeof boot.refreshLoadingProgressUi === "function") {
       boot.refreshLoadingProgressUi();
     }
@@ -16571,12 +17269,23 @@
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
     }
+    const session =
+      typeof boot.getLoadSession === "function" ? boot.getLoadSession(navigationId) : null;
+    if (session && !session.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(session, { uiShown: Boolean(session.uiShown) });
+    }
     finishLoadingHide();
     clearManageWorkspaceLoadingState();
     if (typeof boot.clearLoadingProgressSession === "function") {
       boot.clearLoadingProgressSession(navigationId);
     }
+    if (typeof boot.refreshVisitHistoryPanel === "function") {
+      boot.refreshVisitHistoryPanel();
+    }
   }
+  boot.scheduleDrilldownProgressShow = scheduleDrilldownProgressShow;
+  boot.clearDrilldownProgressTimer = clearDrilldownProgressTimer;
+  boot.isDrilldownProgressVisible = isDrilldownProgressVisible;
 
 ;
 
@@ -17916,6 +18625,13 @@
       window.MeiPageLoadProgress.isTracking()
     ) {
       return;
+    }
+    const session =
+      typeof boot.getLoadSession === "function"
+        ? boot.getLoadSession(initialLoadNavigationId())
+        : null;
+    if (session && !session.finalized && typeof boot.finalizeLoadSession === "function") {
+      boot.finalizeLoadSession(session, { uiShown: Boolean(session.uiShown) });
     }
     if (typeof finishLoadingHide === "function") {
       finishLoadingHide();

@@ -5,6 +5,8 @@
   "spa-navigation/constants-maps.js",
   "spa-navigation/drilldown/column-infer.js",
   "spa-navigation/nav-state.js",
+  "spa-navigation/visit-history-store.js",
+  "spa-navigation/load-session.js",
   "spa-navigation/route-predicates.js",
   "spa-navigation/drilldown/scene-shell-normalize.js",
   "spa-navigation/drilldown/board-link.js",
