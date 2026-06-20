@@ -470,6 +470,28 @@
     return ok;
   }
 
+  async function remountStructuredAnalyticsDetailZones(root, detail, config, resolveZoneHost) {
+    const slotZones = sceneShellZonesByRole(config?.sceneShell, "slots");
+    let ok = true;
+    for (const zone of slotZones) {
+      const zoneSlots = Array.isArray(config?.slotsByZone?.[zone.id]) ? config.slotsByZone[zone.id] : [];
+      if (!zoneSlots.length || zoneSlots.every((slot) => slot.component === "chart")) {
+        continue;
+      }
+      const host =
+        typeof resolveZoneHost === "function"
+          ? resolveZoneHost(zone.id)
+          : root.__meiStructuredZoneHosts?.[zone.id];
+      if (!(host instanceof HTMLElement)) {
+        ok = false;
+        continue;
+      }
+      const zoneOk = await mountStructuredSlotZone(root, detail, config, zone, host);
+      ok = ok && zoneOk;
+    }
+    return ok;
+  }
+
   function bindAnalyticsChartsQueryStateRefresh(root, detail, config, resolveZoneHost) {
     cleanupAnalyticsDrilldownWatcher(root);
     const queryStateId = nonEmptyString(config?.queryStateId, detail?.query_state_id, detail?.queryStateId);
@@ -479,15 +501,18 @@
       if (event?.detail?.id !== queryStateId) return;
       if (!(root instanceof HTMLElement) || root.hasAttribute("hidden")) return;
       const currentSeq = ++refreshSeq;
-      remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost)
-        .then((ok) => {
-          if (!ok || currentSeq !== refreshSeq) return;
+      Promise.all([
+        remountStructuredAnalyticsChartZones(root, detail, config, resolveZoneHost),
+        remountStructuredAnalyticsDetailZones(root, detail, config, resolveZoneHost),
+      ])
+        .then(([chartsOk, detailOk]) => {
+          if ((!chartsOk && !detailOk) || currentSeq !== refreshSeq) return;
           dispatchPreviewUpdated("drilldown");
         })
         .catch((error) => {
           recordPopupDebugIssue({
             level: "error",
-            message: String(error?.message || error || "分析型看板图表刷新失败"),
+            message: String(error?.message || error || "分析型看板刷新失败"),
             phase: "analytics_chart_refresh_error",
             detail,
             config,
