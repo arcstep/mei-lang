@@ -111,6 +111,15 @@ pub fn shell_body_theme_style(workspace: &WorkspaceConfig) -> String {
     shell_css_vars_style(theme_id.as_str(), &vars)
 }
 
+/// Shell vars on `<body>` plus scene vars for body-mounted cockpit/access overlays.
+pub fn page_body_theme_style(workspace: &WorkspaceConfig, compiled: Option<&CompiledApp>) -> String {
+    let mut style = shell_body_theme_style(workspace);
+    if let Some(compiled) = compiled {
+        style.push_str(&scene_viewport_theme_style(compiled));
+    }
+    style
+}
+
 /// Scene viewport theme CSS variables.
 pub fn scene_viewport_theme_style(compiled: &CompiledApp) -> String {
     if let Some(contract) = compiled.scene_contract.as_ref() {
@@ -263,6 +272,12 @@ mod tests {
             .expect("ws-hello");
         let app_root = source_root.join("hello");
         let workspace = load_workspace_config(&source_root);
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile ws-hello");
         let shell_style = shell_body_theme_style(&workspace);
         assert!(
             shell_style.contains("--mei-shell-color-"),
@@ -270,14 +285,13 @@ mod tests {
         );
         assert!(
             !shell_style.contains("--mei-color-surface"),
-            "body shell style must not inject scene surface vars: {shell_style}"
+            "shell-only style must not inject scene surface vars"
         );
-        let compiled = compile_app_from_root_with_options(
-            &source_root,
-            &app_root,
-            CompileOptions::default(),
-        )
-        .expect("compile ws-hello");
+        let page_style = page_body_theme_style(&workspace, Some(&compiled));
+        assert!(
+            page_style.contains("--mei-color-"),
+            "page body should also inject scene vars for body-mounted overlays"
+        );
         let scene_style = scene_viewport_theme_style(&compiled);
         assert!(
             scene_style.contains("--mei-color-"),

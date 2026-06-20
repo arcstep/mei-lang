@@ -1,0 +1,32 @@
+{
+  "literal_to_semantic": {
+    "literal_0c4e381a": "chrome_divider",
+    "literal_1e807751": "preview_bounds_line",
+    "literal_24c93418": "preview_bounds_line_soft",
+    "literal_adbaddda": "preview_excluded_stripe_a",
+    "literal_6638c35d": "preview_excluded_stripe_b",
+    "literal_e90d16ca": "splitter_rail_grad",
+    "literal_e0d3e99e": "border_nav",
+    "literal_27d9c6c1": "border_panel",
+    "literal_ef152511": "border_tool",
+    "literal_2bb22534": "border_inspector",
+    "literal_4256920d": "border_metadata",
+    "literal_370fb396": "border_accent_blue",
+    "literal_de26f7c9": "border_accent_teal",
+    "literal_86bdc2d3": "shadow_overlay_lg",
+    "literal_607e9aaf": "inset_highlight_subtle",
+    "literal_6c4c1f4d": "tab_border_bottom",
+    "literal_202adbc7": "focus_ring_subtle",
+    "literal_996dc1be": "statusbar_accent_line",
+    "literal_5b742ad8": "chip_file_icon_bg",
+    "literal_13eaa4f8": "host_splash_glow",
+    "literal_873fa379": "host_page_bg",
+    "literal_db58cf7c": "host_footer_text"
+  },
+  "drop_literals": ["literal_61084d59", "literal_b8f07ab1"],
+  "css_special": {
+    "manage_panel_bg": "linear-gradient(180deg, rgba(12, 18, 31, 0.92), rgba(2, 6, 23, 0.76))",
+    "chip_file_icon_bg": "linear-gradient(180deg, rgba(226, 232, 240, 0.42), rgba(148, 163, 184, 0.3))",
+    "splitter_rail_grad": "linear-gradient(180deg, transparent 0 2px, rgba(148, 163, 184, 0.3) 2px 3px, transparent 3px 5px, rgba(148, 163, 184, 0.3) 5px 6px, transparent 6px 8px)"
+  }
+}

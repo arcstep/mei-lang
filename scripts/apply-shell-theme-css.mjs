@@ -112,8 +112,7 @@ shell = shell.replace(
 fs.writeFileSync(appShellPath, shell + scene);
 console.log(`apply-shell-theme-css: shell=${shell.split("\n").length} scene=${scene.split("\n").length}`);
 
-execSync("node scripts/materialize-shell-css-literals.mjs", { cwd: root, stdio: "inherit" });
-execSync("node scripts/fix-fragment-gradients.mjs", { cwd: root, stdio: "inherit" });
+// materialize-shell-css-literals.mjs is deprecated (topic 33); use finalize-shell-theme.mjs instead.
 const finalLines = fs.readFileSync(appShellPath, "utf8").split("\n").length;
 if (finalLines < 5000) throw new Error(`app-shell.css too short (${finalLines} lines)`);
 console.log(`apply-shell-theme-css: final ${finalLines} lines`);

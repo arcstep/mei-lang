@@ -7,6 +7,7 @@ const hexRe = /#[0-9a-fA-F]{3,8}\b/g;
 const rgbaRe = /rgba?\([^)]+\)/g;
 const pxFontRe = /font-size:\s*\d+px/g;
 const fallbackRe = /var\(--mei-[^,)]+,\s*[^)]+\)/g;
+const shellEndMarkers = ["/* shell chrome end", "/* page-flow"];
 
 function lintCss(file, css) {
   const lines = css.split("\n");
@@ -26,6 +27,10 @@ function lintCss(file, css) {
       if (rootDepth <= 0) inRoot = false;
       continue;
     }
+    if (/--mei-shell-color-literal_/.test(line)) {
+      console.error(`${file}:${i + 1}: forbidden shell literal_* var: ${line.trim()}`);
+      failed = true;
+    }
     for (const re of [hexRe, rgbaRe, pxFontRe, fallbackRe]) {
       re.lastIndex = 0;
       if (re.test(line)) {
@@ -40,8 +45,12 @@ function lintCss(file, css) {
 let failed = false;
 const appShell = path.join(root, "app/assets/app-shell.css");
 const appRaw = fs.readFileSync(appShell, "utf8");
-const shellEnd = appRaw.indexOf("/* page-flow");
-const shellCss = shellEnd === -1 ? appRaw : appRaw.slice(0, shellEnd);
+let shellEnd = appRaw.length;
+for (const marker of shellEndMarkers) {
+  const idx = appRaw.indexOf(marker);
+  if (idx !== -1 && idx < shellEnd) shellEnd = idx;
+}
+const shellCss = shellEnd === appRaw.length ? appRaw : appRaw.slice(0, shellEnd);
 if (lintCss(appShell, shellCss)) failed = true;
 
 const hostShell = path.join(root, "app/assets/host-shell.css");

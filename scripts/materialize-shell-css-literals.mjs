@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /**
+ * @deprecated Use finalize-shell-theme.mjs (topic 33). Do not run in CI or assets:build.
  * One-shot: scan shell chrome CSS (before /* page-flow), map literals to
  * tokens.color keys, update workspace fragment + replace in app-shell.css / host-shell.css.
  */

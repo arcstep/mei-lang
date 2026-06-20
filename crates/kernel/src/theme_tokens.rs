@@ -492,6 +492,33 @@ fn validate_required_shell_theme_tokens(
             );
         }
     }
+    if let Some(map) = colors {
+        for key in map.keys() {
+            if is_forbidden_shell_color_key(key) {
+                push_diagnostic(
+                    diagnostics,
+                    Severity::Warning,
+                    "shell_theme_hash_key_forbidden",
+                    format!(
+                        "shell theme tokens.color.{key} uses a hash/literal key; use semantic snake_case names (see topic 33)"
+                    ),
+                    target_file,
+                );
+            }
+        }
+    }
+}
+
+fn is_forbidden_shell_color_key(key: &str) -> bool {
+    if key.starts_with("literal_") {
+        return true;
+    }
+    let Some((prefix, suffix)) = key.rsplit_once('_') else {
+        return false;
+    };
+    prefix.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+        && suffix.len() == 8
+        && suffix.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 pub fn is_literal_color(raw: &str) -> bool {
@@ -661,5 +688,37 @@ mod tests {
         let mut diagnostics = Vec::new();
         validate_shell_theme_value("host", &theme, ".mei-workspace.json", &mut diagnostics);
         assert!(!diagnostics.iter().any(|d| d.code == "missing_theme_token"));
+    }
+
+    #[test]
+    fn validate_shell_theme_rejects_literal_hash_color_keys() {
+        let theme = json!({
+            "font": {"1": "11px", "2": "13px", "3": "15px", "4": "18px"},
+            "tokens": {
+                "shell": {
+                    "bg": "#000",
+                    "text": "#fff",
+                    "stage": "none",
+                    "stage_border": "none",
+                    "chrome_top_bg": "none",
+                    "chrome_bottom_bg": "none",
+                    "chrome_border_top": "none",
+                    "chrome_border_bottom": "none",
+                    "family_ui": "sans-serif"
+                },
+                "color": {
+                    "text_primary": "#eee",
+                    "text_muted": "#aaa",
+                    "text_body": "#ccc",
+                    "text_inverse": "#fff",
+                    "panel_bg": "rgba(0,0,0,.5)",
+                    "border_default": "rgba(0,0,0,.2)",
+                    "literal_a1b2c3d4": "#fff"
+                }
+            }
+        });
+        let mut diagnostics = Vec::new();
+        validate_shell_theme_value("host", &theme, ".mei-workspace.json", &mut diagnostics);
+        assert!(diagnostics.iter().any(|d| d.code == "shell_theme_hash_key_forbidden"));
     }
 }

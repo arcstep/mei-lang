@@ -3746,21 +3746,12 @@ fn spbjw_penalty_filter_prefetch_does_not_cap_rowset_materialization() {
 
 #[test]
 fn spbjw_shell_and_scene_theme_injection_use_separate_css_var_tracks() {
-    use mei_lang_app::{scene_viewport_theme_style, shell_body_theme_style};
+    use mei_lang_app::{page_body_theme_style, scene_viewport_theme_style};
     use mei_lang_kernel::load_workspace_config;
 
     let source_root = source_root();
     let app_root = zhifa_app_root();
     let workspace = load_workspace_config(&source_root);
-    let shell_style = shell_body_theme_style(&workspace);
-    assert!(
-        shell_style.contains("--mei-shell-color-"),
-        "workspace shell theme should inject --mei-shell-color-* on body"
-    );
-    assert!(
-        !shell_style.contains("--mei-color-surface"),
-        "body shell style must not include scene surface vars"
-    );
     let compiled = compile_app_from_root_with_options(
         &source_root,
         &app_root,
@@ -3770,6 +3761,15 @@ fn spbjw_shell_and_scene_theme_injection_use_separate_css_var_tracks() {
         },
     )
     .expect("compile spbjw home preview");
+    let body_style = page_body_theme_style(&workspace, Some(&compiled));
+    assert!(
+        body_style.contains("--mei-shell-color-"),
+        "workspace shell theme should inject --mei-shell-color-* on body"
+    );
+    assert!(
+        body_style.contains("--mei-color-"),
+        "page body should inject scene vars for overlays"
+    );
     let scene_style = scene_viewport_theme_style(&compiled);
     assert!(
         scene_style.contains("--mei-color-"),

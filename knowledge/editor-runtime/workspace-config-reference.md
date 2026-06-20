@@ -157,7 +157,11 @@ Shell theme shape (see `docs/mei-lang/topics/theme-token-contract.md`):
             "text_body": "#cbd5e1",
             "text_inverse": "#f8fafc",
             "panel_bg": "rgba(2,6,23,.38)",
-            "border_default": "rgba(96,165,250,.16)"
+            "border_default": "rgba(96,165,250,.16)",
+            "border_nav": "rgba(100,116,139,.32)",
+            "manage_panel_bg": "linear-gradient(180deg, rgba(12,18,31,.92), rgba(2,6,23,.76))",
+            "host_page_bg": "linear-gradient(180deg, #0b1220 0%, #070d18 100%)",
+            "watermark": "rgba(251,113,133,.11)"
           }
         }
       }
@@ -165,6 +169,8 @@ Shell theme shape (see `docs/mei-lang/topics/theme-token-contract.md`):
   }
 }
 ```
+
+Shell `tokens.color` keys must be semantic `snake_case` names. Do not use `literal_*` or hash keys; run `node scripts/lint-workspace-shell-theme.mjs` in `mei-lang`.
 
 Authoring rule:
 

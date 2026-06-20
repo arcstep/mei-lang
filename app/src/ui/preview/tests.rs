@@ -2549,7 +2549,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
 
     use mei_lang_kernel::{compile_app_from_root_with_options, load_workspace_config, CompileOptions};
 
-    use crate::ui::{render_page, shell_body_theme_style};
+    use crate::ui::{page_body_theme_style, render_page};
     use crate::ui::route::UiRouteMode;
 
     let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2567,7 +2567,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
     )
     .unwrap_or_else(|e| panic!("compile zhifa home failed: {e}"));
     let workspace = load_workspace_config(&source_root);
-    let shell_theme = shell_body_theme_style(&workspace);
+    let shell_theme = page_body_theme_style(&workspace, Some(&compiled));
     let html = render_page(
         &[],
         &compiled,

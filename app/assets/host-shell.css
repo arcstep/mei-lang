@@ -7,9 +7,9 @@
   flex-direction: column;
   padding: 0;
   box-sizing: border-box;
-  background: radial-gradient(120% 90% at 50% -10%, var(--mei-shell-color-literal_13eaa4f8), transparent 55%),
-    var(--mei-shell-color-literal_873fa379);
-  color: var(--mei-shell-color-text_primary);
+  background: radial-gradient(120% 90% at 50% -10%, var(--mei-shell-color-host-splash-glow), transparent 55%),
+    var(--mei-shell-color-host-page-bg);
+  color: var(--mei-shell-color-text-primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -29,7 +29,7 @@
   text-align: center;
   font-size: var(--mei-shell-font-1);
   line-height: 1.55;
-  color: var(--mei-shell-color-literal_db58cf7c);
+  color: var(--mei-shell-color-host-footer-text);
   position: relative;
   z-index: 1;
 }
@@ -60,9 +60,9 @@
   padding: 24px 24px 20px;
   border-radius: 16px;
   /* 前景约 80% 透明，露出背景铜钱纹样 */
-  background: var(--mei-shell-color-card_bg);
-  border: 1px solid var(--mei-shell-color-border_slate);
-  box-shadow: 0 24px 64px var(--mei-shell-color-shadow_card);
+  background: var(--mei-shell-color-card-bg);
+  border: 1px solid var(--mei-shell-color-border-slate);
+  box-shadow: 0 24px 64px var(--mei-shell-color-shadow-card);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
 }
@@ -91,7 +91,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--mei-shell-color-text_muted);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .mei-host-shell__status {
@@ -99,7 +99,7 @@
   line-height: 1;
   font-weight: 800;
   letter-spacing: -0.03em;
-  color: var(--mei-shell-color-accent_muted);
+  color: var(--mei-shell-color-accent-muted);
   margin: 4px 0 10px;
 }
 
@@ -111,14 +111,14 @@
 
 .mei-host-shell__message {
   margin: 0 0 10px;
-  color: var(--mei-shell-color-text_body);
+  color: var(--mei-shell-color-text-body);
   font-size: var(--mei-shell-font-3);
   line-height: 1.65;
 }
 
 .mei-host-shell__detail {
   margin: 0 0 10px;
-  color: var(--mei-shell-color-text_muted);
+  color: var(--mei-shell-color-text-muted);
   font-size: var(--mei-shell-font-2);
   line-height: 1.55;
   word-break: break-word;
@@ -133,15 +133,15 @@
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: var(--mei-shell-color-hint_bg);
-  border: 1px solid var(--mei-shell-color-hint_border);
-  color: var(--mei-shell-color-text_muted);
+  background: var(--mei-shell-color-hint-bg);
+  border: 1px solid var(--mei-shell-color-hint-border);
+  color: var(--mei-shell-color-text-muted);
   font-size: var(--mei-shell-font-2);
   line-height: 1.55;
 }
 
 .mei-host-shell__hint strong {
-  color: var(--mei-shell-color-text_inverse);
+  color: var(--mei-shell-color-text-inverse);
 }
 
 .mei-host-shell__actions {
@@ -158,34 +158,34 @@
   min-height: 36px;
   padding: 0 14px;
   border-radius: 9px;
-  border: 1px solid var(--mei-shell-color-btn_border);
-  background: var(--mei-shell-color-btn_secondary_bg);
-  color: var(--mei-shell-color-text_primary);
+  border: 1px solid var(--mei-shell-color-btn-border);
+  background: var(--mei-shell-color-btn-secondary-bg);
+  color: var(--mei-shell-color-text-primary);
   font-size: var(--mei-shell-font-2);
   font-weight: 600;
   text-decoration: none;
 }
 
 .mei-host-shell__btn--primary {
-  border-color: var(--mei-shell-color-focus_border);
-  background: var(--mei-shell-color-btn_primary_bg);
-  color: var(--mei-shell-color-btn_primary_text);
+  border-color: var(--mei-shell-color-focus-border);
+  background: var(--mei-shell-color-btn-primary-bg);
+  color: var(--mei-shell-color-btn-primary-text);
 }
 
 .mei-host-shell__form label {
   display: block;
   margin: 10px 0 6px;
   font-size: var(--mei-shell-font-2);
-  color: var(--mei-shell-color-text_body);
+  color: var(--mei-shell-color-text-body);
 }
 
 .mei-host-shell__form input {
   width: 100%;
   box-sizing: border-box;
   border-radius: 8px;
-  border: 1px solid var(--mei-shell-color-input_border);
-  background: var(--mei-shell-color-input_bg);
-  color: var(--mei-shell-color-text_primary);
+  border: 1px solid var(--mei-shell-color-input-border);
+  background: var(--mei-shell-color-input-bg);
+  color: var(--mei-shell-color-text-primary);
   padding: 10px 12px;
   font-size: var(--mei-shell-font-3);
   line-height: 1.4;
@@ -194,8 +194,8 @@
 
 .mei-host-shell__form input:focus {
   outline: none;
-  border-color: var(--mei-shell-color-focus_border);
-  box-shadow: 0 0 0 3px var(--mei-shell-color-focus_ring);
+  border-color: var(--mei-shell-color-focus-border);
+  box-shadow: 0 0 0 3px var(--mei-shell-color-focus-ring);
 }
 
 .mei-host-shell__password-field {
@@ -220,25 +220,25 @@
   border: none;
   border-radius: 0 8px 8px 0;
   background: transparent;
-  color: var(--mei-shell-color-literal_db58cf7c);
+  color: var(--mei-shell-color-host-footer-text);
   cursor: pointer;
   opacity: 0.88;
   transition: color 120ms ease, opacity 120ms ease;
 }
 
 .mei-host-shell__password-toggle:hover {
-  color: var(--mei-shell-color-text_body);
+  color: var(--mei-shell-color-text-body);
   opacity: 1;
 }
 
 .mei-host-shell__password-toggle:active {
-  color: var(--mei-shell-color-text_primary);
+  color: var(--mei-shell-color-text-primary);
 }
 
 .mei-host-shell__password-toggle:focus-visible {
   outline: none;
   color: var(--mei-shell-color-link);
-  box-shadow: inset 0 0 0 2px var(--mei-shell-color-focus_ring_strong);
+  box-shadow: inset 0 0 0 2px var(--mei-shell-color-focus-ring-strong);
 }
 
 .mei-host-shell__password-toggle svg {
@@ -269,8 +269,8 @@
   width: 100%;
   border: none;
   border-radius: 8px;
-  background: var(--mei-shell-color-btn_primary_solid);
-  color: var(--mei-shell-color-btn_primary_text);
+  background: var(--mei-shell-color-btn-primary-solid);
+  color: var(--mei-shell-color-btn-primary-text);
   font-size: var(--mei-shell-font-3);
   font-weight: 600;
   padding: 10px;
@@ -283,13 +283,13 @@
 }
 
 .mei-host-shell__meta {
-  color: var(--mei-shell-color-text_muted);
+  color: var(--mei-shell-color-text-muted);
   margin: -4px 0 14px;
   font-size: var(--mei-shell-font-2);
 }
 
 .mei-host-shell__setup {
-  color: var(--mei-shell-color-status_warn);
+  color: var(--mei-shell-color-status-warn);
   font-size: var(--mei-shell-font-2);
   line-height: 1.6;
   margin-bottom: 12px;
@@ -306,11 +306,11 @@
 }
 
 .mei-host-shell__feedback--error {
-  color: var(--mei-shell-color-accent_muted);
+  color: var(--mei-shell-color-accent-muted);
 }
 
 .mei-host-shell__feedback--ok {
-  color: var(--mei-shell-color-feedback_ok);
+  color: var(--mei-shell-color-feedback-ok);
 }
 
 .mei-host-shell__link {
@@ -341,27 +341,27 @@
   align-items: start;
   padding: 12px 12px 12px 10px;
   border-radius: 12px;
-  border: 1px solid var(--mei-shell-color-banner_danger_border);
-  background: var(--mei-shell-color-banner_bg);
-  box-shadow: 0 16px 40px var(--mei-shell-color-shadow_banner);
-  color: var(--mei-shell-color-text_primary);
+  border: 1px solid var(--mei-shell-color-banner-danger-border);
+  background: var(--mei-shell-color-banner-bg);
+  box-shadow: 0 16px 40px var(--mei-shell-color-shadow-banner);
+  color: var(--mei-shell-color-text-primary);
   animation: mei-host-banner-in 180ms ease-out;
 }
 
 .mei-host-http-banner--warn {
-  border-color: var(--mei-shell-color-banner_warn_border);
+  border-color: var(--mei-shell-color-banner-warn-border);
 }
 
 .mei-host-http-banner__code {
   font-size: var(--mei-shell-font-3);
   font-weight: 800;
   line-height: 1;
-  color: var(--mei-shell-color-accent_muted);
+  color: var(--mei-shell-color-accent-muted);
   min-width: 42px;
 }
 
 .mei-host-http-banner--warn .mei-host-http-banner__code {
-  color: var(--mei-shell-color-status_warn);
+  color: var(--mei-shell-color-status-warn);
 }
 
 .mei-host-http-banner__body {
@@ -377,20 +377,20 @@
 .mei-host-http-banner__message {
   font-size: var(--mei-shell-font-2);
   line-height: 1.5;
-  color: var(--mei-shell-color-text_body);
+  color: var(--mei-shell-color-text-body);
   word-break: break-word;
 }
 
 .mei-host-http-banner__hint {
   margin-top: 6px;
   font-size: var(--mei-shell-font-1);
-  color: var(--mei-shell-color-text_muted);
+  color: var(--mei-shell-color-text-muted);
 }
 
 .mei-host-http-banner__close {
   border: none;
   background: transparent;
-  color: var(--mei-shell-color-text_muted);
+  color: var(--mei-shell-color-text-muted);
   cursor: pointer;
   font-size: var(--mei-shell-font-2);
   line-height: 1;

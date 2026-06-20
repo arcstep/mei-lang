@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "assets:build": "node ./scripts/build-assets.mjs",
+    "assets:build": "node ./scripts/lint-theme-css.mjs && node ./scripts/lint-workspace-shell-theme.mjs && node ./scripts/build-assets.mjs",
     "mcp:author-adapter": "node ./scripts/mcp/mei-author-stdio-adapter.mjs",
     "mcp:access-adapter": "node ./scripts/mcp/mei-access-stdio-adapter.mjs",
     "perf:sample": "node ./scripts/host-perf-sample.mjs",

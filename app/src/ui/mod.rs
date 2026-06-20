@@ -34,7 +34,10 @@ use shell_manage::{manage_shell, manage_source_shell};
 use shell_presentation::presentation_shell;
 use shell_upload::upload_shell;
 
-pub use preview::{default_shell_body_theme_style, scene_viewport_theme_style, shell_body_theme_style};
+pub use preview::{
+    default_shell_body_theme_style, page_body_theme_style, scene_viewport_theme_style,
+    shell_body_theme_style,
+};
 
 use document::render_document;
 

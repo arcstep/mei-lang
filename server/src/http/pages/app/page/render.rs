@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderName, HeaderValue},
     response::{Html, IntoResponse, Response},
 };
-use mei_lang_app::{render_page, shell_body_theme_style, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
+use mei_lang_app::{render_page, page_body_theme_style, HostAccountView, TopbarMenuContext, UiRouteMode, UploadFileEntry};
 use mei_lang_kernel::{
     load_workspace_config, read_source_file, resolve_app_root, CompiledApp, Severity, WorkspaceAppMeta,
 };
@@ -223,7 +223,7 @@ pub(super) fn render_compiled_success(
             let scene_bundle_for_render =
                 scene_bundle_probe.bundle.as_ref().map(|bundle| bundle.url.as_str());
             let workspace = load_workspace_config(state.source_root.as_path());
-            let shell_theme_style = shell_body_theme_style(&workspace);
+            let body_theme_style = page_body_theme_style(&workspace, Some(compiled));
             let rendered = render_page(
                 apps,
                 compiled,
@@ -247,7 +247,7 @@ pub(super) fn render_compiled_success(
                 auth_enabled,
                 account_view,
                 scene_bundle_for_render,
-                shell_theme_style.as_str(),
+                body_theme_style.as_str(),
             );
             fill_page_shell_placeholders(rendered, &gis, state.source_root.as_path())
         });
