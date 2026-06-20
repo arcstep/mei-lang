@@ -64,3 +64,30 @@
     return popup.mode === "popup_panel" || popup.__kind === "popup_panel";
   }
 
+  function buildTabFromUrl(rawUrl) {
+    try {
+      return String(new URL(rawUrl, window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  function shouldRunBuildPreviewRuntimeForUrl(rawUrl) {
+    try {
+      const pathname = new URL(rawUrl, window.location.href).pathname;
+      if (!isBuildRoute(pathname)) return true;
+      return buildTabFromUrl(rawUrl) === "preview";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function isBuildWorkspacePathname(pathname = window.location.pathname) {
+    return (
+      String(pathname || "").startsWith("/apps/build/") ||
+      String(pathname || "").startsWith("/apps/manage/")
+    );
+  }
+

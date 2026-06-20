@@ -26,7 +26,13 @@ pub(crate) fn preview_view(
             compiled.active_target_file.clone()
         }
     };
+    let skip_scene_contract_for_build_world = route_mode == UiRouteMode::Build
+        && is_world_capsule_target(selected_target);
     if let Some(scene_contract) = &compiled.scene_contract {
+        if skip_scene_contract_for_build_world {
+            // Build view may compile a cached home artifact while the selected node targets a
+            // world capsule; do not render the home scene frame (it embeds unrelated metric refs).
+        } else {
         let resolved_theme = theme::resolve_theme(scene_contract);
         if let Some(frame) = &scene_contract.frame {
             let frame_props = theme::resolve_shared_refs(
@@ -214,6 +220,7 @@ pub(crate) fn preview_view(
             </section>
         }
         .into_any();
+        }
     }
 
     if is_world_capsule_target(selected_target) {

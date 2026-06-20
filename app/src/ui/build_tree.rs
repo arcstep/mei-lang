@@ -2,6 +2,7 @@ use leptos::prelude::*;
 use mei_lang_kernel::{BuildNodeId, BuildViewTab, ReachabilityTreeRoot};
 
 use super::manage_routing::build_node_href;
+
 pub(crate) fn reachability_tree_view(
     roots: &[ReachabilityTreeRoot],
     app_path: &str,
@@ -12,7 +13,12 @@ pub(crate) fn reachability_tree_view(
         .iter()
         .map(|root| root_branch(root, app_path, active_node, active_tab))
         .collect_view();
-    view! { <ul class="tree m-0 grid list-none gap-0.5 p-0">{items}</ul> }.into_any()
+    view! {
+        <div class="build-reachability-tree">
+            <ul class="build-tree-list">{items}</ul>
+        </div>
+    }
+    .into_any()
 }
 
 fn root_branch(
@@ -24,15 +30,16 @@ fn root_branch(
     let children = root
         .children
         .iter()
-        .map(|node| tree_node(node, app_path, active_node, active_tab, 0))
+        .map(|node| tree_node(node, app_path, active_node, active_tab))
         .collect_view();
     view! {
-        <li class="tree-node tree-li-branch">
-            <details class="pl-1" open=root.default_open>
-                <summary class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-semibold mei-text-body">
-                    <span class="tree-folder-label min-w-0 truncate">{root.label.clone()}</span>
+        <li class="build-tree-node build-tree-node--branch">
+            <details class="build-tree-details" open=root.default_open>
+                <summary class="build-tree-summary build-tree-summary--root">
+                    <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▦"</span>
+                    <span class="build-tree-label">{root.label.clone()}</span>
                 </summary>
-                <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-2">{children}</ul>
+                <ul class="build-tree-list build-tree-list--nested">{children}</ul>
             </details>
         </li>
     }
@@ -44,21 +51,21 @@ fn tree_node(
     app_path: &str,
     active_node: &BuildNodeId,
     active_tab: BuildViewTab,
-    depth: usize,
 ) -> AnyView {
     if node.node_id.trim().is_empty() && !node.children.is_empty() {
         let children = node
             .children
             .iter()
-            .map(|child| tree_node(child, app_path, active_node, active_tab, depth + 1))
+            .map(|child| tree_node(child, app_path, active_node, active_tab))
             .collect_view();
         return view! {
-            <li class="tree-node tree-li-branch">
-                <details class="pl-1" open=true>
-                    <summary class="tree-folder-summary flex min-w-0 cursor-pointer select-none items-center gap-1 py-1 text-xs font-medium mei-text-muted">
-                        <span class="tree-folder-label min-w-0 truncate">{node.label.clone()}</span>
+            <li class="build-tree-node build-tree-node--branch">
+                <details class="build-tree-details" open=true>
+                    <summary class="build-tree-summary build-tree-summary--group">
+                        <span class="build-tree-kind build-tree-kind--group" aria-hidden="true">"▸"</span>
+                        <span class="build-tree-label">{node.label.clone()}</span>
                     </summary>
-                    <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-2">{children}</ul>
+                    <ul class="build-tree-list build-tree-list--nested">{children}</ul>
                 </details>
             </li>
         }
@@ -69,57 +76,101 @@ fn tree_node(
     let is_active = parsed.as_ref() == Some(active_node);
     let href = parsed
         .as_ref()
-        .map(|id| build_node_href(app_path, id, active_tab, Default::default()))
+        .map(|id| build_node_href(app_path, id, tab_for_node_link(id, active_tab), Default::default()))
         .unwrap_or_else(|| "#".to_string());
-    let class = if is_active {
-        "tree-link tree-file-row tree-file-row--active font-medium text-sky-100 transition-colors"
-    } else {
-        "tree-link tree-file-row mei-text-body transition-colors hover:mei-text-inverse"
-    };
+    let kind_glyph = kind_glyph(&node.kind);
+    let badge = node.badges.first().cloned();
 
     if node.children.is_empty() {
+        let class = if is_active {
+            "build-tree-link build-tree-link--active"
+        } else {
+            "build-tree-link"
+        };
         view! {
-            <li class="tree-node">
-                <div class="tree-file-entry">
-                    <a class=class href=href title=node.label.clone() data-build-node=node.node_id.clone()>
-                        <span class="tree-file-label min-w-0 flex-1 truncate">{node.label.clone()}</span>
-                        {node
-                            .badges
-                            .first()
-                            .map(|badge| {
-                                view! {
-                                    <span class="ml-1 text-[10px] mei-text-muted">{badge.clone()}</span>
-                                }
-                                    .into_any()
-                            })
-                            .unwrap_or_else(|| view! { <></> }.into_any())}
-                    </a>
-                </div>
+            <li class="build-tree-node">
+                <a class=class href=href title=node.label.clone() data-build-node=node.node_id.clone()>
+                    <span class="build-tree-spacer" aria-hidden="true"></span>
+                    <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
+                    <span class="build-tree-label">{label_with_badge(node.label.clone(), badge)}</span>
+                </a>
             </li>
         }
         .into_any()
     } else {
-        let children = node
-            .children
-            .iter()
-            .map(|child| tree_node(child, app_path, active_node, active_tab, depth + 1))
-            .collect_view();
+        let summary_class = if is_active {
+            "build-tree-summary build-tree-summary--active"
+        } else {
+            "build-tree-summary"
+        };
         view! {
-            <li class="tree-node tree-li-branch">
-                <details class="pl-1" open=is_active>
-                    <summary class=if is_active {
-                        "tree-folder-summary tree-file-row tree-file-row--active cursor-pointer select-none font-medium text-sky-100"
-                    } else {
-                        "tree-folder-summary tree-file-row cursor-pointer select-none mei-text-body"
-                    }>
-                        <a class="min-w-0 flex-1 truncate" href=href data-build-node=node.node_id.clone()>
-                            {node.label.clone()}
+            <li class="build-tree-node build-tree-node--branch">
+                <details class="build-tree-details" open=is_active>
+                    <summary class=summary_class>
+                        <span class="build-tree-kind" aria-hidden="true">{kind_glyph}</span>
+                        <a class="build-tree-label build-tree-label--link" href=href data-build-node=node.node_id.clone()>
+                            {label_with_badge(node.label.clone(), badge)}
                         </a>
                     </summary>
-                    <ul class="tree m-0 grid list-none gap-0.5 p-0 pl-2">{children}</ul>
+                    <ul class="build-tree-list build-tree-list--nested">
+                        {node
+                            .children
+                            .iter()
+                            .map(|child| tree_node(child, app_path, active_node, active_tab))
+                            .collect_view()}
+                    </ul>
                 </details>
             </li>
         }
         .into_any()
     }
+}
+
+fn label_with_badge(label: String, badge: Option<String>) -> AnyView {
+    match badge {
+        Some(value) if !value.trim().is_empty() => view! {
+            <>
+                {label}
+                <span class="build-tree-badge">{value}</span>
+            </>
+        }
+        .into_any(),
+        _ => view! { {label} }.into_any(),
+    }
+}
+
+fn kind_glyph(kind: &str) -> &'static str {
+    match kind {
+        "route" => "R",
+        "scene" => "S",
+        "projection" => "P",
+        "world_dataset" | "world_metric" | "world_file" => "W",
+        "explain_block" => "E",
+        "dataset" => "D",
+        "component" => "C",
+        "artifact" => "A",
+        _ => "·",
+    }
+}
+
+fn tab_for_node_link(node: &BuildNodeId, current: BuildViewTab) -> BuildViewTab {
+    use mei_lang_kernel::{tab_visible_for_node, BuildNodeKind, BuildViewTab};
+    if tab_visible_for_node(node, current) {
+        return current;
+    }
+    match node.kind {
+        BuildNodeKind::Scene
+        | BuildNodeKind::Route
+        | BuildNodeKind::Projection
+        | BuildNodeKind::WorldMetric
+        | BuildNodeKind::WorldDataset
+        | BuildNodeKind::WorldExplain
+        | BuildNodeKind::Dataset => {
+            if tab_visible_for_node(node, BuildViewTab::Preview) {
+                return BuildViewTab::Preview;
+            }
+        }
+        _ => {}
+    }
+    node.default_tab()
 }

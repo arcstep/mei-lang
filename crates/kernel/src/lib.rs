@@ -25,7 +25,7 @@ pub use compile::{
     compile_app_with_options, compile_app_with_options_and_revision,
     compile_revision_plan_from_root_with_options, compile_revision_token_from_root_with_options,
     data_snapshot_import_manifest_path, data_snapshot_store_root, dataset_materialize_cache_epoch,
-    default_build_node_for_compiled, evaluate_runtime_metric_defs,
+    default_build_node_for_compiled, evaluate_runtime_metric_defs, preview_target_from_build_node,
     evaluate_runtime_metric_defs_with_scope, evaluate_runtime_metric_defs_with_scope_and_dag,
     format_calendar_date_value, imported_capsule_path_from_world_metrics_resource_id,
     load_xlsx_table_snapshot, local_dataset_id_from_namespaced_token, materialize_xlsx_column_headers,

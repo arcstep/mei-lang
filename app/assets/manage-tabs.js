@@ -1,6 +1,17 @@
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
 
+  const BUILD_VIEW_TABS = [
+    "overview",
+    "preview",
+    "exec",
+    "semantic",
+    "eval",
+    "artifact",
+    "provenance",
+    "agent",
+  ];
+
   function listTabs() {
     return Array.from(
       document.querySelectorAll("a.manage-view-tab[data-manage-tab]"),
@@ -30,6 +41,105 @@
     } catch (_) {}
   }
 
+  function normalizeTab(raw) {
+    const value = String(raw || "").trim().toLowerCase();
+    if (BUILD_VIEW_TABS.includes(value)) return value;
+    if (value === "source" || value === "diagnostics" || value === "diff") {
+      return "overview";
+    }
+    return "";
+  }
+
+  function resolveRenderableTab(tab) {
+    const active = normalizeTab(tab);
+    if (active && BUILD_VIEW_TABS.includes(active)) return active;
+    const shell = document.querySelector("[data-build-tab]");
+    const fromShell = normalizeTab(shell && shell.getAttribute("data-build-tab"));
+    if (fromShell) return fromShell;
+    if (document.querySelector('[data-manage-tab-panel="preview"]')) return "preview";
+    return "overview";
+  }
+
+  function getPanels() {
+    const panels = {};
+    document.querySelectorAll("[data-manage-tab-panel]").forEach((node) => {
+      const id = normalizeTab(node.getAttribute("data-manage-tab-panel"));
+      if (id) panels[id] = node;
+    });
+    return panels;
+  }
+
+  function tabFromUrl() {
+    try {
+      const url = new URL(window.location.href);
+      return resolveRenderableTab(url.searchParams.get("tab"));
+    } catch (_) {
+      return resolveRenderableTab("");
+    }
+  }
+
+  function panelVisibility(tab) {
+    const active = resolveRenderableTab(tab);
+    const panels = getPanels();
+    BUILD_VIEW_TABS.forEach((slug) => {
+      if (panels[slug]) {
+        panels[slug].hidden = slug !== active;
+      }
+    });
+  }
+
+  function tabVisual(tab) {
+    const active = resolveRenderableTab(tab);
+    listTabs().forEach((node) => {
+      const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
+      const isActive = nodeTab === active;
+      node.classList.toggle("is-active", isActive);
+      node.setAttribute("aria-selected", isActive ? "true" : "false");
+      if (isActive) {
+        node.setAttribute("aria-current", "page");
+      } else {
+        node.removeAttribute("aria-current");
+      }
+    });
+    const shell = document.querySelector("[data-build-tab]");
+    if (shell) {
+      shell.setAttribute("data-build-tab", active);
+    }
+  }
+
+  function tabLink(tab) {
+    const active = resolveRenderableTab(tab);
+    const visible = listTabs();
+    return (
+      visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
+      visible[0]
+    );
+  }
+
+  function updateUrl(nextTab) {
+    const link = tabLink(nextTab);
+    if (!link || !link.href) return;
+    const nextHref = new URL(link.href, window.location.href).toString();
+    const currentHref = window.location.href;
+    if (nextHref === currentHref) return;
+    window.history.replaceState(window.history.state, "", nextHref);
+  }
+
+  function emitTabChange(nextTab) {
+    document.dispatchEvent(
+      new CustomEvent("mei:manage-tab-change", {
+        detail: { tab: resolveRenderableTab(nextTab) },
+      }),
+    );
+  }
+
+  function refreshBuildPanelForTab(tab) {
+    const active = resolveRenderableTab(tab);
+    if (typeof globalThis.__meiBuildCopyContextRefresh === "function") {
+      globalThis.__meiBuildCopyContextRefresh(active);
+    }
+  }
+
   function installManageTabs() {
     if (typeof boot.disposeManageTabs === "function") {
       try {
@@ -40,102 +150,7 @@
 
     if (!listTabs().length) return;
 
-    const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
-    let currentTab = "preview";
-
-    function getPanels() {
-      return {
-        preview: document.querySelector('[data-manage-tab-panel="preview"]'),
-        source: document.querySelector('[data-manage-tab-panel="source"]'),
-        diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
-      };
-    }
-
-    function normalizeTab(raw) {
-      const value = String(raw || "").trim().toLowerCase();
-      if (value === "source" || value === "diagnostics") return value;
-      if (value === "diff") return "source";
-      return "preview";
-    }
-
-    function resolveRenderableTab(tab) {
-      const active = normalizeTab(tab);
-      const panels = getPanels();
-      if (active === "source" && !panels.source) {
-        return "preview";
-      }
-      if (active === "diagnostics" && !panels.diagnostics) {
-        return "preview";
-      }
-      return active;
-    }
-
-    function tabFromUrl() {
-      try {
-        const url = new URL(window.location.href);
-        return normalizeTab(url.searchParams.get("tab"));
-      } catch (_) {
-        return "preview";
-      }
-    }
-
-    function panelVisibility(tab) {
-      const panels = getPanels();
-      const active = resolveRenderableTab(tab);
-      if (panels.preview) panels.preview.hidden = active !== "preview";
-      if (panels.source) panels.source.hidden = active !== "source";
-      if (panels.diagnostics) panels.diagnostics.hidden = active !== "diagnostics";
-    }
-
-    function tabVisual(tab) {
-      const active = resolveRenderableTab(tab);
-      listTabs().forEach((node) => {
-        const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
-        const isActive = nodeTab === active;
-        node.classList.toggle("is-active", isActive);
-        node.setAttribute("aria-selected", isActive ? "true" : "false");
-        if (isActive) {
-          node.setAttribute("aria-current", "page");
-        } else {
-          node.removeAttribute("aria-current");
-        }
-      });
-    }
-
-    function tabLink(tab) {
-      const active = resolveRenderableTab(tab);
-      const visible = listTabs();
-      return (
-        visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
-        visible[0]
-      );
-    }
-
-    function updateUrl(nextTab) {
-      const link = tabLink(nextTab);
-      if (!link || !link.href) return;
-      const nextHref = new URL(link.href, window.location.href).toString();
-      const currentHref = window.location.href;
-      if (nextHref === currentHref) return;
-      window.history.replaceState(window.history.state, "", nextHref);
-    }
-
-    function syncDatasets(nextTab) {
-      const active = resolveRenderableTab(nextTab);
-      viewTabNodes.forEach((node) => {
-        if (node && node.dataset) {
-          node.dataset.viewTab = active;
-        }
-      });
-    }
-
-    function emitTabChange(nextTab) {
-      document.dispatchEvent(
-        new CustomEvent("mei:manage-tab-change", {
-          detail: { tab: resolveRenderableTab(nextTab) },
-        }),
-      );
-    }
+    let currentTab = tabFromUrl();
 
     function switchManageTab(nextTab, options) {
       const opts = options || {};
@@ -147,7 +162,6 @@
       if (opts.updateUrl !== false) {
         updateUrl(active);
       }
-      syncDatasets(active);
       if (opts.emit !== false) {
         emitTabChange(active);
       }
@@ -168,25 +182,8 @@
           });
         });
       }
+      refreshBuildPanelForTab(active);
       return active;
-    }
-
-    function maybeRewriteManageNavigation(target) {
-      if (!target || !(target instanceof HTMLAnchorElement)) return;
-      if (!target.href) return;
-      if (target.dataset.preserveManageTab !== "1") return;
-      try {
-        const url = new URL(target.href, window.location.href);
-        if (url.origin !== window.location.origin) return;
-        if (
-          !url.pathname.startsWith("/apps/build/") &&
-          !url.pathname.startsWith("/apps/manage/")
-        ) {
-          return;
-        }
-        url.searchParams.set("tab", resolveRenderableTab(currentTab));
-        target.href = url.toString();
-      } catch (_) {}
     }
 
     const onClick = (event) => {
@@ -207,19 +204,7 @@
       });
     };
 
-    const onNavClick = (event) => {
-      if (event.defaultPrevented) return;
-      if (event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const target =
-        event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!target) return;
-      if (target.matches("a.manage-view-tab[data-manage-tab]")) return;
-      maybeRewriteManageNavigation(target);
-    };
-
     document.addEventListener("click", onClick, true);
-    document.addEventListener("click", onNavClick, true);
 
     boot.switchManageTab = function (tab) {
       return switchManageTab(tab, { updateUrl: true, emit: true });
@@ -227,14 +212,14 @@
 
     boot.disposeManageTabs = function () {
       document.removeEventListener("click", onClick, true);
-      document.removeEventListener("click", onNavClick, true);
       if (boot.switchManageTab) {
         boot.switchManageTab = null;
       }
       boot.disposeManageTabs = null;
     };
 
-    switchManageTab(tabFromUrl(), { updateUrl: false, emit: false });
+    switchManageTab(currentTab, { updateUrl: false, emit: false });
+    refreshBuildPanelForTab(currentTab);
   }
 
   boot.installManageTabs = installManageTabs;

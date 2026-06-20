@@ -51,6 +51,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
@@ -75,6 +76,7 @@
   let metricPrefetchTimer = null;
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
+    if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
       return;

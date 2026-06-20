@@ -90,9 +90,43 @@
     }, 12000);
   }
 
+  function isBuildViewPage() {
+    try {
+      return window.location.pathname.startsWith("/apps/build/");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function mergeBuildViewFetch(input, init) {
+    if (!isBuildViewPage()) return { input, init };
+    let requestUrl = "";
+    if (typeof input === "string") {
+      requestUrl = input;
+    } else if (input && typeof input.url === "string") {
+      requestUrl = input.url;
+    }
+    if (!requestUrl.includes("/api/")) return { input, init };
+    if (typeof Request !== "undefined" && input instanceof Request) {
+      const headers = new Headers(input.headers);
+      if (!headers.has("X-Mei-Build-View")) {
+        headers.set("X-Mei-Build-View", "1");
+      }
+      return { input: new Request(input, { headers }), init: undefined };
+    }
+    const nextInit = { ...(init || {}) };
+    const headers = new Headers(nextInit.headers);
+    if (!headers.has("X-Mei-Build-View")) {
+      headers.set("X-Mei-Build-View", "1");
+    }
+    nextInit.headers = headers;
+    return { input, init: nextInit };
+  }
+
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
-    const response = await nativeFetch(input, init);
+    const merged = mergeBuildViewFetch(input, init);
+    const response = await nativeFetch(merged.input, merged.init);
     try {
       const requestUrl =
         typeof input === "string"
@@ -645,6 +679,38 @@
     ].join(":");
   }
 
+  function buildRouteSlugFromPathname(pathname = window.location.pathname) {
+    const match = String(pathname || "").match(/^\/apps\/([^/]+)\//);
+    return match ? String(match[1] || "").trim().toLowerCase() : "";
+  }
+
+  function isBuildShellRoute(pathname = window.location.pathname) {
+    const slug = buildRouteSlugFromPathname(pathname);
+    return slug === "build" || slug === "manage";
+  }
+
+  function activeBuildTabSlug() {
+    const shell = document.querySelector("[data-build-tab]");
+    const fromShell =
+      shell && String(shell.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      return String(new URL(window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  /** 构建视图非 preview 标签时不应触发 dataset/metric 预取与 viewport 扫描。 */
+  function shouldMountBuildPreviewRuntime() {
+    if (!isBuildShellRoute()) return true;
+    return activeBuildTabSlug() === "preview";
+  }
+
+  boot.shouldMountBuildPreviewRuntime = shouldMountBuildPreviewRuntime;
+  boot.activeBuildTabSlug = activeBuildTabSlug;
 
 
 ;
@@ -2484,6 +2550,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
@@ -2508,6 +2575,7 @@
   let metricPrefetchTimer = null;
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
+    if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
       return;
@@ -9324,8 +9392,8 @@
       cssVar: "--workspace-left-aside",
       storageKey: "mei-lang.workspaceLeftAsidePx",
       collapsedKey: "mei-lang.workspaceLeftAsideCollapsed",
-      fallback: 260,
-      min: 220,
+      fallback: 320,
+      min: 260,
       axis: "x",
       target: root
     },
@@ -10322,6 +10390,33 @@
   function isPanelPopupConfig(popup) {
     if (!popup || typeof popup !== "object") return false;
     return popup.mode === "popup_panel" || popup.__kind === "popup_panel";
+  }
+
+  function buildTabFromUrl(rawUrl) {
+    try {
+      return String(new URL(rawUrl, window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  function shouldRunBuildPreviewRuntimeForUrl(rawUrl) {
+    try {
+      const pathname = new URL(rawUrl, window.location.href).pathname;
+      if (!isBuildRoute(pathname)) return true;
+      return buildTabFromUrl(rawUrl) === "preview";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function isBuildWorkspacePathname(pathname = window.location.pathname) {
+    return (
+      String(pathname || "").startsWith("/apps/build/") ||
+      String(pathname || "").startsWith("/apps/manage/")
+    );
   }
 
 
@@ -17592,7 +17687,7 @@
     try {
       const tab = new URL(url, window.location.href).searchParams.get("tab");
       if (typeof boot.switchManageTab === "function") {
-        boot.switchManageTab(tab || "preview", { updateUrl: false, emit: true });
+        boot.switchManageTab(tab || "", { updateUrl: false, emit: true });
       }
     } catch (_) {}
   }
@@ -17941,6 +18036,7 @@
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
+    if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
     const resetCache = opts.resetRuntimeQueryCache !== false;
     dispatchManageContextChange(detail);
@@ -18650,19 +18746,23 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
-        if (nextUrl.pathname.startsWith("/apps/manage/")) {
+        if (isBuildWorkspacePathname(nextUrl.pathname)) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }
-          if (typeof boot.mountSourceTreeControls === "function") {
-            boot.mountSourceTreeControls();
+          if (nextUrl.pathname.startsWith("/apps/manage/")) {
+            if (typeof boot.mountSourceTreeControls === "function") {
+              boot.mountSourceTreeControls();
+            }
           }
           syncManageTabFromUrl(url);
         }
-        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
-        installSceneProjectionHost();
-        if (typeof boot.mountManagePreviewBoard === "function") {
-          void boot.mountManagePreviewBoard(doc);
+        if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
+          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          installSceneProjectionHost();
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(doc);
+          }
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();

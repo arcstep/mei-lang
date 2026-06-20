@@ -14,19 +14,23 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
-        if (nextUrl.pathname.startsWith("/apps/manage/")) {
+        if (isBuildWorkspacePathname(nextUrl.pathname)) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }
-          if (typeof boot.mountSourceTreeControls === "function") {
-            boot.mountSourceTreeControls();
+          if (nextUrl.pathname.startsWith("/apps/manage/")) {
+            if (typeof boot.mountSourceTreeControls === "function") {
+              boot.mountSourceTreeControls();
+            }
           }
           syncManageTabFromUrl(url);
         }
-        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
-        installSceneProjectionHost();
-        if (typeof boot.mountManagePreviewBoard === "function") {
-          void boot.mountManagePreviewBoard(doc);
+        if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
+          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          installSceneProjectionHost();
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(doc);
+          }
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();

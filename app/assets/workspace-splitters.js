@@ -17,8 +17,8 @@
       cssVar: "--workspace-left-aside",
       storageKey: "mei-lang.workspaceLeftAsidePx",
       collapsedKey: "mei-lang.workspaceLeftAsideCollapsed",
-      fallback: 260,
-      min: 220,
+      fallback: 320,
+      min: 260,
       axis: "x",
       target: root
     },

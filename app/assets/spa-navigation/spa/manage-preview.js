@@ -1,4 +1,5 @@
   function pulseManagePreview(detail, options) {
+    if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
     const resetCache = opts.resetRuntimeQueryCache !== false;
     dispatchManageContextChange(detail);

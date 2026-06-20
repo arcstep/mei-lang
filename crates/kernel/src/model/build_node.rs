@@ -154,10 +154,21 @@ impl BuildNodeId {
     }
 
     pub fn default_tab(&self) -> BuildViewTab {
-        tabs_for_node_kind(self.kind)
-            .first()
-            .copied()
-            .unwrap_or(BuildViewTab::Overview)
+        use BuildNodeKind::{
+            Dataset, Projection, Route, Scene, WorldDataset, WorldExplain, WorldMetric,
+        };
+        use BuildViewTab::Preview;
+        match self.kind {
+            Route | Scene | Projection | WorldMetric | WorldDataset | WorldExplain | Dataset
+                if tab_visible_for_node(self, Preview) =>
+            {
+                Preview
+            }
+            _ => tabs_for_node_kind(self.kind)
+                .first()
+                .copied()
+                .unwrap_or(BuildViewTab::Overview),
+        }
     }
 }
 
@@ -548,7 +559,7 @@ mod tests {
     #[test]
     fn projection_node_default_tab_is_preview() {
         let node = BuildNodeId::projection("home", "warning_board");
-        assert_eq!(node.default_tab(), BuildViewTab::Overview);
+        assert_eq!(node.default_tab(), BuildViewTab::Preview);
         assert!(tab_visible_for_node(&node, BuildViewTab::Preview));
     }
 }

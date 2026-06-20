@@ -3,9 +3,6 @@ use std::path::Path;
 use std::time::Instant;
 use std::sync::Arc;
 
-use super::super::super::compile_cache::{
-    load_compile_artifact_only_shared,
-};
 use super::super::components::resolve_components_root;
 use super::super::scene_qualified::{
     compile_options_from_coords, locate_dataset_resource, resolved_scene_context,
@@ -112,6 +109,7 @@ fn access_artifact_unavailable_error(
 
 pub async fn dataset_metric_api(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     AxumPath(app_id_raw): AxumPath<String>,
     Json(request): Json<MetricQueryRequest>,
 ) -> Result<Json<MetricQueryResponse>, crate::AppError> {
@@ -178,12 +176,14 @@ pub async fn dataset_metric_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let access_artifact_only = true;
-    let compile_outcome = load_compile_artifact_only_shared(
+    let build_view_dev = crate::http::compile_cache::is_build_view_request(&headers);
+    let access_artifact_only = !build_view_dev;
+    let compile_outcome = crate::http::compile_cache::resolve_runtime_compile_shared(
         &state,
         &app_id,
         &compile_options,
         components_root.as_path(),
+        build_view_dev,
     )
     .ok_or_else(|| {
         tracing::warn!(

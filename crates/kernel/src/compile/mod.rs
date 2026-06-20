@@ -57,7 +57,8 @@ pub use app_compile::{
     CompileAppArtifacts,
 };
 pub use build_node_context::{
-    default_build_node_for_compiled, resolve_build_node_context, BuildNodeContext,
+    default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,
+    BuildNodeContext,
 };
 pub use reachability_tree::{
     build_reachability_tree, ReachabilityTreeNode, ReachabilityTreeRoot,

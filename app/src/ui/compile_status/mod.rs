@@ -5,7 +5,7 @@ pub(crate) use asset_shell::is_static_workspace_asset_target;
 pub(crate) use diagnostics::{
     blocking_errors_for_preview, compile_status_counts_for_display,
     compile_status_counts_for_target, is_world_capsule_target, normalize_diagnostic_source,
-    world_capsule_companion_scene,
+    normalize_target_path, world_capsule_companion_scene,
 };
 
 use mei_lang_kernel::CompiledApp;

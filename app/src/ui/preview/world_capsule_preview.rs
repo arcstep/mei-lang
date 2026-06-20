@@ -12,6 +12,9 @@ use super::resolve::{
     HostMetaOptions, RuntimeSceneAnchor,
 };
 use super::PreviewRuntimeContext;
+use crate::ui::compile_status::{
+    is_world_capsule_target, normalize_target_path, world_capsule_companion_scene,
+};
 use crate::ui::manage_routing::WorldSemanticQuery;
 
 fn component_tag(compiled: &CompiledApp, use_key: &str) -> String {
@@ -27,15 +30,46 @@ fn component_tag(compiled: &CompiledApp, use_key: &str) -> String {
 }
 
 fn runtime_scene_anchor(compiled: &CompiledApp, file_path: &str) -> RuntimeSceneAnchor {
+    let file_path = normalize_target_path(file_path);
+    if !is_world_capsule_target(&file_path) {
+        return RuntimeSceneAnchor {
+            scene_id: compiled
+                .active_scene
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| "default".to_string()),
+            scene_path: Some(file_path),
+        };
+    }
+
+    let active_target = normalize_target_path(&compiled.active_target_file);
+    if active_target == file_path {
+        let mut anchor = RuntimeSceneAnchor::from_compiled(compiled);
+        anchor.scene_path = Some(file_path);
+        return anchor;
+    }
+
+    let scene_id = compiled
+        .scene_routes
+        .iter()
+        .find(|route| normalize_target_path(&route.target_file) == file_path)
+        .map(|route| route.scene_id.clone())
+        .or_else(|| {
+            world_capsule_companion_scene(&file_path).and_then(|companion| {
+                compiled
+                    .scene_routes
+                    .iter()
+                    .find(|route| normalize_target_path(&route.target_file) == companion)
+                    .map(|route| route.scene_id.clone())
+            })
+        })
+        .unwrap_or_else(|| "default".to_string());
+
     RuntimeSceneAnchor {
-        scene_id: compiled
-            .active_scene
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "default".to_string()),
-        scene_path: Some(file_path.to_string()),
+        scene_id,
+        scene_path: Some(file_path),
     }
 }
 

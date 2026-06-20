@@ -1,5 +1,30 @@
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor};
 
+/// Script path used as `CompileOptions.preview_target` before compile, when the build URL
+/// selects a world capsule node via `?node=` without legacy `?file=`.
+pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
+    match node.kind {
+        BuildNodeKind::WorldFile => Some(node.key.clone()),
+        BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric => {
+            let (file, _) = split_file_symbol(&node.key);
+            if file.trim().is_empty() {
+                None
+            } else {
+                Some(file)
+            }
+        }
+        BuildNodeKind::WorldExplain => {
+            let (file, _, _) = split_world_explain_key(&node.key);
+            if file.trim().is_empty() {
+                None
+            } else {
+                Some(file)
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Resolved preview / routing context for a build-view node selection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildNodeContext {
@@ -370,5 +395,17 @@ mod tests {
         let ctx = resolve_build_node_context(&compiled, &BuildNodeId::scene("home"));
         assert_eq!(ctx.target_file, "scenes/home.mei");
         assert_eq!(ctx.provenance.symbol_id, "home");
+    }
+
+    #[test]
+    fn preview_target_from_world_dataset_node() {
+        let node = BuildNodeId::world_dataset(
+            "scenes/01-执法要素.world.mei",
+            "agency_objects",
+        );
+        assert_eq!(
+            preview_target_from_build_node(&node).as_deref(),
+            Some("scenes/01-执法要素.world.mei")
+        );
     }
 }

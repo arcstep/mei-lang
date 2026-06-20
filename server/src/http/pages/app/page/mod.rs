@@ -12,7 +12,8 @@ use axum::{
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
-    discover_apps, resolve_app_root, resolve_default_scene_from_root, CompileOptions,
+    discover_apps, preview_target_from_build_node, resolve_app_root, resolve_default_scene_from_root,
+    BuildNodeId, CompileOptions,
 };
 
 use crate::{
@@ -161,8 +162,19 @@ pub async fn app_page(
         .as_deref()
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
+    let build_node_preview_target = if route_mode == UiRouteMode::Build {
+        query
+            .node
+            .as_deref()
+            .and_then(BuildNodeId::parse)
+            .and_then(|node| preview_target_from_build_node(&node))
+    } else {
+        None
+    };
     let normalized_preview_target = if route_mode == UiRouteMode::Build {
-        manage_script_file.clone()
+        manage_script_file
+            .clone()
+            .or(build_node_preview_target)
     } else {
         None
     };

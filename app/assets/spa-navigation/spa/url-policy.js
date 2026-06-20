@@ -24,7 +24,7 @@
     try {
       const tab = new URL(url, window.location.href).searchParams.get("tab");
       if (typeof boot.switchManageTab === "function") {
-        boot.switchManageTab(tab || "preview", { updateUrl: false, emit: true });
+        boot.switchManageTab(tab || "", { updateUrl: false, emit: true });
       }
     } catch (_) {}
   }

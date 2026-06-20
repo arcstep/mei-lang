@@ -218,19 +218,6 @@ pub(crate) fn manage_shell(
                 inner_html=super::super::source_tree::TREE_ICONS_SPRITE_SVG
             ></div>
             {topbar}
-            <div class="build-copy-toolbar flex items-center justify-end gap-2 border-b mei-border-muted px-3 py-1.5">
-                <button
-                    type="button"
-                    id="build-copy-agent-context-top"
-                    class="text-[11px] text-sky-200 hover:text-sky-100"
-                    data-app-path=app_path.to_string()
-                    data-node=node_encoded.clone()
-                    data-tab=tab_slug.clone()
-                    data-intent="full"
-                >
-                    "复制 Agent 上下文"
-                </button>
-            </div>
             <div class=workspace_class id="workspace-root">
                 <aside class="sidebar left workspace-panel workspace-panel-side workspace-panel-nav h-full min-h-0 min-w-0 overflow-hidden flex flex-col px-4 py-2.5">
                     <div class="sidebar-scroll flex-1 min-h-0 overflow-auto">
@@ -244,28 +231,42 @@ pub(crate) fn manage_shell(
                     aria-orientation="vertical"
                     aria-label="调整左侧资源栏宽度"
                 ></div>
-                <main class="main min-w-0 min-h-0 overflow-hidden px-0">
+                <main class="main h-full min-w-0 min-h-0 overflow-hidden px-0">
                     <section class="main-pane workspace-panel workspace-panel-main min-w-0 min-h-0 flex h-full flex-col overflow-hidden px-2 py-3.5">
-                        <nav
-                            class="manage-view-tabs workspace-tabs-strip mb-3 flex min-w-0 flex-wrap items-center gap-2 pb-2.5"
-                            role="tablist"
-                            aria-label="构建主视图"
-                        >
-                            <div class="manage-view-tabs-cluster">
-                                <div class="manage-view-tabs-group" role="presentation">
-                                    {tab_links}
+                        <div class="manage-workspace-head mb-3 flex min-w-0 flex-wrap items-center justify-between gap-2 pb-2.5">
+                            <nav
+                                class="manage-view-tabs workspace-tabs-strip flex min-w-0 flex-1 flex-wrap items-center gap-2"
+                                role="tablist"
+                                aria-label="构建主视图"
+                            >
+                                <div class="manage-view-tabs-cluster">
+                                    <div class="manage-view-tabs-group" role="presentation">
+                                        {tab_links}
+                                    </div>
                                 </div>
-                            </div>
-                        </nav>
+                            </nav>
+                            <button
+                                type="button"
+                                id="build-copy-agent-context-top"
+                                class="build-copy-toolbar-btn shrink-0 rounded-md border mei-border-muted px-2.5 py-1 text-[11px] text-sky-200 hover:text-sky-100"
+                                data-app-path=app_path.to_string()
+                                data-node=node_encoded.clone()
+                                data-tab=tab_slug.clone()
+                                data-intent="full"
+                            >
+                                "复制 Agent 上下文"
+                            </button>
+                        </div>
+                        <div class="manage-tab-stage min-h-0 min-w-0 flex flex-1 flex-col overflow-hidden">
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="overview"
                             hidden=active_tab_enum != BuildViewTab::Overview
                         >
                             {overview_panel}
                         </section>
                         <section
-                            class="preview-pane min-w-0 min-h-0 flex flex-1 flex-col overflow-hidden"
+                            class="manage-tab-panel preview-pane min-h-0 min-w-0 flex flex-col overflow-hidden"
                             data-manage-tab-panel="preview"
                             hidden=active_tab_enum != BuildViewTab::Preview
                         >
@@ -283,47 +284,48 @@ pub(crate) fn manage_shell(
                             </div>
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="exec"
                             hidden=active_tab_enum != BuildViewTab::Exec
                         >
                             {exec_panel}
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="semantic"
                             hidden=active_tab_enum != BuildViewTab::Semantic
                         >
                             {semantic_panel}
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="eval"
                             hidden=active_tab_enum != BuildViewTab::Eval
                         >
                             {eval_panel}
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="artifact"
                             hidden=active_tab_enum != BuildViewTab::Artifact
                         >
                             {artifact_panel}
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="provenance"
                             hidden=active_tab_enum != BuildViewTab::Provenance
                         >
                             {provenance_panel}
                         </section>
                         <section
-                            class="min-w-0 min-h-0 flex-1 overflow-auto"
+                            class="manage-tab-panel min-h-0 min-w-0 overflow-auto"
                             data-manage-tab-panel="agent"
                             hidden=active_tab_enum != BuildViewTab::Agent
                         >
                             {agent_panel}
                         </section>
+                        </div>
                     </section>
                 </main>
                 {if show_inspector {

@@ -90,9 +90,43 @@
     }, 12000);
   }
 
+  function isBuildViewPage() {
+    try {
+      return window.location.pathname.startsWith("/apps/build/");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function mergeBuildViewFetch(input, init) {
+    if (!isBuildViewPage()) return { input, init };
+    let requestUrl = "";
+    if (typeof input === "string") {
+      requestUrl = input;
+    } else if (input && typeof input.url === "string") {
+      requestUrl = input.url;
+    }
+    if (!requestUrl.includes("/api/")) return { input, init };
+    if (typeof Request !== "undefined" && input instanceof Request) {
+      const headers = new Headers(input.headers);
+      if (!headers.has("X-Mei-Build-View")) {
+        headers.set("X-Mei-Build-View", "1");
+      }
+      return { input: new Request(input, { headers }), init: undefined };
+    }
+    const nextInit = { ...(init || {}) };
+    const headers = new Headers(nextInit.headers);
+    if (!headers.has("X-Mei-Build-View")) {
+      headers.set("X-Mei-Build-View", "1");
+    }
+    nextInit.headers = headers;
+    return { input, init: nextInit };
+  }
+
   const nativeFetch = window.fetch.bind(window);
   window.fetch = async function meiHostFetch(input, init) {
-    const response = await nativeFetch(input, init);
+    const merged = mergeBuildViewFetch(input, init);
+    const response = await nativeFetch(merged.input, merged.init);
     try {
       const requestUrl =
         typeof input === "string"
@@ -645,6 +679,38 @@
     ].join(":");
   }
 
+  function buildRouteSlugFromPathname(pathname = window.location.pathname) {
+    const match = String(pathname || "").match(/^\/apps\/([^/]+)\//);
+    return match ? String(match[1] || "").trim().toLowerCase() : "";
+  }
+
+  function isBuildShellRoute(pathname = window.location.pathname) {
+    const slug = buildRouteSlugFromPathname(pathname);
+    return slug === "build" || slug === "manage";
+  }
+
+  function activeBuildTabSlug() {
+    const shell = document.querySelector("[data-build-tab]");
+    const fromShell =
+      shell && String(shell.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      return String(new URL(window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  /** 构建视图非 preview 标签时不应触发 dataset/metric 预取与 viewport 扫描。 */
+  function shouldMountBuildPreviewRuntime() {
+    if (!isBuildShellRoute()) return true;
+    return activeBuildTabSlug() === "preview";
+  }
+
+  boot.shouldMountBuildPreviewRuntime = shouldMountBuildPreviewRuntime;
+  boot.activeBuildTabSlug = activeBuildTabSlug;
 
 
 ;
@@ -2484,6 +2550,7 @@
 
   function scan(event) {
     if (event?.detail?.scope === "drilldown") return;
+    if (!shouldMountBuildPreviewRuntime()) return;
     document
       .querySelectorAll('[data-mei-frame-viewport="true"], [data-mei-layout-audit-root="true"]')
       .forEach((root) => observeViewport(root));
@@ -2508,6 +2575,7 @@
   let metricPrefetchTimer = null;
   function scheduleMetricPrefetch(delayMs = 0, options = {}) {
     const opts = options || {};
+    if (!shouldMountBuildPreviewRuntime()) return;
     if (!opts.force && !runtimeQueryReady) {
       pendingMetricPrefetch = true;
       return;
@@ -2646,8 +2714,8 @@
       cssVar: "--workspace-left-aside",
       storageKey: "mei-lang.workspaceLeftAsidePx",
       collapsedKey: "mei-lang.workspaceLeftAsideCollapsed",
-      fallback: 260,
-      min: 220,
+      fallback: 320,
+      min: 260,
       axis: "x",
       target: root
     },
@@ -2912,6 +2980,17 @@
 (() => {
   const boot = (window.__meiLangBoot = window.__meiLangBoot || {});
 
+  const BUILD_VIEW_TABS = [
+    "overview",
+    "preview",
+    "exec",
+    "semantic",
+    "eval",
+    "artifact",
+    "provenance",
+    "agent",
+  ];
+
   function listTabs() {
     return Array.from(
       document.querySelectorAll("a.manage-view-tab[data-manage-tab]"),
@@ -2941,6 +3020,105 @@
     } catch (_) {}
   }
 
+  function normalizeTab(raw) {
+    const value = String(raw || "").trim().toLowerCase();
+    if (BUILD_VIEW_TABS.includes(value)) return value;
+    if (value === "source" || value === "diagnostics" || value === "diff") {
+      return "overview";
+    }
+    return "";
+  }
+
+  function resolveRenderableTab(tab) {
+    const active = normalizeTab(tab);
+    if (active && BUILD_VIEW_TABS.includes(active)) return active;
+    const shell = document.querySelector("[data-build-tab]");
+    const fromShell = normalizeTab(shell && shell.getAttribute("data-build-tab"));
+    if (fromShell) return fromShell;
+    if (document.querySelector('[data-manage-tab-panel="preview"]')) return "preview";
+    return "overview";
+  }
+
+  function getPanels() {
+    const panels = {};
+    document.querySelectorAll("[data-manage-tab-panel]").forEach((node) => {
+      const id = normalizeTab(node.getAttribute("data-manage-tab-panel"));
+      if (id) panels[id] = node;
+    });
+    return panels;
+  }
+
+  function tabFromUrl() {
+    try {
+      const url = new URL(window.location.href);
+      return resolveRenderableTab(url.searchParams.get("tab"));
+    } catch (_) {
+      return resolveRenderableTab("");
+    }
+  }
+
+  function panelVisibility(tab) {
+    const active = resolveRenderableTab(tab);
+    const panels = getPanels();
+    BUILD_VIEW_TABS.forEach((slug) => {
+      if (panels[slug]) {
+        panels[slug].hidden = slug !== active;
+      }
+    });
+  }
+
+  function tabVisual(tab) {
+    const active = resolveRenderableTab(tab);
+    listTabs().forEach((node) => {
+      const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
+      const isActive = nodeTab === active;
+      node.classList.toggle("is-active", isActive);
+      node.setAttribute("aria-selected", isActive ? "true" : "false");
+      if (isActive) {
+        node.setAttribute("aria-current", "page");
+      } else {
+        node.removeAttribute("aria-current");
+      }
+    });
+    const shell = document.querySelector("[data-build-tab]");
+    if (shell) {
+      shell.setAttribute("data-build-tab", active);
+    }
+  }
+
+  function tabLink(tab) {
+    const active = resolveRenderableTab(tab);
+    const visible = listTabs();
+    return (
+      visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
+      visible[0]
+    );
+  }
+
+  function updateUrl(nextTab) {
+    const link = tabLink(nextTab);
+    if (!link || !link.href) return;
+    const nextHref = new URL(link.href, window.location.href).toString();
+    const currentHref = window.location.href;
+    if (nextHref === currentHref) return;
+    window.history.replaceState(window.history.state, "", nextHref);
+  }
+
+  function emitTabChange(nextTab) {
+    document.dispatchEvent(
+      new CustomEvent("mei:manage-tab-change", {
+        detail: { tab: resolveRenderableTab(nextTab) },
+      }),
+    );
+  }
+
+  function refreshBuildPanelForTab(tab) {
+    const active = resolveRenderableTab(tab);
+    if (typeof globalThis.__meiBuildCopyContextRefresh === "function") {
+      globalThis.__meiBuildCopyContextRefresh(active);
+    }
+  }
+
   function installManageTabs() {
     if (typeof boot.disposeManageTabs === "function") {
       try {
@@ -2951,102 +3129,7 @@
 
     if (!listTabs().length) return;
 
-    const viewTabNodes = Array.from(document.querySelectorAll("[data-view-tab]"));
-    let currentTab = "preview";
-
-    function getPanels() {
-      return {
-        preview: document.querySelector('[data-manage-tab-panel="preview"]'),
-        source: document.querySelector('[data-manage-tab-panel="source"]'),
-        diagnostics: document.querySelector('[data-manage-tab-panel="diagnostics"]'),
-      };
-    }
-
-    function normalizeTab(raw) {
-      const value = String(raw || "").trim().toLowerCase();
-      if (value === "source" || value === "diagnostics") return value;
-      if (value === "diff") return "source";
-      return "preview";
-    }
-
-    function resolveRenderableTab(tab) {
-      const active = normalizeTab(tab);
-      const panels = getPanels();
-      if (active === "source" && !panels.source) {
-        return "preview";
-      }
-      if (active === "diagnostics" && !panels.diagnostics) {
-        return "preview";
-      }
-      return active;
-    }
-
-    function tabFromUrl() {
-      try {
-        const url = new URL(window.location.href);
-        return normalizeTab(url.searchParams.get("tab"));
-      } catch (_) {
-        return "preview";
-      }
-    }
-
-    function panelVisibility(tab) {
-      const panels = getPanels();
-      const active = resolveRenderableTab(tab);
-      if (panels.preview) panels.preview.hidden = active !== "preview";
-      if (panels.source) panels.source.hidden = active !== "source";
-      if (panels.diagnostics) panels.diagnostics.hidden = active !== "diagnostics";
-    }
-
-    function tabVisual(tab) {
-      const active = resolveRenderableTab(tab);
-      listTabs().forEach((node) => {
-        const nodeTab = normalizeTab(node.getAttribute("data-manage-tab"));
-        const isActive = nodeTab === active;
-        node.classList.toggle("is-active", isActive);
-        node.setAttribute("aria-selected", isActive ? "true" : "false");
-        if (isActive) {
-          node.setAttribute("aria-current", "page");
-        } else {
-          node.removeAttribute("aria-current");
-        }
-      });
-    }
-
-    function tabLink(tab) {
-      const active = resolveRenderableTab(tab);
-      const visible = listTabs();
-      return (
-        visible.find((node) => normalizeTab(node.getAttribute("data-manage-tab")) === active) ||
-        visible[0]
-      );
-    }
-
-    function updateUrl(nextTab) {
-      const link = tabLink(nextTab);
-      if (!link || !link.href) return;
-      const nextHref = new URL(link.href, window.location.href).toString();
-      const currentHref = window.location.href;
-      if (nextHref === currentHref) return;
-      window.history.replaceState(window.history.state, "", nextHref);
-    }
-
-    function syncDatasets(nextTab) {
-      const active = resolveRenderableTab(nextTab);
-      viewTabNodes.forEach((node) => {
-        if (node && node.dataset) {
-          node.dataset.viewTab = active;
-        }
-      });
-    }
-
-    function emitTabChange(nextTab) {
-      document.dispatchEvent(
-        new CustomEvent("mei:manage-tab-change", {
-          detail: { tab: resolveRenderableTab(nextTab) },
-        }),
-      );
-    }
+    let currentTab = tabFromUrl();
 
     function switchManageTab(nextTab, options) {
       const opts = options || {};
@@ -3058,7 +3141,6 @@
       if (opts.updateUrl !== false) {
         updateUrl(active);
       }
-      syncDatasets(active);
       if (opts.emit !== false) {
         emitTabChange(active);
       }
@@ -3079,25 +3161,8 @@
           });
         });
       }
+      refreshBuildPanelForTab(active);
       return active;
-    }
-
-    function maybeRewriteManageNavigation(target) {
-      if (!target || !(target instanceof HTMLAnchorElement)) return;
-      if (!target.href) return;
-      if (target.dataset.preserveManageTab !== "1") return;
-      try {
-        const url = new URL(target.href, window.location.href);
-        if (url.origin !== window.location.origin) return;
-        if (
-          !url.pathname.startsWith("/apps/build/") &&
-          !url.pathname.startsWith("/apps/manage/")
-        ) {
-          return;
-        }
-        url.searchParams.set("tab", resolveRenderableTab(currentTab));
-        target.href = url.toString();
-      } catch (_) {}
     }
 
     const onClick = (event) => {
@@ -3118,19 +3183,7 @@
       });
     };
 
-    const onNavClick = (event) => {
-      if (event.defaultPrevented) return;
-      if (event.button !== 0) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const target =
-        event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!target) return;
-      if (target.matches("a.manage-view-tab[data-manage-tab]")) return;
-      maybeRewriteManageNavigation(target);
-    };
-
     document.addEventListener("click", onClick, true);
-    document.addEventListener("click", onNavClick, true);
 
     boot.switchManageTab = function (tab) {
       return switchManageTab(tab, { updateUrl: true, emit: true });
@@ -3138,14 +3191,14 @@
 
     boot.disposeManageTabs = function () {
       document.removeEventListener("click", onClick, true);
-      document.removeEventListener("click", onNavClick, true);
       if (boot.switchManageTab) {
         boot.switchManageTab = null;
       }
       boot.disposeManageTabs = null;
     };
 
-    switchManageTab(tabFromUrl(), { updateUrl: false, emit: false });
+    switchManageTab(currentTab, { updateUrl: false, emit: false });
+    refreshBuildPanelForTab(currentTab);
   }
 
   boot.installManageTabs = installManageTabs;
@@ -3177,7 +3230,20 @@
   async function fetchMarkdown(params) {
     const qs = new URLSearchParams(params);
     const res = await fetch("/api/build/context/export?" + qs.toString());
+    if (!res.ok) {
+      throw new Error("export failed: " + res.status + " " + (await res.text()));
+    }
     return res.text();
+  }
+
+  function shellContext() {
+    const shell = document.querySelector("[data-build-node]");
+    if (!shell) return null;
+    return {
+      appPath: shell.getAttribute("data-app-path") || "",
+      node: shell.getAttribute("data-build-node") || "",
+      tab: shell.getAttribute("data-build-tab") || "overview",
+    };
   }
 
   function bindCopyButtons() {
@@ -3212,15 +3278,14 @@
 
   async function refreshAgentPreview() {
     const pre = document.getElementById("build-agent-context-preview");
-    if (!pre) return;
-    const appId = pre.getAttribute("data-app-path");
-    const node = pre.getAttribute("data-node");
-    const tab = pre.getAttribute("data-tab") || "agent";
+    const ctx = shellContext();
+    if (!pre || !ctx || !ctx.appPath || !ctx.node) return;
     try {
+      pre.textContent = "加载中…";
       pre.textContent = await fetchMarkdown({
-        app_id: appId,
-        node,
-        tab,
+        app_id: ctx.appPath,
+        node: ctx.node,
+        tab: "agent",
         intent: "full",
         include_graph: "semantic,eval",
         include_readiness: "1",
@@ -3230,40 +3295,64 @@
     }
   }
 
-  async function refreshGraphPanels() {
-    document.querySelectorAll(".build-graph-markdown[data-graph-kind]").forEach(async (el) => {
-      const node = el.getAttribute("data-node");
-      const kind = el.getAttribute("data-graph-kind");
-      const shell = document.querySelector("[data-build-node]");
-      const appPath = shell && shell.getAttribute("data-app-path");
-      if (!appPath || !node) return;
+  async function refreshGraphPanels(kind) {
+    const ctx = shellContext();
+    if (!ctx || !ctx.appPath || !ctx.node) return;
+    const kinds = kind ? [kind] : ["semantic", "eval"];
+    for (const graphKind of kinds) {
+      const el = document.querySelector(
+        '.build-graph-markdown[data-graph-kind="' + graphKind + '"]',
+      );
+      if (!el) continue;
       try {
-        const md = await fetchMarkdown({
-          app_id: appPath,
-          node,
-          tab: kind === "eval" ? "eval" : "semantic",
+        el.textContent = "加载图摘要…";
+        el.textContent = await fetchMarkdown({
+          app_id: ctx.appPath,
+          node: ctx.node,
+          tab: graphKind,
           intent: "debug_eval",
-          include_graph: kind,
+          include_graph: graphKind,
         });
-        el.textContent = md;
       } catch (err) {
         el.textContent = String(err);
       }
-    });
+    }
+  }
+
+  async function refreshOverviewGate() {
+    const gateHost = document.getElementById("build-overview-gate");
+    if (!gateHost) return;
+    try {
+      const res = await fetch("/api/host/readiness");
+      if (!res.ok) {
+        gateHost.textContent = "Gate 状态暂不可用";
+        return;
+      }
+      const readiness = await res.json();
+      const ctx = shellContext();
+      const app = (readiness.apps || []).find((entry) => entry.app_id === (ctx && ctx.appPath));
+      gateHost.textContent = [
+        readiness.phase ? "host_phase=" + readiness.phase : "",
+        app ? "app_phase=" + app.phase : "",
+        readiness.access_ready != null ? "access_ready=" + readiness.access_ready : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || "Gate 状态已加载";
+    } catch (_) {
+      gateHost.textContent = "";
+    }
   }
 
   async function refreshArtifactPanels() {
-    const shell = document.querySelector("[data-build-node]");
-    const appPath = shell && shell.getAttribute("data-app-path");
-    const node = shell && shell.getAttribute("data-build-node");
-    if (!appPath || !node) return;
+    const ctx = shellContext();
+    if (!ctx || !ctx.appPath || !ctx.node) return;
 
     const gateHost = document.getElementById("build-overview-gate");
     const artifactSummary = document.getElementById("build-artifact-summary");
     try {
       const md = await fetchMarkdown({
-        app_id: appPath,
-        node,
+        app_id: ctx.appPath,
+        node: ctx.node,
         tab: "artifact",
         intent: "debug_artifact",
         include_readiness: "1",
@@ -3279,18 +3368,17 @@
       }
     } catch (err) {
       if (artifactSummary) artifactSummary.textContent = String(err);
-      if (gateHost) gateHost.textContent = String(err);
     }
 
     try {
       const res = await fetch("/api/host/readiness");
       if (!res.ok || !artifactSummary) return;
       const readiness = await res.json();
-      const app = (readiness.apps || []).find((entry) => entry.app_id === appPath);
+      const app = (readiness.apps || []).find((entry) => entry.app_id === ctx.appPath);
       const cacheBits = [
-        readiness.phase ? `host_phase=${readiness.phase}` : "",
-        app ? `app_phase=${app.phase}` : "",
-        readiness.access_ready != null ? `access_ready=${readiness.access_ready}` : "",
+        readiness.phase ? "host_phase=" + readiness.phase : "",
+        app ? "app_phase=" + app.phase : "",
+        readiness.access_ready != null ? "access_ready=" + readiness.access_ready : "",
       ].filter(Boolean);
       if (cacheBits.length) {
         artifactSummary.textContent += "\n\n" + cacheBits.join(" · ");
@@ -3298,14 +3386,38 @@
     } catch (_) {}
   }
 
+  function refreshBuildPanelForTab(tab) {
+    const slug = String(tab || "").trim().toLowerCase();
+    if (slug === "agent") {
+      refreshAgentPreview();
+      return;
+    }
+    if (slug === "semantic" || slug === "eval") {
+      refreshGraphPanels(slug);
+      return;
+    }
+    if (slug === "artifact") {
+      refreshArtifactPanels();
+      return;
+    }
+    if (slug === "overview") {
+      refreshOverviewGate();
+    }
+  }
+
   function initBuildCopyContext() {
     bindCopyButtons();
-    refreshAgentPreview();
-    refreshGraphPanels();
-    refreshArtifactPanels();
+    const ctx = shellContext();
+    refreshBuildPanelForTab(ctx ? ctx.tab : "overview");
   }
 
   global.__meiBuildCopyContextInit = initBuildCopyContext;
+  global.__meiBuildCopyContextRefresh = refreshBuildPanelForTab;
+
+  document.addEventListener("mei:manage-tab-change", (event) => {
+    const tab = event && event.detail ? event.detail.tab : "";
+    refreshBuildPanelForTab(tab);
+  });
 })(typeof window !== "undefined" ? window : globalThis);
 
 ;
@@ -4587,6 +4699,33 @@
   function isPanelPopupConfig(popup) {
     if (!popup || typeof popup !== "object") return false;
     return popup.mode === "popup_panel" || popup.__kind === "popup_panel";
+  }
+
+  function buildTabFromUrl(rawUrl) {
+    try {
+      return String(new URL(rawUrl, window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  function shouldRunBuildPreviewRuntimeForUrl(rawUrl) {
+    try {
+      const pathname = new URL(rawUrl, window.location.href).pathname;
+      if (!isBuildRoute(pathname)) return true;
+      return buildTabFromUrl(rawUrl) === "preview";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function isBuildWorkspacePathname(pathname = window.location.pathname) {
+    return (
+      String(pathname || "").startsWith("/apps/build/") ||
+      String(pathname || "").startsWith("/apps/manage/")
+    );
   }
 
 
@@ -11857,7 +11996,7 @@
     try {
       const tab = new URL(url, window.location.href).searchParams.get("tab");
       if (typeof boot.switchManageTab === "function") {
-        boot.switchManageTab(tab || "preview", { updateUrl: false, emit: true });
+        boot.switchManageTab(tab || "", { updateUrl: false, emit: true });
       }
     } catch (_) {}
   }
@@ -12206,6 +12345,7 @@
 
 /* ===== spa-navigation/spa/manage-preview.js ===== */
   function pulseManagePreview(detail, options) {
+    if (!shouldRunBuildPreviewRuntimeForUrl(window.location.href)) return;
     const opts = options || {};
     const resetCache = opts.resetRuntimeQueryCache !== false;
     dispatchManageContextChange(detail);
@@ -12975,19 +13115,23 @@
         if (navigationId !== currentNavigationId) return;
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
-        if (nextUrl.pathname.startsWith("/apps/manage/")) {
+        if (isBuildWorkspacePathname(nextUrl.pathname)) {
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }
-          if (typeof boot.mountSourceTreeControls === "function") {
-            boot.mountSourceTreeControls();
+          if (nextUrl.pathname.startsWith("/apps/manage/")) {
+            if (typeof boot.mountSourceTreeControls === "function") {
+              boot.mountSourceTreeControls();
+            }
           }
           syncManageTabFromUrl(url);
         }
-        publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
-        installSceneProjectionHost();
-        if (typeof boot.mountManagePreviewBoard === "function") {
-          void boot.mountManagePreviewBoard(doc);
+        if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
+          publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });
+          installSceneProjectionHost();
+          if (typeof boot.mountManagePreviewBoard === "function") {
+            void boot.mountManagePreviewBoard(doc);
+          }
         }
         applyDrilldownContextFromQuery();
         applySceneProjectionContextFromStorage();

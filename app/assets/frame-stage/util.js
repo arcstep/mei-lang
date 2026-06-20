@@ -121,4 +121,36 @@
     ].join(":");
   }
 
+  function buildRouteSlugFromPathname(pathname = window.location.pathname) {
+    const match = String(pathname || "").match(/^\/apps\/([^/]+)\//);
+    return match ? String(match[1] || "").trim().toLowerCase() : "";
+  }
+
+  function isBuildShellRoute(pathname = window.location.pathname) {
+    const slug = buildRouteSlugFromPathname(pathname);
+    return slug === "build" || slug === "manage";
+  }
+
+  function activeBuildTabSlug() {
+    const shell = document.querySelector("[data-build-tab]");
+    const fromShell =
+      shell && String(shell.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    if (fromShell) return fromShell;
+    try {
+      return String(new URL(window.location.href).searchParams.get("tab") || "overview")
+        .trim()
+        .toLowerCase();
+    } catch (_) {
+      return "overview";
+    }
+  }
+
+  /** 构建视图非 preview 标签时不应触发 dataset/metric 预取与 viewport 扫描。 */
+  function shouldMountBuildPreviewRuntime() {
+    if (!isBuildShellRoute()) return true;
+    return activeBuildTabSlug() === "preview";
+  }
+
+  boot.shouldMountBuildPreviewRuntime = shouldMountBuildPreviewRuntime;
+  boot.activeBuildTabSlug = activeBuildTabSlug;
 

@@ -1506,7 +1506,41 @@ a.status-chip-link:focus-visible {
   box-shadow: none;
 }
 #workspace-root.manage-workspace {
+  --workspace-left-aside: 320px;
   grid-template-columns: var(--workspace-left-aside) 8px minmax(0, 1fr);
+}
+#workspace-root.manage-workspace .sidebar.left.workspace-panel-nav {
+  min-width: 0;
+}
+#workspace-root.manage-workspace .main-pane {
+  align-items: stretch;
+  justify-content: flex-start;
+}
+#workspace-root.manage-workspace .manage-workspace-head {
+  flex: 0 0 auto;
+  width: 100%;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+#workspace-root.manage-workspace .manage-tab-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+#workspace-root.manage-workspace .manage-tab-stage > .manage-tab-panel:not([hidden]) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  align-self: stretch;
+}
+#workspace-root.manage-workspace .manage-tab-stage > .manage-tab-panel.preview-pane:not([hidden]) {
+  display: flex;
+  flex-direction: column;
 }
 #workspace-root.manage-workspace.manage-workspace--with-inspector {
   grid-template-columns: var(--workspace-left-aside) 8px minmax(0, 1fr) 8px var(--workspace-right-aside);
@@ -4297,6 +4331,129 @@ body > .mei-floating-text-pop-backdrop {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 4 L 6 8.75 L 9.75 4' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 .tree-folder-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 构建视图 · 可达性资源树（独立行布局，避免与旧 tree-file-row / ::before 折线冲突） */
+.build-reachability-tree {
+  min-width: 0;
+  font-size: var(--mei-font-1, 12px);
+  line-height: 1.35;
+}
+.build-reachability-tree .build-tree-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.build-reachability-tree .build-tree-list--nested {
+  margin-top: 2px;
+  margin-left: 0.45rem;
+  padding-left: 0.55rem;
+  border-left: 1px solid rgba(148, 163, 184, 0.32);
+}
+.build-reachability-tree .build-tree-summary,
+.build-reachability-tree .build-tree-link {
+  display: grid;
+  grid-template-columns: 0.75rem 1rem minmax(0, 1fr);
+  column-gap: 0.375rem;
+  align-items: center;
+  min-width: 0;
+  width: 100%;
+  padding: 0.2rem 0.35rem 0.2rem 0.45rem;
+  box-shadow: inset 2px 0 0 transparent;
+  border-radius: 0;
+}
+.build-reachability-tree .build-tree-summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  color: var(--mei-color-text-primary);
+}
+.build-reachability-tree .build-tree-summary::-webkit-details-marker {
+  display: none;
+}
+.build-reachability-tree .build-tree-summary::before {
+  content: "";
+  grid-column: 1;
+  grid-row: 1;
+  width: 0.75rem;
+  height: 0.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 3.25 2.25 L 8.75 6 L 3.25 9.75' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+.build-reachability-tree .build-tree-details[open] > .build-tree-summary::before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M 2.25 4 L 6 8.75 L 9.75 4' fill='none' stroke='%2394a3b8' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.build-reachability-tree .build-tree-kind {
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--mei-color-text-muted);
+}
+.build-reachability-tree .build-tree-kind--group {
+  font-size: 9px;
+}
+.build-reachability-tree .build-tree-label {
+  grid-column: 3;
+  grid-row: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.build-reachability-tree .build-tree-label--link {
+  color: inherit;
+  text-decoration: none;
+}
+.build-reachability-tree .build-tree-label--link:hover {
+  color: var(--mei-color-text-primary);
+}
+.build-reachability-tree .build-tree-badge {
+  margin-left: 0.35rem;
+  font-size: 10px;
+  color: var(--mei-color-text-muted);
+  white-space: nowrap;
+}
+.build-reachability-tree .build-tree-link {
+  text-decoration: none;
+  color: var(--mei-color-text-primary);
+  transition: color 0.16s ease, background-color 0.16s ease;
+}
+.build-reachability-tree .build-tree-link:hover {
+  color: var(--mei-color-text-primary);
+}
+.build-reachability-tree .build-tree-spacer {
+  grid-column: 1;
+  grid-row: 1;
+  width: 0.75rem;
+  height: 0.75rem;
+}
+.build-reachability-tree .build-tree-summary--active,
+.build-reachability-tree .build-tree-link--active {
+  box-shadow: inset 2px 0 0 rgb(56 189 248);
+  background: var(--mei-color-surface-bg, rgba(14, 165, 233, 0.15));
+  color: rgb(224 242 254);
+  font-weight: 600;
+}
+.build-reachability-tree .build-tree-summary--root {
+  font-weight: 600;
+}
+.build-reachability-tree .build-tree-summary--group {
+  color: var(--mei-color-text-muted);
+  font-weight: 500;
+}
 
 /* 嵌套清单：左侧竖线标示同一组层级，长列表时便于对齐到上级文件夹 */
 .tree-li-branch > details > ul.tree {
