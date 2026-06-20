@@ -126,10 +126,6 @@
     return { kind: "file", label: "FILE" };
   }
 
-  function selectedDirLabel() {
-    return formatRelativeDirLabel(selectedDir);
-  }
-
   function downloadHrefForPath(relPath) {
     const rel = String(relPath || "").trim();
     if (!rel) return "#";
@@ -165,15 +161,25 @@
 
   root.innerHTML = `
     <div class="upload-panel-shell">
-      <section class="upload-panel-card upload-panel-card--toolbar">
-        <div class="upload-panel-toolbar">
-          <div class="upload-panel-toolbar-copy">
-            <div class="upload-panel-section-title">上传文件管理</div>
-            <div id="upload-current-dir-label" class="upload-panel-context-path">${escapeHtml(selectedDirLabel())}</div>
-            <div class="upload-panel-note">${selectedIsDir ? "当前选中目录，上传将直接进入这里。" : "未选中目录时，上传将直接进入根目录。"}</div>
-          </div>
-          <label class="upload-panel-field upload-panel-field--toolbar">
-            <span class="upload-panel-field-label">上传目标子文件夹</span>
+      <header class="upload-panel-hero">
+        <div class="upload-panel-hero-top">
+          <h2 class="upload-panel-hero-title">上传工作台</h2>
+          <div id="upload-current-dir-label" class="upload-panel-hero-path">${escapeHtml(formatRelativeDirLabel(selectedDir))}</div>
+        </div>
+        <p class="upload-panel-hero-note">${
+          selectedIsDir
+            ? "当前选中目录，新上传的文件将直接落到该路径。"
+            : "指定目标路径后，拖拽或选择文件即可开始上传。"
+        }</p>
+      </header>
+
+      <section class="upload-panel-card">
+        <div class="upload-panel-card-head">
+          <div class="upload-panel-section-title">上传文件</div>
+        </div>
+        <label class="upload-panel-field">
+          <span class="upload-panel-field-label">目标路径</span>
+          <div class="upload-panel-target-inputs">
             <input
               id="upload-target-dir-input"
               class="upload-panel-field-input"
@@ -182,16 +188,21 @@
               value="${escapeHtml(selectedDir)}"
               placeholder="留空为根目录，如 media/2026"
             />
-          </label>
-          <div class="upload-panel-inline-actions">
-            <button type="button" id="upload-target-use-current-btn" class="upload-btn upload-btn--secondary">当前目录</button>
-            <button type="button" id="upload-target-use-root-btn" class="upload-btn upload-btn--secondary">根目录</button>
+            <div class="upload-panel-target-quick">
+              <button type="button" id="upload-target-use-current-btn" class="upload-btn upload-btn--secondary">当前选中</button>
+              <button type="button" id="upload-target-use-root-btn" class="upload-btn upload-btn--secondary">根目录</button>
+            </div>
           </div>
-        </div>
-        <div class="upload-panel-folder-bank">
-          <div class="upload-panel-field-label">现有目录</div>
+        </label>
+        ${
+          directoryOptions.length > 1
+            ? `
+        <div class="upload-panel-dir-quick">
+          <span class="upload-panel-field-label">快捷目录</span>
           <div class="upload-folder-chip-list">${buildDirChipsHtml("upload")}</div>
-        </div>
+        </div>`
+            : ""
+        }
         <form id="upload-file-form" class="upload-form">
           <input id="upload-file-input" type="file" name="file" multiple hidden />
           <datalist id="upload-dir-options">${buildDirOptionsHtml()}</datalist>
@@ -202,10 +213,15 @@
             role="button"
             aria-label="拖拽文件到这里或点击选择文件"
           >
-            <div class="upload-dropzone-icon" aria-hidden="true">UP</div>
+            <span class="upload-dropzone-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 16V4m0 0 7 7m-7-7-7 7"></path>
+                <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"></path>
+              </svg>
+            </span>
             <div class="upload-dropzone-copy">
-              <div class="upload-dropzone-title">拖拽或点击选择文件</div>
-              <div class="upload-dropzone-note">队列会显示每个文件的体积、进度与上传策略。</div>
+              <span class="upload-dropzone-label">拖拽文件到此处</span>
+              <span class="upload-dropzone-hint">或点击选择 · 超过 ${formatBytes(CHUNK_THRESHOLD_BYTES)} 自动分段上传</span>
             </div>
           </div>
           <div class="upload-form-actions">
@@ -220,13 +236,13 @@
       ${
         selectedFile
           ? `
-      <section class="upload-panel-card upload-panel-card--selection">
-        <div class="upload-panel-section-title">修改文件或文件夹</div>
-        <div class="upload-panel-note">
-          当前${selectedIsDir ? "目录" : "文件"}：<span class="upload-panel-dir">${escapeHtml(selectedFile)}</span>
+      <section class="upload-panel-card upload-panel-card--manage">
+        <div class="upload-panel-card-head">
+          <div class="upload-panel-section-title">管理选中项</div>
+          <div class="upload-panel-selected-path" title="${escapeHtml(selectedFile)}">${escapeHtml(selectedFile)}</div>
         </div>
         <label class="upload-panel-field">
-          <span class="upload-panel-field-label">新的相对路径</span>
+          <span class="upload-panel-field-label">新路径</span>
           <input
             id="upload-update-path-input"
             class="upload-panel-field-input"
@@ -235,9 +251,7 @@
             placeholder="${selectedIsDir ? "例如 archive/2026/new-folder" : "例如 archive/2026/report.csv"}"
           />
         </label>
-        <div class="upload-panel-field-note">
-          直接改路径即可完成重命名或迁移；中间目录不存在时会自动创建。
-        </div>
+        <p class="upload-panel-field-note">修改路径可重命名或迁移；中间目录不存在时会自动创建。</p>
         <div class="upload-panel-inline-actions">
           ${
             selectedIsDir
@@ -247,10 +261,10 @@
             class="upload-btn upload-btn--secondary"
             href="${escapeHtml(downloadHrefForPath(selectedFile))}"
             download
-          >下载当前文件</a>`
+          >下载</a>`
           }
-          <button type="button" id="upload-update-path-btn" class="upload-btn upload-btn--primary">应用路径修改</button>
-          <button type="button" id="upload-delete-btn" class="upload-btn upload-btn--danger">删除当前${selectedIsDir ? "目录" : "文件"}</button>
+          <button type="button" id="upload-update-path-btn" class="upload-btn upload-btn--primary">应用路径</button>
+          <button type="button" id="upload-delete-btn" class="upload-btn upload-btn--danger">删除</button>
         </div>
       </section>`
           : ""
@@ -392,7 +406,7 @@
         return `
           <div class="upload-queue-item" data-key="${escapeHtml(item.key)}">
             <div class="upload-queue-item-main">
-              <span class="upload-entry-token" data-kind="${escapeHtml(token.kind)}" aria-hidden="true">${escapeHtml(token.label)}</span>
+              <span class="upload-queue-ext" aria-hidden="true">${escapeHtml(token.label)}</span>
               <div class="upload-queue-copy">
                 <div class="upload-queue-title-row">
                   <div class="upload-queue-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</div>
@@ -418,7 +432,11 @@
                 <div class="upload-queue-progress">
                   <div class="upload-queue-progress-bar" style="width:${percent}%"></div>
                 </div>
-                <div class="upload-queue-note">${escapeHtml(item.note || "等待开始")}</div>
+                ${
+                  item.note
+                    ? `<div class="upload-queue-note">${escapeHtml(item.note)}</div>`
+                    : ""
+                }
               </div>
             </div>
           </div>
@@ -738,6 +756,7 @@
   uploadUseCurrentBtn?.addEventListener("click", () => {
     setDirInputValue(uploadTargetDirInput, selectedDir);
   });
+
   uploadUseRootBtn?.addEventListener("click", () => {
     setDirInputValue(uploadTargetDirInput, "");
   });
