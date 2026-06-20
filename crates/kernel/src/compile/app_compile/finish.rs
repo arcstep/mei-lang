@@ -747,16 +747,20 @@ fn ensure_build_tree_entry_scene_assemblies(
         if assembly_has_panels(scene_projection_assembly_by_id.get(&route.scene_id)) {
             continue;
         }
+        let dependency_fingerprint = dependency_graph.dependency_fingerprint_for_target(
+            app_root,
+            &app_decls,
+            route.target_file.as_str(),
+        );
         let payload = compile_scene_payload_for_target(
             app_root,
             source_root,
             &app_decls,
             asset_map,
+            route.target_file.as_str(),
+            Some(route),
             &scene_registry,
-            dependency_graph,
-            &route.target_file,
-            Some(route.scene_id.as_str()),
-            None,
+            dependency_fingerprint.as_deref(),
         );
         let Some(contract) = payload.scene_contract.as_ref() else {
             continue;

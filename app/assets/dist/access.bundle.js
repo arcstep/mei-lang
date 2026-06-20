@@ -18866,6 +18866,9 @@
         if (navigationId !== currentNavigationId) return;
         if (isBuildWorkspacePathname(nextUrl.pathname)) {
           stabilizeBuildPreviewRuntime();
+          if (typeof globalThis.__meiBuildCopyContextInit === "function") {
+            globalThis.__meiBuildCopyContextInit();
+          }
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }

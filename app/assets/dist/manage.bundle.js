@@ -3220,17 +3220,79 @@
 (function (global) {
   "use strict";
 
-  function copyText(value) {
-    if (navigator.clipboard && global.isSecureContext) {
-      return navigator.clipboard.writeText(value);
+  async function copyText(value) {
+    const text = String(value || "");
+    if (!text) return false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) {
+      return false;
     }
-    const ta = document.createElement("textarea");
-    ta.value = value;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    return Promise.resolve();
+  }
+
+  function copyButtonLabel(btn, intent) {
+    if (btn.id === "build-copy-agent-context-top") {
+      return "复制 Agent 上下文";
+    }
+    return intent === "full" ? "复制 Agent 上下文" : "复制 Markdown 简报";
+  }
+
+  async function handleCopyClick(btn) {
+    const appId = btn.getAttribute("data-app-path");
+    const node = btn.getAttribute("data-node");
+    const tab =
+      btn.getAttribute("data-tab") ||
+      document.querySelector(".shell[data-build-node]")?.getAttribute("data-build-tab") ||
+      "overview";
+    const intent = btn.getAttribute("data-intent") || "lock_node";
+    const defaultLabel = copyButtonLabel(btn, intent);
+    if (!appId || !node) {
+      console.warn("build copy: missing app_id or node on button", btn);
+      return;
+    }
+    const prevLabel = btn.textContent;
+    btn.disabled = true;
+    try {
+      const params = {
+        app_id: appId,
+        node,
+        tab,
+        intent,
+        include_readiness: "1",
+      };
+      if (intent === "full") {
+        params.include_graph = "semantic,eval";
+      }
+      const md = await fetchMarkdown(params);
+      const ok = await copyText(md);
+      btn.textContent = ok ? "已复制" : "复制失败";
+      setTimeout(() => {
+        btn.textContent = prevLabel || defaultLabel;
+        btn.disabled = false;
+      }, 1500);
+    } catch (err) {
+      console.error("build copy failed", err);
+      btn.textContent = "复制失败";
+      setTimeout(() => {
+        btn.textContent = prevLabel || defaultLabel;
+        btn.disabled = false;
+      }, 1500);
+    }
   }
 
   async function fetchMarkdown(params) {
@@ -3252,43 +3314,20 @@
     };
   }
 
-  function bindCopyButtons() {
-    document.querySelectorAll("[data-app-path][data-node][data-intent]").forEach((btn) => {
-      if (btn.__buildCopyBound) return;
-      btn.__buildCopyBound = true;
-      btn.addEventListener("click", async () => {
-        const appId = btn.getAttribute("data-app-path");
-        const node = btn.getAttribute("data-node");
-        const tab = btn.getAttribute("data-tab") || "overview";
-        const intent = btn.getAttribute("data-intent") || "lock_node";
-        try {
-          const params = {
-            app_id: appId,
-            node,
-            tab,
-            intent,
-            include_readiness: "1",
-          };
-          if (intent === "full") {
-            params.include_graph = "semantic,eval";
-          }
-          const md = await fetchMarkdown(params);
-          await copyText(md);
-          btn.textContent = "已复制";
-          setTimeout(() => {
-            btn.textContent = intent === "full" ? "复制 Agent 上下文" : "复制 Markdown 简报";
-          }, 1500);
-        } catch (err) {
-          console.error("build copy failed", err);
-        }
-      });
-    });
-    document.querySelectorAll(".build-copy-provenance[data-copy-text]").forEach((btn) => {
-      if (btn.__provCopyBound) return;
-      btn.__provCopyBound = true;
-      btn.addEventListener("click", () => {
-        copyText(btn.getAttribute("data-copy-text") || "");
-      });
+  function installCopyDelegation() {
+    if (document.__buildCopyDelegationBound) return;
+    document.__buildCopyDelegationBound = true;
+    document.addEventListener("click", (event) => {
+      const provBtn = event.target.closest(".build-copy-provenance[data-copy-text]");
+      if (provBtn) {
+        event.preventDefault();
+        void copyText(provBtn.getAttribute("data-copy-text") || "");
+        return;
+      }
+      const btn = event.target.closest("[data-app-path][data-node][data-intent]");
+      if (!btn) return;
+      event.preventDefault();
+      void handleCopyClick(btn);
     });
   }
 
@@ -3422,7 +3461,7 @@
   }
 
   function initBuildCopyContext() {
-    bindCopyButtons();
+    installCopyDelegation();
     const ctx = shellContext();
     refreshBuildPanelForTab(ctx ? ctx.tab : "overview");
   }
@@ -3705,6 +3744,13 @@
     bar.textContent = bits.join(" · ");
   }
 
+  function syncBuildPreviewScopedChrome(root) {
+    const scopedActive =
+      root instanceof HTMLElement &&
+      root.querySelector("[data-preview-scope].build-preview-scoped-dim") != null;
+    document.body.classList.toggle("build-preview-scoped-active", scopedActive);
+  }
+
   function applyScopedPreview(root) {
     const node = activeBuildNode();
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
@@ -3714,6 +3760,7 @@
       !node.startsWith("scene-panel:") &&
       !node.startsWith("scene-block:")
     ) {
+      syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
@@ -3730,6 +3777,7 @@
       }
       el.classList.add("build-preview-scoped-dim");
     });
+    syncBuildPreviewScopedChrome(root);
   }
 
   function scrollIntoViewIfOne(matches) {
@@ -3887,6 +3935,7 @@
     root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
+    document.body.classList.remove("build-preview-scoped-active");
     root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
       if (!(surface instanceof HTMLElement)) return;
       delete surface.dataset.meiPreviewBoardMounted;
@@ -13731,6 +13780,9 @@
         if (navigationId !== currentNavigationId) return;
         if (isBuildWorkspacePathname(nextUrl.pathname)) {
           stabilizeBuildPreviewRuntime();
+          if (typeof globalThis.__meiBuildCopyContextInit === "function") {
+            globalThis.__meiBuildCopyContextInit();
+          }
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }

@@ -4467,6 +4467,15 @@ body > .mei-floating-text-pop-backdrop {
   pointer-events: none;
 }
 
+/* Build 预览 scoped 蒙版：同步压住 portal 到 body 的 GIS 浮层控件 */
+body.build-preview-scoped-active > .maplibregl-ctrl-top-right.mei-cockpit-floating-map-tools,
+body.build-preview-scoped-active > .mei-cockpit-floating-layer-control,
+body.build-preview-scoped-active > .maplibregl-popup.mei-cockpit-floating-tip {
+  opacity: 0.22;
+  pointer-events: none;
+  filter: saturate(0.55);
+}
+
 .build-reachability-tree .build-tree-summary--root {
   font-weight: 600;
 }

@@ -61,6 +61,13 @@
     bar.textContent = bits.join(" · ");
   }
 
+  function syncBuildPreviewScopedChrome(root) {
+    const scopedActive =
+      root instanceof HTMLElement &&
+      root.querySelector("[data-preview-scope].build-preview-scoped-dim") != null;
+    document.body.classList.toggle("build-preview-scoped-active", scopedActive);
+  }
+
   function applyScopedPreview(root) {
     const node = activeBuildNode();
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
@@ -70,6 +77,7 @@
       !node.startsWith("scene-panel:") &&
       !node.startsWith("scene-block:")
     ) {
+      syncBuildPreviewScopedChrome(root);
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
@@ -86,6 +94,7 @@
       }
       el.classList.add("build-preview-scoped-dim");
     });
+    syncBuildPreviewScopedChrome(root);
   }
 
   function scrollIntoViewIfOne(matches) {
@@ -243,6 +252,7 @@
     root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
+    document.body.classList.remove("build-preview-scoped-active");
     root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
       if (!(surface instanceof HTMLElement)) return;
       delete surface.dataset.meiPreviewBoardMounted;
