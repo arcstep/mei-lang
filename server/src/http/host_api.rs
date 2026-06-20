@@ -533,6 +533,8 @@ pub(crate) fn verify_startup_artifacts(source_root: &Path) -> Result<PrebuildRep
             schema_version: "mei-prebuild-report-v1".to_string(),
             mode: PrebuildMode::Verify,
             clean: false,
+            clean_wall_ms: 0,
+            total_wall_ms: 0,
             source_root: source_root.display().to_string(),
             manifest_path: manifest_path_for(source_root).display().to_string(),
             manifest_source: "test_skip".to_string(),

@@ -50,7 +50,7 @@ pub use query::query_dataset_rows;
 pub use result_artifact::{
     default_result_artifact_scope, load_metric_dataframe_result_artifact,
     load_metric_response_result_artifact, store_metric_dataframe_result_artifact,
-    store_metric_response_result_artifact,
+    store_metric_response_result_artifact, LoadedMetricResponseArtifact,
 };
 pub use table_contract::{
     apply_table_request_fields, enrich_table_result, QueryStateEcho, TableColumnState,
