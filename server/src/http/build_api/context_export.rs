@@ -4,7 +4,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use mei_lang_kernel::{
-    build_reachability_tree, resolve_build_node_context, resolve_build_view_query,
+    build_experience_path, build_overview_backing, build_reachability_tree,
+    format_experience_path, resolve_build_node_context, resolve_build_view_query,
     tab_visible_for_node, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
 };
 use mei_lang_toolchain::{format_semantic_graph_markdown, load_world_runtime_bundle};
@@ -116,6 +117,9 @@ pub async fn api_build_context_export(
     }
     md.push('\n');
 
+    append_ux_sections(&mut md, compiled, &ctx, &resolved.node);
+    append_runtime_snapshot(&mut md, compiled, &ctx, &intent);
+
     md.push_str("### 编译摘要\n\n");
     md.push_str(&format!("- target_file: `{}`\n", ctx.target_file));
     if let Some(scene) = ctx.scene_id.as_deref() {
@@ -145,6 +149,78 @@ pub async fn api_build_context_export(
         .into_response()
 }
 
+fn append_ux_sections(
+    md: &mut String,
+    compiled: &mei_lang_kernel::CompiledApp,
+    ctx: &mei_lang_kernel::BuildNodeContext,
+    node: &mei_lang_kernel::BuildNodeId,
+) {
+    let path = build_experience_path(compiled, node);
+    md.push_str("### 体验路径\n\n");
+    md.push_str(&format!("{}\n\n", format_experience_path(&path)));
+
+    md.push_str("### UI 锚点\n\n");
+    md.push_str(&format!("- node: `{}`\n", node.encode()));
+    md.push_str(&format!("- target_file: `{}`\n", ctx.target_file));
+    if let Some(scene) = ctx.scene_id.as_deref() {
+        md.push_str(&format!("- scene_id: `{scene}`\n"));
+    }
+    md.push_str(&format!(
+        "- symbol: `{}` ({}) in `{}`\n",
+        ctx.provenance.symbol_id, ctx.provenance.symbol_kind, ctx.provenance.file
+    ));
+    md.push('\n');
+
+    let backing = build_overview_backing(compiled, node);
+    if !backing.is_empty() {
+        md.push_str("### Backing\n\n");
+        for item in backing {
+            md.push_str(&format!("- {item}\n"));
+        }
+        md.push('\n');
+    }
+}
+
+fn append_runtime_snapshot(
+    md: &mut String,
+    compiled: &mei_lang_kernel::CompiledApp,
+    ctx: &mei_lang_kernel::BuildNodeContext,
+    intent: &str,
+) {
+    if intent != "debug_data" && intent != "full" {
+        return;
+    }
+    md.push_str("### 运行时快照\n\n");
+    md.push_str(&format!("- compile_resources: {}\n", compiled.resources.len()));
+    if let Some(dataset_id) = ctx.world_dataset.as_deref() {
+        if let Some(resource) = compiled.resources.iter().find(|r| r.id == dataset_id) {
+            if let Some(dataset) = resource.dataset.as_ref() {
+                md.push_str(&format!("- dataset `{dataset_id}` rows: {}\n", dataset.rows.len()));
+            }
+        }
+    }
+    let backing = build_overview_backing(compiled, &ctx.node);
+    for item in backing {
+        if let Some(stripped) = item.strip_prefix("→ ") {
+            let dataset_id = stripped.split("::").next().unwrap_or(stripped).trim();
+            if let Some(resource) = compiled
+                .resources
+                .iter()
+                .find(|r| r.id == dataset_id)
+            {
+                if let Some(dataset) = resource.dataset.as_ref() {
+                    md.push_str(&format!(
+                        "- backing `{dataset_id}` rows: {}\n",
+                        dataset.rows.len()
+                    ));
+                }
+            }
+        }
+    }
+    md.push_str("- query_state: （Build Exec tab / preview runtime 可复现 filter）\n");
+    md.push('\n');
+}
+
 fn append_provenance_section(md: &mut String, anchor: &ProvenanceAnchor) {
     md.push_str("### 溯源\n\n");
     if !anchor.file.is_empty() {
@@ -162,8 +238,8 @@ fn append_graph_sections(
     ctx: &mei_lang_kernel::BuildNodeContext,
     include_graph: &str,
 ) {
-    let want_semantic = include_graph.is_empty() || include_graph.contains("semantic");
-    let want_eval = include_graph.is_empty() || include_graph.contains("eval");
+    let want_semantic = include_graph.contains("semantic");
+    let want_eval = include_graph.contains("eval");
     if !want_semantic && !want_eval {
         return;
     }
@@ -211,6 +287,12 @@ fn append_suggested_tasks(
         "debug_render" => {
             md.push_str(&format!(
                 "> 检查 `{}` 中符号 `{}` 的 projection / preview 渲染是否与 compile 结构一致。\n",
+                anchor.file, anchor.symbol_id
+            ));
+        }
+        "debug_data" => {
+            md.push_str(&format!(
+                "> 检查 `{}` 中 `{}` 的数据绑定、filter 与 runtime 物化结果；对照 Backing 与运行时快照中的 row_count。\n",
                 anchor.file, anchor.symbol_id
             ));
         }

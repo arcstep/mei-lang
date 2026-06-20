@@ -1,51 +1,96 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BuildNodeContext, CompiledApp, ProvenanceAnchor};
+use mei_lang_kernel::{
+    build_experience_path, build_overview_backing, format_experience_path, BuildNodeContext,
+    BuildNodeKind, CompiledApp, ProvenanceAnchor,
+};
 
 pub(crate) fn build_overview_view(
     compiled: &CompiledApp,
     ctx: &BuildNodeContext,
     app_path: &str,
 ) -> impl IntoView {
+    let experience = build_experience_path(compiled, &ctx.node);
+    let experience_line = format_experience_path(&experience);
+    let backing = build_overview_backing(compiled, &ctx.node);
     let node_label = ctx.node.encode();
     let diag_count = compiled.diagnostics.len();
-    let route_count = compiled.scene_routes.len();
-    let resource_count = compiled.resources.len();
+    let business_title = experience.last().cloned().unwrap_or_else(|| node_label.clone());
+
     view! {
         <section class="build-overview grid gap-3 rounded-xl border mei-border-default mei-surface-panel-muted p-4 text-xs leading-6 mei-text-body">
-            <strong class="text-sm mei-text-primary">"概览"</strong>
-            <dl class="grid gap-1">
-                <div class="flex gap-2">
-                    <dt class="mei-text-muted">"Node"</dt>
-                    <dd class="font-mono text-[11px]">{node_label}</dd>
+            <div class="flex flex-wrap items-start justify-between gap-2">
+                <strong class="text-sm mei-text-primary">{business_title.clone()}</strong>
+                <div class="flex flex-wrap gap-2">
+                    <button
+                        type="button"
+                        class="inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-100"
+                        data-app-path=app_path.to_string()
+                        data-node=node_label.clone()
+                        data-tab="overview"
+                        data-intent="lock_node"
+                    >
+                        "复制 Markdown"
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex items-center rounded-md border mei-border-default px-2.5 py-1 text-[11px] mei-text-body"
+                        data-app-path=app_path.to_string()
+                        data-node=node_label.clone()
+                        data-tab="overview"
+                        data-intent="debug_data"
+                    >
+                        "复制数据调试包"
+                    </button>
                 </div>
-                <div class="flex gap-2">
-                    <dt class="mei-text-muted">"Target"</dt>
-                    <dd>{ctx.target_file.clone()}</dd>
+            </div>
+            <dl class="grid gap-2">
+                <div class="flex flex-col gap-0.5">
+                    <dt class="mei-text-muted">"体验路径"</dt>
+                    <dd class="text-sm mei-text-primary">{experience_line}</dd>
                 </div>
-                {ctx.scene_id.clone().map(|scene| view! {
-                    <div class="flex gap-2">
-                        <dt class="mei-text-muted">"Scene"</dt>
-                        <dd>{scene}</dd>
+                {(!backing.is_empty()).then(|| view! {
+                    <div class="flex flex-col gap-0.5">
+                        <dt class="mei-text-muted">"Backing"</dt>
+                        <dd class="font-mono text-[11px] leading-5">
+                            {backing.into_iter().map(|item| view! {
+                                <div>{item}</div>
+                            }).collect_view()}
+                        </dd>
                     </div>
                 })}
                 <div class="flex gap-2">
-                    <dt class="mei-text-muted">"Routes"</dt>
-                    <dd>{route_count.to_string()}</dd>
+                    <dt class="w-16 shrink-0 mei-text-muted">"Node"</dt>
+                    <dd class="font-mono text-[11px] break-all">{node_label.clone()}</dd>
                 </div>
                 <div class="flex gap-2">
-                    <dt class="mei-text-muted">"Resources"</dt>
-                    <dd>{resource_count.to_string()}</dd>
+                    <dt class="w-16 shrink-0 mei-text-muted">"Target"</dt>
+                    <dd class="font-mono text-[11px] break-all">{ctx.target_file.clone()}</dd>
                 </div>
+                {ctx.scene_id.clone().map(|scene| view! {
+                    <div class="flex gap-2">
+                        <dt class="w-16 shrink-0 mei-text-muted">"Scene"</dt>
+                        <dd>{scene}</dd>
+                    </div>
+                })}
+                {matches!(
+                    ctx.node.kind,
+                    BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock
+                ).then(|| view! {
+                    <div class="flex gap-2">
+                        <dt class="w-16 shrink-0 mei-text-muted">"符号"</dt>
+                        <dd class="font-mono text-[11px]">{ctx.provenance.symbol_id.clone()}</dd>
+                    </div>
+                })}
                 <div class="flex gap-2">
-                    <dt class="mei-text-muted">"Diagnostics"</dt>
+                    <dt class="w-16 shrink-0 mei-text-muted">"Diagnostics"</dt>
                     <dd>{diag_count.to_string()}</dd>
                 </div>
             </dl>
-            <p class="mei-text-muted">"编译后结构摘要；详细 diagnostics 请在 IDE / CI 中查看。"</p>
+            <p class="mei-text-muted">"选择左侧体验树节点后，在此查看业务路径与 backing；Copy 输出给外部 Agent。"</p>
             <div
                 id="build-overview-gate"
                 data-app-path=app_path.to_string()
-                data-node=ctx.node.encode()
+                data-node=node_label
             ></div>
         </section>
     }
@@ -94,7 +139,7 @@ pub(crate) fn build_agent_view(app_path: &str, node: &str, tab: &str) -> impl In
                     data-app-path=app_path.to_string()
                     data-node=node.to_string()
                     data-tab=tab.to_string()
-                    data-intent="lock_node"
+                    data-intent="full"
                 >
                     "复制 Markdown 简报"
                 </button>

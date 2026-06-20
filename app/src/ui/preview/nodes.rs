@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, CompiledApp, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{BlockDecl, BuildNodeId, CompiledApp, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
 use super::style::container_visual_style;
@@ -93,6 +93,14 @@ pub(crate) fn panel_view(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| panel.id.clone());
 
+    let build_node_id = if runtime_ctx.build_inspect_enabled {
+        Some(
+            BuildNodeId::scene_panel(scene_contract.scene.id.clone(), panel.id.clone()).encode(),
+        )
+    } else {
+        None
+    };
+
     let render_head_blocks = || {
         head_nodes
             .iter()
@@ -107,6 +115,7 @@ pub(crate) fn panel_view(
                     theme,
                     embed_depth,
                     preview_scene_path,
+                    Some(panel.id.as_str()),
                 )
             })
             .collect_view()
@@ -125,6 +134,7 @@ pub(crate) fn panel_view(
                     theme,
                     embed_depth,
                     preview_scene_path,
+                    Some(panel.id.as_str()),
                 )
             })
             .collect_view()
@@ -135,6 +145,7 @@ pub(crate) fn panel_view(
             class=card_class
             style=card_style.clone()
             data-mei-panel-id=panel.id.clone()
+            data-build-node=build_node_id.clone().unwrap_or_default()
         >
             {if has_head {
                 let head_carets_attr = head_carets.then_some("true");
@@ -186,6 +197,7 @@ pub(crate) fn panel_view(
                     class=card_class
                     style=scaled_section_style
                     data-mei-panel-id=panel.id.clone()
+                    data-build-node=build_node_id.clone().unwrap_or_default()
                 >
                     {if has_head {
                         let head_carets_attr = head_carets.then_some("true");
@@ -305,6 +317,7 @@ fn node_view(
     theme: &ThemeResolved,
     embed_depth: u8,
     preview_scene_path: &str,
+    parent_panel_id: Option<&str>,
 ) -> AnyView {
     match node {
         UiNodeDecl::Panel(panel) => panel_view(
@@ -327,6 +340,7 @@ fn node_view(
             runtime_ctx,
             theme,
             preview_scene_path,
+            parent_panel_id,
         ),
         UiNodeDecl::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
@@ -367,6 +381,7 @@ fn block_view(
     runtime_ctx: &PreviewRuntimeContext,
     theme: &ThemeResolved,
     preview_scene_path: &str,
+    parent_panel_id: Option<&str>,
 ) -> AnyView {
     let scene_anchor = RuntimeSceneAnchor {
         scene_id: scene_contract.scene.id.clone(),
@@ -417,10 +432,30 @@ fn block_view(
         format!("component-card {slot_v_class}")
     };
     let block_layout = if is_header_brand { None } else { panel_layout };
+    let block_id = block
+        .id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(block.use_key.as_str());
+    let build_node_id = if runtime_ctx.build_inspect_enabled {
+        parent_panel_id.map(|panel_id| {
+            BuildNodeId::scene_block(
+                scene_contract.scene.id.clone(),
+                panel_id,
+                block_id,
+            )
+            .encode()
+        })
+    } else {
+        None
+    };
     view! {
         <section
             class=card_class
             style=block_style(block.area.as_deref(), block_layout)
+            data-mei-block-id=block_id.to_string()
+            data-mei-use-key=block.use_key.clone()
+            data-build-node=build_node_id.clone().unwrap_or_default()
         >
             <div class="component-host" inner_html=html></div>
         </section>

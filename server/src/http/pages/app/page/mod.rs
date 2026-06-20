@@ -12,7 +12,8 @@ use axum::{
 };
 use mei_lang_app::UiRouteMode;
 use mei_lang_kernel::{
-    discover_apps, preview_target_from_build_node, resolve_app_root, resolve_default_scene_from_root,
+    compile_scene_from_build_node, discover_apps, preview_target_from_build_node,
+    preview_target_from_build_node_with_app, resolve_app_root, resolve_default_scene_from_root,
     BuildNodeId, CompileOptions,
 };
 
@@ -36,6 +37,7 @@ use super::query::{
 };
 
 use crate::http::compile_cache::CompileWithCacheOutcome;
+use crate::http::compile_cache::load_compile_artifact_only;
 
 use access_gate::check_access_scene_gate;
 use compile::{maybe_handle_compile_bootstrap_probe, resolve_compile_outcome, CompileResolution};
@@ -162,15 +164,32 @@ pub async fn app_page(
         .as_deref()
         .filter(|t| is_script_target(t))
         .map(ToString::to_string);
-    let build_node_preview_target = if route_mode == UiRouteMode::Build {
+    let build_node = if route_mode == UiRouteMode::Build {
         query
             .node
             .as_deref()
             .and_then(BuildNodeId::parse)
-            .and_then(|node| preview_target_from_build_node(&node))
     } else {
         None
     };
+    let build_node_preview_target = build_node.as_ref().and_then(|node| {
+        preview_target_from_build_node(node).or_else(|| {
+            if route_mode != UiRouteMode::Build {
+                return None;
+            }
+            let components_root = resolve_components_root(&state.source_root);
+            load_compile_artifact_only(
+                &state,
+                &app_id,
+                &CompileOptions {
+                    scene: compile_scene_from_build_node(node),
+                    preview_target: None,
+                },
+                components_root.as_path(),
+            )
+            .and_then(|outcome| preview_target_from_build_node_with_app(node, Some(&outcome.compiled)))
+        })
+    });
     let normalized_preview_target = if route_mode == UiRouteMode::Build {
         manage_script_file
             .clone()
@@ -179,7 +198,10 @@ pub async fn app_page(
         None
     };
     let compile_scene = if route_mode.uses_scene_route() || route_mode == UiRouteMode::Build {
-        url_path_scene.clone().or_else(|| query.scene.clone())
+        url_path_scene
+            .clone()
+            .or_else(|| query.scene.clone())
+            .or_else(|| build_node.as_ref().and_then(compile_scene_from_build_node))
     } else {
         query.scene.clone()
     };

@@ -143,7 +143,9 @@ fn kind_glyph(kind: &str) -> &'static str {
     match kind {
         "route" => "R",
         "scene" => "S",
-        "projection" => "P",
+        "scene_panel" => "P",
+        "scene_block" => "B",
+        "projection" => "O",
         "world_dataset" | "world_metric" | "world_file" => "W",
         "explain_block" => "E",
         "dataset" => "D",
@@ -160,6 +162,8 @@ fn tab_for_node_link(node: &BuildNodeId, current: BuildViewTab) -> BuildViewTab 
     }
     match node.kind {
         BuildNodeKind::Scene
+        | BuildNodeKind::ScenePanel
+        | BuildNodeKind::SceneBlock
         | BuildNodeKind::Route
         | BuildNodeKind::Projection
         | BuildNodeKind::WorldMetric

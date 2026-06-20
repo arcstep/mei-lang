@@ -7,6 +7,7 @@ mod analysis;
 mod app_compile;
 mod app_decl;
 mod authoring_eval;
+mod build_experience;
 mod build_node_context;
 mod catalog;
 mod data_snapshot;
@@ -55,6 +56,11 @@ pub use app_compile::{
     compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
     CompileAppArtifacts,
+};
+pub use build_experience::{
+    aggregate_use_key_badges, backing_refs_from_block_props, build_experience_path,
+    build_overview_backing, compile_scene_from_build_node, format_experience_path, panels_for_scene,
+    preview_target_from_build_node_with_app,
 };
 pub use build_node_context::{
     default_build_node_for_compiled, preview_target_from_build_node, resolve_build_node_context,

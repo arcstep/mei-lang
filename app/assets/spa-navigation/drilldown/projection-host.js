@@ -104,6 +104,7 @@
     boot.sceneProjectionHostMounted = true;
     const openByEvent = async (event) => {
       if (!shouldMountDrilldownHost()) return;
+      if (typeof isBuildRoute === "function" && isBuildRoute()) return;
       const detail = event?.detail || {};
       const config = resolveSceneOpenRequest(detail);
       if (!config.enabled || !(config.boardSceneId || config.sceneId)) {

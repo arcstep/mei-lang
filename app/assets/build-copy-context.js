@@ -46,7 +46,17 @@
         const tab = btn.getAttribute("data-tab") || "overview";
         const intent = btn.getAttribute("data-intent") || "lock_node";
         try {
-          const md = await fetchMarkdown({ app_id: appId, node, tab, intent, include_readiness: "1" });
+          const params = {
+            app_id: appId,
+            node,
+            tab,
+            intent,
+            include_readiness: "1",
+          };
+          if (intent === "full") {
+            params.include_graph = "semantic,eval";
+          }
+          const md = await fetchMarkdown(params);
           await copyText(md);
           btn.textContent = "已复制";
           setTimeout(() => {

@@ -67,7 +67,8 @@ pub(crate) fn manage_shell(
         world_dataset: ctx.world_dataset.as_deref(),
         explain: ctx.explain.as_deref(),
     };
-    let show_inspector = should_show_world_semantic_inspector(selected_target.as_str(), semantic);
+    let show_inspector =
+        should_show_world_semantic_inspector(&ctx.node, selected_target.as_str(), semantic);
     let source_panel = source.unwrap_or("").to_string();
     let preview = preview::preview_view(
         compiled,
@@ -281,6 +282,14 @@ pub(crate) fn manage_shell(
                                         source_panel.as_str(),
                                     ).into_any()
                                 }}
+                            </div>
+                            <div
+                                id="build-inspect-bar"
+                                class="build-inspect-bar shrink-0 border-t mei-border-default bg-black/20 px-3 py-2 text-[11px] leading-5 mei-text-muted"
+                                data-build-inspect-bar="true"
+                                hidden=active_tab_enum != BuildViewTab::Preview
+                            >
+                                <span id="build-inspect-bar-label">"在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。"</span>
                             </div>
                         </section>
                         <section

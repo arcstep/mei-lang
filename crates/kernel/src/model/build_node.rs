@@ -90,6 +90,31 @@ impl BuildNodeId {
         )
     }
 
+    /// Key format: `{scene_id}/{panel_id}`.
+    pub fn scene_panel(scene_id: impl Into<String>, panel_id: impl Into<String>) -> Self {
+        Self::new(
+            BuildNodeKind::ScenePanel,
+            format!("{}/{}", scene_id.into(), panel_id.into()),
+        )
+    }
+
+    /// Key format: `{scene_id}/{panel_id}/{block_id}`.
+    pub fn scene_block(
+        scene_id: impl Into<String>,
+        panel_id: impl Into<String>,
+        block_id: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            BuildNodeKind::SceneBlock,
+            format!(
+                "{}/{}/{}",
+                scene_id.into(),
+                panel_id.into(),
+                block_id.into()
+            ),
+        )
+    }
+
     pub fn world_dataset(file_path: impl Into<String>, dataset_id: impl Into<String>) -> Self {
         Self::new(
             BuildNodeKind::WorldDataset,
@@ -155,19 +180,21 @@ impl BuildNodeId {
 
     pub fn default_tab(&self) -> BuildViewTab {
         use BuildNodeKind::{
-            Dataset, Projection, Route, Scene, WorldDataset, WorldExplain, WorldMetric,
+            Dataset, Projection, Route, Scene, SceneBlock, ScenePanel, WorldDataset, WorldExplain,
+            WorldMetric,
         };
-        use BuildViewTab::Preview;
+        use BuildViewTab::{Overview, Preview};
         match self.kind {
             Route | Scene | Projection | WorldMetric | WorldDataset | WorldExplain | Dataset
                 if tab_visible_for_node(self, Preview) =>
             {
                 Preview
             }
+            ScenePanel | SceneBlock => Overview,
             _ => tabs_for_node_kind(self.kind)
                 .first()
                 .copied()
-                .unwrap_or(BuildViewTab::Overview),
+                .unwrap_or(Overview),
         }
     }
 }
@@ -249,21 +276,17 @@ pub fn tabs_for_node_kind(kind: BuildNodeKind) -> &'static [BuildViewTab] {
         Agent, Artifact as ArtifactTab, Eval, Exec, Overview, Preview, Provenance, Semantic,
     };
     match kind {
-        BuildNodeKind::Route => &[Overview, Preview, ArtifactTab, Provenance, Agent],
-        BuildNodeKind::Scene => &[Overview, Preview, Semantic, ArtifactTab, Provenance, Agent],
+        BuildNodeKind::Route => &[Overview, Preview, Provenance, Agent],
+        BuildNodeKind::Scene => &[Overview, Preview, Provenance, Agent],
         BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
             &[Overview, Preview, Provenance, Agent]
         }
         BuildNodeKind::Projection => &[Overview, Preview, Semantic, Provenance, Agent],
         BuildNodeKind::WorldFile => &[Overview, Preview, Provenance, Agent],
-        BuildNodeKind::WorldDataset => {
-            &[Overview, Preview, Exec, Semantic, Eval, ArtifactTab, Provenance, Agent]
+        BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric | BuildNodeKind::WorldExplain => {
+            &[Overview, Preview, Exec, Provenance, Agent]
         }
-        BuildNodeKind::WorldMetric => {
-            &[Overview, Preview, Exec, Semantic, Eval, ArtifactTab, Provenance, Agent]
-        }
-        BuildNodeKind::WorldExplain => &[Overview, Preview, Exec, Semantic, Provenance, Agent],
-        BuildNodeKind::Dataset => &[Overview, Preview, Exec, Eval, ArtifactTab, Provenance, Agent],
+        BuildNodeKind::Dataset => &[Overview, Preview, Exec, Provenance, Agent],
         BuildNodeKind::Component => &[Overview, Preview, Provenance, Agent],
         BuildNodeKind::Artifact => &[Overview, ArtifactTab, Agent],
         BuildNodeKind::GraphSemantic => &[Semantic, Agent],

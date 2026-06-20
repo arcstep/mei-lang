@@ -1,28 +1,9 @@
 use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, ProvenanceAnchor};
 
 /// Script path used as `CompileOptions.preview_target` before compile, when the build URL
-/// selects a world capsule node via `?node=` without legacy `?file=`.
+/// selects a node via `?node=` without legacy `?file=`.
 pub fn preview_target_from_build_node(node: &BuildNodeId) -> Option<String> {
-    match node.kind {
-        BuildNodeKind::WorldFile => Some(node.key.clone()),
-        BuildNodeKind::WorldDataset | BuildNodeKind::WorldMetric => {
-            let (file, _) = split_file_symbol(&node.key);
-            if file.trim().is_empty() {
-                None
-            } else {
-                Some(file)
-            }
-        }
-        BuildNodeKind::WorldExplain => {
-            let (file, _, _) = split_world_explain_key(&node.key);
-            if file.trim().is_empty() {
-                None
-            } else {
-                Some(file)
-            }
-        }
-        _ => None,
-    }
+    super::build_experience::preview_target_from_build_node_with_app(node, None)
 }
 
 /// Resolved preview / routing context for a build-view node selection.

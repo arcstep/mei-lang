@@ -4447,6 +4447,14 @@ body > .mei-floating-text-pop-backdrop {
   color: rgb(224 242 254);
   font-weight: 600;
 }
+.build-inspect-bar {
+  min-height: 2rem;
+}
+.build-inspect-selected {
+  outline: 2px solid rgb(56 189 248);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.2);
+}
 .build-reachability-tree .build-tree-summary--root {
   font-weight: 600;
 }

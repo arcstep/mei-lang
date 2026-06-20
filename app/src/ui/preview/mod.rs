@@ -37,6 +37,8 @@ pub(crate) struct PreviewRuntimeContext {
     pub index: RuntimeResourceIndex,
     /// Host 视图 SSR 不内联 dataset 行集与大块指标值，改由运行时 API 拉取。
     pub host_ssr_slim_payload: bool,
+    /// Build 视图：为 panel/block 注入 `data-build-node` 供检视高亮。
+    pub build_inspect_enabled: bool,
 }
 
 pub(crate) fn build_preview_runtime_context(
@@ -50,6 +52,7 @@ pub(crate) fn build_preview_runtime_context(
             route_mode,
             UiRouteMode::App | UiRouteMode::Presentation | UiRouteMode::Build
         ),
+        build_inspect_enabled: route_mode == UiRouteMode::Build,
     }
 }
 mod view;

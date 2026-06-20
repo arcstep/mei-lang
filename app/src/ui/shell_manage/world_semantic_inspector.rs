@@ -395,8 +395,17 @@ pub(crate) fn world_semantic_inspector_view(
 }
 
 pub(crate) fn should_show_world_semantic_inspector(
+    node: &mei_lang_kernel::BuildNodeId,
     file_path: &str,
     semantic: WorldSemanticQuery<'_>,
 ) -> bool {
-    is_world_capsule_target(file_path) && semantic.has_selection()
+    use mei_lang_kernel::BuildNodeKind;
+    match node.kind {
+        BuildNodeKind::WorldFile
+        | BuildNodeKind::WorldDataset
+        | BuildNodeKind::WorldMetric
+        | BuildNodeKind::WorldExplain
+        | BuildNodeKind::Dataset => is_world_capsule_target(file_path) || semantic.has_selection(),
+        _ => false,
+    }
 }
