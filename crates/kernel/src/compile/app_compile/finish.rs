@@ -28,7 +28,9 @@ use super::super::{
     dependency_graph::{
         dependency_graph_cache_metrics_snapshot, file_content_hash_cache_metrics_snapshot,
     },
-    scene_payload_cache::scene_payload_cache_metrics_snapshot,
+    scene_payload_cache::{
+        compile_scene_payload_for_target, scene_payload_cache_metrics_snapshot,
+    },
 };
 use super::active::ActiveCompileResult;
 use super::catalog::CatalogCompileResult;
@@ -745,7 +747,7 @@ fn ensure_build_tree_entry_scene_assemblies(
         if assembly_has_panels(scene_projection_assembly_by_id.get(&route.scene_id)) {
             continue;
         }
-        let payload = super::scene_payload_cache::compile_scene_payload_for_target(
+        let payload = compile_scene_payload_for_target(
             app_root,
             source_root,
             &app_decls,
