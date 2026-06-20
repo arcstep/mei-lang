@@ -1,6 +1,11 @@
 mod artifacts;
 mod dataset_binding;
+mod graph_markdown;
 mod types;
+
+pub use graph_markdown::{
+    build_eval_plan_markdown, format_eval_plan_markdown, format_semantic_graph_markdown,
+};
 
 pub use artifacts::{
     export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,

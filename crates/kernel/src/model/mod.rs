@@ -1,3 +1,4 @@
+mod build_node;
 mod compile_out;
 mod contract;
 mod dataset;
@@ -10,6 +11,11 @@ mod workspace;
 mod world;
 mod world_semantic;
 
+pub use build_node::{
+    tab_visible_for_node, tabs_for_node_kind, resolve_build_view_query, BuildExecScope,
+    BuildNodeId, BuildNodeKind, BuildViewTab, LegacyBuildQuery, ProvenanceAnchor,
+    ResolvedBuildViewQuery,
+};
 pub use compile_out::{CompiledApp, CompiledSceneRoute};
 pub use contract::SceneContract;
 pub use dataset::{

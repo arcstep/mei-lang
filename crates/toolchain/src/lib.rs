@@ -60,9 +60,10 @@ pub use editor_runtime::{
     WORKSPACE_RUNTIME_MANIFEST_SCHEMA_VERSION, WORKSPACE_RUNTIME_VERSION_SCHEMA_VERSION,
 };
 pub use export::{
-    export_analysis_contracts, export_eval_plan, export_inventory_snapshot, export_runtime_trace,
-    export_semantic_dag, HeadlessArtifactEnvelope, HeadlessArtifactKind, HeadlessExportOptions,
-    HEADLESS_EXPORT_SCHEMA_VERSION,
+    build_eval_plan_markdown, export_analysis_contracts, export_eval_plan,
+    export_inventory_snapshot, export_runtime_trace, export_semantic_dag,
+    format_eval_plan_markdown, format_semantic_graph_markdown, HeadlessArtifactEnvelope,
+    HeadlessArtifactKind, HeadlessExportOptions, HEADLESS_EXPORT_SCHEMA_VERSION,
 };
 pub use knowledge_bundle::{
     export_knowledge_bundle_for_package_root, export_knowledge_bundle_for_workspace_root,

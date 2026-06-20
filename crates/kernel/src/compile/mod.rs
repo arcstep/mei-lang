@@ -7,6 +7,7 @@ mod analysis;
 mod app_compile;
 mod app_decl;
 mod authoring_eval;
+mod build_node_context;
 mod catalog;
 mod data_snapshot;
 mod decl_file_cache;
@@ -21,6 +22,7 @@ mod materialize_cache;
 mod mutations;
 mod panel_normalize;
 mod projection_assembly;
+mod reachability_tree;
 mod resources;
 mod route_compile;
 mod rowset_engine;
@@ -53,6 +55,12 @@ pub use app_compile::{
     compile_app_with_options_and_revision, compile_revision_plan_from_root_with_options,
     compile_revision_token_from_root_with_options, resolve_default_scene_from_root,
     CompileAppArtifacts,
+};
+pub use build_node_context::{
+    default_build_node_for_compiled, resolve_build_node_context, BuildNodeContext,
+};
+pub use reachability_tree::{
+    build_reachability_tree, ReachabilityTreeNode, ReachabilityTreeRoot,
 };
 pub use discover_routes::{CompileOptions, CompileRevisionPlan, CompileWatchedFile};
 
