@@ -14,12 +14,14 @@ use mei_lang_datasets::{
     metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
     plan_access_metric_eval_for_ids, query_metric_dataframe, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response, store_metric_response_result_artifact,
-    store_metric_dataframe_result_artifact, DatasetQueryOptions, RuntimeMetricEvalMode,
+    store_metric_dataframe_result_artifact, DatasetQueryOptions, DatasetQueryResult,
+    LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{
-    data_snapshot_store_root, resolve_app_root, resolve_data_snapshot_import_entry,
-    resolve_runtime_warmup_manifest, CompileOptions, DatasetView, LoadedResource,
-    RuntimeWarmupApp, RuntimeWarmupDatasetRequest, WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
+    data_snapshot_import_manifest_path, data_snapshot_store_root, resolve_app_root,
+    resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest, CompileOptions,
+    DatasetView, LoadedResource, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
+    WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use mei_lang_toolchain::{
     self as toolchain, CompileWithCacheOutcome, PublishDataSnapshotsReport,
@@ -114,6 +116,13 @@ struct CompileScope {
     requested_target_file: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+struct AggregatedWarmupRequest {
+    scope: CompileScope,
+    dataset_id: String,
+    metric_ids: Vec<String>,
+}
+
 impl CompileScope {
     fn default_scope() -> Self {
         Self {
@@ -164,6 +173,10 @@ impl CompileScope {
 struct CoverageState {
     metric_response_jobs: ArtifactSingleflightState,
     metric_dataframe_jobs: ArtifactSingleflightState,
+    metric_response_exact: Mutex<BTreeMap<String, LoadedMetricResponseArtifact>>,
+    metric_response_shared: Mutex<BTreeMap<String, LoadedMetricResponseArtifact>>,
+    metric_dataframe_exact: Mutex<BTreeMap<String, DatasetQueryResult>>,
+    metric_dataframe_shared: Mutex<BTreeMap<String, DatasetQueryResult>>,
 }
 
 #[derive(Default)]
@@ -204,6 +217,68 @@ impl ArtifactSingleflightState {
             state.completed.insert(key.to_string());
         }
         self.ready.notify_all();
+    }
+}
+
+impl CoverageState {
+    fn metric_response_exact(&self, key: &str) -> Option<LoadedMetricResponseArtifact> {
+        self.metric_response_exact
+            .lock()
+            .expect("lock prebuild response exact cache")
+            .get(key)
+            .cloned()
+    }
+
+    fn metric_response_shared(&self, key: &str) -> Option<LoadedMetricResponseArtifact> {
+        self.metric_response_shared
+            .lock()
+            .expect("lock prebuild response shared cache")
+            .get(key)
+            .cloned()
+    }
+
+    fn store_metric_response_exact(&self, key: &str, artifact: &LoadedMetricResponseArtifact) {
+        self.metric_response_exact
+            .lock()
+            .expect("lock prebuild response exact cache")
+            .insert(key.to_string(), artifact.clone());
+    }
+
+    fn store_metric_response_shared(&self, key: &str, artifact: &LoadedMetricResponseArtifact) {
+        self.metric_response_shared
+            .lock()
+            .expect("lock prebuild response shared cache")
+            .insert(key.to_string(), artifact.clone());
+    }
+
+    fn metric_dataframe_exact(&self, key: &str) -> Option<DatasetQueryResult> {
+        self.metric_dataframe_exact
+            .lock()
+            .expect("lock prebuild dataframe exact cache")
+            .get(key)
+            .cloned()
+    }
+
+    fn metric_dataframe_shared(&self, key: &str) -> Option<DatasetQueryResult> {
+        self.metric_dataframe_shared
+            .lock()
+            .expect("lock prebuild dataframe shared cache")
+            .get(key)
+            .cloned()
+    }
+
+    fn store_metric_dataframe_exact(&self, key: &str, result: &DatasetQueryResult) {
+        self.metric_dataframe_exact
+            .lock()
+            .expect("lock prebuild dataframe exact cache")
+            .insert(key.to_string(), result.clone());
+    }
+
+    fn store_metric_dataframe_shared(&self, key: &str, result: &DatasetQueryResult) {
+        self.metric_dataframe_shared
+            .lock()
+            .expect("lock prebuild dataframe shared cache")
+            .insert(key.to_string(), result.clone());
     }
 }
 
@@ -352,10 +427,11 @@ fn run_prebuild_for_app(
     let app_started = Instant::now();
     let components_root = toolchain::resolve_components_root(source_root);
     let app_root = resolve_app_root(source_root, app.app_id.as_str());
+    let warmup_requests = aggregate_warmup_requests(app);
     let max_parallelism = prebuild_parallelism(
         compile_scopes_for_app(app)
             .len()
-            .max(app.datasets.len())
+            .max(warmup_requests.len())
             .max(1),
     );
     let default_scope = CompileScope::default_scope();
@@ -431,16 +507,20 @@ fn run_prebuild_for_app(
     let mut coverage = PrebuildCoverageReport::default();
     coverage.dataset_import_artifacts_ready = required_xlsx_sources.len();
     let coverage_state = CoverageState::default();
+    let artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
     let scope_artifacts_started = Instant::now();
     let scope_results = run_limited_parallel_ordered(
-        prepared_outcomes.iter().collect::<Vec<_>>(),
+        artifact_outcomes,
         max_parallelism,
         |(scope, outcome)| {
             let mut local_coverage = PrebuildCoverageReport::default();
+            let matching_requests = matching_warmup_requests_for_scope(&warmup_requests, scope);
             let result = ensure_scope_artifacts(
                 app.app_id.as_str(),
                 app_root.as_path(),
+                scope,
                 outcome,
+                matching_requests.as_slice(),
                 mode,
                 &mut local_coverage,
                 &coverage_state,
@@ -469,39 +549,24 @@ fn run_prebuild_for_app(
         .collect::<BTreeMap<_, _>>();
     let warmup_started = Instant::now();
     let warmup_results = run_limited_parallel_ordered(
-        app.datasets.iter().collect::<Vec<_>>(),
+        warmup_requests
+            .iter()
+            .filter(|request| !prepared_outcomes_by_key.contains_key(&request.scope.key()))
+            .collect::<Vec<_>>(),
         max_parallelism,
         |request| {
-            let scope = CompileScope {
-                requested_scene_id: request.scene_id.clone(),
-                requested_target_file: request.focus.clone(),
-            }
-            .canonicalized();
+            let scope = request.scope.clone();
             let mut local_coverage = PrebuildCoverageReport::default();
-            let requested_metric_ids = requested_metric_ids(request);
-            let result = if let Some(outcome) = prepared_outcomes_by_key.get(&scope.key()) {
-                ensure_metric_response_artifact_for_request(
-                    app.app_id.as_str(),
-                    app_root.as_path(),
-                    outcome,
-                    request.dataset_id.as_str(),
-                    requested_metric_ids.as_slice(),
-                    mode,
-                    &mut local_coverage,
-                    &coverage_state,
-                )
-            } else {
-                ensure_warmup_dataset_request_artifacts(
-                    source_root,
-                    app.app_id.as_str(),
-                    app_root.as_path(),
-                    request,
-                    mode,
-                    components_root.as_path(),
-                    &mut local_coverage,
-                    &coverage_state,
-                )
-            };
+            let result = ensure_warmup_dataset_request_artifacts(
+                source_root,
+                app.app_id.as_str(),
+                app_root.as_path(),
+                request,
+                mode,
+                components_root.as_path(),
+                &mut local_coverage,
+                &coverage_state,
+            );
             (scope, request.dataset_id.clone(), result, local_coverage)
         },
     );
@@ -604,6 +669,50 @@ fn explicit_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
     targets
 }
 
+fn aggregate_warmup_requests(app: &RuntimeWarmupApp) -> Vec<AggregatedWarmupRequest> {
+    let mut aggregated = BTreeMap::<String, AggregatedWarmupRequest>::new();
+    for request in &app.datasets {
+        let scope = CompileScope {
+            requested_scene_id: request.scene_id.clone(),
+            requested_target_file: request.focus.clone(),
+        }
+        .canonicalized();
+        let metric_ids = requested_metric_ids(request);
+        let request_all_metrics = metric_ids.is_empty();
+        let key = format!("{}|{}", scope.key(), request.dataset_id.trim());
+        if let Some(entry) = aggregated.get_mut(&key) {
+            if request_all_metrics || entry.metric_ids.is_empty() {
+                entry.metric_ids.clear();
+            } else {
+                entry.metric_ids.extend(metric_ids);
+                entry.metric_ids.sort();
+                entry.metric_ids.dedup();
+            }
+            continue;
+        }
+        aggregated.insert(
+            key,
+            AggregatedWarmupRequest {
+                scope,
+                dataset_id: request.dataset_id.trim().to_string(),
+                metric_ids,
+            },
+        );
+    }
+    aggregated.into_values().collect()
+}
+
+fn matching_warmup_requests_for_scope<'a>(
+    requests: &'a [AggregatedWarmupRequest],
+    scope: &CompileScope,
+) -> Vec<&'a AggregatedWarmupRequest> {
+    let scope_key = scope.key();
+    requests
+        .iter()
+        .filter(|request| request.scope.key() == scope_key)
+        .collect()
+}
+
 fn discovered_compile_scopes(
     scope: &CompileScope,
     compiled: &mei_lang_kernel::CompiledApp,
@@ -635,6 +744,28 @@ fn discovered_compile_scopes(
         }
     }
     scopes
+}
+
+fn compiled_scope_identity(outcome: &CompileWithCacheOutcome) -> String {
+    format!(
+        "{}|{}|{}",
+        outcome.compiled.active_scene.as_deref().unwrap_or_default(),
+        outcome.compiled.active_target_file,
+        outcome.compile_revision
+    )
+}
+
+fn unique_prepared_outcomes_for_artifacts<'a>(
+    prepared_outcomes: &'a [(CompileScope, CompileWithCacheOutcome)],
+) -> Vec<&'a (CompileScope, CompileWithCacheOutcome)> {
+    let mut unique = Vec::new();
+    let mut seen = BTreeSet::new();
+    for prepared in prepared_outcomes {
+        if seen.insert(compiled_scope_identity(&prepared.1)) {
+            unique.push(prepared);
+        }
+    }
+    unique
 }
 
 fn ensure_compile_scope(
@@ -726,6 +857,37 @@ fn publish_required_data_snapshots(
     app_id: &str,
     required_sources: Vec<(String, Option<String>, usize)>,
 ) -> Result<PublishDataSnapshotsReport> {
+    let app_root = resolve_app_root(source_root, app_id);
+    let all_ready = required_sources.iter().all(|(path, sheet, header_row)| {
+        resolve_data_snapshot_import_entry(
+            app_root.as_path(),
+            path.as_str(),
+            sheet.as_deref(),
+            *header_row,
+        )
+        .is_some()
+    });
+    if all_ready {
+        let discovered_sources = required_sources
+            .iter()
+            .map(|(path, sheet, header_row)| {
+                format!(
+                    "{}|sheet={}|header_row={}",
+                    path,
+                    sheet.as_deref().unwrap_or(""),
+                    header_row
+                )
+            })
+            .collect::<Vec<_>>();
+        return Ok(PublishDataSnapshotsReport {
+            app_id: app_id.to_string(),
+            discovered_sources,
+            written: Vec::new(),
+            manifest_path: data_snapshot_import_manifest_path(app_root.as_path())
+                .display()
+                .to_string(),
+        });
+    }
     let refs = required_sources
         .iter()
         .map(|(path, sheet, header_row)| (path.as_str(), sheet.as_deref(), *header_row))
@@ -761,15 +923,28 @@ fn verify_required_xlsx_sources(
 fn ensure_scope_artifacts(
     app_id: &str,
     app_root: &Path,
+    scope: &CompileScope,
     outcome: &CompileWithCacheOutcome,
+    requests: &[&AggregatedWarmupRequest],
     mode: PrebuildMode,
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    for resource in &outcome.compiled.resources {
-        ensure_dataset_scope_artifacts(app_id, app_root, outcome, resource, mode, coverage, state)?;
+    for request in requests {
+        ensure_request_artifacts_for_compiled(
+            app_id,
+            app_root,
+            outcome,
+            request.dataset_id.as_str(),
+            request.metric_ids.as_slice(),
+            mode,
+            coverage,
+            state,
+        )?;
     }
-    ensure_root_world_metrics_artifact(app_id, app_root, outcome, mode, coverage, state)?;
+    if scope.key() == CompileScope::default_scope().key() {
+        ensure_root_world_metrics_artifact(app_id, app_root, outcome, mode, coverage, state)?;
+    }
     Ok(())
 }
 
@@ -777,16 +952,13 @@ fn ensure_warmup_dataset_request_artifacts(
     source_root: &Path,
     app_id: &str,
     app_root: &Path,
-    request: &RuntimeWarmupDatasetRequest,
+    request: &AggregatedWarmupRequest,
     mode: PrebuildMode,
     components_root: &Path,
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
 ) -> Result<()> {
-    let scope = CompileScope {
-        requested_scene_id: request.scene_id.clone(),
-        requested_target_file: request.focus.clone(),
-    };
+    let scope = request.scope.clone();
     let outcome = ensure_compile_scope(
         source_root,
         app_id,
@@ -794,90 +966,16 @@ fn ensure_warmup_dataset_request_artifacts(
         mode,
         components_root,
     )?;
-    let requested_metric_ids = requested_metric_ids(request);
-    if requested_metric_ids.is_empty() {
-        let resource = mei_lang_kernel::locate_dataset_resource(&outcome.compiled, request.dataset_id.as_str())
-            .with_context(|| format!("locate warmup dataset `{}`", request.dataset_id))?;
-        if let Some(dataset) = resource.dataset.as_ref() {
-            let response_metric_ids = response_metric_ids(&outcome.compiled, dataset);
-            if !response_metric_ids.is_empty() {
-                let metric_groups = group_metric_ids_by_owner(
-                    &outcome.compiled,
-                    resource.id.as_str(),
-                    &response_metric_ids,
-                )?;
-                for metric_ids in metric_groups.into_values() {
-                    ensure_metric_response_artifact_for_request(
-                        app_id,
-                        app_root,
-                        &outcome,
-                        resource.id.as_str(),
-                        metric_ids.as_slice(),
-                        mode,
-                        coverage,
-                        state,
-                    )?;
-                }
-                return Ok(());
-            }
-        }
-    }
-    ensure_metric_response_artifact_for_request(
+    ensure_request_artifacts_for_compiled(
         app_id,
         app_root,
         &outcome,
         request.dataset_id.as_str(),
-        requested_metric_ids.as_slice(),
+        request.metric_ids.as_slice(),
         mode,
         coverage,
         state,
     )
-}
-
-fn ensure_dataset_scope_artifacts(
-    app_id: &str,
-    app_root: &Path,
-    outcome: &CompileWithCacheOutcome,
-    resource: &LoadedResource,
-    mode: PrebuildMode,
-    coverage: &mut PrebuildCoverageReport,
-    state: &CoverageState,
-) -> Result<()> {
-    let Some(dataset) = resource.dataset.as_ref() else {
-        return Ok(());
-    };
-    let world_metrics_resource = is_world_metrics_resource(resource.id.as_str());
-    let response_metric_ids = response_metric_ids(&outcome.compiled, dataset);
-    if !response_metric_ids.is_empty() {
-        let metric_groups = group_metric_ids_by_owner(&outcome.compiled, resource.id.as_str(), &response_metric_ids)?;
-        for metric_ids in metric_groups.into_values() {
-            ensure_metric_response_artifact_for_request(
-                app_id,
-                app_root,
-                outcome,
-                resource.id.as_str(),
-                metric_ids.as_slice(),
-                mode,
-                coverage,
-                state,
-            )?;
-        }
-    }
-    if world_metrics_resource {
-        return Ok(());
-    }
-    for metric_id in dataframe_metric_ids(dataset) {
-        ensure_metric_dataframe_artifact(
-            app_root,
-            outcome,
-            resource,
-            metric_id.as_str(),
-            mode,
-            coverage,
-            state,
-        )?;
-    }
-    Ok(())
 }
 
 fn ensure_root_world_metrics_artifact(
@@ -914,6 +1012,80 @@ fn ensure_root_world_metrics_artifact(
         coverage,
         state,
     )
+}
+
+fn ensure_request_artifacts_for_compiled(
+    app_id: &str,
+    app_root: &Path,
+    outcome: &CompileWithCacheOutcome,
+    dataset_selector: &str,
+    metric_ids: &[String],
+    mode: PrebuildMode,
+    coverage: &mut PrebuildCoverageReport,
+    state: &CoverageState,
+) -> Result<()> {
+    let resource = mei_lang_kernel::locate_dataset_resource(&outcome.compiled, dataset_selector)
+        .with_context(|| format!("locate warmup dataset `{dataset_selector}`"))?;
+    let dataset = resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", resource.id))?;
+    if metric_ids.is_empty() {
+        let response_metric_ids = response_metric_ids(&outcome.compiled, dataset);
+        if !response_metric_ids.is_empty() {
+            let metric_groups =
+                group_metric_ids_by_owner(&outcome.compiled, resource.id.as_str(), &response_metric_ids)?;
+            for metric_ids in metric_groups.into_values() {
+                ensure_metric_response_artifact_for_request(
+                    app_id,
+                    app_root,
+                    outcome,
+                    resource.id.as_str(),
+                    metric_ids.as_slice(),
+                    mode,
+                    coverage,
+                    state,
+                )?;
+            }
+        } else {
+            ensure_metric_response_artifact_for_request(
+                app_id,
+                app_root,
+                outcome,
+                resource.id.as_str(),
+                metric_ids,
+                mode,
+                coverage,
+                state,
+            )?;
+        }
+    } else {
+        ensure_metric_response_artifact_for_request(
+            app_id,
+            app_root,
+            outcome,
+            resource.id.as_str(),
+            metric_ids,
+            mode,
+            coverage,
+            state,
+        )?;
+    }
+    if is_world_metrics_resource(resource.id.as_str()) {
+        return Ok(());
+    }
+    for metric_id in dataframe_metric_ids(dataset) {
+        ensure_metric_dataframe_artifact(
+            app_root,
+            outcome,
+            &resource,
+            metric_id.as_str(),
+            mode,
+            coverage,
+            state,
+        )?;
+    }
+    Ok(())
 }
 
 fn is_world_metrics_resource(resource_id: &str) -> bool {
@@ -1090,12 +1262,32 @@ fn ensure_metric_response_artifact_for_request(
         &query,
         &dependency_revision_key,
     );
+    if let Some(artifact) = state.metric_response_exact(&response_cache_key) {
+        let artifact_covers_request =
+            metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
+        if artifact_covers_request {
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
+    if let Some(artifact) = state.metric_response_shared(&shared_cache_key) {
+        let artifact_covers_request =
+            metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
+        if artifact_covers_request {
+            materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
+            state.store_metric_response_exact(&response_cache_key, &artifact);
+            coverage.metric_response_artifacts_ready += 1;
+            return Ok(());
+        }
+    }
     if let Some((artifact, _)) =
         load_metric_response_result_artifact(app_root, &response_cache_key)?
     {
         let artifact_covers_request =
             metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
         if artifact_covers_request {
+            state.store_metric_response_exact(&response_cache_key, &artifact);
+            state.store_metric_response_shared(&shared_cache_key, &artifact);
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
@@ -1120,17 +1312,20 @@ fn ensure_metric_response_artifact_for_request(
             metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
         if artifact_covers_request {
             materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
+            state.store_metric_response_shared(&shared_cache_key, &artifact);
+            state.store_metric_response_exact(&response_cache_key, &artifact);
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
     }
     let reservation = state.metric_response_jobs.wait_or_reserve(&shared_cache_key);
     if let ArtifactReservation::Completed = reservation {
-        if let Some((artifact, _)) = load_metric_response_result_artifact(app_root, &shared_cache_key)? {
+        if let Some(artifact) = state.metric_response_shared(&shared_cache_key) {
             let artifact_covers_request =
                 metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
             if artifact_covers_request {
                 materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
+                state.store_metric_response_exact(&response_cache_key, &artifact);
                 coverage.metric_response_artifacts_ready += 1;
                 return Ok(());
             }
@@ -1168,6 +1363,12 @@ fn ensure_metric_response_artifact_for_request(
         && declared_metric_ids
             .iter()
             .all(|metric_id| covered_metric_ids.contains(metric_id));
+    let built_artifact = LoadedMetricResponseArtifact {
+        total_rows: eval_outcome.total_rows,
+        metrics_map: eval_outcome.metrics_map.clone(),
+        covered_metric_ids: covered_metric_ids.clone(),
+        complete,
+    };
     let store_result = (|| -> Result<()> {
         store_cached_metric_response(
             shared_cache_key.clone(),
@@ -1197,6 +1398,10 @@ fn ensure_metric_response_artifact_for_request(
     state
         .metric_response_jobs
         .finish(&shared_cache_key, store_result.is_ok());
+    if store_result.is_ok() {
+        state.store_metric_response_shared(&shared_cache_key, &built_artifact);
+        state.store_metric_response_exact(&response_cache_key, &built_artifact);
+    }
     store_result?;
     coverage.metric_response_artifacts_built += 1;
     Ok(())
@@ -1249,7 +1454,15 @@ fn ensure_metric_dataframe_artifact(
         &query_options,
         &dependency_revision_key,
     );
+    if state.metric_dataframe_exact(&response_cache_key).is_some() {
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
     if load_metric_dataframe_result_artifact(app_root, &response_cache_key)?.is_some() {
+        if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &response_cache_key)? {
+            state.store_metric_dataframe_exact(&response_cache_key, &result);
+            state.store_metric_dataframe_shared(&shared_cache_key, &result);
+        }
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
@@ -1262,15 +1475,24 @@ fn ensure_metric_dataframe_artifact(
             outcome.compiled.active_target_file
         );
     }
+    if let Some(result) = state.metric_dataframe_shared(&shared_cache_key) {
+        store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
+        state.store_metric_dataframe_exact(&response_cache_key, &result);
+        coverage.metric_dataframe_artifacts_ready += 1;
+        return Ok(());
+    }
     if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &shared_cache_key)? {
         store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
+        state.store_metric_dataframe_shared(&shared_cache_key, &result);
+        state.store_metric_dataframe_exact(&response_cache_key, &result);
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
     let reservation = state.metric_dataframe_jobs.wait_or_reserve(&shared_cache_key);
     if let ArtifactReservation::Completed = reservation {
-        if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &shared_cache_key)? {
+        if let Some(result) = state.metric_dataframe_shared(&shared_cache_key) {
             store_metric_dataframe_result_artifact(app_root, &response_cache_key, &result)?;
+            state.store_metric_dataframe_exact(&response_cache_key, &result);
             coverage.metric_dataframe_artifacts_ready += 1;
             return Ok(());
         }
@@ -1310,6 +1532,10 @@ fn ensure_metric_dataframe_artifact(
     state
         .metric_dataframe_jobs
         .finish(&shared_cache_key, store_result.is_ok());
+    if store_result.is_ok() {
+        state.store_metric_dataframe_shared(&shared_cache_key, &result);
+        state.store_metric_dataframe_exact(&response_cache_key, &result);
+    }
     store_result?;
     coverage.metric_dataframe_artifacts_built += 1;
     Ok(())
