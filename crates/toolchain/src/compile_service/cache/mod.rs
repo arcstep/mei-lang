@@ -322,6 +322,20 @@ fn maybe_write_compiled_app_artifact(
     }
 }
 
+fn ensure_compiled_app_artifact_alias(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+    compiled: &CompiledApp,
+) {
+    if !compiled_app_artifact_enabled() {
+        return;
+    }
+    let revision_stamp = compile_revision(source_root, app_id, options, components_root);
+    maybe_write_compiled_app_artifact(source_root, app_id, options, &revision_stamp, compiled);
+}
+
 fn maybe_load_compiled_app_artifact(
     source_root: &Path,
     app_id: &str,
@@ -558,6 +572,13 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
             if let Some(hit) =
                 validate_cached_entry(source_root, app_id, entry, components_root, &options)
             {
+                ensure_compiled_app_artifact_alias(
+                    source_root,
+                    app_id,
+                    &options,
+                    components_root,
+                    entry.compiled.as_ref(),
+                );
                 cache_lookup_ms = elapsed_ms(lookup_started);
                 return Ok(CompileWithCacheOutcomeShared {
                     compiled: entry.compiled.clone(),
@@ -584,6 +605,13 @@ pub(super) fn compile_app_with_cache_uncached_path_shared(
     if let Some((artifact_hit, artifact_load_ms)) =
         maybe_load_compiled_app_artifact(source_root, app_id, &options, components_root)
     {
+        ensure_compiled_app_artifact_alias(
+            source_root,
+            app_id,
+            &options,
+            components_root,
+            artifact_hit.compiled.as_ref(),
+        );
         return Ok(CompileWithCacheOutcomeShared {
             compiled: artifact_hit.compiled,
             cache_hit: true,

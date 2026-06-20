@@ -13,7 +13,6 @@ use crate::{AppError, AppState};
 use crate::http::observation::CompileObservation;
 
 use super::super::compile_cache::{
-    access_artifact_only_mode_enabled, compile_app_with_cache_shared,
     load_compile_artifact_only_shared,
 };
 use super::super::datasets::{
@@ -201,50 +200,30 @@ pub async fn dataset_query_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let access_artifact_only = access_artifact_only_mode_enabled();
-    let compile_outcome = if access_artifact_only {
-        load_compile_artifact_only_shared(
-            &state,
+    let access_artifact_only = true;
+    let compile_outcome = load_compile_artifact_only_shared(
+        &state,
+        &app_id,
+        &compile_options,
+        components_root.as_path(),
+    )
+    .ok_or_else(|| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %requested_scene_id,
+            target = %requested_target,
+            dataset_id = %requested_dataset_id,
+            metric_id = %requested_metric_id,
+            phase = "artifact_only_miss",
+            "dataset query rejected because host requires prebuilt artifacts"
+        );
+        access_artifact_unavailable_error(
+            "dataset query",
             &app_id,
-            &compile_options,
-            components_root.as_path(),
+            requested_scene_id,
+            requested_target,
         )
-        .ok_or_else(|| {
-            tracing::warn!(
-                app_id = %app_id,
-                scene_id = %requested_scene_id,
-                target = %requested_target,
-                dataset_id = %requested_dataset_id,
-                metric_id = %requested_metric_id,
-                phase = "artifact_only_miss",
-                "dataset query rejected because access-only host requires prebuilt artifacts"
-            );
-            access_artifact_unavailable_error(
-                "dataset query",
-                &app_id,
-                requested_scene_id,
-                requested_target,
-            )
-        })?
-    } else {
-        compile_app_with_cache_shared(&state, &app_id, compile_options, components_root.as_path())
-            .map_err(|failure| {
-                tracing::warn!(
-                    app_id = %app_id,
-                    scene_id = %requested_scene_id,
-                    target = %requested_target,
-                    dataset_id = %requested_dataset_id,
-                    metric_id = %requested_metric_id,
-                    phase = "compile",
-                    error = %failure.error,
-                    cache_lookup_ms = failure.cache_lookup_ms,
-                    compile_cache_lock_wait_ms = failure.compile_cache_lock_wait_ms,
-                    compile_ms = failure.compile_ms,
-                    "dataset query compile failed"
-                );
-                AppError::from(failure.error)
-            })?
-    };
+    })?;
     let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
         "-",
@@ -253,8 +232,8 @@ pub async fn dataset_query_api(
     );
     let compiled = compile_outcome.compiled;
     let scene_ctx = resolved_scene_context(&compiled);
-    let normalized_dataset_id = request.dataset_id.trim();
-    let resource = locate_dataset_resource(&compiled, normalized_dataset_id, Some(&coords))
+    let requested_dataset_id = request.dataset_id.trim();
+    let resource = locate_dataset_resource(&compiled, requested_dataset_id, Some(&coords))
         .map_err(|error| {
             tracing::warn!(
                 app_id = %app_id,
@@ -276,6 +255,7 @@ pub async fn dataset_query_api(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
+    let canonical_dataset_id = resource.id.clone();
     let app_root = resolve_app_root(state.source_root.as_path(), &app_id);
     let effective_query_state = query_state_from_request(
         &request.filters,
@@ -310,7 +290,7 @@ pub async fn dataset_query_api(
         query_metric_dataframe(
             &compiled,
             &app_root,
-            normalized_dataset_id,
+            canonical_dataset_id.as_str(),
             metric_id,
             Some(&scene_ctx.scene_id),
             scene_ctx.scene_path.as_deref(),
@@ -452,13 +432,20 @@ pub async fn dataset_recompute_api(
         let compile_options = compile_options_from_coords(&coords);
         let components_root = resolve_components_root(&state.source_root);
         let compile_started = Instant::now();
-        let compile_outcome = compile_app_with_cache_shared(
+        let compile_outcome = load_compile_artifact_only_shared(
             &state,
             &app_id,
-            compile_options,
+            &compile_options,
             components_root.as_path(),
         )
-        .map_err(|failure| AppError::from(failure.error))?;
+        .ok_or_else(|| {
+            access_artifact_unavailable_error(
+                "dataset recompute warmup",
+                &app_id,
+                requested_scene,
+                response_scene_path.as_deref().unwrap_or("-"),
+            )
+        })?;
         let compile_ms = elapsed_ms(compile_started);
         perf.insert("compile_ms".to_string(), compile_ms);
         perf.insert(
@@ -490,7 +477,7 @@ pub async fn dataset_recompute_api(
             let result = query_metric_dataframe(
                 &compiled,
                 &app_root,
-                request.dataset_id.trim(),
+                resource.id.as_str(),
                 metric_id,
                 Some(&scene_ctx.scene_id),
                 scene_ctx.scene_path.as_deref(),

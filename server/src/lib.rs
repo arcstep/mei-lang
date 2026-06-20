@@ -5,6 +5,7 @@ pub(crate) mod cli;
 pub(crate) mod gis_config;
 pub(crate) mod http;
 pub(crate) mod mei_agent;
+pub(crate) mod prebuild;
 pub(crate) mod resource_tool_bridge;
 mod runtime_entry;
 

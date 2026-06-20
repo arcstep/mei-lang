@@ -4,7 +4,6 @@ use std::time::Instant;
 use std::sync::Arc;
 
 use super::super::super::compile_cache::{
-    access_artifact_only_mode_enabled, compile_app_with_cache_shared,
     load_compile_artifact_only_shared,
 };
 use super::super::components::resolve_components_root;
@@ -29,7 +28,7 @@ use mei_lang_datasets::{
     default_result_artifact_scope, load_metric_response_result_artifact,
     metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
-    project_requested_metrics, query_state_from_request, runtime_metric_scope_requested,
+    project_requested_metrics, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response,
     store_metric_response_result_artifact, take_cached_metric_response,
     RuntimeMetricEvalMode,
@@ -179,50 +178,30 @@ pub async fn dataset_metric_api(
     )?;
     let compile_options = compile_options_from_coords(&coords);
     let components_root = resolve_components_root(&state.source_root);
-    let access_artifact_only = access_artifact_only_mode_enabled();
-    let compile_outcome = if access_artifact_only {
-        load_compile_artifact_only_shared(
-            &state,
+    let access_artifact_only = true;
+    let compile_outcome = load_compile_artifact_only_shared(
+        &state,
+        &app_id,
+        &compile_options,
+        components_root.as_path(),
+    )
+    .ok_or_else(|| {
+        tracing::warn!(
+            app_id = %app_id,
+            scene_id = %requested_scene_id,
+            target = %requested_target,
+            dataset_id = %requested_dataset_id,
+            metric_ids = %requested_metric_ids,
+            phase = "artifact_only_miss",
+            "metric query rejected because host requires prebuilt artifacts"
+        );
+        access_artifact_unavailable_error(
+            "metric query",
             &app_id,
-            &compile_options,
-            components_root.as_path(),
+            requested_scene_id,
+            requested_target,
         )
-        .ok_or_else(|| {
-            tracing::warn!(
-                app_id = %app_id,
-                scene_id = %requested_scene_id,
-                target = %requested_target,
-                dataset_id = %requested_dataset_id,
-                metric_ids = %requested_metric_ids,
-                phase = "artifact_only_miss",
-                "metric query rejected because access-only host requires prebuilt artifacts"
-            );
-            access_artifact_unavailable_error(
-                "metric query",
-                &app_id,
-                requested_scene_id,
-                requested_target,
-            )
-        })?
-    } else {
-        compile_app_with_cache_shared(&state, &app_id, compile_options, components_root.as_path())
-            .map_err(|failure| {
-                tracing::warn!(
-                    app_id = %app_id,
-                    scene_id = %requested_scene_id,
-                    target = %requested_target,
-                    dataset_id = %requested_dataset_id,
-                    metric_ids = %requested_metric_ids,
-                    phase = "compile",
-                    error = %failure.error,
-                    cache_lookup_ms = failure.cache_lookup_ms,
-                    compile_cache_lock_wait_ms = failure.compile_cache_lock_wait_ms,
-                    compile_ms = failure.compile_ms,
-                    "metric query compile failed"
-                );
-                AppError::from(failure.error)
-            })?
-    };
+    })?;
     let scene_ctx = resolved_scene_context(&compile_outcome.compiled);
     let compile_observation = CompileObservation::from_compile_outcome_shared(
         &app_id,
@@ -507,54 +486,19 @@ fn execute_metric_query_group(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
-    if !dataset.has_runtime_metric_defs() && dataset.uses_compiled_metric_snapshot_only() {
-        if runtime_metric_scope_requested(ctx.effective_query_state, ctx.filter_intents) {
-            tracing::warn!(
-                app_id = %ctx.app_id,
-                scene_id = %ctx.scene_id,
-                target = %ctx.scene_path.unwrap_or("-"),
-                dataset_id = %resource.id,
-                metric_ids = %requested_metric_ids,
-                phase = "metric_defs",
-                "metric query refused compile-time snapshot fallback for scoped request"
-            );
-            return Err(AppError::status(
-                StatusCode::BAD_REQUEST,
-                format!(
-                    "dataset `{}` only exposes compile-time metric snapshots; scoped runtime metric queries require runtime_metric_defs",
-                    resource.id
-                ),
-            ));
-        }
-        let metrics = if request.metric_ids.is_empty() {
-            dataset.metrics.values().cloned().collect::<Vec<_>>()
-        } else {
-            request
-                .metric_ids
-                .iter()
-                .filter_map(|metric_id| dataset.metrics.get(metric_id).cloned())
-                .collect::<Vec<_>>()
-        };
-        let mut perf = BTreeMap::new();
-        ctx.compile_observation.write_perf(&mut perf);
-        perf.insert(
-            "access_artifact_only_mode".to_string(),
-            u64::from(access_artifact_only_mode_enabled()),
-        );
-        perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
-        perf.insert("compat_compiled_metric_snapshot_fallback".to_string(), 1);
-        perf.insert("total_ms".to_string(), elapsed_ms(request_started));
-        return Ok(MetricQueryGroupResponse {
-            dataset_id: resource.id.clone(),
-            total_rows: 0,
-            metrics,
-            perf,
-        });
+    if !dataset.has_runtime_metric_defs() {
+        return Err(AppError::status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "dataset `{}` missing runtime_metric_defs for strict AOT metric query; run `mei-toolchain prebuild` first",
+                resource.id
+            ),
+        ));
     }
 
     let request_all_metrics = request.metric_ids.is_empty();
     let access_plan =
-        plan_access_metric_eval_for_ids(ctx.compiled, request.dataset_id.trim(), &request.metric_ids)
+        plan_access_metric_eval_for_ids(ctx.compiled, resource.id.as_str(), &request.metric_ids)
             .map_err(|error| {
                 tracing::warn!(
                     app_id = %ctx.app_id,
@@ -609,7 +553,7 @@ fn execute_metric_query_group(
         ctx.compile_observation.write_perf(&mut perf);
         perf.insert(
             "access_artifact_only_mode".to_string(),
-            u64::from(access_artifact_only_mode_enabled()),
+            1,
         );
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("result_artifact_hit".to_string(), 0);
@@ -669,7 +613,7 @@ fn execute_metric_query_group(
                 ctx.compile_observation.write_perf(&mut perf);
                 perf.insert(
                     "access_artifact_only_mode".to_string(),
-                    u64::from(access_artifact_only_mode_enabled()),
+                    1,
                 );
                 perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
                 perf.insert("response_cache_hit".to_string(), 0);
@@ -709,6 +653,13 @@ fn execute_metric_query_group(
                 });
             }
         }
+        return Err(AppError::status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "missing strict AOT metric result artifact for dataset `{}` scene `{}`; run `mei-toolchain prebuild` first",
+                resource.id, ctx.scene_id
+            ),
+        ));
     }
 
     let eval_outcome = evaluate_runtime_metrics_from_plan(
@@ -744,7 +695,7 @@ fn execute_metric_query_group(
     ctx.compile_observation.write_perf(&mut perf);
     perf.insert(
         "access_artifact_only_mode".to_string(),
-        u64::from(access_artifact_only_mode_enabled()),
+        1,
     );
     perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
     perf.insert("result_artifact_hit".to_string(), 0);

@@ -3,8 +3,7 @@ use std::path::Path;
 use chrono::{DateTime, Local};
 use mei_lang_app::SourcePanelMeta;
 use mei_lang_kernel::{
-    compile_app_with_options, resolve_app_root, source_tree, CompileOptions, CompiledApp,
-    Diagnostic, Severity, WorkspaceAppMeta,
+    compile_app_with_options, CompileOptions, WorkspaceAppMeta,
 };
 use std::fs;
 
@@ -40,38 +39,4 @@ pub(crate) fn choose_default_app<'a>(
         tracing::warn!(app_id = %app.id, "skip broken app as default landing target");
     }
     None
-}
-
-pub(crate) fn compile_error_fallback_app(
-    source_root: &Path,
-    app_id: &str,
-    target: &str,
-    error: &str,
-) -> CompiledApp {
-    let app_root = resolve_app_root(source_root, app_id);
-    let source_path = app_root.join(target);
-    CompiledApp {
-        app_id: app_id.to_string(),
-        title: app_id.to_string(),
-        app_root: app_root.to_string_lossy().to_string(),
-        scene_routes: Vec::new(),
-        active_scene: None,
-        active_target_file: target.to_string(),
-        file_tree: source_tree(&app_root).unwrap_or_default(),
-        scene_contract: None,
-        scene_local_nav_by_target: std::collections::BTreeMap::new(),
-        scene_bindings_by_id: std::collections::BTreeMap::new(),
-        scene_examples_by_id: std::collections::BTreeMap::new(),
-        scene_projection_assembly_by_id: std::collections::BTreeMap::new(),
-        resources: Vec::new(),
-        world_metrics: std::collections::BTreeMap::new(),
-        world_semantic_by_file: std::collections::BTreeMap::new(),
-        component_assets: Vec::new(),
-        diagnostics: vec![Diagnostic {
-            severity: Severity::Error,
-            code: "compile_failed".to_string(),
-            message: error.to_string(),
-            source_path: Some(source_path.to_string_lossy().to_string()),
-        }],
-    }
 }

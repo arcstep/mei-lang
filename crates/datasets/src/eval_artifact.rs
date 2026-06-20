@@ -19,6 +19,7 @@ struct PersistedWorksetArtifact {
     schema_version: String,
     owner_resource_id: String,
     requested_metric_ids: Vec<String>,
+    semantic_revision_key: String,
     closure_metric_ids: Vec<String>,
     eval_metric_ids: Option<Vec<String>>,
     defs_for_hydrate: BTreeMap<String, Value>,
@@ -30,6 +31,7 @@ struct PersistedEvalPlanArtifact {
     schema_version: String,
     owner_resource_id: String,
     requested_metric_ids: Vec<String>,
+    semantic_revision_key: String,
     scope_key: String,
     dependency_revision_key: String,
     eval_plan: EvalPlan,
@@ -52,6 +54,29 @@ fn hash_key(value: &str) -> String {
 
 fn eval_artifact_root(app_root: &Path) -> PathBuf {
     app_root.join(".mei").join("eval-artifacts")
+}
+
+fn dataset_semantic_revision_key(owner_resource_id: &str, dataset: &DatasetView) -> String {
+    let payload = serde_json::json!({
+        "owner_resource_id": owner_resource_id.trim(),
+        "runtime_metric_defs": dataset.runtime_metric_defs,
+        "runtime_analysis_graph": dataset.runtime_analysis_graph,
+        "runtime_analysis_contracts": dataset.runtime_analysis_contracts,
+    });
+    hash_key(&serde_json::to_string(&payload).unwrap_or_default())
+}
+
+fn eval_plan_semantic_revision_key(
+    owner_resource_id: &str,
+    requested_metric_ids: &[String],
+    metric_defs: &BTreeMap<String, Value>,
+) -> String {
+    let payload = serde_json::json!({
+        "owner_resource_id": owner_resource_id.trim(),
+        "requested_metric_ids": requested_metric_ids,
+        "metric_defs": metric_defs,
+    });
+    hash_key(&serde_json::to_string(&payload).unwrap_or_default())
 }
 
 fn workset_artifact_path(app_root: &Path, owner_resource_id: &str, requested_metric_ids: &[String]) -> PathBuf {
@@ -111,8 +136,11 @@ pub(crate) fn load_or_build_runtime_metric_workset_artifact(
 ) -> Result<(RuntimeMetricWorkset, u64, bool)> {
     let started = Instant::now();
     let path = workset_artifact_path(app_root, owner_resource_id, requested_metric_ids);
+    let semantic_revision_key = dataset_semantic_revision_key(owner_resource_id, dataset);
     if let Some(artifact) = read_json_artifact::<PersistedWorksetArtifact>(&path)? {
-        if artifact.schema_version == EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION {
+        if artifact.schema_version == EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION
+            && artifact.semantic_revision_key == semantic_revision_key
+        {
             return Ok((
                 RuntimeMetricWorkset {
                     closure_metric_ids: artifact.closure_metric_ids,
@@ -137,6 +165,7 @@ pub(crate) fn load_or_build_runtime_metric_workset_artifact(
             schema_version: EVAL_WORKSET_ARTIFACT_SCHEMA_VERSION.to_string(),
             owner_resource_id: owner_resource_id.to_string(),
             requested_metric_ids: requested_metric_ids.to_vec(),
+            semantic_revision_key,
             closure_metric_ids: workset.closure_metric_ids.clone(),
             eval_metric_ids: workset.eval_metric_ids.clone(),
             defs_for_hydrate: workset.defs_for_hydrate.clone(),
@@ -156,9 +185,12 @@ pub(crate) fn load_or_build_eval_plan_artifact(
 ) -> Result<(EvalPlan, u64, bool)> {
     let started = Instant::now();
     let path = eval_plan_artifact_path(app_root, owner_resource_id, requested_metric_ids, scope);
+    let semantic_revision_key =
+        eval_plan_semantic_revision_key(owner_resource_id, requested_metric_ids, metric_defs);
     if let Some(artifact) = read_json_artifact::<PersistedEvalPlanArtifact>(&path)? {
         if artifact.schema_version == EVAL_PLAN_ARTIFACT_SCHEMA_VERSION
             && artifact.dependency_revision_key == scope.dependency_revision_key
+            && artifact.semantic_revision_key == semantic_revision_key
         {
             return Ok((artifact.eval_plan, started.elapsed().as_millis() as u64, true));
         }
@@ -175,6 +207,7 @@ pub(crate) fn load_or_build_eval_plan_artifact(
             schema_version: EVAL_PLAN_ARTIFACT_SCHEMA_VERSION.to_string(),
             owner_resource_id: owner_resource_id.to_string(),
             requested_metric_ids: requested_metric_ids.to_vec(),
+            semantic_revision_key,
             scope_key: eval_node_cache_key("eval_plan", scope),
             dependency_revision_key: scope.dependency_revision_key.clone(),
             eval_plan: eval_plan.clone(),

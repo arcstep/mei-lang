@@ -17,6 +17,7 @@ pub enum Command {
     Workspace(WorkspaceArgs),
     Knowledge(KnowledgeArgs),
     EditorRuntime(EditorRuntimeArgs),
+    Prebuild(PrebuildArgs),
     Compile(CheckArgs),
     Check(CheckArgs),
     Inspect(InspectArgs),
@@ -316,6 +317,23 @@ pub struct CheckArgs {
 }
 
 #[derive(Args, Clone)]
+pub struct PrebuildArgs {
+    /// 工作区 profile（`workspaces/<name>/`，须含 `.mei-workspace.json`）；与 `--source-root` 二选一。
+    #[arg(long, conflicts_with = "source_root")]
+    pub workspace: Option<String>,
+    #[arg(long, default_value = "../workspaces/ws-dev")]
+    pub source_root: PathBuf,
+    #[arg(long = "app")]
+    pub app_id: Option<String>,
+    #[arg(long)]
+    pub verify: bool,
+    #[arg(long)]
+    pub clean: bool,
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Clone)]
 pub struct InspectArgs {
     #[command(subcommand)]
     pub command: InspectCommand,
@@ -609,6 +627,9 @@ pub struct ServeArgs {
     pub host: String,
     #[arg(long, default_value_t = 9527)]
     pub port: u16,
+    /// 启动策略：`background-build` 先 bind HTTP 再后台构建；`fail-fast-verify` 保持启动前全量校验。
+    #[arg(long, default_value = "background-build", value_parser = ["background-build", "fail-fast-verify"])]
+    pub startup_policy: String,
     /// 显式允许在 mei 启动时自动拉起托管的内置 Agent 运行时（默认关闭）
     #[arg(long)]
     pub auto_agent: bool,

@@ -31,8 +31,8 @@ use crate::cli::util::{
 };
 use crate::cli::{
     agent_command, compile_or_check_command, editor_runtime_command, export_command,
-    host_command, inspect_command, knowledge_command, mcp_command, query_command,
-    runtime_command, workspace_command,
+    host_command, inspect_command, knowledge_command, mcp_command, prebuild_command,
+    query_command, runtime_command, workspace_command,
 };
 
 static REQUEST_ID_SEQ: AtomicU64 = AtomicU64::new(1);
@@ -85,6 +85,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
             Command::Workspace(_) => "workspace",
             Command::Knowledge(_) => "knowledge",
             Command::EditorRuntime(_) => "editor-runtime",
+            Command::Prebuild(_) => "prebuild",
             Command::Compile(_) => "compile",
             Command::Check(_) => "check",
             Command::Inspect(_) => "inspect",
@@ -105,6 +106,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
             Command::Workspace(_)
                 | Command::Knowledge(_)
                 | Command::EditorRuntime(_)
+                | Command::Prebuild(_)
                 | Command::Compile(_)
                 | Command::Check(_)
                 | Command::Inspect(_)
@@ -141,6 +143,7 @@ fn ensure_command_allowed(flavor: BinaryFlavor, command: &Command) -> Result<()>
         Command::Workspace(_) => "workspace",
         Command::Knowledge(_) => "knowledge",
         Command::EditorRuntime(_) => "editor-runtime",
+        Command::Prebuild(_) => "prebuild",
         Command::Compile(_) => "compile",
         Command::Check(_) => "check",
         Command::Inspect(_) => "inspect",
@@ -189,6 +192,7 @@ pub async fn run_cli_for_flavor(flavor: BinaryFlavor) -> Result<()> {
         Command::Workspace(args) => workspace_command(args),
         Command::Knowledge(args) => knowledge_command(args),
         Command::EditorRuntime(args) => editor_runtime_command(args),
+        Command::Prebuild(args) => prebuild_command(args),
         Command::Compile(args) => compile_or_check_command("compile", args),
         Command::Check(args) => compile_or_check_command("check", args),
         Command::Inspect(args) => inspect_command(args),
@@ -292,7 +296,6 @@ async fn serve(args: ServeArgs) -> Result<()> {
         }
         Err(error) => tracing::warn!(%error, "failed to inspect workspace-local MeiLang skill"),
     }
-    let host_state = state.clone();
     let app = Router::new()
         .merge(crate::http::router())
         .layer(middleware::from_fn_with_state(
@@ -302,9 +305,30 @@ async fn serve(args: ServeArgs) -> Result<()> {
         .with_state(state)
         .layer(middleware::from_fn(log_request));
     let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse()?;
-    crate::http::host_api::schedule_startup_warmup(host_state);
-    tracing::info!("serving MeiLang skeleton at http://{}", addr);
+    crate::http::host_api::initialize_startup_readiness(source_root.as_path());
+    let startup_policy = args.startup_policy.trim().to_ascii_lowercase();
+    if startup_policy == "fail-fast-verify" {
+        let verify_report =
+            crate::http::host_api::verify_startup_artifacts(source_root.as_path())?;
+        if !verify_report.ok {
+            let summary = if verify_report.error_summary.is_empty() {
+                "artifact verification failed before serve".to_string()
+            } else {
+                verify_report.error_summary.join("\n")
+            };
+            anyhow::bail!("host prebuild verify failed before bind:\n{summary}");
+        }
+    }
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    tracing::info!("serving MeiLang skeleton at http://{}", addr);
+    crate::http::host_api::mark_host_bound();
+    if startup_policy == "background-build" {
+        if let Err(error) =
+            crate::http::host_api::spawn_startup_build(source_root.as_path().to_path_buf())
+        {
+            tracing::warn!(%error, "failed to schedule startup background build");
+        }
+    }
     axum::serve(listener, app).await?;
     Ok(())
 }
@@ -576,6 +600,7 @@ mod tests {
             auth: false,
             host: "127.0.0.1".into(),
             port: 3000,
+            startup_policy: "background-build".into(),
             auto_agent: false,
             sync_agent_skill: false,
         });

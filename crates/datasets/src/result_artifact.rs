@@ -143,15 +143,32 @@ pub fn store_metric_response_result_artifact(
     covered_metric_ids: &BTreeSet<String>,
     complete: bool,
 ) -> Result<()> {
+    let path = metric_response_result_artifact_path(app_root, response_cache_key);
+    let mut merged_total_rows = total_rows;
+    let mut merged_metrics_map = metrics_map.clone();
+    let mut merged_covered_metric_ids = covered_metric_ids.clone();
+    let mut merged_complete = complete;
+    if let Some(existing) = read_json_artifact::<PersistedMetricResponseResultArtifact>(&path)? {
+        if existing.schema_version == METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION
+            && existing.response_cache_key == response_cache_key
+        {
+            merged_total_rows = existing.total_rows.max(total_rows);
+            let mut existing_metrics_map = existing.metrics_map;
+            existing_metrics_map.extend(merged_metrics_map);
+            merged_metrics_map = existing_metrics_map;
+            merged_covered_metric_ids.extend(existing.covered_metric_ids);
+            merged_complete |= existing.complete;
+        }
+    }
     write_json_artifact(
-        &metric_response_result_artifact_path(app_root, response_cache_key),
+        &path,
         &PersistedMetricResponseResultArtifact {
             schema_version: METRIC_RESPONSE_RESULT_ARTIFACT_SCHEMA_VERSION.to_string(),
             response_cache_key: response_cache_key.to_string(),
-            total_rows,
-            metrics_map: metrics_map.clone(),
-            covered_metric_ids: covered_metric_ids.clone(),
-            complete,
+            total_rows: merged_total_rows,
+            metrics_map: merged_metrics_map,
+            covered_metric_ids: merged_covered_metric_ids,
+            complete: merged_complete,
             generated_at_ms: now_epoch_ms(),
         },
     )
@@ -179,9 +196,6 @@ pub fn store_metric_dataframe_result_artifact(
     response_cache_key: &str,
     result: &DatasetQueryResult,
 ) -> Result<()> {
-    if result.rows.is_empty() && result.total == 0 {
-        return Ok(());
-    }
     write_json_artifact(
         &metric_dataframe_result_artifact_path(app_root, response_cache_key),
         &PersistedMetricDataframeResultArtifact {

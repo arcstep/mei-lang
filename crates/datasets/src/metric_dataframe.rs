@@ -141,7 +141,7 @@ fn metric_dataframe_scope_cache_key(
     )
 }
 
-fn metric_dataframe_cache_key(
+pub fn metric_dataframe_result_cache_key(
     app_root: &Path,
     scene_id: Option<&str>,
     target: Option<&str>,
@@ -304,7 +304,7 @@ pub fn query_metric_dataframe(
         &resource.id,
         &defs_for_hydrate,
     );
-    let response_cache_key = metric_dataframe_cache_key(
+    let response_cache_key = metric_dataframe_result_cache_key(
         app_root,
         scene_id,
         target,

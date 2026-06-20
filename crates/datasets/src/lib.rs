@@ -36,6 +36,7 @@ pub use metric_access::{
     evaluate_runtime_metrics_from_plan, runtime_metric_scope_requested, RuntimeMetricEvalMode,
     RuntimeMetricEvalOutcome,
 };
+pub use metric_dataframe::metric_dataframe_result_cache_key;
 pub use metric_locate::{
     locate_runtime_metric_resource, metric_ids_visible_for_dataset,
     plan_access_metric_eval_for_ids, AccessMetricEvalPlan,

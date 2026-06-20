@@ -44,7 +44,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/auth/login", post(auth_api::auth_login))
         .route("/api/auth/logout", post(auth_api::auth_logout))
         .route("/api/host/ready", get(host_api::api_host_ready))
+        .route("/api/host/readiness", get(host_api::api_host_readiness))
         .route("/api/host/heartbeat", get(host_api::api_host_heartbeat))
+        .route("/api/host/build", post(host_api::api_host_build))
         .route(
             "/api/host/request-trace",
             get(request_trace::api_request_trace),
