@@ -1177,16 +1177,16 @@ a.status-chip-link:focus-visible {
 .app-group-trigger::part(base) {
   border-radius: 999px;
   border: 1px solid var(--mei-shell-color-border-inspector);
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-nav-chip-bg);
   color: var(--mei-shell-color-text-primary);
   font-size: var(--mei-shell-font-1);
 }
 .app-group-trigger:hover::part(base),
 .app-group-trigger:focus-visible::part(base),
 .app-group-trigger.is-active::part(base) {
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-nav-chip-active-bg);
   color: var(--mei-shell-color-text-primary);
-  border-color: var(--mei-shell-color-panel-bg);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
 }
 .app-group-dropdown::part(panel) {
   border: 1px solid var(--mei-shell-color-border-metadata);
@@ -1237,7 +1237,7 @@ a.status-chip-link:focus-visible {
   padding: 6px 10px;
   border: 1px solid var(--mei-shell-color-border-tool);
   border-radius: 999px;
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-nav-chip-bg);
   color: var(--mei-shell-color-text-primary);
   font-size: var(--mei-shell-font-1);
 }
@@ -1249,14 +1249,14 @@ a.status-chip-link:focus-visible {
 }
 .app-tab-sub:hover,
 .app-tab-sub:focus-visible {
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-nav-chip-active-bg);
   color: var(--mei-shell-color-text-primary);
-  border-color: var(--mei-shell-color-panel-bg);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
 }
 .app-tab.active {
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-nav-chip-active-bg);
   color: var(--mei-shell-color-text-primary);
-  border-color: var(--mei-shell-color-panel-bg);
+  border-color: var(--mei-shell-color-nav-chip-active-border);
 }
 .mode-tab-btn::part(base) {
   min-width: 56px;
@@ -1278,10 +1278,10 @@ a.status-chip-link:focus-visible {
 .mode-tab-btn:hover::part(base),
 .mode-tab-btn:focus-visible::part(base) {
   color: var(--mei-shell-color-text-primary);
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-mode-tab-hover-bg);
 }
 .mode-tab-btn.is-active::part(base) {
-  background: var(--mei-shell-color-panel-bg);
+  background: var(--mei-shell-color-mode-tab-active-bg);
   color: var(--mei-shell-color-text-primary);
 }
 .mode-btn-content {
