@@ -1,19 +1,27 @@
 /**
- * Build view: preview inspect — highlight, click-to-select node, inspect bar, suppress drilldown.
+ * Build view: preview inspect — highlight, click-to-select node/focus, inspect bar, suppress drilldown.
  */
 (function (global) {
   "use strict";
 
-  const SELECTOR =
-    "[data-build-node^='scene-panel:'], [data-build-node^='scene-block:']";
+  const PANEL_SELECTOR = "[data-build-node^='scene-panel:']";
+  const BLOCK_SELECTOR = "[data-build-focus^='scene-block:']";
+  const SELECTOR = `${PANEL_SELECTOR}, ${BLOCK_SELECTOR}`;
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
   }
 
+  function activeShell() {
+    return document.querySelector(".shell[data-build-node]");
+  }
+
   function activeBuildNode() {
-    const shell = document.querySelector(".shell[data-build-node]");
-    return String(shell?.getAttribute("data-build-node") || "").trim();
+    return String(activeShell()?.getAttribute("data-build-node") || "").trim();
+  }
+
+  function activeBuildFocus() {
+    return String(activeShell()?.getAttribute("data-build-focus") || "").trim();
   }
 
   function previewRoot() {
@@ -29,22 +37,24 @@
   }
 
   function clearHighlights(root) {
-    root.querySelectorAll(".build-inspect-selected").forEach((el) => {
-      el.classList.remove("build-inspect-selected");
+    root.querySelectorAll(".build-inspect-selected, .build-inspect-focus-selected").forEach((el) => {
+      el.classList.remove("build-inspect-selected", "build-inspect-focus-selected");
     });
   }
 
-  function updateInspectBar(node, el) {
+  function updateInspectBar(node, focus, el) {
     const bar = inspectBarLabel();
     if (!bar) return;
-    if (!node) {
+    if (!node && !focus) {
       bar.textContent = "在左侧体验树选择 Panel/Block，或在预览中点击组件以指认上下文。";
       return;
     }
     const blockId = el?.getAttribute("data-mei-block-id") || "";
     const useKey = el?.getAttribute("data-mei-use-key") || "";
     const panelId = el?.getAttribute("data-mei-panel-id") || "";
-    const bits = [`node=${node}`];
+    const bits = [];
+    if (node) bits.push(`node=${node}`);
+    if (focus) bits.push(`focus=${focus}`);
     if (panelId) bits.push(`panel=${panelId}`);
     if (blockId) bits.push(`block=${blockId}`);
     if (useKey) bits.push(`use=${useKey}`);
@@ -75,33 +85,48 @@
     });
   }
 
-  function applyHighlight(root) {
-    const node = activeBuildNode();
-    clearHighlights(root);
-    applyScopedPreview(root);
-    if (!node || (!node.startsWith("scene-panel:") && !node.startsWith("scene-block:"))) {
-      updateInspectBar("");
-      return;
-    }
-    const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
-    matches.forEach((el) => el.classList.add("build-inspect-selected"));
+  function scrollIntoViewIfOne(matches) {
     if (matches.length === 1) {
       matches[0].scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
-      updateInspectBar(node, matches[0]);
-    } else {
-      updateInspectBar(node, matches[0] || null);
     }
   }
 
-  function navigateToBuildNode(node) {
-    if (!node || !isBuildRoute()) return;
-    const shell = document.querySelector(".shell[data-build-node]");
+  function applyHighlight(root) {
+    const node = activeBuildNode();
+    const focus = activeBuildFocus();
+    clearHighlights(root);
+    applyScopedPreview(root);
+
+    let focusEl = null;
+    if (focus && focus.startsWith("scene-block:")) {
+      const focusMatches = root.querySelectorAll(`[data-build-focus="${CSS.escape(focus)}"]`);
+      focusMatches.forEach((el) => el.classList.add("build-inspect-focus-selected"));
+      scrollIntoViewIfOne(focusMatches);
+      focusEl = focusMatches[0] || null;
+    }
+
+    if (node && (node.startsWith("scene-panel:") || node.startsWith("scene-block:"))) {
+      const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
+      matches.forEach((el) => el.classList.add("build-inspect-selected"));
+      if (!focusEl) {
+        scrollIntoViewIfOne(matches);
+      }
+      updateInspectBar(node, focus, focusEl || matches[0] || null);
+      return;
+    }
+
+    updateInspectBar(node, focus, focusEl);
+  }
+
+  function pushBuildUrl(mutator) {
+    if (!isBuildRoute()) return;
+    const shell = activeShell();
     const appPath = shell?.getAttribute("data-app-path") || "";
     if (!appPath) return;
     const url = new URL(global.location.href);
-    url.searchParams.set("node", node);
+    mutator(url);
     if (url.searchParams.get("tab") === "" || !url.searchParams.get("tab")) {
-      url.searchParams.set("tab", "overview");
+      url.searchParams.set("tab", "preview");
     }
     if (url.href === global.location.href) {
       applyHighlight(previewRoot() || document);
@@ -109,6 +134,38 @@
     }
     global.history.pushState({}, "", url.href);
     global.dispatchEvent(new PopStateEvent("popstate"));
+  }
+
+  function readFocusFromUrl() {
+    try {
+      return String(new URL(global.location.href).searchParams.get("focus") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function syncShellFocus(focus) {
+    const shell = activeShell();
+    if (!shell) return;
+    shell.setAttribute("data-build-focus", focus || "");
+  }
+
+  function navigateToBuildNode(node) {
+    if (!node) return;
+    pushBuildUrl((url) => {
+      url.searchParams.set("node", node);
+      url.searchParams.delete("focus");
+    });
+    syncShellFocus("");
+  }
+
+  function navigateToBuildFocus(focus) {
+    if (!focus) return;
+    pushBuildUrl((url) => {
+      url.searchParams.set("focus", focus);
+      url.searchParams.set("tab", "preview");
+    });
+    syncShellFocus(focus);
   }
 
   function bindPreviewInspect(root) {
@@ -119,9 +176,19 @@
       "click",
       (event) => {
         if (!isBuildRoute()) return;
-        const target = event.target.closest(SELECTOR);
-        if (target) {
-          const node = String(target.getAttribute("data-build-node") || "").trim();
+        const blockTarget = event.target.closest(BLOCK_SELECTOR);
+        if (blockTarget) {
+          const focus = String(blockTarget.getAttribute("data-build-focus") || "").trim();
+          if (focus) {
+            event.preventDefault();
+            event.stopPropagation();
+            navigateToBuildFocus(focus);
+          }
+          return;
+        }
+        const panelTarget = event.target.closest(PANEL_SELECTOR);
+        if (panelTarget) {
+          const node = String(panelTarget.getAttribute("data-build-node") || "").trim();
           if (node) {
             event.preventDefault();
             event.stopPropagation();
@@ -146,6 +213,7 @@
     if (!isBuildRoute()) return;
     const root = previewRoot();
     if (!root) return;
+    syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
     applyHighlight(root);
   }
@@ -164,5 +232,5 @@
     bind();
   }
 
-  global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode };
+  global.MeiBuildInspectHighlight = { refresh, navigateToBuildNode, navigateToBuildFocus };
 })(window);

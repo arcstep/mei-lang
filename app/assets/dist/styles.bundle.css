@@ -4456,6 +4456,12 @@ body > .mei-floating-text-pop-backdrop {
   box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.2);
 }
 
+.build-inspect-focus-selected {
+  outline: 2px solid rgb(251 191 36);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25);
+}
+
 .build-preview-scoped-dim {
   opacity: 0.22;
   pointer-events: none;

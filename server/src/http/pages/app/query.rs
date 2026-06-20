@@ -20,6 +20,8 @@ pub struct AppQuery {
     pub node: Option<String>,
     /// 构建视图 exec tab scope：warmup / empty / last_request / custom。
     pub scope: Option<String>,
+    /// 构建视图预览细粒度锚点（scene-block 编码）；与 `node` 独立，不强制改左树 selection。
+    pub focus: Option<String>,
     pub chrome: Option<String>,
 }
 

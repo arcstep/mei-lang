@@ -39,6 +39,7 @@ pub(crate) fn manage_shell(
     explain: Option<&str>,
     node: Option<&str>,
     scope: Option<&str>,
+    focus: Option<&str>,
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
@@ -166,6 +167,7 @@ pub(crate) fn manage_shell(
         .collect_view();
 
     let node_encoded = resolved.node.encode();
+    let focus_encoded = focus.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("");
     let tab_slug = active_tab_enum.slug().to_string();
     let overview_panel = build_overview_view(compiled, &ctx, app_path);
     let provenance_panel = build_provenance_view(&ctx.provenance);
@@ -205,7 +207,7 @@ pub(crate) fn manage_shell(
         .unwrap_or_else(|| view! { <></> }.into_any());
 
     view! {
-        <div class=shell_class data-build-node=node_encoded.clone() data-build-tab=tab_slug.clone() data-app-path=app_path.to_string()>
+        <div class=shell_class data-build-node=node_encoded.clone() data-build-focus=focus_encoded data-build-tab=tab_slug.clone() data-app-path=app_path.to_string()>
             {host_ssr_bootstrap.unwrap_or_else(|| view! { <></> }.into_any())}
             <script
                 id="mei-build-reachability-tree"

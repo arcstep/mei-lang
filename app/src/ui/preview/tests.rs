@@ -2616,6 +2616,7 @@ fn zhifa_home_full_render_page_data_props_under_5mb() {
         None,
         Some("scene:home"),
         None,
+        None,
         false,
         false,
         None,

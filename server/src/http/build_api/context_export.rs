@@ -29,6 +29,8 @@ pub struct BuildContextExportQuery {
     #[serde(default)]
     pub scope: Option<String>,
     #[serde(default)]
+    pub focus: Option<String>,
+    #[serde(default)]
     pub include_graph: Option<String>,
     #[serde(default)]
     pub include_readiness: Option<String>,
@@ -93,7 +95,14 @@ pub async fn api_build_context_export(
         .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(true);
 
-    let build_url = format!("/apps/build/{app_id}?node={}", percent_encode_component(node_raw));
+    let build_url = {
+        let mut url = format!("/apps/build/{app_id}?node={}", percent_encode_component(node_raw));
+        if let Some(focus) = query.focus.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            url.push_str("&focus=");
+            url.push_str(&percent_encode_component(focus));
+        }
+        url
+    };
     let gate = artifact_gate_status(
         app_id,
         ctx.scene_id.as_deref(),
@@ -118,7 +127,7 @@ pub async fn api_build_context_export(
     }
     md.push('\n');
 
-    append_ux_sections(&mut md, compiled, &ctx, &resolved.node);
+    append_ux_sections(&mut md, compiled, &ctx, &resolved.node, query.focus.as_deref());
     append_board_template_sections(&mut md, compiled, &resolved.node);
     append_runtime_snapshot(&mut md, compiled, &ctx, &intent);
 
@@ -156,6 +165,7 @@ fn append_ux_sections(
     compiled: &mei_lang_kernel::CompiledApp,
     ctx: &mei_lang_kernel::BuildNodeContext,
     node: &mei_lang_kernel::BuildNodeId,
+    focus: Option<&str>,
 ) {
     let path = build_experience_path(compiled, node);
     md.push_str("### 体验路径\n\n");
@@ -163,6 +173,9 @@ fn append_ux_sections(
 
     md.push_str("### UI 锚点\n\n");
     md.push_str(&format!("- node: `{}`\n", node.encode()));
+    if let Some(focus) = focus.map(str::trim).filter(|value| !value.is_empty()) {
+        md.push_str(&format!("- focus: `{focus}`\n"));
+    }
     md.push_str(&format!("- target_file: `{}`\n", ctx.target_file));
     if let Some(scene) = ctx.scene_id.as_deref() {
         md.push_str(&format!("- scene_id: `{scene}`\n"));

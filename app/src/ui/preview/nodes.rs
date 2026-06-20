@@ -464,6 +464,7 @@ fn block_view(
             data-mei-block-id=block_id.to_string()
             data-mei-use-key=block.use_key.clone()
             data-build-node=build_node_id.clone().unwrap_or_default()
+            data-build-focus=build_node_id.clone().unwrap_or_default()
         >
             <div class="component-host" inner_html=html></div>
         </section>
