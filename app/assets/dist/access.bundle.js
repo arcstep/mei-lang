@@ -9331,8 +9331,9 @@
     "/app-bundles/access.js",
   ]);
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
-  const LOADING_DELAY_MS = 0;
-  const LOADING_MIN_VISIBLE_MS = 1500;
+  const LOADING_SHOW_DELAY_MS = 1000;
+  const LOADING_MIN_VISIBLE_MS = 1000;
+  const LOADING_SKIP_UNDER_MS = 1000;
   const SCRIPT_LOAD_TIMEOUT_MS = 15000;
   const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";
@@ -15845,16 +15846,14 @@
 ;
 
 /* ===== spa-navigation/spa/loading-progress.js ===== */
-  const PHASES = ["compile", "render", "eval"];
+  const PHASES = ["render", "eval"];
   const PHASE_LABELS = {
-    compile: "编译",
     render: "渲染",
     eval: "求值",
   };
   const PHASE_WEIGHTS = {
-    compile: 0.28,
-    render: 0.32,
-    eval: 0.4,
+    render: 0.55,
+    eval: 0.45,
   };
   const READY_QUIET_MS = 360;
   const READY_MAX_WAIT_MS = 45000;
@@ -15890,14 +15889,6 @@
     return `${(ms / 1000).toFixed(2)}s`;
   }
 
-  function formatBytes(value) {
-    const bytes = Number(value);
-    if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  }
-
   function createPhaseState() {
     return {
       status: "pending",
@@ -15915,7 +15906,6 @@
       startedAt: nowMs(),
       wallStartedAt: Date.now(),
       phases: {
-        compile: createPhaseState(),
         render: createPhaseState(),
         eval: createPhaseState(),
       },
@@ -15995,55 +15985,24 @@
   }
 
   function buildDetailLines(session) {
-    const lines = [];
-    const compile = session.phases.compile;
+    const parts = [];
     const render = session.phases.render;
-    const evalPhase = session.phases.eval;
-    const compileBits = [];
-    if (compile.status !== "pending") {
-      const ms = Number.isFinite(session.compile.serverCompileMs)
-        ? session.compile.serverCompileMs
-        : compile.durationMs;
-      compileBits.push(`编译 ${formatMs(ms)}`);
-      if (session.compile.cacheHit === true) compileBits.push("缓存命中");
-      else if (session.compile.cacheHit === false) compileBits.push("冷编译");
-      if (session.compile.probeCount > 0) {
-        compileBits.push(`探测 ${session.compile.probeCount} 次`);
-      }
-      if (session.compile.dataPropsCount > 0 && session.compile.dataPropsBytes > 0) {
-        compileBits.push(
-          `SSR内联 ${session.compile.dataPropsCount} 项 · ${formatBytes(session.compile.dataPropsBytes)}`,
-        );
-      }
-    }
-    if (compileBits.length) lines.push(compileBits.join(" · "));
-
-    const renderBits = [];
     if (render.status !== "pending") {
-      renderBits.push(`渲染 ${formatMs(render.durationMs)}`);
+      let renderMs = render.durationMs;
       if (Number.isFinite(session.compile.handlerReadyMs)) {
-        renderBits.push(`SSR ${formatMs(session.compile.handlerReadyMs)}`);
+        renderMs = Math.max(renderMs, session.compile.handlerReadyMs);
       }
-      if (session.renderTraceCount > 0) {
-        renderBits.push(`组件 ${session.renderTraceCount}`);
-      }
+      parts.push(`渲染 ${formatMs(renderMs)}`);
     }
-    if (renderBits.length) lines.push(renderBits.join(" · "));
-
-    const apiBits = [];
-    if (session.api.total > 0 || evalPhase.status !== "pending") {
-      apiBits.push(`API ${session.api.completed}/${session.api.total}`);
-      if (session.api.inflight > 0) apiBits.push(`进行中 ${session.api.inflight}`);
-      if (session.api.failed > 0) apiBits.push(`失败 ${session.api.failed}`);
-      if (session.api.bytes > 0) apiBits.push(formatBytes(session.api.bytes));
-      if (session.api.evalMs > 0) apiBits.push(`求值 ${formatMs(session.api.evalMs)}`);
-      if (session.api.lastKind) apiBits.push(session.api.lastKind);
+    const evalMs =
+      session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
+    if (session.api.total > 0) {
+      parts.push(`求值 ${formatMs(evalMs)}`);
+    } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
+      parts.push(`求值 ${formatMs(evalMs)}`);
     }
-    if (apiBits.length) lines.push(apiBits.join(" · "));
-
-    const totalMs = Date.now() - session.wallStartedAt;
-    lines.push(`总计 ${formatMs(totalMs)}`);
-    return lines;
+    parts.push(`总计 ${formatMs(Date.now() - session.wallStartedAt)}`);
+    return [parts.join(" · ")];
   }
 
   function resolveActivePhase(session) {
@@ -16061,22 +16020,6 @@
         session.ready || overallProgress(session) >= 0.99
           ? "100%"
           : `${Math.round(overallProgress(session) * 100)}%`;
-    }
-    for (const phase of PHASES) {
-      const seg = overlay.querySelector(`[data-mei-loading-phase="${phase}"]`);
-      if (!seg) continue;
-      seg.classList.remove("is-pending", "is-active", "is-done");
-      seg.classList.add(`is-${session.phases[phase].status}`);
-      const msEl = seg.querySelector("[data-mei-loading-phase-ms]");
-      if (msEl) {
-        const entry = session.phases[phase];
-        msEl.textContent =
-          entry.status === "done"
-            ? formatMs(entry.durationMs)
-            : entry.status === "active"
-              ? "…"
-              : "";
-      }
     }
     const detailHost =
       overlay.querySelector(".spa-loading-detail") ||
@@ -16231,13 +16174,7 @@
   function beginLoadingProgressSession(navigationId, url) {
     installLoadingProgressFetchHook();
     activeSession = createSession(navigationId, url);
-    setPhaseStatus(activeSession, "compile", "active");
-    if (
-      typeof showLoadingNow === "function" &&
-      !(window.MeiPageLoadProgress && window.MeiPageLoadProgress.isTracking && window.MeiPageLoadProgress.isTracking())
-    ) {
-      showLoadingNow();
-    }
+    setPhaseStatus(activeSession, "render", "active");
     updateLoadingProgressDom(activeSession);
     return activeSession;
   }
@@ -16259,15 +16196,6 @@
         : 0;
     session.compile.dataPropsBytes = headerMs(response, "x-mei-data-props-bytes");
     session.compile.dataPropsCount = headerMs(response, "x-mei-data-props-count");
-    const compileDetail = [];
-    if (Number.isFinite(session.compile.serverCompileMs)) {
-      compileDetail.push(`server ${formatMs(session.compile.serverCompileMs)}`);
-    }
-    if (Number.isFinite(session.compile.handlerReadyMs)) {
-      compileDetail.push(`SSR ${formatMs(session.compile.handlerReadyMs)}`);
-    }
-    setPhaseStatus(session, "compile", "done", compileDetail.join(" · "));
-    setPhaseStatus(session, "render", "active");
     updateLoadingProgressDom(session);
   }
 
@@ -16316,9 +16244,6 @@
 
   function loadingProgressReady(session) {
     if (!session) return { ready: true, reason: "no_session" };
-    if (session.phases.compile.status !== "done") {
-      return { ready: false, reason: "compile" };
-    }
     if (!session.swapDone) {
       return { ready: false, reason: "swap" };
     }
@@ -16535,20 +16460,6 @@
       '<div class="spa-loading-body">' +
       '<span class="spa-loading-text">加载中…</span>' +
       '<div class="spa-loading-track">' +
-      '<div class="spa-loading-segments">' +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="compile">' +
-      '<span class="spa-loading-seg-label">编译</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="render">' +
-      '<span class="spa-loading-seg-label">渲染</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="eval">' +
-      '<span class="spa-loading-seg-label">求值</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      "</div>" +
       '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
       "</div>" +
       '<div class="spa-loading-detail"></div>' +
@@ -16566,6 +16477,11 @@
     document.body.appendChild(overlay);
   }
 
+  function isSpaLoadingVisible() {
+    const overlay = document.getElementById("mei-spa-loading");
+    return Boolean(overlay && overlay.classList.contains("is-visible"));
+  }
+
   function clearLoadingTimer() {
     if (loadingTimer) {
       clearTimeout(loadingTimer);
@@ -16573,19 +16489,29 @@
     }
   }
 
-  function showLoading() {
+  function shouldKeepLoadingVisible() {
+    if (typeof boot.getLoadingProgressSession === "function") {
+      const session = boot.getLoadingProgressSession();
+      if (session) return true;
+    }
+    return Boolean(
+      window.MeiPageLoadProgress &&
+        typeof window.MeiPageLoadProgress.isTracking === "function" &&
+        window.MeiPageLoadProgress.isTracking(),
+    );
+  }
+
+  function scheduleLoadingShow() {
     clearLoadingTimer();
     loadingTimer = setTimeout(() => {
-      createLoadingOverlay();
-      const overlay = document.getElementById("mei-spa-loading");
-      if (!overlay) return;
-      overlay.classList.add("is-visible");
-      loadingVisibleAt = Date.now();
-      if (typeof boot.refreshLoadingProgressUi === "function") {
-        boot.refreshLoadingProgressUi();
-      }
       loadingTimer = null;
-    }, LOADING_DELAY_MS);
+      if (!shouldKeepLoadingVisible()) return;
+      showLoadingNow();
+    }, LOADING_SHOW_DELAY_MS);
+  }
+
+  function showLoading() {
+    scheduleLoadingShow();
   }
 
   function hideLoading() {
@@ -16626,6 +16552,15 @@
     }
   }
 
+  function finishLoadingHide() {
+    clearLoadingTimer();
+    if (!isSpaLoadingVisible()) {
+      forceHideLoading();
+      return;
+    }
+    hideLoading();
+  }
+
   async function finishNavigationUi(navigationId) {
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
@@ -16636,13 +16571,12 @@
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
     }
-    hideLoading();
+    finishLoadingHide();
     clearManageWorkspaceLoadingState();
     if (typeof boot.clearLoadingProgressSession === "function") {
       boot.clearLoadingProgressSession(navigationId);
     }
   }
-
 
 ;
 
@@ -17852,7 +17786,7 @@
       showManageWorkspaceLoadingState(url);
     } else {
       showManageWorkspaceLoadingState(url);
-      showLoadingNow();
+      showLoading();
     }
     if (typeof boot.beginLoadingProgressSession === "function") {
       boot.beginLoadingProgressSession(navigationId, url);
@@ -17965,9 +17899,10 @@
     ) {
       return false;
     }
-    if (document.getElementById("mei-page-load-progress")) return true;
-    if (Number.isFinite(perf.compileMs) && perf.compileMs > 0) return true;
+    const shellOverlay = document.getElementById("mei-page-load-progress");
+    if (shellOverlay && shellOverlay.classList.contains("is-visible")) return true;
     if (Number.isFinite(perf.dataPropsBytes) && perf.dataPropsBytes >= 20 * 1024 * 1024) return true;
+    if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs >= 1000) return true;
     return false;
   }
 
@@ -17982,7 +17917,9 @@
     ) {
       return;
     }
-    if (typeof hideLoading === "function") {
+    if (typeof finishLoadingHide === "function") {
+      finishLoadingHide();
+    } else if (typeof hideLoading === "function") {
       hideLoading();
     } else if (window.MeiPageLoadProgress && typeof window.MeiPageLoadProgress.hide === "function") {
       window.MeiPageLoadProgress.hide();
@@ -18010,8 +17947,8 @@
       window.MeiPageLoadProgress.mountFromHandoff();
       return;
     }
-    if (typeof showLoadingNow === "function") {
-      showLoadingNow();
+    if (typeof showLoading === "function") {
+      showLoading();
     }
     if (typeof boot.beginLoadingProgressSession !== "function") return;
     boot.beginLoadingProgressSession(initialLoadNavigationId(), window.location.href);

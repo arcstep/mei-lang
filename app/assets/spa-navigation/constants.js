@@ -25,8 +25,9 @@
     "/app-bundles/access.js",
   ]);
   const SPA_NAV_SCRIPT = "/app-assets/spa-navigation.js";
-  const LOADING_DELAY_MS = 0;
-  const LOADING_MIN_VISIBLE_MS = 1500;
+  const LOADING_SHOW_DELAY_MS = 1000;
+  const LOADING_MIN_VISIBLE_MS = 1000;
+  const LOADING_SKIP_UNDER_MS = 1000;
   const SCRIPT_LOAD_TIMEOUT_MS = 15000;
   const SPA_FETCH_TIMEOUT_MS = 120000;
   const METRIC_DRILLDOWN_EVENT = "mei:metric-drilldown";

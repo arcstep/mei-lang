@@ -1,11 +1,12 @@
 (function (global) {
   const STORAGE_KEY = "__mei_loading_handoff";
-  const PHASES = ["compile", "render", "eval"];
-  const PHASE_LABELS = { compile: "编译", render: "渲染", eval: "求值" };
-  const PHASE_WEIGHTS = { compile: 0.28, render: 0.32, eval: 0.4 };
+  const PHASES = ["render", "eval"];
+  const PHASE_LABELS = { render: "渲染", eval: "求值" };
+  const PHASE_WEIGHTS = { render: 0.55, eval: 0.45 };
   const READY_QUIET_MS = 320;
   const READY_POLL_MS = 48;
-  const MIN_VISIBLE_MS = 1500;
+  const SHOW_DELAY_MS = 1000;
+  const MIN_VISIBLE_MS = 1000;
 
   let state = null;
   let fetchHookInstalled = false;
@@ -13,6 +14,7 @@
   let readyPollTimer = 0;
   let overlayShownAt = 0;
   let hideTimer = 0;
+  let showDelayTimer = 0;
 
   function escapeHtml(value) {
     return String(value ?? "")
@@ -26,14 +28,6 @@
     if (!Number.isFinite(ms) || ms < 0) return "—";
     if (ms < 1000) return Math.round(ms) + "ms";
     return (ms / 1000).toFixed(2) + "s";
-  }
-
-  function formatBytes(value) {
-    const bytes = Number(value);
-    if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
-    if (bytes < 1024) return bytes + "B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + "KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + "MB";
   }
 
   function reasonLabel(reason) {
@@ -55,20 +49,6 @@
       '<div class="spa-loading-body">' +
       '<span class="spa-loading-text" data-mei-page-load-title="true">加载中…</span>' +
       '<div class="spa-loading-track">' +
-      '<div class="spa-loading-segments">' +
-      PHASES.map(function (phase) {
-        return (
-          '<div class="spa-loading-seg is-pending" data-mei-loading-phase="' +
-          phase +
-          '">' +
-          '<span class="spa-loading-seg-label">' +
-          PHASE_LABELS[phase] +
-          "</span>" +
-          '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-          "</div>"
-        );
-      }).join("") +
-      "</div>" +
       '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
       "</div>" +
       '<div class="spa-loading-detail" data-mei-page-load-detail="true"></div>' +
@@ -77,20 +57,50 @@
     );
   }
 
+  function overlayVisible() {
+    const overlay = document.getElementById("mei-page-load-progress");
+    return Boolean(overlay && overlay.classList.contains("is-visible"));
+  }
+
+  function cancelShowDelay() {
+    if (showDelayTimer) {
+      global.clearTimeout(showDelayTimer);
+      showDelayTimer = 0;
+    }
+  }
+
+  function revealOverlay() {
+    const overlay = ensureOverlay();
+    if (!overlay.classList.contains("is-visible")) {
+      overlay.classList.add("is-visible");
+      overlayShownAt = Date.now();
+    }
+    return overlay;
+  }
+
+  function scheduleOverlayShow() {
+    cancelShowDelay();
+    if (!state) return;
+    const elapsed = Date.now() - state.wallStartedAt;
+    const delay = Math.max(0, SHOW_DELAY_MS - elapsed);
+    showDelayTimer = global.setTimeout(function () {
+      showDelayTimer = 0;
+      if (!state || state.ready) return;
+      revealOverlay();
+      paint();
+    }, delay);
+  }
+
   function ensureOverlay() {
     var overlay = document.getElementById("mei-page-load-progress");
-    if (overlay) {
-      if (!overlayShownAt) overlayShownAt = Date.now();
-      return overlay;
-    }
+    if (overlay) return overlay;
     overlay = document.createElement("div");
     overlay.id = "mei-page-load-progress";
-    overlay.className = "spa-loading-overlay is-visible";
+    overlay.className = "spa-loading-overlay";
     overlay.setAttribute("role", "status");
     overlay.setAttribute("aria-live", "polite");
     overlay.innerHTML = overlayMarkup();
     (document.body || document.documentElement).appendChild(overlay);
-    overlayShownAt = Date.now();
     return overlay;
   }
 
@@ -99,7 +109,6 @@
       mode: mode || "bootstrap",
       wallStartedAt: Date.now(),
       phases: {
-        compile: { status: "pending", startedAt: 0, durationMs: 0, detail: "" },
         render: { status: "pending", startedAt: 0, durationMs: 0, detail: "" },
         eval: { status: "pending", startedAt: 0, durationMs: 0, detail: "" },
       },
@@ -132,11 +141,8 @@
     if (!state) return 0;
     const entry = state.phases[phase];
     if (!entry) return 0;
-    if (phase === "compile" && Number.isFinite(state.compile.serverCompileMs)) {
-      return state.compile.serverCompileMs;
-    }
-    if (phase === "compile" && state.compile.bootstrapWaitMs > 0) {
-      return state.compile.bootstrapWaitMs;
+    if (phase === "render" && Number.isFinite(state.compile.handlerReadyMs)) {
+      return Math.max(entry.durationMs, state.compile.handlerReadyMs);
     }
     return entry.durationMs;
   }
@@ -176,9 +182,6 @@
       if (phase === "eval" && state.api.total > 0) {
         return Math.min(0.95, 0.2 + (state.api.completed / Math.max(state.api.total, 1)) * 0.75);
       }
-      if (phase === "compile" && state.mode === "bootstrap") {
-        return Math.min(0.9, 0.15 + Math.min(state.compile.probeCount, 12) * 0.06);
-      }
       return 0.45;
     }
     return 0;
@@ -192,60 +195,19 @@
     return Math.max(0, Math.min(1, sum));
   }
 
-  function buildPayloadLine() {
-    if (!state) return "";
-    if (state.compile.dataPropsCount > 0 && state.compile.dataPropsBytes > 0) {
-      return (
-        "SSR内联 " +
-        state.compile.dataPropsCount +
-        " 项 · " +
-        formatBytes(state.compile.dataPropsBytes)
-      );
-    }
-    return "";
-  }
-
   function buildDetailLines() {
     if (!state) return [];
-    const lines = [];
-    const compileBits = [];
-    if (state.phases.compile.status !== "pending") {
-      compileBits.push("编译 " + formatMs(phaseDisplayMs("compile")));
-      if (state.compile.cacheHit === true) compileBits.push("缓存命中");
-      else if (state.compile.cacheHit === false) compileBits.push("冷编译");
-      if (state.compile.probeCount > 0) {
-        compileBits.push("探测 " + state.compile.probeCount + " 次");
-      }
-      if (state.compile.lastReason) {
-        compileBits.push(reasonLabel(state.compile.lastReason));
-      }
-      const payloadLine = buildPayloadLine();
-      if (payloadLine) compileBits.push(payloadLine);
-    }
-    if (compileBits.length) lines.push(compileBits.join(" · "));
-
-    const renderBits = [];
+    const parts = [];
     if (state.phases.render.status !== "pending") {
-      renderBits.push("渲染 " + formatMs(phaseDisplayMs("render")));
-      if (Number.isFinite(state.compile.handlerReadyMs)) {
-        renderBits.push("SSR " + formatMs(state.compile.handlerReadyMs));
-      }
+      parts.push("渲染 " + formatMs(phaseDisplayMs("render")));
     }
-    if (renderBits.length) lines.push(renderBits.join(" · "));
-
-    const apiBits = [];
-    if (state.api.total > 0 || state.phases.eval.status !== "pending") {
-      apiBits.push("API " + state.api.completed + "/" + state.api.total);
-      if (state.api.inflight > 0) apiBits.push("进行中 " + state.api.inflight);
-      if (state.api.failed > 0) apiBits.push("失败 " + state.api.failed);
-      if (state.api.bytes > 0) apiBits.push(formatBytes(state.api.bytes));
-      if (state.api.evalMs > 0) apiBits.push("求值 " + formatMs(state.api.evalMs));
-      if (state.api.lastKind) apiBits.push(state.api.lastKind);
+    if (state.api.total > 0) {
+      parts.push("求值 " + formatMs(state.api.evalMs));
+    } else if (state.phases.eval.status === "done") {
+      parts.push("求值 " + formatMs(state.phases.eval.durationMs));
     }
-    if (apiBits.length) lines.push(apiBits.join(" · "));
-
-    lines.push("总计 " + formatMs(Date.now() - state.wallStartedAt));
-    return lines;
+    parts.push("总计 " + formatMs(Date.now() - state.wallStartedAt));
+    return [parts.join(" · ")];
   }
 
   function paint() {
@@ -258,21 +220,6 @@
           ? "100%"
           : Math.round(overallProgress() * 100) + "%";
     }
-    PHASES.forEach(function (phase) {
-      const seg = overlay.querySelector('[data-mei-loading-phase="' + phase + '"]');
-      if (!seg) return;
-      seg.classList.remove("is-pending", "is-active", "is-done");
-      seg.classList.add("is-" + state.phases[phase].status);
-      const msEl = seg.querySelector("[data-mei-loading-phase-ms]");
-      if (!msEl) return;
-      const entry = state.phases[phase];
-      msEl.textContent =
-        entry.status === "done"
-          ? formatMs(phaseDisplayMs(phase))
-          : entry.status === "active"
-            ? "…"
-            : "";
-    });
     const detailHost = overlay.querySelector("[data-mei-page-load-detail]");
     if (detailHost) {
       detailHost.innerHTML = buildDetailLines()
@@ -380,7 +327,6 @@
 
   function isReady() {
     if (!state || state.ready) return true;
-    if (state.phases.compile.status !== "done") return false;
     if (state.phases.render.status !== "done") return false;
     if (state.api.inflight > 0) return false;
     if (state.phases.eval.status === "pending" && state.api.total === 0) return true;
@@ -411,6 +357,11 @@
     }
     state.ready = true;
     paint();
+    if (!overlayVisible()) {
+      cancelShowDelay();
+      hide();
+      return;
+    }
     scheduleHide();
   }
 
@@ -484,14 +435,12 @@
     const handoff = peekHandoff();
     if (!handoff || state) return;
     state = createState("handoff");
-    overlayShownAt = Date.now();
     state.wallStartedAt = Number(handoff.wallStartedAt) || Date.now();
     state.compile.probeCount = Number(handoff.probeCount) || 0;
     state.compile.lastReason = String(handoff.lastReason || "");
     state.compile.bootstrapWaitMs = Number(handoff.bootstrapWaitMs) || 0;
-    ensureOverlay();
-    setPhase("compile", "active");
-    paint();
+    setPhase("render", "active");
+    scheduleOverlayShow();
   }
 
   function readHandoff() {
@@ -520,12 +469,14 @@
 
   function mountBootstrap(titleText) {
     state = createState("bootstrap");
-    overlayShownAt = Date.now();
-    ensureOverlay();
-    setPhase("compile", "active");
-    const title = document.querySelector("[data-mei-page-load-title]");
-    if (title && titleText) title.textContent = titleText;
-    paint();
+    state.wallStartedAt = Date.now();
+    setPhase("render", "active");
+    scheduleOverlayShow();
+    global.setTimeout(function () {
+      const title = document.querySelector("[data-mei-page-load-title]");
+      if (title && titleText) title.textContent = titleText;
+      paint();
+    }, 0);
   }
 
   function mountFromHandoff() {
@@ -534,17 +485,15 @@
     if (!handoff && !Number.isFinite(perf.handlerReadyMs)) return false;
     if (!state) {
       state = createState("handoff");
-      overlayShownAt = Date.now();
-      ensureOverlay();
+      state.wallStartedAt = Number(handoff?.wallStartedAt) || Date.now();
     }
     if (handoff) {
-      state.wallStartedAt = Number(handoff.wallStartedAt) || Date.now();
+      state.wallStartedAt = Number(handoff.wallStartedAt) || state.wallStartedAt;
       state.compile.probeCount = Number(handoff.probeCount) || 0;
       state.compile.lastReason = String(handoff.lastReason || "");
       state.compile.bootstrapWaitMs = Number(handoff.bootstrapWaitMs) || 0;
     }
     applyBodyPerf();
-    setPhase("compile", "done");
     const renderMs =
       Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs > 0
         ? perf.handlerReadyMs
@@ -555,6 +504,7 @@
     setPhase("render", "done");
     setPhase("eval", "active");
     beginHandoffLifecycle();
+    scheduleOverlayShow();
     return true;
   }
 
@@ -562,8 +512,8 @@
     if (!state) return;
     state.compile.probeCount += 1;
     state.compile.lastReason = String(reason || "");
-    if (state.phases.compile.status !== "done") {
-      setPhase("compile", "active");
+    if (state.phases.render.status !== "done") {
+      setPhase("render", "active", reasonLabel(state.compile.lastReason));
     } else {
       paint();
     }
@@ -571,13 +521,13 @@
 
   function noteCompileReady() {
     if (!state) return;
-    setPhase("compile", "done", reasonLabel(state.compile.lastReason));
-    setPhase("render", "active", "即将刷新页面");
+    setPhase("render", "done", reasonLabel(state.compile.lastReason));
     writeHandoff();
     paint();
   }
 
   function hide() {
+    cancelShowDelay();
     if (hideTimer) {
       global.clearTimeout(hideTimer);
       hideTimer = 0;

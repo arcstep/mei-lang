@@ -86,7 +86,7 @@
       showManageWorkspaceLoadingState(url);
     } else {
       showManageWorkspaceLoadingState(url);
-      showLoadingNow();
+      showLoading();
     }
     if (typeof boot.beginLoadingProgressSession === "function") {
       boot.beginLoadingProgressSession(navigationId, url);

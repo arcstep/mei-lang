@@ -1,13 +1,11 @@
-  const PHASES = ["compile", "render", "eval"];
+  const PHASES = ["render", "eval"];
   const PHASE_LABELS = {
-    compile: "编译",
     render: "渲染",
     eval: "求值",
   };
   const PHASE_WEIGHTS = {
-    compile: 0.28,
-    render: 0.32,
-    eval: 0.4,
+    render: 0.55,
+    eval: 0.45,
   };
   const READY_QUIET_MS = 360;
   const READY_MAX_WAIT_MS = 45000;
@@ -43,14 +41,6 @@
     return `${(ms / 1000).toFixed(2)}s`;
   }
 
-  function formatBytes(value) {
-    const bytes = Number(value);
-    if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
-    if (bytes < 1024) return `${bytes}B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-  }
-
   function createPhaseState() {
     return {
       status: "pending",
@@ -68,7 +58,6 @@
       startedAt: nowMs(),
       wallStartedAt: Date.now(),
       phases: {
-        compile: createPhaseState(),
         render: createPhaseState(),
         eval: createPhaseState(),
       },
@@ -148,55 +137,24 @@
   }
 
   function buildDetailLines(session) {
-    const lines = [];
-    const compile = session.phases.compile;
+    const parts = [];
     const render = session.phases.render;
-    const evalPhase = session.phases.eval;
-    const compileBits = [];
-    if (compile.status !== "pending") {
-      const ms = Number.isFinite(session.compile.serverCompileMs)
-        ? session.compile.serverCompileMs
-        : compile.durationMs;
-      compileBits.push(`编译 ${formatMs(ms)}`);
-      if (session.compile.cacheHit === true) compileBits.push("缓存命中");
-      else if (session.compile.cacheHit === false) compileBits.push("冷编译");
-      if (session.compile.probeCount > 0) {
-        compileBits.push(`探测 ${session.compile.probeCount} 次`);
-      }
-      if (session.compile.dataPropsCount > 0 && session.compile.dataPropsBytes > 0) {
-        compileBits.push(
-          `SSR内联 ${session.compile.dataPropsCount} 项 · ${formatBytes(session.compile.dataPropsBytes)}`,
-        );
-      }
-    }
-    if (compileBits.length) lines.push(compileBits.join(" · "));
-
-    const renderBits = [];
     if (render.status !== "pending") {
-      renderBits.push(`渲染 ${formatMs(render.durationMs)}`);
+      let renderMs = render.durationMs;
       if (Number.isFinite(session.compile.handlerReadyMs)) {
-        renderBits.push(`SSR ${formatMs(session.compile.handlerReadyMs)}`);
+        renderMs = Math.max(renderMs, session.compile.handlerReadyMs);
       }
-      if (session.renderTraceCount > 0) {
-        renderBits.push(`组件 ${session.renderTraceCount}`);
-      }
+      parts.push(`渲染 ${formatMs(renderMs)}`);
     }
-    if (renderBits.length) lines.push(renderBits.join(" · "));
-
-    const apiBits = [];
-    if (session.api.total > 0 || evalPhase.status !== "pending") {
-      apiBits.push(`API ${session.api.completed}/${session.api.total}`);
-      if (session.api.inflight > 0) apiBits.push(`进行中 ${session.api.inflight}`);
-      if (session.api.failed > 0) apiBits.push(`失败 ${session.api.failed}`);
-      if (session.api.bytes > 0) apiBits.push(formatBytes(session.api.bytes));
-      if (session.api.evalMs > 0) apiBits.push(`求值 ${formatMs(session.api.evalMs)}`);
-      if (session.api.lastKind) apiBits.push(session.api.lastKind);
+    const evalMs =
+      session.api.evalMs > 0 ? session.api.evalMs : session.phases.eval.durationMs;
+    if (session.api.total > 0) {
+      parts.push(`求值 ${formatMs(evalMs)}`);
+    } else if (session.phases.eval.status === "done" && session.phases.eval.detail !== "无运行时 API") {
+      parts.push(`求值 ${formatMs(evalMs)}`);
     }
-    if (apiBits.length) lines.push(apiBits.join(" · "));
-
-    const totalMs = Date.now() - session.wallStartedAt;
-    lines.push(`总计 ${formatMs(totalMs)}`);
-    return lines;
+    parts.push(`总计 ${formatMs(Date.now() - session.wallStartedAt)}`);
+    return [parts.join(" · ")];
   }
 
   function resolveActivePhase(session) {
@@ -214,22 +172,6 @@
         session.ready || overallProgress(session) >= 0.99
           ? "100%"
           : `${Math.round(overallProgress(session) * 100)}%`;
-    }
-    for (const phase of PHASES) {
-      const seg = overlay.querySelector(`[data-mei-loading-phase="${phase}"]`);
-      if (!seg) continue;
-      seg.classList.remove("is-pending", "is-active", "is-done");
-      seg.classList.add(`is-${session.phases[phase].status}`);
-      const msEl = seg.querySelector("[data-mei-loading-phase-ms]");
-      if (msEl) {
-        const entry = session.phases[phase];
-        msEl.textContent =
-          entry.status === "done"
-            ? formatMs(entry.durationMs)
-            : entry.status === "active"
-              ? "…"
-              : "";
-      }
     }
     const detailHost =
       overlay.querySelector(".spa-loading-detail") ||
@@ -384,13 +326,7 @@
   function beginLoadingProgressSession(navigationId, url) {
     installLoadingProgressFetchHook();
     activeSession = createSession(navigationId, url);
-    setPhaseStatus(activeSession, "compile", "active");
-    if (
-      typeof showLoadingNow === "function" &&
-      !(window.MeiPageLoadProgress && window.MeiPageLoadProgress.isTracking && window.MeiPageLoadProgress.isTracking())
-    ) {
-      showLoadingNow();
-    }
+    setPhaseStatus(activeSession, "render", "active");
     updateLoadingProgressDom(activeSession);
     return activeSession;
   }
@@ -412,15 +348,6 @@
         : 0;
     session.compile.dataPropsBytes = headerMs(response, "x-mei-data-props-bytes");
     session.compile.dataPropsCount = headerMs(response, "x-mei-data-props-count");
-    const compileDetail = [];
-    if (Number.isFinite(session.compile.serverCompileMs)) {
-      compileDetail.push(`server ${formatMs(session.compile.serverCompileMs)}`);
-    }
-    if (Number.isFinite(session.compile.handlerReadyMs)) {
-      compileDetail.push(`SSR ${formatMs(session.compile.handlerReadyMs)}`);
-    }
-    setPhaseStatus(session, "compile", "done", compileDetail.join(" · "));
-    setPhaseStatus(session, "render", "active");
     updateLoadingProgressDom(session);
   }
 
@@ -469,9 +396,6 @@
 
   function loadingProgressReady(session) {
     if (!session) return { ready: true, reason: "no_session" };
-    if (session.phases.compile.status !== "done") {
-      return { ready: false, reason: "compile" };
-    }
     if (!session.swapDone) {
       return { ready: false, reason: "swap" };
     }

@@ -110,20 +110,6 @@
       '<div class="spa-loading-body">' +
       '<span class="spa-loading-text">加载中…</span>' +
       '<div class="spa-loading-track">' +
-      '<div class="spa-loading-segments">' +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="compile">' +
-      '<span class="spa-loading-seg-label">编译</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="render">' +
-      '<span class="spa-loading-seg-label">渲染</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      '<div class="spa-loading-seg is-pending" data-mei-loading-phase="eval">' +
-      '<span class="spa-loading-seg-label">求值</span>' +
-      '<span class="spa-loading-seg-ms" data-mei-loading-phase-ms=""></span>' +
-      "</div>" +
-      "</div>" +
       '<div class="spa-loading-bar"><div class="spa-loading-bar-fill"></div></div>' +
       "</div>" +
       '<div class="spa-loading-detail"></div>' +
@@ -141,6 +127,11 @@
     document.body.appendChild(overlay);
   }
 
+  function isSpaLoadingVisible() {
+    const overlay = document.getElementById("mei-spa-loading");
+    return Boolean(overlay && overlay.classList.contains("is-visible"));
+  }
+
   function clearLoadingTimer() {
     if (loadingTimer) {
       clearTimeout(loadingTimer);
@@ -148,19 +139,29 @@
     }
   }
 
-  function showLoading() {
+  function shouldKeepLoadingVisible() {
+    if (typeof boot.getLoadingProgressSession === "function") {
+      const session = boot.getLoadingProgressSession();
+      if (session) return true;
+    }
+    return Boolean(
+      window.MeiPageLoadProgress &&
+        typeof window.MeiPageLoadProgress.isTracking === "function" &&
+        window.MeiPageLoadProgress.isTracking(),
+    );
+  }
+
+  function scheduleLoadingShow() {
     clearLoadingTimer();
     loadingTimer = setTimeout(() => {
-      createLoadingOverlay();
-      const overlay = document.getElementById("mei-spa-loading");
-      if (!overlay) return;
-      overlay.classList.add("is-visible");
-      loadingVisibleAt = Date.now();
-      if (typeof boot.refreshLoadingProgressUi === "function") {
-        boot.refreshLoadingProgressUi();
-      }
       loadingTimer = null;
-    }, LOADING_DELAY_MS);
+      if (!shouldKeepLoadingVisible()) return;
+      showLoadingNow();
+    }, LOADING_SHOW_DELAY_MS);
+  }
+
+  function showLoading() {
+    scheduleLoadingShow();
   }
 
   function hideLoading() {
@@ -201,6 +202,15 @@
     }
   }
 
+  function finishLoadingHide() {
+    clearLoadingTimer();
+    if (!isSpaLoadingVisible()) {
+      forceHideLoading();
+      return;
+    }
+    hideLoading();
+  }
+
   async function finishNavigationUi(navigationId) {
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
@@ -211,10 +221,9 @@
     if (navigationId !== currentNavigationId && spaNavigationInFlight > 0) {
       return;
     }
-    hideLoading();
+    finishLoadingHide();
     clearManageWorkspaceLoadingState();
     if (typeof boot.clearLoadingProgressSession === "function") {
       boot.clearLoadingProgressSession(navigationId);
     }
   }
-

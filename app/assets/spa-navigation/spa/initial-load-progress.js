@@ -50,9 +50,10 @@
     ) {
       return false;
     }
-    if (document.getElementById("mei-page-load-progress")) return true;
-    if (Number.isFinite(perf.compileMs) && perf.compileMs > 0) return true;
+    const shellOverlay = document.getElementById("mei-page-load-progress");
+    if (shellOverlay && shellOverlay.classList.contains("is-visible")) return true;
     if (Number.isFinite(perf.dataPropsBytes) && perf.dataPropsBytes >= 20 * 1024 * 1024) return true;
+    if (Number.isFinite(perf.handlerReadyMs) && perf.handlerReadyMs >= 1000) return true;
     return false;
   }
 
@@ -67,7 +68,9 @@
     ) {
       return;
     }
-    if (typeof hideLoading === "function") {
+    if (typeof finishLoadingHide === "function") {
+      finishLoadingHide();
+    } else if (typeof hideLoading === "function") {
       hideLoading();
     } else if (window.MeiPageLoadProgress && typeof window.MeiPageLoadProgress.hide === "function") {
       window.MeiPageLoadProgress.hide();
@@ -95,8 +98,8 @@
       window.MeiPageLoadProgress.mountFromHandoff();
       return;
     }
-    if (typeof showLoadingNow === "function") {
-      showLoadingNow();
+    if (typeof showLoading === "function") {
+      showLoading();
     }
     if (typeof boot.beginLoadingProgressSession !== "function") return;
     boot.beginLoadingProgressSession(initialLoadNavigationId(), window.location.href);
