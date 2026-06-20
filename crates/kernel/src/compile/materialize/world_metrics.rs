@@ -127,6 +127,47 @@ pub fn resolve_runtime_metric_def_key(
     if defs.contains_key(metric_id) {
         return Some(metric_id.to_string());
     }
+    if let Some(resolved) =
+        resolve_runtime_metric_def_key_without_rowset_fallback(resource_id, metric_id, defs)
+    {
+        return Some(resolved);
+    }
+    resolve_runtime_scalar_rowset_metric_def_key(resource_id, metric_id, defs)
+}
+
+fn resolve_runtime_scalar_rowset_metric_def_key(
+    resource_id: &str,
+    metric_id: &str,
+    defs: &BTreeMap<String, Value>,
+) -> Option<String> {
+    let parent_metric_id = metric_id.strip_suffix("::__scalar_rowset__")?;
+    let resolved_parent = resolve_runtime_metric_def_key_without_rowset_fallback(
+        resource_id,
+        parent_metric_id,
+        defs,
+    )?;
+    let rowset_metric_id = format!("{resolved_parent}::__scalar_rowset__");
+    if defs.contains_key(&rowset_metric_id) {
+        return Some(rowset_metric_id);
+    }
+    if defs.contains_key(&resolved_parent) {
+        return Some(rowset_metric_id);
+    }
+    None
+}
+
+fn resolve_runtime_metric_def_key_without_rowset_fallback(
+    resource_id: &str,
+    metric_id: &str,
+    defs: &BTreeMap<String, Value>,
+) -> Option<String> {
+    let metric_id = metric_id.trim();
+    if metric_id.is_empty() {
+        return None;
+    }
+    if defs.contains_key(metric_id) {
+        return Some(metric_id.to_string());
+    }
     if let Some(capsule_path) = imported_capsule_path_from_world_metrics_resource_id(resource_id) {
         let namespaced = format!("{capsule_path}::{metric_id}");
         if defs.contains_key(&namespaced) {
@@ -407,6 +448,22 @@ mod resolve_key_tests {
         assert_eq!(
             resolve_runtime_metric_def_key(resource_id, "inspections_total_count", &defs),
             Some("scenes/2_行政检查/行政检查.mei::inspections_total_count".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_metric_def_key_falls_back_to_parent_scalar_rowset() {
+        let resource_id = "__world_metrics__::scenes/03-指标体系.mei::metrics";
+        let parent = "scenes/03-指标体系.mei::inspection_frequency_reduction_rate";
+        let mut defs = BTreeMap::new();
+        defs.insert(parent.to_string(), json!({"id": parent, "shape": "scalar_map"}));
+        assert_eq!(
+            resolve_runtime_metric_def_key(
+                resource_id,
+                "scenes/03-指标体系.mei::inspection_frequency_reduction_rate::__scalar_rowset__",
+                &defs,
+            ),
+            Some(format!("{parent}::__scalar_rowset__"))
         );
     }
 

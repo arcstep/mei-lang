@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use anyhow::{anyhow, Context, Result};
 use mei_lang_kernel::{
     coerce_calendar_columns_in_rows, evaluate_runtime_metric_defs_with_scope_and_dag,
-    runtime_eval_node_cache_enabled, ColumnSchema, CompiledApp, DatasetView, EvalPlanNodeKind,
-    FilterIntent, MetricShape, QueryState,
+    resolve_runtime_metric_def_key, runtime_eval_node_cache_enabled, ColumnSchema, CompiledApp,
+    DatasetView, EvalPlanNodeKind, FilterIntent, MetricContract, MetricShape, QueryState,
 };
 use serde_json::Value;
 
@@ -33,9 +33,9 @@ use super::table_contract::{
 use super::types::{parse_source_meta, DatasetQueryOptions, DatasetQueryResult};
 use super::util::elapsed_ms;
 use super::{
-    build_compiled_datasets_map, metric_request_revision_fingerprint_for_compiled,
-    metric_scope_cache_key, query_state_from_request, runtime_metric_eval_scope,
-    serialize_cache_value,
+    build_compiled_datasets_map, metric_dataframe_artifact_lookup_cache_keys,
+    metric_request_revision_fingerprint_for_compiled, metric_scope_cache_key,
+    query_state_from_request, runtime_metric_eval_scope, serialize_cache_value,
 };
 
 const DEFAULT_PAGE_SIZE: usize = 20;
@@ -255,6 +255,48 @@ pub(crate) fn clear_metric_dataframe_result_cache() -> usize {
     removed
 }
 
+fn synthetic_scalar_rowset_parent(
+    resource: &mei_lang_kernel::LoadedResource,
+    resolved_metric_id: &str,
+) -> Option<String> {
+    if !resolved_metric_id.ends_with("::__scalar_rowset__") {
+        return None;
+    }
+    let dataset = resource.dataset.as_ref()?;
+    if dataset.runtime_metric_defs.contains_key(resolved_metric_id) {
+        return None;
+    }
+    let parent_metric_id = resolved_metric_id.strip_suffix("::__scalar_rowset__")?;
+    resolve_runtime_metric_def_key(
+        resource.id.as_str(),
+        parent_metric_id,
+        &dataset.runtime_metric_defs,
+    )
+}
+
+fn scalar_metric_to_rowset(metric: &MetricContract) -> (Vec<String>, Vec<Value>) {
+    let columns = metric
+        .schema
+        .iter()
+        .map(|column| column.name.clone())
+        .collect::<Vec<_>>();
+    if let Value::Object(map) = &metric.value {
+        if columns.is_empty() {
+            let inferred = map.keys().cloned().collect::<Vec<_>>();
+            return (inferred, vec![metric.value.clone()]);
+        }
+        return (columns, vec![metric.value.clone()]);
+    }
+    let column = columns
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "value".to_string());
+    (
+        vec![column.clone()],
+        vec![serde_json::json!({ column: metric.value })],
+    )
+}
+
 pub fn query_metric_dataframe(
     compiled: &CompiledApp,
     app_root: &Path,
@@ -285,60 +327,127 @@ pub fn query_metric_dataframe(
         .dataset
         .as_ref()
         .ok_or_else(|| anyhow!("resource `{}` is not a dataset", resource.id))?;
+    let synthetic_parent = synthetic_scalar_rowset_parent(resource, resolved_metric_id.as_str());
+    let workset_metric_id = synthetic_parent
+        .clone()
+        .unwrap_or_else(|| resolved_metric_id.clone());
     let (workset, workset_artifact_load_ms, workset_artifact_hit) =
         load_or_build_runtime_metric_workset_artifact(
             app_root,
             &resource.id,
-            std::slice::from_ref(&resolved_metric_id),
+            std::slice::from_ref(&workset_metric_id),
             dataset,
         )?;
     let effective_metric_ids = workset
         .eval_metric_ids
         .clone()
-        .unwrap_or_else(|| vec![resolved_metric_id.clone()]);
+        .unwrap_or_else(|| vec![workset_metric_id.clone()]);
     let defs_for_hydrate = workset.defs_for_hydrate.clone();
     let referenced_dataset_ids = eval_artifact_hydrate_dataset_ids(&defs_for_hydrate);
-    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+    let lookup_cache_keys = metric_dataframe_artifact_lookup_cache_keys(
         app_root,
         compiled,
-        &resource.id,
-        &defs_for_hydrate,
-    );
-    let response_cache_key = metric_dataframe_result_cache_key(
-        app_root,
         scene_id,
         target,
-        &resource.id,
-        &metric_scope_cache_key(&effective_metric_ids),
+        dataset_id,
+        resource.id.as_str(),
+        dataset,
+        resolved_metric_id.as_str(),
+        &effective_metric_ids,
         &options,
         compile_revision,
-        &dependency_revision_key,
         &filter_intents,
+        &defs_for_hydrate,
     );
+    let response_cache_key = lookup_cache_keys
+        .first()
+        .cloned()
+        .unwrap_or_else(|| {
+            metric_dataframe_result_cache_key(
+                app_root,
+                scene_id,
+                target,
+                resource.id.as_str(),
+                &metric_scope_cache_key(&effective_metric_ids),
+                &options,
+                compile_revision,
+                "",
+                &filter_intents,
+            )
+        });
     let materialized_cache_key = metric_dataframe_scope_cache_key(
         app_root,
         scene_id,
         target,
-        &resource.id,
+        resource.id.as_str(),
         &metric_scope_cache_key(&effective_metric_ids),
         &options,
         compile_revision,
-        &dependency_revision_key,
+        &metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            compiled,
+            resource.id.as_str(),
+            if dataset.runtime_metric_defs.is_empty() {
+                &defs_for_hydrate
+            } else {
+                &dataset.runtime_metric_defs
+            },
+        ),
         &filter_intents,
     );
     let response_cache_lookup_started = Instant::now();
     let result_artifact_candidate =
         default_result_artifact_scope(&effective_query_state, &filter_intents);
-    if let Some(mut cached) = take_cached_metric_dataframe_result(&response_cache_key) {
-        if cached.rows.is_empty() && cached.total == 0 {
-            // 跳过竞态产生的空响应缓存，重新求值。
-        } else {
-            cached.perf = BTreeMap::from([
-                ("response_cache_hit".to_string(), 1),
-                ("result_artifact_hit".to_string(), 0),
+    let mut cached_hit = None;
+    for cache_key in &lookup_cache_keys {
+        if let Some(cached) = take_cached_metric_dataframe_result(cache_key) {
+            if cached.rows.is_empty() && cached.total == 0 {
+                continue;
+            }
+            cached_hit = Some((cache_key.clone(), cached));
+            break;
+        }
+    }
+    if let Some((hit_cache_key, mut cached)) = cached_hit {
+        cached.perf = BTreeMap::from([
+            ("response_cache_hit".to_string(), 1),
+            ("result_artifact_hit".to_string(), 0),
+            (
+                "response_cache_key_hash".to_string(),
+                hash_fingerprint(&hit_cache_key),
+            ),
+            ("request_dag_observed".to_string(), 0),
+            ("eval_memo_hits".to_string(), 0),
+            ("eval_memo_eval_node_cache_hits".to_string(), 0),
+            ("eval_memo_eval_node_cache_misses".to_string(), 0),
+            (
+                "response_cache_lookup_ms".to_string(),
+                elapsed_ms(response_cache_lookup_started),
+            ),
+        ]);
+        return Ok(cached);
+    }
+    if result_artifact_candidate {
+        let mut loaded_artifact = None;
+        for cache_key in &lookup_cache_keys {
+            if let Some((artifact, artifact_load_ms)) =
+                load_metric_dataframe_result_artifact(app_root, cache_key)?
+            {
+                if artifact.rows.is_empty() && artifact.total == 0 {
+                    continue;
+                }
+                loaded_artifact = Some((cache_key.clone(), artifact, artifact_load_ms));
+                break;
+            }
+        }
+        if let Some((hit_cache_key, mut artifact, artifact_load_ms)) = loaded_artifact {
+            artifact.perf = BTreeMap::from([
+                ("response_cache_hit".to_string(), 0),
+                ("result_artifact_hit".to_string(), 1),
+                ("result_artifact_load_ms".to_string(), artifact_load_ms),
                 (
                     "response_cache_key_hash".to_string(),
-                    hash_fingerprint(&response_cache_key),
+                    hash_fingerprint(&hit_cache_key),
                 ),
                 ("request_dag_observed".to_string(), 0),
                 ("eval_memo_hits".to_string(), 0),
@@ -349,34 +458,8 @@ pub fn query_metric_dataframe(
                     elapsed_ms(response_cache_lookup_started),
                 ),
             ]);
-            return Ok(cached);
-        }
-    }
-    if result_artifact_candidate {
-        if let Some((mut artifact, artifact_load_ms)) =
-            load_metric_dataframe_result_artifact(app_root, &response_cache_key)?
-        {
-            if !(artifact.rows.is_empty() && artifact.total == 0) {
-                artifact.perf = BTreeMap::from([
-                    ("response_cache_hit".to_string(), 0),
-                    ("result_artifact_hit".to_string(), 1),
-                    ("result_artifact_load_ms".to_string(), artifact_load_ms),
-                    (
-                        "response_cache_key_hash".to_string(),
-                        hash_fingerprint(&response_cache_key),
-                    ),
-                    ("request_dag_observed".to_string(), 0),
-                    ("eval_memo_hits".to_string(), 0),
-                    ("eval_memo_eval_node_cache_hits".to_string(), 0),
-                    ("eval_memo_eval_node_cache_misses".to_string(), 0),
-                    (
-                        "response_cache_lookup_ms".to_string(),
-                        elapsed_ms(response_cache_lookup_started),
-                    ),
-                ]);
-                store_cached_metric_dataframe_result(response_cache_key.clone(), &artifact);
-                return Ok(artifact);
-            }
+            store_cached_metric_dataframe_result(hit_cache_key.clone(), &artifact);
+            return Ok(artifact);
         }
     }
 
@@ -399,6 +482,16 @@ pub fn query_metric_dataframe(
     }
 
     let response_cache_lookup_ms = elapsed_ms(response_cache_lookup_started);
+    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+        app_root,
+        compiled,
+        resource.id.as_str(),
+        if dataset.runtime_metric_defs.is_empty() {
+            &defs_for_hydrate
+        } else {
+            &dataset.runtime_metric_defs
+        },
+    );
     let eval_started = Instant::now();
     let primary_filters =
         resolve_dataset_query_bindings_from_state(&effective_query_state, dataset).mapped_filters;
@@ -503,22 +596,37 @@ pub fn query_metric_dataframe(
         eval_scope.query_state.time_range_identity_key()
     );
 
+    let metric_source_id = synthetic_parent
+        .as_deref()
+        .unwrap_or(resolved_metric_id.as_str());
     let metric = metrics_map
-        .get(&resolved_metric_id)
+        .get(metric_source_id)
         .ok_or_else(|| anyhow!("metric `{metric_id}` evaluation returned nothing"))?;
-    if metric.shape != MetricShape::Dataframe {
-        return Err(anyhow!(
-            "metric `{metric_id}` shape is {:?}, expected dataframe",
-            metric.shape
-        ));
-    }
-
-    let mut columns = metric
-        .schema
-        .iter()
-        .map(|column| column.name.clone())
-        .collect::<Vec<_>>();
-    let rows = extract_dataframe_rows(&metric.value);
+    let (mut columns, rows) = if synthetic_parent.is_some() {
+        if metric.shape == MetricShape::Dataframe {
+            let columns = metric
+                .schema
+                .iter()
+                .map(|column| column.name.clone())
+                .collect::<Vec<_>>();
+            (columns, extract_dataframe_rows(&metric.value))
+        } else {
+            scalar_metric_to_rowset(metric)
+        }
+    } else {
+        if metric.shape != MetricShape::Dataframe {
+            return Err(anyhow!(
+                "metric `{metric_id}` shape is {:?}, expected dataframe",
+                metric.shape
+            ));
+        }
+        let columns = metric
+            .schema
+            .iter()
+            .map(|column| column.name.clone())
+            .collect::<Vec<_>>();
+        (columns, extract_dataframe_rows(&metric.value))
+    };
     if columns.is_empty() && !rows.is_empty() {
         columns = infer_columns(&rows);
     }

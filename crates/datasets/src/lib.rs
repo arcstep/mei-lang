@@ -159,6 +159,64 @@ pub fn metric_request_revision_fingerprint_for_compiled(
     )
 }
 
+pub fn metric_response_artifact_lookup_cache_keys(
+    app_id: &str,
+    app_root: &Path,
+    compiled: &CompiledApp,
+    scene_id: &str,
+    scene_path: Option<&str>,
+    primary_dataset_id: &str,
+    owner_dataset: &DatasetView,
+    query: &DatasetQueryOptions,
+    compile_revision: &str,
+    filter_intents: &[FilterIntent],
+) -> Vec<String> {
+    metric_cache_key::metric_response_artifact_lookup_cache_keys(
+        app_id,
+        app_root,
+        compiled,
+        scene_id,
+        scene_path,
+        primary_dataset_id,
+        owner_dataset,
+        query,
+        compile_revision,
+        filter_intents,
+    )
+}
+
+pub fn metric_dataframe_artifact_lookup_cache_keys(
+    app_root: &Path,
+    compiled: &CompiledApp,
+    scene_id: Option<&str>,
+    target: Option<&str>,
+    primary_dataset_id: &str,
+    owner_resource_id: &str,
+    owner_dataset: &DatasetView,
+    resolved_metric_id: &str,
+    effective_metric_ids: &[String],
+    options: &DatasetQueryOptions,
+    compile_revision: &str,
+    filter_intents: &[FilterIntent],
+    defs_for_dependency: &BTreeMap<String, Value>,
+) -> Vec<String> {
+    metric_cache_key::metric_dataframe_artifact_lookup_cache_keys(
+        app_root,
+        compiled,
+        scene_id,
+        target,
+        primary_dataset_id,
+        owner_resource_id,
+        owner_dataset,
+        resolved_metric_id,
+        effective_metric_ids,
+        options,
+        compile_revision,
+        filter_intents,
+        defs_for_dependency,
+    )
+}
+
 pub fn runtime_metric_eval_scope(
     binding_dataset: Option<&DatasetView>,
     base_dataset_id: &str,

@@ -29,6 +29,47 @@ fn try_resolve_metric_on_resource<'a>(
     Some((resource, resolved))
 }
 
+fn world_metrics_capsule_from_metric_id(metric_id: &str) -> Option<String> {
+    metric_id
+        .split("::")
+        .next()
+        .map(str::trim)
+        .filter(|segment| segment.starts_with("scenes/") && segment.ends_with(".mei"))
+        .map(str::to_string)
+}
+
+fn imported_world_metrics_resource_id_for_capsule(capsule_path: &str) -> String {
+    format!("__world_metrics__::{capsule_path}::metrics")
+}
+
+fn try_resolve_metric_on_imported_world_metrics<'a>(
+    compiled: &'a CompiledApp,
+    metric_id: &str,
+) -> Option<(&'a LoadedResource, String)> {
+    let capsule_path = world_metrics_capsule_from_metric_id(metric_id)?;
+    let resource_id = imported_world_metrics_resource_id_for_capsule(capsule_path.as_str());
+    let resource = compiled
+        .resources
+        .iter()
+        .find(|resource| resource.id == resource_id)?;
+    try_resolve_metric_on_resource(resource, metric_id)
+}
+
+fn try_resolve_metric_on_any_world_metrics<'a>(
+    compiled: &'a CompiledApp,
+    metric_id: &str,
+) -> Option<(&'a LoadedResource, String)> {
+    for resource in &compiled.resources {
+        if !resource.id.starts_with("__world_metrics__") {
+            continue;
+        }
+        if let Some(resolved) = try_resolve_metric_on_resource(resource, metric_id) {
+            return Some(resolved);
+        }
+    }
+    None
+}
+
 pub fn locate_runtime_metric_resource<'a>(
     compiled: &'a CompiledApp,
     dataset_id: &str,
@@ -37,6 +78,9 @@ pub fn locate_runtime_metric_resource<'a>(
     let primary =
         locate_dataset_resource(compiled, dataset_id).map_err(|error| anyhow!("{error}"))?;
     if let Some(resolved) = try_resolve_metric_on_resource(primary, metric_id) {
+        return Ok(resolved);
+    }
+    if let Some(resolved) = try_resolve_metric_on_imported_world_metrics(compiled, metric_id) {
         return Ok(resolved);
     }
     if imported_capsule_path_from_world_metrics_resource_id(dataset_id).is_some() {
@@ -53,6 +97,9 @@ pub fn locate_runtime_metric_resource<'a>(
         if let Some(resolved) = try_resolve_metric_on_resource(resource, metric_id) {
             return Ok(resolved);
         }
+    }
+    if let Some(resolved) = try_resolve_metric_on_any_world_metrics(compiled, metric_id) {
+        return Ok(resolved);
     }
     if primary
         .dataset
@@ -335,6 +382,85 @@ mod tests {
             locate_runtime_metric_resource(&compiled, "orders", "orders_total").expect("locate");
         assert_eq!(owner.id, WORLD_METRICS_RESOURCE_ID);
         assert_eq!(resolved, "orders_total");
+    }
+
+    #[test]
+    fn locate_runtime_metric_resource_finds_imported_world_metrics_rowset_owner() {
+        let parent = "scenes/03-指标体系.mei::inspection_frequency_reduction_rate";
+        let resource_id = "__world_metrics__::scenes/03-指标体系.mei::metrics";
+        let mut runtime_metric_defs = BTreeMap::new();
+        runtime_metric_defs.insert(parent.to_string(), json!({"id": parent, "shape": "scalar_map"}));
+        let compiled = CompiledApp {
+            app_id: "test".to_string(),
+            title: String::new(),
+            app_root: String::new(),
+            scene_routes: Vec::new(),
+            active_scene: None,
+            active_target_file: String::new(),
+            file_tree: Vec::new(),
+            scene_contract: None,
+            scene_local_nav_by_target: BTreeMap::new(),
+            scene_bindings_by_id: BTreeMap::new(),
+            scene_examples_by_id: BTreeMap::new(),
+            scene_projection_assembly_by_id: BTreeMap::new(),
+            resources: vec![
+                LoadedResource {
+                    id: "administrative_inspection".to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(orders_dataset()),
+                },
+                LoadedResource {
+                    id: resource_id.to_string(),
+                    kind: "dataset".to_string(),
+                    title: None,
+                    document: None,
+                    dataset: Some(DatasetView {
+                        id: resource_id.to_string(),
+                        title: None,
+                        purpose: None,
+                        schema: Vec::new(),
+                        stage_schema: Vec::new(),
+                        columns: Vec::new(),
+                        rows: Vec::new(),
+                        source: SourceDecl {
+                            kind: "world_metrics".to_string(),
+                            path: String::new(),
+                            sheet: None,
+                            header_row: None,
+                            preview_rows: None,
+                            page_size: None,
+                            max_page_size: None,
+                            table: None,
+                            query: None,
+                            connection: None,
+                            content: None,
+                        },
+                        sources: Vec::new(),
+                        metrics: BTreeMap::new(),
+                        runtime_metric_defs,
+                        runtime_analysis_graph: Default::default(),
+                        runtime_analysis_contracts: Default::default(),
+                    }),
+                },
+            ],
+            world_metrics: BTreeMap::new(),
+            world_semantic_by_file: BTreeMap::new(),
+            component_assets: Vec::new(),
+            diagnostics: Vec::new(),
+        };
+        let (owner, resolved) = locate_runtime_metric_resource(
+            &compiled,
+            "administrative_inspection",
+            "scenes/03-指标体系.mei::inspection_frequency_reduction_rate::__scalar_rowset__",
+        )
+        .expect("locate imported rowset");
+        assert_eq!(owner.id, resource_id);
+        assert_eq!(
+            resolved,
+            "scenes/03-指标体系.mei::inspection_frequency_reduction_rate::__scalar_rowset__"
+        );
     }
 
     #[test]

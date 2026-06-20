@@ -13,6 +13,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::metric_hydrate::collect_dataset_ids_from_metric_defs;
+use crate::metric_locate::locate_runtime_metric_resource;
+use crate::metric_response_cache::metric_response_cache_scope_key;
+use crate::types::DatasetQueryOptions;
 
 use super::query_normalize::{
     dimension_bindings_from_query_state, dimension_bindings_from_query_state_for_datasets,
@@ -352,6 +355,267 @@ fn lookup_dataset_view<'a>(
                 .then_some(dataset)
             })
         })
+}
+
+pub(crate) fn dataset_metric_identity_key(dataset: &DatasetView) -> String {
+    let mut metric_keys = dataset
+        .runtime_metric_defs
+        .keys()
+        .map(|metric_id| metric_id.as_str())
+        .collect::<Vec<_>>();
+    metric_keys.sort_unstable();
+    let source_path = dataset.source.path.trim().replace('\\', "/");
+    format!("{source_path}|{}", metric_keys.join(","))
+}
+
+pub(crate) fn equivalent_dataset_resource_ids(
+    compiled: &CompiledApp,
+    owner_dataset: &DatasetView,
+) -> Vec<String> {
+    let identity = dataset_metric_identity_key(owner_dataset);
+    let mut ids = compiled
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            let dataset = resource.dataset.as_ref()?;
+            (dataset_metric_identity_key(dataset) == identity).then(|| resource.id.clone())
+        })
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+pub(crate) fn metric_response_artifact_lookup_cache_keys(
+    app_id: &str,
+    app_root: &Path,
+    compiled: &CompiledApp,
+    scene_id: &str,
+    scene_path: Option<&str>,
+    primary_dataset_id: &str,
+    owner_dataset: &DatasetView,
+    query: &DatasetQueryOptions,
+    compile_revision: &str,
+    filter_intents: &[FilterIntent],
+) -> Vec<String> {
+    let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
+    if let Some(index) = dataset_ids.iter().position(|id| id == primary_dataset_id) {
+        if index > 0 {
+            let primary = dataset_ids.remove(index);
+            dataset_ids.insert(0, primary);
+        }
+    } else {
+        dataset_ids.insert(0, primary_dataset_id.to_string());
+    }
+    let mut keys = Vec::new();
+    let mut seen = BTreeSet::new();
+    for dataset_id in dataset_ids {
+        let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            compiled,
+            dataset_id.as_str(),
+            &owner_dataset.runtime_metric_defs,
+        );
+        let key = metric_response_cache_scope_key(
+            app_id,
+            scene_id,
+            scene_path,
+            dataset_id.as_str(),
+            query,
+            compile_revision,
+            &dependency_revision_key,
+            filter_intents,
+        );
+        if seen.insert(key.clone()) {
+            keys.push(key);
+        }
+    }
+    keys
+}
+
+fn dataframe_result_cache_key(
+    app_root: &Path,
+    scene_id: Option<&str>,
+    target: Option<&str>,
+    dataset_id: &str,
+    metric_id: &str,
+    options: &DatasetQueryOptions,
+    compile_revision: &str,
+    dependency_revision_key: &str,
+    filter_intents: &[FilterIntent],
+) -> String {
+    let group = serialize_cache_value(&options.group);
+    let time_range = serialize_cache_value(&options.time_range);
+    let sort = serialize_cache_value(&options.sort);
+    let column_state = serialize_cache_value(&options.column_state);
+    let scope = format!(
+        "{}|compile={}|{}|scene={}|target={}|{}|{}|search={}|filters={}|group={}|time_range={}|filter_intents={}",
+        app_root.display(),
+        compile_revision,
+        dependency_revision_key,
+        scene_id.unwrap_or("").trim(),
+        target.unwrap_or("").trim(),
+        dataset_id,
+        metric_id,
+        options.search.as_deref().unwrap_or(""),
+        serialize_cache_value(&options.filters),
+        group,
+        time_range,
+        serde_json::to_string(filter_intents).unwrap_or_else(|_| "[]".to_string()),
+    );
+    format!(
+        "{}|page={}|page_size={}|full={}|sort={}|column_state={}|summary={}",
+        scope,
+        options.page,
+        options.page_size,
+        options.collect_all,
+        sort,
+        column_state,
+        options.summary
+    )
+}
+
+fn dataframe_query_option_variants(options: &DatasetQueryOptions) -> Vec<DatasetQueryOptions> {
+    let mut variants = vec![options.clone()];
+    if options.summary {
+        let mut without_summary = options.clone();
+        without_summary.summary = false;
+        variants.push(without_summary);
+    } else {
+        let mut with_summary = options.clone();
+        with_summary.summary = true;
+        variants.push(with_summary);
+    }
+    variants
+}
+
+pub(crate) fn equivalent_dataframe_metric_scope_tokens(
+    compiled: &CompiledApp,
+    dataset_id: &str,
+    resolved_metric_id: &str,
+    effective_metric_ids: &[String],
+) -> Vec<String> {
+    let mut tokens = BTreeSet::new();
+    if !effective_metric_ids.is_empty() {
+        tokens.insert(metric_scope_cache_key(effective_metric_ids));
+    }
+    tokens.insert(metric_scope_cache_key(std::slice::from_ref(
+        &resolved_metric_id.to_string(),
+    )));
+    if let Some(short) = resolved_metric_id.rsplit("::").next() {
+        tokens.insert(metric_scope_cache_key(std::slice::from_ref(
+            &short.to_string(),
+        )));
+        if !short.contains("__scalar_rowset__") {
+            let scalar = format!("{short}::__scalar_rowset__");
+            tokens.insert(metric_scope_cache_key(std::slice::from_ref(&scalar)));
+        }
+    }
+    if let Ok((owner, canonical)) =
+        locate_runtime_metric_resource(compiled, dataset_id, resolved_metric_id)
+    {
+        if let Some(dataset) = owner.dataset.as_ref() {
+            for def_key in dataset.runtime_metric_defs.keys() {
+                if let Ok((_, candidate)) =
+                    locate_runtime_metric_resource(compiled, dataset_id, def_key)
+                {
+                    if candidate == canonical {
+                        tokens.insert(metric_scope_cache_key(std::slice::from_ref(
+                            &candidate,
+                        )));
+                    }
+                }
+            }
+        }
+    }
+    tokens.into_iter().collect()
+}
+
+fn world_metrics_resource_ids(compiled: &CompiledApp) -> Vec<String> {
+    compiled
+        .resources
+        .iter()
+        .filter(|resource| {
+            resource.id == "__world_metrics__" || resource.id.starts_with("__world_metrics__::")
+        })
+        .map(|resource| resource.id.clone())
+        .collect()
+}
+
+pub(crate) fn metric_dataframe_artifact_lookup_cache_keys(
+    app_root: &Path,
+    compiled: &CompiledApp,
+    scene_id: Option<&str>,
+    target: Option<&str>,
+    primary_dataset_id: &str,
+    owner_resource_id: &str,
+    owner_dataset: &DatasetView,
+    resolved_metric_id: &str,
+    effective_metric_ids: &[String],
+    options: &DatasetQueryOptions,
+    compile_revision: &str,
+    filter_intents: &[FilterIntent],
+    defs_for_dependency: &BTreeMap<String, Value>,
+) -> Vec<String> {
+    let mut dataset_ids = equivalent_dataset_resource_ids(compiled, owner_dataset);
+    for world_metrics_id in world_metrics_resource_ids(compiled) {
+        if !dataset_ids.iter().any(|id| id == &world_metrics_id) {
+            dataset_ids.push(world_metrics_id);
+        }
+    }
+    if let Some(index) = dataset_ids.iter().position(|id| id == owner_resource_id) {
+        if index > 0 {
+            let owner = dataset_ids.remove(index);
+            dataset_ids.insert(0, owner);
+        }
+    } else {
+        dataset_ids.insert(0, owner_resource_id.to_string());
+    }
+    if !primary_dataset_id.is_empty()
+        && !dataset_ids.iter().any(|id| id == primary_dataset_id)
+    {
+        dataset_ids.push(primary_dataset_id.to_string());
+    }
+    let metric_tokens = equivalent_dataframe_metric_scope_tokens(
+        compiled,
+        primary_dataset_id,
+        resolved_metric_id,
+        effective_metric_ids,
+    );
+    let dependency_defs = if owner_dataset.runtime_metric_defs.is_empty() {
+        defs_for_dependency
+    } else {
+        &owner_dataset.runtime_metric_defs
+    };
+    let mut keys = Vec::new();
+    let mut seen = BTreeSet::new();
+    for dataset_id in dataset_ids {
+        let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            compiled,
+            dataset_id.as_str(),
+            dependency_defs,
+        );
+        for metric_token in &metric_tokens {
+            for query_options in dataframe_query_option_variants(options) {
+                let key = dataframe_result_cache_key(
+                    app_root,
+                    scene_id,
+                    target,
+                    dataset_id.as_str(),
+                    metric_token,
+                    &query_options,
+                    compile_revision,
+                    &dependency_revision_key,
+                    filter_intents,
+                );
+                if seen.insert(key.clone()) {
+                    keys.push(key);
+                }
+            }
+        }
+    }
+    keys
 }
 
 fn lookup_compiled_dataset_view<'a>(

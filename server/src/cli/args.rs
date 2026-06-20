@@ -329,8 +329,12 @@ pub struct PrebuildArgs {
     pub verify: bool,
     #[arg(long)]
     pub clean: bool,
+    /// 输出可读的摘要 JSON（不含 compile_revision 等冗长字段）。
     #[arg(long)]
     pub json: bool,
+    /// 输出完整 prebuild 报告 JSON（体积极大，建议重定向到文件）。
+    #[arg(long)]
+    pub json_full: bool,
 }
 
 #[derive(Args, Clone)]

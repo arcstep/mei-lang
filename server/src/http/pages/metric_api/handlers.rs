@@ -26,7 +26,7 @@ use axum::{
 use mei_lang_datasets::{
     collect_all_query_options, evaluate_runtime_metrics_from_plan,
     default_result_artifact_scope, load_metric_response_result_artifact,
-    metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
+    metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
     project_requested_metrics, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response,
@@ -524,31 +524,49 @@ fn execute_metric_query_group(
         .unwrap_or_default()
         .into_iter()
         .collect::<BTreeSet<_>>();
-    let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+    let query = collect_all_query_options(ctx.effective_query_state);
+    let lookup_cache_keys = metric_response_artifact_lookup_cache_keys(
+        ctx.app_id,
         ctx.app_root,
         ctx.compiled,
-        &access_plan.owner.id,
-        &runtime_workset.defs_for_hydrate,
-    );
-    let query = collect_all_query_options(ctx.effective_query_state);
-    let response_cache_key = metric_response_cache_scope_key(
-        ctx.app_id,
         ctx.scene_id,
         ctx.scene_path,
-        &access_plan.owner.id,
+        access_plan.owner.id.as_str(),
+        owner_dataset,
         &query,
         ctx.compile_revision,
-        &dependency_revision_key,
         ctx.filter_intents,
     );
+    let response_cache_key = lookup_cache_keys
+        .first()
+        .cloned()
+        .unwrap_or_else(|| {
+            metric_response_cache_scope_key(
+                ctx.app_id,
+                ctx.scene_id,
+                ctx.scene_path,
+                access_plan.owner.id.as_str(),
+                &query,
+                ctx.compile_revision,
+                "",
+                ctx.filter_intents,
+            )
+        });
     let response_cache_lookup_started = Instant::now();
     let result_artifact_candidate =
         default_result_artifact_scope(ctx.effective_query_state, ctx.filter_intents);
-    if let Some(cached) = take_cached_metric_response(
-        &response_cache_key,
-        &requested_eval_metric_ids,
-        request_all_metrics,
-    ) {
+    let mut cached_hit = None;
+    for cache_key in &lookup_cache_keys {
+        if let Some(cached) = take_cached_metric_response(
+            cache_key,
+            &requested_eval_metric_ids,
+            request_all_metrics,
+        ) {
+            cached_hit = Some((cache_key.clone(), cached));
+            break;
+        }
+    }
+    if let Some((hit_cache_key, cached)) = cached_hit {
         let mut perf = BTreeMap::new();
         ctx.compile_observation.write_perf(&mut perf);
         perf.insert(
@@ -558,7 +576,7 @@ fn execute_metric_query_group(
         perf.insert("locate_dataset_ms".to_string(), locate_dataset_ms);
         perf.insert("result_artifact_hit".to_string(), 0);
         let mut eval_observation = EvalObservation::new(true)
-            .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
+            .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
         eval_observation.insert_counter("request_dag_observed", 0);
         eval_observation.insert_counter("eval_memo_hits", 0);
         eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
@@ -591,19 +609,27 @@ fn execute_metric_query_group(
         });
     }
     if result_artifact_candidate {
-        if let Some((artifact, artifact_load_ms)) =
-            load_metric_response_result_artifact(ctx.app_root, &response_cache_key)?
-        {
-            let artifact_covers_request = if request_all_metrics {
-                artifact.complete
-            } else {
-                requested_eval_metric_ids
-                    .iter()
-                    .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
-            };
-            if artifact_covers_request {
+        let mut loaded_artifact = None;
+        for cache_key in &lookup_cache_keys {
+            if let Some((artifact, artifact_load_ms)) =
+                load_metric_response_result_artifact(ctx.app_root, cache_key)?
+            {
+                let artifact_covers_request = if request_all_metrics {
+                    artifact.complete
+                } else {
+                    requested_eval_metric_ids
+                        .iter()
+                        .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
+                };
+                if artifact_covers_request {
+                    loaded_artifact = Some((cache_key.clone(), artifact, artifact_load_ms));
+                    break;
+                }
+            }
+        }
+        if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {
                 store_cached_metric_response(
-                    response_cache_key.clone(),
+                    hit_cache_key.clone(),
                     artifact.total_rows,
                     &artifact.metrics_map,
                     &artifact.covered_metric_ids,
@@ -620,7 +646,7 @@ fn execute_metric_query_group(
                 perf.insert("result_artifact_hit".to_string(), 1);
                 perf.insert("result_artifact_load_ms".to_string(), artifact_load_ms);
                 let mut eval_observation = EvalObservation::new(false)
-                    .with_response_cache_key_hash(hash_metric_response_cache_key(&response_cache_key));
+                    .with_response_cache_key_hash(hash_metric_response_cache_key(&hit_cache_key));
                 eval_observation.insert_counter("request_dag_observed", 0);
                 eval_observation.insert_counter("eval_memo_hits", 0);
                 eval_observation.insert_counter("eval_memo_eval_node_cache_hits", 0);
@@ -651,7 +677,6 @@ fn execute_metric_query_group(
                     metrics,
                     perf,
                 });
-            }
         }
         return Err(AppError::status(
             StatusCode::SERVICE_UNAVAILABLE,

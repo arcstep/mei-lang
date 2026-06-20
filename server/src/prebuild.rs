@@ -12,15 +12,15 @@ use mei_lang_datasets::{
     load_metric_dataframe_result_artifact, load_metric_response_result_artifact,
     locate_runtime_metric_resource, metric_dataframe_result_cache_key,
     metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
-    plan_access_metric_eval_for_ids, query_metric_dataframe, query_state_from_request,
+    metric_scope_cache_key, plan_access_metric_eval_for_ids, query_metric_dataframe, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response, store_metric_response_result_artifact,
     store_metric_dataframe_result_artifact, DatasetQueryOptions, DatasetQueryResult,
     LoadedMetricResponseArtifact, RuntimeMetricEvalMode,
 };
 use mei_lang_kernel::{
     data_snapshot_import_manifest_path, data_snapshot_store_root, resolve_app_root,
-    resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest, CompileOptions,
-    DatasetView, LoadedResource, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
+    resolve_data_snapshot_import_entry, resolve_runtime_warmup_manifest, CompiledApp,
+    CompileOptions, DatasetView, LoadedResource, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     WORKSPACE_RUNTIME_WARMUP_MANIFEST_REL,
 };
 use mei_lang_toolchain::{
@@ -108,6 +108,89 @@ pub struct PrebuildReport {
     pub failed_apps: Vec<String>,
     pub error_summary: Vec<String>,
     pub apps: Vec<PrebuildAppReport>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrebuildScopeSummary {
+    pub requested_scene_id: Option<String>,
+    pub requested_target_file: Option<String>,
+    pub active_scene_id: Option<String>,
+    pub active_target_file: String,
+    pub cache_hit: bool,
+    pub artifact_cache_hit: bool,
+    pub cache_lookup_ms: u64,
+    pub artifact_load_ms: u64,
+    pub compile_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrebuildAppSummary {
+    pub app_id: String,
+    pub compile_scopes: Vec<PrebuildScopeSummary>,
+    pub coverage: PrebuildCoverageReport,
+    pub timings: PrebuildTimingReport,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrebuildReportSummary {
+    pub schema_version: String,
+    pub mode: PrebuildMode,
+    pub clean: bool,
+    pub clean_wall_ms: u64,
+    pub total_wall_ms: u64,
+    pub source_root: String,
+    pub manifest_path: String,
+    pub manifest_source: String,
+    pub ok: bool,
+    pub succeeded_apps: Vec<String>,
+    pub failed_apps: Vec<String>,
+    pub error_summary: Vec<String>,
+    pub apps: Vec<PrebuildAppSummary>,
+}
+
+impl PrebuildReport {
+    pub fn summary(&self) -> PrebuildReportSummary {
+        PrebuildReportSummary {
+            schema_version: self.schema_version.clone(),
+            mode: self.mode,
+            clean: self.clean,
+            clean_wall_ms: self.clean_wall_ms,
+            total_wall_ms: self.total_wall_ms,
+            source_root: self.source_root.clone(),
+            manifest_path: self.manifest_path.clone(),
+            manifest_source: self.manifest_source.clone(),
+            ok: self.ok,
+            succeeded_apps: self.succeeded_apps.clone(),
+            failed_apps: self.failed_apps.clone(),
+            error_summary: self.error_summary.clone(),
+            apps: self
+                .apps
+                .iter()
+                .map(|app| PrebuildAppSummary {
+                    app_id: app.app_id.clone(),
+                    compile_scopes: app
+                        .compile_scopes
+                        .iter()
+                        .map(|scope| PrebuildScopeSummary {
+                            requested_scene_id: scope.requested_scene_id.clone(),
+                            requested_target_file: scope.requested_target_file.clone(),
+                            active_scene_id: scope.active_scene_id.clone(),
+                            active_target_file: scope.active_target_file.clone(),
+                            cache_hit: scope.cache_hit,
+                            artifact_cache_hit: scope.artifact_cache_hit,
+                            cache_lookup_ms: scope.cache_lookup_ms,
+                            artifact_load_ms: scope.artifact_load_ms,
+                            compile_ms: scope.compile_ms,
+                        })
+                        .collect(),
+                    coverage: app.coverage.clone(),
+                    timings: app.timings.clone(),
+                    warnings: app.warnings.clone(),
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -508,13 +591,14 @@ fn run_prebuild_for_app(
     coverage.dataset_import_artifacts_ready = required_xlsx_sources.len();
     let coverage_state = CoverageState::default();
     let artifact_outcomes = unique_prepared_outcomes_for_artifacts(&prepared_outcomes);
+    let artifact_outcomes_for_warmup = artifact_outcomes.clone();
     let scope_artifacts_started = Instant::now();
     let scope_results = run_limited_parallel_ordered(
         artifact_outcomes,
         max_parallelism,
         |(scope, outcome)| {
             let mut local_coverage = PrebuildCoverageReport::default();
-            let matching_requests = matching_warmup_requests_for_scope(&warmup_requests, scope);
+            let matching_requests = matching_warmup_requests_for_outcome(&warmup_requests, outcome);
             let result = ensure_scope_artifacts(
                 app.app_id.as_str(),
                 app_root.as_path(),
@@ -543,15 +627,15 @@ fn run_prebuild_for_app(
         }
     }
     let scope_artifacts_ms = scope_artifacts_started.elapsed().as_millis() as u64;
-    let prepared_outcomes_by_key = prepared_outcomes
-        .iter()
-        .map(|(scope, outcome)| (scope.key(), outcome))
-        .collect::<BTreeMap<_, _>>();
     let warmup_started = Instant::now();
     let warmup_results = run_limited_parallel_ordered(
         warmup_requests
             .iter()
-            .filter(|request| !prepared_outcomes_by_key.contains_key(&request.scope.key()))
+            .filter(|request| {
+                !artifact_outcomes_for_warmup
+                    .iter()
+                    .any(|(_, outcome)| warmup_request_matches_outcome(request, outcome))
+            })
             .collect::<Vec<_>>(),
         max_parallelism,
         |request| {
@@ -617,17 +701,27 @@ fn compile_scopes_for_app(app: &RuntimeWarmupApp) -> Vec<CompileScope> {
         }
     };
     push_scope(CompileScope::default_scope());
-    for scene_id in explicit_scene_ids(app) {
+    let scene_ids = explicit_scene_ids(app);
+    let focus_targets = all_focus_targets(app);
+    for scene_id in &scene_ids {
         push_scope(CompileScope {
-            requested_scene_id: Some(scene_id),
+            requested_scene_id: Some(scene_id.clone()),
             requested_target_file: None,
         });
     }
-    for focus in explicit_focus_targets(app) {
+    for focus in &focus_targets {
         push_scope(CompileScope {
             requested_scene_id: None,
-            requested_target_file: Some(focus),
+            requested_target_file: Some(focus.clone()),
         });
+    }
+    for scene_id in &scene_ids {
+        for focus in &focus_targets {
+            push_scope(CompileScope {
+                requested_scene_id: Some(scene_id.clone()),
+                requested_target_file: Some(focus.clone()),
+            });
+        }
     }
     for request in &app.datasets {
         push_scope(CompileScope {
@@ -669,6 +763,88 @@ fn explicit_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
     targets
 }
 
+fn focus_targets_from_warmup_datasets(app: &RuntimeWarmupApp) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut push = |target: &str| {
+        let target = target.trim();
+        if target.is_empty() || !is_script_target(target) || !seen.insert(target.to_string()) {
+            return;
+        }
+        targets.push(target.to_string());
+    };
+    for request in &app.datasets {
+        if let Some(focus) = request.focus.as_deref() {
+            push(focus);
+        }
+        for segment in request.dataset_id.split("::") {
+            if segment.starts_with("scenes/") && segment.ends_with(".mei") {
+                push(segment);
+            }
+        }
+    }
+    targets
+}
+
+fn all_focus_targets(app: &RuntimeWarmupApp) -> Vec<String> {
+    let mut targets = explicit_focus_targets(app);
+    let mut seen = targets.iter().cloned().collect::<BTreeSet<_>>();
+    for focus in focus_targets_from_warmup_datasets(app) {
+        if seen.insert(focus.clone()) {
+            targets.push(focus);
+        }
+    }
+    targets
+}
+
+fn collect_scene_file_refs(value: &Value, out: &mut BTreeSet<String>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::String(scene_file)) = map.get("scene_file") {
+                if is_script_target(scene_file) {
+                    out.insert(scene_file.clone());
+                }
+            }
+            for child in map.values() {
+                collect_scene_file_refs(child, out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_scene_file_refs(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn discover_overlay_preview_targets(compiled: &mei_lang_kernel::CompiledApp) -> Vec<String> {
+    let mut seen = BTreeSet::new();
+    let mut push = |target: &str| {
+        let target = target.trim();
+        if target.is_empty() || !is_script_target(target) {
+            return;
+        }
+        seen.insert(target.to_string());
+    };
+    for target in compiled.scene_local_nav_by_target.keys() {
+        push(target.as_str());
+    }
+    for assembly in compiled.scene_projection_assembly_by_id.values() {
+        if let Some(target) = assembly.get("target_file").and_then(Value::as_str) {
+            push(target);
+        }
+    }
+    if let Some(contract) = compiled.scene_contract.as_ref() {
+        if let Ok(value) = serde_json::to_value(contract) {
+            collect_scene_file_refs(&value, &mut seen);
+        }
+    }
+    let mut targets = seen.into_iter().collect::<Vec<_>>();
+    targets.sort();
+    targets
+}
+
 fn aggregate_warmup_requests(app: &RuntimeWarmupApp) -> Vec<AggregatedWarmupRequest> {
     let mut aggregated = BTreeMap::<String, AggregatedWarmupRequest>::new();
     for request in &app.datasets {
@@ -702,15 +878,61 @@ fn aggregate_warmup_requests(app: &RuntimeWarmupApp) -> Vec<AggregatedWarmupRequ
     aggregated.into_values().collect()
 }
 
-fn matching_warmup_requests_for_scope<'a>(
+fn warmup_request_matches_outcome(
+    request: &AggregatedWarmupRequest,
+    outcome: &CompileWithCacheOutcome,
+) -> bool {
+    let req_scope = request.scope.canonicalized();
+    let active_scene = outcome
+        .compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("");
+    let active_target = outcome.compiled.active_target_file.as_str();
+    if let Some(req_scene) = req_scope
+        .requested_scene_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if req_scene != active_scene {
+            return false;
+        }
+    }
+    if let Some(req_target) = req_scope
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if req_target != active_target {
+            return false;
+        }
+    }
+    true
+}
+
+fn matching_warmup_requests_for_outcome<'a>(
     requests: &'a [AggregatedWarmupRequest],
-    scope: &CompileScope,
+    outcome: &CompileWithCacheOutcome,
 ) -> Vec<&'a AggregatedWarmupRequest> {
-    let scope_key = scope.key();
     requests
         .iter()
-        .filter(|request| request.scope.key() == scope_key)
+        .filter(|request| warmup_request_matches_outcome(request, outcome))
         .collect()
+}
+
+fn compile_scope_specificity(scope: &CompileScope) -> u8 {
+    let canonical = scope.canonicalized();
+    let mut score = 0u8;
+    if canonical.requested_scene_id.is_some() {
+        score = score.saturating_add(2);
+    }
+    if canonical.requested_target_file.is_some() {
+        score = score.saturating_add(1);
+    }
+    score
 }
 
 fn discovered_compile_scopes(
@@ -718,6 +940,13 @@ fn discovered_compile_scopes(
     compiled: &mei_lang_kernel::CompiledApp,
 ) -> Vec<CompileScope> {
     let mut scopes = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut push_scope = |candidate: CompileScope| {
+        let candidate = candidate.canonicalized();
+        if seen.insert(candidate.key()) {
+            scopes.push(candidate);
+        }
+    };
     let active_scene = compiled
         .active_scene
         .as_deref()
@@ -725,8 +954,8 @@ fn discovered_compile_scopes(
         .filter(|scene_id| !scene_id.is_empty())
         .map(str::to_string);
     let active_target = compiled.active_target_file.trim();
-    if let Some(active_scene) = active_scene {
-        scopes.push(CompileScope {
+    if let Some(active_scene) = active_scene.clone() {
+        push_scope(CompileScope {
             requested_scene_id: Some(active_scene.clone()),
             requested_target_file: None,
         });
@@ -737,9 +966,39 @@ fn discovered_compile_scopes(
             .filter(|target| !target.is_empty())
             .unwrap_or(active_target);
         if !target.is_empty() {
-            scopes.push(CompileScope {
-                requested_scene_id: Some(active_scene),
+            push_scope(CompileScope {
+                requested_scene_id: Some(active_scene.clone()),
                 requested_target_file: Some(target.to_string()),
+            });
+        }
+        for overlay_target in discover_overlay_preview_targets(compiled) {
+            if overlay_target == active_target {
+                continue;
+            }
+            push_scope(CompileScope {
+                requested_scene_id: Some(active_scene.clone()),
+                requested_target_file: Some(overlay_target),
+            });
+        }
+    }
+    let native_target = scope
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|target| !target.is_empty())
+        .unwrap_or(active_target);
+    if is_script_target(native_target) {
+        for route in &compiled.scene_routes {
+            if route.target_file != native_target {
+                continue;
+            }
+            let scene_id = route.scene_id.trim();
+            if scene_id.is_empty() || scene_id == "home" {
+                continue;
+            }
+            push_scope(CompileScope {
+                requested_scene_id: Some(scene_id.to_string()),
+                requested_target_file: Some(native_target.to_string()),
             });
         }
     }
@@ -758,14 +1017,22 @@ fn compiled_scope_identity(outcome: &CompileWithCacheOutcome) -> String {
 fn unique_prepared_outcomes_for_artifacts<'a>(
     prepared_outcomes: &'a [(CompileScope, CompileWithCacheOutcome)],
 ) -> Vec<&'a (CompileScope, CompileWithCacheOutcome)> {
-    let mut unique = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut best_by_identity = BTreeMap::<String, &'a (CompileScope, CompileWithCacheOutcome)>::new();
     for prepared in prepared_outcomes {
-        if seen.insert(compiled_scope_identity(&prepared.1)) {
-            unique.push(prepared);
+        let identity = compiled_scope_identity(&prepared.1);
+        match best_by_identity.get(&identity) {
+            Some(existing) => {
+                if compile_scope_specificity(&prepared.0) > compile_scope_specificity(&existing.0)
+                {
+                    best_by_identity.insert(identity, prepared);
+                }
+            }
+            None => {
+                best_by_identity.insert(identity, prepared);
+            }
         }
     }
-    unique
+    best_by_identity.into_values().collect()
 }
 
 fn ensure_compile_scope(
@@ -945,6 +1212,72 @@ fn ensure_scope_artifacts(
     if scope.key() == CompileScope::default_scope().key() {
         ensure_root_world_metrics_artifact(app_id, app_root, outcome, mode, coverage, state)?;
     }
+    ensure_discovered_scope_metric_artifacts(
+        app_id,
+        app_root,
+        scope,
+        outcome,
+        mode,
+        coverage,
+        state,
+    )?;
+    if should_auto_discover_scope_artifacts(scope, outcome) {
+        ensure_scope_world_metrics_artifacts(app_id, app_root, outcome, mode, coverage, state)?;
+    }
+    Ok(())
+}
+
+fn ensure_scope_world_metrics_artifacts(
+    app_id: &str,
+    app_root: &Path,
+    outcome: &CompileWithCacheOutcome,
+    mode: PrebuildMode,
+    coverage: &mut PrebuildCoverageReport,
+    state: &CoverageState,
+) -> Result<()> {
+    for resource in &outcome.compiled.resources {
+        if !is_world_metrics_resource(resource.id.as_str()) {
+            continue;
+        }
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if !dataset.has_runtime_metric_defs() {
+            continue;
+        }
+        ensure_metric_response_artifact_for_request(
+            app_id,
+            app_root,
+            outcome,
+            resource.id.as_str(),
+            &[],
+            mode,
+            coverage,
+            state,
+        )?;
+        let mut dataframe_metrics = dataframe_metric_ids(dataset);
+        for metric_id in dataset.runtime_metric_defs.keys() {
+            if metric_id.contains("__scalar_rowset__") {
+                dataframe_metrics.push(metric_id.clone());
+            }
+        }
+        dataframe_metrics.sort();
+        dataframe_metrics.dedup();
+        for metric_id in dataframe_metrics {
+            for page_size in widget_dataframe_page_sizes() {
+                ensure_metric_dataframe_artifact(
+                    app_root,
+                    outcome,
+                    resource,
+                    metric_id.as_str(),
+                    *page_size,
+                    mode,
+                    coverage,
+                    state,
+                )?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1072,18 +1405,47 @@ fn ensure_request_artifacts_for_compiled(
         )?;
     }
     if is_world_metrics_resource(resource.id.as_str()) {
+        let mut dataframe_metrics = metric_ids
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        for metric_id in dataset.runtime_metric_defs.keys() {
+            if metric_id.contains("__scalar_rowset__") {
+                dataframe_metrics.push(metric_id.clone());
+            }
+        }
+        dataframe_metrics.extend(dataframe_metric_ids(dataset));
+        dataframe_metrics.sort();
+        dataframe_metrics.dedup();
+        for metric_id in dataframe_metrics {
+            for page_size in widget_dataframe_page_sizes() {
+                ensure_metric_dataframe_artifact(
+                    app_root,
+                    outcome,
+                    resource,
+                    metric_id.as_str(),
+                    *page_size,
+                    mode,
+                    coverage,
+                    state,
+                )?;
+            }
+        }
         return Ok(());
     }
     for metric_id in dataframe_metric_ids(dataset) {
-        ensure_metric_dataframe_artifact(
-            app_root,
-            outcome,
-            &resource,
-            metric_id.as_str(),
-            mode,
-            coverage,
-            state,
-        )?;
+        for page_size in widget_dataframe_page_sizes() {
+            ensure_metric_dataframe_artifact(
+                app_root,
+                outcome,
+                &resource,
+                metric_id.as_str(),
+                *page_size,
+                mode,
+                coverage,
+                state,
+            )?;
+        }
     }
     Ok(())
 }
@@ -1205,13 +1567,163 @@ fn empty_query_state() -> mei_lang_kernel::QueryState {
     query_state_from_request(&normalized_filters, normalized_search.as_deref(), None)
 }
 
-fn collect_all_options() -> DatasetQueryOptions {
+fn artifact_scene_context(compiled: &CompiledApp) -> (String, Option<String>) {
+    let scene_id = compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene_id| !scene_id.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            compiled
+                .scene_routes
+                .iter()
+                .find(|route| route.target_file == compiled.active_target_file)
+                .map(|route| route.scene_id.clone())
+        })
+        .unwrap_or_else(|| "default".to_string());
+    let scene_path = compiled.active_target_file.trim().to_string();
+    let scene_path = if scene_path.is_empty() {
+        None
+    } else {
+        Some(scene_path)
+    };
+    (scene_id, scene_path)
+}
+
+fn should_auto_discover_scope_artifacts(scope: &CompileScope, outcome: &CompileWithCacheOutcome) -> bool {
+    let canonical = scope.canonicalized();
+    if canonical
+        .requested_scene_id
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|scene_id| scene_id == "home")
+    {
+        return true;
+    }
+    let (scene_id, _) = artifact_scene_context(&outcome.compiled);
+    canonical
+        .requested_target_file
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|target| !target.is_empty())
+        && scene_id != "home"
+}
+
+fn widget_dataframe_page_sizes() -> &'static [usize] {
+    &[0, 8, 16, 20, 64]
+}
+
+fn widget_dataframe_query_options(page_size: usize) -> DatasetQueryOptions {
     DatasetQueryOptions {
         page: 1,
-        page_size: 0,
-        collect_all: true,
+        page_size,
+        collect_all: false,
         ..Default::default()
     }
+}
+
+fn equivalent_dataframe_metric_ids(
+    compiled: &mei_lang_kernel::CompiledApp,
+    resource_id: &str,
+    resolved_metric_id: &str,
+) -> Vec<String> {
+    let mut ids = BTreeSet::new();
+    ids.insert(resolved_metric_id.trim().to_string());
+    let Ok((owner, resolved)) =
+        locate_runtime_metric_resource(compiled, resource_id, resolved_metric_id)
+    else {
+        return ids.into_iter().collect();
+    };
+    let Some(dataset) = owner.dataset.as_ref() else {
+        return ids.into_iter().collect();
+    };
+    for def_key in dataset.runtime_metric_defs.keys() {
+        if let Ok((_, candidate)) = locate_runtime_metric_resource(compiled, resource_id, def_key) {
+            if candidate == resolved {
+                ids.insert(def_key.trim().to_string());
+            }
+        }
+    }
+    ids.into_iter().collect()
+}
+
+fn dataset_metric_identity_key(dataset: &DatasetView) -> String {
+    let mut metric_keys = dataset
+        .runtime_metric_defs
+        .keys()
+        .map(|metric_id| metric_id.as_str())
+        .collect::<Vec<_>>();
+    metric_keys.sort_unstable();
+    let source_path = dataset.source.path.trim().replace('\\', "/");
+    format!(
+        "{}|{}",
+        source_path,
+        metric_keys.join(",")
+    )
+}
+
+fn ensure_discovered_scope_metric_artifacts(
+    app_id: &str,
+    app_root: &Path,
+    scope: &CompileScope,
+    outcome: &CompileWithCacheOutcome,
+    mode: PrebuildMode,
+    coverage: &mut PrebuildCoverageReport,
+    state: &CoverageState,
+) -> Result<()> {
+    if !should_auto_discover_scope_artifacts(scope, outcome) {
+        return Ok(());
+    }
+    let mut seen_identities = BTreeSet::<String>::new();
+    for resource in &outcome.compiled.resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if !dataset.has_runtime_metric_defs() || is_world_metrics_resource(resource.id.as_str()) {
+            continue;
+        }
+        let identity = dataset_metric_identity_key(dataset);
+        if !seen_identities.insert(identity) {
+            continue;
+        }
+        let response_metric_ids = response_metric_ids(&outcome.compiled, dataset);
+        if !response_metric_ids.is_empty() {
+            ensure_metric_response_artifact_for_request(
+                app_id,
+                app_root,
+                outcome,
+                resource.id.as_str(),
+                &[],
+                mode,
+                coverage,
+                state,
+            )?;
+        }
+        let mut dataframe_metric_ids = dataframe_metric_ids(dataset);
+        for metric_id in dataset.runtime_metric_defs.keys() {
+            if metric_id.contains("__scalar_rowset__") {
+                dataframe_metric_ids.push(metric_id.clone());
+            }
+        }
+        dataframe_metric_ids.sort();
+        dataframe_metric_ids.dedup();
+        for metric_id in dataframe_metric_ids {
+            for page_size in widget_dataframe_page_sizes() {
+                ensure_metric_dataframe_artifact(
+                    app_root,
+                    outcome,
+                    resource,
+                    metric_id.as_str(),
+                    *page_size,
+                    mode,
+                    coverage,
+                    state,
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn ensure_metric_response_artifact_for_request(
@@ -1246,10 +1758,11 @@ fn ensure_metric_response_artifact_for_request(
     );
     let query_state = empty_query_state();
     let query = collect_all_query_options(&query_state);
+    let (scene_id, scene_path) = artifact_scene_context(&outcome.compiled);
     let response_cache_key = metric_response_cache_scope_key(
         app_id,
-        outcome.compiled.active_scene.as_deref().unwrap_or_default(),
-        Some(outcome.compiled.active_target_file.as_str()),
+        scene_id.as_str(),
+        scene_path.as_deref(),
         &access_plan.owner.id,
         &query,
         &outcome.compile_revision,
@@ -1266,6 +1779,16 @@ fn ensure_metric_response_artifact_for_request(
         let artifact_covers_request =
             metric_response_artifact_covers_request(&artifact, &covered_metric_ids, request_all_metrics);
         if artifact_covers_request {
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                access_plan.owner,
+                &artifact,
+                &query,
+                &runtime_workset.defs_for_hydrate,
+                state,
+            )?;
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
@@ -1276,6 +1799,16 @@ fn ensure_metric_response_artifact_for_request(
         if artifact_covers_request {
             materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
             state.store_metric_response_exact(&response_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                access_plan.owner,
+                &artifact,
+                &query,
+                &runtime_workset.defs_for_hydrate,
+                state,
+            )?;
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
@@ -1288,6 +1821,16 @@ fn ensure_metric_response_artifact_for_request(
         if artifact_covers_request {
             state.store_metric_response_exact(&response_cache_key, &artifact);
             state.store_metric_response_shared(&shared_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                access_plan.owner,
+                &artifact,
+                &query,
+                &runtime_workset.defs_for_hydrate,
+                state,
+            )?;
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
@@ -1295,16 +1838,16 @@ fn ensure_metric_response_artifact_for_request(
             anyhow::bail!(
                 "metric response artifact for dataset `{}` scope scene=`{}` target=`{}` does not cover all declared metrics",
                 dataset_selector,
-                outcome.compiled.active_scene.as_deref().unwrap_or(""),
-                outcome.compiled.active_target_file
+                scene_id,
+                scene_path.as_deref().unwrap_or("")
             );
         }
     } else if mode == PrebuildMode::Verify {
         anyhow::bail!(
             "missing metric response artifact for dataset `{}` scope scene=`{}` target=`{}`",
             dataset_selector,
-            outcome.compiled.active_scene.as_deref().unwrap_or(""),
-            outcome.compiled.active_target_file
+            scene_id,
+            scene_path.as_deref().unwrap_or("")
         );
     }
     if let Some((artifact, _)) = load_metric_response_result_artifact(app_root, &shared_cache_key)? {
@@ -1314,6 +1857,16 @@ fn ensure_metric_response_artifact_for_request(
             materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
             state.store_metric_response_shared(&shared_cache_key, &artifact);
             state.store_metric_response_exact(&response_cache_key, &artifact);
+            materialize_metric_response_sibling_aliases(
+                app_id,
+                app_root,
+                outcome,
+                access_plan.owner,
+                &artifact,
+                &query,
+                &runtime_workset.defs_for_hydrate,
+                state,
+            )?;
             coverage.metric_response_artifacts_ready += 1;
             return Ok(());
         }
@@ -1326,6 +1879,16 @@ fn ensure_metric_response_artifact_for_request(
             if artifact_covers_request {
                 materialize_metric_response_alias(app_root, &response_cache_key, &artifact)?;
                 state.store_metric_response_exact(&response_cache_key, &artifact);
+                materialize_metric_response_sibling_aliases(
+                    app_id,
+                    app_root,
+                    outcome,
+                    access_plan.owner,
+                    &artifact,
+                    &query,
+                    &runtime_workset.defs_for_hydrate,
+                    state,
+                )?;
                 coverage.metric_response_artifacts_ready += 1;
                 return Ok(());
             }
@@ -1335,8 +1898,8 @@ fn ensure_metric_response_artifact_for_request(
         &outcome.compiled,
         app_root,
         &access_plan,
-        outcome.compiled.active_scene.as_deref().unwrap_or_default(),
-        Some(outcome.compiled.active_target_file.as_str()),
+        scene_id.as_str(),
+        scene_path.as_deref(),
         &query_state,
         &[],
         RuntimeMetricEvalMode::WithDag,
@@ -1403,8 +1966,28 @@ fn ensure_metric_response_artifact_for_request(
         state.store_metric_response_exact(&response_cache_key, &built_artifact);
     }
     store_result?;
+    materialize_metric_response_sibling_aliases(
+        app_id,
+        app_root,
+        outcome,
+        access_plan.owner,
+        &built_artifact,
+        &query,
+        &runtime_workset.defs_for_hydrate,
+        state,
+    )?;
     coverage.metric_response_artifacts_built += 1;
     Ok(())
+}
+
+fn dataframe_scope_metric_token(
+    compiled: &mei_lang_kernel::CompiledApp,
+    resource_id: &str,
+    metric_selector: &str,
+) -> Option<String> {
+    let (_, resolved_metric_id) =
+        locate_runtime_metric_resource(compiled, resource_id, metric_selector).ok()?;
+    Some(metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id)))
 }
 
 fn ensure_metric_dataframe_artifact(
@@ -1412,6 +1995,7 @@ fn ensure_metric_dataframe_artifact(
     outcome: &CompileWithCacheOutcome,
     resource: &LoadedResource,
     metric_id: &str,
+    page_size: usize,
     mode: PrebuildMode,
     coverage: &mut PrebuildCoverageReport,
     state: &CoverageState,
@@ -1434,35 +2018,86 @@ fn ensure_metric_dataframe_artifact(
         app_root,
         &outcome.compiled,
         &owner_resource.id,
-        &runtime_workset.defs_for_hydrate,
+        if owner_dataset.runtime_metric_defs.is_empty() {
+            &runtime_workset.defs_for_hydrate
+        } else {
+            &owner_dataset.runtime_metric_defs
+        },
     );
-    let query_options = collect_all_options();
-    let response_cache_key = metric_dataframe_result_cache_key(
-        app_root,
-        outcome.compiled.active_scene.as_deref(),
-        Some(outcome.compiled.active_target_file.as_str()),
+    let query_options = widget_dataframe_query_options(page_size);
+    let (scene_id, scene_path) = artifact_scene_context(&outcome.compiled);
+    let scope_metric_token = dataframe_scope_metric_token(
+        &outcome.compiled,
         resource.id.as_str(),
         resolved_metric_id.as_str(),
+    )
+    .unwrap_or_else(|| metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id)));
+    let response_cache_key = metric_dataframe_result_cache_key(
+        app_root,
+        Some(scene_id.as_str()),
+        scene_path.as_deref(),
+        owner_resource.id.as_str(),
+        scope_metric_token.as_str(),
         &query_options,
         &outcome.compile_revision,
         &dependency_revision_key,
         &[],
     );
     let shared_cache_key = prebuild_metric_dataframe_shared_key(
-        resource.id.as_str(),
+        owner_resource.id.as_str(),
         resolved_metric_id.as_str(),
         &query_options,
         &dependency_revision_key,
     );
     if state.metric_dataframe_exact(&response_cache_key).is_some() {
+        if let Some(result) = state.metric_dataframe_exact(&response_cache_key) {
+            materialize_metric_dataframe_sibling_aliases(
+                app_root,
+                outcome,
+                owner_resource,
+                resolved_metric_id.as_str(),
+                &query_options,
+                &runtime_workset.defs_for_hydrate,
+                &result,
+                state,
+            )?;
+            materialize_metric_dataframe_metric_aliases(
+                app_root,
+                outcome,
+                resource.id.as_str(),
+                resolved_metric_id.as_str(),
+                &query_options,
+                &runtime_workset.defs_for_hydrate,
+                &result,
+                state,
+            )?;
+        }
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
-    if load_metric_dataframe_result_artifact(app_root, &response_cache_key)?.is_some() {
-        if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &response_cache_key)? {
-            state.store_metric_dataframe_exact(&response_cache_key, &result);
-            state.store_metric_dataframe_shared(&shared_cache_key, &result);
-        }
+    if let Some((result, _)) = load_metric_dataframe_result_artifact(app_root, &response_cache_key)? {
+        state.store_metric_dataframe_exact(&response_cache_key, &result);
+        state.store_metric_dataframe_shared(&shared_cache_key, &result);
+        materialize_metric_dataframe_sibling_aliases(
+            app_root,
+            outcome,
+            owner_resource,
+            resolved_metric_id.as_str(),
+            &query_options,
+            &runtime_workset.defs_for_hydrate,
+            &result,
+            state,
+        )?;
+        materialize_metric_dataframe_metric_aliases(
+            app_root,
+            outcome,
+            resource.id.as_str(),
+            resolved_metric_id.as_str(),
+            &query_options,
+            &runtime_workset.defs_for_hydrate,
+            &result,
+            state,
+        )?;
         coverage.metric_dataframe_artifacts_ready += 1;
         return Ok(());
     }
@@ -1471,8 +2106,8 @@ fn ensure_metric_dataframe_artifact(
             "missing metric dataframe artifact for dataset `{}` metric `{}` scope scene=`{}` target=`{}`",
             resource.id,
             resolved_metric_id,
-            outcome.compiled.active_scene.as_deref().unwrap_or(""),
-            outcome.compiled.active_target_file
+            scene_id,
+            scene_path.as_deref().unwrap_or("")
         );
     }
     if let Some(result) = state.metric_dataframe_shared(&shared_cache_key) {
@@ -1500,12 +2135,12 @@ fn ensure_metric_dataframe_artifact(
     let result = query_metric_dataframe(
         &outcome.compiled,
         app_root,
-        resource.id.as_str(),
+        owner_resource.id.as_str(),
         resolved_metric_id.as_str(),
-        outcome.compiled.active_scene.as_deref(),
-        Some(outcome.compiled.active_target_file.as_str()),
+        Some(scene_id.as_str()),
+        scene_path.as_deref(),
         &outcome.compile_revision,
-        query_options,
+        query_options.clone(),
         None,
         Vec::new(),
     )
@@ -1537,6 +2172,26 @@ fn ensure_metric_dataframe_artifact(
         state.store_metric_dataframe_exact(&response_cache_key, &result);
     }
     store_result?;
+    materialize_metric_dataframe_sibling_aliases(
+        app_root,
+        outcome,
+        owner_resource,
+        resolved_metric_id.as_str(),
+        &query_options,
+        &runtime_workset.defs_for_hydrate,
+        &result,
+        state,
+    )?;
+    materialize_metric_dataframe_metric_aliases(
+        app_root,
+        outcome,
+        resource.id.as_str(),
+        resolved_metric_id.as_str(),
+        &query_options,
+        &runtime_workset.defs_for_hydrate,
+        &result,
+        state,
+    )?;
     coverage.metric_dataframe_artifacts_built += 1;
     Ok(())
 }
@@ -1585,6 +2240,183 @@ fn metric_response_artifact_covers_request(
             .iter()
             .all(|metric_id| artifact.covered_metric_ids.contains(metric_id))
     }
+}
+
+fn materialize_metric_response_sibling_aliases(
+    app_id: &str,
+    app_root: &Path,
+    outcome: &CompileWithCacheOutcome,
+    owner_resource: &LoadedResource,
+    artifact: &LoadedMetricResponseArtifact,
+    query: &DatasetQueryOptions,
+    metric_defs: &BTreeMap<String, Value>,
+    state: &CoverageState,
+) -> Result<()> {
+    let owner_dataset = owner_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let identity = dataset_metric_identity_key(owner_dataset);
+    let (scene_id, scene_path) = artifact_scene_context(&outcome.compiled);
+    for resource in &outcome.compiled.resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if dataset_metric_identity_key(dataset) != identity {
+            continue;
+        }
+        let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            &outcome.compiled,
+            resource.id.as_str(),
+            metric_defs,
+        );
+        let response_cache_key = metric_response_cache_scope_key(
+            app_id,
+            scene_id.as_str(),
+            scene_path.as_deref(),
+            resource.id.as_str(),
+            query,
+            &outcome.compile_revision,
+            &dependency_revision_key,
+            &[],
+        );
+        if state.metric_response_exact(&response_cache_key).is_some() {
+            continue;
+        }
+        if load_metric_response_result_artifact(app_root, &response_cache_key)?.is_some() {
+            continue;
+        }
+        materialize_metric_response_alias(app_root, &response_cache_key, artifact)?;
+        state.store_metric_response_exact(&response_cache_key, artifact);
+    }
+    Ok(())
+}
+
+fn materialize_metric_dataframe_metric_aliases(
+    app_root: &Path,
+    outcome: &CompileWithCacheOutcome,
+    resource_id: &str,
+    resolved_metric_id: &str,
+    query_options: &DatasetQueryOptions,
+    metric_defs: &BTreeMap<String, Value>,
+    result: &DatasetQueryResult,
+    state: &CoverageState,
+) -> Result<()> {
+    let (scene_id, scene_path) = artifact_scene_context(&outcome.compiled);
+    for metric_selector in
+        equivalent_dataframe_metric_ids(&outcome.compiled, resource_id, resolved_metric_id)
+    {
+        let Ok((owner_resource, canonical_metric_id)) =
+            locate_runtime_metric_resource(&outcome.compiled, resource_id, metric_selector.as_str())
+        else {
+            continue;
+        };
+        let owner_dataset = owner_resource
+            .dataset
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+        let runtime_workset = runtime_metric_workset(
+            &owner_resource.id,
+            &[canonical_metric_id.clone()],
+            owner_dataset,
+        );
+        let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            &outcome.compiled,
+            &owner_resource.id,
+            &runtime_workset.defs_for_hydrate,
+        );
+        let scope_metric_token = dataframe_scope_metric_token(
+            &outcome.compiled,
+            owner_resource.id.as_str(),
+            metric_selector.as_str(),
+        )
+        .unwrap_or_else(|| {
+            metric_scope_cache_key(std::slice::from_ref(&canonical_metric_id))
+        });
+        let response_cache_key = metric_dataframe_result_cache_key(
+            app_root,
+            Some(scene_id.as_str()),
+            scene_path.as_deref(),
+            owner_resource.id.as_str(),
+            scope_metric_token.as_str(),
+            query_options,
+            &outcome.compile_revision,
+            &dependency_revision_key,
+            &[],
+        );
+        if state.metric_dataframe_exact(&response_cache_key).is_some() {
+            continue;
+        }
+        if load_metric_dataframe_result_artifact(app_root, &response_cache_key)?.is_some() {
+            continue;
+        }
+        store_metric_dataframe_result_artifact(app_root, &response_cache_key, result)?;
+        state.store_metric_dataframe_exact(&response_cache_key, result);
+    }
+    let _ = metric_defs;
+    Ok(())
+}
+
+fn materialize_metric_dataframe_sibling_aliases(
+    app_root: &Path,
+    outcome: &CompileWithCacheOutcome,
+    owner_resource: &LoadedResource,
+    resolved_metric_id: &str,
+    query_options: &DatasetQueryOptions,
+    metric_defs: &BTreeMap<String, Value>,
+    result: &DatasetQueryResult,
+    state: &CoverageState,
+) -> Result<()> {
+    let owner_dataset = owner_resource
+        .dataset
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("resource `{}` is not a dataset", owner_resource.id))?;
+    let identity = dataset_metric_identity_key(owner_dataset);
+    let (scene_id, scene_path) = artifact_scene_context(&outcome.compiled);
+    for resource in &outcome.compiled.resources {
+        let Some(dataset) = resource.dataset.as_ref() else {
+            continue;
+        };
+        if dataset_metric_identity_key(dataset) != identity {
+            continue;
+        }
+        let dependency_revision_key = metric_request_revision_fingerprint_for_compiled(
+            app_root,
+            &outcome.compiled,
+            resource.id.as_str(),
+            metric_defs,
+        );
+        let scope_metric_token = dataframe_scope_metric_token(
+            &outcome.compiled,
+            resource.id.as_str(),
+            resolved_metric_id,
+        )
+        .unwrap_or_else(|| {
+            metric_scope_cache_key(std::slice::from_ref(&resolved_metric_id.to_string()))
+        });
+        let response_cache_key = metric_dataframe_result_cache_key(
+            app_root,
+            Some(scene_id.as_str()),
+            scene_path.as_deref(),
+            resource.id.as_str(),
+            scope_metric_token.as_str(),
+            query_options,
+            &outcome.compile_revision,
+            &dependency_revision_key,
+            &[],
+        );
+        if state.metric_dataframe_exact(&response_cache_key).is_some() {
+            continue;
+        }
+        if load_metric_dataframe_result_artifact(app_root, &response_cache_key)?.is_some() {
+            continue;
+        }
+        store_metric_dataframe_result_artifact(app_root, &response_cache_key, result)?;
+        state.store_metric_dataframe_exact(&response_cache_key, result);
+    }
+    Ok(())
 }
 
 fn materialize_metric_response_alias(
@@ -1683,6 +2515,81 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mei_lang_kernel::CompiledApp;
+
+    fn test_outcome(active_scene: &str, active_target_file: &str) -> CompileWithCacheOutcome {
+        CompileWithCacheOutcome {
+            compiled: CompiledApp {
+                app_id: "demo".to_string(),
+                title: "demo".to_string(),
+                app_root: "/tmp/demo".to_string(),
+                active_scene: Some(active_scene.to_string()),
+                active_target_file: active_target_file.to_string(),
+                scene_routes: Vec::new(),
+                file_tree: Vec::new(),
+                resources: Vec::new(),
+                world_metrics: BTreeMap::new(),
+                world_semantic_by_file: BTreeMap::new(),
+                component_assets: Vec::new(),
+                diagnostics: Vec::new(),
+                scene_contract: None,
+                scene_local_nav_by_target: BTreeMap::new(),
+                scene_bindings_by_id: BTreeMap::new(),
+                scene_examples_by_id: BTreeMap::new(),
+                scene_projection_assembly_by_id: BTreeMap::new(),
+            },
+            cache_hit: true,
+            artifact_cache_hit: true,
+            compile_revision: "rev-a".to_string(),
+            revision_scope: "test".to_string(),
+            cache_validation: "test".to_string(),
+            cache_lookup_ms: 0,
+            artifact_load_ms: 0,
+            compile_cache_lock_wait_ms: 0,
+            compile_ms: 0,
+        }
+    }
+
+    #[test]
+    fn prebuild_report_summary_omits_compile_revision() {
+        let report = PrebuildReport {
+            schema_version: "mei-prebuild-report-v1".to_string(),
+            mode: PrebuildMode::Verify,
+            clean: false,
+            clean_wall_ms: 0,
+            total_wall_ms: 1200,
+            source_root: "/tmp/ws".to_string(),
+            manifest_path: "/tmp/ws/.mei/runtime/warmup-manifest.json".to_string(),
+            manifest_source: "workspace_config_fallback".to_string(),
+            ok: true,
+            succeeded_apps: vec!["zhifa".to_string()],
+            failed_apps: Vec::new(),
+            error_summary: Vec::new(),
+            apps: vec![PrebuildAppReport {
+                app_id: "zhifa".to_string(),
+                compile_scopes: vec![PrebuildScopeReport {
+                    requested_scene_id: Some("home".to_string()),
+                    requested_target_file: Some("scenes/01-执法要素.mei".to_string()),
+                    active_scene_id: Some("home".to_string()),
+                    active_target_file: "scenes/01-执法要素.mei".to_string(),
+                    cache_hit: true,
+                    artifact_cache_hit: true,
+                    compile_revision: "very-long-revision-token".to_string(),
+                    cache_lookup_ms: 0,
+                    artifact_load_ms: 12,
+                    compile_ms: 0,
+                }],
+                coverage: PrebuildCoverageReport::default(),
+                timings: PrebuildTimingReport::default(),
+                data_snapshots: None,
+                warnings: Vec::new(),
+            }],
+        };
+        let json = serde_json::to_string(&report.summary()).expect("serialize summary");
+        assert!(!json.contains("compile_revision"));
+        assert!(!json.contains("very-long-revision-token"));
+        assert!(json.contains("scenes/01-执法要素.mei"));
+    }
 
     #[test]
     fn compile_scopes_follow_explicit_manifest_closure() {
@@ -1711,8 +2618,31 @@ mod tests {
         assert!(scope_keys.contains("dashboard|"));
         assert!(scope_keys.contains("|scenes/02-inspection.mei"));
         assert!(scope_keys.contains("details|scenes/details.mei"));
-        assert!(!scope_keys.contains("home|scenes/02-inspection.mei"));
-        assert!(!scope_keys.contains("dashboard|scenes/02-inspection.mei"));
+        assert!(scope_keys.contains("home|scenes/02-inspection.mei"));
+        assert!(scope_keys.contains("dashboard|scenes/02-inspection.mei"));
+    }
+
+    #[test]
+    fn focus_targets_from_warmup_datasets_extracts_scene_paths() {
+        let app = RuntimeWarmupApp {
+            app_id: "demo".to_string(),
+            default_scene: None,
+            hot_scenes: Vec::new(),
+            scenes: Vec::new(),
+            focuses: Vec::new(),
+            datasets: vec![RuntimeWarmupDatasetRequest {
+                scene_id: Some("home".to_string()),
+                focus: None,
+                dataset_id: "__world_metrics__::scenes/05-监督预警.mei::metrics".to_string(),
+                metric_id: None,
+                metric_ids: Vec::new(),
+            }],
+            xlsx_sources: Vec::new(),
+        };
+        assert_eq!(
+            focus_targets_from_warmup_datasets(&app),
+            vec!["scenes/05-监督预警.mei".to_string()]
+        );
     }
 
     #[test]
@@ -1728,6 +2658,43 @@ mod tests {
         assert_eq!(
             requested_metric_ids(&request),
             vec!["delta".to_string(), "total".to_string()]
+        );
+    }
+
+    #[test]
+    fn unique_prepared_outcomes_prefers_scene_scoped_compile_scope() {
+        let home_scope = CompileScope {
+            requested_scene_id: Some("home".to_string()),
+            requested_target_file: None,
+        };
+        let default_scope = CompileScope::default_scope();
+        let prepared = vec![
+            (default_scope, test_outcome("home", "scenes/home.mei")),
+            (home_scope, test_outcome("home", "scenes/home.mei")),
+        ];
+        let unique = unique_prepared_outcomes_for_artifacts(&prepared);
+        assert_eq!(unique.len(), 1);
+        assert_eq!(
+            unique[0].0.requested_scene_id.as_deref(),
+            Some("home")
+        );
+    }
+
+    #[test]
+    fn warmup_request_matches_active_scene_without_exact_scope_key() {
+        let request = AggregatedWarmupRequest {
+            scope: CompileScope {
+                requested_scene_id: Some("home".to_string()),
+                requested_target_file: None,
+            },
+            dataset_id: "penalty_result_dashboard_ds".to_string(),
+            metric_ids: vec!["penalties_total_count::__scalar_rowset__".to_string()],
+        };
+        let outcome = test_outcome("home", "scenes/home.mei");
+        assert!(warmup_request_matches_outcome(&request, &outcome));
+        assert_eq!(
+            matching_warmup_requests_for_outcome(&[request], &outcome).len(),
+            1
         );
     }
 
