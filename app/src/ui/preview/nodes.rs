@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use mei_lang_kernel::{BlockDecl, BuildNodeId, CompiledApp, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
+use mei_lang_kernel::{block_instance_id, BlockDecl, BuildNodeId, CompiledApp, PanelDecl, PanelRefEmbedDecl, SceneContract, UiNodeDecl};
 use serde_json::Value;
 
 use super::style::container_visual_style;
@@ -122,6 +122,7 @@ pub(crate) fn panel_view(
                     embed_depth,
                     preview_scene_path,
                     Some(panel_path.as_str()),
+                    Some(panel),
                 )
             })
             .collect_view()
@@ -141,6 +142,7 @@ pub(crate) fn panel_view(
                     embed_depth,
                     preview_scene_path,
                     Some(panel_path.as_str()),
+                    Some(panel),
                 )
             })
             .collect_view()
@@ -314,6 +316,19 @@ fn heading_chrome_decorations(heading: &super::style::PanelHeadingConfig) -> Any
     .into_any()
 }
 
+fn block_ordinal_in_panel(panel: &PanelDecl, block: &BlockDecl) -> usize {
+    let mut ord = 0usize;
+    for node in &panel.blocks {
+        if let UiNodeDecl::Block(candidate) = node {
+            if std::ptr::eq(candidate, block) {
+                return ord;
+            }
+            ord += 1;
+        }
+    }
+    ord
+}
+
 fn node_view(
     node: &UiNodeDecl,
     parent_layout: Option<&mei_lang_kernel::LayoutDecl>,
@@ -325,6 +340,7 @@ fn node_view(
     embed_depth: u8,
     preview_scene_path: &str,
     parent_panel_id: Option<&str>,
+    parent_panel: Option<&PanelDecl>,
 ) -> AnyView {
     match node {
         UiNodeDecl::Panel(panel) => panel_view(
@@ -349,6 +365,7 @@ fn node_view(
             theme,
             preview_scene_path,
             parent_panel_id,
+            parent_panel,
         ),
         UiNodeDecl::PanelRefEmbed(embed) => panel_ref_embed_removed_view(embed, parent_layout),
     }
@@ -390,6 +407,7 @@ fn block_view(
     theme: &ThemeResolved,
     preview_scene_path: &str,
     parent_panel_id: Option<&str>,
+    parent_panel: Option<&PanelDecl>,
 ) -> AnyView {
     let scene_anchor = RuntimeSceneAnchor {
         scene_id: scene_contract.scene.id.clone(),
@@ -440,17 +458,22 @@ fn block_view(
         format!("component-card {slot_v_class}")
     };
     let block_layout = if is_header_brand { None } else { panel_layout };
-    let block_id = block
-        .id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(block.use_key.as_str());
+    let block_id = parent_panel
+        .map(|panel| block_instance_id(block, block_ordinal_in_panel(panel, block)))
+        .unwrap_or_else(|| {
+            block
+                .id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(block.use_key.as_str())
+                .to_string()
+        });
     let build_node_id = if runtime_ctx.build_inspect_enabled {
         parent_panel_id.map(|panel_id| {
             BuildNodeId::scene_block(
                 scene_contract.scene.id.clone(),
                 panel_id,
-                block_id,
+                block_id.as_str(),
             )
             .encode()
         })

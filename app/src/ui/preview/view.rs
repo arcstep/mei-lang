@@ -111,9 +111,13 @@ pub(crate) fn preview_view(
                 } else {
                     "preview-surface preview-stage"
                 };
-                // 仅显式 viewport + 固定画布调试：profile 默认 page-flow 不展示缩放条
-                let show_viewport_chrome = is_manage && viewport_explicit && !fluid_height;
-                let viewport_explicit_attr = if viewport_explicit { "true" } else { "false" };
+                // 构建视图：始终展示视窗缩放条；访问态仍依赖显式 viewport 配置
+                let show_viewport_chrome = is_manage;
+                let viewport_explicit_attr = if is_manage || viewport_explicit {
+                    "true"
+                } else {
+                    "false"
+                };
                 let chrome_height = if fluid_height {
                     content_bounds.height
                 } else {
