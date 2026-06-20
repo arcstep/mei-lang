@@ -230,6 +230,17 @@
           if (!Number.isFinite(session.phases.eval.durationMs) || session.phases.eval.durationMs < elapsed) {
             session.phases.eval.durationMs = Math.round(elapsed);
           }
+          if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
+          session.apiCalls.push({
+            url: requestUrl,
+            kind: resolveApiKind(requestUrl),
+            status: response.status,
+            ms: Math.round(elapsed),
+            ok: response.ok,
+          });
+          if (session.apiCalls.length > 20) {
+            session.apiCalls = session.apiCalls.slice(-20);
+          }
           updateLoadingProgressDom(session);
         }
         return response;
@@ -238,6 +249,14 @@
           session.api.failed += 1;
           session.api.completed += 1;
           session.api.inflight = Math.max(0, session.api.inflight - 1);
+          if (!Array.isArray(session.apiCalls)) session.apiCalls = [];
+          session.apiCalls.push({
+            url: requestUrl,
+            kind: resolveApiKind(requestUrl),
+            status: 0,
+            ms: Math.round(nowMs() - started),
+            ok: false,
+          });
           updateLoadingProgressDom(session);
         }
         throw error;

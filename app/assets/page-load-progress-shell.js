@@ -540,6 +540,10 @@
       evalMs: Math.max(0, Math.round(evalMs)),
       totalMs: Math.max(0, Date.now() - state.wallStartedAt),
       apiTotal: state.api.total || 0,
+      apiFailed: state.api.failed || 0,
+      apiCalls: [],
+      handlerReadyMs: Number.isFinite(state.compile.handlerReadyMs) ? state.compile.handlerReadyMs : 0,
+      readyReason: state.ready ? "ready" : "aborted",
       uiShown: overlayVisible(),
       outcome: state.ready ? "ready" : "aborted",
     };

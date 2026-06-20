@@ -24,8 +24,9 @@
   }
 
   function kindLabel(kind) {
-    if (store() && typeof store().kindLabel === "function") {
-      return store().kindLabel(kind);
+    const api = store();
+    if (api && typeof api.kindLabel === "function") {
+      return api.kindLabel(kind);
     }
     return String(kind || "访问");
   }
@@ -52,6 +53,58 @@
     return parts.join(" · ");
   }
 
+  function formatRecordForAgent(item) {
+    const api = store();
+    if (api && typeof api.formatRecordForAgent === "function") {
+      return api.formatRecordForAgent(item);
+    }
+    return JSON.stringify(item, null, 2);
+  }
+
+  function formatAllForAgent(items) {
+    const api = store();
+    if (api && typeof api.formatAllForAgent === "function") {
+      return api.formatAllForAgent(items);
+    }
+    return JSON.stringify(items, null, 2);
+  }
+
+  async function copyText(text) {
+    const payload = String(text || "");
+    if (!payload) return false;
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        await navigator.clipboard.writeText(payload);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      const area = document.createElement("textarea");
+      area.value = payload;
+      area.setAttribute("readonly", "true");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function flashCopyHint(node, ok) {
+    if (!(node instanceof HTMLElement)) return;
+    const prev = node.textContent;
+    node.textContent = ok ? "已复制" : "复制失败";
+    node.dataset.tone = ok ? "good" : "danger";
+    setTimeout(() => {
+      node.textContent = prev;
+      node.dataset.tone = "neutral";
+    }, 1200);
+  }
+
   function ensurePopover() {
     let popover = document.getElementById(POPOVER_ID);
     if (popover) return popover;
@@ -61,17 +114,44 @@
     popover.setAttribute("hidden", "hidden");
     popover.innerHTML =
       '<div class="visit-history-popover-backdrop" data-visit-history-close="mask"></div>' +
-      '<section class="visit-history-popover-panel" role="dialog" aria-label="最近访问">' +
+      '<section class="visit-history-popover-panel" role="dialog" aria-label="访问历史">' +
       '<header class="visit-history-popover-head">' +
-      "<strong>最近访问</strong>" +
+      "<strong>访问历史</strong>" +
+      '<div class="visit-history-popover-actions">' +
+      '<button type="button" class="status-chip visit-history-copy-all" data-visit-history-copy-all="true" data-tone="neutral">复制全部</button>' +
       '<button type="button" class="visit-history-popover-close" data-visit-history-close="button" aria-label="关闭">×</button>' +
+      "</div>" +
       "</header>" +
       '<div class="visit-history-popover-body" data-visit-history-list="true"></div>' +
       "</section>";
     popover.addEventListener("click", (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.dataset.visitHistoryClose) hidePopover();
+      if (target.dataset.visitHistoryClose) {
+        hidePopover();
+        return;
+      }
+      if (target.dataset.visitHistoryCopyAll === "true") {
+        void (async () => {
+          const api = store();
+          const items = api && typeof api.list === "function" ? api.list() : [];
+          const ok = await copyText(formatAllForAgent(items));
+          flashCopyHint(target, ok);
+        })();
+        return;
+      }
+      const rowCopy = target.closest("[data-visit-history-copy-id]");
+      if (rowCopy instanceof HTMLElement && rowCopy.dataset.visitHistoryCopyId) {
+        const id = rowCopy.dataset.visitHistoryCopyId;
+        const api = store();
+        const items = api && typeof api.list === "function" ? api.list() : [];
+        const item = items.find((entry) => String(entry.id) === String(id));
+        if (!item) return;
+        void (async () => {
+          const ok = await copyText(formatRecordForAgent(item));
+          flashCopyHint(rowCopy, ok);
+        })();
+      }
     });
     document.body.appendChild(popover);
     return popover;
@@ -90,14 +170,24 @@
     listHost.innerHTML = items
       .map((item) => {
         const hint = item.uiShown ? "" : '<span class="visit-history-muted">未提示</span>';
+        const contextBits = [
+          item.workspace ? `工作区 ${truncate(item.workspace, 16)}` : "",
+          item.appTitle || item.appId ? `应用 ${truncate(item.appTitle || item.appId, 20)}` : "",
+          item.file ? `文件 ${truncate(item.file, 24)}` : "",
+        ].filter(Boolean);
+        const contextLine = contextBits.length
+          ? `<div class="visit-history-context">${escapeHtml(contextBits.join(" · "))}</div>`
+          : "";
         return (
           '<article class="visit-history-row">' +
           '<div class="visit-history-row-top">' +
           `<time>${escapeHtml(formatTime(item.at))}</time>` +
           `<span class="visit-history-kind">${escapeHtml(kindLabel(item.kind))}</span>` +
           hint +
+          `<button type="button" class="status-chip visit-history-copy-one" data-visit-history-copy-id="${escapeHtml(item.id)}" data-tone="neutral">复制</button>` +
           "</div>" +
           `<div class="visit-history-label" title="${escapeHtml(item.label || item.path || "")}">${escapeHtml(truncate(item.label || item.path || "访问", 48))}</div>` +
+          contextLine +
           `<div class="visit-history-perf">${escapeHtml(buildPerfLine(item))}</div>` +
           "</article>"
         );
@@ -116,7 +206,7 @@
     const panel = popover.querySelector(".visit-history-popover-panel");
     if (panel instanceof HTMLElement) {
       const margin = 10;
-      const panelWidth = Math.min(360, Math.max(280, window.innerWidth - margin * 2));
+      const panelWidth = Math.min(400, Math.max(300, window.innerWidth - margin * 2));
       panel.style.width = `${panelWidth}px`;
       let left = Math.max(margin, rect.left);
       if (left + panelWidth > window.innerWidth - margin) {

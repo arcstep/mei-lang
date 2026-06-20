@@ -102,7 +102,7 @@ pub(crate) fn statusbar_view(
                                 data-tone="neutral"
                                 title="最近访问与加载耗时"
                             >
-                                "访问"
+                                "访问历史"
                             </button>
                         }
                         .into_any()

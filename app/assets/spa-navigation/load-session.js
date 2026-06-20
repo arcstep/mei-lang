@@ -75,6 +75,7 @@
         evalMs: 0,
         lastKind: "",
       },
+      apiCalls: [],
       renderTraceCount: 0,
       postSpaDone: false,
       swapDone: false,
@@ -216,19 +217,36 @@
       evalMs: computeEvalMs(session),
       totalMs: Math.max(0, Date.now() - session.wallStartedAt),
       apiTotal: session.api.total,
+      apiFailed: session.api.failed,
+      apiCalls: Array.isArray(session.apiCalls) ? session.apiCalls.slice(0, 20) : [],
+      handlerReadyMs: Number.isFinite(session.compile.handlerReadyMs)
+        ? session.compile.handlerReadyMs
+        : 0,
+      readyReason: session.readyReason || "",
       uiShown,
       outcome,
     };
+    const enriched =
+      typeof boot.enrichVisitHistoryRecord === "function"
+        ? boot.enrichVisitHistoryRecord(record, {
+            url: session.url || session.path,
+            scene: session.kind === "drilldown" ? session.path : "",
+            apiCalls: record.apiCalls,
+            apiFailed: record.apiFailed,
+            handlerReadyMs: record.handlerReadyMs,
+            readyReason: record.readyReason,
+          })
+        : record;
     if (typeof boot.appendVisitHistory === "function") {
-      boot.appendVisitHistory(record);
+      boot.appendVisitHistory(enriched);
     } else if (
       typeof window !== "undefined" &&
       window.MeiVisitHistoryStore &&
       typeof window.MeiVisitHistoryStore.append === "function"
     ) {
-      window.MeiVisitHistoryStore.append(record);
+      window.MeiVisitHistoryStore.append(enriched);
     }
-    return record;
+    return enriched;
   }
 
   boot.LOAD_PHASES = LOAD_PHASES;
