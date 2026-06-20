@@ -170,6 +170,7 @@ pub(super) const BUNDLE_UPLOAD_SCRIPTS: &[&str] = &[
     "host-heartbeat.js",
     "statusbar.js",
     "workspace-splitters.js",
+    "source-tree-controls.js",
     "upload-upload-panel.js",
 ];
 
