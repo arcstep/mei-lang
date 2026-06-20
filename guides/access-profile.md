@@ -4,13 +4,28 @@
 
 访问态不是“换个地方继续写 `.mei`”。
 
-它的主任务是：
+它的主任务应收敛为两件事：
 
-- 理解当前 `scene / world / runtime`
-- 回答 dataset / metric / runtime state 问题
-- 基于宿主当前 query state 注入有界求值结果
+- 围绕当前 `scene / world / runtime / query_state` 回答业务问题
+- 在未来若需要讲解、演示、引导时，再驱动宿主做受控 presentation 动作
 
-因此，访问态默认应是 **world-first + eval-first**，而不是 source-first。
+因此，访问态默认应是：
+
+- **world-first + eval-first**
+- **business-viewpoint-first**
+- UI 不应成为 access-agent 的主要知识来源；未来若扩展演示能力，再把它作为受控执行器
+
+也就是说，访问侧更应该回答：
+
+- 当前值是多少
+- 口径是什么
+- 为什么在当前筛选下是这个结果
+- 这条结论沿哪条观点路径 / 血缘链得到
+
+而不是默认回答：
+
+- 这块 panel 是从哪段 `.mei` 布局挂出来的
+- 当前 rail / overlay 的源码层级关系是什么
 
 ## Catalog 真源
 
@@ -39,6 +54,17 @@ npm run test:mcp:access-adapter
 - `resource_visibility=local_only` 时，会隐藏 `scene_id` / `target_file` 覆盖参数
 - `propose_session_patch` 仍是 host-only 附加工具，不属于 canonical access catalog
 
+后续若访问侧继续强化讲解与演示，更推荐把：
+
+- 高亮
+- 隐藏
+- 放大
+- explain/detail/lineage 弹窗
+- TTS 播放
+
+这类能力继续收敛为 host presentation callbacks，而不是把 panel 级实现细节混进 canonical access catalog。  
+但在当前阶段，它们应优先被理解为**未来规划**，不是 access-agent 的默认能力。
+
 也就是说：
 
 - canonical access tool schema 仍由 catalog 决定
@@ -59,6 +85,13 @@ npm run test:mcp:access-adapter
 8. `mei-toolchain query metric --app <app> --id <dataset_id> --json`
 9. `mei-toolchain runtime peek --app <app> --json`
 10. 当前宿主浏览器传入的 `browser_context` / `query_state`
+11. metric / resource 可导出的 `analysis_contract`、business summary 与 lineage 摘要
+12. 宿主未来可选注入的 presentation catalog（业务观察面目录，而不是源码布局目录）
+
+这里需要明确一条新的优先级：
+
+- **world / metric / lineage / query_state** 是访问态主真源
+- `.mei` 源码与 layout 结构只作为按需取证材料
 
 ## Access Surface 工具名
 
@@ -88,9 +121,62 @@ npm run test:mcp:access-adapter
 1. 先读 `.mei/profiles/access.md` 与 `meilang-access` skill companion，确认当前是 world-first。
 2. 再读 world/runtime/catalog 摘要，确定当前问的是哪个 app / scene / scope。
 3. 再读取浏览器当前 `query_state`，把筛选条件并入默认求值范围。
-4. 如果 prompt 已注入 metric 预览，先用它回答简单聚合问题。
+4. 若已注入 metric 预览、business summary 或观点路径摘要，先用这些结构化结果回答。
 5. 不够时再调用 `mei_access_knowledge` / `dataset_metric` / `dataset_query` / `resource_business_summary` / `resource_runtime_peek` / `resource_runtime_trace_export`。
-6. 只有在需要 verbatim DSL 证据时，才小范围 `read_file`。
+6. 如果问题涉及“为什么”或“口径如何成立”，优先展开 `analysis_contract`、detail scope 与 lineage，而不是先读 layout 文件。
+7. 只有在需要 verbatim DSL 证据时，才小范围 `read_file`。
+
+## 观点路径优先
+
+访问态不应只把 metric 当成一个孤立数值，还应尽量围绕“观点路径”组织回答。
+
+一条典型观点路径至少应包含：
+
+- 当前业务观察面 / `viewpoint_id`
+- 对应的 `dataset_id` / `metric_id` / `resource_id`
+- 指标口径
+- 当前 `query_state`
+- detail rowset 或 explain/detail 入口
+- 必要时的 lineage / basis refs
+
+例如：
+
+```text
+viewpoint: warnings_total
+-> dataset: warning_list
+-> metric: warnings_count
+-> definition: 按预警 ID 去重后，对预警条数求和
+-> filters: warningLevel / agency / supervisionCategory
+-> detail_scope: warning_list
+-> runtime_value: 18
+```
+
+当访问态能直接拿到这类结构时，应优先用它回答“是什么 / 为什么 / 还能看哪里”，而不是沿 UI 布局层回溯。
+
+## 未来可扩展的演示辅助，而不是布局解说
+
+访问态如果未来要承担讲解与辅助演示，更推荐通过宿主开放的业务观察面目录与 presentation callbacks 工作。
+
+更合适的未来能力是：
+
+- 聚焦某个业务观察面
+- 高亮或隐藏部分内容
+- 放大重点观察面
+- 打开 explain / detail / lineage / summary 飘窗
+- 聚焦或切换 `query_state`
+- 播放与讲解内容同步的 TTS
+
+访问态不应默认承担：
+
+- 解释 panel 挂载链
+- 讲解 `.mei` 布局结构
+- 依赖 rail / panel / DOM 细节来组织回答
+
+也就是说，访问侧若未来需要“带着页面说话”，更合适的形态是：
+
+- Agent 给出业务结论
+- Agent 触发 presentation script / callback
+- 宿主负责把业务观察面映射成真实 UI 动作
 
 ## 关键边界
 
@@ -99,6 +185,8 @@ npm run test:mcp:access-adapter
 - 不把访问态问题默认转成作者态修改建议。
 - 不越过当前 `resource_visibility` / inventory reachability。
 - 不把访问态默认退回到作者态 `.mei` 全文阅读。
+- 不把 UI 布局层级当成访问态的主要知识组织方式。
+- 不让 presentation callbacks 直接暴露宿主源码或 DOM 细节。
 
 ## `summary` 的角色
 
@@ -109,3 +197,29 @@ npm run test:mcp:access-adapter
 - 帮助决定下一步应注入哪些求值结果
 
 它们**不是**访问态的最终事实层；真正回答数据问题时，仍应以 dataset/metric/runtime 求值为准。
+
+## 当前能力 vs 未来 Roadmap
+
+### 当前（access-agent 能力基线）
+
+- `access` + `ask` 只读问答，围绕 world / metric / `query_state` / runtime
+- 工具：`dataset_query`、`dataset_metric`、`resource_*`、`mei_access_knowledge`（catalog）；宿主 overlay：`read_file`、`propose_session_patch`
+- 回答优先：观点路径、口径、血缘、`analysis_contract`，而非 layout / `panel_ref` 链
+
+### 未来（保留在设计里，非当前默认）
+
+| 阶段 | 内容 |
+|------|------|
+| R1 | 业务观察面目录（`viewpoint_id`） |
+| R2 | 上下文默认注入观点路径 / lineage；清理 layout trace 语料 |
+| R3 | Presentation callbacks（高亮、隐藏、弹窗、`focus_query_state`） |
+| R4–R5 | 声明式演示脚本、TTS 与讲解同步 |
+| R6 | access eval 语料迁到口径 / 血缘主线 |
+
+细节与边界见 `docs/mei-lang/implementation/agent/62-access-agent-world-model-and-presentation-runtime.md`。
+
+## 一句话总结
+
+如果只记一句话：
+
+- **access-agent 当前应主要围绕 world 语义、观点路径、指标口径与血缘解释回答问题；UI 演示执行器与 TTS 可先保留为未来计划，而不是默认去理解布局源码结构。**
