@@ -1,9 +1,10 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use serde_json::Value;
 
 use crate::compile::{
-    aggregate_use_key_badges, backing_refs_from_block_props,
+    aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
     reachability_tree::{
         artifacts_root, datasets_root, routes_root, world_root,
         ReachabilityTreeNode, ReachabilityTreeRoot,
@@ -11,11 +12,20 @@ use crate::compile::{
 };
 use crate::model::{
     BlockDecl, BuildExperienceIndex, BuildNodeId, BuildNodeKind, CompiledApp, CompiledSceneRoute,
-    ExperienceNodeManifest, MountChainEntry, PanelDecl, ReachabilityTreeNodeSnapshot,
-    ReachabilityTreeRootSnapshot, SceneContract, UiNodeDecl,
+    ComponentAsset, ExperienceNodeManifest, MountChainEntry, PanelDecl, ReachabilityTreeNodeSnapshot,
+    ReachabilityTreeRootSnapshot, SceneContract, SceneDecl, UiNodeDecl,
 };
 
 const MAX_BLOCK_CHILDREN_IN_TREE: usize = 8;
+
+fn scene_routes_for_build_tree<'a>(
+    routes: &'a [CompiledSceneRoute],
+) -> Vec<&'a CompiledSceneRoute> {
+    routes
+        .iter()
+        .filter(|route| !route.target_file.ends_with(".board.mei"))
+        .collect()
+}
 
 pub fn build_experience_index(
     scene_routes: &[CompiledSceneRoute],
@@ -26,7 +36,7 @@ pub fn build_experience_index(
     let mut index = BuildExperienceIndex::default();
     let mut scene_children = Vec::new();
 
-    for route in scene_routes {
+    for route in scene_routes_for_build_tree(scene_routes) {
         let scene_node = BuildNodeId::scene(route.scene_id.clone());
         let mut children = Vec::new();
 
@@ -89,6 +99,8 @@ pub fn build_experience_index(
         });
     }
 
+    disambiguate_tree_node_labels(&mut scene_children);
+
     let runtime_roots = vec![
         ReachabilityTreeRoot {
             group: "scenes".to_string(),
@@ -129,19 +141,227 @@ pub fn merge_build_view_tree_roots(
 }
 
 pub fn reachability_roots_from_compiled(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
-    if compiled
-        .build_experience_index
-        .reachability_snapshot
-        .is_empty()
-    {
-        return crate::compile::reachability_tree::build_reachability_tree_runtime_only(compiled);
+    if build_view_reachability_stale(compiled) {
+        return rebuild_reachability_tree_from_compiled(compiled);
     }
-    compiled
+    let mut roots = compiled
         .build_experience_index
         .reachability_snapshot
         .iter()
         .map(snapshot_to_root)
-        .collect()
+        .collect();
+    ensure_board_and_template_roots(&mut roots, compiled);
+    roots
+}
+
+fn build_view_reachability_stale(compiled: &CompiledApp) -> bool {
+    let snapshot = &compiled.build_experience_index.reachability_snapshot;
+    if snapshot.is_empty() {
+        return true;
+    }
+    let has_boards = snapshot.iter().any(|root| root.group == "boards");
+    let has_templates = snapshot.iter().any(|root| root.group == "templates");
+    let expects_boards = file_tree_has_board_capsules(&compiled.file_tree)
+        || !compiled.build_board_index.boards.is_empty();
+    if expects_boards && !has_boards {
+        return true;
+    }
+    let expects_templates = !compiled.component_assets.is_empty()
+        || !compiled.build_template_index.templates.is_empty()
+        || workspace_component_catalog_from_app(compiled).is_some();
+    if expects_templates && !has_templates {
+        return true;
+    }
+    false
+}
+
+fn file_tree_has_board_capsules(nodes: &[crate::model::WorkspaceNode]) -> bool {
+    nodes.iter().any(|node| {
+        if node.kind == "file" && node.path.ends_with(".board.mei") {
+            return true;
+        }
+        node.kind == "dir" && file_tree_has_board_capsules(&node.children)
+    })
+}
+
+fn rebuild_reachability_tree_from_compiled(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
+    let contracts = scene_contracts_from_compiled(compiled);
+    let mut file_tree = compiled.file_tree.clone();
+    let app_root = Path::new(compiled.app_root.as_str());
+    if app_root.is_dir() {
+        let _ = super::source_tree_enrich::enrich_source_tree_with_scene_exports(app_root, &mut file_tree);
+    }
+    let experience = build_experience_index(
+        &compiled.scene_routes,
+        &compiled.scene_projection_assembly_by_id,
+        &contracts,
+        compiled,
+    );
+    let board = crate::compile::build_board_index(
+        &file_tree,
+        &contracts,
+        &compiled.scene_projection_assembly_by_id,
+    );
+    let template = crate::compile::build_template_index(
+        &template_catalog_for_tree(compiled),
+        &contracts,
+        &experience.node_manifest,
+    );
+    merge_build_view_tree_roots(
+        experience.reachability_snapshot,
+        board.tree_root,
+        template.tree_root,
+    )
+    .into_iter()
+    .map(|snapshot| snapshot_to_root(&snapshot))
+    .collect()
+}
+
+fn scene_contracts_from_compiled(compiled: &CompiledApp) -> BTreeMap<String, SceneContract> {
+    let mut map = BTreeMap::new();
+    for (scene_id, assembly) in &compiled.scene_projection_assembly_by_id {
+        let panels = assembly
+            .get("panels")
+            .and_then(|value| serde_json::from_value::<Vec<PanelDecl>>(value.clone()).ok())
+            .unwrap_or_default();
+        let local_nav = assembly
+            .get("shell_contract")
+            .or_else(|| assembly.get("local_nav"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        map.insert(
+            scene_id.clone(),
+            SceneContract {
+                scene: SceneDecl {
+                    kind: "scene".to_string(),
+                    id: scene_id.clone(),
+                    world: None,
+                    flow: None,
+                    frame: None,
+                    profile: None,
+                    theme: None,
+                    summary: None,
+                    goal: None,
+                    state: Value::Null,
+                    shared: Value::Null,
+                    local_nav,
+                    params: Value::Null,
+                    bindings: Value::Null,
+                    examples: Value::Null,
+                    access_export: true,
+                },
+                themes: Vec::new(),
+                shared: Value::Null,
+                world: None,
+                flow: None,
+                frame: None,
+                panels,
+            },
+        );
+    }
+    if let Some(contract) = &compiled.scene_contract {
+        if let Some(scene_id) = compiled
+            .active_scene
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            map.insert(scene_id.to_string(), contract.clone());
+        }
+    }
+    map
+}
+
+fn ensure_board_and_template_roots(roots: &mut Vec<ReachabilityTreeRoot>, compiled: &CompiledApp) {
+    if !roots.iter().any(|root| root.group == "boards") {
+        let board_root = if !compiled.build_board_index.boards.is_empty() {
+            Some(crate::compile::build_board_index::board_tree_root_from_index(
+                &compiled.build_board_index,
+            ))
+        } else if file_tree_has_board_capsules(&compiled.file_tree) {
+            let contracts = scene_contracts_from_compiled(compiled);
+            Some(
+                crate::compile::build_board_index::build_board_index(
+                    &compiled.file_tree,
+                    &contracts,
+                    &compiled.scene_projection_assembly_by_id,
+                )
+                .tree_root,
+            )
+        } else {
+            None
+        };
+        if let Some(board_root) = board_root {
+            if !board_root.children.is_empty() {
+                let insert_at = roots
+                    .iter()
+                    .position(|root| root.group == "scenes")
+                    .map(|idx| idx + 1)
+                    .unwrap_or(roots.len());
+                roots.insert(insert_at, board_root);
+            }
+        }
+    }
+    if !roots.iter().any(|root| root.group == "templates") {
+        let template_root = if !compiled.build_template_index.templates.is_empty() {
+            Some(crate::compile::build_template_index::template_tree_root_from_index(
+                &compiled.build_template_index,
+            ))
+        } else {
+            let contracts = scene_contracts_from_compiled(compiled);
+            let catalog = template_catalog_for_tree(compiled);
+            if catalog.is_empty() {
+                None
+            } else {
+                Some(
+                    crate::compile::build_template_index::build_template_index(
+                        &catalog,
+                        &contracts,
+                        &compiled.build_experience_index.node_manifest,
+                    )
+                    .tree_root,
+                )
+            }
+        };
+        if let Some(template_root) = template_root {
+            if !template_root.children.is_empty() {
+                let insert_at = roots
+                    .iter()
+                    .position(|root| root.group == "boards")
+                    .map(|idx| idx + 1)
+                    .unwrap_or(
+                        roots
+                            .iter()
+                            .position(|root| root.group == "scenes")
+                            .map(|idx| idx + 1)
+                            .unwrap_or(roots.len()),
+                    );
+                roots.insert(insert_at, template_root);
+            }
+        }
+    }
+}
+
+fn workspace_component_catalog_from_app(compiled: &CompiledApp) -> Option<Vec<ComponentAsset>> {
+    let app_root = Path::new(compiled.app_root.as_str());
+    let source_root = app_root.parent()?;
+    let map = crate::workspace::load_component_assets(source_root).ok()?;
+    if map.is_empty() {
+        return None;
+    }
+    Some(map.values().cloned().collect())
+}
+
+fn template_catalog_for_tree(compiled: &CompiledApp) -> Vec<ComponentAsset> {
+    if let Some(workspace_catalog) = workspace_component_catalog_from_app(compiled) {
+        if workspace_catalog.len() >= compiled.component_assets.len() {
+            return workspace_catalog;
+        }
+    }
+    if !compiled.component_assets.is_empty() {
+        return compiled.component_assets.clone();
+    }
+    workspace_component_catalog_from_app(compiled).unwrap_or_default()
 }
 
 fn root_to_snapshot(root: ReachabilityTreeRoot) -> ReachabilityTreeRootSnapshot {
@@ -250,10 +470,16 @@ fn collect_panel_subtree(
     }
 
     if blocks.len() <= MAX_BLOCK_CHILDREN_IN_TREE {
-        for block in &blocks {
-            if let Some(block_node) =
-                block_tree_node(scene_id, panel_path, block, manifest, scene_label, panel)
-            {
+        for (ordinal, block) in blocks.iter().enumerate() {
+            if let Some(block_node) = block_tree_node(
+                scene_id,
+                panel_path,
+                block,
+                ordinal,
+                manifest,
+                scene_label,
+                panel,
+            ) {
                 child_ids.push(block_node.node_id.clone());
                 tree_children.push(block_node);
             }
@@ -295,16 +521,13 @@ fn block_tree_node(
     scene_id: &str,
     panel_path: &str,
     block: &BlockDecl,
+    ordinal: usize,
     manifest: &mut BTreeMap<String, ExperienceNodeManifest>,
     scene_label: &str,
     parent_panel: &PanelDecl,
 ) -> Option<ReachabilityTreeNode> {
-    let block_id = block
-        .id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(block.use_key.as_str());
-    let node = BuildNodeId::scene_block(scene_id, panel_path, block_id);
+    let block_id = block_instance_id(block, ordinal);
+    let node = BuildNodeId::scene_block(scene_id, panel_path, block_id.as_str());
     let node_id = node.encode();
     let label = block_title(block);
     let mut experience_path =
@@ -461,6 +684,52 @@ fn dedupe(items: &mut Vec<String>) {
             true
         }
     });
+}
+
+fn disambiguate_tree_node_labels(nodes: &mut [ReachabilityTreeNode]) {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for node in nodes.iter() {
+        if !node.node_id.trim().is_empty() {
+            *counts.entry(node.label.clone()).or_default() += 1;
+        }
+    }
+    for node in nodes.iter_mut() {
+        if node.node_id.trim().is_empty() {
+            disambiguate_tree_node_labels(&mut node.children);
+            continue;
+        }
+        if counts.get(&node.label).copied().unwrap_or(0) > 1 {
+            if let Some(hint) = tree_label_hint(node) {
+                node.label = format!("{} · {}", node.label, hint);
+            }
+        }
+        disambiguate_tree_node_labels(&mut node.children);
+    }
+}
+
+fn tree_label_hint(node: &ReachabilityTreeNode) -> Option<String> {
+    let parsed = BuildNodeId::parse(&node.node_id)?;
+    match parsed.kind {
+        BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock => {
+            let segments: Vec<&str> = parsed.key.split('/').filter(|s| !s.is_empty()).collect();
+            if segments.len() >= 2 {
+                Some(format!("{}/{}", segments[segments.len() - 2], segments[segments.len() - 1]))
+            } else {
+                segments.last().map(|s| (*s).to_string())
+            }
+        }
+        BuildNodeKind::BoardFile => parsed
+            .key
+            .split('#')
+            .next()
+            .and_then(|path| path.rsplit('/').next())
+            .map(str::to_string),
+        BuildNodeKind::BoardSlot => parsed
+            .key
+            .rsplit_once('/')
+            .map(|(_, slot)| slot.to_string()),
+        _ => Some(parsed.key.clone()),
+    }
 }
 
 fn projection_children(
@@ -668,5 +937,90 @@ mod tests {
         assert_eq!(panels.children.len(), 1);
         assert_eq!(panels.children[0].children.len(), 1);
         assert_eq!(panels.children[0].children[0].label, "监督预警");
+    }
+
+    #[test]
+    fn stale_snapshot_rebuilds_boards_and_templates_groups() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        let mut stale = compiled;
+        stale.build_experience_index = BuildExperienceIndex::default();
+        stale.build_board_index = Default::default();
+        stale.build_template_index = Default::default();
+
+        let roots = reachability_roots_from_compiled(&stale);
+        let groups: Vec<_> = roots.iter().map(|root| root.group.as_str()).collect();
+        assert!(
+            groups.contains(&"boards"),
+            "expected boards group after stale rebuild, got {groups:?}"
+        );
+        assert!(
+            groups.contains(&"templates"),
+            "expected templates group after stale rebuild, got {groups:?}"
+        );
+        assert!(
+            !groups.contains(&"components"),
+            "stale rebuild should not fall back to legacy runtime-only components group"
+        );
+        let boards = roots
+            .iter()
+            .find(|root| root.group == "boards")
+            .expect("boards group");
+        assert!(
+            !boards.children.is_empty(),
+            "boards group should list board capsules"
+        );
+    }
+
+    #[test]
+    fn partial_snapshot_restores_templates_from_component_assets() {
+        use std::path::Path;
+
+        use crate::compile::{compile_app_from_root_with_options, CompileOptions};
+
+        let source_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../..")
+            .canonicalize()
+            .expect("workspace root")
+            .join("workspaces")
+            .join("ws-spbjw");
+        let app_root = source_root.join("zhifa");
+        let compiled = compile_app_from_root_with_options(
+            &source_root,
+            &app_root,
+            CompileOptions::default(),
+        )
+        .expect("compile zhifa");
+        assert!(
+            !compiled.component_assets.is_empty(),
+            "fixture should expose component assets"
+        );
+        let mut partial = compiled.clone();
+        partial.build_template_index = Default::default();
+        partial.build_experience_index.reachability_snapshot.retain(|root| {
+            root.group != "templates"
+        });
+
+        let roots = reachability_roots_from_compiled(&partial);
+        assert!(
+            roots.iter().any(|root| root.group == "templates"),
+            "templates group should be restored from component_assets, groups: {:?}",
+            roots.iter().map(|root| root.group.as_str()).collect::<Vec<_>>()
+        );
     }
 }

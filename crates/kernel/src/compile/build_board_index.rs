@@ -25,7 +25,7 @@ pub fn build_board_index(
     let tree_root = ReachabilityTreeRoot {
         group: "boards".to_string(),
         label: "Boards".to_string(),
-        default_open: false,
+        default_open: !tree_children.is_empty(),
         children: tree_children,
     };
     BuildBoardIndexResult { index, tree_root }
@@ -81,39 +81,71 @@ fn collect_board_files(
                 popup_consumers: Vec::new(),
                 params_summary,
             };
-            boards.insert(board_key.clone(), entry);
+            boards.insert(board_key.clone(), entry.clone());
 
-            let file_node_id = BuildNodeId::board_file(board_key.as_str()).encode();
-            let slot_nodes = slots
-                .iter()
-                .map(|slot| {
-                    let node = BuildNodeId::board_slot(board_key.as_str(), slot.slot_id.as_str());
-                    ReachabilityTreeNode {
-                        id: format!("board-slot-{}-{}", board_file, slot.slot_id),
-                        node_id: node.encode(),
-                        kind: "board_slot".to_string(),
-                        label: slot
-                            .label
-                            .clone()
-                            .unwrap_or_else(|| slot.slot_id.clone()),
-                        badges: slot
-                            .component
-                            .clone()
-                            .into_iter()
-                            .collect(),
-                        children: Vec::new(),
-                    }
-                })
-                .collect();
-            tree_children.push(ReachabilityTreeNode {
-                id: format!("board-file-{board_file}-{scene_id}"),
-                node_id: file_node_id,
-                kind: "board_file".to_string(),
-                label,
-                badges: vec![scene_id.to_string()],
-                children: slot_nodes,
-            });
+            push_board_file_tree_node(tree_children, board_key.as_str(), &entry);
         }
+    }
+}
+
+fn push_board_file_tree_node(
+    tree_children: &mut Vec<ReachabilityTreeNode>,
+    board_key: &str,
+    entry: &BoardFileEntry,
+) {
+    let board_file = entry.board_file.as_str();
+    let scene_id = entry.scene_id.as_str();
+    let label = entry.label.clone();
+    let slots = &entry.slots;
+    let file_node_id = BuildNodeId::board_file(board_key).encode();
+    let slot_nodes = slots
+        .iter()
+        .map(|slot| {
+            let node = BuildNodeId::board_slot(board_key, slot.slot_id.as_str());
+            ReachabilityTreeNode {
+                id: format!("board-slot-{}-{}", board_file, slot.slot_id),
+                node_id: node.encode(),
+                kind: "board_slot".to_string(),
+                label: slot
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| slot.slot_id.clone()),
+                badges: slot.component.clone().into_iter().collect(),
+                children: Vec::new(),
+            }
+        })
+        .collect();
+    let file_name = board_file
+        .rsplit('/')
+        .next()
+        .unwrap_or(board_file)
+        .trim_end_matches(".board.mei");
+    let display_label = if label.trim().is_empty() {
+        scene_id.to_string()
+    } else {
+        label
+    };
+    tree_children.push(ReachabilityTreeNode {
+        id: format!("board-file-{board_file}-{scene_id}"),
+        node_id: file_node_id,
+        kind: "board_file".to_string(),
+        label: display_label,
+        badges: vec![file_name.to_string(), scene_id.to_string()],
+        children: slot_nodes,
+    });
+}
+
+/// Rebuild Boards reachability group from compile-time index (e.g. stale snapshot fallback).
+pub fn board_tree_root_from_index(index: &BuildBoardIndex) -> ReachabilityTreeRoot {
+    let mut tree_children = Vec::new();
+    for (board_key, entry) in &index.boards {
+        push_board_file_tree_node(&mut tree_children, board_key.as_str(), entry);
+    }
+    ReachabilityTreeRoot {
+        group: "boards".to_string(),
+        label: "Boards".to_string(),
+        default_open: !tree_children.is_empty(),
+        children: tree_children,
     }
 }
 

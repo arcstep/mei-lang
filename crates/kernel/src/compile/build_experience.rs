@@ -44,8 +44,28 @@ pub fn preview_target_from_build_node_with_app(
             let scene_id = node.key.split('/').next()?;
             compiled.and_then(|app| preview_target_for_scene_id(app, scene_id))
         }
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
+            if let Some(entry) = compiled.and_then(|app| app.build_board_index.lookup(node)) {
+                return Some(entry.board_file.clone());
+            }
+            let (file, _) = board_capsule_from_node_key(&node.key);
+            non_empty_path(file)
+        }
         _ => None,
     }
+}
+
+/// `(board_file, scene_export_id)` parsed from board-file / board-slot node keys.
+pub fn board_capsule_from_node_key(key: &str) -> (String, String) {
+    let board_key = key
+        .rsplit_once('/')
+        .filter(|(base, _)| base.contains('#'))
+        .map(|(base, _)| base)
+        .unwrap_or(key);
+    board_key
+        .split_once('#')
+        .map(|(file, scene)| (file.to_string(), scene.to_string()))
+        .unwrap_or_else(|| (board_key.to_string(), String::new()))
 }
 
 pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
@@ -53,6 +73,9 @@ pub fn compile_scene_from_build_node(node: &BuildNodeId) -> Option<String> {
         BuildNodeKind::Scene | BuildNodeKind::Route => non_empty_path(node.key.clone()),
         BuildNodeKind::ScenePanel | BuildNodeKind::SceneBlock | BuildNodeKind::Projection => {
             scene_id_from_ui_node_key(&node.key)
+        }
+        BuildNodeKind::BoardFile | BuildNodeKind::BoardSlot => {
+            non_empty_path(board_capsule_from_node_key(&node.key).1)
         }
         _ => None,
     }
@@ -196,6 +219,17 @@ fn panel_label(panel: &PanelDecl) -> String {
         .unwrap_or_else(|| panel.id.clone())
 }
 
+pub fn block_instance_id(block: &BlockDecl, ordinal: usize) -> String {
+    let stem = block
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| block.use_key.clone());
+    format!("{stem}~{ordinal}")
+}
+
 fn block_label(block: &BlockDecl) -> String {
     block
         .title
@@ -229,21 +263,23 @@ fn find_panel_by_path(
 }
 
 fn find_block_in_panel(panel: &PanelDecl, block_id: &str) -> Option<BlockDecl> {
-    panel.blocks.iter().find_map(|node| match node {
-        UiNodeDecl::Block(block) => {
-            let id = block
-                .id
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or(block.use_key.as_str());
-            if id == block_id {
-                Some(block.clone())
-            } else {
-                None
-            }
+    for (ordinal, block) in blocks_in_panel(panel).iter().enumerate() {
+        if block_instance_id(block, ordinal) == block_id {
+            return Some((*block).clone());
         }
-        _ => None,
-    })
+    }
+    None
+}
+
+fn blocks_in_panel(panel: &PanelDecl) -> Vec<&BlockDecl> {
+    panel
+        .blocks
+        .iter()
+        .filter_map(|node| match node {
+            UiNodeDecl::Block(block) => Some(block),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn panels_for_scene(compiled: &CompiledApp, scene_id: &str) -> Option<Vec<PanelDecl>> {
@@ -429,8 +465,60 @@ mod tests {
     }
 
     #[test]
+    fn board_build_node_resolves_preview_target_and_scene() {
+        use crate::model::BuildNodeId;
+
+        let node = BuildNodeId::board_file(
+            "scenes/01-执法要素.board.mei#enforcement_units_analytics_board",
+        );
+        assert_eq!(
+            preview_target_from_build_node_with_app(&node, None).as_deref(),
+            Some("scenes/01-执法要素.board.mei")
+        );
+        assert_eq!(
+            compile_scene_from_build_node(&node).as_deref(),
+            Some("enforcement_units_analytics_board")
+        );
+        let slot = BuildNodeId::board_slot(
+            "scenes/01-执法要素.board.mei#enforcement_units_analytics_board",
+            "hero",
+        );
+        assert_eq!(
+            preview_target_from_build_node_with_app(&slot, None).as_deref(),
+            Some("scenes/01-执法要素.board.mei")
+        );
+        assert_eq!(
+            compile_scene_from_build_node(&slot).as_deref(),
+            Some("enforcement_units_analytics_board")
+        );
+    }
+
+    #[test]
     fn compile_scene_from_panel_node() {
         let node = BuildNodeId::scene_panel("home", "kpi_row");
         assert_eq!(compile_scene_from_build_node(&node).as_deref(), Some("home"));
+    }
+
+    #[test]
+    fn block_instance_id_always_includes_ordinal() {
+        let block = BlockDecl {
+            kind: "block".to_string(),
+            use_key: "mei.text".to_string(),
+            id: Some("mei.text".to_string()),
+            title: None,
+            area: None,
+            props: serde_json::Value::Null,
+            base: None,
+            layout: None,
+            blocks: Vec::new(),
+            component: None,
+            placement: None,
+            interactions: Vec::new(),
+            lifecycle: None,
+            constraints: None,
+            data: None,
+        };
+        assert_eq!(block_instance_id(&block, 0), "mei.text~0");
+        assert_eq!(block_instance_id(&block, 1), "mei.text~1");
     }
 }

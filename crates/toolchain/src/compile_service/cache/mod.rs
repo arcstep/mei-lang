@@ -57,7 +57,7 @@ struct CompiledAppDiskArtifact {
     dataset_runtime_payloads: BTreeMap<String, DatasetRuntimePayload>,
 }
 
-const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v2";
+const COMPILED_APP_ARTIFACT_SCHEMA_VERSION: &str = "mei-compiled-app-artifact-v3";
 const COMPILED_APP_ARTIFACT_KIND: &str = "compiled_app";
 const COMPILED_APP_ARTIFACT_NAME: &str = "compiled_app";
 

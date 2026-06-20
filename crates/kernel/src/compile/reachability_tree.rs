@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use crate::compile::{
-    aggregate_use_key_badges, backing_refs_from_block_props, panels_for_scene,
-};
-use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp, PanelDecl, UiNodeDecl};
+use crate::model::{BuildNodeId, BuildNodeKind, CompiledApp};
 
 /// One node in the build-view reachability tree.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -32,17 +28,6 @@ pub struct ReachabilityTreeRoot {
 
 pub fn build_reachability_tree(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
     crate::compile::build_experience_index::reachability_roots_from_compiled(compiled)
-}
-
-pub(crate) fn build_reachability_tree_runtime_only(compiled: &CompiledApp) -> Vec<ReachabilityTreeRoot> {
-    vec![
-        scenes_root(compiled),
-        routes_root(compiled),
-        world_root(compiled),
-        datasets_root(compiled),
-        components_root(compiled),
-        artifacts_root(compiled),
-    ]
 }
 
 pub(crate) fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
@@ -77,189 +62,6 @@ pub(crate) fn routes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
             })
             .collect(),
     }
-}
-
-fn scenes_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
-    ReachabilityTreeRoot {
-        group: "scenes".to_string(),
-        label: "Scenes".to_string(),
-        default_open: true,
-        children: compiled
-            .scene_routes
-            .iter()
-            .map(|route| scene_tree_node(compiled, route))
-            .collect(),
-    }
-}
-
-fn scene_tree_node(
-    compiled: &CompiledApp,
-    route: &crate::model::CompiledSceneRoute,
-) -> ReachabilityTreeNode {
-    let scene_node = BuildNodeId::scene(route.scene_id.clone());
-    let mut children = Vec::new();
-
-    if let Some(panels) = panels_for_scene(compiled, route.scene_id.as_str()) {
-        if !panels.is_empty() {
-            let panel_nodes = panels
-                .iter()
-                .map(|panel| panel_tree_node(route.scene_id.as_str(), panel, panel.id.as_str()))
-                .collect();
-            children.push(ReachabilityTreeNode {
-                id: format!("scene-panels-{}", route.scene_id),
-                node_id: String::new(),
-                kind: "scene_group".to_string(),
-                label: "Panels".to_string(),
-                badges: Vec::new(),
-                children: panel_nodes,
-            });
-        }
-    } else if compiled
-        .scene_projection_assembly_by_id
-        .get(&route.scene_id)
-        .is_none()
-    {
-        children.push(ReachabilityTreeNode {
-            id: format!("scene-gate-{}", route.scene_id),
-            node_id: String::new(),
-            kind: "scene_group".to_string(),
-            label: "Panels".to_string(),
-            badges: vec!["gate:missing".to_string()],
-            children: Vec::new(),
-        });
-    }
-
-    if let Some(assembly) = compiled
-        .scene_projection_assembly_by_id
-        .get(&route.scene_id)
-    {
-        children.extend(projection_children(route.scene_id.as_str(), assembly, "board"));
-        children.extend(projection_children(route.scene_id.as_str(), assembly, "overlay"));
-    }
-
-    ReachabilityTreeNode {
-        id: format!("scene-{}", route.scene_id),
-        node_id: scene_node.encode(),
-        kind: "scene".to_string(),
-        label: route
-            .title
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| route.scene_id.clone()),
-        badges: vec![route.target_file.clone()],
-        children,
-    }
-}
-
-fn projection_children(
-    scene_id: &str,
-    assembly: &Value,
-    kind: &str,
-) -> Vec<ReachabilityTreeNode> {
-    let key = if kind == "board" { "boards" } else { "overlays" };
-    let badge = if kind == "board" {
-        "board".to_string()
-    } else {
-        "link-only".to_string()
-    };
-    let Some(object) = assembly.get(key).and_then(Value::as_object) else {
-        return Vec::new();
-    };
-    if object.is_empty() {
-        return Vec::new();
-    }
-    let label = if kind == "board" {
-        "Boards".to_string()
-    } else {
-        "Overlays".to_string()
-    };
-    let nodes = object
-        .keys()
-        .map(|projection_id| {
-            let node = BuildNodeId::projection(scene_id, projection_id);
-            ReachabilityTreeNode {
-                id: format!("{kind}-{scene_id}-{projection_id}"),
-                node_id: node.encode(),
-                kind: "projection".to_string(),
-                label: projection_id.clone(),
-                badges: vec![badge.clone()],
-                children: Vec::new(),
-            }
-        })
-        .collect();
-    vec![ReachabilityTreeNode {
-        id: format!("scene-{kind}s-{scene_id}"),
-        node_id: String::new(),
-        kind: "scene_group".to_string(),
-        label,
-        badges: Vec::new(),
-        children: nodes,
-    }]
-}
-
-fn panel_tree_node(scene_id: &str, panel: &PanelDecl, panel_path: &str) -> ReachabilityTreeNode {
-    let node = BuildNodeId::scene_panel(scene_id, panel_path);
-    let label = panel
-        .title
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| panel.id.clone());
-    let badges = aggregate_use_key_badges(&panel.blocks);
-    let mut block_nodes = Vec::new();
-    for ui_node in &panel.blocks {
-        match ui_node {
-            UiNodeDecl::Panel(nested) => {
-                let nested_path = format!("{panel_path}/{}", nested.id);
-                block_nodes.push(panel_tree_node(scene_id, nested, nested_path.as_str()));
-            }
-            UiNodeDecl::Block(_) => {
-                if let Some(block_node) = block_tree_node(scene_id, panel_path, ui_node) {
-                    block_nodes.push(block_node);
-                }
-            }
-            _ => {}
-        }
-    }
-    ReachabilityTreeNode {
-        id: format!("scene-panel-{scene_id}-{panel_path}"),
-        node_id: node.encode(),
-        kind: "scene_panel".to_string(),
-        label,
-        badges,
-        children: block_nodes,
-    }
-}
-
-fn block_tree_node(
-    scene_id: &str,
-    panel_path: &str,
-    ui_node: &UiNodeDecl,
-) -> Option<ReachabilityTreeNode> {
-    let block = match ui_node {
-        UiNodeDecl::Block(block) => block,
-        _ => return None,
-    };
-    let block_id = block
-        .id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or(block.use_key.as_str());
-    let node = BuildNodeId::scene_block(scene_id, panel_path, block_id);
-    let label = block
-        .title
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| block_id.to_string());
-    let mut badges = vec![block.use_key.clone()];
-    badges.extend(backing_refs_from_block_props(&block.props));
-    Some(ReachabilityTreeNode {
-        id: format!("scene-block-{scene_id}-{panel_path}-{block_id}"),
-        node_id: node.encode(),
-        kind: "scene_block".to_string(),
-        label,
-        badges,
-        children: Vec::new(),
-    })
 }
 
 pub(crate) fn world_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
@@ -400,29 +202,6 @@ pub(crate) fn datasets_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     }
 }
 
-pub(crate) fn components_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
-    ReachabilityTreeRoot {
-        group: "components".to_string(),
-        label: "Components".to_string(),
-        default_open: false,
-        children: compiled
-            .component_assets
-            .iter()
-            .map(|asset| {
-                let node = BuildNodeId::component(asset.key.clone());
-                ReachabilityTreeNode {
-                    id: format!("component-{}", asset.key),
-                    node_id: node.encode(),
-                    kind: "component".to_string(),
-                    label: asset.key.clone(),
-                    badges: vec![asset.tag.clone()],
-                    children: Vec::new(),
-                }
-            })
-            .collect(),
-    }
-}
-
 pub(crate) fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
     ReachabilityTreeRoot {
         group: "artifacts".to_string(),
@@ -449,7 +228,8 @@ pub(crate) fn artifacts_root(compiled: &CompiledApp) -> ReachabilityTreeRoot {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::BlockDecl;
+    use crate::model::{BlockDecl, PanelDecl, UiNodeDecl};
+    use serde_json::Value;
     use std::collections::BTreeMap;
 
     #[test]
@@ -500,9 +280,10 @@ mod tests {
             },
         );
         let roots = build_reachability_tree(&compiled);
-        assert_eq!(roots.len(), 6);
+        assert_eq!(roots.len(), 5);
         assert!(roots[0].default_open);
         assert_eq!(roots[0].group, "scenes");
+        assert_eq!(roots[1].group, "routes");
         assert_eq!(roots[1].children.len(), 1);
         assert!(!roots[2].default_open);
         assert_eq!(roots[2].label, "Backing · World");

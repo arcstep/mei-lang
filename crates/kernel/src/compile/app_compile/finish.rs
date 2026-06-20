@@ -7,11 +7,13 @@ use std::{
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::compile::entry_payload::CompiledScenePayload;
+use crate::compile::entry_payload::{compile_scene_payload_for_target_uncached, CompiledScenePayload};
 use crate::model::{
-    CompiledApp, ComponentAsset, Diagnostic, LoadedResource, SceneContract, Severity,
-    WorldSemanticFileIndex,
+    CompiledApp, CompiledSceneRoute, ComponentAsset, Diagnostic, LoadedResource, SceneContract,
+    Severity, WorkspaceNode, WorldSemanticFileIndex,
 };
+use crate::typed_refs::SceneRegistry;
+use crate::evaluate_mei_file;
 use crate::workspace::source_tree;
 
 use super::super::catalog::DatasetCatalogFilter;
@@ -87,7 +89,7 @@ pub(super) fn finish_compiled_app(
         ..
     } = catalog;
 
-    let target_scene_contracts = build_target_scene_contracts(&official_results, &active_payload);
+    let mut target_scene_contracts = build_target_scene_contracts(&official_results, &active_payload);
     let target_scene_ids_by_file = route_registry
         .routes
         .iter()
@@ -113,10 +115,10 @@ pub(super) fn finish_compiled_app(
     let world_finalize_started = Instant::now();
     let scene_projection_started = Instant::now();
     let (
-        scene_local_nav_by_target,
-        scene_bindings_by_id,
-        scene_examples_by_id,
-        scene_projection_assembly_by_id,
+        mut scene_local_nav_by_target,
+        mut scene_bindings_by_id,
+        mut scene_examples_by_id,
+        mut scene_projection_assembly_by_id,
     ) = build_scene_projection_maps(
         &route_registry,
         &official_results,
@@ -134,6 +136,31 @@ pub(super) fn finish_compiled_app(
         app_root,
         &mut file_tree,
         &mut world_semantic_by_file,
+    );
+    hydrate_board_capsules_from_file_tree(
+        app_root,
+        app_main,
+        asset_map,
+        &route_registry,
+        &file_tree,
+        &mut scene_projection_assembly_by_id,
+        &mut scene_bindings_by_id,
+        &mut scene_examples_by_id,
+        &mut scene_local_nav_by_target,
+        &mut target_scene_contracts,
+        diagnostics,
+    );
+    ensure_build_tree_entry_scene_assemblies(
+        app_root,
+        app_main,
+        asset_map,
+        dependency_graph,
+        &route_registry,
+        active_target_file.as_str(),
+        &mut scene_projection_assembly_by_id,
+        &mut scene_bindings_by_id,
+        &mut scene_examples_by_id,
+        &mut scene_local_nav_by_target,
     );
     if active_target_file.ends_with(".world.mei") {
         world_semantic_by_file
@@ -227,8 +254,9 @@ pub(super) fn finish_compiled_app(
         &compiled.scene_projection_assembly_by_id,
     );
     compiled.build_board_index = board.index;
+    let template_catalog: Vec<ComponentAsset> = asset_map.values().cloned().collect();
     let template = crate::compile::build_template_index(
-        &compiled.component_assets,
+        &template_catalog,
         &target_scene_contracts,
         &compiled.build_experience_index.node_manifest,
     );
@@ -681,4 +709,185 @@ fn build_scene_projection_maps(
         scene_examples_by_id,
         scene_projection_assembly_by_id,
     )
+}
+
+fn assembly_has_panels(entry: Option<&Value>) -> bool {
+    entry
+        .and_then(|value| value.get("panels"))
+        .and_then(|value| value.as_array())
+        .is_some_and(|panels| !panels.is_empty())
+}
+
+fn ensure_build_tree_entry_scene_assemblies(
+    app_root: &Path,
+    app_main: &Path,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    dependency_graph: &DependencyGraph,
+    route_registry: &SceneRouteRegistry,
+    active_target_file: &str,
+    scene_projection_assembly_by_id: &mut BTreeMap<String, Value>,
+    scene_bindings_by_id: &mut BTreeMap<String, Value>,
+    scene_examples_by_id: &mut BTreeMap<String, Value>,
+    scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+) {
+    if !active_target_file.ends_with(".board.mei") {
+        return;
+    }
+    let Ok(app_decls) = evaluate_mei_file(app_main) else {
+        return;
+    };
+    let source_root = app_root.parent().unwrap_or(app_root);
+    let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    for route in &route_registry.routes {
+        if route.target_file.ends_with(".board.mei") {
+            continue;
+        }
+        if assembly_has_panels(scene_projection_assembly_by_id.get(&route.scene_id)) {
+            continue;
+        }
+        let payload = super::scene_payload_cache::compile_scene_payload_for_target(
+            app_root,
+            source_root,
+            &app_decls,
+            asset_map,
+            &scene_registry,
+            dependency_graph,
+            &route.target_file,
+            Some(route.scene_id.as_str()),
+            None,
+        );
+        let Some(contract) = payload.scene_contract.as_ref() else {
+            continue;
+        };
+        insert_scene_projection_assembly_entry(
+            scene_projection_assembly_by_id,
+            scene_bindings_by_id,
+            scene_examples_by_id,
+            scene_local_nav_by_target,
+            &route.scene_id,
+            &route.target_file,
+            Some(route.kind.as_str()),
+            route.title.as_deref(),
+            contract,
+            &payload.resources,
+        );
+    }
+}
+
+fn hydrate_board_capsules_from_file_tree(
+    app_root: &Path,
+    app_main: &Path,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    route_registry: &SceneRouteRegistry,
+    file_tree: &[WorkspaceNode],
+    scene_projection_assembly_by_id: &mut BTreeMap<String, Value>,
+    scene_bindings_by_id: &mut BTreeMap<String, Value>,
+    scene_examples_by_id: &mut BTreeMap<String, Value>,
+    scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+    target_scene_contracts: &mut BTreeMap<String, SceneContract>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let Ok(app_decls) = evaluate_mei_file(app_main) else {
+        return;
+    };
+    let scene_registry = SceneRegistry::build_from_routes(&route_registry.routes);
+    walk_hydrate_board_nodes(
+        app_root,
+        &app_decls,
+        asset_map,
+        &scene_registry,
+        file_tree,
+        scene_projection_assembly_by_id,
+        scene_bindings_by_id,
+        scene_examples_by_id,
+        scene_local_nav_by_target,
+        target_scene_contracts,
+        diagnostics,
+    );
+}
+
+fn walk_hydrate_board_nodes(
+    app_root: &Path,
+    app_decls: &Value,
+    asset_map: &BTreeMap<String, ComponentAsset>,
+    scene_registry: &SceneRegistry,
+    nodes: &[WorkspaceNode],
+    scene_projection_assembly_by_id: &mut BTreeMap<String, Value>,
+    scene_bindings_by_id: &mut BTreeMap<String, Value>,
+    scene_examples_by_id: &mut BTreeMap<String, Value>,
+    scene_local_nav_by_target: &mut BTreeMap<String, Value>,
+    target_scene_contracts: &mut BTreeMap<String, SceneContract>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for node in nodes {
+        if node.kind == "dir" {
+            walk_hydrate_board_nodes(
+                app_root,
+                app_decls,
+                asset_map,
+                scene_registry,
+                &node.children,
+                scene_projection_assembly_by_id,
+                scene_bindings_by_id,
+                scene_examples_by_id,
+                scene_local_nav_by_target,
+                target_scene_contracts,
+                diagnostics,
+            );
+            continue;
+        }
+        if node.kind != "file" || !node.path.ends_with(".board.mei") {
+            continue;
+        }
+        for export in &node.children {
+            if export.kind != "scene_export" {
+                continue;
+            }
+            let Some(scene_id) = export
+                .scene_export_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            else {
+                continue;
+            };
+            if scene_projection_assembly_by_id.contains_key(scene_id)
+                && target_scene_contracts.contains_key(scene_id)
+            {
+                continue;
+            }
+            let route_meta = CompiledSceneRoute {
+                scene_id: scene_id.to_string(),
+                frame_id: None,
+                target_file: node.path.clone(),
+                kind: "board_capsule".to_string(),
+                title: Some(export.name.clone()),
+                is_default: false,
+                access_export: false,
+            };
+            let payload = compile_scene_payload_for_target_uncached(
+                app_root,
+                app_decls,
+                asset_map,
+                node.path.as_str(),
+                Some(&route_meta),
+                scene_registry,
+            );
+            diagnostics.extend(payload.diagnostics.clone());
+            let Some(contract) = payload.scene_contract.as_ref() else {
+                continue;
+            };
+            target_scene_contracts.insert(scene_id.to_string(), contract.clone());
+            insert_hydrated_link_projection_assembly_entry(
+                scene_projection_assembly_by_id,
+                scene_bindings_by_id,
+                scene_examples_by_id,
+                scene_local_nav_by_target,
+                scene_id,
+                node.path.as_str(),
+                contract,
+                &payload.resources,
+            );
+        }
+    }
 }

@@ -34,7 +34,7 @@ fn scene_example_title(examples: &Value) -> Option<String> {
     None
 }
 
-pub(super) fn enrich_source_tree_with_scene_exports(
+pub(crate) fn enrich_source_tree_with_scene_exports(
     app_root: &Path,
     nodes: &mut [WorkspaceNode],
 ) {
@@ -49,10 +49,11 @@ pub(super) fn enrich_source_tree_with_scene_exports(
         let Ok(scenes) = load_scene_decls_from_file(app_root, node.path.as_str()) else {
             continue;
         };
-        if scenes.len() <= 1 {
+        let is_board_capsule = node.path.ends_with(".board.mei");
+        // 普通 scene 文件仅多 export 时展开；board capsule 即使单 export 也要进语义 DAG / Boards 树。
+        if scenes.is_empty() || (!is_board_capsule && scenes.len() <= 1) {
             continue;
         }
-        let is_board_capsule = node.path.ends_with(".board.mei");
         node.children = scenes
             .into_iter()
             .map(|scene| WorkspaceNode {

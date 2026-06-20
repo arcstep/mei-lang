@@ -61,9 +61,10 @@ pub use app_compile::{
     CompileAppArtifacts,
 };
 pub use build_experience::{
-    aggregate_use_key_badges, backing_refs_from_block_props, build_experience_path,
+    aggregate_use_key_badges, backing_refs_from_block_props, block_instance_id,
+    build_experience_path,
     build_overview_backing, compile_scene_from_build_node, experience_layout_hint,
-    experience_mount_chain, format_experience_path, panels_for_scene,
+    experience_mount_chain, format_experience_path,
     preview_target_from_build_node_with_app,
 };
 pub use build_board_index::build_board_index;
