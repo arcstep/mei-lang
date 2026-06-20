@@ -130,11 +130,14 @@ pub async fn login_page(
     }
     let footer_html =
         host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
+    let shell_theme =
+        host_error_page::host_shell_body_theme_style(state.source_root.as_path());
     Html(login_page_html(
         sanitize_next_path(query.next.as_deref()).as_str(),
         auth_login_ready(&state, &runtime),
         runtime.enabled,
         footer_html.as_str(),
+        shell_theme.as_str(),
     ))
     .into_response()
 }
@@ -173,10 +176,13 @@ pub async fn account_change_password_page(
     };
     let footer_html =
         host_error_page::render_host_shell_footer_for_source_root(state.source_root.as_path());
+    let shell_theme =
+        host_error_page::host_shell_body_theme_style(state.source_root.as_path());
     Html(change_password_page_html(
         principal.username.as_str(),
         principal.role_slug(),
         footer_html.as_str(),
+        shell_theme.as_str(),
     ))
     .into_response()
 }

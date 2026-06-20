@@ -69,9 +69,9 @@ pub use mei_config::{
     app_mei_config_path, load_mei_config_for_app, load_workspace_auth_bundle,
     load_workspace_config, merge_ops_section, resolve_app_entry_main, resolve_app_main_path,
     resolve_app_root, resolve_authoring_helpers, resolve_authoring_root, resolve_components_root,
-    resolve_mei_config_path, resolve_templates_root,
+    resolve_mei_config_path, resolve_templates_root, resolve_workspace_shell_theme,
     set_mei_package_root, stock_components_source, stock_templates_source,
-    workspace_auth_config_path, workspace_auth_host_id, workspace_auth_state_dir,
+    validate_workspace_shell_theme, workspace_auth_config_path, workspace_auth_host_id, workspace_auth_state_dir,
     workspace_config_path, write_mei_config, write_workspace_auth_bundle,
     write_workspace_config, AppEntryConfig, AppFeaturesConfig, AppPathsConfig,
     AuthKeyPairConfig, AuthUserConfig, AuthoringHelpers, DiscoverConfig, FileCacheConfig, FileCacheSettings,
@@ -79,7 +79,7 @@ pub use mei_config::{
     RuntimeWarmupApp, RuntimeWarmupDatasetRequest, RuntimeWarmupManifest, RuntimeWarmupXlsxSource,
     WorkspaceAuthBundle,
     WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceHostState,
-    WorkspacePathsConfig, WorkspaceProfile,     WorkspaceWarmupAppConfig, WorkspaceWarmupConfig, WorkspaceWarmupDatasetConfig,
+    WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile,     WorkspaceWarmupAppConfig, WorkspaceWarmupConfig, WorkspaceWarmupDatasetConfig,
     WorkspaceWarmupXlsxConfig, AUTH_JOURNAL_REL_PATH,
     LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,
     LEGACY_WORKSPACE_SNAPSHOT_GIT_REL, PRE_LOCAL_AUTH_JOURNAL_REL_PATH,
@@ -124,10 +124,11 @@ pub use source_version::{
     write_upload_registry, ParsedVersionedUploadFile, UploadAliasRecord, UploadRegistry,
     UploadVersionRecord,
 };
+#[allow(deprecated)]
 pub use theme_tokens::{
     is_font_scale_key, is_literal_color, is_literal_font_size, is_literal_gradient,
-    validate_frame_token_refs, validate_panel_token_refs, validate_theme_decl,
-    validate_theme_value_from_ops,
+    validate_frame_token_refs, validate_panel_token_refs, validate_scene_theme_value_from_ops,
+    validate_shell_theme_value, validate_theme_decl, validate_theme_value_from_ops,
 };
 pub use typed_refs::{
     decode_binding_value, decode_ref_value, ref_to_json, BindingValue, RefExpr, RefKind,

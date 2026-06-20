@@ -11,6 +11,9 @@ pub(crate) use merge::{
 
 #[cfg(test)]
 pub(crate) use merge::resolve_panel_props;
-pub(crate) use parse::{body_theme_style, default_body_theme_style, resolve_theme, ThemeResolved};
+pub use parse::{
+    default_shell_body_theme_style, scene_viewport_theme_style, shell_body_theme_style,
+};
+pub(crate) use parse::{resolve_theme, ThemeResolved};
 pub(crate) use parse_tokens::theme_css_vars_style;
 pub(crate) use resolve_literals::{resolve_color_token, resolve_font_token, resolve_gradient_token};

@@ -91,6 +91,17 @@ impl WorkspaceComplianceConfig {
     }
 }
 
+/// Workspace 级 ops：宿主 shell 主题（与 app `ops.themes` 独立）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkspaceOpsConfig {
+    /// 宿主 shell 主题 id，对应 `themes` 表中的条目。
+    #[serde(default, rename = "shellTheme")]
+    pub shell_theme: Option<String>,
+    /// Workspace 级主题表（仅 shell chrome；与 app `ops.themes` 独立）。
+    #[serde(default)]
+    pub themes: BTreeMap<String, Value>,
+}
+
 /// workspace / segment 级配置：发现规则、默认菜单与运行时回退。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WorkspaceConfig {
@@ -114,6 +125,9 @@ pub struct WorkspaceConfig {
     /// 工作区级宿主认证配置（用户清单、JWT、登录加密密钥）。
     #[serde(default, skip_serializing_if = "WorkspaceAuthConfig::is_empty")]
     pub auth: WorkspaceAuthConfig,
+    /// 宿主 shell 主题与 workspace 级主题表。
+    #[serde(default)]
+    pub ops: WorkspaceOpsConfig,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

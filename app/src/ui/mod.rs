@@ -34,6 +34,8 @@ use shell_manage::{manage_shell, manage_source_shell};
 use shell_presentation::presentation_shell;
 use shell_upload::upload_shell;
 
+pub use preview::{default_shell_body_theme_style, scene_viewport_theme_style, shell_body_theme_style};
+
 use document::render_document;
 
 #[derive(Debug, Clone, Serialize)]
@@ -133,6 +135,7 @@ pub fn render_page(
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
     scene_component_bundle_url: Option<&str>,
+    shell_body_theme_style: &str,
 ) -> String {
     let shell = match route_mode {
         UiRouteMode::App => access_shell(
@@ -217,7 +220,7 @@ pub fn render_page(
         component_scripts(compiled, scene_component_bundle_url).into_any(),
         auth_enabled,
         auth_account,
-        preview::body_theme_style(compiled).as_str(),
+        shell_body_theme_style,
     )
 }
 
@@ -232,6 +235,7 @@ pub fn render_config_page(
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
 ) -> String {
     let _ = source;
     let shell = config_shell(
@@ -254,7 +258,7 @@ pub fn render_config_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
-        preview::default_body_theme_style().as_str(),
+        shell_body_theme_style,
     )
 }
 
@@ -272,6 +276,7 @@ pub fn render_upload_page(
     upload_files: &[UploadFileEntry],
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
 ) -> String {
     let shell = upload_shell(
         apps,
@@ -297,7 +302,7 @@ pub fn render_upload_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
-        preview::default_body_theme_style().as_str(),
+        shell_body_theme_style,
     )
 }
 
@@ -315,6 +320,7 @@ pub fn render_build_source_page(
     upload_enabled: bool,
     auth_enabled: bool,
     auth_account: Option<&HostAccountView>,
+    shell_body_theme_style: &str,
 ) -> String {
     let shell = manage_source_shell(
         apps,
@@ -340,7 +346,7 @@ pub fn render_build_source_page(
         view! { <></> }.into_any(),
         auth_enabled,
         auth_account,
-        preview::default_body_theme_style().as_str(),
+        shell_body_theme_style,
     )
 }
 

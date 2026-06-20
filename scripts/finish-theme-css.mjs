@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/** @deprecated Use apply-shell-theme-css.mjs + lint-theme-css.mjs instead. */
 import fs from "node:fs";
 import path from "node:path";
 

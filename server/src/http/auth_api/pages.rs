@@ -77,6 +77,7 @@ pub(super) fn login_page_html(
     auth_ready: bool,
     auth_configured: bool,
     footer_html: &str,
+    body_theme_style: &str,
 ) -> String {
     let password_field = password_field_html("password", "current-password", true, true);
     let next_escaped = html_escape(next);
@@ -153,10 +154,16 @@ pub(super) fn login_page_html(
         "MeiLang 登录",
         card_inner.as_str(),
         footer_html,
+        body_theme_style,
     )
 }
 
-pub(super) fn change_password_page_html(username: &str, role: &str, footer_html: &str) -> String {
+pub(super) fn change_password_page_html(
+    username: &str,
+    role: &str,
+    footer_html: &str,
+    body_theme_style: &str,
+) -> String {
     let user = html_escape(username);
     let role = html_escape(role);
     let current_password_field =
@@ -236,5 +243,6 @@ pub(super) fn change_password_page_html(username: &str, role: &str, footer_html:
         "修改密码",
         card_inner.as_str(),
         footer_html,
+        body_theme_style,
     )
 }

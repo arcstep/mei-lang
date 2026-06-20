@@ -94,8 +94,8 @@ Use the two JSON files for different concerns:
 
 | File | Scope | What belongs here |
 |------|-------|-------------------|
-| `.mei-workspace.json` | workspace root | workspace id/label, stock paths, discover rules, menu, runtime file cache, compliance |
-| `<app>/.mei-config.json` | app root | app entry, app-local paths, host feature flags, `ops.themes`, `ops.sources`, `ops.basemaps`, `ops.params` |
+| `.mei-workspace.json` | workspace root | workspace id/label, stock paths, discover rules, menu, runtime file cache, compliance, **`ops.shellTheme`**, **`ops.themes`** (shell chrome only) |
+| `<app>/.mei-config.json` | app root | app entry, app-local paths, host feature flags, `ops.themes` (scene / `theme_ref`), `ops.sources`, `ops.basemaps`, `ops.params` |
 
 Do not treat them as interchangeable.
 
@@ -125,11 +125,52 @@ Common fields:
 - `menu`
 - `runtime.file_cache`
 - `compliance`
+- `ops.shellTheme` — id of workspace shell theme (host chrome)
+- `ops.themes` — shell theme definitions (e.g. `host`); injected on `<body>`
+
+Shell theme shape (see `docs/mei-lang/topics/theme-token-contract.md`):
+
+```json
+{
+  "schemaVersion": 1,
+  "workspace": { "id": "ws-demo", "label": "Demo Workspace" },
+  "ops": {
+    "shellTheme": "host",
+    "themes": {
+      "host": {
+        "font": { "1": "11px", "2": "13px", "3": "15px", "4": "18px" },
+        "tokens": {
+          "shell": {
+            "bg": "radial-gradient(circle at top, #1a2a41 0%, #080d16 68%)",
+            "text": "#dbe8f6",
+            "stage": "linear-gradient(180deg, rgba(20,31,47,.56), rgba(8,13,21,.26))",
+            "stage_border": "rgba(124,145,173,.12)",
+            "chrome_top_bg": "linear-gradient(180deg, rgba(18,32,51,.97), rgba(9,18,30,.97))",
+            "chrome_bottom_bg": "linear-gradient(180deg, rgba(8,15,25,.97), rgba(5,10,18,.98))",
+            "chrome_border_top": "rgba(96,165,250,.24)",
+            "chrome_border_bottom": "rgba(45,212,191,.22)",
+            "family_ui": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
+          },
+          "color": {
+            "text_primary": "#e2e8f0",
+            "text_muted": "#94a3b8",
+            "text_body": "#cbd5e1",
+            "text_inverse": "#f8fafc",
+            "panel_bg": "rgba(2,6,23,.38)",
+            "border_default": "rgba(96,165,250,.16)"
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 Authoring rule:
 
 - Put workspace-wide discover/menu/runtime defaults here.
-- Do not keep app-local `ops.*` here.
+- Put **host shell** fonts/colors in `ops.themes` + `ops.shellTheme`.
+- App scene themes (`theme_ref`) stay in `<app>/.mei-config.json` only.
 
 ## `.mei-config.json`
 
@@ -233,12 +274,18 @@ Use this when:
 
 ### Theme token rules
 
-All font/color values are managed through theme tokens (preview + editor shell):
+Shell and scene use **separate** token tracks (see `docs/mei-lang/topics/29-shell-scene-theme-separation.md`):
 
-- **Definition layer** (`theme.tokens.color`, `tokens.shell`, `tokens.gradient`, `theme.font`): literal `#hex`, `rgba()`, and `Npx` are allowed.
-- **Reference layer** (scene/frame/panel props, `metric_*` roles): use semantic names only — `color = "text_primary"`, `font = "3"`. Literals compile as errors.
+- **Shell** (workspace `ops.themes[shellTheme]`): literals in `tokens.shell`, `tokens.color`, `font` → `--mei-shell-*`, `--mei-shell-color-*`, `--mei-shell-font-*` on `<body>`.
+- **Scene** (app `ops.themes` + `theme_ref`): literals in `theme.tokens.color`, `tokens.gradient`, `theme.font` → `--mei-color-*`, `--mei-font-*` on preview viewport only.
 
-Required token keys and profile tables: `docs/mei-lang/topics/theme-token-contract.md`.
+**Definition layer** only: literal `#hex`, `rgba()`, and `Npx`.
+
+**Reference layer** (scene/frame/panel props): semantic names only — `color = "text_primary"`, `font = "3"`. Literals compile as errors.
+
+**Consumption layer** (CSS/JS): `var(--mei-*)` only; no `var(--mei-*, #hex)` fallbacks.
+
+Required token keys: `docs/mei-lang/topics/theme-token-contract.md`.
 
 ## Source refs and upload-backed datasets
 

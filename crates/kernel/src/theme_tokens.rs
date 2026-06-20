@@ -17,7 +17,28 @@ const REQUIRED_COLOR_KEYS_PAGE: &[&str] = &[
     "border_default",
 ];
 
-const REQUIRED_SHELL_KEYS: &[&str] = &["bg", "text", "stage", "stage_border"];
+const REQUIRED_SHELL_KEYS: &[&str] = &[
+    "bg",
+    "text",
+    "stage",
+    "stage_border",
+    "chrome_top_bg",
+    "chrome_bottom_bg",
+    "chrome_border_top",
+    "chrome_border_bottom",
+    "family_ui",
+];
+
+const REQUIRED_SHELL_COLOR_KEYS: &[&str] = &[
+    "text_primary",
+    "text_muted",
+    "text_body",
+    "text_inverse",
+    "panel_bg",
+    "border_default",
+];
+
+const REQUIRED_SHELL_FONT_KEYS: &[&str] = &["1", "2", "3", "4"];
 
 const REQUIRED_COLOR_KEYS_COCKPIT: &[&str] = &[
     "text_value",
@@ -41,17 +62,43 @@ pub fn validate_theme_decl(
     let value = theme_decl_to_value(theme);
     validate_theme_value_refs(&value, "theme", target_file, diagnostics);
     let profile = theme.id.as_str();
-    validate_required_theme_tokens(&value, profile, target_file, diagnostics);
+    validate_required_scene_theme_tokens(&value, profile, target_file, diagnostics);
 }
 
-pub fn validate_theme_value_from_ops(
+pub fn validate_scene_theme_value_from_ops(
     id: &str,
     value: &Value,
     target_file: &str,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     validate_theme_value_refs(value, &format!("ops.themes.`{id}`"), target_file, diagnostics);
-    validate_required_theme_tokens(value, id, target_file, diagnostics);
+    validate_required_scene_theme_tokens(value, id, target_file, diagnostics);
+}
+
+/// Workspace / host shell theme (`ops.themes` on `.mei-workspace.json`).
+pub fn validate_shell_theme_value(
+    id: &str,
+    value: &Value,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    validate_theme_value_refs(
+        value,
+        &format!("workspace.ops.themes.`{id}`"),
+        target_file,
+        diagnostics,
+    );
+    validate_required_shell_theme_tokens(value, target_file, diagnostics);
+}
+
+#[deprecated(note = "use validate_scene_theme_value_from_ops for app scene themes")]
+pub fn validate_theme_value_from_ops(
+    id: &str,
+    value: &Value,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    validate_scene_theme_value_from_ops(id, value, target_file, diagnostics);
 }
 
 pub fn validate_frame_token_refs(
@@ -351,7 +398,7 @@ fn validate_font_ref(value: &Value, path: &str, target_file: &str, diagnostics: 
     }
 }
 
-fn validate_required_theme_tokens(
+fn validate_required_scene_theme_tokens(
     value: &Value,
     profile: &str,
     target_file: &str,
@@ -363,12 +410,6 @@ fn validate_required_theme_tokens(
         .and_then(Value::as_object)
         .and_then(|tokens| tokens.get("color"))
         .and_then(Value::as_object);
-    let shell = value
-        .as_object()
-        .and_then(|map| map.get("tokens"))
-        .and_then(Value::as_object)
-        .and_then(|tokens| tokens.get("shell"))
-        .and_then(Value::as_object);
 
     for key in REQUIRED_COLOR_KEYS_PAGE {
         if colors.and_then(|map| map.get(*key)).is_none() {
@@ -377,17 +418,6 @@ fn validate_required_theme_tokens(
                 Severity::Warning,
                 "missing_theme_token",
                 format!("theme is missing required tokens.color.{key}"),
-                target_file,
-            );
-        }
-    }
-    for key in REQUIRED_SHELL_KEYS {
-        if shell.and_then(|map| map.get(*key)).is_none() {
-            push_diagnostic(
-                diagnostics,
-                Severity::Warning,
-                "missing_theme_token",
-                format!("theme is missing required tokens.shell.{key}"),
                 target_file,
             );
         }
@@ -403,6 +433,63 @@ fn validate_required_theme_tokens(
                     target_file,
                 );
             }
+        }
+    }
+}
+
+fn validate_required_shell_theme_tokens(
+    value: &Value,
+    target_file: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    let colors = value
+        .as_object()
+        .and_then(|map| map.get("tokens"))
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get("color"))
+        .and_then(Value::as_object);
+    let shell = value
+        .as_object()
+        .and_then(|map| map.get("tokens"))
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get("shell"))
+        .and_then(Value::as_object);
+    let font = value
+        .as_object()
+        .and_then(|map| map.get("font"))
+        .and_then(Value::as_object);
+
+    for key in REQUIRED_SHELL_KEYS {
+        if shell.and_then(|map| map.get(*key)).is_none() {
+            push_diagnostic(
+                diagnostics,
+                Severity::Warning,
+                "missing_theme_token",
+                format!("shell theme is missing required tokens.shell.{key}"),
+                target_file,
+            );
+        }
+    }
+    for key in REQUIRED_SHELL_COLOR_KEYS {
+        if colors.and_then(|map| map.get(*key)).is_none() {
+            push_diagnostic(
+                diagnostics,
+                Severity::Warning,
+                "missing_theme_token",
+                format!("shell theme is missing required tokens.color.{key}"),
+                target_file,
+            );
+        }
+    }
+    for key in REQUIRED_SHELL_FONT_KEYS {
+        if font.and_then(|map| map.get(*key)).is_none() {
+            push_diagnostic(
+                diagnostics,
+                Severity::Warning,
+                "missing_theme_token",
+                format!("shell theme is missing required font.{key}"),
+                target_file,
+            );
         }
     }
 }
@@ -543,5 +630,36 @@ mod tests {
         let mut diagnostics = Vec::new();
         validate_theme_decl(&theme, "test.mei", &mut diagnostics);
         assert!(!diagnostics.iter().any(|d| d.code == "literal_color_forbidden"));
+    }
+
+    #[test]
+    fn validate_shell_theme_requires_shell_and_color_keys() {
+        let theme = json!({
+            "font": {"1": "11px", "2": "13px", "3": "15px", "4": "18px"},
+            "tokens": {
+                "shell": {
+                    "bg": "#000",
+                    "text": "#fff",
+                    "stage": "none",
+                    "stage_border": "none",
+                    "chrome_top_bg": "none",
+                    "chrome_bottom_bg": "none",
+                    "chrome_border_top": "none",
+                    "chrome_border_bottom": "none",
+                    "family_ui": "sans-serif"
+                },
+                "color": {
+                    "text_primary": "#eee",
+                    "text_muted": "#aaa",
+                    "text_body": "#ccc",
+                    "text_inverse": "#fff",
+                    "panel_bg": "rgba(0,0,0,.5)",
+                    "border_default": "rgba(0,0,0,.2)"
+                }
+            }
+        });
+        let mut diagnostics = Vec::new();
+        validate_shell_theme_value("host", &theme, ".mei-workspace.json", &mut diagnostics);
+        assert!(!diagnostics.iter().any(|d| d.code == "missing_theme_token"));
     }
 }

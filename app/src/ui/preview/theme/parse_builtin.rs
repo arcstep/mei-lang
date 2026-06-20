@@ -25,19 +25,29 @@ fn page_shell_tokens() -> Value {
         "chrome_top_bg": "linear-gradient(180deg, rgba(18, 32, 51, 0.97), rgba(9, 18, 30, 0.97))",
         "chrome_bottom_bg": "linear-gradient(180deg, rgba(8, 15, 25, 0.97), rgba(5, 10, 18, 0.98))",
         "chrome_border_top": "rgba(96, 165, 250, 0.24)",
-        "chrome_border_bottom": "rgba(45, 212, 191, 0.22)"
+        "chrome_border_bottom": "rgba(45, 212, 191, 0.22)",
+        "family_ui": "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif"
     })
 }
 
-fn page_color_tokens() -> Value {
+fn page_shell_color_tokens() -> Value {
     serde_json::json!({
         "text_primary": "#e2e8f0",
         "text_muted": "#94a3b8",
         "text_body": "#cbd5e1",
         "text_inverse": "#f8fafc",
+        "panel_bg": "rgba(2, 6, 23, 0.38)",
+        "surface_bg": "rgba(2, 6, 23, 0.32)",
         "text_accent": "#f8fafc",
-        "surface_bg": "rgba(2,6,23,.32)",
-        "border_default": "rgba(59,130,246,.18)"
+        "border_default": "rgba(96, 165, 250, 0.16)",
+        "accent": "#fb7185",
+        "accent_muted": "#fda4af",
+        "border_muted": "rgba(100, 116, 139, 0.2)",
+        "shadow_deep": "rgba(2, 6, 23, 0.45)",
+        "progress_bar": "linear-gradient(90deg, #38bdf8, #60a5fa, #34d399)",
+        "status_info": "#bfdbfe",
+        "status_warn": "#fbbf24",
+        "status_danger": "#f87171"
     })
 }
 
@@ -290,8 +300,14 @@ pub(super) fn builtin_theme(theme_id: &str) -> Option<Value> {
                 "3": "16px",
                 "4": "20px"
             },
+            "font": {
+                "1": "11px",
+                "2": "13px",
+                "3": "15px",
+                "4": "18px"
+            },
             "tokens": {
-                "color": page_color_tokens(),
+                "color": page_shell_color_tokens(),
                 "shell": page_shell_tokens()
             },
             "components": {

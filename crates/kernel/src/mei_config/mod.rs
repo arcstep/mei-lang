@@ -7,6 +7,7 @@ mod authoring_helpers;
 mod authoring_policy;
 mod io;
 mod ops;
+mod shell_theme;
 mod types;
 mod workspace_paths;
 
@@ -26,12 +27,15 @@ pub use io::{
     resolve_mei_config_path, write_mei_config, write_workspace_config,
 };
 pub use ops::{merge_ops_section, OpsConfigPatch};
+pub use shell_theme::{
+    resolve_workspace_shell_theme, validate_workspace_shell_theme,
+};
 pub use types::{
     AppEntryConfig, AppFeaturesConfig, AppPathsConfig, AuthKeyPairConfig, AuthUserConfig,
     DiscoverConfig, FileCacheConfig, FileCacheSettings, MeiConfig, OpsBasemapEntry, OpsConfig,
     OpsSourceEntry, RuntimeConfig, RuntimeWarmupApp, RuntimeWarmupDatasetRequest,
     RuntimeWarmupManifest, RuntimeWarmupXlsxSource, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
-    WorkspaceHostState, WorkspacePathsConfig, WorkspaceProfile, WorkspaceWarmupAppConfig,
+    WorkspaceHostState, WorkspaceOpsConfig, WorkspacePathsConfig, WorkspaceProfile, WorkspaceWarmupAppConfig,
     WorkspaceWarmupConfig, WorkspaceWarmupDatasetConfig, WorkspaceWarmupXlsxConfig,
     AUTH_JOURNAL_REL_PATH,
     LEGACY_WORKSPACE_AGENT_DB_REL, LEGACY_WORKSPACE_SNAPSHOT_DIR_REL,

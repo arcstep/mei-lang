@@ -1,9 +1,13 @@
 use std::time::Instant;
 
 use axum::response::{Html, IntoResponse, Response};
-use mei_lang_app::{render_build_source_page, render_config_page, render_upload_page, UiRouteMode};
+use mei_lang_app::{
+    render_build_source_page, render_config_page, render_upload_page, shell_body_theme_style,
+    UiRouteMode,
+};
 use mei_lang_kernel::{
-    read_source_file, resolve_app_entry_main, resolve_app_root, source_tree, WorkspaceAppMeta,
+    load_workspace_config, read_source_file, resolve_app_entry_main, resolve_app_root, source_tree,
+    WorkspaceAppMeta,
 };
 
 use crate::AppState;
@@ -39,6 +43,8 @@ pub(super) struct LightPageContext<'a> {
 
 pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Response> {
     let app_root = resolve_app_root(ctx.state.source_root.as_path(), ctx.app_id);
+    let workspace = load_workspace_config(ctx.state.source_root.as_path());
+    let shell_theme_style = shell_body_theme_style(&workspace);
     if ctx.route_mode == UiRouteMode::Config {
         let target = ".mei-config.json".to_string();
         let source_path = app_root.join(&target);
@@ -57,6 +63,7 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.upload_enabled,
             ctx.auth_enabled,
             ctx.account_view,
+            shell_theme_style.as_str(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));
@@ -107,6 +114,7 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.upload_files,
             ctx.auth_enabled,
             ctx.account_view,
+            shell_theme_style.as_str(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));
@@ -159,6 +167,7 @@ pub(super) fn try_render_light_page(ctx: LightPageContext<'_>) -> Option<Respons
             ctx.upload_enabled,
             ctx.auth_enabled,
             ctx.account_view,
+            shell_theme_style.as_str(),
         );
         html = fill_perf_placeholders(html, 0, elapsed_ms(ctx.app_started));
         html = fill_manage_wall_clock_placeholders(html, 0, elapsed_ms(ctx.app_started));

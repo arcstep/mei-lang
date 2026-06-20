@@ -3,7 +3,8 @@
 mod ui;
 
 pub use ui::{
-    render_build_source_page, render_config_page, render_page, render_upload_page, HostAccountView,
-    HostCapabilities, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode,
+    default_shell_body_theme_style, render_build_source_page, render_config_page, render_page,
+    render_upload_page, scene_viewport_theme_style, HostAccountView, HostCapabilities,
+    shell_body_theme_style, SourcePanelMeta, TopbarMenuConfig, TopbarMenuContext, UiRouteMode,
     UploadFileEntry,
 };

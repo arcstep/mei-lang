@@ -9,6 +9,7 @@ publish = false
 path = "src/lib.rs"
 
 [dependencies]
+mei-lang-app = { path = "../../app" }
 mei-lang-datasets = { path = "../datasets" }
 mei-lang-kernel = { path = "../kernel" }
 serde_json.workspace = true

@@ -14,7 +14,7 @@ mod resolve;
 pub(crate) use resolve::host_runtime_capabilities_value;
 mod style;
 mod theme;
-pub(crate) use theme::{body_theme_style, default_body_theme_style};
+pub use theme::{default_shell_body_theme_style, scene_viewport_theme_style, shell_body_theme_style};
 mod viewport;
 mod world_capsule_preview;
 

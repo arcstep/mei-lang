@@ -7,6 +7,7 @@ use axum::{
     response::{Html, IntoResponse, Response},
     Json,
 };
+use mei_lang_app::shell_body_theme_style;
 use mei_lang_kernel::{load_workspace_config, WorkspaceComplianceConfig, WorkspaceConfig};
 use serde_json::json;
 
@@ -127,6 +128,7 @@ fn shell_layout(
     body_html: &str,
     extra_head: &str,
     footer_html: &str,
+    body_theme_style: &str,
 ) -> String {
     let title_esc = html_escape(document_title);
     let headline_esc = html_escape(headline);
@@ -146,7 +148,7 @@ fn shell_layout(
     <link rel="stylesheet" href="/app-assets/host-shell.css" />
     {extra_head}
   </head>
-  <body class="mei-host-shell">
+  <body class="mei-host-shell" style="{body_style}">
     <div class="mei-host-shell__stage">
       <div class="mei-host-shell__watermark" aria-hidden="true">{mei_coin}</div>
       <main class="mei-host-shell__card" role="main">
@@ -163,7 +165,12 @@ fn shell_layout(
   </body>
 </html>"#,
         mei_coin = MEI_COIN_SVG,
+        body_style = html_escape(body_theme_style),
     )
+}
+
+pub fn host_shell_body_theme_style(source_root: &Path) -> String {
+    shell_body_theme_style(&load_workspace_config(source_root))
 }
 
 pub fn render_error_page(
@@ -180,6 +187,7 @@ pub fn render_error_page(
         detail,
         actions,
         &render_host_shell_footer(&HostShellFooterInfo::version_only()),
+        &mei_lang_app::default_shell_body_theme_style(),
     )
 }
 
@@ -190,6 +198,7 @@ pub fn render_error_page_with_footer(
     detail: Option<&str>,
     actions: &[HostShellAction],
     footer_html: &str,
+    body_theme_style: &str,
 ) -> String {
     let status_code = status.as_u16();
     let document_title = format!("{status_code} {headline} - MeiLang");
@@ -218,6 +227,7 @@ pub fn render_error_page_with_footer(
         body.as_str(),
         "",
         footer_html,
+        body_theme_style,
     )
 }
 
@@ -226,8 +236,17 @@ pub fn render_auth_card_page(
     headline: &str,
     card_inner: &str,
     footer_html: &str,
+    body_theme_style: &str,
 ) -> String {
-    shell_layout(document_title, None, headline, card_inner, "", footer_html)
+    shell_layout(
+        document_title,
+        None,
+        headline,
+        card_inner,
+        "",
+        footer_html,
+        body_theme_style,
+    )
 }
 
 pub fn forbidden_html_response(message: &str) -> Response {
@@ -307,6 +326,7 @@ mod tests {
             "MeiLang 登录",
             "<p>form</p>",
             footer.as_str(),
+            &mei_lang_app::default_shell_body_theme_style(),
         );
         assert!(!html.contains("mei-host-shell__status"));
         assert!(html.contains("mei-host-shell__coin"));

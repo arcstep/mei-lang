@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
 use super::types::{
-    MeiConfig, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig,
+    MeiConfig, WorkspaceAuthConfig, WorkspaceComplianceConfig, WorkspaceConfig, WorkspaceOpsConfig,
     WorkspacePathsConfig, WorkspaceProfile, DEFAULT_APP_ENTRY_MAIN, MEI_CONFIG_FILENAME,
 };
 use super::workspace_paths::{app_mei_config_path, workspace_config_path};
@@ -39,6 +39,7 @@ pub fn load_workspace_config(segment_root: &Path) -> WorkspaceConfig {
             warmup: Default::default(),
             compliance: WorkspaceComplianceConfig::default(),
             auth: WorkspaceAuthConfig::default(),
+            ops: WorkspaceOpsConfig::default(),
         };
     }
     WorkspaceConfig::default()

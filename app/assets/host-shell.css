@@ -7,9 +7,9 @@
   flex-direction: column;
   padding: 0;
   box-sizing: border-box;
-  background: radial-gradient(120% 90% at 50% -10%, rgba(251, 113, 133, 0.12), transparent 55%),
-    linear-gradient(180deg, #0b1220 0%, #0a1628 48%, #070d18 100%);
-  color: #e2e8f0;
+  background: radial-gradient(120% 90% at 50% -10%, var(--mei-shell-color-literal_13eaa4f8), transparent 55%),
+    var(--mei-shell-color-literal_873fa379);
+  color: var(--mei-shell-color-text_primary);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -27,9 +27,9 @@
   width: 100%;
   padding: 8px 16px 16px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--mei-shell-font-1);
   line-height: 1.55;
-  color: #64748b;
+  color: var(--mei-shell-color-literal_db58cf7c);
   position: relative;
   z-index: 1;
 }
@@ -44,7 +44,7 @@
   display: grid;
   place-items: center;
   pointer-events: none;
-  color: rgba(251, 113, 133, 0.11);
+  color: var(--mei-shell-color-watermark);
   z-index: 0;
 }
 
@@ -60,9 +60,9 @@
   padding: 24px 24px 20px;
   border-radius: 16px;
   /* 前景约 80% 透明，露出背景铜钱纹样 */
-  background: rgba(17, 26, 44, 0.6);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  box-shadow: 0 24px 64px rgba(2, 8, 23, 0.35);
+  background: var(--mei-shell-color-card_bg);
+  border: 1px solid var(--mei-shell-color-border_slate);
+  box-shadow: 0 24px 64px var(--mei-shell-color-shadow_card);
   -webkit-backdrop-filter: blur(14px) saturate(1.15);
   backdrop-filter: blur(14px) saturate(1.15);
 }
@@ -78,7 +78,7 @@
   display: inline-flex;
   width: 28px;
   height: 28px;
-  color: #fb7185;
+  color: var(--mei-shell-color-accent);
 }
 
 .mei-host-shell__coin svg {
@@ -87,45 +87,45 @@
 }
 
 .mei-host-shell__brand-text {
-  font-size: 12px;
+  font-size: var(--mei-shell-font-2);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: var(--mei-shell-color-text_muted);
 }
 
 .mei-host-shell__status {
-  font-size: 44px;
+  font-size: var(--mei-shell-font-4);
   line-height: 1;
   font-weight: 800;
   letter-spacing: -0.03em;
-  color: #fda4af;
+  color: var(--mei-shell-color-accent_muted);
   margin: 4px 0 10px;
 }
 
 .mei-host-shell__title {
   margin: 0 0 12px;
-  font-size: 22px;
+  font-size: var(--mei-shell-font-4);
   line-height: 1.25;
 }
 
 .mei-host-shell__message {
   margin: 0 0 10px;
-  color: #cbd5e1;
-  font-size: 14px;
+  color: var(--mei-shell-color-text_body);
+  font-size: var(--mei-shell-font-3);
   line-height: 1.65;
 }
 
 .mei-host-shell__detail {
   margin: 0 0 10px;
-  color: #94a3b8;
-  font-size: 12px;
+  color: var(--mei-shell-color-text_muted);
+  font-size: var(--mei-shell-font-2);
   line-height: 1.55;
   word-break: break-word;
 }
 
 .mei-host-shell__detail code {
-  color: #fde68a;
+  color: var(--mei-shell-color-code);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
@@ -133,15 +133,15 @@
   margin: 12px 0 0;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.35);
-  border: 1px solid rgba(51, 65, 85, 0.45);
-  color: #94a3b8;
-  font-size: 12px;
+  background: var(--mei-shell-color-hint_bg);
+  border: 1px solid var(--mei-shell-color-hint_border);
+  color: var(--mei-shell-color-text_muted);
+  font-size: var(--mei-shell-font-2);
   line-height: 1.55;
 }
 
 .mei-host-shell__hint strong {
-  color: #f8fafc;
+  color: var(--mei-shell-color-text_inverse);
 }
 
 .mei-host-shell__actions {
@@ -158,44 +158,44 @@
   min-height: 36px;
   padding: 0 14px;
   border-radius: 9px;
-  border: 1px solid rgba(51, 65, 85, 0.55);
-  background: rgba(15, 23, 42, 0.45);
-  color: #e2e8f0;
-  font-size: 13px;
+  border: 1px solid var(--mei-shell-color-btn_border);
+  background: var(--mei-shell-color-btn_secondary_bg);
+  color: var(--mei-shell-color-text_primary);
+  font-size: var(--mei-shell-font-2);
   font-weight: 600;
   text-decoration: none;
 }
 
 .mei-host-shell__btn--primary {
-  border-color: rgba(14, 165, 233, 0.55);
-  background: linear-gradient(180deg, #38bdf8 0%, #0ea5e9 100%);
-  color: #041320;
+  border-color: var(--mei-shell-color-focus_border);
+  background: var(--mei-shell-color-btn_primary_bg);
+  color: var(--mei-shell-color-btn_primary_text);
 }
 
 .mei-host-shell__form label {
   display: block;
   margin: 10px 0 6px;
-  font-size: 13px;
-  color: #cbd5e1;
+  font-size: var(--mei-shell-font-2);
+  color: var(--mei-shell-color-text_body);
 }
 
 .mei-host-shell__form input {
   width: 100%;
   box-sizing: border-box;
   border-radius: 8px;
-  border: 1px solid rgba(51, 65, 85, 0.65);
-  background: rgba(15, 23, 42, 0.55);
-  color: #e2e8f0;
+  border: 1px solid var(--mei-shell-color-input_border);
+  background: var(--mei-shell-color-input_bg);
+  color: var(--mei-shell-color-text_primary);
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--mei-shell-font-3);
   line-height: 1.4;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 
 .mei-host-shell__form input:focus {
   outline: none;
-  border-color: rgba(14, 165, 233, 0.55);
-  box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12);
+  border-color: var(--mei-shell-color-focus_border);
+  box-shadow: 0 0 0 3px var(--mei-shell-color-focus_ring);
 }
 
 .mei-host-shell__password-field {
@@ -220,25 +220,25 @@
   border: none;
   border-radius: 0 8px 8px 0;
   background: transparent;
-  color: #64748b;
+  color: var(--mei-shell-color-literal_db58cf7c);
   cursor: pointer;
   opacity: 0.88;
   transition: color 120ms ease, opacity 120ms ease;
 }
 
 .mei-host-shell__password-toggle:hover {
-  color: #cbd5e1;
+  color: var(--mei-shell-color-text_body);
   opacity: 1;
 }
 
 .mei-host-shell__password-toggle:active {
-  color: #e2e8f0;
+  color: var(--mei-shell-color-text_primary);
 }
 
 .mei-host-shell__password-toggle:focus-visible {
   outline: none;
-  color: #7dd3fc;
-  box-shadow: inset 0 0 0 2px rgba(14, 165, 233, 0.45);
+  color: var(--mei-shell-color-link);
+  box-shadow: inset 0 0 0 2px var(--mei-shell-color-focus_ring_strong);
 }
 
 .mei-host-shell__password-toggle svg {
@@ -269,9 +269,9 @@
   width: 100%;
   border: none;
   border-radius: 8px;
-  background: #0ea5e9;
-  color: #041320;
-  font-size: 14px;
+  background: var(--mei-shell-color-btn_primary_solid);
+  color: var(--mei-shell-color-btn_primary_text);
+  font-size: var(--mei-shell-font-3);
   font-weight: 600;
   padding: 10px;
   cursor: pointer;
@@ -283,41 +283,41 @@
 }
 
 .mei-host-shell__meta {
-  color: #94a3b8;
+  color: var(--mei-shell-color-text_muted);
   margin: -4px 0 14px;
-  font-size: 12px;
+  font-size: var(--mei-shell-font-2);
 }
 
 .mei-host-shell__setup {
-  color: #fbbf24;
-  font-size: 12px;
+  color: var(--mei-shell-color-status_warn);
+  font-size: var(--mei-shell-font-2);
   line-height: 1.6;
   margin-bottom: 12px;
 }
 
 .mei-host-shell__setup code {
-  color: #fde68a;
+  color: var(--mei-shell-color-code);
 }
 
 .mei-host-shell__feedback {
   min-height: 20px;
   margin-top: 10px;
-  font-size: 12px;
+  font-size: var(--mei-shell-font-2);
 }
 
 .mei-host-shell__feedback--error {
-  color: #fda4af;
+  color: var(--mei-shell-color-accent_muted);
 }
 
 .mei-host-shell__feedback--ok {
-  color: #86efac;
+  color: var(--mei-shell-color-feedback_ok);
 }
 
 .mei-host-shell__link {
   display: inline-block;
   margin-top: 12px;
-  color: #7dd3fc;
-  font-size: 12px;
+  color: var(--mei-shell-color-link);
+  font-size: var(--mei-shell-font-2);
   text-decoration: none;
 }
 
@@ -341,27 +341,27 @@
   align-items: start;
   padding: 12px 12px 12px 10px;
   border-radius: 12px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 16px 40px rgba(2, 8, 23, 0.45);
-  color: #e2e8f0;
+  border: 1px solid var(--mei-shell-color-banner_danger_border);
+  background: var(--mei-shell-color-banner_bg);
+  box-shadow: 0 16px 40px var(--mei-shell-color-shadow_banner);
+  color: var(--mei-shell-color-text_primary);
   animation: mei-host-banner-in 180ms ease-out;
 }
 
 .mei-host-http-banner--warn {
-  border-color: rgba(251, 191, 36, 0.35);
+  border-color: var(--mei-shell-color-banner_warn_border);
 }
 
 .mei-host-http-banner__code {
-  font-size: 18px;
+  font-size: var(--mei-shell-font-3);
   font-weight: 800;
   line-height: 1;
-  color: #fda4af;
+  color: var(--mei-shell-color-accent_muted);
   min-width: 42px;
 }
 
 .mei-host-http-banner--warn .mei-host-http-banner__code {
-  color: #fbbf24;
+  color: var(--mei-shell-color-status_warn);
 }
 
 .mei-host-http-banner__body {
@@ -369,30 +369,30 @@
 }
 
 .mei-host-http-banner__title {
-  font-size: 13px;
+  font-size: var(--mei-shell-font-2);
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .mei-host-http-banner__message {
-  font-size: 12px;
+  font-size: var(--mei-shell-font-2);
   line-height: 1.5;
-  color: #cbd5e1;
+  color: var(--mei-shell-color-text_body);
   word-break: break-word;
 }
 
 .mei-host-http-banner__hint {
   margin-top: 6px;
-  font-size: 11px;
-  color: #94a3b8;
+  font-size: var(--mei-shell-font-1);
+  color: var(--mei-shell-color-text_muted);
 }
 
 .mei-host-http-banner__close {
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: var(--mei-shell-color-text_muted);
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--mei-shell-font-2);
   line-height: 1;
   padding: 2px 4px;
 }
