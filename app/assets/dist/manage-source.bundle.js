@@ -13872,7 +13872,7 @@ CodeMirror.defineMode("css", function(config, parserConfig) {
 
   const onDblClick = (event) => {
     if (!(event.target instanceof Element)) return;
-    const summary = event.target.closest(".tree-folder-summary");
+    const summary = event.target.closest(".tree-folder-summary, .upload-folder-summary-row");
     if (!summary) return;
     const details = summary.closest("details");
     if (!details) return;

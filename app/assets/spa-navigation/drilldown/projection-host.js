@@ -132,8 +132,9 @@
       }
     });
     boot.openSceneProjection = openSceneProjection;
-    global.MeiDrilldown = global.MeiDrilldown || {};
-    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    root.MeiDrilldown = root.MeiDrilldown || {};
+    root.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
       const sceneId = nonEmptyString(options?.sceneId);
       const projectionId = nonEmptyString(options?.projectionId);
       const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};

@@ -183,8 +183,56 @@
     }
   }
 
+  function syncBuildReachabilityTreeState(currentSidebar, nextSidebar) {
+    const currentRoot = currentSidebar.querySelector(".build-reachability-tree");
+    const nextRoot = nextSidebar.querySelector(".build-reachability-tree");
+    if (!currentRoot || !nextRoot) return false;
+
+    const nextByNode = new Map();
+    nextRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      if (key) nextByNode.set(key, link);
+    });
+    currentRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      const next = nextByNode.get(key);
+      if (!next) return;
+      link.className = next.className;
+      link.setAttribute("href", next.getAttribute("href") || "");
+      if (next.hasAttribute("title")) {
+        link.setAttribute("title", next.getAttribute("title") || "");
+      } else {
+        link.removeAttribute("title");
+      }
+      Array.from(link.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.removeAttribute(attr.name));
+      Array.from(next.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.setAttribute(attr.name, attr.value));
+      link.innerHTML = next.innerHTML;
+    });
+
+    const nextDetailsByBranch = new Map();
+    nextRoot.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
+      const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+      if (id) nextDetailsByBranch.set(id, details.open);
+    });
+    currentRoot
+      .querySelectorAll("details.build-tree-details[data-build-tree-branch]")
+      .forEach((details) => {
+        const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+        if (!id || !nextDetailsByBranch.has(id)) return;
+        const wasOpen = details.open;
+        const serverWantsOpen = nextDetailsByBranch.get(id);
+        details.open = serverWantsOpen || wasOpen;
+      });
+    return true;
+  }
+
   function syncSidebarLinkState(currentSidebar, nextSidebar) {
     if (!currentSidebar || !nextSidebar) return;
+    if (syncBuildReachabilityTreeState(currentSidebar, nextSidebar)) return;
     currentSidebar.className = nextSidebar.className;
     const currentLinks = Array.from(currentSidebar.querySelectorAll("a.tree-link"));
     const nextLinks = Array.from(nextSidebar.querySelectorAll("a.tree-link"));
@@ -287,6 +335,22 @@
     } catch (_) {}
   }
 
+  function syncBodyThemeFromDoc(doc) {
+    const nextBody = doc.body;
+    if (!nextBody) return;
+    if (nextBody.className) {
+      document.body.className = nextBody.className;
+    }
+    const nextStyle = nextBody.getAttribute("style");
+    if (nextStyle != null) {
+      document.body.setAttribute("style", nextStyle);
+    }
+    const view = nextBody.getAttribute("data-mei-view");
+    if (view) {
+      document.body.setAttribute("data-mei-view", view);
+    }
+  }
+
   /** 同路径 SPA 只替换 #workspace-root 时，顶栏仍在壳外，需从下一页文档同步 href（访问 / 演示 / 应用切换）。 */
   function syncManageTopbarFromDoc(doc) {
     try {
@@ -379,6 +443,7 @@
     }
 
     syncManageTopbarFromDoc(doc);
+    syncBodyThemeFromDoc(doc);
     syncSceneDrilldownContextFromDoc(doc);
     syncHostRuntimeCapabilitiesFromDoc(doc);
 

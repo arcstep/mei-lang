@@ -576,15 +576,16 @@
     return value === "debug" || value === "scroll" || value === "visible";
   }
 
-  /** 仅 frame.props.viewport 显式配置；profile 默认（page-flow）不提供缩放工具栏。 */
+  /** 构建/管理端预览始终允许缩放；访问态仍依赖显式 viewport 配置。 */
   function viewportToolbarEnabled(root) {
+    if (isManagePreviewRoute(root)) return true;
     return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
   }
 
   /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
-    if (route === "manage") return true;
+    if (route === "manage" || route === "build") return true;
     if (route === "access") return false;
     return overflowModeIsDebug(String(root?.dataset?.overflowMode || "clip"));
   }
@@ -2013,9 +2014,14 @@
             contentWidth,
             contentHeight,
           );
+    const rawZoom = String(root.dataset.previewZoom || "fit").trim().toLowerCase();
     let appliedZoom = resolveManagePreviewZoom(root, fitScale);
-    if (fluidHeight && widthFit != null) {
-      appliedZoom = Math.min(appliedZoom, widthFit);
+    if (
+      fluidHeight &&
+      widthFit != null &&
+      (rawZoom === "fit" || rawZoom === "auto")
+    ) {
+      appliedZoom = widthFit;
     }
     const aspectRatio = String(root.dataset.aspectRatio || "").trim();
     const layoutKey = manageLayoutKey(
@@ -16662,8 +16668,9 @@
       }
     });
     boot.openSceneProjection = openSceneProjection;
-    global.MeiDrilldown = global.MeiDrilldown || {};
-    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    root.MeiDrilldown = root.MeiDrilldown || {};
+    root.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
       const sceneId = nonEmptyString(options?.sceneId);
       const projectionId = nonEmptyString(options?.projectionId);
       const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};
@@ -18106,11 +18113,31 @@
     return example && typeof example === "object" ? normalizeSceneParams(example.params) : {};
   }
 
+  function boardTargetFromUrl(url) {
+    const fromFile = nonEmptyString(url.searchParams.get("file"));
+    if (fromFile && /\.board\.mei$/i.test(fromFile)) return fromFile;
+    const node = nonEmptyString(url.searchParams.get("node"));
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? payload.slice(0, hashAt) : payload;
+  }
+
+  function sceneExportIdFromBoardNode(nodeParam) {
+    const node = nonEmptyString(nodeParam);
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? nonEmptyString(payload.slice(hashAt + 1)) : "";
+  }
+
   function resolveManagePreviewSceneId(doc = document) {
     const url = new URL(window.location.href);
     const fromQuery = nonEmptyString(url.searchParams.get("scene"));
     if (fromQuery) return fromQuery;
-    const anchor = doc.querySelector("[data-scene-id]");
+    const fromNode = sceneExportIdFromBoardNode(url.searchParams.get("node"));
+    if (fromNode) return fromNode;
+    const anchor = doc.querySelector("[data-mei-frame-viewport][data-scene-id], [data-scene-id]");
     return nonEmptyString(anchor?.dataset?.sceneId);
   }
 
@@ -18137,7 +18164,9 @@
     if (!isBuildRoute()) return false;
     const url = new URL(window.location.href);
     if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
-    const target = nonEmptyString(url.searchParams.get("file"));
+    const viewport = doc.querySelector("[data-mei-frame-viewport][data-target-file], [data-target-file]");
+    const surfaceTarget = nonEmptyString(viewport?.dataset?.targetFile);
+    const target = boardTargetFromUrl(url) || surfaceTarget;
     if (!target || !/\.board\.mei$/i.test(target)) return false;
     return Boolean(resolveManagePreviewSceneId(doc) && resolveManagePreviewSurface(doc));
   }
@@ -18520,8 +18549,56 @@
     }
   }
 
+  function syncBuildReachabilityTreeState(currentSidebar, nextSidebar) {
+    const currentRoot = currentSidebar.querySelector(".build-reachability-tree");
+    const nextRoot = nextSidebar.querySelector(".build-reachability-tree");
+    if (!currentRoot || !nextRoot) return false;
+
+    const nextByNode = new Map();
+    nextRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      if (key) nextByNode.set(key, link);
+    });
+    currentRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      const next = nextByNode.get(key);
+      if (!next) return;
+      link.className = next.className;
+      link.setAttribute("href", next.getAttribute("href") || "");
+      if (next.hasAttribute("title")) {
+        link.setAttribute("title", next.getAttribute("title") || "");
+      } else {
+        link.removeAttribute("title");
+      }
+      Array.from(link.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.removeAttribute(attr.name));
+      Array.from(next.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.setAttribute(attr.name, attr.value));
+      link.innerHTML = next.innerHTML;
+    });
+
+    const nextDetailsByBranch = new Map();
+    nextRoot.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
+      const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+      if (id) nextDetailsByBranch.set(id, details.open);
+    });
+    currentRoot
+      .querySelectorAll("details.build-tree-details[data-build-tree-branch]")
+      .forEach((details) => {
+        const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+        if (!id || !nextDetailsByBranch.has(id)) return;
+        const wasOpen = details.open;
+        const serverWantsOpen = nextDetailsByBranch.get(id);
+        details.open = serverWantsOpen || wasOpen;
+      });
+    return true;
+  }
+
   function syncSidebarLinkState(currentSidebar, nextSidebar) {
     if (!currentSidebar || !nextSidebar) return;
+    if (syncBuildReachabilityTreeState(currentSidebar, nextSidebar)) return;
     currentSidebar.className = nextSidebar.className;
     const currentLinks = Array.from(currentSidebar.querySelectorAll("a.tree-link"));
     const nextLinks = Array.from(nextSidebar.querySelectorAll("a.tree-link"));
@@ -18757,6 +18834,9 @@
             }
           }
           syncManageTabFromUrl(url);
+          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+            globalThis.MeiBuildTreePersist.refresh();
+          }
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
           publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });

@@ -24,10 +24,11 @@
   function showManageWorkspaceLoadingState(url) {
     const currentUrl = new URL(window.location.href);
     const nextUrl = new URL(url, window.location.href);
-    const isSameManageRoute =
+    const isSameWorkspaceRoute =
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/");
-    if (!isSameManageRoute) {
+      (currentUrl.pathname.startsWith("/apps/manage/") ||
+        currentUrl.pathname.startsWith("/apps/build/"));
+    if (!isSameWorkspaceRoute) {
       clearManageWorkspaceLoadingState();
       return;
     }
@@ -293,3 +294,4 @@
   boot.scheduleDrilldownProgressShow = scheduleDrilldownProgressShow;
   boot.clearDrilldownProgressTimer = clearDrilldownProgressTimer;
   boot.isDrilldownProgressVisible = isDrilldownProgressVisible;
+  boot.clearManageWorkspaceLoadingState = clearManageWorkspaceLoadingState;

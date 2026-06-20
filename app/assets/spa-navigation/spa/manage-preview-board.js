@@ -27,11 +27,31 @@
     return example && typeof example === "object" ? normalizeSceneParams(example.params) : {};
   }
 
+  function boardTargetFromUrl(url) {
+    const fromFile = nonEmptyString(url.searchParams.get("file"));
+    if (fromFile && /\.board\.mei$/i.test(fromFile)) return fromFile;
+    const node = nonEmptyString(url.searchParams.get("node"));
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? payload.slice(0, hashAt) : payload;
+  }
+
+  function sceneExportIdFromBoardNode(nodeParam) {
+    const node = nonEmptyString(nodeParam);
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? nonEmptyString(payload.slice(hashAt + 1)) : "";
+  }
+
   function resolveManagePreviewSceneId(doc = document) {
     const url = new URL(window.location.href);
     const fromQuery = nonEmptyString(url.searchParams.get("scene"));
     if (fromQuery) return fromQuery;
-    const anchor = doc.querySelector("[data-scene-id]");
+    const fromNode = sceneExportIdFromBoardNode(url.searchParams.get("node"));
+    if (fromNode) return fromNode;
+    const anchor = doc.querySelector("[data-mei-frame-viewport][data-scene-id], [data-scene-id]");
     return nonEmptyString(anchor?.dataset?.sceneId);
   }
 
@@ -58,7 +78,9 @@
     if (!isBuildRoute()) return false;
     const url = new URL(window.location.href);
     if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
-    const target = nonEmptyString(url.searchParams.get("file"));
+    const viewport = doc.querySelector("[data-mei-frame-viewport][data-target-file], [data-target-file]");
+    const surfaceTarget = nonEmptyString(viewport?.dataset?.targetFile);
+    const target = boardTargetFromUrl(url) || surfaceTarget;
     if (!target || !/\.board\.mei$/i.test(target)) return false;
     return Boolean(resolveManagePreviewSceneId(doc) && resolveManagePreviewSurface(doc));
   }
@@ -163,6 +185,8 @@
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
+    delete surface.dataset.meiPreviewBoardMounted;
+    surface.classList.remove("preview-board-mounted");
 
     const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
     const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");

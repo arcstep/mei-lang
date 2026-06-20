@@ -576,15 +576,16 @@
     return value === "debug" || value === "scroll" || value === "visible";
   }
 
-  /** 仅 frame.props.viewport 显式配置；profile 默认（page-flow）不提供缩放工具栏。 */
+  /** 构建/管理端预览始终允许缩放；访问态仍依赖显式 viewport 配置。 */
   function viewportToolbarEnabled(root) {
+    if (isManagePreviewRoute(root)) return true;
     return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
   }
 
   /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
-    if (route === "manage") return true;
+    if (route === "manage" || route === "build") return true;
     if (route === "access") return false;
     return overflowModeIsDebug(String(root?.dataset?.overflowMode || "clip"));
   }
@@ -2013,9 +2014,14 @@
             contentWidth,
             contentHeight,
           );
+    const rawZoom = String(root.dataset.previewZoom || "fit").trim().toLowerCase();
     let appliedZoom = resolveManagePreviewZoom(root, fitScale);
-    if (fluidHeight && widthFit != null) {
-      appliedZoom = Math.min(appliedZoom, widthFit);
+    if (
+      fluidHeight &&
+      widthFit != null &&
+      (rawZoom === "fit" || rawZoom === "auto")
+    ) {
+      appliedZoom = widthFit;
     }
     const aspectRatio = String(root.dataset.aspectRatio || "").trim();
     const layoutKey = manageLayoutKey(
@@ -3440,9 +3446,14 @@
   "use strict";
 
   const STORAGE_KEY = "mei-build-tree-open";
+  const SCROLL_KEY = "mei-build-tree-scroll";
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  }
+
+  function sidebarScrollEl(root) {
+    return root?.closest?.(".sidebar-scroll") || null;
   }
 
   function loadOpenSet() {
@@ -3461,6 +3472,31 @@
       global.sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
     } catch {
       /* ignore quota */
+    }
+  }
+
+  function captureScroll(root) {
+    const scroll = sidebarScrollEl(root);
+    if (!scroll) return;
+    try {
+      global.sessionStorage.setItem(SCROLL_KEY, String(scroll.scrollTop || 0));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function restoreScroll(root) {
+    const scroll = sidebarScrollEl(root);
+    if (!scroll) return;
+    try {
+      const raw = global.sessionStorage.getItem(SCROLL_KEY);
+      if (raw == null) return;
+      const top = Number(raw);
+      if (Number.isFinite(top)) {
+        scroll.scrollTop = top;
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -3505,6 +3541,7 @@
     root.__buildTreePersistBound = true;
     restoreOpenState(root);
     ensureActivePathOpen(root);
+    restoreScroll(root);
     root.addEventListener(
       "toggle",
       (event) => {
@@ -3524,11 +3561,66 @@
     );
   }
 
+  function currentManageTab() {
+    try {
+      const url = new URL(global.location.href);
+      const tab = String(url.searchParams.get("tab") || "").trim().toLowerCase();
+      if (tab) return tab;
+    } catch (_) {}
+    const shell = document.querySelector(".shell[data-build-tab]");
+    return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
+  }
+
+  function syncTreeLinkTabs(root) {
+    const tab = currentManageTab();
+    if (!tab) return;
+    root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
+      try {
+        const url = new URL(link.href, global.location.href);
+        url.searchParams.set("tab", tab);
+        link.href = url.toString();
+      } catch (_) {}
+    });
+  }
+
+  function bindTreeTabPersist(root) {
+    if (root.__buildTreeTabBound) return;
+    root.__buildTreeTabBound = true;
+    root.addEventListener(
+      "click",
+      (event) => {
+        const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
+        if (!link || !link.href) return;
+        event.stopPropagation();
+        captureScroll(root);
+        try {
+          const url = new URL(link.href, global.location.href);
+          url.searchParams.set("tab", currentManageTab());
+          url.searchParams.delete("focus");
+          link.href = url.toString();
+        } catch (_) {}
+      },
+      true,
+    );
+    root.addEventListener(
+      "mousedown",
+      (event) => {
+        const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
+        if (!link) return;
+        event.stopPropagation();
+      },
+      true,
+    );
+  }
+
   function refresh() {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
+    bindTreeTabPersist(root);
+    syncTreeLinkTabs(root);
+    restoreScroll(root);
   }
 
   function bind() {
@@ -3544,7 +3636,7 @@
     bind();
   }
 
-  global.MeiBuildTreePersist = { refresh };
+  global.MeiBuildTreePersist = { refresh, captureScroll };
 })(window);
 
 ;
@@ -3659,15 +3751,35 @@
 
     if (node && (node.startsWith("scene-panel:") || node.startsWith("scene-block:"))) {
       const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
-      matches.forEach((el) => el.classList.add("build-inspect-selected"));
-      if (!focusEl) {
-        scrollIntoViewIfOne(matches);
+      let selected = Array.from(matches);
+      if (focus && focus.startsWith("scene-block:")) {
+        const focusScoped = selected.filter(
+          (el) => String(el.getAttribute("data-build-focus") || "").trim() === focus,
+        );
+        if (focusScoped.length > 0) {
+          selected = focusScoped;
+        }
       }
-      updateInspectBar(node, focus, focusEl || matches[0] || null);
+      if (selected.length > 1) {
+        selected = [selected[0]];
+      }
+      selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      if (!focusEl) {
+        scrollIntoViewIfOne(selected);
+      }
+      updateInspectBar(node, focus, focusEl || selected[0] || null);
       return;
     }
 
     updateInspectBar(node, focus, focusEl);
+  }
+
+  function currentManageTab() {
+    try {
+      return String(new URL(global.location.href).searchParams.get("tab") || "").trim().toLowerCase();
+    } catch (_) {
+      return "";
+    }
   }
 
   function pushBuildUrl(mutator) {
@@ -3677,7 +3789,10 @@
     if (!appPath) return;
     const url = new URL(global.location.href);
     mutator(url);
-    if (url.searchParams.get("tab") === "" || !url.searchParams.get("tab")) {
+    const tab = currentManageTab() || String(shell?.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    if (tab) {
+      url.searchParams.set("tab", tab);
+    } else if (url.searchParams.get("tab") === "" || !url.searchParams.get("tab")) {
       url.searchParams.set("tab", "preview");
     }
     if (url.href === global.location.href) {
@@ -3728,6 +3843,9 @@
       "click",
       (event) => {
         if (!isBuildRoute()) return;
+        if (event.target.closest("[data-preview-zoom-bar]")) {
+          return;
+        }
         const blockTarget = event.target.closest(BLOCK_SELECTOR);
         if (blockTarget) {
           const focus = String(blockTarget.getAttribute("data-build-focus") || "").trim();
@@ -11338,8 +11456,9 @@
       }
     });
     boot.openSceneProjection = openSceneProjection;
-    global.MeiDrilldown = global.MeiDrilldown || {};
-    global.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
+    const root = typeof globalThis !== "undefined" ? globalThis : window;
+    root.MeiDrilldown = root.MeiDrilldown || {};
+    root.MeiDrilldown.openProjectionPreview = function openProjectionPreview(options) {
       const sceneId = nonEmptyString(options?.sceneId);
       const projectionId = nonEmptyString(options?.projectionId);
       const assembly = options?.assembly && typeof options.assembly === "object" ? options.assembly : {};
@@ -12782,11 +12901,31 @@
     return example && typeof example === "object" ? normalizeSceneParams(example.params) : {};
   }
 
+  function boardTargetFromUrl(url) {
+    const fromFile = nonEmptyString(url.searchParams.get("file"));
+    if (fromFile && /\.board\.mei$/i.test(fromFile)) return fromFile;
+    const node = nonEmptyString(url.searchParams.get("node"));
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? payload.slice(0, hashAt) : payload;
+  }
+
+  function sceneExportIdFromBoardNode(nodeParam) {
+    const node = nonEmptyString(nodeParam);
+    if (!/^board-(?:file|slot):/i.test(node)) return "";
+    const payload = node.replace(/^board-(?:file|slot):/i, "");
+    const hashAt = payload.indexOf("#");
+    return hashAt >= 0 ? nonEmptyString(payload.slice(hashAt + 1)) : "";
+  }
+
   function resolveManagePreviewSceneId(doc = document) {
     const url = new URL(window.location.href);
     const fromQuery = nonEmptyString(url.searchParams.get("scene"));
     if (fromQuery) return fromQuery;
-    const anchor = doc.querySelector("[data-scene-id]");
+    const fromNode = sceneExportIdFromBoardNode(url.searchParams.get("node"));
+    if (fromNode) return fromNode;
+    const anchor = doc.querySelector("[data-mei-frame-viewport][data-scene-id], [data-scene-id]");
     return nonEmptyString(anchor?.dataset?.sceneId);
   }
 
@@ -12813,7 +12952,9 @@
     if (!isBuildRoute()) return false;
     const url = new URL(window.location.href);
     if (nonEmptyString(url.searchParams.get("tab"), "preview") !== "preview") return false;
-    const target = nonEmptyString(url.searchParams.get("file"));
+    const viewport = doc.querySelector("[data-mei-frame-viewport][data-target-file], [data-target-file]");
+    const surfaceTarget = nonEmptyString(viewport?.dataset?.targetFile);
+    const target = boardTargetFromUrl(url) || surfaceTarget;
     if (!target || !/\.board\.mei$/i.test(target)) return false;
     return Boolean(resolveManagePreviewSceneId(doc) && resolveManagePreviewSurface(doc));
   }
@@ -13256,8 +13397,56 @@
     }
   }
 
+  function syncBuildReachabilityTreeState(currentSidebar, nextSidebar) {
+    const currentRoot = currentSidebar.querySelector(".build-reachability-tree");
+    const nextRoot = nextSidebar.querySelector(".build-reachability-tree");
+    if (!currentRoot || !nextRoot) return false;
+
+    const nextByNode = new Map();
+    nextRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      if (key) nextByNode.set(key, link);
+    });
+    currentRoot.querySelectorAll("a[data-build-node]").forEach((link) => {
+      const key = String(link.getAttribute("data-build-node") || "").trim();
+      const next = nextByNode.get(key);
+      if (!next) return;
+      link.className = next.className;
+      link.setAttribute("href", next.getAttribute("href") || "");
+      if (next.hasAttribute("title")) {
+        link.setAttribute("title", next.getAttribute("title") || "");
+      } else {
+        link.removeAttribute("title");
+      }
+      Array.from(link.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.removeAttribute(attr.name));
+      Array.from(next.attributes)
+        .filter((attr) => attr.name.startsWith("data-"))
+        .forEach((attr) => link.setAttribute(attr.name, attr.value));
+      link.innerHTML = next.innerHTML;
+    });
+
+    const nextDetailsByBranch = new Map();
+    nextRoot.querySelectorAll("details.build-tree-details[data-build-tree-branch]").forEach((details) => {
+      const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+      if (id) nextDetailsByBranch.set(id, details.open);
+    });
+    currentRoot
+      .querySelectorAll("details.build-tree-details[data-build-tree-branch]")
+      .forEach((details) => {
+        const id = String(details.getAttribute("data-build-tree-branch") || "").trim();
+        if (!id || !nextDetailsByBranch.has(id)) return;
+        const wasOpen = details.open;
+        const serverWantsOpen = nextDetailsByBranch.get(id);
+        details.open = serverWantsOpen || wasOpen;
+      });
+    return true;
+  }
+
   function syncSidebarLinkState(currentSidebar, nextSidebar) {
     if (!currentSidebar || !nextSidebar) return;
+    if (syncBuildReachabilityTreeState(currentSidebar, nextSidebar)) return;
     currentSidebar.className = nextSidebar.className;
     const currentLinks = Array.from(currentSidebar.querySelectorAll("a.tree-link"));
     const nextLinks = Array.from(nextSidebar.querySelectorAll("a.tree-link"));
@@ -13493,6 +13682,9 @@
             }
           }
           syncManageTabFromUrl(url);
+          if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+            globalThis.MeiBuildTreePersist.refresh();
+          }
         }
         if (shouldRunBuildPreviewRuntimeForUrl(nextUrl.href)) {
           publishManagePreviewFromDoc(doc, { resetRuntimeQueryCache: false });

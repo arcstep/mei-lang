@@ -66,7 +66,10 @@
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
-    if (!node.startsWith("scene-panel:") && !node.startsWith("scene-block:")) {
+    if (
+      !node.startsWith("scene-panel:") &&
+      !node.startsWith("scene-block:")
+    ) {
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
@@ -107,15 +110,35 @@
 
     if (node && (node.startsWith("scene-panel:") || node.startsWith("scene-block:"))) {
       const matches = root.querySelectorAll(`[data-build-node="${CSS.escape(node)}"]`);
-      matches.forEach((el) => el.classList.add("build-inspect-selected"));
-      if (!focusEl) {
-        scrollIntoViewIfOne(matches);
+      let selected = Array.from(matches);
+      if (focus && focus.startsWith("scene-block:")) {
+        const focusScoped = selected.filter(
+          (el) => String(el.getAttribute("data-build-focus") || "").trim() === focus,
+        );
+        if (focusScoped.length > 0) {
+          selected = focusScoped;
+        }
       }
-      updateInspectBar(node, focus, focusEl || matches[0] || null);
+      if (selected.length > 1) {
+        selected = [selected[0]];
+      }
+      selected.forEach((el) => el.classList.add("build-inspect-selected"));
+      if (!focusEl) {
+        scrollIntoViewIfOne(selected);
+      }
+      updateInspectBar(node, focus, focusEl || selected[0] || null);
       return;
     }
 
     updateInspectBar(node, focus, focusEl);
+  }
+
+  function currentManageTab() {
+    try {
+      return String(new URL(global.location.href).searchParams.get("tab") || "").trim().toLowerCase();
+    } catch (_) {
+      return "";
+    }
   }
 
   function pushBuildUrl(mutator) {
@@ -125,7 +148,10 @@
     if (!appPath) return;
     const url = new URL(global.location.href);
     mutator(url);
-    if (url.searchParams.get("tab") === "" || !url.searchParams.get("tab")) {
+    const tab = currentManageTab() || String(shell?.getAttribute("data-build-tab") || "").trim().toLowerCase();
+    if (tab) {
+      url.searchParams.set("tab", tab);
+    } else if (url.searchParams.get("tab") === "" || !url.searchParams.get("tab")) {
       url.searchParams.set("tab", "preview");
     }
     if (url.href === global.location.href) {
@@ -176,6 +202,9 @@
       "click",
       (event) => {
         if (!isBuildRoute()) return;
+        if (event.target.closest("[data-preview-zoom-bar]")) {
+          return;
+        }
         const blockTarget = event.target.closest(BLOCK_SELECTOR);
         if (blockTarget) {
           const focus = String(blockTarget.getAttribute("data-build-focus") || "").trim();
@@ -209,10 +238,24 @@
     );
   }
 
+  function clearBuildPreviewArtifacts(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
+      el.classList.remove("build-preview-scoped-dim");
+    });
+    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
+      if (!(surface instanceof HTMLElement)) return;
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+    });
+  }
+
   function refresh() {
     if (!isBuildRoute()) return;
+    document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;
+    clearBuildPreviewArtifacts(root);
     syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
     applyHighlight(root);

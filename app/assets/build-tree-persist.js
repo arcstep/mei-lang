@@ -5,9 +5,14 @@
   "use strict";
 
   const STORAGE_KEY = "mei-build-tree-open";
+  const SCROLL_KEY = "mei-build-tree-scroll";
 
   function isBuildRoute() {
     return /^\/apps\/(?:build|manage)\//.test(String(global.location.pathname || ""));
+  }
+
+  function sidebarScrollEl(root) {
+    return root?.closest?.(".sidebar-scroll") || null;
   }
 
   function loadOpenSet() {
@@ -26,6 +31,31 @@
       global.sessionStorage.setItem(STORAGE_KEY, JSON.stringify([...set]));
     } catch {
       /* ignore quota */
+    }
+  }
+
+  function captureScroll(root) {
+    const scroll = sidebarScrollEl(root);
+    if (!scroll) return;
+    try {
+      global.sessionStorage.setItem(SCROLL_KEY, String(scroll.scrollTop || 0));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function restoreScroll(root) {
+    const scroll = sidebarScrollEl(root);
+    if (!scroll) return;
+    try {
+      const raw = global.sessionStorage.getItem(SCROLL_KEY);
+      if (raw == null) return;
+      const top = Number(raw);
+      if (Number.isFinite(top)) {
+        scroll.scrollTop = top;
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -70,6 +100,7 @@
     root.__buildTreePersistBound = true;
     restoreOpenState(root);
     ensureActivePathOpen(root);
+    restoreScroll(root);
     root.addEventListener(
       "toggle",
       (event) => {
@@ -89,11 +120,66 @@
     );
   }
 
+  function currentManageTab() {
+    try {
+      const url = new URL(global.location.href);
+      const tab = String(url.searchParams.get("tab") || "").trim().toLowerCase();
+      if (tab) return tab;
+    } catch (_) {}
+    const shell = document.querySelector(".shell[data-build-tab]");
+    return String(shell?.getAttribute("data-build-tab") || "overview").trim().toLowerCase();
+  }
+
+  function syncTreeLinkTabs(root) {
+    const tab = currentManageTab();
+    if (!tab) return;
+    root.querySelectorAll("a.build-tree-link, a.build-tree-label--link").forEach((link) => {
+      try {
+        const url = new URL(link.href, global.location.href);
+        url.searchParams.set("tab", tab);
+        link.href = url.toString();
+      } catch (_) {}
+    });
+  }
+
+  function bindTreeTabPersist(root) {
+    if (root.__buildTreeTabBound) return;
+    root.__buildTreeTabBound = true;
+    root.addEventListener(
+      "click",
+      (event) => {
+        const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
+        if (!link || !link.href) return;
+        event.stopPropagation();
+        captureScroll(root);
+        try {
+          const url = new URL(link.href, global.location.href);
+          url.searchParams.set("tab", currentManageTab());
+          url.searchParams.delete("focus");
+          link.href = url.toString();
+        } catch (_) {}
+      },
+      true,
+    );
+    root.addEventListener(
+      "mousedown",
+      (event) => {
+        const link = event.target.closest("a.build-tree-link, a.build-tree-label--link");
+        if (!link) return;
+        event.stopPropagation();
+      },
+      true,
+    );
+  }
+
   function refresh() {
     if (!isBuildRoute()) return;
     const root = document.querySelector(".build-reachability-tree");
     if (!root) return;
     bindTreePersist(root);
+    bindTreeTabPersist(root);
+    syncTreeLinkTabs(root);
+    restoreScroll(root);
   }
 
   function bind() {
@@ -109,5 +195,5 @@
     bind();
   }
 
-  global.MeiBuildTreePersist = { refresh };
+  global.MeiBuildTreePersist = { refresh, captureScroll };
 })(window);

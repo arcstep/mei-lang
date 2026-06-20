@@ -250,9 +250,14 @@
             contentWidth,
             contentHeight,
           );
+    const rawZoom = String(root.dataset.previewZoom || "fit").trim().toLowerCase();
     let appliedZoom = resolveManagePreviewZoom(root, fitScale);
-    if (fluidHeight && widthFit != null) {
-      appliedZoom = Math.min(appliedZoom, widthFit);
+    if (
+      fluidHeight &&
+      widthFit != null &&
+      (rawZoom === "fit" || rawZoom === "auto")
+    ) {
+      appliedZoom = widthFit;
     }
     const aspectRatio = String(root.dataset.aspectRatio || "").trim();
     const layoutKey = manageLayoutKey(

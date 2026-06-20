@@ -18,15 +18,16 @@
     return value === "debug" || value === "scroll" || value === "visible";
   }
 
-  /** 仅 frame.props.viewport 显式配置；profile 默认（page-flow）不提供缩放工具栏。 */
+  /** 构建/管理端预览始终允许缩放；访问态仍依赖显式 viewport 配置。 */
   function viewportToolbarEnabled(root) {
+    if (isManagePreviewRoute(root)) return true;
     return String(root?.dataset?.viewportExplicit || "").toLowerCase() === "true";
   }
 
   /** 管理端固定调试视口；访问端固定裁切。以 data-route-mode 为准。 */
   function isManagePreviewRoute(root) {
     const route = String(root?.dataset?.routeMode || "").trim().toLowerCase();
-    if (route === "manage") return true;
+    if (route === "manage" || route === "build") return true;
     if (route === "access") return false;
     return overflowModeIsDebug(String(root?.dataset?.overflowMode || "clip"));
   }
