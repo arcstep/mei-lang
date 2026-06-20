@@ -44,6 +44,7 @@ struct MetricQueryExecutionContext<'a> {
     compile_revision: &'a str,
     effective_query_state: &'a QueryState,
     filter_intents: &'a [FilterIntent],
+    access_artifact_only: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +59,7 @@ struct MetricQueryExecutionShared {
     compile_revision: String,
     effective_query_state: QueryState,
     filter_intents: Vec<FilterIntent>,
+    access_artifact_only: bool,
 }
 
 impl MetricQueryExecutionShared {
@@ -73,6 +75,7 @@ impl MetricQueryExecutionShared {
             compile_revision: &self.compile_revision,
             effective_query_state: &self.effective_query_state,
             filter_intents: &self.filter_intents,
+            access_artifact_only: self.access_artifact_only,
         }
     }
 }
@@ -228,6 +231,7 @@ pub async fn dataset_metric_api(
         compile_revision: &compile_outcome.compile_revision,
         effective_query_state: &effective_query_state,
         filter_intents: &request.filter_intents,
+        access_artifact_only,
     };
 
     if request_group_count == 1 {
@@ -255,6 +259,7 @@ pub async fn dataset_metric_api(
         compile_revision: compile_outcome.compile_revision.clone(),
         effective_query_state: effective_query_state.clone(),
         filter_intents: request.filter_intents.clone(),
+        access_artifact_only,
     };
     let merged_groups = merge_metric_query_groups(&request_groups);
     let mut tasks = tokio::task::JoinSet::new();
@@ -486,15 +491,6 @@ fn execute_metric_query_group(
             format!("resource `{}` is not a dataset", resource.id),
         )
     })?;
-    if !dataset.has_runtime_metric_defs() {
-        return Err(AppError::status(
-            StatusCode::SERVICE_UNAVAILABLE,
-            format!(
-                "dataset `{}` missing runtime_metric_defs for strict AOT metric query; run `mei-toolchain prebuild` first",
-                resource.id
-            ),
-        ));
-    }
 
     let request_all_metrics = request.metric_ids.is_empty();
     let access_plan =
@@ -513,6 +509,15 @@ fn execute_metric_query_group(
                 AppError::status(StatusCode::BAD_REQUEST, error.to_string())
             })?;
     let owner_dataset = access_plan.owner_dataset;
+    if !owner_dataset.has_runtime_metric_defs() {
+        return Err(AppError::status(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!(
+                "dataset `{}` missing runtime_metric_defs for strict AOT metric query; run `mei-toolchain prebuild` first",
+                resource.id
+            ),
+        ));
+    }
     let runtime_workset = runtime_metric_workset(
         &access_plan.owner.id,
         &access_plan.request_metric_ids,
@@ -678,6 +683,9 @@ fn execute_metric_query_group(
                     perf,
                 });
         }
+        if !ctx.access_artifact_only {
+            // Build view may JIT-evaluate metrics when prebuild artifacts are absent.
+        } else {
         return Err(AppError::status(
             StatusCode::SERVICE_UNAVAILABLE,
             format!(
@@ -685,6 +693,7 @@ fn execute_metric_query_group(
                 resource.id, ctx.scene_id
             ),
         ));
+        }
     }
 
     let eval_outcome = evaluate_runtime_metrics_from_plan(
