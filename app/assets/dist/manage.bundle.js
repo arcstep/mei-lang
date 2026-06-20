@@ -3710,7 +3710,10 @@
     root.querySelectorAll("[data-preview-scope]").forEach((el) => {
       el.classList.remove("build-preview-scoped-dim");
     });
-    if (!node.startsWith("scene-panel:") && !node.startsWith("scene-block:")) {
+    if (
+      !node.startsWith("scene-panel:") &&
+      !node.startsWith("scene-block:")
+    ) {
       return;
     }
     const encoded = node.replace(/^scene-panel:/, "").replace(/^scene-block:/, "");
@@ -3879,10 +3882,24 @@
     );
   }
 
+  function clearBuildPreviewArtifacts(root) {
+    if (!(root instanceof HTMLElement)) return;
+    root.querySelectorAll("[data-preview-scope].build-preview-scoped-dim").forEach((el) => {
+      el.classList.remove("build-preview-scoped-dim");
+    });
+    root.querySelectorAll(".preview-surface, .preview-stage").forEach((surface) => {
+      if (!(surface instanceof HTMLElement)) return;
+      delete surface.dataset.meiPreviewBoardMounted;
+      surface.classList.remove("preview-board-mounted");
+    });
+  }
+
   function refresh() {
     if (!isBuildRoute()) return;
+    document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
     const root = previewRoot();
     if (!root) return;
+    clearBuildPreviewArtifacts(root);
     syncShellFocus(readFocusFromUrl());
     bindPreviewInspect(root);
     applyHighlight(root);
@@ -12184,10 +12201,11 @@
   function showManageWorkspaceLoadingState(url) {
     const currentUrl = new URL(window.location.href);
     const nextUrl = new URL(url, window.location.href);
-    const isSameManageRoute =
+    const isSameWorkspaceRoute =
       currentUrl.pathname === nextUrl.pathname &&
-      currentUrl.pathname.startsWith("/apps/manage/");
-    if (!isSameManageRoute) {
+      (currentUrl.pathname.startsWith("/apps/manage/") ||
+        currentUrl.pathname.startsWith("/apps/build/"));
+    if (!isSameWorkspaceRoute) {
       clearManageWorkspaceLoadingState();
       return;
     }
@@ -12453,6 +12471,7 @@
   boot.scheduleDrilldownProgressShow = scheduleDrilldownProgressShow;
   boot.clearDrilldownProgressTimer = clearDrilldownProgressTimer;
   boot.isDrilldownProgressVisible = isDrilldownProgressVisible;
+  boot.clearManageWorkspaceLoadingState = clearManageWorkspaceLoadingState;
 
 ;
 
@@ -13059,6 +13078,8 @@
     if (surface.dataset.meiPreviewBoardMounted === mountKey) {
       return true;
     }
+    delete surface.dataset.meiPreviewBoardMounted;
+    surface.classList.remove("preview-board-mounted");
 
     const filterZone = sceneShellZonesByRole(resolved.sceneShell, "filter")[0] || null;
     const slotZones = sceneShellZonesByRole(resolved.sceneShell, "slots");
@@ -13549,6 +13570,22 @@
     } catch (_) {}
   }
 
+  function syncBodyThemeFromDoc(doc) {
+    const nextBody = doc.body;
+    if (!nextBody) return;
+    if (nextBody.className) {
+      document.body.className = nextBody.className;
+    }
+    const nextStyle = nextBody.getAttribute("style");
+    if (nextStyle != null) {
+      document.body.setAttribute("style", nextStyle);
+    }
+    const view = nextBody.getAttribute("data-mei-view");
+    if (view) {
+      document.body.setAttribute("data-mei-view", view);
+    }
+  }
+
   /** 同路径 SPA 只替换 #workspace-root 时，顶栏仍在壳外，需从下一页文档同步 href（访问 / 演示 / 应用切换）。 */
   function syncManageTopbarFromDoc(doc) {
     try {
@@ -13641,6 +13678,7 @@
     }
 
     syncManageTopbarFromDoc(doc);
+    syncBodyThemeFromDoc(doc);
     syncSceneDrilldownContextFromDoc(doc);
     syncHostRuntimeCapabilitiesFromDoc(doc);
 
@@ -13656,6 +13694,25 @@
 ;
 
 /* ===== spa-navigation/spa/post-navigation.js ===== */
+  function stabilizeBuildPreviewRuntime() {
+    if (!isBuildWorkspacePathname(window.location.pathname)) return;
+    document.body.classList.remove("access-drilldown-open", "access-scene-board-open");
+    if (typeof closeDrilldownOverlay === "function") {
+      try {
+        closeDrilldownOverlay();
+      } catch (_) {}
+    }
+    if (typeof boot.clearManageWorkspaceLoadingState === "function") {
+      boot.clearManageWorkspaceLoadingState();
+    }
+    if (typeof globalThis.MeiBuildInspectHighlight?.refresh === "function") {
+      globalThis.MeiBuildInspectHighlight.refresh();
+    }
+    if (typeof globalThis.MeiBuildTreePersist?.refresh === "function") {
+      globalThis.MeiBuildTreePersist.refresh();
+    }
+  }
+
   function runPostSpaWork(doc, url, navigationId, currentUrl, nextUrl) {
     void (async () => {
       try {
@@ -13673,6 +13730,7 @@
         await syncMissingWorkspaceModulesOnly(doc, navigationId);
         if (navigationId !== currentNavigationId) return;
         if (isBuildWorkspacePathname(nextUrl.pathname)) {
+          stabilizeBuildPreviewRuntime();
           if (typeof boot.installManageTabs === "function") {
             boot.installManageTabs();
           }

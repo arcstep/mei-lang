@@ -30,13 +30,13 @@
   --mei-status-chip-danger-border: var(--mei-shell-color-border-default);
   --mei-status-chip-danger-bg: var(--mei-shell-color-panel-bg);
   --mei-status-chip-danger-text: var(--mei-shell-color-text-body);
-  --mei-splitter-idle-line-left: var(--mei-shell-color-border-default);
-  --mei-splitter-hover-line-left: var(--mei-shell-color-border-default);
-  --mei-splitter-active-line-left: var(--mei-shell-color-border-default);
+  --mei-splitter-idle-line-left: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
+  --mei-splitter-hover-line-left: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
+  --mei-splitter-active-line-left: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
   --mei-splitter-active-track-left: var(--mei-shell-color-panel-bg);
-  --mei-splitter-idle-line-right: var(--mei-shell-color-border-default);
-  --mei-splitter-hover-line-right: var(--mei-shell-color-border-default);
-  --mei-splitter-active-line-right: var(--mei-shell-color-border-default);
+  --mei-splitter-idle-line-right: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
+  --mei-splitter-hover-line-right: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
+  --mei-splitter-active-line-right: var(--mei-shell-color-splitter-line, var(--mei-shell-color-border-default));
   --mei-splitter-active-track-right: var(--mei-shell-color-panel-bg);
 
   /* 首屏驾驶舱叠层（低→高）：底图 < 板块 < GIS工具 < 飘窗 < 二级看板 */
@@ -4527,7 +4527,7 @@ a.tree-link {
   cursor: col-resize;
   touch-action: none;
   user-select: none;
-  background: transparent;
+  background: var(--mei-shell-color-splitter-rail-grad, transparent);
 }
 .splitter::before {
   content: "";
@@ -4535,12 +4535,12 @@ a.tree-link {
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 1px;
+  width: 2px;
   transform: translateX(-50%);
   border-radius: 999px;
   background: var(--mei-splitter-idle-line-left);
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.35);
-  opacity: 0.92;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mei-shell-color-splitter-line, var(--mei-splitter-idle-line-left)) 36%, transparent);
+  opacity: 1;
   transition: width 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 .splitter-toggle {
