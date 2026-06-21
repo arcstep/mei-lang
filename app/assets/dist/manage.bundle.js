@@ -11377,36 +11377,66 @@
     return !resolveCaseDetailFieldValue(row, { field: docField });
   }
 
+  function appendDocumentPreviewPlaceholder(panel, text, { hint = false } = {}) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "access-drilldown-document-preview-empty";
+    if (hint) {
+      placeholder.classList.add("access-drilldown-document-preview-empty--hint");
+    }
+    placeholder.textContent = text;
+    panel.appendChild(placeholder);
+    return placeholder;
+  }
+
+  function createDocumentPreviewPanelShell({ title = "制度文件预览", idle = false } = {}) {
+    const panel = document.createElement("div");
+    panel.className = "access-drilldown-document-preview-panel";
+    if (idle) {
+      panel.classList.add("access-drilldown-document-preview-panel--idle");
+    }
+    const titleEl = document.createElement("div");
+    titleEl.className = "access-drilldown-document-preview-title";
+    titleEl.textContent = title;
+    panel.appendChild(titleEl);
+    return panel;
+  }
+
   function renderDocumentPreviewPanel(host, row, config) {
     if (!(host instanceof HTMLElement)) return;
     host.replaceChildren();
+    const mapping = resolveListPreviewMapping(config);
     if (!row || typeof row !== "object") {
-      const empty = document.createElement("div");
-      empty.className = "access-drilldown-list-preview-empty";
-      empty.textContent = "点击清单中的机制查看制度文件";
-      host.appendChild(empty);
+      if (!mapping) {
+        const empty = document.createElement("div");
+        empty.className = "access-drilldown-list-preview-empty";
+        empty.textContent = "点击清单中的条目查看详情";
+        host.appendChild(empty);
+        return;
+      }
+      const panel = createDocumentPreviewPanelShell({
+        idle: true,
+        title: "制度文件预览",
+      });
+      appendDocumentPreviewPlaceholder(
+        panel,
+        "点击左侧清单中的机制名称，在此预览 PDF 制度文件",
+        { hint: true },
+      );
+      host.appendChild(panel);
       return;
     }
-    const mapping = resolveListPreviewMapping(config);
     if (!mapping) {
       renderListPreviewItemPanel(host, row, config);
       return;
     }
-    const panel = document.createElement("div");
-    panel.className = "access-drilldown-document-preview-panel";
-    const title = document.createElement("div");
-    title.className = "access-drilldown-document-preview-title";
-    title.textContent = resolveCaseDetailFieldValue(row, {
+    const titleText = resolveCaseDetailFieldValue(row, {
       field: mapping?.title_field || mapping?.titleField || "机制名称",
       fallback_fields: mapping?.title_fallback_fields || mapping?.titleFallbackFields,
     });
-    panel.appendChild(title);
+    const panel = createDocumentPreviewPanelShell({ title: titleText });
 
     if (isDocumentPreviewPending(row, mapping)) {
-      const placeholder = document.createElement("div");
-      placeholder.className = "access-drilldown-document-preview-empty";
-      placeholder.textContent = "制度文件待上传";
-      panel.appendChild(placeholder);
+      appendDocumentPreviewPlaceholder(panel, "制度文件待上传");
       host.appendChild(panel);
       return;
     }
@@ -11420,10 +11450,7 @@
       { inline: true },
     );
     if (!src) {
-      const placeholder = document.createElement("div");
-      placeholder.className = "access-drilldown-document-preview-empty";
-      placeholder.textContent = "暂无可预览的 PDF";
-      panel.appendChild(placeholder);
+      appendDocumentPreviewPlaceholder(panel, "暂无可预览的 PDF");
       host.appendChild(panel);
       return;
     }
@@ -11433,7 +11460,7 @@
     const iframe = document.createElement("iframe");
     iframe.className = "access-drilldown-document-preview-iframe";
     iframe.src = src;
-    iframe.title = title.textContent || "PDF 预览";
+    iframe.title = titleText || "PDF 预览";
     frame.appendChild(iframe);
     panel.appendChild(frame);
     host.appendChild(panel);

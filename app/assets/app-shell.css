@@ -2065,11 +2065,25 @@ body > .mei-floating-text-pop-backdrop {
 .access-drilldown-document-preview-panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-height: 0;
   height: 100%;
-  padding: 12px 14px;
+  padding: 16px 18px;
   box-sizing: border-box;
+  border-radius: 12px;
+  border: 1px solid var(--mei-color-drilldown-panel-border, rgba(56, 160, 240, 0.22));
+  background:
+    radial-gradient(900px 320px at 8% -10%, rgba(56, 189, 248, 0.12), transparent 62%),
+    linear-gradient(
+      180deg,
+      var(--mei-color-drilldown-panel-top, rgba(18, 62, 112, 0.88)),
+      var(--mei-color-drilldown-panel-bottom, rgba(10, 40, 78, 0.94))
+    );
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.08);
+}
+.access-drilldown-document-preview-panel--idle .access-drilldown-document-preview-title {
+  color: var(--mei-color-text-muted, #94a3b8);
+  font-weight: 600;
 }
 .access-drilldown-document-preview-title {
   font-size: var(--mei-font-2);
@@ -2084,25 +2098,40 @@ body > .mei-floating-text-pop-backdrop {
   overflow: hidden;
   border: 1px solid var(--mei-color-drilldown-shell-border);
   border-radius: 10px;
-  background: var(--mei-color-drilldown-shell-bg);
+  background: rgba(10, 36, 68, 0.55);
+  box-shadow: inset 0 1px 0 rgba(125, 211, 252, 0.05);
 }
 .access-drilldown-document-preview-iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
+  background: #fff;
 }
 .access-drilldown-document-preview-empty {
   display: grid;
   place-items: center;
   flex: 1;
-  min-height: 180px;
-  padding: 24px 16px;
-  border: 1px dashed var(--mei-color-drilldown-shell-border);
+  min-height: 220px;
+  padding: 28px 20px;
+  border: 1px dashed var(--mei-color-drilldown-shell-border, rgba(56, 160, 240, 0.32));
   border-radius: 10px;
   color: var(--mei-color-text-muted);
   font-size: var(--mei-font-2);
+  line-height: 1.6;
   text-align: center;
+  background: rgba(10, 36, 68, 0.35);
+}
+.access-drilldown-document-preview-empty--hint::before {
+  content: "";
+  display: block;
+  width: 40px;
+  height: 50px;
+  margin: 0 auto 12px;
+  border-radius: 6px;
+  border: 2px solid rgba(125, 211, 252, 0.42);
+  background: linear-gradient(180deg, rgba(56, 189, 248, 0.14), rgba(10, 36, 68, 0.22));
+  box-shadow: inset 0 -10px 0 rgba(125, 211, 252, 0.1);
 }
 .access-drilldown-overlay-panel[data-drilldown-layout-mode="list_preview"] {
   grid-template-rows: auto minmax(0, 1fr);
