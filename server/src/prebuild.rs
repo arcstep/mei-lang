@@ -12,6 +12,7 @@ use mei_lang_datasets::{
     load_metric_dataframe_result_artifact, load_metric_response_result_artifact,
     locate_runtime_metric_resource, metric_dataframe_result_cache_key,
     metric_request_revision_fingerprint_for_compiled, metric_response_cache_scope_key,
+    metric_response_prebuild_shared_key,
     metric_scope_cache_key, plan_access_metric_eval_for_ids, query_metric_dataframe, query_state_from_request,
     runtime_metric_workset, store_cached_metric_response, store_metric_response_result_artifact,
     store_metric_dataframe_result_artifact, DatasetQueryOptions, DatasetQueryResult,
@@ -528,11 +529,57 @@ fn run_prebuild_for_app(
     )?;
     let mut scopes = compile_scopes_for_app(app);
     scopes.retain(|scope| scope.key() != default_scope.key());
-    let mut pending = VecDeque::from(scopes);
-    let mut seen_scopes = pending.iter().map(CompileScope::key).collect::<BTreeSet<_>>();
+    let hot_scope_keys = app
+        .hot_scenes
+        .iter()
+        .map(|scene| format!("{}|", scene.trim()))
+        .filter(|key| key != "|")
+        .collect::<BTreeSet<_>>();
+    let (hot_scopes, deferred_scopes): (Vec<_>, Vec<_>) = scopes
+        .into_iter()
+        .partition(|scope| hot_scope_keys.contains(&scope.key()));
+    let mut pending = VecDeque::new();
+    let mut seen_scopes = BTreeSet::new();
     let mut compile_reports = vec![scope_report_from_outcome(&default_scope, &default_outcome)];
     let mut prepared_outcomes = vec![(default_scope.clone(), default_outcome)];
     let mut warnings = Vec::new();
+    for scope in hot_scopes {
+        if !seen_scopes.insert(scope.key()) {
+            continue;
+        }
+        match ensure_compile_scope(
+            source_root,
+            app.app_id.as_str(),
+            &scope,
+            mode,
+            components_root.as_path(),
+        ) {
+            Ok(outcome) => {
+                compile_reports.push(scope_report_from_outcome(&scope, &outcome));
+                for discovered in discovered_compile_scopes(&scope, &outcome.compiled) {
+                    if seen_scopes.insert(discovered.key()) {
+                        pending.push_back(discovered);
+                    }
+                }
+                prepared_outcomes.push((scope, outcome));
+            }
+            Err(error) => {
+                if mode == PrebuildMode::Verify {
+                    return Err(error);
+                }
+                warnings.push(format!(
+                    "compile scope scene=`{}` target=`{}` failed: {error}",
+                    scope.requested_scene_id.as_deref().unwrap_or(""),
+                    scope.requested_target_file.as_deref().unwrap_or(""),
+                ));
+            }
+        }
+    }
+    for scope in deferred_scopes {
+        if seen_scopes.insert(scope.key()) {
+            pending.push_back(scope);
+        }
+    }
     while !pending.is_empty() {
         let batch = pending.drain(..).collect::<Vec<_>>();
         let batch_results = run_limited_parallel_ordered(batch, max_parallelism, |scope| {
@@ -1775,7 +1822,7 @@ fn ensure_metric_response_artifact_for_request(
         &dependency_revision_key,
         &[],
     );
-    let shared_cache_key = prebuild_metric_response_shared_key(
+    let shared_cache_key = metric_response_prebuild_shared_key(
         app_id,
         &access_plan.owner.id,
         &query,
@@ -2200,22 +2247,6 @@ fn ensure_metric_dataframe_artifact(
     )?;
     coverage.metric_dataframe_artifacts_built += 1;
     Ok(())
-}
-
-fn prebuild_metric_response_shared_key(
-    app_id: &str,
-    owner_dataset_id: &str,
-    query: &DatasetQueryOptions,
-    dependency_revision_key: &str,
-) -> String {
-    let group = serde_json::to_string(&query.group).unwrap_or_else(|_| "[]".to_string());
-    let time_range =
-        serde_json::to_string(&query.time_range).unwrap_or_else(|_| "null".to_string());
-    format!(
-        "prebuild|response|app={app_id}|dataset={owner_dataset_id}|dependency={dependency_revision_key}|search={}|filters={}|group={group}|time_range={time_range}",
-        query.search.as_deref().unwrap_or(""),
-        serde_json::to_string(&query.filters).unwrap_or_else(|_| "{}".to_string()),
-    )
 }
 
 fn prebuild_metric_dataframe_shared_key(

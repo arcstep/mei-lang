@@ -14,7 +14,10 @@ use serde_json::Value;
 
 use crate::metric_hydrate::collect_dataset_ids_from_metric_defs;
 use crate::metric_locate::locate_runtime_metric_resource;
-use crate::metric_response_cache::metric_response_cache_scope_key;
+use crate::metric_response_cache::{
+    metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
+    metric_response_prebuild_shared_key,
+};
 use crate::types::DatasetQueryOptions;
 
 use super::query_normalize::{
@@ -428,6 +431,23 @@ pub(crate) fn metric_response_artifact_lookup_cache_keys(
         );
         if seen.insert(key.clone()) {
             keys.push(key);
+        }
+        let shared_key = metric_response_prebuild_shared_key(
+            app_id,
+            dataset_id.as_str(),
+            query,
+            &dependency_revision_key,
+        );
+        if seen.insert(shared_key.clone()) {
+            keys.push(shared_key);
+        }
+        let dataset_key = metric_response_prebuild_dataset_key(
+            app_id,
+            dataset_id.as_str(),
+            query,
+        );
+        if seen.insert(dataset_key.clone()) {
+            keys.push(dataset_key);
         }
     }
     keys

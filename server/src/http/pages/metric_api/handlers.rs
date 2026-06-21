@@ -23,6 +23,7 @@ use axum::{
 use mei_lang_datasets::{
     collect_all_query_options, evaluate_runtime_metrics_from_plan,
     default_result_artifact_scope, load_metric_response_result_artifact,
+    load_prebuild_metric_response_artifact_dataset_fallback,
     metric_response_artifact_lookup_cache_keys, metric_response_cache_scope_key,
     normalize_query_filters, normalize_query_search, plan_access_metric_eval_for_ids,
     project_requested_metrics, query_state_from_request,
@@ -630,6 +631,20 @@ fn execute_metric_query_group(
                     loaded_artifact = Some((cache_key.clone(), artifact, artifact_load_ms));
                     break;
                 }
+            }
+        }
+        if loaded_artifact.is_none() {
+            if let Some((cache_key, artifact, artifact_load_ms)) =
+                load_prebuild_metric_response_artifact_dataset_fallback(
+                    ctx.app_root,
+                    ctx.app_id,
+                    access_plan.owner.id.as_str(),
+                    &query,
+                    &requested_eval_metric_ids,
+                    request_all_metrics,
+                )?
+            {
+                loaded_artifact = Some((cache_key, artifact, artifact_load_ms));
             }
         }
         if let Some((hit_cache_key, artifact, artifact_load_ms)) = loaded_artifact {

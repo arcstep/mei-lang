@@ -284,6 +284,32 @@ fn store_compile_cache_entry(
     }
 }
 
+fn write_compiled_app_artifact_value(
+    app_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    compiled: &CompiledApp,
+    revision_stamp: &revision::CompileRevisionStamp,
+    value: &Value,
+) {
+    let context = compiled_app_artifact_context(
+        app_id,
+        options,
+        compiled.active_scene.clone(),
+        compiled.active_target_file.clone(),
+        revision_stamp,
+    );
+    if let Err(error) = write_json_artifact(app_root, &context, value) {
+        tracing::warn!(
+            app_id = %app_id,
+            scene = %options.scene.as_deref().unwrap_or(""),
+            focus = %options.preview_target.as_deref().unwrap_or(""),
+            error = %error,
+            "failed to write compiled app artifact"
+        );
+    }
+}
+
 fn maybe_write_compiled_app_artifact(
     source_root: &Path,
     app_id: &str,
@@ -302,21 +328,37 @@ fn maybe_write_compiled_app_artifact(
         compiled: compiled.clone(),
         dataset_runtime_payloads: extract_dataset_runtime_payloads(compiled),
     };
-    let context = compiled_app_artifact_context(
-        app_id,
-        options,
-        compiled.active_scene.clone(),
-        compiled.active_target_file.clone(),
-        revision_stamp,
-    );
     if let Ok(value) = serde_json::to_value(&artifact) {
-        if let Err(error) = write_json_artifact(&app_root, &context, &value) {
-            tracing::warn!(
-                app_id = %app_id,
-                scene = %options.scene.as_deref().unwrap_or(""),
-                focus = %options.preview_target.as_deref().unwrap_or(""),
-                error = %error,
-                "failed to write compiled app artifact"
+        write_compiled_app_artifact_value(
+            &app_root,
+            app_id,
+            options,
+            compiled,
+            revision_stamp,
+            &value,
+        );
+        let scene_only_requested = options
+            .scene
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|scene| !scene.is_empty())
+            && options
+                .preview_target
+                .as_deref()
+                .map(str::trim)
+                .is_none_or(str::is_empty);
+        if !scene_only_requested {
+            let scene_only = CompileOptions {
+                scene: options.scene.clone(),
+                preview_target: None,
+            };
+            write_compiled_app_artifact_value(
+                &app_root,
+                app_id,
+                &scene_only,
+                compiled,
+                revision_stamp,
+                &value,
             );
         }
     }
@@ -336,23 +378,85 @@ fn ensure_compiled_app_artifact_alias(
     maybe_write_compiled_app_artifact(source_root, app_id, options, &revision_stamp, compiled);
 }
 
-fn maybe_load_compiled_app_artifact(
+fn compiled_app_artifact_lookup_scopes(
+    app_root: &Path,
+    options: &CompileOptions,
+) -> Vec<WorldScope> {
+    let mut scopes = vec![compiled_app_artifact_scope(options)];
+    let scene_id = options
+        .scene
+        .as_deref()
+        .map(str::trim)
+        .filter(|scene| !scene.is_empty());
+    let has_target = options
+        .preview_target
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|target| !target.is_empty());
+    if scene_id.is_none() || has_target {
+        return scopes;
+    }
+    scopes.push(WorldScope {
+        scene_id: None,
+        target_file: None,
+    });
+    let Ok(Some((_, default_artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
+        app_root,
+        COMPILED_APP_ARTIFACT_KIND,
+        COMPILED_APP_ARTIFACT_NAME,
+        &WorldScope {
+            scene_id: None,
+            target_file: None,
+        },
+    ) else {
+        return scopes;
+    };
+    let scene_id = scene_id.expect("scene-only lookup requires scene id");
+    if default_artifact
+        .compiled
+        .active_scene
+        .as_deref()
+        .map(str::trim)
+        == Some(scene_id)
+    {
+        let target = default_artifact.compiled.active_target_file.trim();
+        if !target.is_empty() {
+            scopes.push(WorldScope {
+                scene_id: Some(scene_id.to_string()),
+                target_file: Some(target.to_string()),
+            });
+        }
+    }
+    for route in &default_artifact.compiled.scene_routes {
+        if route.scene_id.trim() != scene_id {
+            continue;
+        }
+        let target = route.target_file.trim();
+        if target.is_empty() {
+            continue;
+        }
+        scopes.push(WorldScope {
+            scene_id: Some(scene_id.to_string()),
+            target_file: Some(target.to_string()),
+        });
+    }
+    scopes
+}
+
+fn load_compiled_app_artifact_at_scope(
     source_root: &Path,
     app_id: &str,
     options: &CompileOptions,
     components_root: &Path,
+    app_root: &Path,
+    scope: &WorldScope,
+    artifact_started: Instant,
 ) -> Option<(PeekCompileCacheHitShared, u64)> {
-    if !compiled_app_artifact_enabled() {
-        return None;
-    }
-    let artifact_started = Instant::now();
-    let app_root = resolve_app_root(source_root, app_id);
-    let scope = compiled_app_artifact_scope(options);
     let Ok(Some((manifest, mut artifact))) = read_json_artifact::<CompiledAppDiskArtifact>(
-        &app_root,
+        app_root,
         COMPILED_APP_ARTIFACT_KIND,
         COMPILED_APP_ARTIFACT_NAME,
-        &scope,
+        scope,
     ) else {
         return None;
     };
@@ -391,6 +495,42 @@ fn maybe_load_compiled_app_artifact(
         cached.compiled.clone(),
     );
     Some((hit, artifact_load_ms))
+}
+
+fn maybe_load_compiled_app_artifact(
+    source_root: &Path,
+    app_id: &str,
+    options: &CompileOptions,
+    components_root: &Path,
+) -> Option<(PeekCompileCacheHitShared, u64)> {
+    if !compiled_app_artifact_enabled() {
+        return None;
+    }
+    let artifact_started = Instant::now();
+    let app_root = resolve_app_root(source_root, app_id);
+    let mut seen = BTreeMap::new();
+    for scope in compiled_app_artifact_lookup_scopes(&app_root, options) {
+        let key = format!(
+            "{}|{}",
+            scope.scene_id.as_deref().unwrap_or(""),
+            scope.target_file.as_deref().unwrap_or("")
+        );
+        if !seen.insert(key, ()).is_none() {
+            continue;
+        }
+        if let Some(hit) = load_compiled_app_artifact_at_scope(
+            source_root,
+            app_id,
+            options,
+            components_root,
+            &app_root,
+            &scope,
+            artifact_started,
+        ) {
+            return Some(hit);
+        }
+    }
+    None
 }
 
 pub(super) fn record_compile_failure(cache_key: &str) {

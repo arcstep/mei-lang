@@ -43,13 +43,15 @@ pub use metric_locate::{
 };
 pub use metric_response_cache::{
     cached_metric_response_covers_request, clear_all_metric_caches, clear_metric_response_cache,
-    metric_response_cache_scope_key, store_cached_metric_response, take_cached_metric_response,
-    CachedMetricResponse,
+    metric_response_cache_scope_key, metric_response_prebuild_dataset_key,
+    metric_response_prebuild_shared_key, prebuild_metric_response_key_matches_dataset_query,
+    store_cached_metric_response, take_cached_metric_response, CachedMetricResponse,
 };
 pub use query::query_dataset_rows;
 pub use result_artifact::{
     default_result_artifact_scope, load_metric_dataframe_result_artifact,
-    load_metric_response_result_artifact, store_metric_dataframe_result_artifact,
+    load_metric_response_result_artifact,
+    load_prebuild_metric_response_artifact_dataset_fallback, store_metric_dataframe_result_artifact,
     store_metric_response_result_artifact, LoadedMetricResponseArtifact,
 };
 pub use table_contract::{

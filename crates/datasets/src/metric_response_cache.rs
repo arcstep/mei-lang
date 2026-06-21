@@ -45,6 +45,60 @@ fn metric_response_cache_ttl() -> Duration {
     Duration::from_millis(METRIC_RESPONSE_CACHE_TTL_MS)
 }
 
+pub fn metric_response_prebuild_query_tail(query: &DatasetQueryOptions) -> String {
+    let group = serialize_cache_value(&query.group);
+    let time_range = serialize_cache_value(&query.time_range);
+    format!(
+        "search={}|filters={}|group={group}|time_range={time_range}",
+        query.search.as_deref().unwrap_or(""),
+        serialize_cache_value(&query.filters),
+    )
+}
+
+/// Prebuild 写入的 revision-agnostic 共享 key；访问态在 scoped key 因 compile revision
+/// 漂移 miss 时可回退读取。
+pub fn metric_response_prebuild_shared_key(
+    app_id: &str,
+    owner_dataset_id: &str,
+    query: &DatasetQueryOptions,
+    dependency_revision_key: &str,
+) -> String {
+    format!(
+        "prebuild|response|app={app_id}|dataset={owner_dataset_id}|dependency={dependency_revision_key}|{}",
+        metric_response_prebuild_query_tail(query)
+    )
+}
+
+/// 不含 dependency revision 的 prebuild key；源数据指纹漂移时仍可命中已有产物。
+pub fn metric_response_prebuild_dataset_key(
+    app_id: &str,
+    owner_dataset_id: &str,
+    query: &DatasetQueryOptions,
+) -> String {
+    format!(
+        "prebuild|response|app={app_id}|dataset={owner_dataset_id}|{}",
+        metric_response_prebuild_query_tail(query)
+    )
+}
+
+pub fn prebuild_metric_response_key_matches_dataset_query(
+    response_cache_key: &str,
+    app_id: &str,
+    dataset_id: &str,
+    query: &DatasetQueryOptions,
+) -> bool {
+    if !response_cache_key.starts_with("prebuild|response|") {
+        return false;
+    }
+    let prefix = format!("prebuild|response|app={app_id}|dataset={dataset_id}|");
+    if !response_cache_key.starts_with(prefix.as_str()) {
+        return false;
+    }
+    let query_tail = metric_response_prebuild_query_tail(query);
+    response_cache_key.ends_with(query_tail.as_str())
+        || response_cache_key.contains(&format!("|{query_tail}"))
+}
+
 pub fn metric_response_cache_scope_key(
     app_id: &str,
     scene_id: &str,
@@ -151,6 +205,7 @@ pub fn clear_all_metric_caches() -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::DatasetQueryOptions;
     use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
@@ -171,6 +226,23 @@ mod tests {
             &entry,
             &BTreeSet::new(),
             true
+        ));
+    }
+
+    #[test]
+    fn prebuild_metric_response_key_matches_dataset_query_ignores_dependency_revision() {
+        let query = DatasetQueryOptions::default();
+        let key = metric_response_prebuild_shared_key(
+            "zhifa",
+            "__world_metrics__::scenes/08-监督成效.mei::metrics",
+            &query,
+            "materialize=l3v3|deps=[\"csv-changed\"]",
+        );
+        assert!(prebuild_metric_response_key_matches_dataset_query(
+            key.as_str(),
+            "zhifa",
+            "__world_metrics__::scenes/08-监督成效.mei::metrics",
+            &query,
         ));
     }
 
